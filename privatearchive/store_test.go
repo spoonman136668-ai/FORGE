@@ -125,3 +125,14 @@ func TestParentSymlinkCannotRedirectArchive(t *testing.T){
  if err:=os.Symlink(target,alias);err!=nil{t.Skip("symlink unavailable on this host")}
  if _,err:=Initialize(filepath.Join(alias,FolderName));err==nil{t.Fatal("parent symlink redirected store")}
 }
+
+func TestDistinctExperimentsMayAdvanceIndependently(t *testing.T){
+ s:=newStore(t)
+ first:=events("Wingless","W01",h("2",64),1,h("3",64),"NEGATIVE")[0]
+ second:=events("Wingless","W02",h("4",64),2,h("5",64),"MIXED")[0]
+ push(t,s,first)
+ push(t,s,second)
+ journal,err:=s.Load()
+ if err!=nil||len(journal.Entries)!=2{t.Fatal("valid distinct experiments were lost",err)}
+ if journal.Entries[0].Event.ExperimentID==journal.Entries[1].Event.ExperimentID{t.Fatal("identity collision")}
+}
