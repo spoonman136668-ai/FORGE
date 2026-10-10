@@ -75,12 +75,14 @@ func TestCorruptionGapAndIncompleteWriteFailClosed(t *testing.T){
  if err=os.WriteFile(path,[]byte("tampered"),0600);err!=nil{t.Fatal(err)}
  if _,err=s.Load();err==nil{t.Fatal("tampering undetected")}
 }
-func TestConcurrentSingleSequenceWriteOnce(t *testing.T){
+func TestConcurrentSameExperimentWriteOnce(t *testing.T){
  s:=newStore(t)
  start:=make(chan struct{})
  var wg sync.WaitGroup
  results:=make(chan error,2)
- for _,id:=range []string{"W01","W02"}{
+ // Both workers propose the SAME immutable experiment identity. Exactly one
+ // can reserve its first journal event, regardless of scheduling order.
+ for _,id:=range []string{"W01","W01"}{
   wg.Add(1)
   go func(id string){defer wg.Done();<-start
    _,err:=s.AppendEvent(events("Wingless",id,h("2",64),1,h("3",64),"NEGATIVE")[0]);results<-err
@@ -122,4 +124,15 @@ func TestParentSymlinkCannotRedirectArchive(t *testing.T){
  alias:=filepath.Join(root,"alias")
  if err:=os.Symlink(target,alias);err!=nil{t.Skip("symlink unavailable on this host")}
  if _,err:=Initialize(filepath.Join(alias,FolderName));err==nil{t.Fatal("parent symlink redirected store")}
+}
+
+func TestDistinctExperimentsMayAdvanceIndependently(t *testing.T){
+ s:=newStore(t)
+ first:=events("Wingless","W01",h("2",64),1,h("3",64),"NEGATIVE")[0]
+ second:=events("Wingless","W02",h("4",64),2,h("5",64),"MIXED")[0]
+ push(t,s,first)
+ push(t,s,second)
+ journal,err:=s.Load()
+ if err!=nil||len(journal.Entries)!=2{t.Fatal("valid distinct experiments were lost",err)}
+ if journal.Entries[0].Event.ExperimentID==journal.Entries[1].Event.ExperimentID{t.Fatal("identity collision")}
 }
