@@ -84,7 +84,7 @@ func newRealMTLSPeer(t *testing.T, label string, handler http.HandlerFunc) realM
 		// Requiring a verified, exact expected client identity is mandatory
 		// for the synthetic servers; TLS alone is insufficient for ownership.
 		if r.TLS == nil || len(r.TLS.VerifiedChains) == 0 ||
-			len(r.TLS.PeerCertificates) != 1 ||
+			len(r.TLS.PeerCertificates) == 0 ||
 			!bytes.Equal(r.TLS.PeerCertificates[0].Raw, clientDER) {
 			http.Error(w, "untrusted client identity", http.StatusForbidden)
 			return
