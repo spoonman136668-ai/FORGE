@@ -1,5 +1,5 @@
 // Package quarantine implements an in-memory, non-executing scientific
-// proposal inbox. It is an offline engineering fixture, not CKB's authority.
+// proposal inbox. It is an offline engineering fixture, not FSA authority.
 package quarantine
 
 import (
@@ -31,7 +31,7 @@ type Snapshot struct {
 }
 
 // Inbox is deliberately volatile: it does not persist, send, schedule, or
-// submit to CKB, and its idempotency guarantee covers this instance only.
+// submit to FSA, and its idempotency guarantee covers this instance only.
 type Inbox struct {
 	mu           sync.Mutex
 	max          int
