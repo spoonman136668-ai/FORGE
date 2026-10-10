@@ -32,7 +32,7 @@ import (
 
 type realMTLSPeer struct {
 	peer Peer
-	served atomic.Int32
+	served *atomic.Int32
 	close func()
 }
 
@@ -79,7 +79,7 @@ func newRealMTLSPeer(t *testing.T, label string, handler http.HandlerFunc) realM
 	if err != nil { t.Fatal(err) }
 	spki := sha256.Sum256(parsedServer.RawSubjectPublicKeyInfo)
 
-	p := realMTLSPeer{}
+	p := realMTLSPeer{served: &atomic.Int32{}}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Requiring a verified, exact expected client identity is mandatory
 		// for the synthetic servers; TLS alone is insufficient for ownership.
