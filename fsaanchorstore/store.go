@@ -251,6 +251,15 @@ func (s *Store) CompareAndSwap(ctx context.Context,prev,next fsahead.Anchor)(boo
  raw,err:=os.ReadFile(previousPath);if err!=nil||len(raw)>MaxFileBytes{return false,errors.New("FORGE_FSA_CAS_PREDECESSOR_UNREADABLE")}
  var last receipt
  if err:=json.Unmarshal(raw,&last);err!=nil{return false,err}
+ // Snapshot validation and ordinal discovery are separate operations.
+ // A competing writer can finish after load() but before ReadDir().
+ // Rebind the filename to the exact immutable predecessor, otherwise two
+ // writers could each create a DIFFERENT sequence and both report success.
+ oldHead,err:=last.anchor()
+ if err!=nil{return false,err}
+ if last.Ordinal!=uint64(len(entries)-1)||!equal(oldHead,prev){
+  return false,nil
+ }
  r,err:=wrap(next,uint64(len(entries)),last.ReceiptSHA256);if err!=nil{return false,err}
  b,err:=receiptBytes(r);if err!=nil{return false,err}
  path:=filepath.Join(dir,fmt.Sprintf("%08d.json",len(entries)))
