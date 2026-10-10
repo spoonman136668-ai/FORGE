@@ -1,8 +1,9 @@
 // Package contracts defines FORGE's standalone, versioned, unprivileged
 // interface to an independently qualified execution backend.
 //
-// This package deliberately imports no CKB-plane code. Implementing a backend
-// interface does not grant scientific admission, runner or dispatch authority.
+// This package deliberately imports no external controller code. Implementing
+// a backend interface does not activate FORGE Scientific Authority (FSA) or
+// grant scientific admission, runner or dispatch authority.
 package contracts
 
 import (
@@ -39,7 +40,7 @@ const (
 )
 
 // Budget binds resources before submission. Reconciliation and scheduling
-// remain responsibilities of CKB's authorized backend.
+// require a separately qualified FORGE Scientific Authority (FSA).
 type Budget struct {
 	TimeoutSeconds uint32 `json:"timeout_seconds"`
 	MemoryMiB      uint32 `json:"memory_mib"`
@@ -103,7 +104,7 @@ func validRelativeResearchPath(s string) bool {
 }
 
 // ValidateCandidate checks structural consistency, not source authenticity,
-// prospective cohort disjointness, sealed-split safety, or CKB acceptance.
+// prospective cohort disjointness, sealed-split safety, or FSA acceptance.
 func ValidateCandidate(d CandidateDraft) error {
 	if d.Schema != CandidateSchema || (d.Lane != Wingless && d.Lane != Yggdrasil) || d.Generation == 0 || d.Generation > 1_000_000_000 || len(d.CandidateID) == 0 || len(d.CandidateID) > 160 || strings.TrimSpace(d.CandidateID) != d.CandidateID {
 		return errors.New("FORGE_CANDIDATE_IDENTITY_INVALID")
@@ -147,7 +148,7 @@ func ValidateCandidate(d CandidateDraft) error {
 }
 
 // CanonicalCandidateSHA256 hashes a validated structural proposal. The digest
-// is not a CKB admission signature nor proof of the actual source bytes.
+// is not an FSA admission signature nor proof of the actual source bytes.
 func CanonicalCandidateSHA256(d CandidateDraft) (string, error) {
 	if err := ValidateCandidate(d); err != nil {
 		return "", err
@@ -211,7 +212,7 @@ type EvidenceReader interface {
 }
 
 // QuarantineInbox accepts draft submissions only. Implementations must run
-// behind the existing, independently qualified CKB review path; no API here
+// behind a separately qualified FSA review path; no API here
 // can authorize primary science, spawn a runner, enqueue work, or update refs.
 type QuarantineInbox interface {
 	SubmitDraft(ctx context.Context, draft CandidateDraft) (QuarantineAcknowledgment, error)
