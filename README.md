@@ -1,12 +1,20 @@
-# FORGE â€” Autonomous Scientific Research Platform
+# FORGE - Autonomous Scientific Research Platform
 
 **Status: public source-only prototype. Not deployed or qualified for live scientific execution.**
 
 FORGE develops and evaluates frozen scientific portfolios with deterministic state,
 versioned quarantine-only proposal contracts, and content-addressed journal replay.
-It models Wingless and Yggdrasil as independent research lanes. CKB-plane can
-serve as an external independently governed execution/qualification backend;
-FORGE itself has no execution, admission, or scheduling authority.
+It models Wingless and Yggdrasil as independent research lanes. Its planned
+scientific decision-making authority is **FORGE Scientific Authority (FSA)**,
+not CKB-plane. FORGE will own its research controller, isolated queue, runner
+leases, admission and scientific progression after separate qualification.
+The current public prototype is still non-executing and does not yet
+implement or activate FSA.
+
+Mind-Palace will supply bounded, pinned, **read-only** advisory context directly,
+without requiring the CKB controller or publishing private context.
+CKB-plane is an optional historical evidence source, not FORGE's authority.
+See [ADR 0001](docs/ADR-0001-FORGE-SCIENTIFIC-AUTHORITY.md).
 
 ## Build and test
 
