@@ -39,10 +39,16 @@ func checkRoot(root string) (string,error) {
    return "",errors.New("FORGE_ARCHIVE_FOREIGN_EXECUTION_BOUNDARY")
   }
  }
- parent:=filepath.Dir(clean)
- resolved,err:=filepath.EvalSymlinks(parent)
- if err!=nil || filepath.Clean(resolved)!=parent {
-  return "",errors.New("FORGE_ARCHIVE_PARENT_SYMLINK_OR_UNAVAILABLE")
+ // Inspect every actual ancestor, rather than comparing EvalSymlinks
+ // strings: Windows canonicalizes case and short paths even without links.
+ for current:=filepath.Dir(clean);; {
+  st,err:=os.Lstat(current)
+  if err!=nil || !st.IsDir() || st.Mode()&(os.ModeSymlink|os.ModeIrregular)!=0 {
+   return "",errors.New("FORGE_ARCHIVE_PARENT_SYMLINK_OR_UNAVAILABLE")
+  }
+  next:=filepath.Dir(current)
+  if next==current {break}
+  current=next
  }
  return clean,nil
 }
