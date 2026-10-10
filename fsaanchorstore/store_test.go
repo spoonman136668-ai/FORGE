@@ -106,6 +106,31 @@ func TestCrossProcessExclusiveCASRace(t *testing.T){
  a,err:=s.ReadAnchor(context.Background())
  if err!=nil||a.Sequence!=1{t.Fatal("racing CAS corrupted durable state",err)}
 }
+func TestRepeatedCASInterleavingsMustNeverDoubleAcknowledge(t *testing.T){
+ for attempt:=0;attempt<20;attempt++{
+  s,root,gen,_:=setup(t)
+  var wg sync.WaitGroup
+  start:=make(chan struct{})
+  outcomes:=make(chan bool,2)
+  for _,head:=range []string{repeat("b",64),repeat("c",64)}{
+   wg.Add(1)
+   go func(head string){defer wg.Done();<-start
+    yes,_:=s.CompareAndSwap(context.Background(),gen,next(gen,1,head))
+    outcomes<-yes
+   }(head)
+  }
+  close(start);wg.Wait();close(outcomes)
+  successes:=0
+  for ok:=range outcomes{if ok{successes++}}
+  if successes!=1{t.Fatalf("iteration %d double or missing CAS: %d",attempt,successes)}
+  files,err:=os.ReadDir(filepath.Join(root,"receipts"))
+  if err!=nil||len(files)!=2{t.Fatalf("iteration %d receipt divergence",attempt)}
+  restored,err:=Open(root,gen)
+  if err!=nil{t.Fatalf("iteration %d restart: %v",attempt,err)}
+  state,err:=restored.ReadAnchor(context.Background())
+  if err!=nil||state.Sequence!=1{t.Fatalf("iteration %d durable state mismatch: %v",attempt,err)}
+ }
+}
 func TestForeignRootsAndSymlinkBoundaries(t *testing.T){
  gen,_:=genesis()
  root:=filepath.Join(t.TempDir(),"KTRADE",FolderName)
