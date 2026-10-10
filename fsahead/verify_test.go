@@ -18,11 +18,16 @@ func testKey(tag string)(ed25519.PublicKey,ed25519.PrivateKey){
  sk:=ed25519.NewKeyFromSeed(seed[:])
  return append(ed25519.PublicKey(nil),sk.Public().(ed25519.PublicKey)...),sk
 }
-func newFixture(t *testing.T)(*privatearchive.Store,Anchor,ed25519.PrivateKey){
+func newFixtureWithRoot(t *testing.T)(*privatearchive.Store,Anchor,ed25519.PrivateKey,string){
  t.Helper()
- store,err:=privatearchive.Initialize(filepath.Join(t.TempDir(),privatearchive.FolderName));if err!=nil{t.Fatal(err)}
+ root:=filepath.Join(t.TempDir(),privatearchive.FolderName)
+ store,err:=privatearchive.Initialize(root);if err!=nil{t.Fatal(err)}
  pub,priv:=testKey("research")
- return store,Anchor{ArchiveID:fixedHex("a",64),KeyID:"FORGE_FSA_KEY_01",PublicKey:pub,AuthorityEpoch:2,Sequence:0,HeadSHA256:researchlog.Genesis},priv
+ return store,Anchor{ArchiveID:fixedHex("a",64),KeyID:"FORGE_FSA_KEY_01",PublicKey:pub,AuthorityEpoch:2,Sequence:0,HeadSHA256:researchlog.Genesis},priv,root
+}
+func newFixture(t *testing.T)(*privatearchive.Store,Anchor,ed25519.PrivateKey){
+ store,a,p,_:=newFixtureWithRoot(t)
+ return store,a,p
 }
 func signFixture(t *testing.T,anchor Anchor,private ed25519.PrivateKey,seq uint64,sha string)SignedHead{
  t.Helper()
@@ -98,7 +103,7 @@ func TestExternalAnchorRequiredAndNoLocalSelfTrust(t *testing.T){
  if _,err:=VerifySignature(wrong,signed);err==nil{t.Fatal("same generation replay accepted")}
 }
 func TestHeadRollbackAndRawEvidenceLossBlockApproval(t *testing.T){
- store,anchor,private:=newFixture(t)
+ store,anchor,private,root:=newFixtureWithRoot(t)
  base:=firstEvent()
  appendOne(t,store,base)
  e:=base;e.Kind=researchlog.Preregister;e.PreregSHA256=fixedHex("c",64);e.CohortSHA256=fixedHex("d",64)
@@ -112,10 +117,14 @@ func TestHeadRollbackAndRawEvidenceLossBlockApproval(t *testing.T){
  row:=appendOne(t,store,e)
  cp:=signFixture(t,anchor,private,row.Sequence,row.RecordSHA256)
  if _,err:=VerifyArchive(store,anchor,cp);err!=nil{t.Fatal(err)}
- if err:=os.Remove(filepath.Join(t.TempDir(),"nonexistent"));err==nil{t.Fatal("unexpected removable fixture")}
- // Separately check original bytes: never accept terminal metadata without
- // its exact retained and hash-verified original.
- rawPath:=filepath.Join(storeRootFromFixture(t,store),"originals",evidence+".raw")
- _=rawPath // cannot infer a private store root through an unexported field
+ // A fully formed, signed journal is NOT enough without original bytes.
+ rawPath:=filepath.Join(root,"originals",evidence+".raw")
+ if err:=os.Remove(rawPath);err!=nil{t.Fatal(err)}
+ if _,err:=VerifyArchive(store,anchor,cp);err==nil{t.Fatal("missing raw terminal evidence accepted")}
+ if _,err:=store.SaveOriginal([]byte("synthetic terminal stdout, stderr and exit 0"));err!=nil{t.Fatal(err)}
+ // A complete trailing record can disappear without breaking the remaining
+ // hash chain. The independent signed high-water witness must catch it.
+ if err:=os.Remove(filepath.Join(root,"records","00000005.json"));err!=nil{t.Fatal(err)}
+ if _,err:=VerifyArchive(store,anchor,cp);err==nil{t.Fatal("signed missing tail accepted")}
 }
 // Tests above also verify that the checkpoint alone never launches science.
