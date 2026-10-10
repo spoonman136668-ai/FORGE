@@ -103,6 +103,14 @@ func TestDiskBackedRealTLSRestartAndRollbackFencing(t *testing.T) {
 				a, err := authorityStore.ReadAnchor(r.Context())
 				if err != nil { http.Error(w, "anchor unavailable", 503); return }
 				_ = json.NewEncoder(w).Encode(anchorResponse{Schema: WireSchema, Anchor: makeWire(a)})
+			case r.Method == http.MethodGet && r.URL.Path == "/v1/fsa/binding" &&
+				r.URL.Query().Get("archive_id") == pin.ArchiveID:
+				bound, err := authorityStore.ConfirmArchiveBinding(r.Context(), pin.ArchiveID)
+				if err != nil { http.Error(w, "archive binding unavailable", 503); return }
+				_ = json.NewEncoder(w).Encode(bindingResponse{
+					Schema: WireSchema, ArchiveID: pin.ArchiveID,
+					BindingSHA256: pin.BindingSHA256, Bound: bound,
+				})
 			case r.Method == http.MethodPost && r.URL.Path == "/v1/fsa/cas":
 				var request casRequest
 				if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Schema != WireSchema {

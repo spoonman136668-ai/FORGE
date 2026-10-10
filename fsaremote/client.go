@@ -176,15 +176,21 @@ func (c *Client)receive(ctx context.Context)(fsahead.Anchor,SignedWitness,error)
 func (c *Client)ReadAnchor(ctx context.Context)(fsahead.Anchor,error){
  a,_,err:=c.receive(ctx);return a,err
 }
-func (c *Client)ConfirmArchiveBinding(ctx context.Context,archiveID string)(bool,error){
+// archiveBinding verifies independently returned physical binding metadata.
+// A client pin alone cannot serve as remote binding evidence.
+func (c *Client)archiveBinding(ctx context.Context,archiveID string)(bool,error){
  if c==nil||!c.pin.valid()||archiveID!=c.pin.ArchiveID{return false,ErrMismatch}
- if _,_,err:=c.receive(ctx);err!=nil{return false,err}
  var response bindingResponse
  route:="/v1/fsa/binding?archive_id="+url.QueryEscape(archiveID)
  if _,err:=c.exchange(ctx,c.authority,c.authorityURL,http.MethodGet,route,nil,&response);err!=nil{return false,err}
  if response.Schema!=WireSchema||response.ArchiveID!=archiveID||
   response.BindingSHA256!=c.pin.BindingSHA256{return false,ErrMismatch}
  return response.Bound,nil
+}
+func (c *Client)ConfirmArchiveBinding(ctx context.Context,archiveID string)(bool,error){
+ if c==nil||!c.pin.valid()||archiveID!=c.pin.ArchiveID{return false,ErrMismatch}
+ if _,_,err:=c.receive(ctx);err!=nil{return false,err}
+ return c.archiveBinding(ctx,archiveID)
 }
 func (c *Client)CompareAndSwap(ctx context.Context,previous,next fsahead.Anchor)(bool,error){
  if c==nil||!c.pin.valid()||!c.pin.accepts(previous)||!c.pin.accepts(next)||
@@ -194,6 +200,10 @@ func (c *Client)CompareAndSwap(ctx context.Context,previous,next fsahead.Anchor)
  current,_,err:=c.receive(ctx)
  if err!=nil{return false,err}
  if !sameAnchor(previous,current){return false,nil}
+ // Direct CAS must authenticate external binding before any POST.
+ bound,err:=c.archiveBinding(ctx,previous.ArchiveID)
+ if err!=nil{return false,err}
+ if !bound{return false,ErrMismatch}
  request:=casRequest{Schema:WireSchema,Previous:makeWire(previous),Next:makeWire(next)}
  var response casResponse
  code,err:=c.exchange(ctx,c.authority,c.authorityURL,http.MethodPost,"/v1/fsa/cas",request,&response)
@@ -202,6 +212,9 @@ func (c *Client)CompareAndSwap(ctx context.Context,previous,next fsahead.Anchor)
  if response.Schema!=WireSchema||!response.Committed{return false,ErrRemote}
  observed,_,err:=c.receive(ctx)
  if err!=nil||!sameAnchor(observed,next){return false,ErrRemote}
+ // A committed CAS with a subsequently invalid binding is indeterminate.
+ bound,err=c.archiveBinding(ctx,next.ArchiveID)
+ if err!=nil||!bound{return false,ErrRemote}
  return true,nil
 }
 var _ fsatrust.Authority = (*Client)(nil)

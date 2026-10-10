@@ -39,6 +39,7 @@ type sim struct{
  witnessKey ed25519.PrivateKey
  revision uint64
  binding bool
+ wrongBinding bool
  badSignature bool
  outage bool
  ambiguousCommit bool
@@ -90,8 +91,10 @@ func (s *sim)serve(name string)roundTripFunc{
    if req.Method!="GET"||req.URL.Query().Get("archive_id")!=s.pin.ArchiveID{
     return jsonResponse(400,"no"),nil
    }
+   digest:=s.pin.BindingSHA256
+   if s.wrongBinding{digest=hx("f",64)}
    return jsonResponse(200,bindingResponse{Schema:WireSchema,ArchiveID:s.pin.ArchiveID,
-    BindingSHA256:s.pin.BindingSHA256,Bound:s.binding}),nil
+    BindingSHA256:digest,Bound:s.binding}),nil
   case "/v1/fsa/cas":
    if req.Method!="POST"||req.Header.Get("Content-Type")!="application/json"{
     return jsonResponse(405,"no"),nil
@@ -206,4 +209,33 @@ func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
  if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("missing server SPKI pin accepted")}
  pin.WitnessPublicKey=pin.PublicKey
  if _,err:=NewClient(a,w,pin);err==nil{t.Fatal("FSA signer reused as witness signer")}
+}
+
+func TestDirectCASRequiresFreshAuthenticatedBinding(t *testing.T){
+ client,sim,_:=fixture(t)
+ ctx:=context.Background()
+ before,err:=client.ReadAnchor(ctx)
+ if err!=nil{t.Fatal(err)}
+ next:=before;next.Sequence=1;next.HeadSHA256=hx("e",64)
+
+ sim.binding=false
+ yes,err:=client.CompareAndSwap(ctx,before,next)
+ if yes||!errors.Is(err,ErrMismatch){t.Fatalf("unbound CAS accepted: %v %v",yes,err)}
+ sim.Lock();commits:=sim.commits;sim.Unlock()
+ if commits!=0{t.Fatal("unbound archive allowed a CAS POST")}
+
+ sim.binding=true;sim.wrongBinding=true
+ yes,err=client.CompareAndSwap(ctx,before,next)
+ if yes||!errors.Is(err,ErrMismatch){t.Fatalf("wrong binding digest accepted: %v %v",yes,err)}
+ sim.Lock();commits=sim.commits;sim.Unlock()
+ if commits!=0{t.Fatal("wrong binding digest allowed CAS POST")}
+
+ sim.wrongBinding=false;sim.outage=true
+ yes,err=client.CompareAndSwap(ctx,before,next)
+ if yes||err==nil{t.Fatal("witness outage allowed CAS")}
+ sim.outage=false
+ yes,err=client.CompareAndSwap(ctx,before,next)
+ if !yes||err!=nil{t.Fatalf("correctly bound CAS rejected: %v %v",yes,err)}
+ sim.Lock();commits=sim.commits;sim.Unlock()
+ if commits!=1{t.Fatalf("CAS POSTs=%d want 1",commits)}
 }

@@ -247,6 +247,12 @@ func TestRealMutualTLSLostCommitAcknowledgment(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(anchorResponse{
 				Schema: WireSchema, Anchor: makeWire(*current.Load()),
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/fsa/binding" &&
+			r.URL.Query().Get("archive_id") == pin.ArchiveID:
+			_ = json.NewEncoder(w).Encode(bindingResponse{
+				Schema: WireSchema, ArchiveID: pin.ArchiveID,
+				BindingSHA256: pin.BindingSHA256, Bound: true,
+			})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/fsa/cas":
 			var request casRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Schema != WireSchema {
