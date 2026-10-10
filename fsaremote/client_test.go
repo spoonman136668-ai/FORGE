@@ -4,7 +4,6 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/sha256"
- "crypto/tls"
  "crypto/x509"
  "encoding/hex"
  "encoding/json"
@@ -186,20 +185,25 @@ func TestIndependentMonotonicWitnessRejectsRollback(t *testing.T){
  if _,err:=other.ReadAnchor(context.Background());err==nil{t.Fatal("operator-pinned revision floor defeated")}
 }
 func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
- c,_,_:=fixture(t);pin:=c.pin
- roots:=x509.NewCertPool()
- peer:=Peer{BaseURL:"https://authority.forge.test",Roots:roots,
- Certificate:tls.Certificate{Certificate:[][]byte{{1}},PrivateKey:struct{}{}},
- ServerSPKISHA256:hx("f",64)}
- if _,err:=NewClient(peer,peer,pin);err==nil{t.Fatal("shared authority and witness origin accepted")}
- witness:=peer;witness.BaseURL="https://witness.forge.test"
- if _,err:=NewClient(peer,witness,pin);err!=nil{t.Fatal("validly provisioned transport contract rejected",err)}
- untrusted:=peer;untrusted.Roots=nil
- if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("untrusted TLS roots accepted")}
- untrusted=peer;untrusted.BaseURL="http://authority.forge.test"
- if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("plain HTTP accepted")}
- untrusted=peer;untrusted.ServerSPKISHA256=""
- if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("no server SPKI pin accepted")}
+ client,authority,witness:=realMTLSPair(t)
+ pin:=client.pin
+ a,w:=authority.peer,witness.peer
+ if _,err:=NewClient(a,w,pin);err!=nil{t.Fatal("independent real-mTLS peers rejected",err)}
+ if _,err:=NewClient(a,a,pin);err==nil{t.Fatal("shared endpoint accepted")}
+ sharedCA:=w;sharedCA.Roots=a.Roots
+ if _,err:=NewClient(a,sharedCA,pin);err==nil{t.Fatal("shared trust CA accepted")}
+ sharedClientKey:=w;sharedClientKey.Certificate=a.Certificate
+ if _,err:=NewClient(a,sharedClientKey,pin);err==nil{t.Fatal("reused client mTLS key accepted")}
+ sharedSPKI:=w;sharedSPKI.ServerSPKISHA256=a.ServerSPKISHA256
+ if _,err:=NewClient(a,sharedSPKI,pin);err==nil{t.Fatal("shared server SPKI pin accepted")}
+ emptyCA:=w;emptyCA.Roots=x509.NewCertPool()
+ if _,err:=NewClient(a,emptyCA,pin);err==nil{t.Fatal("empty CA pool accepted")}
+ untrusted:=a;untrusted.Roots=nil
+ if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("untrusted TLS roots accepted")}
+ untrusted=a;untrusted.BaseURL="http://authority.forge.test"
+ if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("plain HTTP accepted")}
+ untrusted=a;untrusted.ServerSPKISHA256=""
+ if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("missing server SPKI pin accepted")}
  pin.WitnessPublicKey=pin.PublicKey
- if _,err:=NewClient(peer,witness,pin);err==nil{t.Fatal("FSA signer reused for independent witness")}
+ if _,err:=NewClient(a,w,pin);err==nil{t.Fatal("FSA signer reused as witness signer")}
 }
