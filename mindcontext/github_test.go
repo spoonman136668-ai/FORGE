@@ -2,6 +2,9 @@ package mindcontext
 
 import (
  "context"
+ "crypto/sha1"
+ "encoding/hex"
+ "strconv"
  "encoding/base64"
  "encoding/json"
  "io"
@@ -28,9 +31,10 @@ func TestGitHubTransportIsReadOnlyAndPinned(t *testing.T){
   if r.URL.Query().Get("ref")!=pin{t.Fatal("GitHub contents ref was not pinned")}
   if !strings.HasSuffix(r.URL.Path,"/"+BootstrapPath){t.Fatal("unexpected path")}
   bytes:=[]byte(`{"schema":"fixture"}`)
+  sourceBlob:=sha1.Sum(append([]byte("blob "+strconv.Itoa(len(bytes))+"\x00"),bytes...))
   // A GitHub content response supplies exact, bounded base64 file bytes.
   payload,_:=json.Marshal(map[string]any{
-   "type":"file","encoding":"base64","sha":strings.Repeat("b",40),"size":len(bytes),
+   "type":"file","encoding":"base64","sha":hex.EncodeToString(sourceBlob[:]),"size":len(bytes),
    "content":base64.StdEncoding.EncodeToString(bytes),
   })
   return response(string(payload),200),nil
