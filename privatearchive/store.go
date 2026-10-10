@@ -183,6 +183,22 @@ func (s *Store) Load()(researchlog.Journal,error){
  if err=researchlog.Verify(journal);err!=nil{return zero,err}
  return journal,nil
 }
+// VerifyTrustedHead compares this store with a sequence and digest that must
+// come from an independently authenticated, monotonic FSA checkpoint.
+// A locally recomputed hash is NOT a trusted high-water mark. In particular,
+// Load alone cannot detect deletion of a valid trailing record.
+func (s *Store) VerifyTrustedHead(expectedSequence uint64,expectedSHA string)error{
+ if expectedSequence>researchlog.MaxEntries||!validDigest(expectedSHA){
+  return errors.New("FORGE_ARCHIVE_EXTERNAL_HEAD_INVALID")
+ }
+ j,err:=s.Load();if err!=nil{return err}
+ observed:=researchlog.Genesis
+ if len(j.Entries)>0{observed=j.Entries[len(j.Entries)-1].RecordSHA256}
+ if uint64(len(j.Entries))!=expectedSequence||observed!=expectedSHA{
+  return errors.New("FORGE_ARCHIVE_EXTERNAL_HEAD_MISMATCH")
+ }
+ return nil
+}
 // AppendEvent writes ONE immutable record. Its O_EXCL filename is the
 // cross-process serialization gate. A racing writer loses, never overwrites.
 // An interrupted partial write fails closed rather than risking replay.
