@@ -103,3 +103,23 @@ func TestForeignPathsAndSymlinksRejected(t *testing.T){
   if _,err:=s.ReadOriginal(h("a",64));err==nil{t.Fatal("symlinked original accepted")}
  }
 }
+
+func TestAuthenticatedHighWaterComparisonRejectsTailRollback(t *testing.T){
+ s:=newStore(t)
+ raw,err:=s.SaveOriginal([]byte("original complete observation"));if err!=nil{t.Fatal(err)}
+ var last researchlog.Record
+ for _,e:=range events("Wingless","W03",h("6",64),333,raw,"NEGATIVE"){last=push(t,s,e)}
+ if err:=s.VerifyTrustedHead(7,last.RecordSHA256);err!=nil{t.Fatal(err)}
+ if err:=os.Remove(filepath.Join(s.root,"records","00000007.json"));err!=nil{t.Fatal(err)}
+ // The remaining chain is structurally consistent: an external authenticated
+ // high-water witness is essential for detecting valid-tail deletion.
+ if err:=s.VerifyTrustedHead(7,last.RecordSHA256);err==nil{t.Fatal("valid-tail rollback accepted")}
+ if err:=s.VerifyTrustedHead(0,Genesis);err==nil{t.Fatal("stale claimed head accepted")}
+}
+func TestParentSymlinkCannotRedirectArchive(t *testing.T){
+ root:=t.TempDir();target:=filepath.Join(root,"target")
+ if err:=os.Mkdir(target,0700);err!=nil{t.Fatal(err)}
+ alias:=filepath.Join(root,"alias")
+ if err:=os.Symlink(target,alias);err!=nil{t.Skip("symlink unavailable on this host")}
+ if _,err:=Initialize(filepath.Join(alias,FolderName));err==nil{t.Fatal("parent symlink redirected store")}
+}
