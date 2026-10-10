@@ -67,7 +67,8 @@ func validTag(s string)bool{
  return true
 }
 // FreezeSHA256 is only a structural digest. The expected hash passed to
-// Build must be independently pinned by the existing CKB authority.
+// Build must be independently pinned by a qualified FORGE Scientific Authority.
+// This prototype has no running FSA or admission rights.
 func FreezeSHA256(f FrozenPortfolio)(string,error){return digest(f)}
 func Build(f FrozenPortfolio,pin string)(Decision,error){
  var zero Decision
