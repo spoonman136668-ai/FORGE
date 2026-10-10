@@ -97,8 +97,32 @@ func peerClient(p Peer)(string,*http.Client,error){
   CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
  return endpoint,client,nil
 }
+// distinctTrustPeers enforces disjoint client certificate public keys,
+// server pins and trusted CA subjects at the public-source trust boundary.
+// This is structural separation only; it cannot attest host, storage or
+// signer-custody independence. An uninspectable trust pool fails closed.
+func distinctTrustPeers(a,b Peer)error{
+ if a.Roots==nil||b.Roots==nil||len(a.Certificate.Certificate)==0||
+  len(b.Certificate.Certificate)==0{return errors.New("FORGE_FSA_REMOTE_PEER_IDENTITY_MISSING")}
+ left,right:=a.Roots.Subjects(),b.Roots.Subjects()
+ if len(left)==0||len(right)==0{return errors.New("FORGE_FSA_REMOTE_EXPLICIT_CA_ROOT_REQUIRED")}
+ for _,x:=range left{for _,y:=range right{
+  if bytes.Equal(x,y){return errors.New("FORGE_FSA_REMOTE_SHARED_CA_FORBIDDEN")}
+ }}
+ certA,errA:=x509.ParseCertificate(a.Certificate.Certificate[0])
+ certB,errB:=x509.ParseCertificate(b.Certificate.Certificate[0])
+ if errA!=nil||errB!=nil{return errors.New("FORGE_FSA_REMOTE_CLIENT_CERT_INVALID")}
+ if bytes.Equal(certA.RawSubjectPublicKeyInfo,certB.RawSubjectPublicKeyInfo){
+  return errors.New("FORGE_FSA_REMOTE_REUSED_CLIENT_KEY_FORBIDDEN")
+ }
+ if a.ServerSPKISHA256==b.ServerSPKISHA256{
+  return errors.New("FORGE_FSA_REMOTE_SHARED_SERVER_SPKI_FORBIDDEN")
+ }
+ return nil
+}
 func NewClient(authority,witness Peer,pin Pin)(*Client,error){
  if !pin.valid(){return nil,ErrMismatch}
+ if err:=distinctTrustPeers(authority,witness);err!=nil{return nil,err}
  aURL,aClient,err:=peerClient(authority);if err!=nil{return nil,err}
  wURL,wClient,err:=peerClient(witness);if err!=nil{return nil,err}
  if aURL==wURL{return nil,errors.New("FORGE_FSA_REMOTE_SHARED_TRUST_ENDPOINT_FORBIDDEN")}
