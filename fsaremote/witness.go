@@ -72,7 +72,7 @@ func (p Pin)valid()bool{
  return validHex(p.ArchiveID,64)&&validKeyID(p.KeyID)&&
  len(p.PublicKey)==ed25519.PublicKeySize&&p.AuthorityEpoch>0&&
  validHex(p.BindingSHA256,64)&&len(p.WitnessPublicKey)==ed25519.PublicKeySize&&
- p.MinimumRevision>0
+ !bytes.Equal(p.PublicKey,p.WitnessPublicKey)&&p.MinimumRevision>0
 }
 func makeWire(a fsahead.Anchor)AnchorWire{
  return AnchorWire{ArchiveID:a.ArchiveID,KeyID:a.KeyID,PublicKeyHex:hex.EncodeToString(a.PublicKey),AuthorityEpoch:a.AuthorityEpoch,Sequence:a.Sequence,HeadSHA256:a.HeadSHA256}
