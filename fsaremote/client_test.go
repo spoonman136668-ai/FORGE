@@ -40,6 +40,9 @@ type sim struct{
  revision uint64
  binding bool
  wrongBinding bool
+ bindingUnavailable bool
+ unbindAfterCommit bool
+ corruptBindingAfterCommit bool
  badSignature bool
  outage bool
  ambiguousCommit bool
@@ -91,6 +94,7 @@ func (s *sim)serve(name string)roundTripFunc{
    if req.Method!="GET"||req.URL.Query().Get("archive_id")!=s.pin.ArchiveID{
     return jsonResponse(400,"no"),nil
    }
+   if s.bindingUnavailable{return jsonResponse(503,map[string]string{"error":"binding unavailable"}),nil}
    digest:=s.pin.BindingSHA256
    if s.wrongBinding{digest=hx("f",64)}
    return jsonResponse(200,bindingResponse{Schema:WireSchema,ArchiveID:s.pin.ArchiveID,
@@ -112,6 +116,8 @@ func (s *sim)serve(name string)roundTripFunc{
    s.current=target
    s.revision++
    s.commits++
+   if s.unbindAfterCommit{s.binding=false}
+   if s.corruptBindingAfterCommit{s.wrongBinding=true}
    if s.ambiguousCommit{return nil,errors.New("synthetic lost response AFTER server commit")}
    return jsonResponse(200,casResponse{Schema:WireSchema,Committed:true}),nil
   default:return jsonResponse(404,"not found"),nil
@@ -238,4 +244,60 @@ func TestDirectCASRequiresFreshAuthenticatedBinding(t *testing.T){
  if !yes||err!=nil{t.Fatalf("correctly bound CAS rejected: %v %v",yes,err)}
  sim.Lock();commits=sim.commits;sim.Unlock()
  if commits!=1{t.Fatalf("CAS POSTs=%d want 1",commits)}
+}
+
+
+// A successful remote POST does not constitute scientific acceptance when
+// external archive binding subsequently disappears or changes identity.
+// This checks readback and one-shot replay fencing after an actual state
+// transition in the synthetic authority (not a deployed trust service).
+func TestRemoteCASBindingLostAfterCommitIsIndeterminate(t *testing.T){
+ cases:=[]struct{
+  name string
+  configure func(*sim)
+ }{
+  {"unbound_after_commit",func(s *sim){s.unbindAfterCommit=true}},
+  {"binding_digest_changed_after_commit",func(s *sim){s.corruptBindingAfterCommit=true}},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   client,sim,_:=fixture(t)
+   ctx:=context.Background()
+   before,err:=client.ReadAnchor(ctx)
+   if err!=nil{t.Fatal(err)}
+   next:=before;next.Sequence=1;next.HeadSHA256=hx("d",64)
+   sim.Lock();tc.configure(sim);sim.Unlock()
+   accepted,err:=client.CompareAndSwap(ctx,before,next)
+   if accepted||!errors.Is(err,ErrRemote){
+    t.Fatalf("commit without retained binding wrongly accepted: %v %v",accepted,err)
+   }
+   sim.Lock();commits:=sim.commits;sim.Unlock()
+   if commits!=1{t.Fatalf("commits=%d want 1 despite lost acceptance",commits)}
+   observed,err:=client.ReadAnchor(ctx)
+   if err!=nil||!sameAnchor(observed,next){t.Fatalf("cannot reconcile checkpoint head: %v",err)}
+   valid,bindErr:=client.ConfirmArchiveBinding(ctx,before.ArchiveID)
+   if valid||bindErr==nil&&tc.name=="binding_digest_changed_after_commit"{
+    t.Fatalf("untrusted binding accepted: valid=%v err=%v",valid,bindErr)
+   }
+   again,err:=client.CompareAndSwap(ctx,before,next)
+   if again||err!=nil{t.Fatalf("old operation replay response: %v %v",again,err)}
+   sim.Lock()
+   defer sim.Unlock()
+   if sim.commits!=1{t.Fatalf("untrusted operation replayed %d commits",sim.commits)}
+  })
+ }
+}
+
+func TestRemoteBindingEndpointOutageBlocksCASWithoutPOST(t *testing.T){
+ client,sim,_:=fixture(t)
+ ctx:=context.Background()
+ before,err:=client.ReadAnchor(ctx)
+ if err!=nil{t.Fatal(err)}
+ next:=before;next.Sequence=1;next.HeadSHA256=hx("e",64)
+ sim.Lock();sim.bindingUnavailable=true;sim.Unlock()
+ yes,err:=client.CompareAndSwap(ctx,before,next)
+ if yes||!errors.Is(err,ErrRemote){t.Fatalf("binding endpoint outage accepted: %v %v",yes,err)}
+ sim.Lock()
+ defer sim.Unlock()
+ if sim.commits!=0{t.Fatalf("wrote checkpoint during binding outage: %d",sim.commits)}
 }
