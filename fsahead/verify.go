@@ -10,7 +10,6 @@ import (
  "encoding/json"
  "errors"
  "fmt"
- "strings"
 
  "github.com/spoonman136668-ai/forge/privatearchive"
  "github.com/spoonman136668-ai/forge/researchlog"
@@ -142,7 +141,5 @@ func VerifyArchive(store *privatearchive.Store,a Anchor,checkpoint SignedHead)(A
  return updated,nil
 }
 
-// CheckpointSignBytesForTest is intentionally NOT exported. Production
-// issuance must be supplied by a separately qualified FSA signer in a
-// different private authority component; the public reader only verifies.
-var _ = strings.TrimSpace
+// Issuance belongs in a separately qualified private FSA signer. This
+// verifier deliberately exports no signing or controller operations.
