@@ -114,7 +114,7 @@ func TestAuthenticatedHighWaterComparisonRejectsTailRollback(t *testing.T){
  // The remaining chain is structurally consistent: an external authenticated
  // high-water witness is essential for detecting valid-tail deletion.
  if err:=s.VerifyTrustedHead(7,last.RecordSHA256);err==nil{t.Fatal("valid-tail rollback accepted")}
- if err:=s.VerifyTrustedHead(0,Genesis);err==nil{t.Fatal("stale claimed head accepted")}
+ if err:=s.VerifyTrustedHead(0,researchlog.Genesis);err==nil{t.Fatal("stale claimed head accepted")}
 }
 func TestParentSymlinkCannotRedirectArchive(t *testing.T){
  root:=t.TempDir();target:=filepath.Join(root,"target")
