@@ -2,7 +2,9 @@ package mindcontext
 
 import (
  "context"
+ "crypto/sha1"
  "encoding/base64"
+ "encoding/hex"
  "encoding/json"
  "errors"
  "fmt"
@@ -10,6 +12,7 @@ import (
  "net/http"
  "net/url"
  "strings"
+ "strconv"
  "time"
 )
 
@@ -29,7 +32,10 @@ func NewGitHub(token string,client *http.Client)(*GitHub,error){
  if client==nil{
   client=&http.Client{Timeout:12*time.Second,CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
  }
- return &GitHub{token:token,client:client},nil
+ // Never forward a bearer credential across redirects, including custom clients.
+ copied:=*client
+ copied.CheckRedirect=func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}
+ return &GitHub{token:token,client:&copied},nil
 }
 func (g *GitHub) get(ctx context.Context,route string)([]byte,error){
  if g==nil||g.client==nil{return nil,errors.New("FORGE_MIND_TRANSPORT_NOT_CONFIGURED")}
@@ -73,6 +79,12 @@ func (g *GitHub) ReadAt(ctx context.Context,pin,path string)([]byte,error){
  }
  raw,err:=base64.StdEncoding.DecodeString(strings.ReplaceAll(f.Content,"\n",""))
  if err!=nil||len(raw)!=f.Size||len(raw)>MaxRemoteBytes{return nil,errors.New("FORGE_MIND_GITHUB_DECODE_BOUNDS")}
+ // GitHub content identity must match its Git blob byte encoding.
+ blob:=append([]byte("blob "+strconv.Itoa(len(raw))+"\x00"),raw...)
+ actual:=sha1.Sum(blob)
+ if !lowerHex(f.SHA,40)||f.SHA!=hex.EncodeToString(actual[:]){
+  return nil,errors.New("FORGE_MIND_GITHUB_BLOB_MISMATCH")
+ }
  return raw,nil
 }
 var _ Source = (*GitHub)(nil)
