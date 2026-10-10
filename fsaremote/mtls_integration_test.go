@@ -217,3 +217,123 @@ func TestRealMutualTLSRejectsWrongTrustAndClientIdentity(t *testing.T) {
 		})
 	}
 }
+
+
+// TestRealMutualTLSLostCommitAcknowledgment checks the actual TLS/HTTP
+// uncertain-commit boundary, rather than an in-memory RoundTripper mock.
+// All peers, keys and state are test-only. No service is deployed.
+func TestRealMutualTLSLostCommitAcknowledgment(t *testing.T) {
+	ctx := context.Background()
+	pub, _ := kpair("FSA")
+	witnessPub, witnessSecret := kpair("independent-witness")
+	pin := Pin{
+		ArchiveID: hx("a", 64), KeyID: "FORGE_TEST_ONLY",
+		PublicKey: pub, AuthorityEpoch: 4, BindingSHA256: hx("b", 64),
+		WitnessPublicKey: witnessPub, MinimumRevision: 1,
+	}
+	original := fsahead.Anchor{
+		ArchiveID: pin.ArchiveID, KeyID: pin.KeyID, PublicKey: pin.PublicKey,
+		AuthorityEpoch: pin.AuthorityEpoch, HeadSHA256: researchlog.Genesis,
+	}
+	var current atomic.Pointer[fsahead.Anchor]
+	current.Store(&original)
+	var revision atomic.Uint64
+	revision.Store(1)
+	var postCount atomic.Int32
+
+	authority := newRealMTLSPeer(t, "cas-authority", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/fsa/anchor":
+			_ = json.NewEncoder(w).Encode(anchorResponse{
+				Schema: WireSchema, Anchor: makeWire(*current.Load()),
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/fsa/cas":
+			var request casRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Schema != WireSchema {
+				http.Error(w, "invalid test CAS", http.StatusBadRequest)
+				return
+			}
+			prior, priorErr := parseAnchor(request.Previous)
+			next, nextErr := parseAnchor(request.Next)
+			if priorErr != nil || nextErr != nil ||
+				!sameAnchor(prior, *current.Load()) ||
+				!pin.accepts(next) || next.Sequence <= prior.Sequence {
+				http.Error(w, "conflicting test CAS", http.StatusConflict)
+				return
+			}
+			current.Store(&next)
+			revision.Store(2)
+			postCount.Add(1)
+			// The new value was committed before the HTTP connection broke.
+			// A lost response must NEVER trigger a blind retry.
+			if hijacker, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hijacker.Hijack(); err == nil {
+					_ = conn.Close()
+					return
+				}
+			}
+			// Fallback: a truncated acknowledgment remains indeterminate.
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.Error(w, "not permitted", http.StatusMethodNotAllowed)
+		}
+	})
+	witness := newRealMTLSPeer(t, "cas-witness", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/fsa/highwater" ||
+			r.URL.Query().Get("archive_id") != pin.ArchiveID {
+			http.Error(w, "not permitted", http.StatusMethodNotAllowed)
+			return
+		}
+		a := current.Load()
+		head := WitnessHead{
+			Schema: WitnessSchema, Domain: WitnessDomain,
+			ArchiveID: pin.ArchiveID, KeyID: pin.KeyID,
+			AuthorityEpoch: pin.AuthorityEpoch, BindingSHA256: pin.BindingSHA256,
+			Sequence: a.Sequence, HeadSHA256: a.HeadSHA256, Revision: revision.Load(),
+		}
+		body, err := json.Marshal(head)
+		if err != nil {
+			http.Error(w, "test encoding failed", http.StatusInternalServerError)
+			return
+		}
+		signed := SignedWitness{
+			Head: head,
+			SignatureHex: hex.EncodeToString(ed25519.Sign(
+				witnessSecret, append([]byte(domainPrefix), body...))),
+		}
+		_ = json.NewEncoder(w).Encode(witnessResponse{Schema: WireSchema, Witness: signed})
+	})
+	client, err := NewClient(authority.peer, witness.peer, pin)
+	if err != nil { t.Fatal(err) }
+	before, err := client.ReadAnchor(ctx)
+	if err != nil || !sameAnchor(before, original) { t.Fatalf("genesis: %v", err) }
+
+	next := original
+	next.Sequence = 1
+	next.HeadSHA256 = hx("d", 64)
+	ok, err := client.CompareAndSwap(ctx, original, next)
+	if ok || err != ErrRemote {
+		t.Fatalf("lost reply falsely accepted: accepted=%v error=%v", ok, err)
+	}
+	if postCount.Load() != 1 || !sameAnchor(*current.Load(), next) {
+		t.Fatalf("ambiguous response did not follow exactly one actual commit: %d", postCount.Load())
+	}
+	readback, err := client.ReadAnchor(ctx)
+	if err != nil || !sameAnchor(readback, next) { t.Fatalf("signed reconciliation: %v", err) }
+	replayed, err := client.CompareAndSwap(ctx, original, next)
+	if err != nil || replayed || postCount.Load() != 1 {
+		t.Fatalf("original intent replayed: replay=%v err=%v posts=%d", replayed, err, postCount.Load())
+	}
+	// A newly constructed client must carry an independently preserved
+	// high-water revision pin; otherwise process restart loses that defense.
+	restartPin := pin
+	restartPin.MinimumRevision = 2
+	restarted, err := NewClient(authority.peer, witness.peer, restartPin)
+	if err != nil { t.Fatal(err) }
+	if _, err := restarted.ReadAnchor(ctx); err != nil { t.Fatalf("restarted pinned read: %v", err) }
+	current.Store(&original)
+	revision.Store(1)
+	if _, err := restarted.ReadAnchor(ctx); err != ErrWitness {
+		t.Fatalf("witness rollback passed restart pin: %v", err)
+	}
+}
