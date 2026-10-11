@@ -34,6 +34,14 @@ jobs:
               branch=pr['head']['ref']
               if pr['draft'] or pr['user']['login']!='spoonman136668-ai' or not branch.startswith('proposal/fsa'):continue
               if pr['head']['repo']['full_name']!=repo or pr['base']['ref']!='main':continue
+              # Hard source-only admission: no controller, trust-root, policy or authority edits.
+              changed=api(f"repos/{repo}/pulls/{number}/files?per_page=100")
+              if len(changed)>8 or not changed:continue
+              allowed=lambda path: (path.startswith('eligibility/') and path.endswith('.go')) or (
+                  path.startswith('startrecovery/') and path.endswith('.go')) or (
+                  path.startswith('docs/FSA-') and path.endswith('.md')) or (
+                  path.startswith('.github/workflows/qualify-fsa') and path.endswith('.yml'))
+              if any(f['status'] not in ('added','modified') or not allowed(f['filename']) for f in changed):continue
               sha=pr['head']['sha']
               # Exact HEAD qualification: both hosted Linux/Windows workflows must pass.
               runs=api(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100")['workflow_runs']
