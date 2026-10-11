@@ -10,8 +10,10 @@ cases=[
  [("family_b",8,6),("family_a",9,3),("family_b",7,3)],
  [("family_a",9,2),("family_b",8,2),("family_a",7,2),("family_b",6,2)],
  [("family_a",9,4),("family_b",8,3),("family_a",7,4)],
+ [("family_a",9,2),("family_b",8,2),("family_a",7,2),("family_b",6,2)],
 ]
 for index,rows in enumerate(cases):
+ duplicate_signature_case=index==4
  families=sorted(set(f for f,_,_ in rows))
  contract=dict(schema="ckb.research-portfolio-contract.v1",generation_id="generation_test",
   contract_sha="a"*40,historical_data_sha=H,baseline_sha="b"*40,
@@ -20,11 +22,12 @@ for index,rows in enumerate(cases):
  screens=[];candidates=[]
  for i,(fam,score,cost) in enumerate(rows):
   code=("%040x"%(i+1));screen=("%064x"%(i+1));name=f"candidate_{i}"
+  sig="shared_signature" if duplicate_signature_case and i in (0,1) else f"signature_{i}"
   screens.append(dict(candidate_id=name,family_id=fam,code_sha=code,parent_shas=[],
-   operator_id="operator_one",signature=f"signature_{i}",data_class="historical",
+   operator_id="operator_one",signature=sig,data_class="historical",
    data_sha=H,score=score,screen_cost=2,estimated_sealed_cost=cost,parameters=2,
    sealed_outcomes_accessed=False,post_freeze_mutation=False,screen_complete=True))
-  candidates.append(dict(id=name,family=fam,source_sha=code,screen_sha=screen,
+  candidates.append(dict(id=name,family=fam,signature=sig,source_sha=code,screen_sha=screen,
    historical_class="SUPPORTED",score=score,screen_compute=2,sealed_compute=cost))
  reference=ckb.shortlist(contract,screens)
  frozen=dict(schema="forge.evoportfolio.frozen.v1",lane="Wingless",epoch=1,

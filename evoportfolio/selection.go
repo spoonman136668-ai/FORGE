@@ -16,6 +16,7 @@ const Schema="forge.evoportfolio.frozen.v1"
 type Candidate struct {
  ID string `json:"id"`
  Family string `json:"family"`
+ Signature string `json:"signature,omitempty"`
  SourceSHA string `json:"source_sha"`
  ScreenSHA string `json:"screen_sha"`
  HistoricalClass string `json:"historical_class"`
@@ -84,7 +85,7 @@ func Select(f Frozen,independentPin string)(Decision,error){
  var spent int64
  neg,mixed:=0,0
  for _,c:=range f.Candidates{
-  if !validID(c.ID)||!validID(c.Family)||!isHex(c.SourceSHA,40)||
+  if !validID(c.ID)||!validID(c.Family)||(c.Signature!=""&&!validID(c.Signature))||!isHex(c.SourceSHA,40)||
    !isHex(c.ScreenSHA,64)||ids[c.ID]||sources[c.SourceSHA]||screens[c.ScreenSHA]||
    c.ScreenCompute<1||c.SealedCompute<1||c.ScreenCompute>f.MaxScreenCompute||
    c.SealedCompute>f.MaxSealedCompute||c.Score< -1000000||c.Score>1000000{
@@ -115,6 +116,7 @@ func Select(f Frozen,independentPin string)(Decision,error){
  sort.Slice(archive,func(i,j int)bool{return archive[i].ID<archive[j].ID})
  finalists:=[]Candidate{}
  seen:=map[string]bool{}
+ usedSignatures:=map[string]bool{}
  var reserved int64
  for round:=0;round<f.MaxPerFamily&&len(finalists)<f.MaxFinalists;round++{
   for _,family:=range families{
@@ -126,7 +128,10 @@ func Select(f Frozen,independentPin string)(Decision,error){
     if seen[c.ID]||c.HistoricalClass=="INVALID"||
      c.HistoricalClass=="CONSUMED_INDETERMINATE"{continue}
     if reserved>f.MaxSealedCompute-c.SealedCompute{continue}
-    finalists=append(finalists,c);seen[c.ID]=true
+    signature:=c.Signature
+    if signature==""{signature="legacy:"+c.ID}
+    if usedSignatures[signature]{continue}
+    finalists=append(finalists,c);seen[c.ID]=true;usedSignatures[signature]=true
     reserved+=c.SealedCompute
     break
    }
