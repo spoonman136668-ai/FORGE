@@ -1,0 +1,45 @@
+name: FORGE R19B source-pinned R196 semantic qualification
+on:
+  push:
+    branches:
+      - proposal/r19b-differential-fixtures-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact R19A and additive-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 9deab32a1ea7d52256a350ff8133a38ad223f75c
+          python - <<'PY'
+          import subprocess
+          rows=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          want={"evoportfolio/r196_differential.go","evoportfolio/r196_differential_test.go","docs/R19B-CKB-R196-SEMANTIC-FIXTURES.md",".github/workflows/qualify-r19b-r196-fixtures.yml"}
+          assert len(rows)==4 and all(x.startswith("A\t") for x in rows),rows
+          assert {x.split("\t")[1] for x in rows}==want,rows
+          PY
+      - name: Focused and full Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "R19B_SOURCE_SEMANTICS_ONLY=PASS"
