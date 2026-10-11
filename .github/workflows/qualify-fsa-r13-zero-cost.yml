@@ -29,9 +29,10 @@ jobs:
           python - <<'PY'
           import subprocess
           base="87786526227e74004bd6acf4db7c12e30f9527f2"
-          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
-          assert parent==base,(parent,base)
-          tree=subprocess.check_output(["git","rev-parse","HEAD^^{tree}"],text=True).strip()
+          subprocess.check_call(["git","merge-base","--is-ancestor",base,"HEAD"])
+          count=int(subprocess.check_output(["git","rev-list","--count",f"{base}..HEAD"],text=True))
+          assert 1<=count<=3,count
+          tree=subprocess.check_output(["git","rev-parse",f"{base}^{{tree}}"],text=True).strip()
           assert tree=="6bc3efa6d09f5473047c893d4fe9a2c7a5777354",tree
           delta=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
           expected={

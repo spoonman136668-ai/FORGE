@@ -117,7 +117,7 @@ func secureDirectory(root string) bool {
 	}
 	st, err := os.Lstat(root)
 	return err == nil && st.IsDir() && st.Mode()&os.ModeSymlink == 0 &&
-		st.Mode().Perm()&0022 == 0
+		(runtime.GOOS == "windows" || st.Mode().Perm()&0022 == 0)
 }
 
 // New verifies the operator-pinned approval public key and the separately
@@ -174,8 +174,7 @@ func (i *Issuer) claim() error {
 		return ErrUncertain
 	}
 	sum := sha256.Sum256(raw)
-	line := []byte(hex.EncodeToString(sum[:]) + "
-")
+	line := []byte(hex.EncodeToString(sum[:]) + "\n")
 	n, err := f.Write(line)
 	if err == nil && n != len(line) {
 		err = io.ErrShortWrite
