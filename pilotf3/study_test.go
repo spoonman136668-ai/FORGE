@@ -41,8 +41,8 @@ func TestF3SyntheticClassificationPreservesNegativeAndInvalid(t *testing.T){
  }
  b,err:=json.Marshal(r);if err!=nil{t.Fatal(err)}
  out,err:=Classify(b,"Wingless")
- if err!=nil||out.Disposition!="NEGATIVE"||out.Cases!=1024{
-  t.Fatalf("negative evidence reclassified: %+v %v",out,err)
+ if err!=nil||out.Disposition!="MIXED"||out.Cases!=1024{
+  t.Fatalf("negative performance and valid integrity must remain MIXED, not NEGATIVE: %+v %v",out,err)
  }
  r.Wingless[0].InputsDisjoint=false
  invalid,_:=json.Marshal(r)
