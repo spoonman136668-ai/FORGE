@@ -37,7 +37,7 @@ func TestStructuralClassifierFixtureOnly(t *testing.T){
   len(d.Outcomes)!=2||d.Outcomes[0].Disposition!="SUPPORTED"||
   d.Outcomes[1].Disposition!="SUPPORTED"{t.Fatalf("fixture disposition invalid %+v",d)}
 }
-func TestFrozenThresholdsKeepNegatives(t *testing.T){
+func TestFrozenThresholdsKeepMixedWithoutRelabeling(t *testing.T){
  p:=fixture("Wingless")
  for i:=range p.Wingless{
   p.Wingless[i].OrderedCorrect=0
@@ -45,7 +45,7 @@ func TestFrozenThresholdsKeepNegatives(t *testing.T){
   p.Wingless[i].SortedCorrect=192
  }
  d,err:=Classify(raw(p),"Wingless")
- if err!=nil||d.Disposition!="NEGATIVE"{t.Fatalf("negative fixture: %+v %v",d,err)}
+ if err!=nil||d.Disposition!="MIXED"{t.Fatalf("frozen mixed disposition: %+v %v",d,err)}
 }
 func TestFailClosedOnInvalidRawAndPromotion(t *testing.T) {
  for _,lane:=range []string{"Wingless","Yggdrasil"}{
