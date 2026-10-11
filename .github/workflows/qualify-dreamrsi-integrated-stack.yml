@@ -1,0 +1,70 @@
+name: FORGE Dream-RSI R1-R12 consolidated source acceptance
+on:
+  push:
+    branches: [proposal/dreamrsi-integrated-acceptance-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-dreamrsi-stack-acceptance-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  source-stack:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact FORGE main, R12 and two-file integration change
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=fc50538f7d9151721299ffbb1ccfbb018354c08f
+          r12=b0ca41ad09db47ec1dfe3dd9fed20cee55457399
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          test "$(git rev-parse HEAD^)" = "$r12"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python - <<'PY'
+          import subprocess
+          base="fc50538f7d9151721299ffbb1ccfbb018354c08f"
+          r12="b0ca41ad09db47ec1dfe3dd9fed20cee55457399"
+          expected={
+            ".github/workflows/qualify-dreamrsi-integrated-stack.yml",
+            "docs/DREAM-RSI-INTEGRATED-ACCEPTANCE.md",
+          }
+          delta=set(subprocess.check_output(["git","diff","--name-only",r12,"HEAD"],text=True).splitlines())
+          assert delta==expected,(delta,expected)
+          full=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          assert len(full)==63, len(full)
+          assert all(row.startswith("A\t") for row in full),[x for x in full if not x.startswith("A\t")]
+          steps=subprocess.check_output(["git","rev-list","--count",f"{base}..{r12}"],text=True).strip()
+          assert steps=="25",steps
+          print("FORGE_INTEGRATED_EXACT_SOURCE=PASS added=63 existing_changed=0 historical_commits=25")
+          PY
+      - name: One complete integrated deterministic FORGE regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+          fi
+          echo "FORGE_DREAMRSI_R1_R12_INTEGRATION=PASS source_only=true real_FSA=false live_science=false"
