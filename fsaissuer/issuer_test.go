@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -190,8 +191,12 @@ func TestFSARejectsUnsafeDirectoryAndInvalidGrant(t *testing.T) {
 	if err := os.Chmod(f.root, 0777); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(f.approver, f.fsa, f.approval, f.root, f.sign); !errors.Is(err, ErrDenied) {
-		t.Fatal("world-writable FSA attempts permitted")
+	// Windows os.Chmod does not model the directory DACL. The real FSA
+	// must independently enforce Windows ACL custody before deployment.
+	if runtime.GOOS != "windows" {
+		if _, err := New(f.approver, f.fsa, f.approval, f.root, f.sign); !errors.Is(err, ErrDenied) {
+			t.Fatal("world-writable FSA attempts permitted")
+		}
 	}
 	if err := os.Chmod(f.root, 0700); err != nil {
 		t.Fatal(err)
