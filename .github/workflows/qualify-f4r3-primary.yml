@@ -1,0 +1,46 @@
+name: FORGE F4R3 primary source-only qualification
+on:
+  push:
+    branches:
+      - proposal/forge-f4-primary-r3-20261011
+permissions:
+  contents: read
+jobs:
+  qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Preserve frozen prereg, narrow source delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 69e023b4586a351e471708cfee6cc1c911f1b9f3
+          test "$(git rev-parse HEAD:research/pilot-f4/frozen.json)" = 76b940cae65c2800100bf1c589949bfa17ad3258
+          python - <<'PY'
+          import subprocess
+          lines=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          expected={"pilotf4/primary.go","pilotf4/primary_test.go",".github/workflows/qualify-f4r3-primary.yml"}
+          assert len(lines)==3 and all(x.startswith("A\t") for x in lines),lines
+          assert {x.split("\t")[1] for x in lines}==expected,lines
+          PY
+      - name: Native full regression; NEVER execute primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./pilotf4
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "F4_PRIMARY_SOURCE_ONLY=PASS original_executed=false"
