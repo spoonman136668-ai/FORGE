@@ -1,0 +1,182 @@
+name: FORGE R8 GitHub-hosted isolated shadow compute qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r8-hosted-shadow-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r8-shadow-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 24
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact qualified R7 source and bounded R8 additive scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=2a7745660edab26319b8eb6396e2c5dd406ff8db
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python - <<'PY'
+          import subprocess
+          parent="2a7745660edab26319b8eb6396e2c5dd406ff8db"
+          expected={
+            "hostedcompute/shadow.go","hostedcompute/shadow_test.go",
+            "cmd/forge-hosted-shadow/main.go",
+            "docs/DREAM-RSI-R8-HOSTED-COMPUTE.md",
+            ".github/workflows/qualify-dreamrsi-r8-hosted.yml",
+          }
+          actual=set(subprocess.check_output(["git","diff","--name-only",parent,"HEAD"],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          print("FORGE_R8_EXACT_SOURCE_SCOPE=PASS")
+          PY
+      - name: Focused, full regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./hostedcompute ./cmd/forge-hosted-shadow
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./hostedcompute ./cmd/forge-hosted-shadow
+          fi
+          echo "FORGE_R8_SOURCE_QUALIFIED=PASS original_science=false FSA=false dispatch=false"
+  prepare:
+    needs: qualify
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Freeze content-addressed NONSCIENTIFIC four-job manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-r8-manifest"
+          git_tree="$(git rev-parse 'HEAD^{tree}')"
+          go run ./cmd/forge-hosted-shadow prepare \
+            -source "$GITHUB_SHA" -tree "$git_tree" \
+            -run-id "$GITHUB_RUN_ID" -attempt "$GITHUB_RUN_ATTEMPT" \
+            -output "$RUNNER_TEMP/forge-r8-manifest/manifest.json"
+          echo "FORGE_R8_MANIFEST=FROZEN non_scientific=true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r8-shadow-manifest
+          path: ${{ runner.temp }}/forge-r8-manifest/manifest.json
+          if-no-files-found: error
+          retention-days: 7
+  shadow:
+    needs: prepare
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {lane: Wingless, os: linux, runner: ubuntu-latest}
+          - {lane: Wingless, os: windows, runner: windows-latest}
+          - {lane: Yggdrasil, os: linux, runner: ubuntu-latest}
+          - {lane: Yggdrasil, os: windows, runner: windows-latest}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-shadow-manifest
+          path: ${{ runner.temp }}/forge-r8-manifest
+      - name: Run isolated bounded lane-specific non-scientific compute
+        shell: bash
+        env:
+          LANE: ${{ matrix.lane }}
+          EXPECTED_OS: ${{ matrix.os }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then actual_os=linux; else actual_os=windows; fi
+          test "$actual_os" = "$EXPECTED_OS"
+          mkdir -p "$RUNNER_TEMP/forge-r8-receipts"
+          git_tree="$(git rev-parse 'HEAD^{tree}')"
+          worker="forge-r8-$(printf '%s' "$LANE" | tr '[:upper:]' '[:lower:]')-$EXPECTED_OS"
+          go run ./cmd/forge-hosted-shadow run \
+            -manifest "$RUNNER_TEMP/forge-r8-manifest/manifest.json" \
+            -source "$GITHUB_SHA" -tree "$git_tree" \
+            -run-id "$GITHUB_RUN_ID" -attempt "$GITHUB_RUN_ATTEMPT" \
+            -lane "$LANE" -worker "$worker" \
+            -output "$RUNNER_TEMP/forge-r8-receipts/$LANE-$EXPECTED_OS.json"
+          echo "FORGE_R8_HOSTED_WORKER=PASS lane=$LANE os=$EXPECTED_OS no_FSA=true no_science=true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r8-shadow-${{ matrix.lane }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/forge-r8-receipts/${{ matrix.lane }}-${{ matrix.os }}.json
+          if-no-files-found: error
+          retention-days: 7
+  reconcile:
+    needs: shadow
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-shadow-manifest
+          path: ${{ runner.temp }}/forge-r8-manifest
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-r8-shadow-*
+          path: ${{ runner.temp }}/forge-r8-receipts
+          merge-multiple: true
+      - name: Independently recompute four receipts and reject science authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-r8-reconciled"
+          go run ./cmd/forge-hosted-shadow reconcile \
+            -manifest "$RUNNER_TEMP/forge-r8-manifest/manifest.json" \
+            -receipts "$RUNNER_TEMP/forge-r8-receipts" \
+            -output "$RUNNER_TEMP/forge-r8-reconciled/summary.json"
+          echo "FORGE_R8_GITHUB_HOSTED_E2E=PASS compute_only=true two_lanes=true four_jobs=true fsa=false original_science=false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r8-shadow-summary
+          path: ${{ runner.temp }}/forge-r8-reconciled/summary.json
+          if-no-files-found: error
+          retention-days: 7
