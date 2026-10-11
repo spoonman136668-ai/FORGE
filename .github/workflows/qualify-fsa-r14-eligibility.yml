@@ -1,0 +1,61 @@
+name: FORGE R14 FSA eligibility guarded issuer source qualification
+on:
+  push:
+    branches:
+      - proposal/fsa-r14-independent-eligibility-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Exact R13 qualified base and additive R14 scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          base="32bb40b7d9b432c53912ba642a0b2174235cee04"
+          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          assert parent==base,(parent,base)
+          basetree=subprocess.check_output(["git","rev-parse",f"{base}^{{tree}}"],text=True).strip()
+          assert basetree=="f808c3220a6bb0671f9cf6fdcda2d835cd72619f",basetree
+          expected={
+            ".github/workflows/qualify-fsa-r14-eligibility.yml",
+            "docs/FSA-R14-INDEPENDENT-ELIGIBILITY.md",
+            "fsaeligibility/issuer.go",
+            "fsaeligibility/issuer_test.go",
+          }
+          delta=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          assert len(delta)==4,(len(delta),delta)
+          assert all(x.startswith("A\t") for x in delta),delta
+          assert {x.split("\t")[1] for x in delta}==expected,delta
+          print("FORGE_FSA_R14_EXACT_ADDITIVE_SCOPE=PASS")
+          PY
+      - name: Focused affected-interface tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./fsaeligibility ./fsaissuer ./fsaissuance ./dreamrsi/fsagate ./fsatrust
+      - name: Final integrated full regression vet build and Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+          fi
+          echo "FORGE_FSA_R14_SOURCE_ONLY=PASS no_deployment=true additional_cost=0 science=false"
