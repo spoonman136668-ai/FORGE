@@ -6,10 +6,10 @@ ckb=importlib.import_module("portfolio")
 exe=os.environ["FORGE_SELECT_EXE"]
 H="e"*64
 cases=[
- [("a",9,3),("b",8,2),("a",7,3)],
- [("b",8,6),("a",9,3),("b",7,3)],
- [("a",9,2),("b",8,2),("a",7,2),("b",6,2)],
- [("a",9,4),("b",8,3),("a",7,4)],
+ [("family_a",9,3),("family_b",8,2),("family_a",7,3)],
+ [("family_b",8,6),("family_a",9,3),("family_b",7,3)],
+ [("family_a",9,2),("family_b",8,2),("family_a",7,2),("family_b",6,2)],
+ [("family_a",9,4),("family_b",8,3),("family_a",7,4)],
 ]
 for index,rows in enumerate(cases):
  families=sorted(set(f for f,_,_ in rows))
