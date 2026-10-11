@@ -1,0 +1,45 @@
+name: FORGE R18B deterministic negative-preserving portfolio handoff
+on:
+  push:
+    branches:
+      - proposal/r18b-portfolio-handoff-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact qualified R18A source and additive scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 5d2d9e28ced78d49dbb3e1a546c56c7537c769f3
+          python - <<'PY'
+          import subprocess
+          rows=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          want={"evoportfolio/handoff.go","evoportfolio/handoff_test.go",".github/workflows/qualify-r18b-handoff.yml"}
+          assert len(rows)==3 and all(r.startswith("A\t") for r in rows),rows
+          assert {r.split("\t")[1] for r in rows}==want,rows
+          PY
+      - name: Focused and full regression build vet race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "FORGE_R18B_HANDOFF_SOURCE_ONLY=PASS"
