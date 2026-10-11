@@ -1,0 +1,41 @@
+name: FORGE R18A native evolutionary family portfolio qualification
+on:
+  push:
+    branches: [proposal/r18-forge-native-family-portfolio-20261011]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Exact R17 foundation and additive scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = f53e9eee4601fbb02637b2d05c17133a021665f6
+          python - <<'PY'
+          import subprocess
+          changed=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          want={"evoportfolio/selection.go","evoportfolio/selection_test.go","docs/FORGE-R18A-EVOLUTIONARY-PORTFOLIO.md",".github/workflows/qualify-r18a-evoportfolio.yml"}
+          assert len(changed)==4 and all(x.startswith("A\t") for x in changed),changed
+          assert {x.split("\t")[1] for x in changed}==want,changed
+          print("R18A_FIXED_SCOPE=PASS")
+          PY
+      - name: Focused and full Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio ./planner ./dreamrsi
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "FORGE_R18A_SOURCE_ONLY=PASS authority=false spending=0"
