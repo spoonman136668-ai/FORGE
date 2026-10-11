@@ -1,0 +1,46 @@
+name: FORGE R19I executable R7 source attestation
+on:
+  push:
+    branches:
+      - proposal/r19i-r7-executable-compare-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Source pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 6bdc42a01d2aeb6bdfa0d1f8632b6d25bf9354df HEAD
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio_r7.py)" = ec570aedfe677efc3a67899e293855e26a803fe5
+      - name: Execute original CKB R7 and Go
+        shell: bash
+        env:
+          CKB_SOURCE: ${{ github.workspace }}/reference/ckb-r196
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-r7" ./cmd/forge-r7-compare
+          export FORGE_R7_EXE="$RUNNER_TEMP/forge-r7"
+          python scripts/r19i_r7_differential.py
+      - name: Full Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
