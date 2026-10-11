@@ -1,0 +1,37 @@
+name: FORGE R19H pinned R7 historical source attestation
+on:
+  push:
+    branches:
+      - proposal/r19h-r7-source-attestation-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact parent and source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = d21a2a85974002fd34487da17cd49f39321f7db5
+      - name: Focused, full regression, vet, build, race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
