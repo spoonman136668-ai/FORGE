@@ -1,0 +1,43 @@
+name: FORGE R19K exact source consolidation readiness
+on:
+  push:
+    branches:
+      - proposal/r19k-consolidated-merge-readiness-20261011
+permissions:
+  contents: read
+jobs:
+  inspect:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify immutable lineage and small bounded delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 496c07a9ad94f86e71d3abc5df05b2e66494d7f1
+          python - <<'PY'
+          import subprocess
+          rows=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          expected={"docs/R19K-CONSOLIDATED-MERGE-READINESS.md",".github/workflows/qualify-r19k-readiness.yml"}
+          assert len(rows)==2 and all(x.startswith("A\t") for x in rows),rows
+          assert {x.split("\t")[1] for x in rows}==expected,rows
+          PY
+      - name: Full source regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
