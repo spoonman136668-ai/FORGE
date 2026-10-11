@@ -30,7 +30,7 @@ func Inspect(j researchlog.Journal,head TrustedHead,lane,experiment string)(Deci
   return "",fmt.Errorf("%w: missing independent head or identity",ErrBlocked)
  }
  if err:=researchlog.Verify(j);err!=nil{return "",fmt.Errorf("%w: journal invalid: %v",ErrBlocked,err)}
- if len(j.Entries)!=int(head.Sequence)||j.Entries[len(j.Entries)-1].RecordSHA256!=head.SHA256{
+ if uint64(len(j.Entries))!=head.Sequence||j.Entries[len(j.Entries)-1].RecordSHA256!=head.SHA256{
   return "",fmt.Errorf("%w: stale or forked archive",ErrBlocked)
  }
  var found,starts,terminals int
