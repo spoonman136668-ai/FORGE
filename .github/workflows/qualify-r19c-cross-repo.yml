@@ -1,0 +1,52 @@
+name: FORGE R19C execute pinned CKB Python versus native Go
+on:
+  push:
+    branches:
+      - proposal/r19c-ckb-executable-differential-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: forge
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: forge/go.mod
+          cache: false
+      - name: Exact source verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C forge merge-base --is-ancestor 1646fdbaa1deda1ee2a3528afb68b98c6b830a94 HEAD
+          test "$(git -C forge rev-parse HEAD:reference/ckb-r196/portfolio.py)" = 74787fac19b8c8c93892573eacc6fe518f891476
+          test "$(git -C forge rev-parse HEAD:reference/ckb-r196/portfolio_scheduler.py)" = 01b9b6de086fa5d293eb48fb20197a13f10bf90d
+          test "$(git -C forge rev-parse HEAD:reference/ckb-r196/portfolio_progression_r196.py)" = babb481454d94b96c1627abe75130ba6e6bed887
+      - name: Execute original CKB Python and native Go on same cases
+        shell: bash
+        working-directory: forge
+        env:
+          CKB_SOURCE: ${{ github.workspace }}/forge/reference/ckb-r196
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-r196" ./cmd/forge-r196-compare
+          export FORGE_R196_EXE="$RUNNER_TEMP/forge-r196"
+          python scripts/r19c_differential.py
+      - name: Full FORGE regression
+        shell: bash
+        working-directory: forge
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo R19C_CROSS_REPO_SOURCE_QUALIFIED=PASS
