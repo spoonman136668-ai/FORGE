@@ -1,0 +1,57 @@
+name: FORGE F2 source-only prospective qualification
+on:
+  push:
+    branches: [proposal/forge-f2-source-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f2-source-qualification
+  cancel-in-progress: false
+jobs:
+  qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Verify frozen F2 source scope without primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          freeze=7bb84552d4a8137f58eb3671fbacd73b9ce2f6a0
+          git merge-base --is-ancestor "$freeze" HEAD
+          test "$(git rev-parse HEAD:research/pilot-f2/frozen.json)" = 54bccd2f42854f000baccbcb5692faae7aa66057
+          test "$(git rev-parse "$freeze":research/pilot-f2/frozen.json)" = "$(git rev-parse HEAD:research/pilot-f2/frozen.json)"
+          python - <<'PY'
+          import subprocess
+          changed=set(subprocess.check_output(['git','diff','--name-only','7bb84552d4a8137f58eb3671fbacd73b9ce2f6a0','HEAD'],text=True).splitlines())
+          expected={
+           'pilotf2/study.go','pilotf2/study_test.go','cmd/forge-f2/main.go',
+           '.github/workflows/qualify-forge-f2-source.yml',
+           '.github/workflows/forge-f2-one-shot-original.yml'
+          }
+          assert changed==expected,(changed,expected)
+          print("FORGE_F2_SOURCE_FROZEN_SCOPE=PASS")
+          PY
+      - name: Full regression, vet, build; no primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go run ./cmd/forge-f2 -mode validate -prereg "$PWD/research/pilot-f2/frozen.json"
+          fi
+          echo "FORGE_F2_SOURCE_ONLY=PASS heldout_not_executed=true"
