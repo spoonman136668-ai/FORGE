@@ -1,0 +1,39 @@
+name: FORGE F4 R4 offline release eligibility
+on:
+  push:
+    branches:
+      - proposal/forge-f4-release-eligibility-r4-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Frozen parent and bounded diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 95095aca6d2035bcf00220eefc61f0654dde67d0
+          test "$(git rev-parse HEAD:research/pilot-f4/frozen.json)" = 76b940cae65c2800100bf1c589949bfa17ad3258
+      - name: Offline focused full and race tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./pilotf4
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "F4_R4_OFFLINE_ELIGIBILITY=PASS original=false"
