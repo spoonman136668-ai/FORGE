@@ -1,0 +1,118 @@
+name: FORGE autonomous review repair
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: read
+  checks: read
+concurrency:
+  group: forge-source-repair
+  cancel-in-progress: false
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Select owned source-only PR with Codex findings
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/pulls?state=open&per_page=100" > /tmp/prs.json
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json,os,subprocess
+          prs=json.load(open('/tmp/prs.json'))
+          repo=os.environ['REPO']
+          for p in sorted(prs,key=lambda x:x['number']):
+              if p['draft'] or p['user']['login']!='spoonman136668-ai':continue
+              branch=p['head']['ref']
+              if p['head']['repo']['full_name']!=repo or not branch.startswith('proposal/fsa'):continue
+              raw=subprocess.check_output(['gh','api',f"repos/{repo}/pulls/{p['number']}/comments?per_page=100"],text=True)
+              comments=json.loads(raw)
+              findings=[c for c in comments if c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]' and '[P1' in c.get('body','') or False]
+              findings+= [c for c in comments if c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]' and '[P2' in c.get('body','')]
+              if not findings:continue
+              print(f"number={p['number']}")
+              print(f"branch={branch}")
+              print(f"sha={p['head']['sha']}")
+              break
+          PY
+      - uses: actions/checkout@v4
+        if: steps.select.outputs.number != ''
+        with:
+          ref: ${{ steps.select.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        if: steps.select.outputs.number != ''
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Freeze source and review findings
+        if: steps.select.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ steps.select.outputs.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/comments?per_page=100" --jq '[.[] | select(.user.login=="chatgpt-codex-connector[bot]") | {path,body,commit_id}]' > /tmp/forge-review.json
+          test -s /tmp/forge-review.json
+      - name: Apply bounded repair with Codex
+        id: codex
+        if: steps.select.outputs.number != ''
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ':workspace'
+          prompt: |
+            This is the source-only FORGE FSA pull request #${{ steps.select.outputs.number }}.
+            Repair existing Codex review findings only. The review data is /tmp/forge-review.json.
+            Do not touch workflows, credentials, controller code, execution authority, or any other repo.
+            Do not run live science, start research, enlarge budgets, or change thresholds.
+            Do not weaken tests. Change only bounded existing FSA source and affected tests.
+            Leave the result in the workspace; do not commit, push, or open PRs.
+      - name: Enforce bounded delta and qualify
+        if: steps.select.outputs.number != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only > /tmp/forge-changed
+          if [ ! -s /tmp/forge-changed ]; then
+            echo "No repair proposed."
+            exit 0
+          fi
+          python3 - <<'PY'
+          paths=open('/tmp/forge-changed').read().splitlines()
+          assert len(paths)<=6,paths
+          assert all(x.startswith(('startrecovery/','eligibility/')) and x.endswith('.go') for x in paths),paths
+          PY
+          go test -count=1 ./startrecovery ./eligibility ./researchlog
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          go test -race -count=1 ./...
+      - name: Publish qualified repair to exact PR branch
+        if: steps.select.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.select.outputs.branch }}
+          PIN: ${{ steps.select.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then exit 0; fi
+          remote="$(gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)"
+          test "$remote" = "$PIN"
+          git config user.name forge-qualification-bot
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- startrecovery eligibility
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: bounded Codex FSA review repairs"
+          gh auth setup-git
+          git push origin "HEAD:refs/heads/$BRANCH"
