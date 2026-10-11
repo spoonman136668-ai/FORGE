@@ -1,0 +1,60 @@
+name: FORGE R19J integrated migration qualification
+on:
+  push:
+    branches:
+      - proposal/r19j-integrated-migration-gate-20261011
+permissions:
+  contents: read
+jobs:
+  integrated:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fixed source lineage and upstream provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 92a4e01f588dbebd32e2f4da75d027569e4a10e6
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio.py)" = 74787fac19b8c8c93892573eacc6fe518f891476
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio_progression_r196.py)" = babb481454d94b96c1627abe75130ba6e6bed887
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio_multibatch.py)" = 8d789483a9f9dc97c7eb4a8cf15cd4dc94432e39
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio_r7.py)" = ec570aedfe677efc3a67899e293855e26a803fe5
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio_handoff.py)" = f63f810c8e94108a48d45c7ffc68f9e9df219edb
+      - name: Cross-executable R196 R1 R6 R7 comparison
+        shell: bash
+        env:
+          CKB_SOURCE: ${{ github.workspace }}/reference/ckb-r196
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-r196" ./cmd/forge-r196-compare
+          go build -o "$RUNNER_TEMP/forge-select" ./cmd/forge-selection-compare
+          go build -o "$RUNNER_TEMP/forge-r6" ./cmd/forge-r6-compare
+          go build -o "$RUNNER_TEMP/forge-r7" ./cmd/forge-r7-compare
+          export FORGE_R196_EXE="$RUNNER_TEMP/forge-r196"
+          export FORGE_SELECT_EXE="$RUNNER_TEMP/forge-select"
+          export FORGE_R6_EXE="$RUNNER_TEMP/forge-r6"
+          export FORGE_R7_EXE="$RUNNER_TEMP/forge-r7"
+          python scripts/r19c_differential.py
+          python scripts/r19d_selection_differential.py
+          python scripts/r19g_multibatch_differential.py
+          python scripts/r19i_r7_differential.py
+      - name: Integration regression, vet, build and race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "R19J_INTEGRATED_SOURCE_QUALIFIED=PASS"
