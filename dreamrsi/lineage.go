@@ -9,6 +9,7 @@ import (
  "errors"
  "fmt"
  "os"
+ "runtime"
  "path/filepath"
  "sort"
  "strconv"
@@ -94,7 +95,10 @@ func PersistLineage(dir string,records []PolicyRecord,lane string)error{
  dirfd,err:=os.Open(dir)
  if err!=nil{return ErrLineage}
  defer dirfd.Close()
- if err=dirfd.Sync();err!=nil{return ErrLineage}
+ // Windows hosted filesystems do not support directory-handle Sync.
+ // The individual exclusive-created files were flushed above; this does
+ // NOT claim crash-proof directory persistence or rollback resistance.
+ if err=dirfd.Sync();err!=nil&&runtime.GOOS!="windows"{return ErrLineage}
  complete,err:=ReadLineage(dir,lane)
  if err!=nil||len(complete)!=len(records){return ErrLineage}
  for i,r:=range complete{
