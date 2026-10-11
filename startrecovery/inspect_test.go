@@ -21,6 +21,8 @@ func TestReconcilePrimary(t *testing.T){
  appendEvent(researchlog.Preregister,0,"")
  appendEvent(researchlog.SourceQualified,0,"")
  if d,e:=Inspect(j,pin(),"Wingless","exp_01");e!=nil||d!=NoPriorStart{t.Fatalf("prestart: %v %v",d,e)}
+ oversized:=pin();oversized.Sequence=uint64(1)<<32+uint64(len(j.Entries))
+ if _,e:=Inspect(j,oversized,"Wingless","exp_01");!errors.Is(e,ErrBlocked){t.Fatal("overflowed sequence accepted")}
  stale:=pin()
  appendEvent(researchlog.PrimaryStarted,42,"")
  if d,e:=Inspect(j,pin(),"Wingless","exp_01");e!=nil||d!=Started{t.Fatalf("started: %v %v",d,e)}
