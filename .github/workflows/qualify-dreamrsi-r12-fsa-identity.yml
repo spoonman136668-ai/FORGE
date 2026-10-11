@@ -1,0 +1,78 @@
+name: FORGE R12 FSA-side independent identity boundary qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r12-fsa-identity-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r12-source-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Verify exact R11 parent and four bounded additive paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=88478a45745f6a8164d7a4d89eb090b2e853f7a8
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python - <<'PY'
+          import subprocess
+          expected={
+             "fsaidentity/verify.go","fsaidentity/verify_test.go",
+             "docs/DREAM-RSI-R12-FSA-IDENTITY.md",
+             ".github/workflows/qualify-dreamrsi-r12-fsa-identity.yml",
+          }
+          actual=set(subprocess.check_output(["git","diff","--name-only",
+            "88478a45745f6a8164d7a4d89eb090b2e853f7a8","HEAD"],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          print("FORGE_R12_EXACT_SCOPE=PASS")
+          PY
+      - name: FSA-side signature/allowlist adversarial and full Go qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./fsaidentity
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./fsaidentity
+          fi
+          echo "FORGE_R12_SOURCE=PASS independent_deployment=false live_dispatch=false"
+  no-authority:
+    needs: verify
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: No real FSA registration or JWT can ever pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -run '^TestMissingProtectedRegistrationAndWrongRunDenies$' -v ./fsaidentity
+          echo "FORGE_R12_NO_REGISTERED_RUN=DENIED source_only=true original_science=false"
