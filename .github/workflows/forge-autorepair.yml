@@ -1,7 +1,7 @@
 name: FORGE autonomous review repair
 on:
   schedule:
-    - cron: '7 * * * *'
+    - cron: '7,17,27,37,47,57 * * * *'
   workflow_dispatch:
 permissions:
   contents: write
@@ -34,8 +34,7 @@ jobs:
               if p['head']['repo']['full_name']!=repo or not branch.startswith('proposal/fsa'):continue
               raw=subprocess.check_output(['gh','api',f"repos/{repo}/pulls/{p['number']}/comments?per_page=100"],text=True)
               comments=json.loads(raw)
-              findings=[c for c in comments if c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]' and '[P1' in c.get('body','') or False]
-              findings+= [c for c in comments if c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]' and '[P2' in c.get('body','')]
+              findings=[c for c in comments if c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]' and c.get('commit_id')==p['head']['sha'] and any(marker in c.get('body','') for marker in ('[P1','[P2'))]
               if not findings:continue
               print(f"number={p['number']}")
               print(f"branch={branch}")
