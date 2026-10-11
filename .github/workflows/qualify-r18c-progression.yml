@@ -1,0 +1,45 @@
+name: FORGE R18C advisory finalist progression source qualification
+on:
+  push:
+    branches:
+      - proposal/r18c-portfolio-progression-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Immutable exact parent and bounded delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 9513af67b32384e28caf76ae00c3c58c19d12e50
+          python - <<'PY'
+          import subprocess
+          items=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          paths={"evoportfolio/progression.go","evoportfolio/progression_test.go",".github/workflows/qualify-r18c-progression.yml"}
+          assert len(items)==3 and all(s.startswith("A\t") for s in items),items
+          assert {s.split("\t")[1] for s in items}==paths,items
+          PY
+      - name: Full focused race and integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "R18C_ADVISORY_SOURCE=PASS"
