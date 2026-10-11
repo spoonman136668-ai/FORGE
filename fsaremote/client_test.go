@@ -4,7 +4,6 @@ import (
  "context"
  "crypto/ed25519"
  "crypto/sha256"
- "crypto/tls"
  "crypto/x509"
  "encoding/hex"
  "encoding/json"
@@ -40,6 +39,10 @@ type sim struct{
  witnessKey ed25519.PrivateKey
  revision uint64
  binding bool
+ wrongBinding bool
+ bindingUnavailable bool
+ unbindAfterCommit bool
+ corruptBindingAfterCommit bool
  badSignature bool
  outage bool
  ambiguousCommit bool
@@ -91,8 +94,11 @@ func (s *sim)serve(name string)roundTripFunc{
    if req.Method!="GET"||req.URL.Query().Get("archive_id")!=s.pin.ArchiveID{
     return jsonResponse(400,"no"),nil
    }
+   if s.bindingUnavailable{return jsonResponse(503,map[string]string{"error":"binding unavailable"}),nil}
+   digest:=s.pin.BindingSHA256
+   if s.wrongBinding{digest=hx("f",64)}
    return jsonResponse(200,bindingResponse{Schema:WireSchema,ArchiveID:s.pin.ArchiveID,
-    BindingSHA256:s.pin.BindingSHA256,Bound:s.binding}),nil
+    BindingSHA256:digest,Bound:s.binding}),nil
   case "/v1/fsa/cas":
    if req.Method!="POST"||req.Header.Get("Content-Type")!="application/json"{
     return jsonResponse(405,"no"),nil
@@ -110,6 +116,8 @@ func (s *sim)serve(name string)roundTripFunc{
    s.current=target
    s.revision++
    s.commits++
+   if s.unbindAfterCommit{s.binding=false}
+   if s.corruptBindingAfterCommit{s.wrongBinding=true}
    if s.ambiguousCommit{return nil,errors.New("synthetic lost response AFTER server commit")}
    return jsonResponse(200,casResponse{Schema:WireSchema,Committed:true}),nil
   default:return jsonResponse(404,"not found"),nil
@@ -186,20 +194,110 @@ func TestIndependentMonotonicWitnessRejectsRollback(t *testing.T){
  if _,err:=other.ReadAnchor(context.Background());err==nil{t.Fatal("operator-pinned revision floor defeated")}
 }
 func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
- c,_,_:=fixture(t);pin:=c.pin
- roots:=x509.NewCertPool()
- peer:=Peer{BaseURL:"https://authority.forge.test",Roots:roots,
- Certificate:tls.Certificate{Certificate:[][]byte{{1}},PrivateKey:struct{}{}},
- ServerSPKISHA256:hx("f",64)}
- if _,err:=NewClient(peer,peer,pin);err==nil{t.Fatal("shared authority and witness origin accepted")}
- witness:=peer;witness.BaseURL="https://witness.forge.test"
- if _,err:=NewClient(peer,witness,pin);err!=nil{t.Fatal("validly provisioned transport contract rejected",err)}
- untrusted:=peer;untrusted.Roots=nil
- if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("untrusted TLS roots accepted")}
- untrusted=peer;untrusted.BaseURL="http://authority.forge.test"
- if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("plain HTTP accepted")}
- untrusted=peer;untrusted.ServerSPKISHA256=""
- if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("no server SPKI pin accepted")}
+ client,authority,witness:=realMTLSPair(t)
+ pin:=client.pin
+ a,w:=authority.peer,witness.peer
+ if _,err:=NewClient(a,w,pin);err!=nil{t.Fatal("independent real-mTLS peers rejected",err)}
+ if _,err:=NewClient(a,a,pin);err==nil{t.Fatal("shared endpoint accepted")}
+ sharedCA:=w;sharedCA.Roots=a.Roots
+ if _,err:=NewClient(a,sharedCA,pin);err==nil{t.Fatal("shared trust CA accepted")}
+ sharedClientKey:=w;sharedClientKey.Certificate=a.Certificate
+ if _,err:=NewClient(a,sharedClientKey,pin);err==nil{t.Fatal("reused client mTLS key accepted")}
+ sharedSPKI:=w;sharedSPKI.ServerSPKISHA256=a.ServerSPKISHA256
+ if _,err:=NewClient(a,sharedSPKI,pin);err==nil{t.Fatal("shared server SPKI pin accepted")}
+ emptyCA:=w;emptyCA.Roots=x509.NewCertPool()
+ if _,err:=NewClient(a,emptyCA,pin);err==nil{t.Fatal("empty CA pool accepted")}
+ untrusted:=a;untrusted.Roots=nil
+ if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("untrusted TLS roots accepted")}
+ untrusted=a;untrusted.BaseURL="http://authority.forge.test"
+ if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("plain HTTP accepted")}
+ untrusted=a;untrusted.ServerSPKISHA256=""
+ if _,err:=NewClient(untrusted,w,pin);err==nil{t.Fatal("missing server SPKI pin accepted")}
  pin.WitnessPublicKey=pin.PublicKey
- if _,err:=NewClient(peer,witness,pin);err==nil{t.Fatal("FSA signer reused for independent witness")}
+ if _,err:=NewClient(a,w,pin);err==nil{t.Fatal("FSA signer reused as witness signer")}
+}
+
+func TestDirectCASRequiresFreshAuthenticatedBinding(t *testing.T){
+ client,sim,_:=fixture(t)
+ ctx:=context.Background()
+ before,err:=client.ReadAnchor(ctx)
+ if err!=nil{t.Fatal(err)}
+ next:=before;next.Sequence=1;next.HeadSHA256=hx("e",64)
+
+ sim.binding=false
+ yes,err:=client.CompareAndSwap(ctx,before,next)
+ if yes||!errors.Is(err,ErrMismatch){t.Fatalf("unbound CAS accepted: %v %v",yes,err)}
+ sim.Lock();commits:=sim.commits;sim.Unlock()
+ if commits!=0{t.Fatal("unbound archive allowed a CAS POST")}
+
+ sim.binding=true;sim.wrongBinding=true
+ yes,err=client.CompareAndSwap(ctx,before,next)
+ if yes||!errors.Is(err,ErrMismatch){t.Fatalf("wrong binding digest accepted: %v %v",yes,err)}
+ sim.Lock();commits=sim.commits;sim.Unlock()
+ if commits!=0{t.Fatal("wrong binding digest allowed CAS POST")}
+
+ sim.wrongBinding=false;sim.outage=true
+ yes,err=client.CompareAndSwap(ctx,before,next)
+ if yes||err==nil{t.Fatal("witness outage allowed CAS")}
+ sim.outage=false
+ yes,err=client.CompareAndSwap(ctx,before,next)
+ if !yes||err!=nil{t.Fatalf("correctly bound CAS rejected: %v %v",yes,err)}
+ sim.Lock();commits=sim.commits;sim.Unlock()
+ if commits!=1{t.Fatalf("CAS POSTs=%d want 1",commits)}
+}
+
+
+// A successful remote POST does not constitute scientific acceptance when
+// external archive binding subsequently disappears or changes identity.
+// This checks readback and one-shot replay fencing after an actual state
+// transition in the synthetic authority (not a deployed trust service).
+func TestRemoteCASBindingLostAfterCommitIsIndeterminate(t *testing.T){
+ cases:=[]struct{
+  name string
+  configure func(*sim)
+ }{
+  {"unbound_after_commit",func(s *sim){s.unbindAfterCommit=true}},
+  {"binding_digest_changed_after_commit",func(s *sim){s.corruptBindingAfterCommit=true}},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   client,sim,_:=fixture(t)
+   ctx:=context.Background()
+   before,err:=client.ReadAnchor(ctx)
+   if err!=nil{t.Fatal(err)}
+   next:=before;next.Sequence=1;next.HeadSHA256=hx("d",64)
+   sim.Lock();tc.configure(sim);sim.Unlock()
+   accepted,err:=client.CompareAndSwap(ctx,before,next)
+   if accepted||!errors.Is(err,ErrRemote){
+    t.Fatalf("commit without retained binding wrongly accepted: %v %v",accepted,err)
+   }
+   sim.Lock();commits:=sim.commits;sim.Unlock()
+   if commits!=1{t.Fatalf("commits=%d want 1 despite lost acceptance",commits)}
+   observed,err:=client.ReadAnchor(ctx)
+   if err!=nil||!sameAnchor(observed,next){t.Fatalf("cannot reconcile checkpoint head: %v",err)}
+   valid,bindErr:=client.ConfirmArchiveBinding(ctx,before.ArchiveID)
+   if valid||bindErr==nil&&tc.name=="binding_digest_changed_after_commit"{
+    t.Fatalf("untrusted binding accepted: valid=%v err=%v",valid,bindErr)
+   }
+   again,err:=client.CompareAndSwap(ctx,before,next)
+   if again||err!=nil{t.Fatalf("old operation replay response: %v %v",again,err)}
+   sim.Lock()
+   defer sim.Unlock()
+   if sim.commits!=1{t.Fatalf("untrusted operation replayed %d commits",sim.commits)}
+  })
+ }
+}
+
+func TestRemoteBindingEndpointOutageBlocksCASWithoutPOST(t *testing.T){
+ client,sim,_:=fixture(t)
+ ctx:=context.Background()
+ before,err:=client.ReadAnchor(ctx)
+ if err!=nil{t.Fatal(err)}
+ next:=before;next.Sequence=1;next.HeadSHA256=hx("e",64)
+ sim.Lock();sim.bindingUnavailable=true;sim.Unlock()
+ yes,err:=client.CompareAndSwap(ctx,before,next)
+ if yes||!errors.Is(err,ErrRemote){t.Fatalf("binding endpoint outage accepted: %v %v",yes,err)}
+ sim.Lock()
+ defer sim.Unlock()
+ if sim.commits!=0{t.Fatalf("wrote checkpoint during binding outage: %d",sim.commits)}
 }
