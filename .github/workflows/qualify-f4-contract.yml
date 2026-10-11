@@ -1,0 +1,46 @@
+name: FORGE F4 frozen source contract cross-platform qualification
+on:
+  push:
+    branches:
+      - proposal/forge-f4-source-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact prereg and additive scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 6e4e20bf9257cfd58e05635b72da6800375eff33
+          test "$(git rev-parse HEAD:research/pilot-f4/frozen.json)" = 76b940cae65c2800100bf1c589949bfa17ad3258
+          python - <<'PY'
+          import subprocess
+          items=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          expected={"pilotf4/freeze.go","pilotf4/freeze_test.go",".github/workflows/qualify-f4-contract.yml"}
+          assert len(items)==3 and all(x.startswith("A\t") for x in items),items
+          assert {x.split("\t")[1] for x in items}==expected,items
+          PY
+      - name: Frozen-source focused and full regression (no original)
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./pilotf4
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "F4_FROZEN_CONTRACT=PASS original=false"
