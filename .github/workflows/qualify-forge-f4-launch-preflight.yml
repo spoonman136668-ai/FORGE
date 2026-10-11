@@ -1,0 +1,24 @@
+name: FORGE F4 launch transport preflight (no science)
+on:
+  push:
+    branches:
+      - proposal/forge-f4-launch-preflight-20261011
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Observe a real GitHub event and runner before F4 original release
+        shell: bash
+        env:
+          EXPECTED_REF: refs/heads/proposal/forge-f4-launch-preflight-20261011
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = "$EXPECTED_REF"
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test -n "$GITHUB_SHA"
+          test -n "$GITHUB_RUN_ID"
+          echo "FORGE_F4_GITHUB_TRANSPORT=PASS original_started=false science_executed=false"
