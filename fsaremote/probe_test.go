@@ -83,6 +83,10 @@ func TestRealMutualTLSReadOnlyProbeAndNoWrites(t *testing.T) {
  if err==nil||changed.BindingConfirmed||posts.Load()!=0{
   t.Fatalf("concurrent head drift accepted: %+v, %v",changed,err)
  }
+ // An indeterminate observation permanently raises this client's
+ // in-memory high-water. A separate read session needs a fresh client.
+ client,err=NewClient(a.peer,witness.peer,pin)
+ if err!=nil{t.Fatal(err)}
  drift.Store(false);anchorGets.Store(0);witnessGets.Store(0)
  missingBinding.Store(true)
  if _,err:=client.Probe(context.Background());!errors.Is(err,ErrMismatch){
