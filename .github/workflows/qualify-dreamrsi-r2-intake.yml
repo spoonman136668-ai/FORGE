@@ -1,0 +1,115 @@
+name: FORGE Dream-RSI R2 real F1 F2 original evidence intake
+on:
+  push:
+    branches: [proposal/dreamrsi-r2-original-intake-20261011]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-dreamrsi-r2-intake-source
+  cancel-in-progress: false
+jobs:
+  real-original-readonly-intake:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Exact R1-qualified source identity and five additive R2 paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=e2502dfb5e607363c6e758419d8d509d1a3bd5c6
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          python - <<'PY'
+          import subprocess
+          expected={
+            "dreamrsi/originals/originals.go",
+            "dreamrsi/originals/originals_test.go",
+            "cmd/forge-dreamrsi-intake/main.go",
+            "docs/DREAM-RSI-R2-ORIGINAL-INTAKE.md",
+            ".github/workflows/qualify-dreamrsi-r2-intake.yml"
+          }
+          observed=set(subprocess.check_output(
+              ["git","diff","--name-only","e2502dfb5e607363c6e758419d8d509d1a3bd5c6","HEAD"],
+              text=True).splitlines())
+          assert observed==expected,(observed,expected)
+          print("FORGE_DREAMRSI_R2_EXACT_BOUNDARY=PASS")
+          PY
+      - name: Retrieve real consumed originals and run identities directly from GitHub
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,pathlib,urllib.request,urllib.parse
+          class NoCrossHostAuthorization(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self,req,fp,code,msg,headers,newurl):
+              follow=super().redirect_request(req,fp,code,msg,headers,newurl)
+              if follow is not None and urllib.parse.urlparse(newurl).hostname != urllib.parse.urlparse(req.full_url).hostname:
+                follow.remove_header("Authorization")
+              return follow
+          opener=urllib.request.build_opener(NoCrossHostAuthorization())
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-dreamrsi-r2-originals"
+          if root.exists():raise SystemExit("FORGE_R2_TEMP_EVIDENCE_PATH_ALREADY_EXISTS")
+          root.mkdir(mode=0o700)
+          sources={
+           "f1":(38128621982,[
+            11698135743,11698120728,11698545897,11698500390,11698495988]),
+           "f2":(38129536058,[
+            11699036057,11698666403,11698437680,11698451563,11698371686]),
+          }
+          names=["wingless-started.zip","yggdrasil-started.zip",
+                 "wingless-raw.zip","yggdrasil-raw.zip","postraw-classified.zip"]
+          base="https://api.github.com/repos/spoonman136668-ai/FORGE"
+          token=os.environ["GH_TOKEN"]
+          def receive(url,maximum):
+            request=urllib.request.Request(url,headers={
+             "Authorization":"Bearer "+token,
+             "Accept":"application/vnd.github+json",
+             "User-Agent":"forge-dreamrsi-independent-archive-intake",
+            })
+            with opener.open(request,timeout=45) as stream:
+              data=stream.read(maximum+1)
+            if len(data)==0 or len(data)>maximum:
+              raise SystemExit("FORGE_R2_GITHUB_EVIDENCE_MISSING_OR_OVERSIZE")
+            return data
+          for generation,(run,artifacts) in sources.items():
+            dest=root/generation;dest.mkdir(mode=0o700)
+            (dest/"run.json").write_bytes(receive(base+"/actions/runs/"+str(run),262144))
+            for artifact,name in zip(artifacts,names):
+              uri=base+"/actions/artifacts/"+str(artifact)+"/zip"
+              (dest/name).write_bytes(receive(uri,1048576))
+          print("FORGE_R2_EXTERNAL_GITHUB_ORIGINALS=RETRIEVED no_secret_export=true original_replay=false")
+          PY
+      - name: Authenticated source focused tests, one full regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          export FORGE_R2_F1_DIR="$RUNNER_TEMP/forge-dreamrsi-r2-originals/f1"
+          export FORGE_R2_F2_DIR="$RUNNER_TEMP/forge-dreamrsi-r2-originals/f2"
+          go test -count=1 -v ./dreamrsi/originals ./cmd/forge-dreamrsi-intake
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./dreamrsi/originals ./cmd/forge-dreamrsi-intake
+          fi
+          go run ./cmd/forge-dreamrsi-intake \
+            -f1-dir "$FORGE_R2_F1_DIR" -f2-dir "$FORGE_R2_F2_DIR" \
+            -output "$RUNNER_TEMP/forge-dreamrsi-r2-originals/catalog.json"
+          echo "FORGE_DREAMRSI_R2_REAL_ORIGINALS=PASS two_original_runs=true four_science_records=true policy_logging=false IPS_eligible=false FSA_active=false science_dispatch=false"
