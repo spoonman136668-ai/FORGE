@@ -1,0 +1,64 @@
+name: FORGE autonomous qualified FSA merge
+on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+concurrency:
+  group: forge-source-merge
+  cancel-in-progress: false
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify exact-head evidence before source-only merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/pulls?state=open&per_page=100" > /tmp/fsa-prs.json
+          python3 - <<'PY'
+          import json,os,subprocess,re
+          repo=os.environ['REPO']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh','api',path],text=True))
+          prs=json.load(open('/tmp/fsa-prs.json'))
+          for pr in sorted(prs,key=lambda p:p['number']):
+              number=pr['number']
+              branch=pr['head']['ref']
+              if pr['draft'] or pr['user']['login']!='spoonman136668-ai' or not branch.startswith('proposal/fsa'):continue
+              if pr['head']['repo']['full_name']!=repo or pr['base']['ref']!='main':continue
+              sha=pr['head']['sha']
+              # Exact HEAD qualification: both hosted Linux/Windows workflows must pass.
+              runs=api(f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100")['workflow_runs']
+              success={x['name'] for x in runs if x['head_sha']==sha and x['status']=='completed' and x['conclusion']=='success'}
+              if 'FORGE public Linux and Windows qualification' not in success:continue
+              if not any(x.startswith('FORGE FSA-') and 'qualification' in x for x in success):continue
+              # Codex must have completed an independent review on this exact head.
+              comments=api(f"repos/{repo}/issues/{number}/comments?per_page=100")
+              summaries=[c['body'] for c in comments if c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]' and 'codex-pull-request-review-summary' in c.get('body','')]
+              if not summaries:continue
+              summary=summaries[-1]
+              if not re.search(r'Code Review\s*\|\s*✅\s*\*\*Completed',summary):continue
+              if sha[:7] not in summary:continue
+              # Review threads, including stale ones, must be resolved.
+              query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved} pageInfo{hasNextPage}}}}}'
+              owner,name=repo.split('/')
+              raw=subprocess.check_output(['gh','api','graphql','-f',f'query={query}','-F',f'owner={owner}','-F',f'name={name}','-F',f'number={number}'],text=True)
+              threads=json.loads(raw)['data']['repository']['pullRequest']['reviewThreads']
+              if threads['pageInfo']['hasNextPage'] or any(not t['isResolved'] for t in threads['nodes']):continue
+              reviews=api(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
+              if any(x['state']=='CHANGES_REQUESTED' for x in reviews):continue
+              current=api(f"repos/{repo}/pulls/{number}")
+              if current['head']['sha']!=sha or current['draft'] or current['base']['ref']!='main':continue
+              # Server-side merge respects any additional GitHub branch rules.
+              print(f"QUALIFIED_SOURCE_MERGE_PR={number} SHA={sha}",flush=True)
+              subprocess.check_call(['gh','api','-X','PUT',f"repos/{repo}/pulls/{number}/merge",
+                    '-f','merge_method=merge','-f',f'sha={sha}'])
+          PY
