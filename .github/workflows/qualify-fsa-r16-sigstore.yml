@@ -1,0 +1,94 @@
+name: FORGE R16 zero-cost independent Sigstore build transparency
+on:
+  push:
+    branches:
+      - proposal/fsa-r16-sigstore-attestation-20261011
+permissions:
+  contents: read
+concurrency:
+  group: forge-r16-sigstore-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Prove pinned qualified R15 foundation and R16 additive scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          base="f223c1efe6c7b670c32fa4792d39e0f7452bb0f5"
+          tree="c7f43f611229dca07f479eae02a755c384ab076d"
+          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          assert parent==base,(parent,base)
+          actual_tree=subprocess.check_output(["git","rev-parse",f"{base}^{{tree}}"],text=True).strip()
+          assert actual_tree==tree,(actual_tree,tree)
+          delta=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          want={".github/workflows/qualify-fsa-r16-sigstore.yml","docs/FSA-R16-SIGSTORE-PUBLIC-WITNESS.md"}
+          assert len(delta)==2 and all(x.startswith("A\t") for x in delta),delta
+          assert {x.split("\t")[1] for x in delta}==want,delta
+          print("FORGE_R16_IMMUTABLE_SOURCE_SCOPE=PASS")
+          PY
+      - name: Existing FSA and history focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./fsagithubcustody ./fsaeligibility ./fsaissuer ./fsaissuance ./dreamrsi ./dreamrsi/prospective
+      - name: One full integrated regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+          fi
+          echo "FORGE_R16_QUALIFIED_SOURCE=PASS no_scientific_original=true"
+  attest:
+    name: External Sigstore public-good build witness
+    needs: qualify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Build public read-only diagnostic artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build -trimpath -o ./fsa-github-audit ./cmd/forge-fsa-github-audit
+          test -s ./fsa-github-audit
+          sha256sum ./fsa-github-audit
+      - name: Witness binary digest and pinned Actions identity in public Sigstore log
+        uses: actions/attest@v4
+        with:
+          subject-path: ./fsa-github-audit
+      - name: Independently verify published build attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh attestation verify ./fsa-github-audit -R spoonman136668-ai/FORGE
+          echo "FORGE_R16_SIGSTORE_WITNESS=VERIFIED independent_transparency=true remote_CAS=false signer_custody=false scientific_authority=false"
