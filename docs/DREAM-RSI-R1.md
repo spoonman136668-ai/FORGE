@@ -16,6 +16,8 @@ An **independently hashed frozen spec** binds each lane, epoch, exact training a
 
 Four baselines: existing FORGE portfolio (4 impact + 2 novelty + robustness − cost), balanced, static impact/cost, and deterministic uniform. Bounded content-addressed mutations preserve policy-parent provenance. Every evaluated candidate, not merely winners, is retained in an exact SHA-linked train/validation ledger; survivor selection preserves weight diversity. No hidden budget increase, favorable relabeling or cross-lane borrowing.
 
+The separate `AssessHoldout` API requires an independently SHA-pinned sealed-holdout specification, the exact optimizer lineage head and policy identity, an independently authenticated later-time holdout history, disjoint receipt/cohort identities and a frozen first-use receipt SHA. It compares the already frozen candidate against the same four baselines **without retraining or changing its policy**. It reports provisional evidence and uncertainty only; FSA still needs an externally protected once-only unsealing/consumption register, propensity/causal audit and multiplicity-corrected inference. The library alone cannot prevent an operator from reopening a local copy of the heldout data.
+
 The validation-selected champion is **a prospective policy recommendation, not a proved discovery improvement**. Nonclustered normal-approximation 95% uncertainty intervals are exploratory; repeated tuning on validation is not confirmation. Actual improvement needs independent, sealed temporal holdout, randomization audit and prospective FSA review.
 
 ## Persistence and handoff
