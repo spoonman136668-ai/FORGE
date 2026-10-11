@@ -1,0 +1,41 @@
+name: FORGE FSA-03 source-only qualification
+on:
+  push:
+    branches: [proposal/fsa03-start-recovery-r1]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact foundation and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD aa16f8b22dbc6b0fc27d58376717417cef30434d)" = aa16f8b22dbc6b0fc27d58376717417cef30434d
+          python - <<'PY'
+          import subprocess
+          paths=set(subprocess.check_output(["git","diff","--name-only","aa16f8b22dbc6b0fc27d58376717417cef30434d","HEAD"],text=True).splitlines())
+          assert paths=={"startrecovery/inspect.go","startrecovery/inspect_test.go",".github/workflows/qualify-fsa03.yml"},paths
+          PY
+      - name: Focused and final regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./startrecovery ./researchlog ./eligibility ./privatearchive ./fsatrust
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
