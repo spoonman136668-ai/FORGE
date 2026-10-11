@@ -36,7 +36,7 @@ func fixture(t *testing.T)(Pin,Bundle,[3]ed25519.PrivateKey) {
 			BindingSHA256:pin.BindingSHA256,AuthorityEpoch:pin.AuthorityEpoch,
 			ProvisioningEpoch:pin.ProvisioningEpoch,
 			HostIdentitySHA256:strings.Repeat(string('c'+rune(i)),64),
-			StorageIdentitySHA256:strings.Repeat(string('f'+rune(i)),64),
+			StorageIdentitySHA256:strings.Repeat(string('3'+rune(i)),64),
 			FailureDomainID:[]string{"dc-a","dc-b","dc-c"}[i],
 			ServiceSPKISHA256:strings.Repeat(string('1'+rune(i)),64),
 			ExternalEvidenceSHA256:strings.Repeat(string('7'+rune(i)),64),
