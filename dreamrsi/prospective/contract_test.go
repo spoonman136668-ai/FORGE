@@ -128,10 +128,12 @@ func TestRandomizedLoggingRemainsUnauditedAndCannotLeakIPS(t *testing.T){
  d.Selection.LoggingMode=RandomizedUnaudited
  d.Selection.AssignedProbabilitiesBP=map[string]int{"A":2000,"B":3000,"C":5000}
  d.Selection.RandomnessCommitSHA256=hash([]byte("external_frozen_nonce_commitment"))
- d.SignatureHex,pin:=sign(d.Selection,testSigner(41),DecisionDomain)
+ newDecisionSignature,pin:=sign(d.Selection,testSigner(41),DecisionDomain)
+ d.SignatureHex=newDecisionSignature
  pre,err:=VerifySelection(d,pin,p);if err!=nil{t.Fatal(err)}
  r.Original.PredecisionSHA256=pin.ExpectedSHA256
- r.SignatureHex,rpin:=sign(r.Original,testSigner(98),ResultDomain)
+ newOriginalSignature,rpin:=sign(r.Original,testSigner(98),ResultDomain)
+ r.SignatureHex=newOriginalSignature
  after,err:=VerifyOriginal(r,rpin);if err!=nil{t.Fatal(err)}
  obs,err:=Join(pre,after);if err!=nil{t.Fatal(err)}
  if obs.RandomizationIndependentlyAudited||obs.EligibleForCausalPolicyReplay{t.Fatal("unaudited randomness promoted")}
