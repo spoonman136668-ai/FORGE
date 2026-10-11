@@ -1,0 +1,38 @@
+name: FORGE R18G frozen candidate provenance qualification
+on:
+  push:
+    branches:
+      - proposal/r18g-source-binding-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact qualified predecessor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = f7fbb5d1cf2afd50d253400f6fa2538e5d414113
+      - name: Focused complete and race qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo R18G_NO_EXECUTION=PASS
