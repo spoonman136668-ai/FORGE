@@ -1,0 +1,64 @@
+name: FORGE Dream-RSI R7 remote FSA issuer TLS boundary qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r7-remote-issuer-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-dreamrsi-r7-remote-issuer
+  cancel-in-progress: false
+jobs:
+  issuer-client:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact qualified R6 foundation and R7 additive files
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=dbff6e0f192119dede271f6049fd7bd13edbd3ef
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          python - <<'PY'
+          import subprocess
+          base="dbff6e0f192119dede271f6049fd7bd13edbd3ef"
+          expected={
+            "fsaremoteissuer/client.go","fsaremoteissuer/client_test.go",
+            "docs/DREAM-RSI-R7-REMOTE-ISSUER.md",
+            ".github/workflows/qualify-dreamrsi-r7-remote-issuer.yml",
+          }
+          changed=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          assert changed==expected,(changed,expected)
+          print("FORGE_DREAMRSI_R7_EXACT_SOURCE_SCOPE=PASS")
+          PY
+      - name: Focused independent mTLS and signed-grant tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./fsaremoteissuer
+      - name: Complete FORGE Go regression and native build; Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./fsaremoteissuer
+          fi
+          echo "FORGE_DREAMRSI_R7_SOURCE=PASS live_issuer=false physical_fsa=false live_dispatch=false first_use_real=false"
