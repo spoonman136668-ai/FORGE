@@ -1,0 +1,61 @@
+name: FORGE F1 prospective science source qualification (no heldout)
+on:
+  push:
+    branches:
+      - proposal/forge-f1-source-20261011
+permissions:
+  contents: read
+concurrency:
+  group: forge-f1-source-qualification
+  cancel-in-progress: false
+jobs:
+  source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact prereg source ancestor, untouched freeze, bounded patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          freeze=cc1816ab48bd29cbc5b9cef9a62816dd5d14fa03
+          git merge-base --is-ancestor "$freeze" HEAD
+          test "$(git rev-parse HEAD:research/pilot-f1/frozen.json)" = be0d5b1eafbbd65573bbdabdfcc42c88c807f7c1
+          test "$(git rev-parse "$freeze":research/pilot-f1/frozen.json)" = "$(git rev-parse HEAD:research/pilot-f1/frozen.json)"
+          python - <<'PY'
+          import subprocess
+          paths = subprocess.check_output(['git','diff','--name-only','cc1816ab48bd29cbc5b9cef9a62816dd5d14fa03','HEAD'], text=True).splitlines()
+          expected = sorted([
+            'pilotf1/pilot.go','pilotf1/pilot_test.go',
+            'cmd/forge-f1/main.go',
+            '.github/workflows/qualify-forge-f1-source.yml',
+            '.github/workflows/forge-f1-one-shot-original.yml',
+          ])
+          assert sorted(paths)==expected,(paths,expected)
+          print('FORGE_F1_SOURCE_SCOPE_AND_FROZEN_PREREG=PASS')
+          PY
+      - name: Structural tests, Go vet, build; NO original evaluator invocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          go run ./cmd/forge-f1 -mode validate -prereg "$PWD/research/pilot-f1/frozen.json"
+          echo 'FORGE_F1_SOURCE_ONLY=PASS primary=false no_heldout=true'

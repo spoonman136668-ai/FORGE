@@ -1,0 +1,156 @@
+name: FORGE F1 isolated first original scientific primary
+on:
+  push:
+    branches:
+      - experiment/forge-f1-original-20261011
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f1-one-original-consumption
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.event.created == true && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Frozen science prereg, source identity, prior first-use denial
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "${GITHUB_EVENT_NAME}" = push
+          test "${GITHUB_REF_NAME}" = experiment/forge-f1-original-20261011
+          test -n "${GITHUB_SHA}"
+          git merge-base --is-ancestor cc1816ab48bd29cbc5b9cef9a62816dd5d14fa03 HEAD
+          test "$(git rev-parse HEAD:research/pilot-f1/frozen.json)" = be0d5b1eafbbd65573bbdabdfcc42c88c807f7c1
+          go run ./cmd/forge-f1 -mode validate -prereg "$PWD/research/pilot-f1/frozen.json"
+          python - <<'PY'
+          import json, os, urllib.request
+          root="https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts"
+          for name in ("forge-f1-wingless-started","forge-f1-yggdrasil-started"):
+              uri=root+"?name="+name+"&per_page=100"
+              req=urllib.request.Request(uri, headers={
+                  "Authorization":"Bearer "+os.environ["GH_TOKEN"],
+                  "Accept":"application/vnd.github+json",
+                  "User-Agent":"forge-f1-consumption-readonly"
+              })
+              with urllib.request.urlopen(req,timeout=20) as resp:
+                  payload=resp.read(200001)
+              history=json.loads(payload)
+              if history["total_count"]!=0 or history["artifacts"]:
+                  raise SystemExit("FORGE_F1_ORIGINAL_ALREADY_CONSUMED_NO_REPLAY")
+          print("FORGE_F1_BEFORE_FIRST_USE=PASS")
+          PY
+          go test -count=1 ./pilotf1 ./cmd/forge-f1
+          echo FORGE_F1_PRE_PRIMARY_SOURCE_GATES=PASS
+
+  both_started:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Seal BOTH lane original STARTED before either primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-f1-w-started" "$RUNNER_TEMP/forge-f1-y-started"
+          printf '{"schema":"forge.f1.original-started.v1","lane":"Wingless","generation":"F1","run_id":"%s","attempt":1,"source_sha":"%s","frozen_blob":"be0d5b1eafbbd65573bbdabdfcc42c88c807f7c1","replay_authorized":false,"scientific_accepted":false}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$RUNNER_TEMP/forge-f1-w-started/started.json"
+          printf '{"schema":"forge.f1.original-started.v1","lane":"Yggdrasil","generation":"F1","run_id":"%s","attempt":1,"source_sha":"%s","frozen_blob":"be0d5b1eafbbd65573bbdabdfcc42c88c807f7c1","replay_authorized":false,"scientific_accepted":false}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$RUNNER_TEMP/forge-f1-y-started/started.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f1-wingless-started
+          path: ${{ runner.temp }}/forge-f1-w-started/started.json
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f1-yggdrasil-started
+          path: ${{ runner.temp }}/forge-f1-y-started/started.json
+          retention-days: 30
+          if-no-files-found: error
+
+  wingless:
+    needs: both_started
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: First use Wingless primary, no posthoc classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-f1-w-raw"
+          go run ./cmd/forge-f1 -mode primary -lane Wingless -run "$GITHUB_RUN_ID" -source "$GITHUB_SHA" -prereg "$PWD/research/pilot-f1/frozen.json" -output "$RUNNER_TEMP/forge-f1-w-raw/raw.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f1-wingless-raw
+          path: ${{ runner.temp }}/forge-f1-w-raw/
+          retention-days: 30
+          if-no-files-found: warn
+
+  yggdrasil:
+    needs: both_started
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: First use Yggdrasil primary, no posthoc classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-f1-y-raw"
+          go run ./cmd/forge-f1 -mode primary -lane Yggdrasil -run "$GITHUB_RUN_ID" -source "$GITHUB_SHA" -prereg "$PWD/research/pilot-f1/frozen.json" -output "$RUNNER_TEMP/forge-f1-y-raw/raw.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f1-yggdrasil-raw
+          path: ${{ runner.temp }}/forge-f1-y-raw/
+          retention-days: 30
+          if-no-files-found: warn
+
+  classify:
+    needs: [wingless, yggdrasil]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - uses: actions/download-artifact@v4
+        with: {name: forge-f1-wingless-raw, path: ${{ runner.temp }}/wingless}
+      - uses: actions/download-artifact@v4
+        with: {name: forge-f1-yggdrasil-raw, path: ${{ runner.temp }}/yggdrasil}
+      - name: Classify exclusively after BOTH originals archived
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-f1-classified"
+          sha256sum "$RUNNER_TEMP/wingless/raw.json" "$RUNNER_TEMP/yggdrasil/raw.json"
+          go run ./cmd/forge-f1 -mode classify -prereg "$PWD/research/pilot-f1/frozen.json" -wingless "$RUNNER_TEMP/wingless/raw.json" -yggdrasil "$RUNNER_TEMP/yggdrasil/raw.json" -output "$RUNNER_TEMP/forge-f1-classified/disposition.json"
+          cat "$RUNNER_TEMP/forge-f1-classified/disposition.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f1-postraw-classified
+          path: ${{ runner.temp }}/forge-f1-classified/disposition.json
+          retention-days: 30
+          if-no-files-found: error
