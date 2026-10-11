@@ -1,0 +1,68 @@
+name: FORGE F3 frozen prospective synthetic-only source qualification
+on:
+  push:
+    branches:
+      - proposal/forge-f3-source-20261011
+permissions:
+  contents: read
+concurrency:
+  group: forge-f3-source-exact
+  cancel-in-progress: false
+jobs:
+  qualify:
+    timeout-minutes: 24
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact F3 prereg and frozen additive source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor dd8f293978c0be6a50404222fad6ae08b4bde8ab HEAD
+          git rev-list --count dd8f293978c0be6a50404222fad6ae08b4bde8ab..HEAD
+          test "$(git rev-parse HEAD:research/pilot-f3/frozen.json)" = "e995301ccb7330ac8f31a0fd4b31611032231fac"
+          test "$(git rev-parse dd8f293978c0be6a50404222fad6ae08b4bde8ab:research/pilot-f3/frozen.json)" = "e995301ccb7330ac8f31a0fd4b31611032231fac"
+          python - <<'PY'
+          import subprocess
+          base="dd8f293978c0be6a50404222fad6ae08b4bde8ab"
+          change=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          expected={
+           "pilotf3/study.go","pilotf3/study_test.go","cmd/forge-f3/main.go",
+           ".github/workflows/qualify-forge-f3-source.yml",
+           ".github/workflows/forge-f3-one-shot-original.yml",
+          }
+          assert len(change)==5 and all(x.startswith("A\t") for x in change),change
+          assert {x.split("\t")[1] for x in change}==expected,change
+          print("FORGE_F3_NEW_PREREG_AND_FIVE_ADDITIVE_SOURCE=PASS")
+          PY
+      - name: Affected-interface focused tests, no primary execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./pilotf3 ./cmd/forge-f3
+          git show HEAD:research/pilot-f3/frozen.json > "$RUNNER_TEMP/forge-f3-frozen.json"
+          go run ./cmd/forge-f3 -mode validate -prereg "$RUNNER_TEMP/forge-f3-frozen.json"
+      - name: One full regression vet build Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "FORGE_F3_SOURCE_QUALIFIED=PASS primary_executed=false"
