@@ -1,0 +1,46 @@
+name: FORGE F4R2 synthetic-only postraw source qualification
+on:
+  push:
+    branches:
+      - proposal/forge-f4-evaluator-r2-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Frozen source and exactly additive classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 17dd94a2a27ccb37e5c3f62e3d3f83cbefb95ce1 HEAD
+          test "$(git rev-parse HEAD:research/pilot-f4/frozen.json)" = 76b940cae65c2800100bf1c589949bfa17ad3258
+          python - <<'PY'
+          import subprocess
+          files=subprocess.check_output(["git","diff","--name-status","17dd94a2a27ccb37e5c3f62e3d3f83cbefb95ce1","HEAD"],text=True).splitlines()
+          wanted={"pilotf4/classify.go","pilotf4/classify_test.go","docs/FORGE-F4-EVALUATOR-R2.md",".github/workflows/qualify-f4r2-source.yml"}
+          assert len(files)==4 and all(f.startswith("A\t") for f in files),files
+          assert {f.split("\t")[1] for f in files}==wanted,files
+          PY
+      - name: Focused and full regression no primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./pilotf4
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "FORGE_F4R2_SOURCE_ONLY=PASS"
