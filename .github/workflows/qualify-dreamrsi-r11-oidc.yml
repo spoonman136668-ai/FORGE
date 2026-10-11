@@ -1,0 +1,133 @@
+name: FORGE R11 real GitHub OIDC provenance shadow qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r11-oidc-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r11-source-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 23
+    permissions:
+      contents: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify R10 immutable source and exact five-file delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=2c431337e1b2050f8445de0c50b2af1142a2347d
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python - <<'PY'
+          import subprocess
+          expected={
+            "oidcaudit/verify.go","oidcaudit/verify_test.go",
+            "cmd/forge-oidc-audit/main.go",
+            "docs/DREAM-RSI-R11-GITHUB-OIDC.md",
+            ".github/workflows/qualify-dreamrsi-r11-oidc.yml",
+          }
+          actual=set(subprocess.check_output(["git","diff","--name-only",
+            "2c431337e1b2050f8445de0c50b2af1142a2347d","HEAD"],
+            text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          print("FORGE_R11_EXACT_SOURCE_SCOPE=PASS")
+          PY
+      - name: Focused signed JWT tests and one entire FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./oidcaudit ./cmd/forge-oidc-audit
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./oidcaudit ./cmd/forge-oidc-audit
+          fi
+          echo "FORGE_R11_SOURCE=QUALIFIED cross_platform=true FSA=false"
+  oidc-shadow:
+    needs: source
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify real GitHub-issued RS256 OIDC JWT without revealing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/forge-r11"
+          go run ./cmd/forge-oidc-audit "$RUNNER_TEMP/forge-r11/receipt.json"
+          echo "FORGE_R11_REAL_GITHUB_OIDC=PASS unsigned_science=false token_not_retained=true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r11-oidc-non-authorizing-receipt
+          path: ${{ runner.temp }}/forge-r11/receipt.json
+          retention-days: 7
+          if-no-files-found: error
+  reconcile:
+    needs: oidc-shadow
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r11-oidc-non-authorizing-receipt
+          path: ${{ runner.temp }}/forge-r11
+      - name: Reject any claim that shadow OIDC granted scientific authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-r11/receipt.json"
+          receipt=json.loads(p.read_text())
+          assert receipt["schema"]=="forge.oidc.provenance-audit.v1"
+          assert receipt["source_sha"]==os.environ["GITHUB_SHA"]
+          assert receipt["run_id"]==os.environ["GITHUB_RUN_ID"]
+          assert receipt["repository_id"]=="1413298198"
+          assert receipt["first_attempt"] is True
+          assert receipt["github_rs256_signature_verified"] is True
+          assert receipt["exact_workflow_and_repository_verified"] is True
+          assert receipt["github_hosted_environment_verified"] is True
+          forbidden=("independently_witnessed_by_fsa","physical_custody_verified",
+                     "dispatch_authorized","scientific_original_executed","accepted_science")
+          assert all(receipt[k] is False for k in forbidden)
+          print("FORGE_R11_HOSTED_OIDC_RECONCILIATION=PASS fsa=false science=false")
+          PY
