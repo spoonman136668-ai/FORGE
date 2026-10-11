@@ -1,0 +1,125 @@
+name: FORGE R9 hosted FSA grant handoff deny-by-default qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r9-hosted-fsa-handoff-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r9-hosted-gate-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  source-qualification:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, windows-latest]
+    timeout-minutes: 25
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check exact R8 SHA and five additive R9 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=3bbc7ff946da6afa94bb2d4fa358f854f34b100c
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python - <<'PY'
+          import subprocess
+          expected={
+            "hostedgrant/review.go",
+            "hostedgrant/review_test.go",
+            "cmd/forge-hosted-grant/main.go",
+            "docs/DREAM-RSI-R9-HOSTED-FSA-HANDOFF.md",
+            ".github/workflows/qualify-dreamrsi-r9-hosted-fsa.yml",
+          }
+          changed=set(subprocess.check_output(
+           ["git","diff","--name-only",
+            "3bbc7ff946da6afa94bb2d4fa358f854f34b100c","HEAD"],text=True).splitlines())
+          assert changed==expected,(changed,expected)
+          print("FORGE_R9_EXACT_SOURCE_SCOPE=PASS")
+          PY
+      - name: Focused signed-first-use tests; one full regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./hostedgrant ./cmd/forge-hosted-grant
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./hostedgrant ./cmd/forge-hosted-grant
+          fi
+          echo "FORGE_R9_SOURCE=PASS FSA_physical=false scientific_dispatch=false"
+  deny-without-fsa:
+    needs: source-qualification
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {lane: Wingless, os: linux, runner: ubuntu-latest}
+          - {lane: Wingless, os: windows, runner: windows-latest}
+          - {lane: Yggdrasil, os: linux, runner: ubuntu-latest}
+          - {lane: Yggdrasil, os: windows, runner: windows-latest}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 14
+    permissions:
+      contents: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+      FORGE_SCIENCE_LANE: ${{ matrix.lane }}
+      FORGE_FSA_WORKFLOW: .github/workflows/forge-fsa-original.yml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Absent independent FSA grant MUST fail before any scientific work
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then os=linux; else os=windows; fi
+          test "$os" = "${{ matrix.os }}"
+          go build -o "$RUNNER_TEMP/forge-r9-gate" ./cmd/forge-hosted-grant
+          set +e
+          "$RUNNER_TEMP/forge-r9-gate" \
+            -grant "$RUNNER_TEMP/ABSENT-external-fsa-grant.json" \
+            -scope "$RUNNER_TEMP/ABSENT-external-fsa-scope.json" \
+            -proof "$RUNNER_TEMP/ABSENT-fsa-firstuse-proof.json" \
+            -output "$RUNNER_TEMP/must-not-exist.json"
+          code=$?
+          set -e
+          test "$code" -eq 2
+          test ! -f "$RUNNER_TEMP/must-not-exist.json"
+          echo "FORGE_R9_NO_FSA_NO_ORIGINAL=PASS lane=$FORGE_SCIENCE_LANE os=$os"
+  all-gates:
+    needs: deny-without-fsa
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 4
+    steps:
+      - name: All four independent hosted FSA gates denied real science
+        run: |
+          echo "FORGE_R9_HOSTED_HANDOFF=QUALIFIED_DENY_BY_DEFAULT"
+          echo "FORGE_R9_REAL_FSA_NOT_PROVISIONED=true"
+          echo "FORGE_R9_SCIENCE_EXECUTED=false"
