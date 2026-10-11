@@ -1,0 +1,43 @@
+name: FORGE FSA-02 read-only qualification
+on:
+  push:
+    branches:
+      - proposal/fsa02-ledger-preflight-r1
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact foundation and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD 8dcb550d3f8f065e76b0fed5eb1cb9bfdf47dc35)" = 8dcb550d3f8f065e76b0fed5eb1cb9bfdf47dc35
+          python - <<'PY'
+          import subprocess
+          paths=subprocess.check_output(["git","diff","--name-only","8dcb550d3f8f065e76b0fed5eb1cb9bfdf47dc35","HEAD"],text=True).splitlines()
+          expected={".github/workflows/qualify-fsa02.yml","eligibility/ledger.go","eligibility/ledger_test.go"}
+          assert set(paths)==expected,paths
+          PY
+      - name: Focused verification and full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./eligibility ./contracts ./researchlog ./privatearchive ./fsatrust
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
