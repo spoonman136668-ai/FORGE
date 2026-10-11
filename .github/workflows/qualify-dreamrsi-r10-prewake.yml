@@ -1,0 +1,123 @@
+name: FORGE R10 two-phase hosted wake and FSA run binding qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r10-prewake-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r10-prewake-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  source:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact R9 identity and bounded five-file addition
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=d80a28c685fbf2a67f6b5d19e0b272d13f6adefe
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python - <<'PY'
+          import subprocess
+          expected={
+            "hostedwake/protocol.go",
+            "hostedwake/protocol_test.go",
+            "cmd/forge-hosted-wake/main.go",
+            "docs/DREAM-RSI-R10-TWO-PHASE-WAKE.md",
+            ".github/workflows/qualify-dreamrsi-r10-prewake.yml"
+          }
+          observed=set(subprocess.check_output(
+            ["git","diff","--name-only",
+            "d80a28c685fbf2a67f6b5d19e0b272d13f6adefe","HEAD"],
+            text=True).splitlines())
+          assert observed==expected,(observed,expected)
+          print("FORGE_R10_EXACT_SOURCE_SCOPE=PASS")
+          PY
+      - name: Focused two-phase binding, replay negatives and full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./hostedwake ./cmd/forge-hosted-wake
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./hostedwake ./cmd/forge-hosted-wake
+          fi
+          echo "FORGE_R10_FULL_QUALIFICATION=PASS simulation_only=true"
+  no-independent-intent:
+    needs: source
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {lane: Wingless, os: linux, runner: ubuntu-latest}
+          - {lane: Wingless, os: windows, runner: windows-latest}
+          - {lane: Yggdrasil, os: linux, runner: ubuntu-latest}
+          - {lane: Yggdrasil, os: windows, runner: windows-latest}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+      FORGE_SCIENCE_LANE: ${{ matrix.lane }}
+      FORGE_FSA_WORKFLOW: .github/workflows/forge-fsa-original.yml
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Real hosted job cannot advance without independently signed FSA prewake
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = Linux ]; then os=linux; else os=windows; fi
+          test "$os" = "${{ matrix.os }}"
+          go build -o "$RUNNER_TEMP/forge-r10-wake" ./cmd/forge-hosted-wake
+          set +e
+          "$RUNNER_TEMP/forge-r10-wake" \
+            -intent "$RUNNER_TEMP/ABSENT-external-fsa-prewake.json" \
+            -output "$RUNNER_TEMP/must-not-exist.json"
+          exit_code=$?
+          set -e
+          test "$exit_code" -eq 2
+          test ! -e "$RUNNER_TEMP/must-not-exist.json"
+          echo "FORGE_R10_NO_INTENT_NO_SCIENCE=PASS lane=$FORGE_SCIENCE_LANE os=$os"
+  terminal:
+    needs: no-independent-intent
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.event_name == 'push' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    steps:
+      - run: |
+          echo "FORGE_R10_TWO_PHASE_SOURCE=QUALIFIED"
+          echo "FORGE_R10_REAL_FSA=NOT_PROVISIONED"
+          echo "FORGE_R10_SCIENCE=NOT_EXECUTED"
