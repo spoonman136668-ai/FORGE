@@ -1,0 +1,42 @@
+name: FORGE FSA-01 source-only qualification
+on:
+  push:
+    branches:
+      - proposal/fsa01-readiness-gate-r1
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Qualification scope and authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base HEAD c51578b6ed88205069a90ea12efc45b2057384b2)" = c51578b6ed88205069a90ea12efc45b2057384b2
+          git diff --name-only c51578b6ed88205069a90ea12efc45b2057384b2 HEAD | while read -r path; do
+            case "$path" in
+              docs/FSA-01-SOURCE-GAP-MATRIX.md|eligibility/verify.go|eligibility/verify_test.go|.github/workflows/qualify-fsa01.yml) ;;
+              *) echo "SCOPE_DRIFT:$path"; exit 1 ;;
+            esac
+          done
+      - name: Focused tests and final integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./eligibility ./contracts ./researchlog ./privatearchive ./fsahead ./fsatrust
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
