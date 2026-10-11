@@ -1,0 +1,65 @@
+name: FORGE Dream-RSI R6 native FSA first-use issuance qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r6-fsa-issuance-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-dreamrsi-r6-native-source
+  cancel-in-progress: false
+jobs:
+  native-fsa-issuance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 28
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify immutable R5 parent and four R6 additive source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=b893eba429cf0ca933710df1a77071539c3ced68
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          python - <<'PY'
+          import subprocess
+          base="b893eba429cf0ca933710df1a77071539c3ced68"
+          expected={
+            "fsaissuance/firstuse.go",
+            "fsaissuance/firstuse_test.go",
+            "docs/DREAM-RSI-R6-FSA-ISSUANCE.md",
+            ".github/workflows/qualify-dreamrsi-r6-fsa-issuance.yml",
+          }
+          changed=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          assert changed==expected,(changed,expected)
+          print("FORGE_DREAMRSI_R6_EXACT_BOUNDARY=PASS")
+          PY
+      - name: FSA-native focused tests without any original scientific primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./fsaissuance
+      - name: One full FORGE regression, native build/vet, Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./fsaissuance
+          fi
+          echo "FORGE_DREAMRSI_R6_QUALIFIED=PASS fsa_issuer_provisioned=false science_dispatch=false first_use_real=false"
