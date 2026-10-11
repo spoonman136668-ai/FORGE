@@ -8,6 +8,7 @@ import (
  "encoding/json"
  "errors"
  "fmt"
+ "strings"
 )
 
 const Schema = "forge.eligibility.frozen.v1"
@@ -37,6 +38,8 @@ type Witness struct {
  // StartReconciled must be established externally; an unknown prior start
  // is terminally blocked until an independent reconciliation.
  StartReconciled bool
+ // FrozenSHA256 is independently pinned by the authenticated source ledger.
+ FrozenSHA256 string
 }
 
 var ErrBlocked = errors.New("FORGE_ELIGIBILITY_BLOCKED_NO_SCIENTIFIC_AUTHORITY")
@@ -64,13 +67,17 @@ func Check(p Frozen,w Witness) error {
  }
  seeds:=make(map[string]bool,len(p.SeedIDs))
  for _,s:=range p.SeedIDs {
-  if !identifier(s)||seeds[s] {return fmt.Errorf("%w: seed collision",ErrBlocked)}
+  if !strings.HasPrefix(s,p.Lane+":") || !identifier(strings.TrimPrefix(s,p.Lane+":")) || seeds[s] {return fmt.Errorf("%w: seed identity or collision",ErrBlocked)}
   seeds[s]=true
  }
  if w.Lane!=p.Lane || w.SourceSHA!=p.SourceSHA ||
   w.PreregSHA256!=p.PreregSHA256 || w.CohortSHA256!=p.CohortSHA256 ||
   w.ProtocolSHA256!=p.ProtocolSHA256 {
   return fmt.Errorf("%w: independently pinned witness mismatch",ErrBlocked)
+ }
+ fingerprint,err:=Fingerprint(p)
+ if err!=nil || !lowerHex(w.FrozenSHA256,64) || fingerprint!=w.FrozenSHA256 {
+  return fmt.Errorf("%w: frozen fingerprint mismatch",ErrBlocked)
  }
  if !w.LedgerAuthenticated || w.ConsumedCohorts==nil || !w.StartReconciled {
   return fmt.Errorf("%w: missing authenticated ledger or uncertain start",ErrBlocked)
