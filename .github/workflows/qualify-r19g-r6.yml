@@ -1,0 +1,47 @@
+name: FORGE R19G executable CKB R6 multi-batch comparison
+on:
+  push:
+    branches:
+      - proposal/r19g-r6-executable-parity-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source ancestry and CKB blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 1ef5cd98ef7acdc28d9fd8d9ea8ccf6b84f2a827 HEAD
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio.py)" = 74787fac19b8c8c93892573eacc6fe518f891476
+          test "$(git rev-parse HEAD:reference/ckb-r196/portfolio_multibatch.py)" = 8d789483a9f9dc97c7eb4a8cf15cd4dc94432e39
+      - name: Run original CKB R6 against FORGE Go
+        shell: bash
+        env:
+          CKB_SOURCE: ${{ github.workspace }}/reference/ckb-r196
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-r6" ./cmd/forge-r6-compare
+          export FORGE_R6_EXE="$RUNNER_TEMP/forge-r6"
+          python scripts/r19g_multibatch_differential.py
+      - name: Full qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
