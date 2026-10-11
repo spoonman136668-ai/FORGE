@@ -1,0 +1,101 @@
+name: FORGE R17 ICE Graphify Obsidian general architecture
+on:
+  push:
+    branches:
+      - proposal/r17-forge-ice-graphify-obsidian-20261011
+permissions:
+  contents: read
+concurrency:
+  group: forge-r17-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Verify pinned R16 base and bounded knowledge-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          base="982a654a3ed34719787aeb4a57bbe5e2f485c451"
+          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          assert parent==base,(parent,base)
+          tree=subprocess.check_output(["git","rev-parse",f"{base}^{{tree}}"],text=True).strip()
+          assert tree=="c06a7932d771479158701f4cd8d2d6f795adda15",tree
+          status=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          additions={
+            ".ice/manifest.json",
+            ".ice/structure.json",
+            ".ice/evidence-index.json",
+            ".ice/derived/.gitignore",
+            "iceindex/ice_test.go",
+            "tools/Build-FORGE-Graphify.ps1",
+            "docs/FORGE-ICE-GRAPHIFY-OBSIDIAN.md",
+            ".github/workflows/qualify-r17-forge-ice-graphify.yml",
+          }
+          assert len(status)==9,status
+          for row in status:
+            op,path=row.split("\t")
+            assert (op=="A" and path in additions) or (op=="M" and path==".gitignore"),row
+          assert {row.split("\t")[1] for row in status}==additions|{".gitignore"},status
+          print("FORGE_R17_PINNED_KNOWLEDGE_SCOPE=PASS")
+          PY
+      - name: Focused ICE structure provenance and no-authority tests
+        shell: bash
+        run: go test -count=1 ./iceindex ./mindcontext ./dreamrsi ./fsaeligibility
+      - name: Full regression vet build and Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+          fi
+          echo "FORGE_R17_ICE_SOURCE=PASS no_science=true no_authority=true"
+      - name: Verify PowerShell Graphify wrapper parse on native Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path ./tools/Build-FORGE-Graphify.ps1).Path,
+            [ref]$null,[ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) { throw "FORGE_R17_POWERSHELL_PARSE_FAILED $($errors.Count)" }
+          Write-Output "FORGE_R17_POWERSHELL_PARSE=PASS"
+  graphify:
+    name: Real Graphify 0.9.53 local-code-only extraction and Obsidian
+    needs: qualify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: No-model public-source Graphify extraction and Obsidian export
+        shell: pwsh
+        run: |
+          ./tools/Build-FORGE-Graphify.ps1 -UseUv
+      - name: Retain public derived graph and Obsidian notes without repo mutation
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-r17-ice-graphify-obsidian
+          path: |
+            .ice/derived/graphify
+            .ice/derived/obsidian
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
