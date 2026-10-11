@@ -97,8 +97,32 @@ func peerClient(p Peer)(string,*http.Client,error){
   CheckRedirect:func(*http.Request,[]*http.Request)error{return http.ErrUseLastResponse}}
  return endpoint,client,nil
 }
+// distinctTrustPeers enforces disjoint client certificate public keys,
+// server pins and trusted CA subjects at the public-source trust boundary.
+// This is structural separation only; it cannot attest host, storage or
+// signer-custody independence. An uninspectable trust pool fails closed.
+func distinctTrustPeers(a,b Peer)error{
+ if a.Roots==nil||b.Roots==nil||len(a.Certificate.Certificate)==0||
+  len(b.Certificate.Certificate)==0{return errors.New("FORGE_FSA_REMOTE_PEER_IDENTITY_MISSING")}
+ left,right:=a.Roots.Subjects(),b.Roots.Subjects()
+ if len(left)==0||len(right)==0{return errors.New("FORGE_FSA_REMOTE_EXPLICIT_CA_ROOT_REQUIRED")}
+ for _,x:=range left{for _,y:=range right{
+  if bytes.Equal(x,y){return errors.New("FORGE_FSA_REMOTE_SHARED_CA_FORBIDDEN")}
+ }}
+ certA,errA:=x509.ParseCertificate(a.Certificate.Certificate[0])
+ certB,errB:=x509.ParseCertificate(b.Certificate.Certificate[0])
+ if errA!=nil||errB!=nil{return errors.New("FORGE_FSA_REMOTE_CLIENT_CERT_INVALID")}
+ if bytes.Equal(certA.RawSubjectPublicKeyInfo,certB.RawSubjectPublicKeyInfo){
+  return errors.New("FORGE_FSA_REMOTE_REUSED_CLIENT_KEY_FORBIDDEN")
+ }
+ if a.ServerSPKISHA256==b.ServerSPKISHA256{
+  return errors.New("FORGE_FSA_REMOTE_SHARED_SERVER_SPKI_FORBIDDEN")
+ }
+ return nil
+}
 func NewClient(authority,witness Peer,pin Pin)(*Client,error){
  if !pin.valid(){return nil,ErrMismatch}
+ if err:=distinctTrustPeers(authority,witness);err!=nil{return nil,err}
  aURL,aClient,err:=peerClient(authority);if err!=nil{return nil,err}
  wURL,wClient,err:=peerClient(witness);if err!=nil{return nil,err}
  if aURL==wURL{return nil,errors.New("FORGE_FSA_REMOTE_SHARED_TRUST_ENDPOINT_FORBIDDEN")}
@@ -152,15 +176,21 @@ func (c *Client)receive(ctx context.Context)(fsahead.Anchor,SignedWitness,error)
 func (c *Client)ReadAnchor(ctx context.Context)(fsahead.Anchor,error){
  a,_,err:=c.receive(ctx);return a,err
 }
-func (c *Client)ConfirmArchiveBinding(ctx context.Context,archiveID string)(bool,error){
+// archiveBinding verifies independently returned physical binding metadata.
+// A client pin alone cannot serve as remote binding evidence.
+func (c *Client)archiveBinding(ctx context.Context,archiveID string)(bool,error){
  if c==nil||!c.pin.valid()||archiveID!=c.pin.ArchiveID{return false,ErrMismatch}
- if _,_,err:=c.receive(ctx);err!=nil{return false,err}
  var response bindingResponse
  route:="/v1/fsa/binding?archive_id="+url.QueryEscape(archiveID)
  if _,err:=c.exchange(ctx,c.authority,c.authorityURL,http.MethodGet,route,nil,&response);err!=nil{return false,err}
  if response.Schema!=WireSchema||response.ArchiveID!=archiveID||
   response.BindingSHA256!=c.pin.BindingSHA256{return false,ErrMismatch}
  return response.Bound,nil
+}
+func (c *Client)ConfirmArchiveBinding(ctx context.Context,archiveID string)(bool,error){
+ if c==nil||!c.pin.valid()||archiveID!=c.pin.ArchiveID{return false,ErrMismatch}
+ if _,_,err:=c.receive(ctx);err!=nil{return false,err}
+ return c.archiveBinding(ctx,archiveID)
 }
 func (c *Client)CompareAndSwap(ctx context.Context,previous,next fsahead.Anchor)(bool,error){
  if c==nil||!c.pin.valid()||!c.pin.accepts(previous)||!c.pin.accepts(next)||
@@ -170,6 +200,10 @@ func (c *Client)CompareAndSwap(ctx context.Context,previous,next fsahead.Anchor)
  current,_,err:=c.receive(ctx)
  if err!=nil{return false,err}
  if !sameAnchor(previous,current){return false,nil}
+ // Direct CAS must authenticate external binding before any POST.
+ bound,err:=c.archiveBinding(ctx,previous.ArchiveID)
+ if err!=nil{return false,err}
+ if !bound{return false,ErrMismatch}
  request:=casRequest{Schema:WireSchema,Previous:makeWire(previous),Next:makeWire(next)}
  var response casResponse
  code,err:=c.exchange(ctx,c.authority,c.authorityURL,http.MethodPost,"/v1/fsa/cas",request,&response)
@@ -178,6 +212,9 @@ func (c *Client)CompareAndSwap(ctx context.Context,previous,next fsahead.Anchor)
  if response.Schema!=WireSchema||!response.Committed{return false,ErrRemote}
  observed,_,err:=c.receive(ctx)
  if err!=nil||!sameAnchor(observed,next){return false,ErrRemote}
+ // A committed CAS with a subsequently invalid binding is indeterminate.
+ bound,err=c.archiveBinding(ctx,next.ArchiveID)
+ if err!=nil||!bound{return false,ErrRemote}
  return true,nil
 }
 var _ fsatrust.Authority = (*Client)(nil)
