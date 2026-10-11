@@ -42,7 +42,7 @@ for seq in cases:
   "sealed_source_set_sha256":None,"cross_lane_exclusion_receipt_sha256":None,
   "sealed_outcomes_accessed":False,"accepted_ref_mutation":False}
  gate_pin=portfolio.digest(gate)
- original_rows=[{"candidate_id":cid} for cid in ids]
+ original_rows=list(ids)
  original_reconcile=r196.reconcile
  original_candidate_rows=r196.candidate_rows
  try:
