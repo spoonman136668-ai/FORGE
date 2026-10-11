@@ -1,0 +1,69 @@
+name: FORGE Dream-RSI R1 independent shadow qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r1-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-dreamrsi-r1-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact immutable FORGE baseline and source-only change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=fc50538f7d9151721299ffbb1ccfbb018354c08f
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          python - <<'PY'
+          import subprocess
+          base="fc50538f7d9151721299ffbb1ccfbb018354c08f"
+          expected={
+              "dreamrsi/history.go","dreamrsi/replay.go",
+              "dreamrsi/optimize.go","dreamrsi/lineage.go",
+              "dreamrsi/dreamrsi_test.go",
+              "cmd/forge-dreamrsi/main.go",
+              "cmd/forge-dreamrsi/main_test.go",
+              "docs/DREAM-RSI-R1.md",
+              ".github/workflows/qualify-dreamrsi-r1.yml"
+          }
+          actual=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          print("FORGE_DREAMRSI_EXACT_SOURCE_SCOPE=PASS")
+          PY
+      - name: Focused signed-history, leakage, replay, lineage and FSA-contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./dreamrsi ./cmd/forge-dreamrsi
+      - name: One full regression, vet and build plus Linux race and synthetic benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+            go test -run '^$' -bench BenchmarkReplaySyntheticFixture -benchtime=60x ./dreamrsi
+          fi
+          echo "FORGE_DREAMRSI_R1_QUALIFIED=PASS shadow=true dispatch=false fsa_active=false"
