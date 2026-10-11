@@ -1,0 +1,56 @@
+name: FORGE R19C execute pinned CKB Python versus native Go
+on:
+  push:
+    branches:
+      - proposal/r19c-ckb-executable-differential-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: forge
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/ckb-plane
+          ref: 9426a189cf3a3401a50d0455f366ff35d8944985
+          path: ckb
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: forge/go.mod
+          cache: false
+      - name: Exact source verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C forge rev-parse HEAD^)" = 1646fdbaa1deda1ee2a3528afb68b98c6b830a94
+          test "$(git -C ckb rev-parse HEAD)" = 9426a189cf3a3401a50d0455f366ff35d8944985
+      - name: Execute original CKB Python and native Go on same cases
+        shell: bash
+        working-directory: forge
+        env:
+          CKB_SOURCE: ${{ github.workspace }}/ckb
+        run: |
+          set -euo pipefail
+          go build -o "$RUNNER_TEMP/forge-r196" ./cmd/forge-r196-compare
+          export FORGE_R196_EXE="$RUNNER_TEMP/forge-r196"
+          python scripts/r19c_differential.py
+      - name: Full FORGE regression
+        shell: bash
+        working-directory: forge
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo R19C_CROSS_REPO_SOURCE_QUALIFIED=PASS
