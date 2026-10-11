@@ -51,6 +51,15 @@ func applyAffineF4(ab [2]int,x int)int{return (ab[0]*x+ab[1])%29}
 func runWinglessRow(train,held int)Row{
  left,right:=permF4(5,held),permF4(5,held+101)
  r:=Row{TrainSeed:train,HeldoutSeed:held,Cases:240,Bounded:true}
+ var learned [2][5][2]int
+ for ctx:=0;ctx<2;ctx++{
+  mapping:=left;if ctx==1{mapping=right}
+  for token,role:=range mapping{
+   coef,ok:=trainAffineF4(role,train+ctx*37)
+   if !ok{r.Bounded=false}
+   learned[ctx][token]=coef
+  }
+ }
  for i:=0;i<240;i++{
   ctx:=(i+held)%2;a:=i%5;b:=(3*i+1)%5
   if a==b{b=(b+1)%5}
