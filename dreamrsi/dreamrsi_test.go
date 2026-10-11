@@ -204,3 +204,24 @@ func BenchmarkReplaySyntheticFixture(b *testing.B){
   if _,err:=Evaluate(p,h,4,1000);err!=nil{b.Fatal(err)}
  }
 }
+
+
+func TestSyntheticBaselineComparisonReport(t *testing.T){
+ names:=[]string{"portfolio","balanced","fixed","deterministic-uniform"}
+ for _,lane:=range []string{"Wingless","Yggdrasil"}{
+  tr,va,spec,pin:=frozen(t,lane)
+  result,err:=Optimize(tr,va,spec,pin);if err!=nil{t.Fatal(err)}
+  t.Logf("FIXTURE lane=%s policies=%d evaluations=%d replay_ops=%d improvement_claim=false",lane,len(result.Records),result.EvaluationsUsed,result.DecisionReplaysUsed)
+  for i,b:=range result.Baselines{
+   t.Logf("FIXTURE baseline=%s lane=%s ips_quality=%.6f ips_compute=%.6f gain_per_compute=%.6f ci95=[%.6f,%.6f] coverage=%d/%d ess=%.3f unsupported=%d comparable=%t",
+    names[i],lane,b.EstimatedQuality,b.EstimatedCompute,b.GainPerCompute,
+    b.CI95Low,b.CI95High,b.Matched,b.Records,b.EffectiveSampleSize,
+    b.UnsupportedCounterfactuals,b.CanCompare)
+  }
+  s:=result.SelectedValidation
+  t.Logf("FIXTURE selected lane=%s policy=%s ips_quality=%.6f ips_compute=%.6f gain_per_compute=%.6f ci95=[%.6f,%.6f] coverage=%d/%d ess=%.3f comparable=%t accepted=false",
+   lane,result.SelectedPolicySHA256,s.EstimatedQuality,s.EstimatedCompute,
+   s.GainPerCompute,s.CI95Low,s.CI95High,s.Matched,s.Records,
+   s.EffectiveSampleSize,s.CanCompare)
+ }
+}
