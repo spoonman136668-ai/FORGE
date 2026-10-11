@@ -1,0 +1,65 @@
+name: FORGE R15 real GitHub custody audit
+on:
+  push:
+    branches:
+      - proposal/fsa-r15-github-live-custody-audit-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Exact R14 predecessor and five additive files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          base="32fad11040f886fbdfc7c422262841b0aa5cbcd5"
+          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          assert parent==base,(parent,base)
+          tree=subprocess.check_output(["git","rev-parse",f"{base}^{{tree}}"],text=True).strip()
+          assert tree=="51ba29132573a64faf6e0e62a8e6d504dc95164b",tree
+          diff=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          expected={
+            ".github/workflows/qualify-fsa-r15-github-custody.yml",
+            "docs/FSA-R15-GITHUB-LIVE-CUSTODY.md",
+            "fsagithubcustody/audit.go",
+            "fsagithubcustody/audit_test.go",
+            "cmd/forge-fsa-github-audit/main.go",
+          }
+          assert len(diff)==5 and all(x.startswith("A\t") for x in diff),diff
+          assert {x.split("\t")[1] for x in diff}==expected,diff
+          print("FORGE_R15_EXACT_ADDITIVE_SCOPE=PASS")
+          PY
+      - name: Focused affected-interface tests
+        shell: bash
+        run: go test -count=1 ./fsagithubcustody ./fsaissuer ./fsaeligibility
+      - name: One full regression vet build and Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+          fi
+      - name: Real public GitHub external read-only audit
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-fsa-github-audit
+          echo "FORGE_R15_REMOTE_OBSERVED=PASS live_science=false authority=false"
