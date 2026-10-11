@@ -1,0 +1,45 @@
+name: FORGE R18D restart checkpoint qualification
+on:
+  push:
+    branches:
+      - proposal/r18d-restart-provenance-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify parent and narrow delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 527eb78c88b8f8e2240845b2033e2d2bab9a3c47
+          python - <<'PY'
+          import subprocess
+          got=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          want={"evoportfolio/checkpoint.go","evoportfolio/checkpoint_test.go",".github/workflows/qualify-r18d-checkpoint.yml"}
+          assert len(got)==3 and all(v.startswith("A\t") for v in got),got
+          assert {v.split("\t")[1] for v in got}==want,got
+          PY
+      - name: Source-only focused and full Go qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "FORGE_R18D_CHECKPOINT_SOURCE_ONLY=PASS"
