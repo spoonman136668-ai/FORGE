@@ -32,6 +32,22 @@ func permF4(n,seed int)[]int{
  return p
 }
 func affineF4(role,x int)int{return ((2*role+3)*x+(7*role+1))%29}
+func trainAffineF4(role,trainingSeed int)([2]int,bool){
+ // Demonstrations are generated before querying heldout inputs. Infer a
+ // unique affine mapping from observed pairs rather than reading test labels.
+ x0:=(trainingSeed+role*3)%29
+ x1:=(x0+7)%29
+ y0,y1:=affineF4(role,x0),affineF4(role,x1)
+ var found [2]int
+ n:=0
+ for a:=0;a<29;a++{for b:=0;b<29;b++{
+  if (a*x0+b)%29==y0&&(a*x1+b)%29==y1{
+   found=[2]int{a,b};n++
+  }
+ }}
+ return found,n==1
+}
+func applyAffineF4(ab [2]int,x int)int{return (ab[0]*x+ab[1])%29}
 func runWinglessRow(train,held int)Row{
  left,right:=permF4(5,held),permF4(5,held+101)
  r:=Row{TrainSeed:train,HeldoutSeed:held,Cases:240,Bounded:true}
@@ -42,7 +58,7 @@ func runWinglessRow(train,held int)Row{
   mapping:=left;if ctx==1{mapping=right}
   truth:=affineF4(mapping[b],affineF4(mapping[a],x))
   // A context-specific role table and equal-capacity non-context baseline.
-  adapted:=affineF4(mapping[b],affineF4(mapping[a],x))
+  adapted:=applyAffineF4(learned[ctx][b],applyAffineF4(learned[ctx][a],x))
   unkeyed:=affineF4(right[b],affineF4(right[a],x))
   reverse:=affineF4(mapping[a],affineF4(mapping[b],x))
   if adapted==truth{r.Correct++}
