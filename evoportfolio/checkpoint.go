@@ -38,7 +38,7 @@ func AdvanceCheckpoint(h Handoff,prior Checkpoint,completion Completion)(Checkpo
   if i>=len(h.OrderedFinalistIDs)||c.CandidateID!=h.OrderedFinalistIDs[i]||
    c.FrozenSHA256!=h.FrozenSHA256||c.DecisionSHA256!=h.DecisionSHA256||
    !isHex(c.EvidenceSHA256,64)||!isHex(c.SourceSHA,40)||
-   (c.Outcome!="SUPPORTED"&&c.Outcome!="MIXED"&&c.Outcome!="NEGATIVE"&&c.Outcome!="INVALID"){
+   (c.Outcome!="SUPPORTED"&&c.Outcome!="MIXED"&&c.Outcome!="NEGATIVE"){
    return empty,ErrFrozen
   }
   done=append(done,c.CandidateID)
@@ -48,7 +48,7 @@ func AdvanceCheckpoint(h Handoff,prior Checkpoint,completion Completion)(Checkpo
  if completion.FrozenSHA256!=h.FrozenSHA256||completion.DecisionSHA256!=h.DecisionSHA256||
   !isHex(completion.EvidenceSHA256,64)||!isHex(completion.SourceSHA,40)||
   (completion.Outcome!="SUPPORTED"&&completion.Outcome!="MIXED"&&
-   completion.Outcome!="NEGATIVE"&&completion.Outcome!="INVALID"){
+   completion.Outcome!="NEGATIVE"){
   return empty,errors.New("FORGE_COMPLETION_PROVENANCE_INVALID")
  }
  checkpoint:=Checkpoint{Schema:"forge.evoportfolio.checkpoint.v1",
