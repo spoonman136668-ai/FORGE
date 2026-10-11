@@ -176,12 +176,21 @@ func TestIndependentPinsAndEndpointSeparation(t *testing.T){
   func(c *Config){c.AuthorityURL=c.BaseURL},
   func(c *Config){c.WitnessURL=c.BaseURL},
   func(c *Config){c.ApprovalPublicKey=c.FSAHeadPublicKey},
-  func(c *Config){c.ServerSPKISHA256=repeatHex("0")},
   func(c *Config){c.Roots=nil},
   func(c *Config){c.ClientCertificate.PrivateKey=nil},
  }{
   c:=fx.config;modify(&c)
   if _,err:=New(c);err==nil{t.Fatal("untrusted issuer configuration accepted")}
+ }
+ // A syntactically valid but wrong server pin cannot be rejected before
+ // the TLS handshake. It MUST be rejected by VerifyConnection at the wire.
+ wrong:=fx.config
+ wrong.ServerSPKISHA256=repeatHex("0")
+ client,err:=New(wrong)
+ if err!=nil{t.Fatal("syntactically valid remote pin should reach TLS verification",err)}
+ defer client.Close()
+ if _,err=client.IssueFirstUse(context.Background(),intent());err==nil{
+  t.Fatal("wrong server SPKI pin accepted over mutual TLS")
  }
 }
 func TestSignedApprovalAndCertificateTamperingFails(t *testing.T){
