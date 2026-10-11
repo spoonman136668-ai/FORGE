@@ -1,0 +1,45 @@
+name: FORGE R18H strict evidence JSON qualification
+on:
+  push:
+    branches:
+      - proposal/r18h-strict-evidence-json-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fixed parent and additive-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 51d03d03335f1a4b0775dbe5ff1e9557dbd0efe8
+          python - <<'PY'
+          import subprocess
+          rows=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          want={"evoportfolio/strict_evidence.go","evoportfolio/strict_evidence_test.go",".github/workflows/qualify-r18h-strict-evidence.yml"}
+          assert len(rows)==3 and all(x.startswith("A\t") for x in rows),rows
+          assert {x.split("\t")[1] for x in rows}==want,rows
+          PY
+      - name: Full Go regression vet build and race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "R18H_STRICT_JSON_SOURCE_ONLY=PASS"
