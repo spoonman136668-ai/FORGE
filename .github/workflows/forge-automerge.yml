@@ -47,12 +47,23 @@ jobs:
               summary=summaries[-1]
               if not re.search(r'\*\*Code Review\*\*\s*\|\s*✅\s*\*\*Completed',summary):continue
               if sha[:7] not in summary:continue
-              # Review threads, including stale ones, must be resolved.
-              query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved} pageInfo{hasNextPage}}}}}'
+              # No outstanding current-head Codex findings.
+              inline=api(f"repos/{repo}/pulls/{number}/comments?per_page=100")
+              if any(c.get('commit_id')==sha and c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]'
+                     and any(tag in c.get('body','') for tag in ('[P0','[P1','[P2')) for c in inline):continue
+              # A fresh clean review can close superseded bot-only threads, never human threads.
+              query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100){nodes{id isResolved comments(first:100){nodes{author{login}} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}'
               owner,name=repo.split('/')
               raw=subprocess.check_output(['gh','api','graphql','-f',f'query={query}','-F',f'owner={owner}','-F',f'name={name}','-F',f'number={number}'],text=True)
               threads=json.loads(raw)['data']['repository']['pullRequest']['reviewThreads']
-              if threads['pageInfo']['hasNextPage'] or any(not t['isResolved'] for t in threads['nodes']):continue
+              if threads['pageInfo']['hasNextPage']:continue
+              unresolved=[t for t in threads['nodes'] if not t['isResolved']]
+              if any(t['comments']['pageInfo']['hasNextPage'] or not t['comments']['nodes'] or
+                     any(c['author'] is None or c['author']['login']!='chatgpt-codex-connector[bot]' for c in t['comments']['nodes'])
+                     for t in unresolved):continue
+              for thread in unresolved:
+                  mutation='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
+                  subprocess.check_call(['gh','api','graphql','-f',f'query={mutation}','-F',f"id={thread['id']}"])
               reviews=api(f"repos/{repo}/pulls/{number}/reviews?per_page=100")
               if any(x['state']=='CHANGES_REQUESTED' for x in reviews):continue
               current=api(f"repos/{repo}/pulls/{number}")
