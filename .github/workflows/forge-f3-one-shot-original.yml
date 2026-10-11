@@ -1,0 +1,122 @@
+name: FORGE F3 one-shot synthetic original (manual branch creation)
+on:
+  push:
+    branches: [experiment/forge-f3-original-20261011]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f3-consumed-once
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.event.created == true && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Fail closed on source or consumption ambiguity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF_NAME" = experiment/forge-f3-original-20261011
+          test "$(git rev-parse HEAD:research/pilot-f3/frozen.json)" = e995301ccb7330ac8f31a0fd4b31611032231fac
+          go run ./cmd/forge-f3 -mode validate -prereg "$PWD/research/pilot-f3/frozen.json"
+          python - <<'PY'
+          import json,os,urllib.request
+          for name in ("forge-f3-wingless-started","forge-f3-yggdrasil-started"):
+            req=urllib.request.Request(
+              "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts?name="+name+"&per_page=100",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"})
+            with urllib.request.urlopen(req,timeout=20) as r: evidence=json.load(r)
+            if evidence.get("total_count")!=0 or evidence.get("artifacts"):
+              raise SystemExit("FORGE_F3_FIRST_USE_ALREADY_CONSUMED")
+          PY
+          echo FORGE_F3_FIRST_USE_GUARD=PASS
+  started:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record both STARTED before originals
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/w" "$RUNNER_TEMP/y"
+          printf '{"schema":"forge.f3.started.v1","lane":"Wingless","run_id":"%s","attempt":1,"source":"%s","frozen_blob":"e995301ccb7330ac8f31a0fd4b31611032231fac","scientific_accepted":false}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$RUNNER_TEMP/w/started.json"
+          printf '{"schema":"forge.f3.started.v1","lane":"Yggdrasil","run_id":"%s","attempt":1,"source":"%s","frozen_blob":"e995301ccb7330ac8f31a0fd4b31611032231fac","scientific_accepted":false}\n' "$GITHUB_RUN_ID" "$GITHUB_SHA" > "$RUNNER_TEMP/y/started.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f3-wingless-started
+          path: ${{ runner.temp }}/w/started.json
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f3-yggdrasil-started
+          path: ${{ runner.temp }}/y/started.json
+          retention-days: 30
+          if-no-files-found: error
+  wingless:
+    needs: started
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - run: |
+          mkdir -p "$RUNNER_TEMP/raw"
+          go run ./cmd/forge-f3 -mode primary -lane Wingless -run "$GITHUB_RUN_ID" -source "$GITHUB_SHA" -prereg "$PWD/research/pilot-f3/frozen.json" -output "$RUNNER_TEMP/raw/raw.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f3-wingless-raw
+          path: ${{ runner.temp }}/raw/
+          retention-days: 30
+          if-no-files-found: warn
+  yggdrasil:
+    needs: started
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - run: |
+          mkdir -p "$RUNNER_TEMP/raw"
+          go run ./cmd/forge-f3 -mode primary -lane Yggdrasil -run "$GITHUB_RUN_ID" -source "$GITHUB_SHA" -prereg "$PWD/research/pilot-f3/frozen.json" -output "$RUNNER_TEMP/raw/raw.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f3-yggdrasil-raw
+          path: ${{ runner.temp }}/raw/
+          retention-days: 30
+          if-no-files-found: warn
+  classify:
+    needs: [wingless,yggdrasil]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - uses: actions/download-artifact@v4
+        with: {name: forge-f3-wingless-raw, path: ${{ runner.temp }}/w}
+      - uses: actions/download-artifact@v4
+        with: {name: forge-f3-yggdrasil-raw, path: ${{ runner.temp }}/y}
+      - run: |
+          mkdir -p "$RUNNER_TEMP/postraw"
+          sha256sum "$RUNNER_TEMP/w/raw.json" "$RUNNER_TEMP/y/raw.json"
+          go run ./cmd/forge-f3 -mode classify -prereg "$PWD/research/pilot-f3/frozen.json" -wingless "$RUNNER_TEMP/w/raw.json" -yggdrasil "$RUNNER_TEMP/y/raw.json" -output "$RUNNER_TEMP/postraw/disposition.json"
+          cat "$RUNNER_TEMP/postraw/disposition.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f3-postraw-classification
+          path: ${{ runner.temp }}/postraw/disposition.json
+          retention-days: 30
+          if-no-files-found: error
