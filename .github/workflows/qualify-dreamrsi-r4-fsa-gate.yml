@@ -1,0 +1,66 @@
+name: FORGE Dream-RSI R4 native FSA archive eligibility qualification
+on:
+  push:
+    branches: [proposal/dreamrsi-r4-fsa-gate-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-dreamrsi-r4-source-qualification
+  cancel-in-progress: false
+jobs:
+  fsa-eligibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 26
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact qualified R3 foundation and four additive R4 paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=ece48d905ddbd309504a8a3f090656899d45cf74
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          python - <<'PY'
+          import subprocess
+          expected={
+            "dreamrsi/fsagate/review.go",
+            "dreamrsi/fsagate/review_test.go",
+            "docs/DREAM-RSI-R4-FSA-GATE.md",
+            ".github/workflows/qualify-dreamrsi-r4-fsa-gate.yml",
+          }
+          actual=set(subprocess.check_output([
+           "git","diff","--name-only","ece48d905ddbd309504a8a3f090656899d45cf74","HEAD"
+          ],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          print("FORGE_DREAMRSI_R4_EXACT_FSA_SCOPE=PASS")
+          PY
+      - name: Focused real archive highwater, first-use, provenance, no-authority tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./dreamrsi/fsagate
+      - name: One full regression, vet, build; Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./dreamrsi/fsagate
+          fi
+          echo "FORGE_DREAMRSI_R4_INTEGRATION=PASS review_only=true FSA_active=false atomic_first_use=false science_dispatch=false"
