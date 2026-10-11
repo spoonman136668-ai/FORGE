@@ -1,0 +1,58 @@
+name: FORGE R13 zero-cost FSA issuer source qualification
+on:
+  push:
+    branches:
+      - proposal/fsa-r13-zero-cost-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+      - name: Exact immutable base and strictly additive patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import subprocess
+          base="87786526227e74004bd6acf4db7c12e30f9527f2"
+          subprocess.check_call(["git","merge-base","--is-ancestor",base,"HEAD"])
+          count=int(subprocess.check_output(["git","rev-list","--count",f"{base}..HEAD"],text=True))
+          assert 1<=count<=4,count
+          tree=subprocess.check_output(["git","rev-parse",f"{base}^{{tree}}"],text=True).strip()
+          assert tree=="6bc3efa6d09f5473047c893d4fe9a2c7a5777354",tree
+          delta=subprocess.check_output(["git","diff","--name-status",base,"HEAD"],text=True).splitlines()
+          expected={
+            ".github/workflows/qualify-fsa-r13-zero-cost.yml",
+            "docs/FSA-R13-ZERO-COST-ISSUER.md",
+            "fsaissuer/issuer.go",
+            "fsaissuer/issuer_test.go",
+          }
+          assert len(delta)==4 and {r.split("\t")[1] for r in delta}==expected,delta
+          assert all(r.startswith("A\t") for r in delta),delta
+          print("FORGE_FSA_R13_EXACT_ADDITIVE_SCOPE=PASS")
+          PY
+      - name: Focused signer tests
+        shell: bash
+        run: go test -count=1 ./fsaissuer
+      - name: One complete regression, vet, build and Linux race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./...
+          fi
+          echo "FORGE_FSA_R13_SOURCE_ONLY=PASS active_authority=false charge=false live_science=false"
