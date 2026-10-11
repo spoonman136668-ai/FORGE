@@ -10,6 +10,7 @@ import (
  "encoding/hex"
  "encoding/json"
  "errors"
+ "io"
  "net/http"
  "net/http/httptest"
  "strings"
@@ -64,7 +65,9 @@ func testPeer()(*x509.Certificate,string){
  return cert,hex.EncodeToString(sum[:])
 }
 func call(h http.Handler,method,path string,body []byte,authorize bool)*httptest.ResponseRecorder{
- r:=httptest.NewRequest(method,"https://fsa.invalid"+path,bytes.NewReader(body))
+ var reader io.Reader
+ if len(body)>0{reader=bytes.NewReader(body)}
+ r:=httptest.NewRequest(method,"https://fsa.invalid"+path,reader)
  if len(body)>0{r.Header.Set("Content-Type","application/json")}
  if authorize{
   cert,_:=testPeer()
