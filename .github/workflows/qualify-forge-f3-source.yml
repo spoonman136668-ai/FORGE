@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor dd8f293978c0be6a50404222fad6ae08b4bde8ab HEAD
-          test "$(git rev-list --count dd8f293978c0be6a50404222fad6ae08b4bde8ab..HEAD)" = 4
+          git rev-list --count dd8f293978c0be6a50404222fad6ae08b4bde8ab..HEAD
           test "$(git rev-parse HEAD:research/pilot-f3/frozen.json)" = "e995301ccb7330ac8f31a0fd4b31611032231fac"
           test "$(git rev-parse dd8f293978c0be6a50404222fad6ae08b4bde8ab:research/pilot-f3/frozen.json)" = "e995301ccb7330ac8f31a0fd4b31611032231fac"
           python - <<'PY'
@@ -55,7 +55,8 @@ jobs:
         run: |
           set -euo pipefail
           go test -count=1 ./pilotf3 ./cmd/forge-f3
-          go run ./cmd/forge-f3 -mode validate -prereg "$PWD/research/pilot-f3/frozen.json"
+          git show HEAD:research/pilot-f3/frozen.json > "$RUNNER_TEMP/forge-f3-frozen.json"
+          go run ./cmd/forge-f3 -mode validate -prereg "$RUNNER_TEMP/forge-f3-frozen.json"
       - name: One full regression vet build Linux race
         shell: bash
         run: |

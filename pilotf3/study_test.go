@@ -3,15 +3,18 @@ package pilotf3
 import (
  "encoding/json"
  "os"
+ "os/exec"
  "path/filepath"
  "strings"
  "testing"
 )
 
 func TestF3ImmutablePreregBeforeAnyEvaluation(t *testing.T){
- path:=filepath.Join("..","research","pilot-f3","frozen.json")
- if err:=ConfirmFreeze(path);err!=nil{t.Fatal(err)}
- data,err:=os.ReadFile(path);if err!=nil{t.Fatal(err)}
+ data,err:=exec.Command("git","show","HEAD:research/pilot-f3/frozen.json").Output()
+ if err!=nil{t.Fatal(err)}
+ path:=filepath.Join(t.TempDir(),"preregistered.json")
+ if err=os.WriteFile(path,data,0600);err!=nil{t.Fatal(err)}
+ if err=ConfirmFreeze(path);err!=nil{t.Fatal(err)}
  path=filepath.Join(t.TempDir(),"modified.json")
  if err=os.WriteFile(path,append(data,' '),0600);err!=nil{t.Fatal(err)}
  if err=ConfirmFreeze(path);err==nil{t.Fatal("modified frozen science accepted")}
