@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ckb=Path(os.environ["CKB_SOURCE"])
-sys.path.insert(0,str(ckb/"proposals/evolutionary-portfolio-r1"))
+sys.path.insert(0,str(ckb))
 r196=importlib.import_module("portfolio_progression_r196")
 portfolio=importlib.import_module("portfolio")
 assert r196.SCIENTIFIC_TERMINAL==frozenset(("supported","mixed","negative"))
