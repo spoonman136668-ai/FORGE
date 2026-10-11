@@ -7,3 +7,5 @@ The authority handler requires an injected checkpoint backend plus independent v
 Focused tests cover authentication refusal, strict request routes, single transition, conflicting replay, ambiguous commit, untrusted transition, witness outage, and signature rejection. These tests are synthetic and do not establish physical host separation or long-lived trust retention.
 
 Activation blockers remain: independently provisioned services, independent key custody and physical archive binding, durability across power failure and host replacement, monotonic witness retention, and full end-to-end unattended qualification. The existing CKB-plane research controller remains unchanged. Do not merge or activate this draft solely from source CI.
+
+The draft PR targets main for public GitHub Actions qualification of the complete identical source tree; R4's bounded delta is the three paths relative to the exact qualified PR #14 head. Neither parent PR nor this dependent draft may be merged or activated based on synthetic source tests alone.
