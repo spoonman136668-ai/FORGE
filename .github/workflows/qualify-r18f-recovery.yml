@@ -1,0 +1,45 @@
+name: FORGE R18F recovery audit qualification
+on:
+  push:
+    branches:
+      - proposal/r18f-recovery-audit-20261011
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact predecessor and delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 2715e7adeb4eb48af4f35ff2a1016d7d4fc58856
+          python - <<'PY'
+          import subprocess
+          rows=subprocess.check_output(["git","diff","--name-status","HEAD^","HEAD"],text=True).splitlines()
+          want={"evoportfolio/recovery.go","evoportfolio/recovery_test.go",".github/workflows/qualify-r18f-recovery.yml"}
+          assert len(rows)==3 and all(x.startswith("A\t") for x in rows),rows
+          assert {x.split("\t")[1] for x in rows}==want,rows
+          PY
+      - name: Focused full regression and race
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./evoportfolio
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
+          echo "FORGE_R18F_SOURCE_ONLY=PASS"
