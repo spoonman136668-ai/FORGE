@@ -1,0 +1,68 @@
+name: FORGE Dream-RSI R3 prospective FSA evidence contract
+on:
+  push:
+    branches: [proposal/dreamrsi-r3-prospective-20261011]
+permissions:
+  contents: read
+concurrency:
+  group: forge-dreamrsi-r3-source-qualification
+  cancel-in-progress: false
+jobs:
+  qualified-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact qualified R2 parent and five-file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=f31f55ff01ffa9be1bf01796316128bc09de54aa
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          python - <<'PY'
+          import subprocess
+          expected={
+            "dreamrsi/prospective/contract.go",
+            "dreamrsi/prospective/contract_test.go",
+            "cmd/forge-dreamrsi-prospective/main.go",
+            "docs/DREAM-RSI-R3-PROSPECTIVE.md",
+            ".github/workflows/qualify-dreamrsi-r3-prospective.yml"
+          }
+          actual=set(subprocess.check_output(
+            ["git","diff","--name-only","f31f55ff01ffa9be1bf01796316128bc09de54aa","HEAD"],
+            text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          print("FORGE_DREAMRSI_R3_EXACT_FIVE_FILES=PASS")
+          PY
+      - name: Focused signed pre/post, cost, randomization and replay negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -v -count=1 ./dreamrsi/prospective ./cmd/forge-dreamrsi-prospective
+      - name: One complete FORGE regression, vet and build; Linux race and benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then
+            go test -race -count=1 ./dreamrsi/prospective
+            go test -run '^$' -bench BenchmarkDecisionVerifyJoin -benchtime=100x ./dreamrsi/prospective
+          fi
+          echo "FORGE_DREAMRSI_R3_SOURCE=PASS no_production_authority=true no_dispatch=true no_science=true"
