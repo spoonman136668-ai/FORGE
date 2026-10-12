@@ -53,3 +53,13 @@ func TestPairRejectsInvalidSecondWithoutPartialFirst(t *testing.T){
   t.Fatalf("partial lane progression on invalid paired evidence: %+v %v",out,err)
  }
 }
+
+func TestInvalidDuplicateLaneIsNotRecoverableDuplicate(t *testing.T){
+ for _,lane:=range []Lane{"","NOT_A_LANE"} {
+  a:=Input{Lane:lane,Failure:None}
+  out,err:=AssessPair(a,a)
+  if !errors.Is(err,ErrInvalidInput) || errors.Is(err,ErrDuplicateLane) || out!=(Batch{}) {
+   t.Fatalf("invalid duplicated lane misclassified: %q %+v %v",lane,out,err)
+  }
+ }
+}
