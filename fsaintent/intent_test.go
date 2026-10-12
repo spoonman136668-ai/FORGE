@@ -139,3 +139,17 @@ func TestInvalidNewIntentIdentityFailsClosed(t *testing.T){
         rejectAppend(t,New(),current,Prepared,"")
     })}
 }
+
+func TestAppendRejectsOversizedInputsBeforeRecordHashing(t *testing.T){
+    i:=fakeIntent("Wingless","wingless_001",strings.Repeat("c",64),8001)
+    j:=New()
+    oversized:=i
+    oversized.CandidateID=strings.Repeat("x",128*1024)
+    rejectAppend(t,j,oversized,Prepared,"")
+    oversized=i
+    oversized.FrozenSHA256=strings.Repeat("e",128*1024)
+    rejectAppend(t,j,oversized,Prepared,"")
+    rejectAppend(t,j,i,StartObserved,strings.Repeat("e",128*1024))
+    rejectAppend(t,j,i,Prepared,strings.Repeat("e",128*1024))
+    if len(j.Entries)!=0 {t.Fatal("invalid attempted append changed original journal")}
+}
