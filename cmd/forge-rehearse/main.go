@@ -36,7 +36,7 @@ func run(args []string)(shadowcore.RehearsalReport,error){
  if err:=os.Mkdir(*root,0700);err!=nil{return shadowcore.RehearsalReport{},err}
  archive,err:=researchstate.OpenArchive(*root)
  if err!=nil{return shadowcore.RehearsalReport{},err}
- defer archive.Close()
+ defer func(){ if archive!=nil {_=archive.Close()} }()
  for _,lane:=range []string{"Wingless","Yggdrasil"}{
   parentPhases:=[]researchstate.Phase{researchstate.Proposed,researchstate.Preregistered,researchstate.Qualifying,researchstate.Qualified,researchstate.Authorized,researchstate.Executing,researchstate.EvidenceSealed,researchstate.Classified,researchstate.SuccessorReady}
   for _,trial:=range []struct{id string;phases []researchstate.Phase}{{"synthetic_parent",parentPhases},{"synthetic_child",parentPhases[:4]}}{
