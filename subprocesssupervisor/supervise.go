@@ -31,7 +31,7 @@ func digestFile(path string)(string,error){
  f,err:=os.Open(path);if err!=nil{return "",err};defer f.Close()
  stat,err:=f.Stat();if err!=nil||!stat.Mode().IsRegular(){return "",ErrUnsafe}
  h:=sha256.New()
- if _,err=io.Copy(h,io.LimitReader(f,128<<20+1));err!=nil{return "",err}
+ if _,err=io.Copy(h,f);err!=nil{return "",err}
  return hex.EncodeToString(h.Sum(nil)),nil
 }
 // Run enforces a pinned executable byte identity and launches both lanes
@@ -48,6 +48,10 @@ func Run(ctx context.Context,workerExecutable,expectedSHA256,root string)(Result
   laneDir:=filepath.Join(root,strings.ToLower(lane))
   if err:=os.Mkdir(laneDir,0700);err!=nil{return out,ErrUnsafe}
   childDir:=filepath.Join(laneDir,"forge-synthetic-worker")
+  // A worker binary changed after preflight must not be dispatched. This
+  // recheck is not atomic with exec; deployment needs immutable binaries.
+  verified,checkErr:=digestFile(workerExecutable)
+  if checkErr!=nil||verified!=expectedSHA256{return out,ErrUnsafe}
   limited,cancel:=context.WithTimeout(ctx,10*time.Second)
   cmd:=exec.CommandContext(limited,workerExecutable,"--synthetic-only","--lane",lane,"--new-dir",childDir)
   cmd.Env=[]string{"PATH="+os.Getenv("PATH"),"SystemRoot="+os.Getenv("SystemRoot"),"HOME="+os.Getenv("HOME"),"TMPDIR="+os.Getenv("TMPDIR")}
