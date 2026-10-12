@@ -17,12 +17,15 @@ func run(args []string)error{
  root:=f.String("archive","","existing offline journal directory")
  watch:=f.Bool("watch",false,"periodically observe the inactive archive")
  seconds:=f.Int("interval-seconds",30,"shadow observation interval, 1..300")
+ statusAddress:=f.String("status-address","","optional read-only loopback listener; requires --watch")
  if err:=f.Parse(args);err!=nil{return err}
  if *root==""||f.NArg()!=0{return fmt.Errorf("FORGE_SHADOW_ARCHIVE_REQUIRED")}
+ if *statusAddress!=""&&!(*watch){return fmt.Errorf("FORGE_SHADOW_STATUS_REQUIRES_WATCH")}
  if *watch{
   if *seconds<1||*seconds>300{return fmt.Errorf("FORGE_SHADOW_INTERVAL_INVALID")}
   ctx,stop:=signal.NotifyContext(context.Background(),os.Interrupt)
   defer stop()
+  if *statusAddress!=""{return shadowcore.RunStatus(ctx,shadowcore.ArchiveObserver{Root:*root},time.Duration(*seconds)*time.Second,*statusAddress)}
   enc:=json.NewEncoder(os.Stdout)
   return shadowcore.Run(ctx,shadowcore.ArchiveObserver{Root:*root},time.Duration(*seconds)*time.Second,func(s shadowcore.Sample)error{return enc.Encode(s)})
  }
