@@ -40,6 +40,7 @@ func Observe(j researchstate.Journal)(Snapshot,error){
   state:=State{Lane:e.Lane,ExperimentID:e.ExperimentID,Phase:phase,Recovery:recover}
   if e.Lane=="Wingless"{s.Wingless=append(s.Wingless,state)}else if e.Lane=="Yggdrasil"{s.Yggdrasil=append(s.Yggdrasil,state)}else{return Snapshot{},ErrUnsafe}
  }
+ if len(s.Wingless)==0||len(s.Yggdrasil)==0{return Snapshot{},ErrUnsafe}
  return s,nil
 }
 // AssessRecovery binds the recovery rules to the same verified archive, not
