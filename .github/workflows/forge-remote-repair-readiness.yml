@@ -1,0 +1,49 @@
+name: FORGE isolated remote repair readiness
+on:
+  push:
+    branches: [proposal/forge-remote-repair-r1]
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  ready:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Confirm dedicated runner and subscription Codex
+        shell: pwsh
+        env:
+          CODEX_HOME: C:\ProgramData\CKBR\codex\home
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:OPENAI_API_KEY) { throw 'API_BILLING_PROHIBITED' }
+          if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER_IDENTITY' }
+          $cmd = Get-Command codex -ErrorAction Stop
+          $loginStatus = (& $cmd.Source login status 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'SUBSCRIPTION_AUTH_MISSING' }
+          if ($loginStatus -notmatch '(?i)logged in using chatgpt') {
+              throw 'SUBSCRIPTION_ONLY_LOGIN_REQUIRED'
+          }
+          Write-Output 'FORGE_ISOLATED_CODEX_READY=PASS'
+      - name: Confirm source-only authority boundary
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = $env:GITHUB_REPOSITORY
+          $prs = & gh api "repos/$repo/pulls?state=open&per_page=100" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'PR_DISCOVERY_FAILED' }
+          $eligible = @($prs | Where-Object {
+              $_.draft -eq $false -and
+              $_.user.login -eq 'spoonman136668-ai' -and
+              $_.head.repo.full_name -eq $repo -and
+              $_.head.ref -match '^proposal/fsa'
+          })
+          Write-Output "FSA_SOURCE_PROPOSALS_OBSERVED=$($eligible.Count)"
+          Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
+          Write-Output 'AUTO_MERGE=DISABLED'
+          Write-Output 'SCIENCE_ACTIVATION=DISABLED'
