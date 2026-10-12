@@ -4,6 +4,7 @@ package sandboxworker
 
 import (
  "context"
+ "bytes"
  "crypto/ed25519"
  "crypto/sha256"
  "encoding/hex"
@@ -32,7 +33,7 @@ func ExecuteOnce(ctx context.Context,root string,task Task,key ed25519.PrivateKe
  task.OwnerID!="SYNTHETIC_TEST_OWNER"||task.Epoch==0||
  task.Epoch!=task.Expected.OwnerEpoch||
  task.Expected.OriginalRunID==""||task.Expected.WorkerID==""||
- !task.Expected.WorkerPublicKey.Equal(key.Public()) {return ErrUnsafe}
+ !bytes.Equal(task.Expected.WorkerPublicKey,key.Public().(ed25519.PublicKey)) {return ErrUnsafe}
  e:=task.Expected
  receipt:=workerreconcile.Receipt{Schema:workerreconcile.Schema,Lane:e.Lane,
   ExperimentID:e.ExperimentID,FrozenSHA256:e.FrozenSHA256,
