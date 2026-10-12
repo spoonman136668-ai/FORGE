@@ -28,7 +28,11 @@ const (
  Completed Status = "COMPLETED_NEVER_AUTOREPLAY"
  Uncertain Status = "UNKNOWN_NEVER_AUTOREPLAY"
 )
-type Observation struct {\n Intent Intent\n Status Status\n IndependentlyAuthenticated bool\n}\ntype Recovery string
+type Observation struct {
+ Intent Intent
+ Status Status
+ IndependentlyAuthenticated bool
+}\ntype Recovery string
 const (
  RequestIndependentReservation Recovery = "REQUEST_INDEPENDENT_RESERVATION"
  HoldNoReplay Recovery = "HOLD_NEVER_REDISPATCH"
