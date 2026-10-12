@@ -10,6 +10,7 @@ permissions:
   pull-requests: read
   issues: write
   checks: read
+  actions: write
 concurrency:
   group: forge-source-repair
   cancel-in-progress: false
@@ -196,9 +197,14 @@ jobs:
             Remove-Item Env:\GIT_ASKPASS -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $askpass -Force -ErrorAction SilentlyContinue
           }
-          # A pushed source candidate is NOT qualified or accepted. Hosted
-          # Linux/Windows regression and independent exact-head review are
-          # mandatory before any merge, which remains disabled by policy.
+          # Events emitted by GITHUB_TOKEN do not reliably trigger push/PR
+          # qualification workflows. Explicit workflow_dispatch is required.
+          # qualify.yml checks out the branch ref and independently runs
+          # Linux+Windows tests; the subsequent merger MUST still bind its
+          # results to the *exact* immutable published commit.
+          & gh workflow run qualify.yml --repo $env:GITHUB_REPOSITORY --ref $env:BRANCH
+          if ($LASTEXITCODE -ne 0) { throw 'HOSTED_QUALIFICATION_DISPATCH_FAILED' }
+          Write-Output 'HOSTED_QUALIFICATION_DISPATCH_REQUESTED=PASS'
           Write-Output 'UNQUALIFIED_SOURCE_PROPOSAL_PUBLISHED=PASS'
       - name: Clear temporary review evidence
         if: always()
