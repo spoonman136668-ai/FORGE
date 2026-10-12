@@ -179,6 +179,10 @@ func Verify(j Journal)error{
 func Append(j Journal,i Intent,s Stage,witness string)(Journal,error){
     if err:=Verify(j);err!=nil{return Journal{},err}
     if len(j.Entries)>=MaxEntries{return Journal{},ErrBlocked}
+    // Reject malformed or oversized caller inputs before JSON serialization,
+    // hashing, allocation of the next journal, or any durable handoff.
+    if err:=validateIntent(i);err!=nil{return Journal{},err}
+    if err:=validateStage(s,witness);err!=nil{return Journal{},err}
     prev:=genesis
     if len(j.Entries)>0{prev=j.Entries[len(j.Entries)-1].RecordSHA256}
     record:=Record{
