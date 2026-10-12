@@ -40,6 +40,10 @@ func checkRoot(root string) error {
  volume:=filepath.VolumeName(clean)
  current:=string(os.PathSeparator)
  if volume!="" {current=volume+string(os.PathSeparator)}
+ // A drive or UNC root has no remaining components to walk. Check that
+ // root itself exists before returning, including disconnected volumes.
+ base,err:=os.Lstat(current)
+ if err!=nil||!base.IsDir()||base.Mode()&(os.ModeSymlink|os.ModeIrregular)!=0 {return ErrUnprovisioned}
  tail:=strings.TrimPrefix(strings.TrimPrefix(clean,volume),string(os.PathSeparator))
  for _,part:=range strings.Split(tail,string(os.PathSeparator)) {
   if part=="" {continue}
