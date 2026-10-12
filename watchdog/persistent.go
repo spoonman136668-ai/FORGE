@@ -4,6 +4,7 @@ import (
  "bytes"
  "encoding/json"
  "errors"
+ "io"
  "os"
  "path/filepath"
 )
@@ -27,7 +28,7 @@ func LoadPersistent(directory string)(*PersistentLedger,error){
  dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields()
  var saved struct{Schema string `json:"schema"`; Keys []string `json:"keys"`}
  if dec.Decode(&saved)!=nil||saved.Schema!="forge.shadow.incidents.v1"{return nil,ErrPersistentLedger}
- tail:=struct{}{};if !errors.Is(dec.Decode(&tail),os.ErrClosed)&&len(raw)==0{return nil,ErrPersistentLedger}
+ tail:=struct{}{};if !errors.Is(dec.Decode(&tail),io.EOF){return nil,ErrPersistentLedger}
  for _,k:=range saved.Keys{
   if k==""||p.seen[k]{return nil,ErrPersistentLedger}
   p.seen[k]=true
