@@ -204,6 +204,20 @@ jobs:
           # results to the *exact* immutable published commit.
           & gh workflow run qualify.yml --repo $env:GITHUB_REPOSITORY --ref $env:BRANCH
           if ($LASTEXITCODE -ne 0) { throw 'HOSTED_QUALIFICATION_DISPATCH_FAILED' }
+          $published = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $published -notmatch '^[0-9a-f]{40}
+          Write-Output 'HOSTED_QUALIFICATION_DISPATCH_REQUESTED=PASS'
+          Write-Output 'UNQUALIFIED_SOURCE_PROPOSAL_PUBLISHED=PASS'
+      - name: Clear temporary review evidence
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($name in @('forge-fsa-review.json','forge-changed.json','forge-askpass.cmd')) {
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP $name) -Force -ErrorAction SilentlyContinue
+          }
+) { throw 'PUBLISHED_SHA_UNAVAILABLE' }
+          & gh workflow run qualify-fsa-source.yml --repo $env:GITHUB_REPOSITORY --ref $env:BRANCH -f "candidate_sha=$published"
+          if ($LASTEXITCODE -ne 0) { throw 'FSA_QUALIFICATION_DISPATCH_FAILED' }
           Write-Output 'HOSTED_QUALIFICATION_DISPATCH_REQUESTED=PASS'
           Write-Output 'UNQUALIFIED_SOURCE_PROPOSAL_PUBLISHED=PASS'
       - name: Clear temporary review evidence
