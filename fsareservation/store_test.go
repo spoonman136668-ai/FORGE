@@ -4,6 +4,7 @@ import (
  "errors"
  "os"
  "path/filepath"
+ "runtime"
  "strings"
  "sync"
  "testing"
@@ -30,9 +31,15 @@ func TestDurableSingleWinnerAcrossConcurrentCallersAndReopen(t *testing.T){
   }(n)
  }
  wg.Wait();close(errs)
- winners:=0
- for err:=range errs{if err==nil{winners++}else if !errors.Is(err,ErrConsumed){t.Fatalf("unexpected error: %v",err)}}
- if winners!=1{t.Fatalf("one-shot cohort winners=%d",winners)}
+ winners,indeterminate:=0,0
+ for err:=range errs{
+  if err==nil {winners++} else if errors.Is(err,ErrIndeterminate){indeterminate++} else if !errors.Is(err,ErrConsumed){t.Fatalf("unexpected error: %v",err)}
+ }
+ if runtime.GOOS=="windows" {
+  // A directory fsync is unsupported by the Windows Go filesystem API.
+  // Keep the original claim as consumed but never acknowledge durable success.
+  if winners!=0||indeterminate!=1{t.Fatalf("unsafe Windows acknowledgement: wins=%d indeterminate=%d",winners,indeterminate)}
+ }else if winners!=1||indeterminate!=0 {t.Fatalf("unexpected reservation outcome: wins=%d indeterminate=%d",winners,indeterminate)}
  reopened,err:=Open(root);if err!=nil{t.Fatal(err)}
  if err:=reopened.Reserve(intent("Yggdrasil","another",cohort));!errors.Is(err,ErrConsumed){t.Fatalf("cohort reused after reopen: %v",err)}
  exists,err:=reopened.Inspect(intent("Wingless","candidate",cohort))
