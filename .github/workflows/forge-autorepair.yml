@@ -57,12 +57,13 @@ jobs:
                     for f in files):continue
               findings=api(f"repos/{repo}/pulls/{number}/comments?per_page=100")
               has_findings=any(c.get("commit_id")==sha and
-                  c.get("user",{}).get("login","").startswith("chatgpt-codex-connector") and
+                  c.get("user",{}).get("login","") in ("chatgpt-codex-connector","chatgpt-codex-connector[bot]") and
                   re.search(r"\[P[12]",c.get("body","")) for c in findings)
               if not has_findings:continue
               comments=api(f"repos/{repo}/issues/{number}/comments?per_page=100")
               marker=f"FORGE_CLOUD_REPAIR_REQUEST_V1:{sha}"
-              if any(marker in c.get("body","") for c in comments):continue
+              if any(c.get("user",{}).get("login")=="github-actions[bot]" and
+                     marker in c.get("body","") for c in comments):continue
               # The cloud Codex app operates outside the logged-in Windows runner.
               # This request does NOT authorize merging or scientific activation.
               # Its result still needs independent exact-head hosted qualification.
