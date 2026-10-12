@@ -6,6 +6,9 @@ func TestWriteOnceNoOriginalReplay(t *testing.T){
  if err:=WriteOnce(dir,r);err!=nil{t.Fatal(err)}
  if _,err:=Read(dir,r);err!=nil{t.Fatal(err)}
  if err:=WriteOnce(dir,r);err==nil{t.Fatal("duplicate original attempt admitted")}
+ alternate:=r;alternate.OriginalRunID="second_attempt"
+ if err:=WriteOnce(dir,alternate);err==nil{t.Fatal("same experiment retried under a different run ID")}
+ if _,err:=Read(dir,alternate);err==nil{t.Fatal("replacement run claimed original custody")}
  old:=r;r.OwnerEpoch++
  if _,err:=Read(dir,r);err==nil{t.Fatal("stale ownership accepted")}
  r=old;r.Lane="Yggdrasil"
