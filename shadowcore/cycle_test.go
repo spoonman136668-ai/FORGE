@@ -21,7 +21,7 @@ func TestCycleTraceRequiresExactAncestry(t *testing.T){
  j=addCycle(t,j,"Yggdrasil","other","",researchstate.Proposed)
  parent:=j
  c:=j;from=""
- for _,next:=range phases[:4]{c=addCycle(t,c,"Wingless","new",researchstate.Phase(from),next);from=string(next)}
+ for _,next:=range phases[:4]{c=addCycle(t,c,"Wingless","new",researchstate.Phase(from),next);from=next}
  ph,_:=researchstate.Head(parent);ch,_:=researchstate.Head(c)
  good:=CycleTrace{Lane:"Wingless",ParentExperimentID:"old",ChildExperimentID:"new",ParentHeadSHA256:ph,ChildHeadSHA256:ch,OriginalStartReceiptSHA256:strings.Repeat("c",64),TerminalReceiptSHA256:strings.Repeat("d",64),RawEvidenceSHA256:strings.Repeat("e",64),IndependentClassificationSHA256:strings.Repeat("f",64),SuccessorQualificationSHA256:strings.Repeat("1",64),OwnerEpoch:1,IndependentlyAuthenticated:true}
  if err:=VerifyCycleTrace(parent,c,good);err!=nil{t.Fatal(err)}
