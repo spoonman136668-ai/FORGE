@@ -105,16 +105,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --name-only > /tmp/forge-changed
+          # Include unstaged, staged, and untracked paths; never trust a partial diff.
+          git status --porcelain=v1 --untracked-files=all > /tmp/forge-status
+          python3 - <<'PY'
+          import subprocess
+          rows=subprocess.check_output(['git','status','--porcelain=v1','-z','--untracked-files=all']).split(b'\\0')
+          paths=[]
+          for row in rows:
+              if not row:continue
+              status=row[:2].decode('ascii')
+              assert 'R' not in status and 'C' not in status, 'RENAMES_NOT_ALLOWED'
+              path=row[3:].decode('utf-8')
+              assert path.startswith(('startrecovery/','eligibility/')) and path.endswith('.go'),path
+              paths.append(path)
+          assert len(paths)<=6,paths
+          open('/tmp/forge-changed','w').write('\\n'.join(paths))
+          PY
           if [ ! -s /tmp/forge-changed ]; then
-            echo "No repair proposed."
+            echo "NO_REPAIR_PROPOSED"
             exit 0
           fi
-          python3 - <<'PY'
-          paths=open('/tmp/forge-changed').read().splitlines()
-          assert len(paths)<=6,paths
-          assert all(x.startswith(('startrecovery/','eligibility/')) and x.endswith('.go') for x in paths),paths
-          PY
           go test -count=1 ./startrecovery ./eligibility ./researchlog
           go test -count=1 ./...
           go vet ./...
@@ -135,6 +145,8 @@ jobs:
           git config user.name forge-qualification-bot
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -- startrecovery eligibility
+          git diff --cached --name-only > /tmp/forge-publish-paths
+          diff -u /tmp/forge-changed /tmp/forge-publish-paths
           git diff --cached --quiet && exit 0
           git commit -m "fix: bounded Codex FSA review repairs"
           gh auth setup-git
