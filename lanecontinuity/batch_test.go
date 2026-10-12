@@ -44,3 +44,12 @@ func TestCrossLaneAdversarialExhaustive(t *testing.T){
   }
  }}
 }
+
+func TestPairRejectsInvalidSecondWithoutPartialFirst(t *testing.T){
+ first:=Input{Lane:Wingless,Failure:ModelQuota,QualifiedWorkAvailable:true}
+ second:=Input{Lane:Yggdrasil,Failure:AuthorityUnavailable,RetryCount:2,RetryLimit:1}
+ out,err:=AssessPair(first,second)
+ if !errors.Is(err,ErrInvalidInput)||out!=(Batch{}){
+  t.Fatalf("partial lane progression on invalid paired evidence: %+v %v",out,err)
+ }
+}
