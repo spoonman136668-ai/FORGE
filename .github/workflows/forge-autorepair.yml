@@ -8,13 +8,12 @@ on:
 
 # GitHub-hosted disposable jobs only. NEVER check out untrusted PR content on
 # a persistent user-session runner with ChatGPT subscription credentials.
-# GitHub-hosted requests use the existing @codex GitHub app; no API key,
-# local model CLI invocation or source execution; no session export.
+# Comment-triggered Codex repairs cannot mechanically pin their starting SHA.
+# Inspect findings but fail closed until a commit-pinned task API is qualified.
 permissions:
   contents: read
   pull-requests: read
-  issues: write
-  actions: write
+  issues: read
 concurrency:
   group: forge-cloud-source-repair
   cancel-in-progress: false
@@ -24,7 +23,7 @@ jobs:
     timeout-minutes: 8
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Inspect exact owner PRs and request bounded cloud repair
+      - name: Inspect exact owner PRs and reject unpinned repair dispatch
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -33,46 +32,10 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import json,os,re,subprocess
-          from datetime import datetime,timezone,timedelta
           repo=os.environ["REPO"]
           def api(path):
               return json.loads(subprocess.check_output(
                   ["gh","api",path],text=True))
-          def issue_comments(number):
-              # GitHub returns oldest comments first; a single 100-item
-              # page can miss our newest marker and cause duplicate work.
-              # Bound the scan and fail CLOSED on incomplete history.
-              history=[]
-              for page in range(1,21):
-                  rows=api(f"repos/{repo}/issues/{number}/comments?per_page=100&page={page}")
-                  if not isinstance(rows,list):
-                      raise RuntimeError("ISSUE_COMMENT_PAGE_INVALID")
-                  history.extend(rows)
-                  if len(rows)<100:
-                      return history
-              raise RuntimeError("ISSUE_COMMENT_HISTORY_UNBOUNDED")
-          def comment(number,body):
-              subprocess.check_call(["gh","api","-X","POST",
-                  f"repos/{repo}/issues/{number}/comments","-f",f"body={body}"],
-                  stdout=subprocess.DEVNULL)
-          def request_allowed(history,sha):
-              marker=f"FORGE_CLOUD_REPAIR_REQUEST_V1:{sha}"
-              attempts=[c for c in history
-                  if c.get("user",{}).get("login")=="github-actions[bot]"
-                  and marker in c.get("body","")]
-              # A posted request is NOT an acknowledged cloud task. Retry a
-              # missing repair only after a conservative backoff; stop after
-              # three attempts on the same immutable head.
-              if len(attempts)>=3:
-                  print(f"CLOUD_REPAIR_UNACKNOWLEDGED_MAX_ATTEMPTS HEAD={sha}")
-                  return False,marker
-              if attempts:
-                  recent=max(datetime.fromisoformat(c["created_at"].replace("Z","+00:00"))
-                             for c in attempts)
-                  hours=(1,6)[len(attempts)-1]
-                  if datetime.now(timezone.utc)-recent<timedelta(hours=hours):
-                      return False,marker
-              return True,marker
           prs=api(f"repos/{repo}/pulls?state=open&per_page=100")
           for pr in sorted(prs,key=lambda p:p["number"]):
               number=pr["number"];branch=pr["head"]["ref"];sha=pr["head"]["sha"]
@@ -92,30 +55,13 @@ jobs:
                   c.get("user",{}).get("login","") in ("chatgpt-codex-connector","chatgpt-codex-connector[bot]") and
                   re.search(r"\[P[12]",c.get("body","")) for c in findings)
               if not has_findings:continue
-              comments=issue_comments(number)
-              allowed,marker=request_allowed(comments,sha)
-              if not allowed:continue
-              # The cloud Codex app operates outside the logged-in Windows runner.
-              # This request does NOT authorize merging or scientific activation.
-              # Its result still needs independent exact-head hosted qualification.
-              body=(
-                  "@codex address that feedback\n\n"
-                  "Please address the current-head Codex P1/P2 inline findings, "
-                  "changing only .go source and adversarial tests in "
-                  "eligibility/, startrecovery/, or fsaadmission/ (at most six files). "
-                  "Keep frozen science, budgets, credentials, controller, workflows, "
-                  "other repos and all execution authority unchanged. "
-                  "Do not run original scientific experiments. "
-                  f"Exact starting head: `{sha}`. "
-                  "Independent hosted Linux/Windows CI and fresh separate review "
-                  "are mandatory before promotion.\n\n"
-                  f"<!-- {marker} -->")
-              # Re-fetch exact PR head immediately before this one-shot request.
+              # A PR issue comment binds only to a mutable branch, not the
+              # validated immutable commit. Rechecking the SHA before POST
+              # cannot prevent a branch change before cloud task creation.
+              # Never dispatch through this path, even when a finding matches.
               current=api(f"repos/{repo}/pulls/{number}")
               if current["head"]["sha"]!=sha:continue
-              comment(number,body)
-              print(f"CLOUD_REPAIR_REQUESTED_PR={number} HEAD={sha}")
-              break
+              raise SystemExit(f"UNPINNED_CLOUD_REPAIR_DISPATCH_BLOCKED PR={number} SHA={sha}")
           else:
               print("NO_ELIGIBLE_CLOUD_REPAIR_FINDINGS")
           PY

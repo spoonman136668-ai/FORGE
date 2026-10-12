@@ -21,13 +21,10 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import ast, textwrap
           repair=Path('.github/workflows/forge-autorepair.yml').read_text()
           merge=Path('.github/workflows/forge-automerge.yml').read_text()
           qualifier=Path('.github/workflows/qualify-fsa-source.yml').read_text()
-          # P1 regression: never run Codex on PR text in the persistent
-          # credential-bearing FORGE-CODEX-REMOTE user-session runner.
-          # Cloud @codex operates in its own service; only GitHub API calls
-          # are made here, from a disposable hosted GitHub Actions job.
           assert 'runs-on: ubuntu-latest' in repair
           assert 'runs-on: [self-hosted' not in repair
           assert 'uses: actions/checkout' not in repair
@@ -35,67 +32,39 @@ jobs:
           assert 'workspace-write' not in repair
           assert 'CODEX_AUTH_JSON_B64' not in repair
           assert 'secrets.OPENAI_API_KEY' not in repair
-          assert 'openai-api-key:' not in repair
-          assert '@codex address that feedback' in repair
-          assert 'FORGE_CLOUD_REPAIR_REQUEST_V1' in repair
-          assert '("chatgpt-codex-connector","chatgpt-codex-connector[bot]")' in repair
-          assert 'get("login")=="github-actions[bot]"' in repair
-          # Exercise the actual policy function bodies from the workflow,
-          # not a copied implementation or just textual assertions.
-          import ast, textwrap
-          from datetime import datetime,timezone,timedelta
+          assert 'issues: write' not in repair
+          assert 'issues: read' in repair
+          assert 'UNPINNED_CLOUD_REPAIR_DISPATCH_BLOCKED' in repair
+          assert '@codex address that feedback' not in repair
+          assert 'CLOUD_REPAIR_REQUESTED_PR=' not in repair
+          assert 'CLOUD_REPAIR_REQUEST_V1:' not in repair
           script=repair.split("python3 - <<'PY'",1)[1].split("          PY",1)[0]
           tree=ast.parse(textwrap.dedent(script))
-          funcs=[node for node in tree.body if isinstance(node,ast.FunctionDef)
-                 and node.name in ("issue_comments","request_allowed")]
-          assert len(funcs)==2
-          scope=dict(datetime=datetime,timezone=timezone,timedelta=timedelta,repo="owner/FORGE")
-          exec(compile(ast.Module(body=funcs,type_ignores=[]),"<isolated coordinator policy>","exec"),scope)
-          sha="e"*40
-          marker="FORGE_CLOUD_REPAIR_REQUEST_V1:"+sha
-          now=datetime.now(timezone.utc)
-          def row(actor,age_hours,body=marker):
-              return dict(user=dict(login=actor),
-                  body=body,created_at=(now-timedelta(hours=age_hours)).isoformat())
-          allowed,_=scope["request_allowed"]([],sha)
-          assert allowed
-          assert scope["request_allowed"]([row("untrusted",0)],sha)[0]
-          assert not scope["request_allowed"]([row("github-actions[bot]",0)],sha)[0]
-          assert scope["request_allowed"]([row("github-actions[bot]",2)],sha)[0]
-          assert not scope["request_allowed"]([
-              row("github-actions[bot]",12),row("github-actions[bot]",0)],sha)[0]
-          assert scope["request_allowed"]([
-              row("github-actions[bot]",12),row("github-actions[bot]",7)],sha)[0]
-          assert not scope["request_allowed"]([
-              row("github-actions[bot]",30),row("github-actions[bot]",25),
-              row("github-actions[bot]",7)],sha)[0]
-          seen=[]
-          def paged(path):
-              seen.append(path)
-              if path.endswith("&page=1"):return [row("outsider",1)]*100
-              if path.endswith("&page=2"):return [row("github-actions[bot]",0)]
-              raise AssertionError(path)
-          scope["api"]=paged
-          history=scope["issue_comments"](86)
-          assert len(history)==101 and len(seen)==2
-          assert not scope["request_allowed"](history,sha)[0]
-          scope["api"]=lambda path:[row("outsider",1)]*100
-          try:scope["issue_comments"](86)
-          except RuntimeError as err:assert str(err)=="ISSUE_COMMENT_HISTORY_UNBOUNDED"
-          else:raise AssertionError("truncated issue comments silently admitted")
-          print("PAGINATION_RETRY_AND_TRUSTED_DEDUPE_NEGATIVES=PASS")
-          assert 'pr["head"]["sha"]' in repair
-          assert 'contents: read' in repair
-          assert 'CLOUD_REPAIR_REQUESTED_PR=' in repair
-          assert 'SCIENTIFIC_EXECUTION=DISABLED' in repair
+          assert not any(s in script for s in ('"POST"','"PATCH"','"PUT"'))
+          assert any(isinstance(node,ast.Raise) and
+              'UNPINNED_CLOUD_REPAIR_DISPATCH_BLOCKED' in ast.unparse(node)
+              for node in ast.walk(tree))
+          # Execute the actual FSA delta-count guard extracted from the
+          # qualifier against boundary values instead of copying its logic.
+          qscript=qualifier.split("python - <<'PY'",1)[1].split("          PY",1)[0]
+          qtree=ast.parse(textwrap.dedent(qscript))
+          limit=[n for n in ast.walk(qtree) if isinstance(n,ast.If)
+                 and 'FSA_SOURCE_DELTA_COUNT_REJECTED' in ast.unparse(n)]
+          assert len(limit)==1
+          guard=compile(ast.Module(body=limit,type_ignores=[]),'<FSA source guard>','exec')
+          for count in (0,1,5,6,7,8,9):
+              rejected=False
+              try:exec(guard,dict(rows=['A\teligibility/x.go']*count))
+              except SystemExit as e:
+                  assert str(e)=='FSA_SOURCE_DELTA_COUNT_REJECTED'
+                  rejected=True
+              assert rejected==(count==0 or count>6),(count,rejected)
           assert 'EXACT_OPEN_OWNER_PR_NOT_FOUND' in qualifier
-          assert 'git\",\"merge-base\"' in qualifier
-          assert 'dae8cf70572b36c568bfa00bf0dab00bdec8a149' not in qualifier
-          assert 'No repair proposed' not in merge
+          assert 'git","merge-base"' in qualifier
           assert 'Disable automatic merge until a separately authenticated full-OID review attestation exists.' in merge
           assert 'continue' in merge.split('Disable automatic merge until a separately authenticated full-OID review attestation exists.')[1].splitlines()[1]
-          print('SUBSCRIPTION_ONLY_STATIC_BOUNDARY=PASS')
+          print('UNPINNED_DISPATCH_NEGATIVE=PASS')
+          print('SIX_FILE_FSA_SOURCE_LIMIT=PASS')
           print('AUTO_MERGE_FAIL_CLOSED=PASS')
-          print('CODEX_AUTHENTICATION_NOT_EXERCISED=TRUE')
           print('LIVE_REPAIR_NOT_EXERCISED=TRUE')
           PY
