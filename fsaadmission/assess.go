@@ -74,7 +74,12 @@ func Assess(e Evidence) (Disposition, error) {
         last.Generation != e.ExperimentGeneration ||
         last.SourceCommitSHA != p.SourceSHA ||
         last.PreregSHA256 != p.PreregSHA256 ||
-        last.CohortSHA256 != p.CohortSHA256 {
+        last.CohortSHA256 != p.CohortSHA256 ||
+        // This stricter composed preflight only recognizes a SOURCE_QUALIFIED
+        // witness that commits to the *entire* immutable frozen fingerprint.
+        // Legacy qualification witnesses of other types remain blocked, not
+        // silently reinterpreted or upgraded to execution authority.
+        last.WitnessSHA256 != e.FrozenPinSHA256 {
         return "", fmt.Errorf("%w: candidate journal identity mismatch", ErrBlocked)
     }
 
