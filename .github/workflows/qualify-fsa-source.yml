@@ -1,0 +1,68 @@
+name: FORGE FSA-source qualification
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact 40-character FORGE source commit SHA
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      EXPECTED_SHA: ${{ inputs.candidate_sha }}
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Validate immutable candidate and branch
+        shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REF_NAME" =~ ^proposal/fsa[a-zA-Z0-9/_-]*$ ]]
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source and bounded FSA-only paths
+        shell: bash
+        env:
+          EXPECTED_BASE: dae8cf70572b36c568bfa00bf0dab00bdec8a149
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git cat-file -e "$EXPECTED_BASE^{commit}"
+          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SHA"
+          python - <<'PY'
+          import subprocess
+          base="dae8cf70572b36c568bfa00bf0dab00bdec8a149"
+          rows=subprocess.check_output(["git","diff","--name-status","--no-renames",base,"HEAD"],text=True).splitlines()
+          assert rows and len(rows)<=8,rows
+          for row in rows:
+              status,path=row.split("\t",1)
+              assert status in ("A","M"),row
+              assert path.endswith(".go") and path.startswith(("startrecovery/","eligibility/","fsaadmission/")) and path.count("/")==1,path
+          PY
+      - name: Focused and final Go qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./eligibility ./startrecovery ./researchlog
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          if [ "$RUNNER_OS" = Linux ]; then go test -race -count=1 ./...; fi
