@@ -11,8 +11,8 @@ type syntheticReservationReader struct{
  readCount int
  reserveCount int
 }
-func (s *syntheticReservationReader) Read(context.Context,Intent)(Status,error){
- s.readCount++;return s.status,s.err
+func (s *syntheticReservationReader) Read(_ context.Context,i Intent)(Observation,error){
+ s.readCount++;return Observation{Intent:i,Status:s.status,IndependentlyAuthenticated:true},s.err
 }
 func (s *syntheticReservationReader) ReserveOnce(context.Context,Intent)(bool,error){
  s.reserveCount++;return false,errors.New("must never reserve through preflight")
@@ -51,5 +51,19 @@ func TestInvalidIntentNeverReachesAuthority(t *testing.T){
  got,err:=ConsiderReservation(context.Background(),reader,invalid)
  if got!=""||!errors.Is(err,ErrInvalidIntent)||reader.readCount!=0||reader.reserveCount!=0 {
   t.Fatalf("invalid intent reached authority: %s %v reads=%d reserve=%d",got,err,reader.readCount,reader.reserveCount)
+ }
+}
+
+type wrongIntentReader struct{syntheticReservationReader}
+func (s *wrongIntentReader) Read(_ context.Context, i Intent)(Observation,error){
+ s.readCount++
+ i.ExperimentID="OTHER"
+ return Observation{Intent:i,Status:NoReservation,IndependentlyAuthenticated:true},nil
+}
+func TestCrossExperimentReadObservationCannotAuthorizeReservation(t *testing.T){
+ r:=&wrongIntentReader{}
+ got,err:=ConsiderReservation(context.Background(),r,fixedIntent())
+ if got!=""||!errors.Is(err,ErrInvalidIntent)||r.reserveCount!=0{
+  t.Fatalf("cross experiment status accepted: %s %v",got,err)
  }
 }
