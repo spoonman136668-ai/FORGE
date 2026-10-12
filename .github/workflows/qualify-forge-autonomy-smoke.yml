@@ -1,0 +1,42 @@
+name: FORGE automation fail-closed smoke
+on:
+  push:
+    branches: [qualification/forge-autonomy-smoke-r1]
+permissions:
+  contents: read
+jobs:
+  negative:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify subscription-only automation and blocked merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          repair=Path('.github/workflows/forge-autorepair.yml').read_text()
+          merge=Path('.github/workflows/forge-automerge.yml').read_text()
+          assert 'secrets.OPENAI_API_KEY' not in repair
+          assert 'openai-api-key:' not in repair
+          assert 'CODEX_AUTH_JSON_B64' in repair
+          assert 'SUBSCRIPTION_AUTH_REQUIRED' in repair
+          assert 'API_AUTH_PROHIBITED' in repair
+          assert 'codex exec --model gpt-5.6-terra' in repair
+          assert 'model_reasoning_effort=\'medium\'' in repair
+          assert 'workspace-write' in repair
+          assert 'git status' in repair and '--untracked-files=all' in repair
+          assert 'No repair proposed' not in merge
+          assert 'Disable automatic merge until a separately authenticated full-OID review attestation exists.' in merge
+          assert 'continue' in merge.split('Disable automatic merge until a separately authenticated full-OID review attestation exists.')[1].splitlines()[1]
+          print('SUBSCRIPTION_ONLY_STATIC_BOUNDARY=PASS')
+          print('AUTO_MERGE_FAIL_CLOSED=PASS')
+          print('CODEX_AUTHENTICATION_NOT_EXERCISED=TRUE')
+          print('LIVE_REPAIR_NOT_EXERCISED=TRUE')
+          PY
