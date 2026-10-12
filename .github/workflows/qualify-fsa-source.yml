@@ -38,24 +38,54 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - name: Verify exact source and bounded FSA-only paths
+      - name: Verify current owned PR, exact source and bounded delta
         shell: bash
         env:
-          EXPECTED_BASE: dae8cf70572b36c568bfa00bf0dab00bdec8a149
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CANDIDATE_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          git cat-file -e "$EXPECTED_BASE^{commit}"
-          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SHA"
+          # Resolve the independently authenticated PR base from GitHub;
+          # never use a historical main SHA or a caller-chosen comparison base.
           python - <<'PY'
-          import subprocess
-          base="dae8cf70572b36c568bfa00bf0dab00bdec8a149"
-          rows=subprocess.check_output(["git","diff","--name-status","--no-renames",base,"HEAD"],text=True).splitlines()
-          assert rows and len(rows)<=8,rows
+          import json,os,re,subprocess
+          repo=os.environ["REPO"]
+          ref=os.environ["CANDIDATE_REF"]
+          sha=os.environ["EXPECTED_SHA"]
+          assert re.fullmatch(r"proposal/fsa[a-zA-Z0-9/_-]*",ref)
+          assert re.fullmatch(r"[0-9a-f]{40}",sha)
+          prs=json.loads(subprocess.check_output(
+              ["gh","api",f"repos/{repo}/pulls?state=open&per_page=100"],text=True))
+          matches=[pr for pr in prs
+              if pr["head"]["ref"]==ref
+              and pr["head"]["sha"]==sha
+              and pr["head"]["repo"]["full_name"]==repo
+              and pr["base"]["ref"]=="main"
+              and pr["user"]["login"]=="spoonman136668-ai"
+              and not pr["draft"]]
+          if len(matches)!=1:
+              raise SystemExit("EXACT_OPEN_OWNER_PR_NOT_FOUND")
+          base=matches[0]["base"]["sha"]
+          if not re.fullmatch(r"[0-9a-f]{40}",base):
+              raise SystemExit("PR_BASE_IDENTITY_INVALID")
+          subprocess.check_call(["git","cat-file","-e",f"{base}^{{commit}}"])
+          # A PR may branch from an older main. Inspect only its own delta,
+          # not unrelated commits since the PR forked.
+          fork=subprocess.check_output(["git","merge-base",base,sha],text=True).strip()
+          rows=subprocess.check_output(
+              ["git","diff","--name-status","--no-renames",fork,sha],text=True).splitlines()
+          if not rows or len(rows)>8:
+              raise SystemExit("FSA_SOURCE_DELTA_COUNT_REJECTED")
           for row in rows:
               status,path=row.split("\t",1)
-              assert status in ("A","M"),row
-              assert path.endswith(".go") and path.startswith(("startrecovery/","eligibility/","fsaadmission/")) and path.count("/")==1,path
+              if status not in ("A","M") or not (
+                  path.endswith(".go") and
+                  path.startswith(("startrecovery/","eligibility/","fsaadmission/")) and
+                  path.count("/")==1):
+                  raise SystemExit("FSA_SOURCE_PATH_OR_STATUS_REJECTED:"+row)
+          print("EXACT_PR_IDENTITY_AND_DYNAMIC_BASE=PASS")
           PY
       - name: Focused and final Go qualification
         shell: bash
