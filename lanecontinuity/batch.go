@@ -15,10 +15,8 @@ type Batch struct {
 // entire assessment to fail closed; neither decision dispatches experiments.
 // This function intentionally has no queue, network, model or write access.
 func AssessPair(first,second Input)(Batch,error){
+ if (first.Lane!=Wingless && first.Lane!=Yggdrasil) || (second.Lane!=Wingless && second.Lane!=Yggdrasil) {return Batch{},ErrInvalidInput}
  if first.Lane==second.Lane{return Batch{},ErrDuplicateLane}
- if !((first.Lane==Wingless&&second.Lane==Yggdrasil)||(first.Lane==Yggdrasil&&second.Lane==Wingless)){
-  return Batch{},ErrInvalidInput
- }
  a,err:=Classify(first);if err!=nil{return Batch{},err}
  b,err:=Classify(second);if err!=nil{return Batch{},err}
  out:=Batch{}
