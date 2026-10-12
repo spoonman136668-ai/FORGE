@@ -41,6 +41,20 @@ func AssessArchived(
     if err := archive.VerifyTrustedHead(anchor.Sequence, anchor.HeadSHA256); err != nil {
         return "", fmt.Errorf("%w: post-recovery archive drift: %v", ErrBlocked, err)
     }
+    // A verified record-chain head alone does not attest that immutable
+    // terminal originals remained present during later archive reads.
+    // Repeat the COMPLETE trusted recovery after loading the journal, so
+    // original loss during the earlier recovery/read interval fails closed.
+    // A deployed authority must additionally protect immutable originals
+    // against concurrent deletion or corruption; read-only source checks
+    // cannot turn a writable archive into an atomic filesystem snapshot.
+    second, err := fsatrust.Recover(ctx, backend, archive, identity)
+    if err != nil {
+        return "", fmt.Errorf("%w: final originals and head recovery: %v", ErrBlocked, err)
+    }
+    if second.Sequence != anchor.Sequence || second.HeadSHA256 != anchor.HeadSHA256 {
+        return "", fmt.Errorf("%w: archive highwater advanced during assessment", ErrBlocked)
+    }
     evidence.Journal = journal
     evidence.JournalHead = startrecovery.TrustedHead{
         Sequence: anchor.Sequence,
