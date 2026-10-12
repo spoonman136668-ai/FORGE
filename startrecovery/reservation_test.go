@@ -67,3 +67,16 @@ func TestCrossExperimentReadObservationCannotAuthorizeReservation(t *testing.T){
   t.Fatalf("cross experiment status accepted: %s %v",got,err)
  }
 }
+
+type unauthenticatedReader struct{syntheticReservationReader}
+func (s *unauthenticatedReader) Read(_ context.Context,i Intent)(Observation,error){
+ s.readCount++
+ return Observation{Intent:i,Status:NoReservation,IndependentlyAuthenticated:false},nil
+}
+func TestUnauthenticatedReservationReadFailsClosed(t *testing.T){
+ r:=&unauthenticatedReader{}
+ got,err:=ConsiderReservation(context.Background(),r,fixedIntent())
+ if got!=""||!errors.Is(err,ErrInvalidIntent)||r.reserveCount!=0 {
+  t.Fatalf("unauthenticated observation admitted: %s %v",got,err)
+ }
+}
