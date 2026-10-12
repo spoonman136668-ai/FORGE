@@ -24,24 +24,27 @@ jobs:
           repair=Path('.github/workflows/forge-autorepair.yml').read_text()
           merge=Path('.github/workflows/forge-automerge.yml').read_text()
           qualifier=Path('.github/workflows/qualify-fsa-source.yml').read_text()
+          # P1 regression: never run Codex on PR text in the persistent
+          # credential-bearing FORGE-CODEX-REMOTE user-session runner.
+          # Cloud @codex operates in its own service; only GitHub API calls
+          # are made here, from a disposable hosted GitHub Actions job.
+          assert 'runs-on: ubuntu-latest' in repair
+          assert 'runs-on: [self-hosted' not in repair
+          assert 'uses: actions/checkout' not in repair
+          assert 'codex exec' not in repair
+          assert 'workspace-write' not in repair
+          assert 'CODEX_AUTH_JSON_B64' not in repair
           assert 'secrets.OPENAI_API_KEY' not in repair
           assert 'openai-api-key:' not in repair
-          assert 'CODEX_AUTH_JSON_B64' not in repair
-          assert 'forge-codex-isolated' in repair
-          assert 'CHATGPT_SUBSCRIPTION_REQUIRED' in repair
-          assert 'PAID_API_BILLING_FORBIDDEN' in repair
-          assert 'qualify-fsa-source.yml' in repair
-          assert 'candidate_sha=$published' in repair
-          assert '@codex review' in repair
-          assert 'FRESH_CODEX_REVIEW_REQUEST_FAILED' in repair
-          assert 'PUBLISHED_PR_HEAD_IDENTITY_DRIFT' in repair
+          assert '@codex address that feedback' in repair
+          assert 'FORGE_CLOUD_REPAIR_REQUEST_V1' in repair
+          assert 'pr["head"]["sha"]' in repair
+          assert 'contents: read' in repair
+          assert 'CLOUD_REPAIR_REQUESTED_PR=' in repair
+          assert 'SCIENTIFIC_EXECUTION=DISABLED' in repair
           assert 'EXACT_OPEN_OWNER_PR_NOT_FOUND' in qualifier
           assert 'git\",\"merge-base\"' in qualifier
           assert 'dae8cf70572b36c568bfa00bf0dab00bdec8a149' not in qualifier
-          assert 'gpt-5.6-terra' in repair
-          assert 'model_reasoning_effort=' in repair
-          assert 'workspace-write' in repair
-          assert 'git status' in repair and '--untracked-files=all' in repair
           assert 'No repair proposed' not in merge
           assert 'Disable automatic merge until a separately authenticated full-OID review attestation exists.' in merge
           assert 'continue' in merge.split('Disable automatic merge until a separately authenticated full-OID review attestation exists.')[1].splitlines()[1]
