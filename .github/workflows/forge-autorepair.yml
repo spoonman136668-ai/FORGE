@@ -155,6 +155,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.select.outputs.branch }}
           PIN: ${{ steps.select.outputs.sha }}
+          PR_NUMBER: ${{ steps.select.outputs.number }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -204,7 +205,19 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $published.Length -ne 40) { throw 'PUBLISHED_SHA_UNAVAILABLE' }
           & gh workflow run qualify-fsa-source.yml --repo $env:GITHUB_REPOSITORY --ref $env:BRANCH -f "candidate_sha=$published"
           if ($LASTEXITCODE -ne 0) { throw 'FSA_QUALIFICATION_DISPATCH_FAILED' }
-          Write-Output 'HOSTED_AND_FSA_QUALIFICATION_DISPATCHED=PASS'
+          # A new repair HEAD invalidates its predecessor review; explicitly
+          # request fresh independent Codex review AFTER publication.
+          # The bot may be quota-limited; that never authorizes an auto merge.
+          $pr = (& gh api "repos/$env:GITHUB_REPOSITORY/pulls/$env:PR_NUMBER" | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $pr.head.sha -ne $published -or
+              $pr.head.ref -ne $env:BRANCH -or $pr.head.repo.full_name -ne $env:GITHUB_REPOSITORY -or
+              $pr.user.login -ne 'spoonman136668-ai') {
+            throw 'PUBLISHED_PR_HEAD_IDENTITY_DRIFT'
+          }
+          $message = "@codex review`nIndependent review required for repaired exact HEAD $published. Hosted Linux/Windows and FSA-source qualification dispatched separately. No automatic scientific authority or research execution."
+          & gh api -X POST "repos/$env:GITHUB_REPOSITORY/issues/$env:PR_NUMBER/comments" -f "body=$message" | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'FRESH_CODEX_REVIEW_REQUEST_FAILED' }
+          Write-Output 'HOSTED_FSA_QUALIFICATION_AND_REVIEW_REQUESTED=PASS'
       - name: Clear temporary review evidence
         if: always()
         shell: pwsh
