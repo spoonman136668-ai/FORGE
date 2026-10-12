@@ -1,0 +1,45 @@
+package startrecovery
+
+import (
+ "context"
+ "errors"
+ "testing"
+)
+type syntheticReservationReader struct{
+ status Status
+ err error
+ readCount int
+ reserveCount int
+}
+func (s *syntheticReservationReader) Read(context.Context,Intent)(Status,error){
+ s.readCount++;return s.status,s.err
+}
+func (s *syntheticReservationReader) ReserveOnce(context.Context,Intent)(bool,error){
+ s.reserveCount++;return false,errors.New("must never reserve through preflight")
+}
+func TestReservationReadOnlyAndFailClosed(t *testing.T){
+ for _,tc:=range []struct{status Status;want Recovery}{
+  {NoReservation,RequestIndependentReservation},
+  {Reserved,HoldNoReplay},
+  {Dispatched,HoldNoReplay},
+  {Completed,HoldNoReplay},
+  {Uncertain,HoldNoReplay},
+ }{
+  r:=&syntheticReservationReader{status:tc.status}
+  got,err:=ConsiderReservation(context.Background(),r,fixedIntent())
+  if err!=nil||got!=tc.want||r.readCount!=1||r.reserveCount!=0{
+   t.Fatalf("%s => %s %v read=%d reserve=%d",tc.status,got,err,r.readCount,r.reserveCount)
+  }
+ }
+}
+func TestReservationFailureNeverReplays(t *testing.T){
+ for _,errRead:=range []error{errors.New("outage"),context.DeadlineExceeded}{
+  r:=&syntheticReservationReader{status:NoReservation,err:errRead}
+  got,err:=ConsiderReservation(context.Background(),r,fixedIntent())
+  if got!=""||!errors.Is(err,ErrReservationIndeterminate)||r.reserveCount!=0{
+   t.Fatalf("read failure allowed reservation: %s %v",got,err)
+  }
+ }
+ got,err:=ConsiderReservation(context.Background(),nil,fixedIntent())
+ if got!=""||!errors.Is(err,ErrReservationUnavailable){t.Fatalf("missing authority allowed progression: %s %v",got,err)}
+}
