@@ -55,7 +55,7 @@ func ReconcileIntent(i Intent, observation Observation)(Recovery,error){
   !validExperimentID(i.ExperimentID)||
   !lowerHex(i.FrozenSHA256,64)||!lowerHex(i.SourceSHA,40)||
   !lowerHex(i.CohortSHA256,64)||!lowerHex(i.NonceSHA256,64)||
-  i.Generation==0||!observation.IndependentlyAuthenticated||i!=observation.Intent{
+  (i.Generation==0||i.Generation>1000000000)||!observation.IndependentlyAuthenticated||i!=observation.Intent{
    return "",ErrInvalidIntent
  }
  switch observation.Status {
