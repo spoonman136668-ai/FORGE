@@ -63,12 +63,19 @@ jobs:
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/comments?per_page=100" --jq '[.[] | select(.user.login=="chatgpt-codex-connector[bot]") | {path,body,commit_id}]' > /tmp/forge-review.json
           test -s /tmp/forge-review.json
+      - name: Require subscription-auth Codex credentials
+        if: steps.select.outputs.number != ''
+        env:
+          CODEX_SUBSCRIPTION_AUTH: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+        shell: bash
+        run: |
+          test -n "$CODEX_SUBSCRIPTION_AUTH" || { echo "CODEX_SUBSCRIPTION_AUTH_NOT_CONFIGURED"; exit 1; }
       - name: Apply bounded repair with Codex
         id: codex
         if: steps.select.outputs.number != ''
         uses: openai/codex-action@v1
         with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          codex-auth-json-b64: ${{ secrets.CODEX_AUTH_JSON_B64 }}
           permission-profile: ':workspace'
           prompt: |
             This is the source-only FORGE FSA pull request #${{ steps.select.outputs.number }}.
