@@ -22,8 +22,11 @@ jobs:
           if ($env:OPENAI_API_KEY) { throw 'API_BILLING_PROHIBITED' }
           if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER_IDENTITY' }
           $cmd = Get-Command codex -ErrorAction Stop
-          & $cmd.Source login status
+          $loginStatus = (& $cmd.Source login status 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'SUBSCRIPTION_AUTH_MISSING' }
+          if ($loginStatus -notmatch '(?i)logged in using chatgpt') {
+              throw 'SUBSCRIPTION_ONLY_LOGIN_REQUIRED'
+          }
           Write-Output 'FORGE_ISOLATED_CODEX_READY=PASS'
       - name: Confirm source-only authority boundary
         shell: pwsh
