@@ -20,6 +20,8 @@ func testEvidence(t *testing.T) Evidence {
         ProtocolSHA256: h("d", 64), BudgetUnits: 10,
         SeedIDs: []string{"Wingless:seed_01"},
     }
+    fpin, err := eligibility.Fingerprint(p)
+    if err != nil { t.Fatal(err) }
     journal := researchlog.New()
     appendKind := func(kind researchlog.Kind, runID uint64) {
         event := researchlog.Event{
@@ -32,6 +34,7 @@ func testEvidence(t *testing.T) Evidence {
             event.PreregSHA256 = ""; event.CohortSHA256 = ""; event.WitnessSHA256 = ""
         }
         if kind == researchlog.Preregister { event.WitnessSHA256 = "" }
+        if kind == researchlog.SourceQualified { event.WitnessSHA256 = fpin }
         next, err := researchlog.Append(journal, event)
         if err != nil { t.Fatal(err) }
         journal = next
@@ -45,8 +48,6 @@ func testEvidence(t *testing.T) Evidence {
         ConsumedCohorts: []string{}, ActiveCohorts: []string{},
         Starts: []eligibility.StartRecord{},
     }
-    fpin, err := eligibility.Fingerprint(p)
-    if err != nil { t.Fatal(err) }
     lpin, err := eligibility.LedgerFingerprint(ledger)
     if err != nil { t.Fatal(err) }
     return Evidence{
@@ -146,6 +147,9 @@ func TestComposedPreflightBindsExactExperimentAndFrozenInputs(t *testing.T) {
         "cohort mismatch":func(e *Evidence){e.Frozen.CohortSHA256=strings.Repeat("f",64)},
         "prereg mismatch":func(e *Evidence){e.Frozen.PreregSHA256=strings.Repeat("f",64)},
         "wrong candidate":func(e *Evidence){e.Frozen.CandidateID="exp_02"},
+        "protocol drift with repinned proposal":func(e *Evidence){e.Frozen.ProtocolSHA256=strings.Repeat("f",64)},
+        "budget drift with repinned proposal":func(e *Evidence){e.Frozen.BudgetUnits=11},
+        "seed drift with repinned proposal":func(e *Evidence){e.Frozen.SeedIDs=[]string{"Wingless:seed_02"}},
         "generation mismatch":func(e *Evidence){e.ExperimentGeneration=8;e.LedgerGeneration=8;e.Ledger.Generation=8},
     }{
         t.Run(name,func(t *testing.T){
