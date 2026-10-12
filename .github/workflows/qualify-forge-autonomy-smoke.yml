@@ -1,7 +1,7 @@
 name: FORGE automation fail-closed smoke
 on:
   push:
-    branches: [qualification/forge-autonomy-smoke-r1]
+    branches: [qualification/forge-autonomy-smoke-r1, qualification/forge-remote-only-codex-r1]
 permissions:
   contents: read
 jobs:
@@ -21,22 +21,50 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import ast, textwrap
           repair=Path('.github/workflows/forge-autorepair.yml').read_text()
           merge=Path('.github/workflows/forge-automerge.yml').read_text()
+          qualifier=Path('.github/workflows/qualify-fsa-source.yml').read_text()
+          assert 'runs-on: ubuntu-latest' in repair
+          assert 'runs-on: [self-hosted' not in repair
+          assert 'uses: actions/checkout' not in repair
+          assert 'codex exec' not in repair
+          assert 'workspace-write' not in repair
+          assert 'CODEX_AUTH_JSON_B64' not in repair
           assert 'secrets.OPENAI_API_KEY' not in repair
-          assert 'openai-api-key:' not in repair
-          assert 'CODEX_AUTH_JSON_B64' in repair
-          assert 'SUBSCRIPTION_AUTH_REQUIRED' in repair
-          assert 'API_AUTH_PROHIBITED' in repair
-          assert 'codex exec --model gpt-5.6-terra' in repair
-          assert 'model_reasoning_effort=\'medium\'' in repair
-          assert 'workspace-write' in repair
-          assert 'git status' in repair and '--untracked-files=all' in repair
-          assert 'No repair proposed' not in merge
+          assert 'issues: write' not in repair
+          assert 'issues: read' in repair
+          assert 'UNPINNED_CLOUD_REPAIR_DISPATCH_BLOCKED' in repair
+          assert '@codex address that feedback' not in repair
+          assert 'CLOUD_REPAIR_REQUESTED_PR=' not in repair
+          assert 'CLOUD_REPAIR_REQUEST_V1:' not in repair
+          script=repair.split("python3 - <<'PY'",1)[1].split("          PY",1)[0]
+          tree=ast.parse(textwrap.dedent(script))
+          assert not any(s in script for s in ('"POST"','"PATCH"','"PUT"'))
+          assert any(isinstance(node,ast.Raise) and
+              'UNPINNED_CLOUD_REPAIR_DISPATCH_BLOCKED' in ast.unparse(node)
+              for node in ast.walk(tree))
+          # Execute the actual FSA delta-count guard extracted from the
+          # qualifier against boundary values instead of copying its logic.
+          qscript=qualifier.split("python - <<'PY'",1)[1].split("          PY",1)[0]
+          qtree=ast.parse(textwrap.dedent(qscript))
+          limit=[n for n in ast.walk(qtree) if isinstance(n,ast.If)
+                 and 'FSA_SOURCE_DELTA_COUNT_REJECTED' in ast.unparse(n)]
+          assert len(limit)==1
+          guard=compile(ast.Module(body=limit,type_ignores=[]),'<FSA source guard>','exec')
+          for count in (0,1,5,6,7,8,9):
+              rejected=False
+              try:exec(guard,dict(rows=['A\teligibility/x.go']*count))
+              except SystemExit as e:
+                  assert str(e)=='FSA_SOURCE_DELTA_COUNT_REJECTED'
+                  rejected=True
+              assert rejected==(count==0 or count>6),(count,rejected)
+          assert 'EXACT_OPEN_OWNER_PR_NOT_FOUND' in qualifier
+          assert 'git","merge-base"' in qualifier
           assert 'Disable automatic merge until a separately authenticated full-OID review attestation exists.' in merge
           assert 'continue' in merge.split('Disable automatic merge until a separately authenticated full-OID review attestation exists.')[1].splitlines()[1]
-          print('SUBSCRIPTION_ONLY_STATIC_BOUNDARY=PASS')
+          print('UNPINNED_DISPATCH_NEGATIVE=PASS')
+          print('SIX_FILE_FSA_SOURCE_LIMIT=PASS')
           print('AUTO_MERGE_FAIL_CLOSED=PASS')
-          print('CODEX_AUTHENTICATION_NOT_EXERCISED=TRUE')
           print('LIVE_REPAIR_NOT_EXERCISED=TRUE')
           PY
