@@ -40,6 +40,50 @@ jobs:
           assert 'FORGE_CLOUD_REPAIR_REQUEST_V1' in repair
           assert '("chatgpt-codex-connector","chatgpt-codex-connector[bot]")' in repair
           assert 'get("login")=="github-actions[bot]"' in repair
+          # Exercise the actual policy function bodies from the workflow,
+          # not a copied implementation or just textual assertions.
+          import ast, textwrap
+          from datetime import datetime,timezone,timedelta
+          script=repair.split("python3 - <<'PY'",1)[1].split("          PY",1)[0]
+          tree=ast.parse(textwrap.dedent(script))
+          funcs=[node for node in tree.body if isinstance(node,ast.FunctionDef)
+                 and node.name in ("issue_comments","request_allowed")]
+          assert len(funcs)==2
+          scope=dict(datetime=datetime,timezone=timezone,timedelta=timedelta,repo="owner/FORGE")
+          exec(compile(ast.Module(body=funcs,type_ignores=[]),"<isolated coordinator policy>","exec"),scope)
+          sha="e"*40
+          marker="FORGE_CLOUD_REPAIR_REQUEST_V1:"+sha
+          now=datetime.now(timezone.utc)
+          def row(actor,age_hours,body=marker):
+              return dict(user=dict(login=actor),
+                  body=body,created_at=(now-timedelta(hours=age_hours)).isoformat())
+          allowed,_=scope["request_allowed"]([],sha)
+          assert allowed
+          assert scope["request_allowed"]([row("untrusted",0)],sha)[0]
+          assert not scope["request_allowed"]([row("github-actions[bot]",0)],sha)[0]
+          assert scope["request_allowed"]([row("github-actions[bot]",2)],sha)[0]
+          assert not scope["request_allowed"]([
+              row("github-actions[bot]",12),row("github-actions[bot]",0)],sha)[0]
+          assert scope["request_allowed"]([
+              row("github-actions[bot]",12),row("github-actions[bot]",7)],sha)[0]
+          assert not scope["request_allowed"]([
+              row("github-actions[bot]",30),row("github-actions[bot]",25),
+              row("github-actions[bot]",7)],sha)[0]
+          seen=[]
+          def paged(path):
+              seen.append(path)
+              if "page=1" in path:return [row("outsider",1)]*100
+              if "page=2" in path:return [row("github-actions[bot]",0)]
+              raise AssertionError(path)
+          scope["api"]=paged
+          history=scope["issue_comments"](86)
+          assert len(history)==101 and len(seen)==2
+          assert not scope["request_allowed"](history,sha)[0]
+          scope["api"]=lambda path:[row("outsider",1)]*100
+          try:scope["issue_comments"](86)
+          except RuntimeError as err:assert str(err)=="ISSUE_COMMENT_HISTORY_UNBOUNDED"
+          else:raise AssertionError("truncated issue comments silently admitted")
+          print("PAGINATION_RETRY_AND_TRUSTED_DEDUPE_NEGATIVES=PASS")
           assert 'pr["head"]["sha"]' in repair
           assert 'contents: read' in repair
           assert 'CLOUD_REPAIR_REQUESTED_PR=' in repair
