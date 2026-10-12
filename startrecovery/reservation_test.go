@@ -43,3 +43,13 @@ func TestReservationFailureNeverReplays(t *testing.T){
  got,err:=ConsiderReservation(context.Background(),nil,fixedIntent())
  if got!=""||!errors.Is(err,ErrReservationUnavailable){t.Fatalf("missing authority allowed progression: %s %v",got,err)}
 }
+
+func TestInvalidIntentNeverReachesAuthority(t *testing.T){
+ reader:=&syntheticReservationReader{status:NoReservation}
+ invalid:=fixedIntent()
+ invalid.NonceSHA256=""
+ got,err:=ConsiderReservation(context.Background(),reader,invalid)
+ if got!=""||!errors.Is(err,ErrInvalidIntent)||reader.readCount!=0||reader.reserveCount!=0 {
+  t.Fatalf("invalid intent reached authority: %s %v reads=%d reserve=%d",got,err,reader.readCount,reader.reserveCount)
+ }
+}
