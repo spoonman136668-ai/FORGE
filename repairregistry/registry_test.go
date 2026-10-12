@@ -29,7 +29,7 @@ func TestWriteOnceCanonicalAndFailClosed(t *testing.T){
  r:=sample(t);dir:=t.TempDir()
  if err:=RecordOnce(dir,r);err!=nil{t.Fatal(err)}
  path:=filepath.Join(dir,r.RecordSHA256+".json")
- got,err:=ReadFile(path);if err!=nil||got!=rEqual(got,r){t.Fatal("round trip",err)}
+ got,err:=ReadFile(path);if err!=nil||!rEqual(got,r){t.Fatal("round trip",err)}
  if err:=RecordOnce(dir,r);err==nil{t.Fatal("duplicate immutable record overwritten")}
  if err:=os.WriteFile(path,[]byte("{\"schema\":\"forged\"}"),0600);err!=nil{t.Fatal(err)}
  if _,err:=ReadFile(path);err==nil{t.Fatal("tampered evidence accepted")}
