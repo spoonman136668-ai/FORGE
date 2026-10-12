@@ -28,7 +28,7 @@ const (
  Completed Status = "COMPLETED_NEVER_AUTOREPLAY"
  Uncertain Status = "UNKNOWN_NEVER_AUTOREPLAY"
 )
-type Recovery string
+type Observation struct {\n Intent Intent\n Status Status\n IndependentlyAuthenticated bool\n}\ntype Recovery string
 const (
  RequestIndependentReservation Recovery = "REQUEST_INDEPENDENT_RESERVATION"
  HoldNoReplay Recovery = "HOLD_NEVER_REDISPATCH"
@@ -45,18 +45,24 @@ func lowerHex(s string,n int)bool{
 // reservation MAY be requested. Even NoReservation is not a start permit.
 // Indeterminate CAS outcomes, restart, timeouts and lost acknowledgements
 // always remain held until external proof resolves the prior attempt.
-func ReconcileIntent(i Intent, observed Status, independentlyAuthenticated bool)(Recovery,error){
+func ReconcileIntent(i Intent, observation Observation)(Recovery,error){
  if (i.Lane!="Wingless"&&i.Lane!="Yggdrasil") ||
   i.ExperimentID==""||len(i.ExperimentID)>96||
-  strings.ContainsAny(i.ExperimentID,"\\/\r\n\x00 ")||
+  !validExperimentID(i.ExperimentID)||
   !lowerHex(i.FrozenSHA256,64)||!lowerHex(i.SourceSHA,40)||
   !lowerHex(i.CohortSHA256,64)||!lowerHex(i.NonceSHA256,64)||
-  i.Generation==0||!independentlyAuthenticated{
+  i.Generation==0||!observation.IndependentlyAuthenticated||i!=observation.Intent{
    return "",ErrInvalidIntent
  }
- switch observed {
+ switch observation.Status {
  case NoReservation:return RequestIndependentReservation,nil
  case Reserved,Dispatched,Completed,Uncertain:return HoldNoReplay,nil
  default:return "",ErrInvalidIntent
  }
+}
+
+func validExperimentID(s string) bool {
+ if len(s)<1||len(s)>96 {return false}
+ for _,c:=range s {if !((c>='0'&&c<='9')||(c>='a'&&c<='z')||(c>='A'&&c<='Z')||c=='_'||c=='-'){return false}}
+ return true
 }
