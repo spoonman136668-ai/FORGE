@@ -2,6 +2,7 @@ package fsareservation
 
 import (
  "errors"
+ "fmt"
  "os"
  "path/filepath"
  "runtime"
@@ -75,4 +76,18 @@ func TestAncestorSymlinkRejected(t *testing.T){
  child:=filepath.Join(target,"sub")
  if err:=os.Mkdir(child,0700);err!=nil{t.Fatal(err)}
  if _,err:=Open(filepath.Join(link,"sub"));!errors.Is(err,ErrUnprovisioned){t.Fatalf("symlink ancestor permitted: %v",err)}
+}
+
+func TestUnavailableVolumeRootRejected(t *testing.T){
+ if runtime.GOOS!="windows"{t.Skip("drive root behavior is Windows-specific")}
+ // Find a truly absent drive rather than guessing the workstation layout.
+ for disk:='Z';disk>='D';disk-- {
+  root:=fmt.Sprintf("%c:\\\\",disk)
+  if _,err:=os.Lstat(root);err==nil{continue}
+  if _,err:=Open(root);!errors.Is(err,ErrUnprovisioned){
+   t.Fatalf("unavailable volume %q accepted: %v",root,err)
+  }
+  return
+ }
+ t.Skip("no unavailable drive letter on this Windows runner")
 }
