@@ -1,0 +1,53 @@
+name: FORGE subscription Codex readiness probe
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '19 * * * *'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Verify subscription credential availability without disclosure
+        id: gate
+        env:
+          CODEX_SUBSCRIPTION_AUTH: ${{ secrets.CODEX_AUTH_JSON_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$CODEX_SUBSCRIPTION_AUTH" ]; then
+            echo "SUBSCRIPTION_CREDENTIAL_NOT_CONFIGURED"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          install -d -m 700 "$RUNNER_TEMP/codex-home"
+          printf '%s' "$CODEX_SUBSCRIPTION_AUTH" | base64 --decode > "$RUNNER_TEMP/codex-home/auth.json"
+          chmod 600 "$RUNNER_TEMP/codex-home/auth.json"
+          python3 - <<'PY'
+          import json,os
+          p=os.path.join(os.environ['RUNNER_TEMP'],'codex-home','auth.json')
+          obj=json.load(open(p))
+          assert isinstance(obj,dict) and obj.get('auth_mode')=='chatgpt' and not obj.get('OPENAI_API_KEY'), 'SUBSCRIPTION_ONLY_REQUIRED'
+          print('SUBSCRIPTION_AUTH_FORMAT=PASS')
+          PY
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+      - name: Execute bounded Codex subscription login smoke
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          CODEX_HOME: ${{ runner.temp }}/codex-home
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global @openai/codex
+          mkdir -p "$RUNNER_TEMP/readonly-probe"
+          cd "$RUNNER_TEMP/readonly-probe"
+          codex exec --model gpt-5.6-terra --config model_reasoning_effort='medium' --sandbox read-only --skip-git-repo-check 'Return exactly FORGE_SUBSCRIPTION_CODEX_OK and perform no filesystem writes.' > "$RUNNER_TEMP/codex-probe.stdout"
+          grep -q 'FORGE_SUBSCRIPTION_CODEX_OK' "$RUNNER_TEMP/codex-probe.stdout"
+          echo 'SUBSCRIPTION_CODEX_EXECUTION=PASS'
+      - name: Remove ephemeral credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/codex-home" "$RUNNER_TEMP/codex-probe.stdout" "$RUNNER_TEMP/readonly-probe"
