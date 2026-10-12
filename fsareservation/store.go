@@ -10,6 +10,8 @@ import (
  "encoding/json"
  "errors"
  "fmt"
+ "io"
+ "strings"
  "os"
  "path/filepath"
 
@@ -26,11 +28,34 @@ var (
 // Store is opened by the separately trusted FSA process, never by a research
 // worker. The root must already exist on an independently provisioned volume.
 type Store struct{root string}
+const maxClaimBytes = 4096
+
+// checkRoot rejects symbolic links at every existing path component.
+// This is a bounded preflight, not a replacement for secure directory-handle
+// operations and independent filesystem access control against concurrent
+// privileged pathname retargeting.
+func checkRoot(root string) error {
+ if !filepath.IsAbs(root) {return ErrUnprovisioned}
+ clean:=filepath.Clean(root)
+ volume:=filepath.VolumeName(clean)
+ current:=string(os.PathSeparator)
+ if volume!="" {current=volume+string(os.PathSeparator)}
+ // A drive or UNC root has no remaining components to walk. Check that
+ // root itself exists before returning, including disconnected volumes.
+ base,err:=os.Lstat(current)
+ if err!=nil||!base.IsDir()||base.Mode()&(os.ModeSymlink|os.ModeIrregular)!=0 {return ErrUnprovisioned}
+ tail:=strings.TrimPrefix(strings.TrimPrefix(clean,volume),string(os.PathSeparator))
+ for _,part:=range strings.Split(tail,string(os.PathSeparator)) {
+  if part=="" {continue}
+  current=filepath.Join(current,part)
+  info,err:=os.Lstat(current)
+  if err!=nil||!info.IsDir()||info.Mode()&os.ModeSymlink!=0{return ErrUnprovisioned}
+ }
+ return nil
+}
 func Open(root string)(*Store,error){
- if !filepath.IsAbs(root){return nil,ErrUnprovisioned}
- fi,err:=os.Lstat(root)
- if err!=nil||!fi.IsDir()||fi.Mode()&os.ModeSymlink!=0{return nil,ErrUnprovisioned}
- return &Store{root:root},nil
+ if err:=checkRoot(root);err!=nil{return nil,err}
+ return &Store{root:filepath.Clean(root)},nil
 }
 type record struct {
  Schema string `json:"schema"`
@@ -59,6 +84,7 @@ func digest(i startrecovery.Intent)(string,error){
 // This primitive alone does NOT solve multi-node linearizability or identity.
 func (s *Store) Reserve(i startrecovery.Intent)error{
  if s==nil||!valid(i){return ErrInvalid}
+ if err:=checkRoot(s.root);err!=nil{return ErrIndeterminate}
  d,err:=digest(i);if err!=nil{return ErrInvalid}
  r:=record{Schema:"forge.fsa.reservation.v1",Intent:i,SHA256:d}
  data,err:=json.Marshal(r);if err!=nil{return ErrInvalid}
@@ -82,9 +108,13 @@ func (s *Store) Reserve(i startrecovery.Intent)error{
 // remote reservation; callers must use independent FSA trust.
 func (s *Store) Inspect(i startrecovery.Intent)(bool,error){
  if s==nil||!valid(i){return false,ErrInvalid}
- b,err:=os.ReadFile(filepath.Join(s.root,key(i)+".json"))
+ if err:=checkRoot(s.root);err!=nil{return false,ErrIndeterminate}
+ f,err:=os.Open(filepath.Join(s.root,key(i)+".json"))
  if errors.Is(err,os.ErrNotExist){return false,nil}
  if err!=nil{return false,ErrIndeterminate}
+ defer f.Close()
+ b,err:=io.ReadAll(io.LimitReader(f,maxClaimBytes+1))
+ if err!=nil||len(b)>maxClaimBytes{return true,ErrIndeterminate}
  var r record
  if json.Unmarshal(b,&r)!=nil||r.Schema!="forge.fsa.reservation.v1"{return true,ErrIndeterminate}
  d,err:=digest(r.Intent)

@@ -2,6 +2,7 @@ package fsareservation
 
 import (
  "errors"
+ "fmt"
  "os"
  "path/filepath"
  "runtime"
@@ -54,4 +55,39 @@ func TestFailClosedOnCorruptClaimsAndUnprovisionedRoot(t *testing.T){
  claimed,err:=s.Inspect(i);if !claimed||!errors.Is(err,ErrIndeterminate){t.Fatalf("corrupt claim accepted: %v %v",claimed,err)}
  i.ExperimentID="../escape"
  if err:=s.Reserve(i);!errors.Is(err,ErrInvalid){t.Fatalf("invalid identity accepted: %v",err)}
+}
+
+func TestOversizedReservationClaimFailsClosed(t *testing.T){
+ root:=t.TempDir()
+ store,err:=Open(root);if err!=nil{t.Fatal(err)}
+ i:=intent("Wingless","W001",strings.Repeat("f",64))
+ if err:=os.WriteFile(filepath.Join(root,i.CohortSHA256+".json"),[]byte(strings.Repeat("x",maxClaimBytes+1)),0600);err!=nil{t.Fatal(err)}
+ claimed,err:=store.Inspect(i)
+ if !claimed||!errors.Is(err,ErrIndeterminate){t.Fatalf("oversized claim treated as safe: %v %v",claimed,err)}
+ if err:=store.Reserve(i);!errors.Is(err,ErrConsumed){t.Fatalf("oversized claim reused: %v",err)}
+}
+func TestAncestorSymlinkRejected(t *testing.T){
+ base:=t.TempDir()
+ target:=filepath.Join(base,"target")
+ if err:=os.Mkdir(target,0700);err!=nil{t.Fatal(err)}
+ link:=filepath.Join(base,"link")
+ if err:=os.Symlink(target,link);err!=nil{t.Skipf("symlinks unavailable: %v",err)}
+ if _,err:=Open(link);!errors.Is(err,ErrUnprovisioned){t.Fatalf("symlink root permitted: %v",err)}
+ child:=filepath.Join(target,"sub")
+ if err:=os.Mkdir(child,0700);err!=nil{t.Fatal(err)}
+ if _,err:=Open(filepath.Join(link,"sub"));!errors.Is(err,ErrUnprovisioned){t.Fatalf("symlink ancestor permitted: %v",err)}
+}
+
+func TestUnavailableVolumeRootRejected(t *testing.T){
+ if runtime.GOOS!="windows"{t.Skip("drive root behavior is Windows-specific")}
+ // Find a truly absent drive rather than guessing the workstation layout.
+ for disk:='Z';disk>='D';disk-- {
+  root:=fmt.Sprintf("%c:\\\\",disk)
+  if _,err:=os.Lstat(root);err==nil{continue}
+  if _,err:=Open(root);!errors.Is(err,ErrUnprovisioned){
+   t.Fatalf("unavailable volume %q accepted: %v",root,err)
+  }
+  return
+ }
+ t.Skip("no unavailable drive letter on this Windows runner")
 }
