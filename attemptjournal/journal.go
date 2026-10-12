@@ -11,6 +11,7 @@ import (
  "io"
  "os"
  "path/filepath"
+ "runtime"
 )
 var ErrUnsafe=errors.New("FORGE_ORIGINAL_ATTEMPT_CUSTODY_UNSAFE")
 const Schema="forge.original-attempt.v1"
@@ -66,7 +67,7 @@ func WriteOnce(root string,r Record)error{
  if writeErr!=nil||closeErr!=nil{return ErrUnsafe}
  dir,err:=os.Open(root);if err!=nil{return ErrUnsafe}
  syncErr:=dir.Sync();closeErr=dir.Close()
- if syncErr!=nil||closeErr!=nil{return ErrUnsafe}
+ if (syncErr!=nil&&runtime.GOOS!="windows")||closeErr!=nil{return ErrUnsafe}
  return nil
 }
 // Read checks exact original identity and canonical bytes. A missing entry
