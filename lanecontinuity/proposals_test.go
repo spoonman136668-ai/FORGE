@@ -30,3 +30,16 @@ func TestMalformedPairDoesNotProducePartialProposal(t *testing.T){
  got,err:=ProposePair(Input{Lane:Wingless,Failure:ModelQuota,QualifiedWorkAvailable:true},Input{Lane:"not-a-lane",Failure:None})
  if err==nil||got!=(NextSteps{}) {t.Fatalf("fail-open proposal: %+v %v",got,err)}
 }
+
+func TestModelFreeProposalDoesNotPromoteUnqualifiedWork(t *testing.T){
+ first:=Input{Lane:Wingless,Failure:ModelQuota,QualifiedWorkAvailable:false}
+ second:=Input{Lane:Yggdrasil,Failure:ModelOffline,QualifiedWorkAvailable:true}
+ got,err:=ProposePair(first,second)
+ if err!=nil{t.Fatal(err)}
+ if got.Wingless.CanRequestIndependentAdmission || got.Wingless.Classification!=DeferModelWork {
+  t.Fatalf("unqualified Wingless proposal advanced: %+v",got.Wingless)
+ }
+ if !got.Yggdrasil.CanRequestIndependentAdmission || got.Yggdrasil.Classification!=ContinueEligible {
+  t.Fatalf("qualified Yggdrasil proposal stalled: %+v",got.Yggdrasil)
+ }
+}
