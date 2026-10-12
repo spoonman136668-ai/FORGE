@@ -39,8 +39,7 @@ jobs:
               if len(changed)>8 or not changed:continue
               allowed=lambda path: (path.startswith('eligibility/') and path.endswith('.go')) or (
                   path.startswith('startrecovery/') and path.endswith('.go')) or (
-                  path.startswith('docs/FSA-') and path.endswith('.md')) or (
-                  path.startswith('.github/workflows/qualify-fsa') and path.endswith('.yml'))
+                  path.startswith('docs/FSA-') and path.endswith('.md'))
               if any(f['status'] not in ('added','modified') or not allowed(f['filename']) for f in changed):continue
               sha=pr['head']['sha']
               # Exact HEAD qualification: both hosted Linux/Windows workflows must pass.
@@ -54,7 +53,9 @@ jobs:
               if not summaries:continue
               summary=summaries[-1]
               if not re.search(r'\*\*Code Review\*\*\s*\|\s*✅\s*\*\*Completed',summary):continue
-              if sha[:7] not in summary:continue
+              # PR review summary exposes abbreviated SHAs only: not an exact-head proof.
+              # Disable automatic merge until a separately authenticated full-OID review attestation exists.
+              continue
               # No outstanding current-head Codex findings.
               inline=api(f"repos/{repo}/pulls/{number}/comments?per_page=100")
               if any(c.get('commit_id')==sha and c.get('user',{}).get('login')=='chatgpt-codex-connector[bot]'
