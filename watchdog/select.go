@@ -14,16 +14,6 @@ import (
 func SelectAndCommit(directory string, incidents []Incident)([]Incident,error) {
  if directory==""||!filepath.IsAbs(directory){return nil,ErrPersistentLedger}
  if err:=os.MkdirAll(directory,0700);err!=nil{return nil,err}
- lockPath:=filepath.Join(directory,".shadow-writer.lock")
- lock,err:=os.OpenFile(lockPath,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
- if err!=nil{return nil,ErrPersistentLedger}
- if err:=lock.Close();err!=nil{return nil,ErrPersistentLedger}
- // Only a normal, complete return releases ownership. On an uncertain
- // persistent write, retain the lock and fail closed for reconciliation.
- release:=false
- defer func(){if release{_ = os.Remove(lockPath)}}()
- ledger,err:=LoadPersistentForWriter(directory)
- if err!=nil{return nil,err}
  batch:=map[string]bool{}
  for _,incident:=range incidents{
   if incident.Lane!="Wingless"&&incident.Lane!="Yggdrasil"{return nil,ErrPersistentLedger}
@@ -34,6 +24,16 @@ func SelectAndCommit(directory string, incidents []Incident)([]Incident,error) {
   if batch[key]{return nil,ErrPersistentLedger}
   batch[key]=true
  }
+ lockPath:=filepath.Join(directory,".shadow-writer.lock")
+ lock,err:=os.OpenFile(lockPath,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
+ if err!=nil{return nil,ErrPersistentLedger}
+ if err:=lock.Close();err!=nil{return nil,ErrPersistentLedger}
+ // Only a normal, complete return releases ownership. On an uncertain
+ // persistent write, retain the lock and fail closed for reconciliation.
+ release:=false
+ defer func(){if release{_ = os.Remove(lockPath)}}()
+ ledger,err:=LoadPersistentForWriter(directory)
+ if err!=nil{return nil,err}
  newIncidents:=[]Incident{}
  for _,incident:=range incidents{
   if !ledger.seen[IncidentKey(incident)]{newIncidents=append(newIncidents,incident)}
