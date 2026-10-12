@@ -44,7 +44,12 @@ jobs:
           set -euo pipefail
           test ! -e snapshot
           test ! -e research/successor-builder
-          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|exec.Command|os.StartProcess|net/http.Post' .
+          # Keep imports, arbitrary process creation and network posting denied everywhere.
+          ! grep -R --include='*.go' -E 'github.com/spoonman136668-ai/(ckb-plane|Wingless|Yggdrasil)|os.StartProcess|net/http.Post' .
+          # exec.Command is restricted to the synthetic supervisor only.
+          ! grep -R --exclude-dir=subprocesssupervisor --include='*.go' -E 'exec.Command' .
+          # The exception contains exactly the bounded executor and its integration test.
+          test "$(grep -Rl --include='*.go' -E 'exec.Command' subprocesssupervisor | sort)" = "$(printf '%s\\n' subprocesssupervisor/supervise.go subprocesssupervisor/supervise_test.go | sort)"
   windows:
     runs-on: windows-latest
     timeout-minutes: 20
