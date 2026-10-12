@@ -35,7 +35,10 @@ func Inspect(x Input)(Outcome,error) {
   x.Lease.Lane!=x.Lane||x.Lease.ExperimentID!=x.ExperimentID||
   x.Original.IntentSHA256!=x.Lease.IntentSHA256||
   x.Original.WorkerID!=x.Lease.WorkerID||
-  x.Original.OwnerEpoch!=x.Lease.OwnerEpoch{return "",ErrBlocked}
+  x.Original.OwnerEpoch!=x.Lease.OwnerEpoch||
+  x.Lease.OwnerID!=x.CurrentOwnerID||
+  x.Lease.OwnerEpoch!=x.CurrentEpoch||
+  x.CurrentOwnerID==""||x.CurrentEpoch==0{return "",ErrBlocked}
  state,err:=workerreconcile.Reconcile(x.Original,x.Started,x.Terminal)
  if err!=nil{return "",ErrBlocked}
  lease,err:=workerlease.Inspect(x.Lease,x.NowUnix,x.CurrentOwnerID,x.CurrentEpoch)
