@@ -5,6 +5,7 @@ import (
     "crypto/ed25519"
     "crypto/sha256"
     "errors"
+    "os"
     "path/filepath"
     "strings"
     "testing"
@@ -26,9 +27,11 @@ type archiveTestBackend struct {
     offline bool
     reads int
     casCalls int
+    onRead func(int)
 }
 func (b *archiveTestBackend) ReadAnchor(context.Context) (fsahead.Anchor,error) {
     b.reads++
+    if b.onRead!=nil{b.onRead(b.reads)}
     if b.offline { return fsahead.Anchor{}, errors.New("synthetic outage") }
     result := b.anchor
     result.PublicKey = append(ed25519.PublicKey(nil), b.anchor.PublicKey...)
@@ -127,4 +130,61 @@ func TestArchivedPreflightRejectsAuthorityAndArchiveDrift(t *testing.T){
         e.FrozenPinSHA256=pin
         archivedBlocked(t,e,a,b,id)
     })
+}
+
+func TestArchivedPreflightRejectsOriginalLostAfterFirstRecovery(t *testing.T){
+    e,_,backend,id:=setupArchivedPreflight(t)
+    root:=filepath.Join(t.TempDir(),privatearchive.FolderName)
+    archive,err:=privatearchive.Initialize(root)
+    if err!=nil{t.Fatal(err)}
+    for _,row:=range testEvidence(t).Journal.Entries {
+        saved,err:=archive.AppendEvent(row.Event)
+        if err!=nil||saved.RecordSHA256!=row.RecordSHA256{t.Fatal("fixture journal divergence",err)}
+    }
+    raw,err:=archive.SaveOriginal([]byte("synthetic independent original negative outcome"))
+    if err!=nil{t.Fatal(err)}
+    other:=researchlog.Event{
+        Lane:"Yggdrasil",Generation:7,ExperimentID:"ygg_other_01",
+        SourceCommitSHA:strings.Repeat("f",40),
+    }
+    stages:=[]researchlog.Kind{
+        researchlog.Hypothesis,researchlog.Preregister,
+        researchlog.SourceQualified,researchlog.PrimaryStarted,
+        researchlog.PrimaryTerminal,
+    }
+    for _,kind:=range stages {
+        other.Kind=kind
+        if kind==researchlog.Preregister{
+            other.PreregSHA256=strings.Repeat("a",64)
+            other.CohortSHA256=strings.Repeat("b",64)
+        }
+        if kind==researchlog.SourceQualified{other.WitnessSHA256=strings.Repeat("d",64)}
+        if kind==researchlog.PrimaryStarted{
+            other.WitnessSHA256=strings.Repeat("e",64)
+            other.RunID=901
+        }
+        if kind==researchlog.PrimaryTerminal{
+            other.WitnessSHA256=strings.Repeat("e",64)
+            other.OriginalEvidenceSHA256=raw
+            other.Outcome="NEGATIVE"
+        }
+        if _,err:=archive.AppendEvent(other);err!=nil{t.Fatalf("synthetic %s: %v",kind,err)}
+    }
+    complete,err:=archive.Load()
+    if err!=nil{t.Fatal(err)}
+    backend.anchor.Sequence=uint64(len(complete.Entries))
+    backend.anchor.HeadSHA256=complete.Entries[len(complete.Entries)-1].RecordSHA256
+    if decision,err:=AssessArchived(context.Background(),backend,archive,id,e);decision!=PreflightOnly||err!=nil{
+        t.Fatalf("valid archive with another lane's original must pass static preflight: %q %v",decision,err)
+    }
+    backend.reads=0
+    backend.onRead=func(count int){
+        if count==3{
+            if err:=os.Remove(filepath.Join(root,"originals",raw+".raw"));err!=nil{t.Fatal(err)}
+        }
+    }
+    // Read #3 happens after the first full recovery and local journal/head
+    // load. The second full recovery MUST observe the missing original.
+    archivedBlocked(t,e,archive,backend,id)
+    if backend.reads<3{t.Fatal("did not exercise the post-recovery deletion interval")}
 }
