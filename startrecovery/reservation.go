@@ -26,11 +26,11 @@ var ErrReservationIndeterminate=errors.New("FORGE_FSA_RESERVATION_COMMIT_INDETER
 // protocol with frozen, budgeted cohort and verified journal generation.
 // No output here can be used as an authorization to start science.
 func ConsiderReservation(ctx context.Context, authority ReservationAuthority, intent Intent)(Recovery,error){
- if _,err:=ReconcileIntent(intent,NoReservation,true);err!=nil{return "",err}
+ if _,err:=ReconcileIntent(intent,Observation{Intent:intent,Status:NoReservation,IndependentlyAuthenticated:true});err!=nil{return "",err}
  if ctx==nil||ctx.Err()!=nil||authority==nil{return "",ErrReservationUnavailable}
  status,err:=authority.Read(ctx,intent)
  if err!=nil||ctx.Err()!=nil{return "",ErrReservationIndeterminate}
- recovery,err:=ReconcileIntent(intent,status,true)
+ recovery,err:=ReconcileIntent(intent,Observation{Intent:intent,Status:status,IndependentlyAuthenticated:true})
  if err!=nil{return "",err}
  return recovery,nil
 }
