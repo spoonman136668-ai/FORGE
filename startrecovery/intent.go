@@ -2,7 +2,6 @@ package startrecovery
 
 import (
  "errors"
- "strings"
 )
 
 // Intent is a proposed one-shot primary-start identity, not a receipt.
@@ -32,7 +31,8 @@ type Observation struct {
  Intent Intent
  Status Status
  IndependentlyAuthenticated bool
-}\ntype Recovery string
+}
+type Recovery string
 const (
  RequestIndependentReservation Recovery = "REQUEST_INDEPENDENT_RESERVATION"
  HoldNoReplay Recovery = "HOLD_NEVER_REDISPATCH"
