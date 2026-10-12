@@ -167,7 +167,7 @@ jobs:
           foreach ($path in $paths) {
             if ($path -notmatch '^(eligibility|startrecovery|fsaadmission)/[^/]+\.go$') { throw 'UNAUTHORIZED_PUBLISH_PATH' }
           }
-          & git add -- eligibility startrecovery fsaadmission
+          & git add -- $paths
           if ($LASTEXITCODE -ne 0) { throw 'GIT_STAGE_FAILED' }
           $staged = @(& git diff --cached --name-only)
           if ($LASTEXITCODE -ne 0 -or $staged.Count -ne $paths.Count) { throw 'STAGED_DELTA_MISMATCH' }
@@ -179,7 +179,12 @@ jobs:
           $askpass = Join-Path $env:RUNNER_TEMP 'forge-askpass.cmd'
           @'
           @echo off
-          echo %GH_TOKEN%
+          echo %~1 | findstr /i "Username" >nul
+          if not errorlevel 1 (
+            echo x-access-token
+          ) else (
+            echo %GH_TOKEN%
+          )
           '@ | Set-Content -LiteralPath $askpass -Encoding ascii
           try {
             $env:GIT_ASKPASS = $askpass
