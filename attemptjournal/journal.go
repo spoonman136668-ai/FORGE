@@ -47,7 +47,7 @@ func check(r Record)error{
  return nil
 }
 func filename(r Record)string{
- h:=sha256.Sum256([]byte(r.Lane+"\x00"+r.ExperimentID+"\x00"+r.OriginalRunID))
+ h:=sha256.Sum256([]byte(r.Lane+"\x00"+r.ExperimentID))
  return hex.EncodeToString(h[:])+".json"
 }
 // WriteOnce is only a local write-once record, NOT a linearizable distributed
