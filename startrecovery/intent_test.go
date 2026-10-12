@@ -68,3 +68,9 @@ func TestExperimentIDMatchesJournalConstraints(t *testing.T){
   if got!=""||!errors.Is(err,ErrInvalidIntent){t.Fatalf("invalid journal ID accepted: %q %s %v",id,got,err)}
  }
 }
+
+func TestGenerationAboveJournalLimitFailsClosed(t *testing.T){
+ i:=fixedIntent();i.Generation=1000000001
+ got,err:=ReconcileIntent(i,Observation{Intent:i,Status:NoReservation,IndependentlyAuthenticated:true})
+ if got!=""||!errors.Is(err,ErrInvalidIntent){t.Fatalf("out-of-range generation accepted: %s %v",got,err)}
+}
