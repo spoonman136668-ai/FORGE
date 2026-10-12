@@ -15,7 +15,7 @@ import (
 // ReserveOnce is one atomic durable operation that may commit before error.
 // The caller must reconcile independently instead of retrying blindly.
 type ReservationAuthority interface {
- Read(context.Context, Intent) (Status, error)
+ Read(context.Context, Intent) (Observation, error)
  ReserveOnce(context.Context, Intent) (bool, error)
 }
 var ErrReservationUnavailable=errors.New("FORGE_FSA_RESERVATION_AUTHORITY_UNAVAILABLE")
@@ -28,9 +28,9 @@ var ErrReservationIndeterminate=errors.New("FORGE_FSA_RESERVATION_COMMIT_INDETER
 func ConsiderReservation(ctx context.Context, authority ReservationAuthority, intent Intent)(Recovery,error){
  if _,err:=ReconcileIntent(intent,Observation{Intent:intent,Status:NoReservation,IndependentlyAuthenticated:true});err!=nil{return "",err}
  if ctx==nil||ctx.Err()!=nil||authority==nil{return "",ErrReservationUnavailable}
- status,err:=authority.Read(ctx,intent)
+ observation,err:=authority.Read(ctx,intent)
  if err!=nil||ctx.Err()!=nil{return "",ErrReservationIndeterminate}
- recovery,err:=ReconcileIntent(intent,Observation{Intent:intent,Status:status,IndependentlyAuthenticated:true})
+ recovery,err:=ReconcileIntent(intent,observation)
  if err!=nil{return "",err}
  return recovery,nil
 }
