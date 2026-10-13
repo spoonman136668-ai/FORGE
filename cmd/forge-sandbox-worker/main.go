@@ -26,6 +26,7 @@ type Output struct {
  Lane string `json:"lane"`
  Recovery syntheticsupervisor.State `json:"recovery"`
  RealScientificCycles int `json:"real_scientific_cycles"`
+ PublicKeyHex string `json:"public_key_hex"`
 }
 func run(args []string)(Output,error){
  f:=flag.NewFlagSet("forge-sandbox-worker",flag.ContinueOnError)
@@ -63,6 +64,6 @@ func run(args []string)(Output,error){
  if found!=1{return Output{},errors.New("FORGE_SYNTHETIC_CUSTODY_AMBIGUOUS")}
  state,err:=syntheticsupervisor.Recover(*root,custody,expected)
  if err!=nil||state!=syntheticsupervisor.Terminal{return Output{},errors.New("FORGE_SYNTHETIC_TERMINAL_UNVERIFIED")}
- return Output{Mode:"INACTIVE_SYNTHETIC_ONLY",Lane:*lane,Recovery:state,RealScientificCycles:0},nil
+ return Output{Mode:"INACTIVE_SYNTHETIC_ONLY",Lane:*lane,Recovery:state,RealScientificCycles:0,PublicKeyHex:hex.EncodeToString(pub)},nil
 }
 func main(){o,err:=run(os.Args[1:]);if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)};_ = json.NewEncoder(os.Stdout).Encode(o)}

@@ -5,6 +5,7 @@ package cyclecontroller
 
 import (
  "context"
+ "crypto/ed25519"
  "crypto/sha256"
  "encoding/hex"
  "encoding/json"
@@ -19,6 +20,9 @@ import (
  "strings"
  "sync"
  "time"
+ "github.com/spoonman136668-ai/forge/attemptjournal"
+ "github.com/spoonman136668-ai/forge/syntheticsupervisor"
+ "github.com/spoonman136668-ai/forge/workerreconcile"
 )
 
 const (
@@ -112,6 +116,55 @@ func digestBinary(p string)(string,error){
  return hex.EncodeToString(h.Sum(nil)),nil
 }
 func cycleName(seq uint64)string{return fmt.Sprintf("generation-%04d",seq)}
+// verifyNativeReceipts independently checks the subprocess's signed
+// STARTED/TERMINAL evidence and exact original-attempt custody, not just
+// digest/filename presence. Ephemeral worker keys are not production roots.
+func verifyNativeReceipts(base, lane string)(string,error){
+ witnessPath:=filepath.Join(filepath.Dir(base),"worker-observation.json")
+ var witness workerReply
+ witnessBytes,err:=readCanonical(witnessPath,&witness)
+ if err!=nil||witness.Mode!="INACTIVE_SYNTHETIC_ONLY"||witness.Lane!=lane||
+  witness.Recovery!="TERMINAL_REVIEW_REQUIRED"||witness.RealScientificCycles!=0||
+  !hex64(witness.PublicKeyHex){return "",ErrQuarantine}
+ pub,err:=hex.DecodeString(witness.PublicKeyHex)
+ if err!=nil||len(pub)!=ed25519.PublicKeySize{return "",ErrQuarantine}
+ entries,err:=os.ReadDir(base)
+ if err!=nil||len(entries)!=3{return "",ErrQuarantine}
+ var startPath,custodyPath string
+ for _,e:=range entries{
+  if strings.HasPrefix(e.Name(),"start-")&&strings.HasSuffix(e.Name(),".json"){
+   if startPath!=""{return "",ErrQuarantine};startPath=filepath.Join(base,e.Name())
+  }else if len(e.Name())==69&&strings.HasSuffix(e.Name(),".json"){
+   if custodyPath!=""{return "",ErrQuarantine};custodyPath=filepath.Join(base,e.Name())
+  }
+ }
+ if startPath==""||custodyPath==""{return "",ErrQuarantine}
+ var start workerreconcile.Signed
+ if _,err=readCanonical(startPath,&start);err!=nil||start.Receipt.Stage!="STARTED"{
+  return "",ErrQuarantine
+ }
+ r:=start.Receipt
+ expected:=workerreconcile.Expected{Lane:lane,ExperimentID:r.ExperimentID,
+  FrozenSHA256:r.FrozenSHA256,IntentSHA256:r.IntentSHA256,
+  OriginalRunID:r.OriginalRunID,WorkerID:r.WorkerID,OwnerEpoch:r.OwnerEpoch,
+  WorkerPublicKey:ed25519.PublicKey(pub)}
+ if err=workerreconcile.Verify(start,expected);err!=nil{return "",ErrQuarantine}
+ fingerprint,err:=workerreconcile.Fingerprint(start)
+ if err!=nil||filepath.Base(startPath)!="start-"+fingerprint+".json"{
+  return "",ErrQuarantine
+ }
+ var custody attemptjournal.Record
+ if _,err=readCanonical(custodyPath,&custody);err!=nil||
+  custody.Schema!=attemptjournal.Schema||custody.Lane!=lane||
+  custody.ExperimentID!=r.ExperimentID||custody.OriginalRunID!=r.OriginalRunID||
+  custody.WorkerID!=r.WorkerID||custody.OwnerEpoch!=r.OwnerEpoch||
+  custody.FrozenSHA256!=r.FrozenSHA256||custody.IntentSHA256!=r.IntentSHA256||
+  custody.ReceiptSHA256!=fingerprint||
+  custody.State!="ORIGINAL_RISK_RECORDED"{return "",ErrQuarantine}
+ state,err:=syntheticsupervisor.Recover(base,custody,expected)
+ if err!=nil||state!=syntheticsupervisor.Terminal{return "",ErrQuarantine}
+ return hash(witnessBytes),nil
+}
 func laneEvidenceDigest(gendir string)(string,error){
  h:=sha256.New()
  files:=0
@@ -136,6 +189,10 @@ func laneEvidenceDigest(gendir string)(string,error){
    h.Write([]byte(lane+"/"+name+"\x00"));h.Write(raw);files++
   }
   if start!=1||terminal!=1||attempt!=1{return "",ErrQuarantine}
+  witnessDigest,err:=verifyNativeReceipts(base,lane)
+  if err!=nil{return "",ErrQuarantine}
+  h.Write([]byte(lane+"/worker-observation.json\x00"))
+  h.Write([]byte(witnessDigest))
  }
  if files!=6{return "",ErrQuarantine}
  return hex.EncodeToString(h.Sum(nil)),nil
@@ -195,6 +252,7 @@ type workerReply struct{
  Lane string `json:"lane"`
  Recovery string `json:"recovery"`
  RealScientificCycles int `json:"real_scientific_cycles"`
+ PublicKeyHex string `json:"public_key_hex"`
 }
 func runLane(ctx context.Context,worker,lane,root string)error{
  bounded,cancel:=context.WithTimeout(ctx,10*time.Second)
@@ -207,7 +265,15 @@ func runLane(ctx context.Context,worker,lane,root string)error{
  var got workerReply
  if json.Unmarshal(raw,&got)!=nil||got.Mode!="INACTIVE_SYNTHETIC_ONLY"||
   got.Lane!=lane||got.Recovery!="TERMINAL_REVIEW_REQUIRED"||
-  got.RealScientificCycles!=0{return ErrQuarantine}
+  got.RealScientificCycles!=0||!hex64(got.PublicKeyHex){return ErrQuarantine}
+ encoded,err:=canonical(got)
+ if err!=nil||string(encoded)!=string(raw){return ErrQuarantine}
+ // Record exact worker-supplied ephemeral public key before any terminal
+ // can enter the generation hash. This is not an independent trust root:
+ // the pinned worker binary and separately anchored journal remain required.
+ if err=writeOnce(filepath.Join(filepath.Dir(childDir),"worker-observation.json"),got);err!=nil{
+  return ErrQuarantine
+ }
  return nil
 }
 // Run begins at most MaxCycles synthetic generations. Exactly one durable
