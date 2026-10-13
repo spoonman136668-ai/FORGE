@@ -5,10 +5,20 @@ name: FORGE cross-runner durable two-lane synthetic recovery
 # additional synthetic worker. Does not launch original scientific work.
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sandboxworker/**'
+      - 'cyclecontroller/**'
+      - 'cmd/forge-sandbox-worker/**'
+      - 'cmd/forge-cycle-controller/**'
+      - '.github/workflows/forge-cross-runner-synthetic-restore.yml'
   push:
     branches: [main]
     paths:
+      - 'sandboxworker/**'
       - 'cyclecontroller/**'
+      - 'cmd/forge-sandbox-worker/**'
       - 'cmd/forge-cycle-controller/**'
       - '.github/workflows/forge-cross-runner-synthetic-restore.yml'
 permissions:
@@ -40,7 +50,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test -count=1 ./cyclecontroller ./cmd/forge-cycle-controller
+          go test -count=1 ./sandboxworker ./cyclecontroller ./cmd/forge-sandbox-worker ./cmd/forge-cycle-controller
           go build -o "$RUNNER_TEMP/forge-sandbox-worker" ./cmd/forge-sandbox-worker
           go build -o "$RUNNER_TEMP/forge-cycle-controller" ./cmd/forge-cycle-controller
       - name: Run generation 1 and 2, archive exact checkpoint
