@@ -46,12 +46,17 @@ func TestR8ParetoPreservesNegativeAndComparesIdenticalFrozenBudget(t *testing.T)
  }
  // A permutation of the same externally frozen source must not produce
  // a different winner, cost, archive or accepted result.
- copyF:=f;copyF.Candidates=append([]Candidate(nil),f.Candidates...)
- copyF.Candidates[0],copyF.Candidates[3]=copyF.Candidates[3],copyF.Candidates[0]
  reordered:=append([]IslandLineage(nil),rows...)
  reordered[0],reordered[3]=reordered[3],reordered[0]
- again,err:=ParetoAdvisory(copyF,Digest(copyF),p,DigestParetoFreeze(p),reordered)
- if err!=nil||!reflect.DeepEqual(o,again){t.Fatal("frozen R8 order-sensitive or unsafe",err)}
+ again,err:=ParetoAdvisory(f,Digest(f),p,DigestParetoFreeze(p),reordered)
+ if err!=nil||!reflect.DeepEqual(o,again){t.Fatal("frozen lineage order changed selection",err)}
+ // The original frozen candidate array is itself identity-pinned: unlike
+ // an untrusted external mutation it may NOT be reordered silently.
+ changed:=f;changed.Candidates=append([]Candidate(nil),f.Candidates...)
+ changed.Candidates[0],changed.Candidates[3]=changed.Candidates[3],changed.Candidates[0]
+ if _,err:=ParetoAdvisory(changed,Digest(changed),p,DigestParetoFreeze(p),rows);err==nil{
+  t.Fatal("portfolio identity drift reused old Pareto policy")
+ }
 }
 func TestR8ParetoRejectsUnfrozenMutationCapacityAndOracles(t *testing.T){
  changes:=[]struct{name string;change func(*ParetoFreeze)}{
