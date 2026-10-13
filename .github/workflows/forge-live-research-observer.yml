@@ -3,6 +3,12 @@ name: FORGE live two-lane research metadata observer
 # Observe actual independent research repositories without taking over
 # their workflows or treating green CI as a scientific classification.
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'researchobserver/**'
+      - 'cmd/forge-research-observer/**'
+      - '.github/workflows/forge-live-research-observer.yml'
   workflow_dispatch:
   schedule:
     - cron: '23 * * * *'
@@ -75,6 +81,14 @@ jobs:
           print("SCIENTIFIC_CLASSIFICATIONS_DERIVED_FROM_CI=ZERO")
           print("NEW_ORIGINAL_LAUNCHES=ZERO")
           PY
+      - name: Pin exact external GitHub run readbacks and classification bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/forge-observer"
+          sha256sum wingless.json yggdrasil.json observation.json > sha256-manifest.txt
+          sha256sum --check sha256-manifest.txt
+          echo 'FOREIGN_RUN_METADATA_AND_NO_ACCEPTANCE_OBSERVATION_PINNED=PASS'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
