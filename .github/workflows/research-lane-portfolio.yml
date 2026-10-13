@@ -1,0 +1,35 @@
+name: FORGE dual-lane research portfolio selection
+on:
+  push:
+    branches: [research/portfolio-lane-advisory-r1]
+  pull_request:
+    paths:
+      - 'cmd/research-portfolio-select/**'
+      - '.github/workflows/research-lane-portfolio.yml'
+permissions:
+  contents: read
+jobs:
+  frozen-advisory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Frozen candidate and negative-control test
+        run: go test -count=1 ./cmd/research-portfolio-select ./evoportfolio
+      - name: Select independent Wingless and Yggdrasil portfolios
+        run: |
+          mkdir -p "$RUNNER_TEMP/selection"
+          go run ./cmd/research-portfolio-select > "$RUNNER_TEMP/selection/advisory.json"
+          python3 -m json.tool "$RUNNER_TEMP/selection/advisory.json" > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-wingless-yggdrasil-frozen-advisory
+          path: ${{ runner.temp }}/selection/advisory.json
+          retention-days: 90
+          if-no-files-found: error
