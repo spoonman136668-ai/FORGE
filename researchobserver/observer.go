@@ -9,9 +9,9 @@ import (
  "encoding/hex"
  "encoding/json"
  "errors"
+ "io"
  "fmt"
  "strconv"
- "strings"
  "time"
 )
 const Schema="forge.research.metadata-observation.v1"
@@ -100,7 +100,7 @@ func readLane(raw []byte,lane string)(LaneReport,error){
  decoder:=json.NewDecoder(bytes.NewReader(raw))
  if err:=decoder.Decode(&body);err!=nil{return empty,ErrUnverified}
  var extra any
- if err:=decoder.Decode(&extra);err==nil{return empty,ErrUnverified}
+ if err:=decoder.Decode(&extra);err!=io.EOF{return empty,ErrUnverified}
  if len(body.WorkflowRuns)==0||len(body.WorkflowRuns)>MaximumRuns||
   body.TotalCount<uint64(len(body.WorkflowRuns)){
   return empty,ErrUnverified
@@ -114,10 +114,10 @@ func readLane(raw []byte,lane string)(LaneReport,error){
   if r.ID==0||r.RunAttempt==0||!validSHA(r.HeadSHA)||
    !validText(r.Name,160)||!validText(r.HeadBranch,256)||
    r.Repository.FullName!=repo||r.HeadRepository==nil||
-   r.HeadRepository.FullName!=repo||!knownStatus(r.Status)||
-   _,err:=time.Parse(time.RFC3339,r.CreatedAt);err!=nil{
+   r.HeadRepository.FullName!=repo||!knownStatus(r.Status){
    return empty,ErrUnverified
   }
+  if _,err:=time.Parse(time.RFC3339,r.CreatedAt);err!=nil{return empty,ErrUnverified}
   key:=fmt.Sprintf("%d:%d",r.ID,r.RunAttempt)
   if seen[key]{return empty,ErrUnverified}
   seen[key]=true
