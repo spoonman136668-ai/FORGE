@@ -1,0 +1,116 @@
+name: FORGE durable parallel lane-succession acceptance
+
+# Host-executed **synthetic only** autonomous multi-generation controller.
+# Independent Wingless/Yggdrasil child processes must persist and verify
+# intent/start/terminal before succession. No original scientific authority.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 */6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'cyclecontroller/**'
+      - 'cmd/forge-cycle-controller/**'
+      - 'cmd/forge-sandbox-worker/**'
+      - 'sandboxworker/**'
+      - '.github/workflows/forge-durable-parallel-succession.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-durable-parallel-synthetic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  parallel-restart:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify no-replay and restart regression
+        run: go test -count=1 ./cyclecontroller ./cmd/forge-cycle-controller ./subprocesssupervisor ./syntheticsupervisor ./workerreconcile
+      - name: Execute two independent parallel lane generations and verify no-replay restart
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ext = if ($IsWindows) { '.exe' } else { '' }
+          $worker = Join-Path $env:RUNNER_TEMP ("forge-sandbox-worker" + $ext)
+          $controller = Join-Path $env:RUNNER_TEMP ("forge-cycle-controller" + $ext)
+          go build -o $worker ./cmd/forge-sandbox-worker
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_WORKER_BUILD_FAILED' }
+          go build -o $controller ./cmd/forge-cycle-controller
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_CONTROLLER_BUILD_FAILED' }
+          $workerHash = (Get-FileHash -LiteralPath $worker -Algorithm SHA256).Hash.ToLowerInvariant()
+          $frozen = @(
+            'cmd/research-portfolio-select/wingless.json',
+            'cmd/research-portfolio-select/yggdrasil.json',
+            'cmd/forge-research-cycle/fixtures/wingless-synthetic-history.json',
+            'cmd/forge-research-cycle/fixtures/yggdrasil-synthetic-history.json'
+          )
+          $manifest = ($frozen | ForEach-Object {
+            "$($_):$((Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant())"
+          }) -join "`n"
+          $planHash = [Convert]::ToHexString(
+            [Security.Cryptography.SHA256]::HashData(
+              [Text.Encoding]::UTF8.GetBytes($manifest)
+            )
+          ).ToLowerInvariant()
+          $root = Join-Path $env:RUNNER_TEMP 'forge-synthetic-controller'
+          $args = @(
+            '--synthetic-only',
+            '--worker', $worker,
+            '--worker-sha256', $workerHash,
+            '--frozen-plan-sha256', $planHash,
+            '--journal-dir', $root,
+            '--generations', '2'
+          )
+          $raw = & $controller @args --min-completed 0
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_PARALLEL_CYCLE_FAILED' }
+          $state = $raw | ConvertFrom-Json
+          if ($state.schema -ne 'forge.synthetic.parallel-controller.v1' -or
+              $state.completed -ne 2 -or
+              $state.wingless_cycles -ne 2 -or $state.yggdrasil_cycles -ne 2 -or
+              $state.original_scientific_runs -ne 0 -or
+              $state.scientific_execution_authorized -or $state.accepted_ref_mutation) {
+            throw 'FORGE_PARALLEL_CONTROLLER_FALSE_SCIENCE'
+          }
+          $again = & $controller @args --min-completed 2
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_PARALLEL_RESTART_UNSAFE' }
+          $repeat = $again | ConvertFrom-Json
+          if ($repeat.completed -ne 2 -or
+              $repeat.last_terminal_sha256 -ne $state.last_terminal_sha256 -or
+              $repeat.original_scientific_runs -ne 0) {
+            throw 'FORGE_PARALLEL_REPLAY_OR_ROLLBACK'
+          }
+          $evidenceFile = Join-Path $env:RUNNER_TEMP 'forge-parallel-proof.json'
+          [IO.File]::WriteAllText($evidenceFile, ($raw -join "`n") + "`n",
+            [Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_TWO_PARALLEL_LANES_2_GENERATIONS=PASS'
+          Write-Host 'FORGE_VERIFIED_RESTART_WITHOUT_REPLAY=PASS'
+          Write-Host 'FORGE_REAL_SCIENCE_EXECUTED=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-parallel-durable-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-parallel-proof.json
+            ${{ runner.temp }}/forge-synthetic-controller
+          retention-days: 30
+          if-no-files-found: error
