@@ -11,7 +11,7 @@ import math
 import os
 from pathlib import Path
 
-PREREG_BLOB="REPLACE_PIN"
+PREREG_BLOB="0f51aedd38a726347780990027129c6881736b5d"
 PARENT_SHA="b1e4972f04142f1f35f76f9483b12491dec4846c"
 ID="W-FORGE-R28-SOURCE-ROBUST-OBJECTIVE-01"
 
@@ -114,7 +114,7 @@ def main():
     for key in ("manifest","wingless_root","out","run_id"):p.add_argument("--"+key.replace("_","-"),required=True)
     a=p.parse_args()
     path=Path(a.manifest);raw=path.read_bytes()
-    blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\0"+raw).hexdigest()
+    blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
     if blob!=PREREG_BLOB or not a.run_id.isdecimal():raise ValueError("R28_FROZEN_IDENTITY_DRIFT")
     m=json.loads(raw)
     if m["experiment_id"]!=ID or m["method_parent_commit"]!=PARENT_SHA:raise ValueError("R28_EXPERIMENT_ID_DRIFT")
