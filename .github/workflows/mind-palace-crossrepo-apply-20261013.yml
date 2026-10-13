@@ -84,6 +84,9 @@ jobs:
               Assert-Exit 'EVIDENCE_FAST_FORWARD_PUSH_FAILED'
               $remoteAfter=(@(& git.exe ls-remote origin refs/heads/main)|Select-Object -First 1)
               if(([string]$remoteAfter).Split([char[]]@(" ","`t"),[System.StringSplitOptions]::RemoveEmptyEntries)[0] -cne $evidenceSha){throw 'EVIDENCE_REMOTE_SHA_MISMATCH'}
+              & git.exe fetch --quiet --no-tags origin main
+              Assert-Exit 'POST_EVIDENCE_ORIGIN_FETCH_FAILED'
+              if(((& git.exe rev-parse origin/main|Out-String).Trim()) -cne $evidenceSha){throw 'POST_EVIDENCE_TRACKING_SHA_DRIFT'}
               Write-Host 'PARTIAL_SOURCE_EVIDENCE_CHECKPOINT=PASS'
               $inventory='.\pilots\chat-history\2026-10-13-hosted-catchup.inventory.json'
               $batch='.\pilots\chat-history\2026-10-13-hosted-catchup.batch.json'
