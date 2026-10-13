@@ -1,0 +1,99 @@
+name: FORGE integrated two-lane safe research-cycle acceptance
+
+# Runs the exact source-level portfolio/policy integration plus TWO
+# separate native synthetic OS workers. It never dispatches real science.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '19 */6 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/forge-research-cycle/**'
+      - 'evoportfolio/**'
+      - 'subprocesssupervisor/**'
+      - 'cmd/forge-sandbox-worker/**'
+      - '.github/workflows/forge-integrated-synthetic-cycle.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-integrated-synthetic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  two-lane-synthetic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify frozen policy and full two-lane source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./cmd/forge-research-cycle ./evoportfolio ./subprocesssupervisor ./syntheticsupervisor ./sandboxworker
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_INTEGRATED_SCIENTIFIC_CONTROLS_FAILED' }
+      - name: Execute separately pinned native synthetic Wingless and Yggdrasil processes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $extension = if ($IsWindows) { '.exe' } else { '' }
+          $worker = Join-Path $env:RUNNER_TEMP ("forge-sandbox-worker" + $extension)
+          go build -o $worker ./cmd/forge-sandbox-worker
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_SYNTHETIC_BINARY_BUILD_FAILED' }
+          $workerHash = (Get-FileHash -LiteralPath $worker -Algorithm SHA256).Hash.ToLowerInvariant()
+          $dir = Join-Path $env:RUNNER_TEMP 'forge-synthetic-processes'
+          $frozen = Join-Path $env:GITHUB_WORKSPACE 'cmd/research-portfolio-select'
+          $histories = Join-Path $env:GITHUB_WORKSPACE 'cmd/forge-research-cycle/fixtures'
+          $raw = & go run ./cmd/forge-research-cycle --synthetic-only --worker-executable $worker --worker-sha256 $workerHash --new-dir $dir --portfolio-dir $frozen --history-dir $histories
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_DUAL_LANE_SYNTHETIC_OPERATION_FAILED' }
+          $proof = $raw | ConvertFrom-Json
+          if ($proof.schema -ne 'forge.integrated-research-cycle.v1' -or
+              $proof.scientific_execution_authorized -or $proof.accepted_ref_mutation -or
+              $proof.research_originals_executed -ne 0 -or
+              $proof.synthetic.real_scientific_cycles -ne 0 -or
+              -not $proof.synthetic.wingless_verified -or
+              -not $proof.synthetic.yggdrasil_verified -or
+              $proof.lanes.Count -ne 2 -or
+              $proof.lanes[0].lane -ne 'Wingless' -or
+              $proof.lanes[1].lane -ne 'Yggdrasil') {
+            throw 'FORGE_OPERATIONAL_PROOF_FALSE_AUTHORITY_OR_LOST_LANE'
+          }
+          foreach ($lane in $proof.lanes) {
+            if ($lane.dispatch_authorized -or $lane.scientific_accepted -or
+                $lane.historical_negative_count -lt 1 -or
+                $lane.historical_mixed_count -lt 1 -or
+                $lane.finalists.Count -lt 1 -or
+                $lane.nonfinalists.Count -lt 1) {
+              throw 'FORGE_RESEARCH_ENHANCEMENT_OR_NEGATIVE_LOST'
+            }
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'forge-cycle-proof.json'
+          [System.IO.File]::WriteAllText($out, ($raw -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'SYNTHETIC_TWO_LANE_CYCLE=PASS'
+          Write-Host 'ORIGINAL_SCIENCE_CONSUMED=0'
+          Write-Host 'UNATTENDED_PROD_AUTONOMY_NOT_CLAIMED=TRUE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-safe-cycle-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-cycle-proof.json
+            ${{ runner.temp }}/forge-synthetic-processes
+          retention-days: 30
+          if-no-files-found: error
