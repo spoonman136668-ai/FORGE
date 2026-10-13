@@ -65,6 +65,13 @@ func anchor(p fsaremote.Pin,w fsaremote.SignedWitness)fsahead.Anchor{
   Sequence:h.Sequence,HeadSHA256:h.HeadSHA256}
 }
 func verify(p fsaremote.Pin,w fsaremote.SignedWitness)error{
+ h:=w.Head
+ if len(h.HeadSHA256)!=64{return ErrBlocked}
+ for _,c:=range h.HeadSHA256{
+  if !(c>='0'&&c<='9'||c>='a'&&c<='f'){return ErrBlocked}
+ }
+ if (h.Sequence==0&&h.HeadSHA256!=researchlog.Genesis)||
+  (h.Sequence>0&&h.HeadSHA256==researchlog.Genesis){return ErrBlocked}
  if !pinned(p)||fsaremote.VerifyWitness(p,w,anchor(p,w))!=nil{return ErrBlocked}
  return nil
 }
