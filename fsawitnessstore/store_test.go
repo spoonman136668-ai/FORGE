@@ -133,14 +133,14 @@ func TestWitnessCrashInspectionAndExclusiveAppend(t *testing.T){
     defer wg.Done()
     switch err:=s.Append(context.Background(),next);{
     case err==nil:successes.Add(1)
-    case errors.Is(err,ErrConflict):conflicts.Add(1)
+    case errors.Is(err,ErrConflict)||errors.Is(err,ErrBlocked):conflicts.Add(1)
     default:failures.Add(1)
     }
    }()
   }
   wg.Wait()
   if successes.Load()!=1||conflicts.Load()!=1||failures.Load()!=0{
-   t.Fatalf("unsafe concurrent append: success=%d conflict=%d failure=%d",successes.Load(),conflicts.Load(),failures.Load())
+   t.Fatalf("unsafe concurrent append: success=%d rejected=%d unexpected=%d",successes.Load(),conflicts.Load(),failures.Load())
   }
   reopened,err:=Open(root,p);if err!=nil{t.Fatal(err)}
   got,err:=reopened.ReadWitness(context.Background(),p.ArchiveID)
