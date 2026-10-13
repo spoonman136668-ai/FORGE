@@ -24,9 +24,13 @@ func run(ctx context.Context,args []string)(cyclecontroller.Report,error){
  root:=f.String("journal-dir","","absolute persistent forge-synthetic-controller directory")
  generations:=f.Uint64("generations",2,"bounded succession count")
  floor:=f.Uint64("min-completed",0,"externally retained prior complete-cycle floor")
+ priorHead:=f.String("min-terminal-sha256","","exact externally retained prior terminal head; required for cross-runner resume")
  if err:=f.Parse(args);err!=nil{return empty,err}
  if !*synthetic||f.NArg()!=0||!filepath.IsAbs(*worker)||
   !filepath.IsAbs(*root)||ctx==nil||ctx.Err()!=nil{return empty,ErrInput}
+ if *priorHead!=""{
+  return cyclecontroller.RunAnchored(ctx,*worker,*workerSHA,*planSHA,*root,*generations,*floor,*priorHead)
+ }
  return cyclecontroller.Run(ctx,*worker,*workerSHA,*planSHA,*root,*generations,*floor)
 }
 func main(){
