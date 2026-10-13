@@ -2,7 +2,6 @@ package fsaservice
 
 import (
  "bytes"
- "crypto/ed25519"
  "encoding/json"
  "errors"
  "io"
@@ -88,6 +87,4 @@ func SignedCheckpointHandler(pin fsaremote.Pin,readerClientSPKI,writerClientSPKI
  }),nil
 }
 
-// Prevent production-style caller fallback to the legacy unsigned
-// /v1/fsa/cas handler: no handler for that route is registered here.
-var _ ed25519.PublicKey
+// No legacy unsigned /v1/fsa/cas route is registered by this handler.
