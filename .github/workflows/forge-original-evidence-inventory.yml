@@ -1,0 +1,69 @@
+name: FORGE read-only original evidence inventory
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'originalinventory/**'
+      - 'cmd/forge-original-inventory/**'
+      - '.github/workflows/forge-original-evidence-inventory.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  original-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Qualify original evidence parsing and negative retention
+        run: go test -count=1 ./originalinventory ./cmd/forge-original-inventory
+      - name: Verify two external source run heads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38381594390 > "$RUNNER_TEMP/wingless-run.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38381070805 > "$RUNNER_TEMP/yggdrasil-run.json"
+          jq -e '.head_sha == "ad3ade26204b14c372022bbed69dd59f91a3d02f"' "$RUNNER_TEMP/wingless-run.json"
+          jq -e '.head_sha == "7e61f1c234c21ff0617075bea40c39afa5d11e89"' "$RUNNER_TEMP/yggdrasil-run.json"
+          echo 'ORIGINAL_GITHUB_RUN_HEADS=PINNED'
+      - name: Read and hash exact W-R39 and Y056 public original artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-originals"
+          mkdir -p "$root"
+          gh api 'repos/spoonman136668-ai/Wingless/actions/artifacts/11803299743/zip' > "$root/w.zip"
+          gh api 'repos/spoonman136668-ai/Yggdrasil/actions/artifacts/11802529893/zip' > "$root/y.zip"
+          [ "$(unzip -Z -1 "$root/w.zip")" = 'W-R39-original.json' ]
+          [ "$(unzip -Z -1 "$root/y.zip")" = 'Y056-original.json' ]
+          unzip -p "$root/w.zip" > "$root/W-R39-original.json"
+          unzip -p "$root/y.zip" > "$root/Y056-original.json"
+          [ "$(sha256sum "$root/W-R39-original.json" | cut -d' ' -f1)" = '33946f9f33d17539aadac42b05a4ebc4fb856dd3e5dafa8a4e43a11cdd5eb8e0' ]
+          [ "$(sha256sum "$root/Y056-original.json" | cut -d' ' -f1)" = '5ea4485afdeccd82e4d175eb01e56a696202d797a0136d21545ef568f7d9cd49' ]
+          go run ./cmd/forge-original-inventory \
+            --manifest reference/research-originals/20261013-dual-lane-manifest.json \
+            --wingless "$root/W-R39-original.json" \
+            --yggdrasil "$root/Y056-original.json" > "$root/report.json"
+          jq -e '.yggdrasil.reported_classification=="NO_BENEFIT" and .yggdrasil.scientific_accepted==false and .original_scientific_executions_authorized==false and .accepted_ref_mutation==false' "$root/report.json"
+          echo 'REAL_ORIGINAL_BYTES_RETAINED_WITHOUT_PROMOTION=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-readonly-research-originals
+          path: ${{ runner.temp }}/forge-originals
+          retention-days: 90
+          if-no-files-found: error
