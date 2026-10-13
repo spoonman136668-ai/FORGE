@@ -131,7 +131,8 @@ func layout(root string)error{
 // genesis witness; it never generates or possesses the witness signing key.
 // Test roots do not establish separate physical failure domains.
 func Provision(root string,pin fsaremote.Pin,genesis fsaremote.SignedWitness)(*Store,error){
- if verify(pin,genesis)!=nil{return nil,ErrBlocked}
+ if verify(pin,genesis)!=nil||genesis.Head.Sequence!=0||
+  genesis.Head.HeadSHA256!=researchlog.Genesis{return nil,ErrBlocked}
  clean,err:=safeRoot(root);if err!=nil{return nil,err}
  if err=os.Mkdir(clean,0700);err!=nil{return nil,err}
  if err=createOnce(filepath.Join(clean,".forge-fsa-witness-v1"),[]byte(Marker));err!=nil{return nil,err}
