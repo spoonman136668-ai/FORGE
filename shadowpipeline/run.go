@@ -85,6 +85,11 @@ func evaluate(req Request)(lanewitness.Assessment,[]watchdog.AssessedIncident,[]
 func allowedRoot(root string)bool{
  if root==""||!filepath.IsAbs(root)||filepath.Base(filepath.Clean(root))!=FolderName{return false}
  clean:=filepath.Clean(root)
+ // A symlinked destination can escape the isolated shadow evidence root.
+ // Reject both unsafe existing roots and unexpected filesystem errors.
+ if st,err:=os.Lstat(clean);err==nil{
+  if !st.IsDir()||st.Mode()&os.ModeSymlink!=0{return false}
+ }else if !errors.Is(err,os.ErrNotExist){return false}
  for _,part:=range strings.FieldsFunc(strings.ToLower(clean),func(r rune)bool{return r=='/'||r=='\\'}){
   switch part{case "ckbr","ckb-plane","ktrade","ktrade-external","research-runner","forge-fsa-trust":return false}
  }
