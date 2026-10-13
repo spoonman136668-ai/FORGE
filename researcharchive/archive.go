@@ -135,8 +135,42 @@ type sourceArtifact struct {
   HeadSHA string `json:"head_sha"`
  } `json:"workflow_run"`
 }
+// GitHub metadata is untrusted input. The standard JSON decoder silently
+// resolves duplicate object keys (including case-insensitive struct aliases)
+// by letting later values overwrite earlier identities. Reject ambiguity at
+// EVERY nesting level before decoding run/artifact identity or custody.
+func unambiguousJSON(raw []byte)bool{
+ d:=json.NewDecoder(bytes.NewReader(raw))
+ var value func(int)bool
+ value=func(depth int)bool{
+  if depth>48{return false}
+  token,err:=d.Token()
+  if err!=nil{return false}
+  delimiter,ok:=token.(json.Delim)
+  if !ok{return true}
+  if delimiter!='{'&&delimiter!='['{return false}
+  seen:=map[string]bool{}
+  for d.More(){
+   if delimiter=='{'{
+    key,err:=d.Token()
+    if err!=nil{return false}
+    name,ok:=key.(string)
+    if !ok||len(name)==0||len(name)>256{return false}
+    folded:=strings.ToLower(name)
+    if seen[folded]{return false}
+    seen[folded]=true
+   }
+   if !value(depth+1){return false}
+  }
+  end,err:=d.Token()
+  return err==nil&&end==json.Delim(map[json.Delim]rune{'{':'}','[':']'}[delimiter])
+ }
+ if !value(0){return false}
+ _,err:=d.Token()
+ return errors.Is(err,io.EOF)
+}
 func decode(raw []byte,dest any)error{
- if len(raw)==0||len(raw)>2<<20{return ErrBlocked}
+ if len(raw)==0||len(raw)>2<<20||!unambiguousJSON(raw){return ErrBlocked}
  d:=json.NewDecoder(bytes.NewReader(raw))
  if d.Decode(dest)!=nil||d.Decode(new(any))!=io.EOF{return ErrBlocked}
  return nil
