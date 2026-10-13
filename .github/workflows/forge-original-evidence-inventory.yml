@@ -1,0 +1,40 @@
+name: FORGE read-only original evidence inventory
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'originalinventory/**'
+      - 'cmd/forge-original-inventory/**'
+      - '.github/workflows/forge-original-evidence-inventory.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  original-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Qualify original evidence parsing and negative retention
+        run: go test -count=1 ./originalinventory ./cmd/forge-original-inventory
+      - name: Verify two external source run heads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38381594390 > "$RUNNER_TEMP/wingless-run.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38381070805 > "$RUNNER_TEMP/yggdrasil-run.json"
+          jq -e '.head_sha == "ad3ade26204b14c372022bbed69dd59f91a3d02f"' "$RUNNER_TEMP/wingless-run.json"
+          jq -e '.head_sha == "7e61f1c234c21ff0617075bea40c39afa5d11e89"' "$RUNNER_TEMP/yggdrasil-run.json"
+          echo 'ORIGINAL_GITHUB_RUN_HEADS=PINNED'
