@@ -1,0 +1,40 @@
+name: FORGE R26 isolated Wingless source-only qualification
+on:
+  pull_request:
+    paths:
+      - 'research/r26-wingless/**'
+      - '.github/workflows/forge-r26-source-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'research/r26-wingless/**'
+      - '.github/workflows/forge-r26-source-qualification.yml'
+permissions:
+  contents: read
+jobs:
+  frozen-science-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen prereg and independent reviewer source-only acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $blob=(& git hash-object --no-filters -- research/r26-wingless/prereg.json).Trim()
+          if ($LASTEXITCODE -ne 0 -or $blob -cne 'ba54fa51807e7135b598ac2cefbe09984f162da6') { throw 'R26_FROZEN_PREREG_DRIFT' }
+          python -m py_compile research/r26-wingless/execute.py research/r26-wingless/review.py
+          if ($LASTEXITCODE -ne 0) { throw 'R26_PYTHON_COMPILE_FAILURE' }
+          python research/r26-wingless/source_only_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'R26_INDEPENDENT_REVIEW_NEGATIVES_FAILURE' }
+          Write-Host 'FORGE_R26_WINGLESS_SOURCE_ONLY_QUALIFIED=PASS'
+          Write-Host 'FORGE_R26_SCIENTIFIC_ORIGINAL_EXECUTED=FALSE'
