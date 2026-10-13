@@ -101,7 +101,7 @@ func NewClient(authority,witness Peer,pin Pin)(*Client,error){
  if !pin.valid(){return nil,ErrMismatch}
  aURL,aClient,err:=peerClient(authority);if err!=nil{return nil,err}
  wURL,wClient,err:=peerClient(witness);if err!=nil{return nil,err}
- if aURL==wURL{return nil,errors.New("FORGE_FSA_REMOTE_SHARED_TRUST_ENDPOINT_FORBIDDEN")}
+ if aURL==wURL||authority.ServerSPKISHA256==witness.ServerSPKISHA256{return nil,errors.New("FORGE_FSA_REMOTE_SHARED_TRUST_ENDPOINT_OR_SERVER_KEY_FORBIDDEN")}
  return &Client{authorityURL:aURL,witnessURL:wURL,authority:aClient,witness:wClient,
   pin:pin,observedRevision:pin.MinimumRevision},nil
 }

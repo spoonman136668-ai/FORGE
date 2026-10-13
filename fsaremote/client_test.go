@@ -193,7 +193,9 @@ func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
  ServerSPKISHA256:hx("f",64)}
  if _,err:=NewClient(peer,peer,pin);err==nil{t.Fatal("shared authority and witness origin accepted")}
  witness:=peer;witness.BaseURL="https://witness.forge.test"
- if _,err:=NewClient(peer,witness,pin);err!=nil{t.Fatal("validly provisioned transport contract rejected",err)}
+ if _,err:=NewClient(peer,witness,pin);err==nil{t.Fatal("different URLs using one server signing key accepted")}
+ witness.ServerSPKISHA256=hx("e",64)
+ if _,err:=NewClient(peer,witness,pin);err!=nil{t.Fatal("distinct server trust roots rejected",err)}
  untrusted:=peer;untrusted.Roots=nil
  if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("untrusted TLS roots accepted")}
  untrusted=peer;untrusted.BaseURL="http://authority.forge.test"
