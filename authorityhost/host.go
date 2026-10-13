@@ -199,7 +199,9 @@ func(p *checkpointReadOnly)ReadAnchor(ctx context.Context)(fsahead.Anchor,error)
  return a,nil
 }
 func(p *checkpointReadOnly)ConfirmArchiveBinding(ctx context.Context,id string)(bool,error){
- if p==nil||p.poisoned||ctx==nil||ctx.Err()!=nil{return false,ErrUnprovisioned}
+ if p==nil||ctx==nil||ctx.Err()!=nil{return false,ErrUnprovisioned}
+ p.mu.Lock();defer p.mu.Unlock()
+ if p.poisoned{return false,ErrUnprovisioned}
  return p.store.ConfirmArchiveBinding(ctx,id)
 }
 func(p *checkpointReadOnly)CompareAndSwap(context.Context,fsahead.Anchor,fsahead.Anchor)(bool,error){
