@@ -58,6 +58,7 @@ func path(root string,c Claim)string{
 }
 func canonical(c Claim)([]byte,error){b,e:=json.Marshal(c);if e!=nil{return nil,ErrBlocked};return append(b,'\n'),nil}
 func directory(root string)error{
+ if !filepath.IsAbs(root){return ErrBlocked}
  st,e:=os.Lstat(root);if e!=nil||!st.IsDir()||st.Mode()&os.ModeSymlink!=0{return ErrBlocked}
  return nil
 }
