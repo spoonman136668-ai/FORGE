@@ -5,9 +5,6 @@ on:
     paths:
       - 'research/r27-wingless/**'
       - '.github/workflows/forge-r27-successor.yml'
-  schedule:
-    - cron: '41 7 * * *'
-  workflow_dispatch:
 permissions:
   contents: read
   actions: read
@@ -96,8 +93,9 @@ jobs:
           # Retrieve ALL pages, including closed issues, and exclude PRs.
           pages=json.loads(subprocess.check_output(["gh","api","--paginate","--slurp",
               f"repos/{repo}/issues?state=all&per_page=100"],text=True))
+          marker="FORGE-R27-IDENTITY: W-FORGE-R27-SOURCE-ROBUST-OBJECTIVE-01 | PARENT-SHA256: e796abc9bafcfa8657bcb6fef6cb64c1ddb37234ffb99a87e3ed17d7570818e4"
           matching=[issue for page in pages for issue in page
-                    if "pull_request" not in issue and issue.get("title")==title]
+                    if "pull_request" not in issue and marker in (issue.get("body") or "")]
           if len(matching)>1:raise SystemExit("R27_DUPLICATE_SUCCESSOR_ISSUES_EXIST")
           if matching:
               print("R27_EXISTING_SUCCESSOR_REUSED=PASS",matching[0]["number"])
