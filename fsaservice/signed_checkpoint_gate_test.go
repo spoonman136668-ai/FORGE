@@ -68,6 +68,7 @@ type gateFixture struct{
  pin fsaremote.Pin
  anchor fsahead.Anchor
  rawRoot string
+ remote *fsaremote.Client
  ca *x509.Certificate
  caPrivate ed25519.PrivateKey
  roots *x509.CertPool
@@ -118,7 +119,7 @@ func newGateFixture(t *testing.T,ackWitness bool)*gateFixture{
  if err!=nil{t.Fatal(err)}
  return &gateFixture{ctx:context.Background(),archive:archive,checkpoint:linked,gate:gate,
   binding:binding,signed:signedArchiveHead(head,row,authorityPrivate),
-  pin:pin,anchor:head,rawRoot:archiveRoot,
+  pin:pin,anchor:head,rawRoot:archiveRoot,remote:client,
   ca:ca,caPrivate:caPrivate,roots:roots,readerCert:clientCert,readerSPKI:clientSPKI}
 }
 func TestSignedCheckpointGateRequiresWitnessBeforeAcknowledging(t *testing.T){
