@@ -191,7 +191,7 @@ func laneEvidenceDigest(gendir string)(string,error){
   if start!=1||terminal!=1||attempt!=1{return "",ErrQuarantine}
   witnessDigest,err:=verifyNativeReceipts(base,lane)
   if err!=nil{return "",ErrQuarantine}
-  h.Write([]byte(lane+"/worker-observation.json\\x00"))
+  h.Write([]byte(lane+"/worker-observation.json\x00"))
   h.Write([]byte(witnessDigest))
  }
  if files!=6{return "",ErrQuarantine}
