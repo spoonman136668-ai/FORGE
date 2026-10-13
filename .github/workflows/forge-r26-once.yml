@@ -13,7 +13,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   original:
-    if: github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -58,6 +57,9 @@ jobs:
           parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
           if parent!=claim["source_commit"]:
               raise SystemExit("R26_SOURCE_BIRTH_OR_FIRST_USE_PARENT_DRIFT")
+          changed=subprocess.check_output(["git","diff","--name-only","HEAD^","HEAD"],text=True).splitlines()
+          if changed!=["research/r26-wingless/launch.json"]:
+              raise SystemExit("R26_LAUNCH_COMMIT_CHANGED_FROZEN_SCIENCE_SOURCE")
           print("R26_REMOTE_FIRST_USE_EXISTED_BEFORE_EXECUTION=PASS")
           print("R26_ONE_GITHUB_RUN_ATTEMPT=PASS")
           PY
