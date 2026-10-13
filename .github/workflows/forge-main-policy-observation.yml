@@ -1,0 +1,74 @@
+name: FORGE read-only main-protection diagnosis (never cutover approval)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'branchpolicy/**'
+      - 'cmd/forge-main-policy-audit/**'
+      - '.github/workflows/forge-main-policy-observation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'branchpolicy/**'
+      - 'cmd/forge-main-policy-audit/**'
+      - '.github/workflows/forge-main-policy-observation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  observe-protection-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_MAIN_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Source-level negative qualification
+        run: go test -count=1 ./branchpolicy ./cmd/forge-main-policy-audit
+      - name: Inspect actual main GitHub readback (NO settings mutation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/branches/main" > "$RUNNER_TEMP/main-branch.json"
+          gh api "repos/$GITHUB_REPOSITORY/rulesets" > "$RUNNER_TEMP/main-rulesets.json"
+          go run ./cmd/forge-main-policy-audit \
+            --repository "$GITHUB_REPOSITORY" \
+            --expected-main-sha "$EXPECTED_MAIN_SHA" \
+            --branch "$RUNNER_TEMP/main-branch.json" \
+            --rulesets "$RUNNER_TEMP/main-rulesets.json" > "$RUNNER_TEMP/main-policy-report.json"
+          jq -e '
+            .schema == "forge.main-policy-observation.v1" and
+            .repository == "spoonman136668-ai/FORGE" and
+            .main_commit_sha == env.EXPECTED_MAIN_SHA and
+            .branch_protection_qualified == false and
+            .independent_admin_attestation_verified == false and
+            .enforcement_negative_test_verified == false and
+            .original_scientific_execution_authorized == false and
+            .cutover_authorized == false
+          ' "$RUNNER_TEMP/main-policy-report.json" >/dev/null
+          cat "$RUNNER_TEMP/main-policy-report.json"
+          printf 'MAIN_POLICY_AUDIT=OBSERVATION_ONLY; CUTOVER=BLOCKED\n'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-main-policy-readonly-observation
+          path: |
+            ${{ runner.temp }}/main-branch.json
+            ${{ runner.temp }}/main-rulesets.json
+            ${{ runner.temp }}/main-policy-report.json
+          retention-days: 90
+          if-no-files-found: error
