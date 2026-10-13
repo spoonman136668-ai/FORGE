@@ -1,0 +1,5 @@
+# R28 frozen Wingless scientific successor
+
+Automatically created FORGE R27 successor issue #187 from the independently verified negative R26 result. This preregistration freezes a **new** hypothesis and disjoint development (4400–4479, three exact 16-seed blocks) and sealed holdout (4520–4567) before any implementation. It uses the source-pinned W-R52 paired-choice feature generator as a fixed baseline and tests a train-only minimax family hinge-loss weighting objective against the equal-source balanced control. Per-family max-loss selection and tie-breaks are prespecified. The evaluation is strictly a controlled synthetic-domain claim.
+
+Original R26 is consumed and may never be replayed. R28 has NO dispatch authority merely because this manifest exists. Implementation requires qualified code, independent source-birth check, one-time durable claim, bounded worker execution and separate scientific result classification. Nothing is changed in CKB-plane or either science repository; Cloudflare/FSA remains deferred.
