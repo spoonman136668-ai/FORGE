@@ -111,8 +111,8 @@ func hasDuplicateKeys(raw []byte)bool{
   return nil
  }
  if err:=scan();err!=nil{return true}
- var extra any
- return !errors.Is(func()error{_,err:=d.Token();return err}(),io.EOF)
+ _,err:=d.Token()
+ return !errors.Is(err,io.EOF)
 }
 func (c *Client)get(ctx context.Context,path string,destination any)error{
  if c==nil||ctx==nil||ctx.Err()!=nil||c.httpClient==nil||
@@ -154,7 +154,7 @@ func(c *Client)InspectS14(ctx context.Context)(Report,error){
  ids:=[]int64{}
  for _,r:=range runs.WorkflowRuns{
   if r.ID<=0||r.Path!=OriginalPath||r.Event!="workflow_dispatch"||
-   r.HeadBranch!="main"||!validHash(r.HeadSHA,40)||r.RunAttempt<1||
+   r.HeadBranch!="main"||!validHash(r.HeadSHA,40)||r.RunAttempt!=1||
    (r.Status!="queued"&&r.Status!="in_progress"&&r.Status!="completed")||
    (r.Status=="completed"&&r.Conclusion==nil)||
    (r.Status!="completed"&&r.Conclusion!=nil){return Report{},ErrBlocked}
@@ -167,7 +167,7 @@ func(c *Client)InspectS14(ctx context.Context)(Report,error){
   len(artifacts.Artifacts)!=artifacts.TotalCount{return Report{},ErrBlocked}
  artifactIDs:=[]int64{}
  for _,a:=range artifacts.Artifacts{
-  if a.ID<=0||a.WorkflowRun.ID<=0||a.Name!=ArtifactName||
+  if a.ID<=0||a.WorkflowRun.ID<=0||a.Expired||a.Name!=ArtifactName||
    !strings.HasPrefix(a.Digest,"sha256:")||
    !validHash(strings.TrimPrefix(a.Digest,"sha256:"),64){
    return Report{},ErrBlocked
