@@ -232,21 +232,10 @@ func Run(ctx context.Context,worker,workerSHA,planSHA,root string,cycles uint64,
  lock:=filepath.Join(root,"controller.active")
  lf,err:=os.OpenFile(lock,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
  if err!=nil{return zero,ErrQuarantine}
- // Open lock never counts as a completed original; a process crash leaves
- // it for independent reconciliation, prohibiting uncertain retry.
- defer func(){_ = lf.Close();_ = os.Remove(lock);_ = syncDirectory(root)}()
- // The live lock is the only permitted transient file during inspection.
  if err=lf.Close();err!=nil{return zero,ErrQuarantine}
- if err=os.Remove(lock);err!=nil{return zero,ErrQuarantine}
+ // An uncertain worker step leaves a persistent controller lock. No retry.
  report,err:=readState(root,id,floor)
- if err!=nil{
-  // Reinstall sticky lock on ambiguous recovery. Fail closed if raced.
-  _,_ = os.OpenFile(lock,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
-  return zero,err
- }
- // Reinstall the exclusive controller lock after verified read.
- lf,err=os.OpenFile(lock,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
- if err!=nil{return zero,ErrQuarantine}
+ if err!=nil{return zero,err}
  if report.Completed>cycles{return zero,ErrBlocked}
  for seq:=report.Completed+1;seq<=cycles;seq++{
   if ctx.Err()!=nil{return zero,ErrQuarantine}
