@@ -4,8 +4,8 @@ name: FORGE independent CKB S14 first-use observation
 # Wingless/Yggdrasil research workflows while FORGE is qualified.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '43 */6 * * *'
+  # Enable recurrence only after the original GitHub first-use history is
+  # independently observed and the private S09-S14 evidence source is available.
   push:
     branches: [main]
     paths:
@@ -61,6 +61,30 @@ jobs:
           echo 'CKB_S14_PRIVATE_ORIGINAL_FIRST_USE=NOT_RECONCILED'
           echo 'ORIGINAL_REPLAY_AUTHORIZED=FALSE'
           echo 'FORGE_RESEARCH_CUTOVER_AUTHORIZED=FALSE'
+      - name: Classify why independently authenticated GitHub S14 data was blocked
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          echo 'FORGE_S14_UNVERIFIED_NO_RETRY=TRUE'
+          if gh api 'repos/spoonman136668-ai/ckb-plane/actions/workflows/r216-s14-synthetic-execute.yml/runs?per_page=100' \
+               > "$RUNNER_TEMP/s14-diagnostic-runs.json" 2>/dev/null; then
+            echo 'ORIGINAL_WORKFLOW_API=READABLE'
+            jq -c '{total_count, rows:[.workflow_runs[]? | {id,path,event,head_branch,run_attempt,status,conclusion}]}' "$RUNNER_TEMP/s14-diagnostic-runs.json"
+          else
+            echo 'ORIGINAL_WORKFLOW_API=UNAVAILABLE'
+          fi
+          if gh api 'repos/spoonman136668-ai/ckb-plane/actions/artifacts?name=ckb-s14-genesis-intent&per_page=100' \
+               > "$RUNNER_TEMP/s14-diagnostic-artifacts.json" 2>/dev/null; then
+            echo 'ORIGINAL_ISSUER_ARTIFACT_API=READABLE'
+            jq -c '{total_count, rows:[.artifacts[]? | {id,name,expired,has_digest:(.digest!=null),run_id:.workflow_run.id}]}' "$RUNNER_TEMP/s14-diagnostic-artifacts.json"
+          else
+            echo 'ORIGINAL_ISSUER_ARTIFACT_API=UNAVAILABLE'
+          fi
+          echo 'CKB_S14_PRIVATE_CONSUMED_LEDGER=NOT_AVAILABLE_ON_HOSTED_RUNNER'
+          echo 'SCIENTIFIC_EXECUTION_AUTHORIZED=FALSE'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
