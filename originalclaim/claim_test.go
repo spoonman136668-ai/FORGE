@@ -43,7 +43,12 @@ func TestTamperMismatchAndUncertainClaimNeverAuthorizeReplay(t *testing.T){
 func TestMissingOrRelativeDirectoryCannotClaimOrGrantStart(t *testing.T){
  c:=fixture()
  if err:=Consume(filepath.Join(t.TempDir(),"absent"),c);err==nil{t.Fatal("created untrusted root")}
- if err:=Consume("relative",c);err==nil{t.Fatal("created relative root")}
+ relativeRoot:=t.TempDir()
+ cwd,err:=os.Getwd();if err!=nil{t.Fatal(err)}
+ relative,err:=filepath.Rel(cwd,relativeRoot)
+ if err==nil&&filepath.IsAbs(relative)==false {
+  if err:=Consume(relative,c);err==nil{t.Fatal("existing relative custody directory was accepted")}
+ }
  c.FirstUseConsumed=false
  if err:=Consume(t.TempDir(),c);err==nil{t.Fatal("unconsumed claim admitted")}
 }
