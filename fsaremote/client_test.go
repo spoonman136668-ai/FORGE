@@ -205,3 +205,11 @@ func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
  pin.WitnessPublicKey=pin.PublicKey
  if _,err:=NewClient(peer,witness,pin);err==nil{t.Fatal("FSA signer reused for independent witness")}
 }
+
+// A failed constructor must not turn a read-only FSA observer into a process crash.
+func TestNilRemoteClientReadFailsClosed(t *testing.T){
+ var client *Client
+ if _,err:=client.ReadAnchor(context.Background());!errors.Is(err,ErrRemote){
+  t.Fatal("nil FSA observer did not fail closed",err)
+ }
+}
