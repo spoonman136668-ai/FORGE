@@ -38,3 +38,32 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R28_REVIEW_NEGATIVES_FAILED' }
           Write-Host 'R28_FROZEN_SOURCE_WINDOWS_LINUX=PASS'
           Write-Host 'R28_VALID_SCIENTIFIC_ORIGINAL_EXECUTED=FALSE'
+      - uses: actions/checkout@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          persist-credentials: false
+          path: wingless-method
+      - name: Train-only source smoke on non-sealed fixture seeds
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 - <<'PY'
+          import importlib.util,pathlib
+          script=pathlib.Path("research/r28-wingless/execute.py")
+          spec=importlib.util.spec_from_file_location("r28_smoke",script)
+          mod=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(mod)
+          w52=mod.load_parent(pathlib.Path("wingless-method/research/contrib/chatgpt/20261013-w-r52-batch-diversity/execute.py").resolve())
+          block=tuple(range(4700,4716))  # training-only; NEVER a sealed R28 result
+          candidate=mod.minimax_fit(w52,block)
+          control=w52.fit(block,"three_source_balanced_full_batch")
+          assert len(candidate["weights"])==16
+          assert all(n==576 for n in candidate["source_counts"].values())
+          assert all(n==576 for n in control["source_counts"].values())
+          print("R28_NEW_OBJECTIVE_TRAIN_ONLY_SOURCE_SMOKE=PASS")
+          print("R28_SEALED_HELDOUT_NOT_CONSUMED=PASS")
+          PY
