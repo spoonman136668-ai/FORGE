@@ -3,6 +3,8 @@ package fsaservice
 import (
  "context"
  "crypto/ed25519"
+ "crypto/tls"
+ "crypto/x509"
  "encoding/hex"
  "encoding/json"
  "errors"
@@ -66,6 +68,11 @@ type gateFixture struct{
  pin fsaremote.Pin
  anchor fsahead.Anchor
  rawRoot string
+ ca *x509.Certificate
+ caPrivate ed25519.PrivateKey
+ roots *x509.CertPool
+ readerCert tls.Certificate
+ readerSPKI string
 }
 func newGateFixture(t *testing.T,ackWitness bool)*gateFixture{
  t.Helper()
@@ -111,7 +118,8 @@ func newGateFixture(t *testing.T,ackWitness bool)*gateFixture{
  if err!=nil{t.Fatal(err)}
  return &gateFixture{ctx:context.Background(),archive:archive,checkpoint:linked,gate:gate,
   binding:binding,signed:signedArchiveHead(head,row,authorityPrivate),
-  pin:pin,anchor:head,rawRoot:archiveRoot}
+  pin:pin,anchor:head,rawRoot:archiveRoot,
+  ca:ca,caPrivate:caPrivate,roots:roots,readerCert:clientCert,readerSPKI:clientSPKI}
 }
 func TestSignedCheckpointGateRequiresWitnessBeforeAcknowledging(t *testing.T){
  f:=newGateFixture(t,true)
