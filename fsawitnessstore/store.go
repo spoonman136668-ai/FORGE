@@ -174,13 +174,16 @@ func (s *Store)load()(fsaremote.SignedWitness,int,error){
    r.Ordinal!=uint64(i)||r.PreviousSHA256!=previousSHA||
    len(r.ReceiptSHA256)!=64{return fsaremote.SignedWitness{},0,ErrBlocked}
   computed,err:=seal(r)
-  if err!=nil||computed.ReceiptSHA256!=r.ReceiptSHA256||verify(s.pin,r.Witness)!=nil{
+  historicalPin:=s.pin
+  historicalPin.MinimumRevision=1 // independently pinned floor applies to the LAST retained revision
+  if err!=nil||computed.ReceiptSHA256!=r.ReceiptSHA256||verify(historicalPin,r.Witness)!=nil{
    return fsaremote.SignedWitness{},0,ErrBlocked
   }
   if i>0&&!advances(last,r.Witness){return fsaremote.SignedWitness{},0,ErrBlocked}
   previousSHA=r.ReceiptSHA256
   last=r.Witness
  }
+ if last.Head.Revision<s.pin.MinimumRevision{return fsaremote.SignedWitness{},0,ErrBlocked}
  return last,len(entries),nil
 }
 func advances(old,next fsaremote.SignedWitness)bool{
