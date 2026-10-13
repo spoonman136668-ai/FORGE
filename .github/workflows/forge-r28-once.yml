@@ -1,0 +1,130 @@
+name: FORGE R28 single-use Wingless original and independent reviewer
+on:
+  push:
+    branches: [research/r28-execute-firstuse]
+    paths: ['research/r28-wingless/launch.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r28-original-first-use
+  cancel-in-progress: false
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify remote first-use claim, frozen source and exact one-run launch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "${GITHUB_REF}" = refs/heads/research/r28-execute-firstuse
+          test "$(git rev-parse HEAD:research/r28-wingless/prereg.json)" = 0f51aedd38a726347780990027129c6881736b5d
+          git fetch --no-tags origin refs/heads/research/forge-first-use-claims-r28
+          git show FETCH_HEAD:W-FORGE-R28-SOURCE-ROBUST-OBJECTIVE-01.json > "$RUNNER_TEMP/r28-claim.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/forge-r28-once.yml/runs?event=push&per_page=100" > "$RUNNER_TEMP/r28-runs.json"
+          python3 - <<'PY'
+          import json,os,subprocess
+          claim=json.load(open(os.environ["RUNNER_TEMP"]+"/r28-claim.json"))
+          launch=json.load(open("research/r28-wingless/launch.json"))
+          runs=json.load(open(os.environ["RUNNER_TEMP"]+"/r28-runs.json"))["workflow_runs"]
+          if len(runs)!=1 or runs[0]["id"]!=int(os.environ["GITHUB_RUN_ID"]) or runs[0]["head_sha"]!=os.environ["GITHUB_SHA"]:
+              raise SystemExit("R28_FIRST_USE_DUPLICATE_OR_AMBIGUOUS")
+          if not (claim=={
+              "schema":"forge.r28.remote-first-use-claim.v1",
+              "experiment_id":"W-FORGE-R28-SOURCE-ROBUST-OBJECTIVE-01",
+              "prereg_blob":"0f51aedd38a726347780990027129c6881736b5d",
+              "source_commit":launch.get("source_commit"),
+              "first_use_consumed":True,"rerun_allowed":False}):
+              raise SystemExit("R28_REMOTE_CLAIM_DRIFT")
+          if launch.get("schema")!="forge.r28.single-start.v1" or launch.get("experiment_id")!=claim["experiment_id"]:
+              raise SystemExit("R28_LAUNCH_DRIFT")
+          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          if parent!=claim["source_commit"]:raise SystemExit("R28_SOURCE_BIRTH_DRIFT")
+          changed=subprocess.check_output(["git","diff","--name-only","HEAD^","HEAD"],text=True).splitlines()
+          if changed!=["research/r28-wingless/launch.json"]:
+              raise SystemExit("R28_LAUNCH_MUST_ONLY_ADD_LAUNCH_MARKER")
+          print("R28_FIRST_USE_CLAIM_BEFORE_ORIGINAL=PASS")
+          PY
+          mkdir "$RUNNER_TEMP/r28-original"
+          printf 'FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/r28-original/started.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-method
+          persist-credentials: false
+      - name: Compute new prospective Wingless minimax scientific original once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r28-wingless/execute.py \
+            --manifest "$GITHUB_WORKSPACE/research/r28-wingless/prereg.json" \
+            --wingless-root "$GITHUB_WORKSPACE/wingless-method" \
+            --out "$RUNNER_TEMP/r28-original/original.json" \
+            --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/r28-original" && sha256sum original.json > original.sha256)
+          echo 'R28_NEW_SCIENTIFIC_ORIGINAL_EXECUTED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r28-firstuse-original
+          path: ${{ runner.temp }}/r28-original
+          retention-days: 90
+          if-no-files-found: warn
+  independent-review:
+    needs: original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.original.result == 'success'
+        with:
+          name: forge-r28-firstuse-original
+          path: ${{ runner.temp }}/r28-review
+      - name: Preserve indeterminate consumed original if first-use job failed
+        if: needs.original.result != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r28-review"
+          printf '{"schema":"forge.r28.independent-original-review.v1","outcome":"CONSUMED_INDETERMINATE","original_replay_allowed":false,"independently_validated":false,"science_production_accepted":false}\n' > "$RUNNER_TEMP/r28-review/independent-review.json"
+          echo 'R28_FIRST_USE_INDETERMINATE_NO_REPLAY=PASS'
+      - name: Independently recompute sealed metrics and outcome
+        if: needs.original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r28-review"
+          sha256sum --check original.sha256
+          python3 "$GITHUB_WORKSPACE/research/r28-wingless/review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/r28-wingless/prereg.json" \
+            --raw "$PWD/original.json" \
+            --out "$PWD/independent-review.json"
+          echo 'R28_SCIENCE_OUTCOME_INDEPENDENTLY_VALIDATED=PASS'
+          echo 'FORGE_PRODUCTION_AUTHORITY_GRANTED=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r28-independent-scientific-review
+          path: ${{ runner.temp }}/r28-review/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
