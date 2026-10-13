@@ -20,11 +20,11 @@
 | R1–R7 historical portfolio scoring | PRESENT | Advisory only | `evoportfolio/selection.go`, `r196_differential.go`; CKB `portfolio.py`, `portfolio_r7.py`; no automatic original admission |
 | Gain-per-compute historical selection | PARTIAL | Advisory | `evoportfolio/policy_replay.go` compares bounded historical policy utility/cost, but real authenticated historical outcome feed and prospective control are missing |
 | Dream-RSI historical replay | PRESENT | Synthetic integrated, no science | PR #153 merged `policy_replay.go`, `policy_handoff.go`; strict training-only policy choice, sealed holdout not used for selection |
-| Recursive Dream-RSI policy improvement | MISSING | No | No qualified recurring policy promotion/evaluation loop tied to authenticated discovery histories |
+| Recursive Dream-RSI policy improvement | PARTIAL | Source-qualified advisory only | FORGE PR #156 imported preexisting `dreamrsi/optimize.go`: deterministic bounded recursive mutation on authenticated randomized histories; no actual historical propensity data, real sealed validation or recurring policy promotion |
 | Evolutionary R4–R7 family diversity | PRESENT | Advisory only | `evoportfolio/{selection,multibatch,checkpoint,progression}.go`; source-attested global budgets and family/signature caps |
-| Evolutionary R8 (claimed extension) | NOT YET QUALIFIED | No | No distinct qualified R8 algorithm/proof established by source inspection. Define experiment and baseline before claiming it |
+| Evolutionary R8 (Shinka-inspired) | NOT YET QUALIFIED | No | CKB draft PR #296 at `e1aa75d8a2428190df57c32e2e789130c4833917` contains `portfolio_r8.py` and tests, but is not merged/activated; native `evoportfolio/island_pareto.go` in this branch awaits independent qualification |
 | Shinka-style population screening | PARTIAL | No autonomous population creation | Existing deterministic family selection/score ranking, no qualified model-driven mutation/population generator |
-| Pareto / multiobjective crowding / archive | MISSING | No | Diversity and score caps do not constitute nondominated Pareto archive; requires prospective performance-vs-cost study |
+| Pareto / island diversity / negative-complete archive | NOT YET QUALIFIED | No | CKB draft R8 uses same frozen baseline and islandwise score/cost Pareto; FORGE `evoportfolio/island_pareto.go` ports a bounded shadow analogue with complete lineage, budget equality and negative retention; real prospective gains unproven |
 | Promptbreeder-style mutation lineage | PARTIAL | No active mutation | CKB R1 `README.md` and `portfolio.py` parent/operator lineage contract; no authenticated autonomous prompt mutations |
 | ThetaEvolve no hidden capacity growth | PARTIAL | Source policy only | CKB R1 prototype fixed adaptation contract; FORGE frozen-budget and source checks exist, not an active theta learner |
 | DGM / GenEnv self-generated exploration | MISSING | No | Neither a qualified GenEnv generator nor environment novelty/validity harness verified; keep as separate scientific research item |
@@ -67,3 +67,7 @@
 7. **R9 migration/cutover:** Exact controller authority handoff, old owner revoked and externally proven, all historical receipts reconciled, one new FORGE original authorized once; keep immutable original science and KTRADE isolated.
 
 **Acceptance of this audit itself is not authority to execute original science**. All R3–R9 open gates must have validated evidence, not names, checkboxes or green source-only CI. Unqualified enhancements are research hypotheses, not silently enabled optimizations.
+
+## Source-correction addendum (same day)
+
+A second search of **unmerged historical branches** identified two non-main implementations omitted from the initial scan: [CKB draft R8 / PR #296](https://github.com/spoonman136668-ai/ckb-plane/pull/296), which includes frozen island/Pareto code but **no operational authority**, and [FORGE Dream-RSI R1 source](https://github.com/spoonman136668-ai/FORGE/tree/e2502dfb5e607363c6e758419d8d509d1a3bd5c6/dreamrsi), subsequently transplanted by PR #156. This amends statuses above without changing the archived original scientific evidence. The current R8 native Pareto adapter is being qualified in a separate branch and is NOT a claim of exact cross-language CKB differential parity or live discovery improvement.
