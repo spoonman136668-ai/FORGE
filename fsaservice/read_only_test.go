@@ -168,9 +168,10 @@ func TestIndependentReadOnlyHandlersThroughRealMutualTLSClient(t *testing.T){
  wStore.signed.SignatureHex=strings.Repeat("0",128)
  if _,err:=client.ReadAnchor(ctx);err==nil{t.Fatal("forged persisted witness admitted")}
  // Pinned server SPKI cannot be silently changed.
- altered,_:=fsaremote.NewClient(
-  fsaremote.Peer{BaseURL:aServer.URL,Roots:roots,Certificate:clientCert,ServerSPKISHA256:witnessSPKI},
+ altered,err:=fsaremote.NewClient(
+  fsaremote.Peer{BaseURL:aServer.URL,Roots:roots,Certificate:clientCert,ServerSPKISHA256:strings.Repeat("0",64)},
   fsaremote.Peer{BaseURL:wServer.URL,Roots:roots,Certificate:clientCert,ServerSPKISHA256:witnessSPKI},pin)
+ if err!=nil{t.Fatal("distinct but wrong pin fixture rejected before TLS",err)}
  if _,err:=altered.ReadAnchor(ctx);err==nil{t.Fatal("wrong server private key trusted")}
 }
 func TestHandlersRejectUnprovisionedStoresAndSharedSigner(t *testing.T){

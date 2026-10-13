@@ -193,7 +193,9 @@ func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
  ServerSPKISHA256:hx("f",64)}
  if _,err:=NewClient(peer,peer,pin);err==nil{t.Fatal("shared authority and witness origin accepted")}
  witness:=peer;witness.BaseURL="https://witness.forge.test"
- if _,err:=NewClient(peer,witness,pin);err!=nil{t.Fatal("validly provisioned transport contract rejected",err)}
+ if _,err:=NewClient(peer,witness,pin);err==nil{t.Fatal("different URLs using one server signing key accepted")}
+ witness.ServerSPKISHA256=hx("e",64)
+ if _,err:=NewClient(peer,witness,pin);err!=nil{t.Fatal("distinct server trust roots rejected",err)}
  untrusted:=peer;untrusted.Roots=nil
  if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("untrusted TLS roots accepted")}
  untrusted=peer;untrusted.BaseURL="http://authority.forge.test"
@@ -202,4 +204,12 @@ func TestRemoteConstructionRequiresIndependentPinnedMutualTLS(t *testing.T){
  if _,err:=NewClient(untrusted,witness,pin);err==nil{t.Fatal("no server SPKI pin accepted")}
  pin.WitnessPublicKey=pin.PublicKey
  if _,err:=NewClient(peer,witness,pin);err==nil{t.Fatal("FSA signer reused for independent witness")}
+}
+
+// A failed constructor must not turn a read-only FSA observer into a process crash.
+func TestNilRemoteClientReadFailsClosed(t *testing.T){
+ var client *Client
+ if _,err:=client.ReadAnchor(context.Background());!errors.Is(err,ErrRemote){
+  t.Fatal("nil FSA observer did not fail closed",err)
+ }
 }
