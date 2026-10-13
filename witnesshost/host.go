@@ -114,6 +114,24 @@ func Load(path string)(Config,error){
  return c,nil
 }
 
+// SecureTLS is shared by the two separately hosted read-only FSA services.
+// The caller supplies independent paths and service credentials: this does
+// not provision or generate any certificates or private keys.
+func SecureTLS(clientCAFile,serverCertFile,serverKeyFile string)(*tls.Config,error){
+ caPEM,err:=trustedFile(clientCAFile,false);if err!=nil{return nil,err}
+ roots:=x509.NewCertPool()
+ if !roots.AppendCertsFromPEM(caPEM){return nil,ErrUnprovisioned}
+ certPEM,err:=trustedFile(serverCertFile,false);if err!=nil{return nil,err}
+ keyPEM,err:=trustedFile(serverKeyFile,true);if err!=nil{return nil,err}
+ certificate,err:=tls.X509KeyPair(certPEM,keyPEM)
+ if err!=nil||len(certificate.Certificate)==0{return nil,ErrUnprovisioned}
+ parsed,err:=x509.ParseCertificate(certificate.Certificate[0])
+ if err!=nil||parsed.IsCA||time.Now().Before(parsed.NotBefore)||time.Now().After(parsed.NotAfter)||
+  !hasServerAuth(parsed.ExtKeyUsage){return nil,ErrUnprovisioned}
+ return &tls.Config{MinVersion:tls.VersionTLS13,
+  ClientAuth:tls.RequireAndVerifyClientCert,
+  ClientCAs:roots,Certificates:[]tls.Certificate{certificate}},nil
+}
 // Server is deliberately read-only. It loads ONLY already-signed and
 // already-persisted witness evidence. All paths except GET high-water reject.
 func Server(c Config)(*http.Server,error){
@@ -121,27 +139,14 @@ func Server(c Config)(*http.Server,error){
  pin,err:=c.pin();if err!=nil{return nil,err}
  witness,err:=fsawitnessstore.Open(c.WitnessRoot,pin)
  if err!=nil{return nil,ErrUnprovisioned}
- caPEM,err:=trustedFile(c.ClientCAFile,false);if err!=nil{return nil,err}
- roots:=x509.NewCertPool()
- if !roots.AppendCertsFromPEM(caPEM){return nil,ErrUnprovisioned}
- certPEM,err:=trustedFile(c.ServerCertFile,false);if err!=nil{return nil,err}
- keyPEM,err:=trustedFile(c.ServerKeyFile,true);if err!=nil{return nil,err}
- certificate,err:=tls.X509KeyPair(certPEM,keyPEM)
- if err!=nil||len(certificate.Certificate)==0{return nil,ErrUnprovisioned}
- parsed,err:=x509.ParseCertificate(certificate.Certificate[0])
- if err!=nil||parsed.IsCA||time.Now().Before(parsed.NotBefore)||time.Now().After(parsed.NotAfter)||
-  !hasServerAuth(parsed.ExtKeyUsage){return nil,ErrUnprovisioned}
+ conf,err:=SecureTLS(c.ClientCAFile,c.ServerCertFile,c.ServerKeyFile)
+ if err!=nil{return nil,err}
  handler,err:=fsaservice.WitnessHandler(pin,c.AllowedClientSPKISHA256,witness)
  if err!=nil{return nil,ErrUnprovisioned}
  return &http.Server{Addr:c.ListenAddress,Handler:handler,
   ReadHeaderTimeout:5*time.Second,ReadTimeout:10*time.Second,
   WriteTimeout:10*time.Second,IdleTimeout:15*time.Second,
-  MaxHeaderBytes:8192,TLSConfig:&tls.Config{
-   MinVersion:tls.VersionTLS13,
-   ClientAuth:tls.RequireAndVerifyClientCert,
-   ClientCAs:roots,
-   Certificates:[]tls.Certificate{certificate},
-  }},nil
+  MaxHeaderBytes:8192,TLSConfig:conf},nil
 }
 func hasServerAuth(usages []x509.ExtKeyUsage)bool{
  for _,x:=range usages{if x==x509.ExtKeyUsageServerAuth{return true}}
