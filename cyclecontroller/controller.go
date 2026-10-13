@@ -215,7 +215,22 @@ func runLane(ctx context.Context,worker,lane,root string)error{
 // A crashed or partial generation is quarantined, NEVER dispatched again.
 // Other controller instances are serialized by exclusive lock; abandoned
 // locks are never silently deleted. No cleanup or external grant exists.
+// Run uses an independently supplied ordinal floor. It remains suitable for
+// the original bounded, single-runner synthetic integration tests.
 func Run(ctx context.Context,worker,workerSHA,planSHA,root string,cycles uint64,floor uint64)(Report,error){
+ return run(ctx,worker,workerSHA,planSHA,root,cycles,floor,"",false)
+}
+
+// RunAnchored is the stricter cross-runner restart entry point. The caller
+// supplies the prior verified exact immutable terminal SHA256 and generation
+// count from outside the restored filesystem. A copied or rolled-back
+// directory cannot authorize starting another synthetic worker. This does
+// NOT claim cross-host monotonic CAS or original scientific authority.
+func RunAnchored(ctx context.Context,worker,workerSHA,planSHA,root string,cycles uint64,floor uint64,priorHead string)(Report,error){
+ if floor==0||!hex64(priorHead){return Report{},ErrBlocked}
+ return run(ctx,worker,workerSHA,planSHA,root,cycles,floor,priorHead,true)
+}
+func run(ctx context.Context,worker,workerSHA,planSHA,root string,cycles uint64,floor uint64,priorHead string,requireAnchor bool)(Report,error){
  var zero Report
  if ctx==nil||ctx.Err()!=nil||!filepath.IsAbs(root)||
   filepath.Base(filepath.Clean(root))!="forge-synthetic-controller"||
@@ -236,6 +251,10 @@ func Run(ctx context.Context,worker,workerSHA,planSHA,root string,cycles uint64,
  // An uncertain worker step leaves a persistent controller lock. No retry.
  report,err:=readState(root,id,floor)
  if err!=nil{return zero,err}
+ // Validate exact external checkpoint BEFORE launching any next-generation
+ // worker; the fail-closed sticky lock persists if the restored state drifts.
+ if requireAnchor&&(report.Completed!=floor||
+  report.LastTerminalSHA256!=priorHead){return zero,ErrQuarantine}
  if report.Completed>cycles{return zero,ErrBlocked}
  for seq:=report.Completed+1;seq<=cycles;seq++{
   if ctx.Err()!=nil{return zero,ErrQuarantine}
