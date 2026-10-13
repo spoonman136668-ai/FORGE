@@ -8,6 +8,7 @@ R14 hardens the previously source-qualified independent dual-mTLS observer witho
 ## Bounded repair
 - Reject equal authority/witness `ServerSPKISHA256` identities even when endpoints differ.
 - Preserve rejection for same URL, missing roots, untrusted TLS and same Ed25519 witness/authority signing key.
+- Make an unprovisioned nil remote observer fail closed with an explicit error rather than panicking; add a regression test.
 - Extend the existing remote-client construction test to prove that two URLs with one TLS key fail, and the distinct-key synthetic transport continues to construct.
 - No new network requests, credentials, original execution, queue, accepted reference, FSA deployment or old-owner revocation.
 
