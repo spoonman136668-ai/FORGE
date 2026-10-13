@@ -1,0 +1,45 @@
+name: Isolated Mind-Palace private-read capability test
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: [.github/workflows/mind-palace-crossrepo-probe-20261013.yml]
+permissions:
+  contents: read
+jobs:
+  private-read-probe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Check pre-existing FORGE runner identity and private read
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'RUNNER_IDENTITY_MISMATCH'}
+          $expected='7246a98cb60c549a11c688b6370506d50b99c0db'
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $okGh=$false
+          $okGit=$false
+          $ErrorActionPreference='Continue'
+          if(Get-Command gh.exe -ErrorAction SilentlyContinue){
+            try{
+              $val=(& gh.exe api 'repos/spoonman136668-ai/Mind-Palace/commits/7246a98cb60c549a11c688b6370506d50b99c0db' --jq '.sha' 2>$null|Out-String).Trim()
+              $okGh=($LASTEXITCODE -eq 0 -and $val -ceq $expected)
+            }catch{}
+          }
+          try{
+            $lines=@(& git.exe ls-remote 'https://github.com/spoonman136668-ai/Mind-Palace.git' 'refs/heads/main' 2>$null)
+            $okGit=($LASTEXITCODE -eq 0 -and @($lines|Where-Object{[string]$_ -match '^[0-9a-f]{40}\s+refs/heads/main$'}).Count -eq 1)
+          }catch{}
+          $ErrorActionPreference='Stop'
+          Write-Host 'FORGE_DEDICATED_RUNNER=PASS'
+          Write-Host ('EXISTING_GH_PRIVATE_ACCESS='+$okGh.ToString().ToUpperInvariant())
+          Write-Host ('EXISTING_GIT_PRIVATE_ACCESS='+$okGit.ToString().ToUpperInvariant())
+          Write-Host 'NO_REPO_WRITES=TRUE'
+          Write-Host 'NO_CODEX_EXECUTION=TRUE'
+          if(-not ($okGh -or $okGit)){throw 'NO_AUTHORIZED_MIND_PALACE_CROSS_REPO_CREDENTIAL'}
