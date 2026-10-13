@@ -10,7 +10,6 @@ import (
  "sync"
  "testing"
 
- "github.com/spoonman136668-ai/forge/fsahead"
  "github.com/spoonman136668-ai/forge/workerfence"
  "github.com/spoonman136668-ai/forge/workerlease"
 )
@@ -161,4 +160,3 @@ func TestWorkerStepConcurrentConsumersOnlyOneObserved(t *testing.T){
   t.Fatalf("synthetic authority double consumed: success=%d denied=%d writes=%d",success,denied,ledger.writes)
  }
 }
-var _ fsahead.Anchor
