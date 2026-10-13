@@ -1,0 +1,96 @@
+name: FORGE read-only six-original archive custody intake
+
+# A bounded one-cohort preservation job. Does NOT start or classify science.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'researcharchive/**'
+      - 'cmd/forge-research-archive/**'
+      - 'reference/research-originals/20261013-six-recent-archive-cohort.json'
+      - '.github/workflows/forge-research-archive-cohort.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: forge-research-archive-cohort-readonly
+  cancel-in-progress: false
+
+jobs:
+  archive-originals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Qualify negative-preserving original archive evidence gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./researcharchive ./cmd/forge-research-archive
+      - name: Fetch only exactly pinned original scientific archive bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-six-originals"
+          mkdir -p "$root"
+          manifest="$GITHUB_WORKSPACE/reference/research-originals/20261013-six-recent-archive-cohort.json"
+          cp "$manifest" "$root/source-manifest.json"
+          jq -ce '.schema == "forge.research-archive.frozen-cohort.v1" and (.entries | length) == 6' "$manifest" >/dev/null
+          jq -c '.entries[]' "$manifest" | while IFS= read -r item; do
+            repo="$(jq -er '.repository' <<<"$item")"
+            rid="$(jq -er '.run_id' <<<"$item")"
+            artifact="$(jq -er '.artifact_id' <<<"$item")"
+            gh api "repos/$repo/actions/runs/$rid" > "$root/$rid.run.json"
+            gh api "repos/$repo/actions/artifacts/$artifact" > "$root/$rid.artifact.json"
+            gh api "repos/$repo/actions/artifacts/$artifact/zip" > "$root/$rid.zip"
+          done
+          go run ./cmd/forge-research-archive \
+            --manifest "$manifest" \
+            --evidence-dir "$root" > "$root/observation.json"
+      - name: Enforce complete archival integrity without acceptance authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-six-originals"
+          jq -e '
+            .schema == "forge.research-archive.original-byte-inventory.v1" and
+            .mode == "ORIGINAL_ARCHIVE_BYTE_PRESERVATION_NOT_SCIENTIFIC_CUSTODY" and
+            .archive_count == 6 and .wingless_count == 3 and .yggdrasil_count == 3 and
+            .original_execution_authorized == false and
+            .complete_ckb_custody == false and
+            .scientific_accepted == false and
+            .accepted_ref_mutation == false and
+            (.observations | length) == 6 and
+            all(.observations[];
+              .archival_integrity_verified == true and
+              .preregistration_verified == false and
+              .first_use_reconciled == false and
+              .scientific_accepted == false and
+              .scientific_classification == "UNQUALIFIED_ORIGINAL_EVIDENCE_PRESERVED")
+          ' "$root/observation.json" >/dev/null
+          echo 'SIX_REAL_ORIGINAL_ARCHIVES=BYTE_VERIFIED_AND_PRESERVED'
+          echo 'WINGLESS_ORIGINALS=3'
+          echo 'YGGDRASIL_ORIGINALS=3'
+          echo 'CKB_FIRST_USE_CUSTODY=UNRECONCILED'
+          echo 'RESEARCH_EXECUTION_AUTHORIZED=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-six-real-originals-readonly
+          path: ${{ runner.temp }}/forge-six-originals
+          retention-days: 90
+          if-no-files-found: error
