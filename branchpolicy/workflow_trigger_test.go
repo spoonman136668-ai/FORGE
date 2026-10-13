@@ -10,7 +10,7 @@ import (
 func TestRulesetProposalDoesNotSelfRaceOnMainPush(t *testing.T){
  raw,err:=os.ReadFile("../.github/workflows/forge-ruleset-readiness.yml")
  if err!=nil{t.Fatal(err)}
- s:=string(raw)
+ s:=strings.ReplaceAll(string(raw),"\r\n","\n")
  if strings.Contains(s,"\n  push:\n")||
   !strings.Contains(s,"\n  pull_request:\n")||
   !strings.Contains(s,"\n  workflow_dispatch:\n")||
@@ -19,8 +19,9 @@ func TestRulesetProposalDoesNotSelfRaceOnMainPush(t *testing.T){
  }
  qualifier,err:=os.ReadFile("../.github/workflows/qualify.yml")
  if err!=nil{t.Fatal(err)}
- if !strings.Contains(string(qualifier),"\n  push:\n")||
-  !strings.Contains(string(qualifier),"branches: [main]"){
+ q:=strings.ReplaceAll(string(qualifier),"\r\n","\n")
+ if !strings.Contains(q,"\n  push:\n")||
+  !strings.Contains(q,"branches: [main]"){
   t.Fatal("merged-main full qualification must remain always-on")
  }
 }
