@@ -8,7 +8,6 @@ import (
  "strings"
  "testing"
 
- "github.com/spoonman136668-ai/forge/researchlog"
 )
 
 // A witness instance that already acknowledged revision 3 must not serve
@@ -59,5 +58,4 @@ func TestInProcessWitnessRejectsTamperAfterEarlierRead(t *testing.T){
  if err:=store.Append(ctx,signed(t,p,key,1,3,strings.Repeat("c",64)));!errors.Is(err,ErrBlocked){
   t.Fatal("previously poisoned signer store admitted append",err)
  }
- _=researchlog.Genesis
 }
