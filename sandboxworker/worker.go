@@ -12,6 +12,7 @@ import (
  "errors"
  "os"
  "path/filepath"
+ "runtime"
  "time"
 
  "github.com/spoonman136668-ai/forge/attemptjournal"
@@ -73,8 +74,17 @@ func writeExclusive(root,name string,record workerreconcile.Signed)error{
  if err==nil&&n!=len(b){err=ErrUnsafe}
  if err==nil{err=f.Sync()}
  closeErr:=f.Close()
- if err!=nil{return err}
- if closeErr!=nil{return closeErr}
+ // The STARTED/TERMINAL directory entry must be durable before a
+ // worker can report success. This remains local crash custody only:
+ // the independently anchored controller and no-replay rules still apply.
+ if err!=nil||closeErr!=nil{return ErrUnsafe}
+ dir,err:=os.Open(root)
+ if err!=nil{return ErrUnsafe}
+ syncErr:=dir.Sync()
+ closeErr=dir.Close()
+ // Windows does not support directory fsync consistently. Keep the same
+ // explicit platform limitation as the immutable attempt journal.
+ if (syncErr!=nil&&runtime.GOOS!="windows")||closeErr!=nil{return ErrUnsafe}
  return nil
 }
 // BoundedContext is used by the standalone synthetic worker supervisor.
