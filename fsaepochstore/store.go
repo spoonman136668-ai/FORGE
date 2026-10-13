@@ -19,6 +19,7 @@ import (
  "strings"
  "sync"
 
+ "github.com/spoonman136668-ai/forge/researchlog"
  "github.com/spoonman136668-ai/forge/workerfence"
 )
 
@@ -102,6 +103,9 @@ func identifier(s string)bool{
 }
 func validPin(p Pin)bool{
  return hexLower(p.ArchiveID,64)&&hexLower(p.AuthorityHeadSHA256,64)&&
+  p.AuthoritySequence<=researchlog.MaxEntries&&
+  ((p.AuthoritySequence==0&&p.AuthorityHeadSHA256==researchlog.Genesis)||
+   (p.AuthoritySequence>0&&p.AuthorityHeadSHA256!=researchlog.Genesis))&&
   p.OwnerEpoch>0&&strings.HasPrefix(p.OwnerID,"FORGE_")&&identifier(p.OwnerID)&&
   len(p.TransferPublicKey)==ed25519.PublicKeySize&&
   len(p.StepReceiptPublicKey)==ed25519.PublicKeySize&&
@@ -297,7 +301,7 @@ func(s *Store)append(ctx context.Context,state loaded,kind string,
   return ErrIndeterminate
  }
  verified,err:=s.load()
- if err!=nil||verified.count!=state.count+1{
+ if err!=nil||verified.count!=state.count+1||ctx.Err()!=nil{
   s.poisoned=true
   return ErrIndeterminate
  }
