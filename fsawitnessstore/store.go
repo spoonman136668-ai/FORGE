@@ -17,6 +17,7 @@ import (
  "path/filepath"
  "runtime"
  "strings"
+ "sync"
 
  "github.com/spoonman136668-ai/forge/fsahead"
  "github.com/spoonman136668-ai/forge/fsaremote"
@@ -45,6 +46,12 @@ type receipt struct {
 type Store struct {
  root string
  pin fsaremote.Pin
+ mu sync.Mutex
+ observedRevision uint64
+ observedSequence uint64
+ observedHead string
+ observedSignature string
+ poisoned bool
 }
 func digest(data []byte)string{sum:=sha256.Sum256(data);return hex.EncodeToString(sum[:])}
 func pinned(p fsaremote.Pin)bool{
@@ -157,7 +164,12 @@ func Open(root string,pin fsaremote.Pin)(*Store,error){
  if !pinned(pin){return nil,ErrBlocked}
  clean,err:=safeRoot(root);if err!=nil{return nil,err}
  s:=&Store{root:clean,pin:clonePin(pin)}
- if _,_,err:=s.load();err!=nil{return nil,err}
+ w,_,err:=s.load()
+ if err!=nil{return nil,err}
+ s.observedRevision=w.Head.Revision
+ s.observedSequence=w.Head.Sequence
+ s.observedHead=w.Head.HeadSHA256
+ s.observedSignature=w.SignatureHex
  return s,nil
 }
 func (s *Store)load()(fsaremote.SignedWitness,int,error){
@@ -200,13 +212,39 @@ func advances(old,next fsaremote.SignedWitness)bool{
  if b.Sequence==a.Sequence{return b.HeadSHA256==a.HeadSHA256}
  return b.HeadSHA256!=a.HeadSHA256
 }
+// observedLoad must be called under mu. A same-process instance must never
+// forget a signed high-water witness it has already served or persisted.
+// This does NOT replace the independently pinned revision floor on restart.
+func (s *Store)observedLoad()(fsaremote.SignedWitness,int,error){
+ if s.poisoned{return fsaremote.SignedWitness{},0,ErrBlocked}
+ w,n,err:=s.load()
+ if err!=nil{
+  s.poisoned=true
+  return fsaremote.SignedWitness{},0,ErrBlocked
+ }
+ if w.Head.Revision<s.observedRevision||
+  (w.Head.Revision==s.observedRevision&&
+   (w.Head.Sequence!=s.observedSequence||
+    w.Head.HeadSHA256!=s.observedHead||
+    w.SignatureHex!=s.observedSignature)){
+  s.poisoned=true
+  return fsaremote.SignedWitness{},0,ErrBlocked
+ }
+ s.observedRevision=w.Head.Revision
+ s.observedSequence=w.Head.Sequence
+ s.observedHead=w.Head.HeadSHA256
+ s.observedSignature=w.SignatureHex
+ return w,n,nil
+}
 // ReadWitness implements fsaservice.WitnessStore. Each read fully verifies
 // canonical receipts, hash continuity, monotonic revisions, and signatures.
 func (s *Store)ReadWitness(ctx context.Context,archiveID string)(fsaremote.SignedWitness,error){
  if ctx==nil||ctx.Err()!=nil||s==nil||archiveID!=s.pin.ArchiveID{
   return fsaremote.SignedWitness{},ErrBlocked
  }
- w,_,err:=s.load()
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ w,_,err:=s.observedLoad()
  if err!=nil||ctx.Err()!=nil{return fsaremote.SignedWitness{},ErrBlocked}
  return w,nil
 }
@@ -215,11 +253,13 @@ func (s *Store)ReadWitness(ctx context.Context,archiveID string)(fsaremote.Signe
 // it MUST NOT cause automatic signing, retry, or scientific execution.
 func (s *Store)Append(ctx context.Context,next fsaremote.SignedWitness)error{
  if ctx==nil||ctx.Err()!=nil||s==nil||verify(s.pin,next)!=nil{return ErrBlocked}
- old,n,err:=s.load()
+ s.mu.Lock()
+ defer s.mu.Unlock()
+ old,n,err:=s.observedLoad()
  if err!=nil{return ErrBlocked}
  if n>=MaxReceipts||!advances(old,next){return ErrConflict}
  // Recheck the immutable predecessor immediately before exclusive creation.
- current,count,err:=s.load()
+ current,count,err:=s.observedLoad()
  if err!=nil{return ErrBlocked}
  if count!=n||current.Head!=old.Head||current.SignatureHex!=old.SignatureHex{return ErrConflict}
  previousPath:=filepath.Join(s.root,"receipts",fileName(n-1))
@@ -236,11 +276,15 @@ func (s *Store)Append(ctx context.Context,next fsaremote.SignedWitness)error{
  path:=filepath.Join(s.root,"receipts",fileName(n))
  if err=createOnce(path,data);err!=nil{
   if errors.Is(err,os.ErrExist){return ErrConflict}
+  s.poisoned=true
   return ErrIndeterminate
  }
  // Recheck exactly the expected committed witness on disk before success.
- current,count,err=s.load()
+ current,count,err=s.observedLoad()
  if err!=nil||count!=n+1||current.Head!=next.Head||
-  current.SignatureHex!=next.SignatureHex{return ErrIndeterminate}
+  current.SignatureHex!=next.SignatureHex{
+  s.poisoned=true
+  return ErrIndeterminate
+ }
  return nil
 }
