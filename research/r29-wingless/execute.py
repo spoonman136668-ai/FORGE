@@ -13,7 +13,7 @@ from pathlib import Path
 
 PREREG_BLOB="66d6908b1cc37a7aa819d1cc5a1c122d8c1ca444"
 PARENT_SHA="b1e4972f04142f1f35f76f9483b12491dec4846c"
-ID="W-FORGE-R29-SOURCE-ROBUST-OBJECTIVE-01"
+ID="W-FORGE-R29-SOURCE-ROBUST-SUCCESSOR-01"
 
 def load_parent(path):
     spec=importlib.util.spec_from_file_location("w52_r29_pinned",path)
