@@ -130,7 +130,7 @@ func Assess(in Input)(Report,error){
  }
  // Release proof MUST not be an all-zero placeholder and must be distinct
  // in each original lane. This is still a signed observation, not a fence.
- releases:=map[string]string{}
+ releases:=map[string]bool{}
  for _,record:=range in.LegacyLaneCustody {
   h:=record.Custody.LastLegacyOwnerReleaseSHA256
   if !validHex(h,64)||h==strings.Repeat("0",64)||releases[h]{
