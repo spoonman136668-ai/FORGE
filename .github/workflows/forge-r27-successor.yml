@@ -1,0 +1,122 @@
+name: FORGE R27 autonomous successor from verified R26 negative
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'research/r27-wingless/**'
+      - '.github/workflows/forge-r27-successor.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: write
+concurrency:
+  group: forge-r27-exact-parent-successor
+  cancel-in-progress: false
+jobs:
+  create-successor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify R26 real original and independently accepted classification identities
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r27"
+          gh api repos/${GITHUB_REPOSITORY}/actions/runs/38480506640 > "$RUNNER_TEMP/r27/original-run.json"
+          python3 - <<'PY'
+          import json,os
+          r=json.load(open(os.environ["RUNNER_TEMP"]+"/r27/original-run.json"))
+          assert r["id"]==38480506640 and r["run_attempt"]==1
+          assert r["status"]=="completed" and r["conclusion"]=="success"
+          assert r["head_sha"]=="b1242d62d31186a8654969d45b81280d56614943"
+          assert r["head_branch"]=="research/r26-execute-firstuse"
+          print("R27_PARENT_REAL_FIRST_USE_RUN_PINNED=PASS")
+          PY
+          git fetch --no-tags origin refs/heads/research/forge-first-use-claims-r26
+          test "$(git rev-parse FETCH_HEAD)" = 53174dd366a8b1b5c968877a3f1a19485e534536
+          git show FETCH_HEAD:W-FORGE-R26-OUT-OF-COHORT-REPLICATION-01.json > "$RUNNER_TEMP/r27/claim.json"
+          test "$(git rev-parse HEAD:research/r26-wingless/prereg.json)" = ba54fa51807e7135b598ac2cefbe09984f162da6
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r26-new-original-firstuse
+          run-id: 38480506640
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r27/original
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r26-independent-review
+          run-id: 38480506640
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r27/review
+      - name: Recompute authentic frozen original and emit strictly non-authorizing successor
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r27/original"
+          sha256sum --check original.sha256
+          cd "$GITHUB_WORKSPACE"
+          python3 research/r27-wingless/successor.py \
+            "$GITHUB_WORKSPACE/research/r26-wingless/prereg.json" \
+            "$RUNNER_TEMP/r27/original/original.json" \
+            "$RUNNER_TEMP/r27/review/independent-review.json" \
+            "$RUNNER_TEMP/r27/claim.json" \
+            53174dd366a8b1b5c968877a3f1a19485e534536 \
+            "$RUNNER_TEMP/r27/successor.json"
+          python3 - <<'PY'
+          import json,os
+          x=json.load(open(os.environ["RUNNER_TEMP"]+"/r27/successor.json"))
+          assert x["proposal_only"] is True and x["parent_replay_allowed"] is False
+          assert x["new_original_dispatch_authorized"] is False
+          assert x["new_scientific_originals_executed"]==0
+          print("R27_AUTOMATIC_PLAN_IS_NOT_SCIENCE_DISPATCH=PASS")
+          PY
+      - name: Publish exactly one durable, deduplicated successor issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib,subprocess
+          repo=os.environ["GITHUB_REPOSITORY"]
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r27"
+          x=json.loads((root/"successor.json").read_text())
+          title="FORGE R27 | W-FORGE-R27-SOURCE-ROBUST-OBJECTIVE-01 | exact negative parent"
+          # Retrieve ALL pages, including closed issues, and exclude PRs.
+          pages=json.loads(subprocess.check_output(["gh","api","--paginate","--slurp",
+              f"repos/{repo}/issues?state=all&per_page=100"],text=True))
+          marker="FORGE-R27-IDENTITY: W-FORGE-R27-SOURCE-ROBUST-OBJECTIVE-01 | PARENT-SHA256: e796abc9bafcfa8657bcb6fef6cb64c1ddb37234ffb99a87e3ed17d7570818e4"
+          matching=[issue for page in pages for issue in page
+                    if "pull_request" not in issue and marker in (issue.get("body") or "")]
+          if len(matching)>1:raise SystemExit("R27_DUPLICATE_SUCCESSOR_ISSUES_EXIST")
+          if matching:
+              print("R27_EXISTING_SUCCESSOR_REUSED=PASS",matching[0]["number"])
+          else:
+              body=(marker+"\n\n"+"**Automatically generated from independently validated FORGE R26 negative.**\n\n"
+                  "Parent original: https://github.com/"+repo+"/actions/runs/38480506640\n"
+                  "Verified classification: NO_CONFIRMED_DIVERSITY_GAIN. "
+                  "Original sha256: "+x["parent_original_sha256"]+".\n\n"
+                  "**Next falsifiable hypothesis:** "+x["next_hypothesis"]+"\n\n"
+                  "**Mandatory before new execution:**\n"+
+                  "".join("- "+v+"\n" for v in x["required_gates"])+
+                  "\nNo replay, no original dispatch authorized, no CKB cutover, FSA deferred.\n"
+                  "\nFull machine-readable proposal is archived with the generating workflow.\n")
+              subprocess.check_call(["gh","api",f"repos/{repo}/issues",
+                  "-X","POST","-f","title="+title,"-f","body="+body])
+              print("R27_AUTONOMOUS_SUCCESSOR_ISSUE_CREATED=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r27-negative-preserving-successor
+          path: ${{ runner.temp }}/r27/successor.json
+          retention-days: 90
+          if-no-files-found: warn
