@@ -90,6 +90,10 @@ func TestWitnessRejectsForgedNonmonotonicAndCanceledUpdates(t *testing.T){
  s,_:=newStore(t,p,key)
  ctx:=context.Background()
  step:=signed(t,p,key,1,3,strings.Repeat("c",64))
+ malformed:=signed(t,p,key,1,3,strings.Repeat("z",64))
+ if err:=s.Append(ctx,malformed);!errors.Is(err,ErrBlocked){t.Fatal("signed malformed head accepted",err)}
+ falseGenesis:=signed(t,p,key,1,3,researchlog.Genesis)
+ if err:=s.Append(ctx,falseGenesis);!errors.Is(err,ErrBlocked){t.Fatal("signed nonempty genesis accepted",err)}
  forged:=step
  forged.SignatureHex=strings.Repeat("0",128)
  if err:=s.Append(ctx,forged);!errors.Is(err,ErrBlocked){t.Fatal("forgery not blocked",err)}
