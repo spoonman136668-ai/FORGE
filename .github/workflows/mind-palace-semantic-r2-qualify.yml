@@ -1,0 +1,74 @@
+name: Mind-Palace semantic R2 private Windows qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: [.github/workflows/mind-palace-semantic-r2-qualify.yml]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Exact semantic R2 identity, dry run, full regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $base='cfe761de451a4a1a66bd56df80f4353fd6d2f510'
+          $expected='124dcc36c2e01741b86163567b2ba85347e90e00'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-semantic-r2-'+$env:GITHUB_RUN_ID)
+          if(Test-Path $root){throw 'QUAL_ROOT_PREEXISTS'}
+          function Call-Json([string]$label,[string]$script,[string[]]$argsArr){
+            $value=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script @argsArr 2>&1|Out-String).Trim()
+            $rc=$LASTEXITCODE
+            if($rc -ne 0){Write-Host ('QUAL_FAIL_'+$label+':'+$value.Substring(0,[Math]::Min(1200,$value.Length)));throw ($label+'_NONZERO')}
+            Write-Host ('QUAL_'+$label+'=PASS')
+            return $value
+          }
+          try{
+            & git.exe clone --quiet --branch mind-palace/oct13-semantic-reconcile-r2 https://github.com/spoonman136668-ai/Mind-Palace.git $root
+            if($LASTEXITCODE -ne 0){throw 'PRIVATE_CLONE_FAILED'}
+            $now=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            $original=(& git.exe -C $root rev-parse origin/main|Out-String).Trim()
+            if($now -cne $expected -or $original -cne $base){throw 'PINNED_PREIMAGE_DRIFT'}
+            $paths=@(& git.exe -C $root diff --name-only $base $expected)
+            $allowed=@('pilots/chat-history/2026-10-13-semantic-r2.source-slice.json','pilots/chat-history/2026-10-13-semantic-r2.batch.json','pilots/chat-history/2026-10-13-semantic-r2.inventory.json')
+            if($paths.Count -ne 3 -or @($paths|Where-Object{$_ -notin $allowed}).Count -ne 0){throw 'UNBOUNDED_SOURCE_CHANGE'}
+            Push-Location $root
+            try{
+              $state=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson')
+              $before=@($state|ForEach-Object{(Get-FileHash $_ -Algorithm SHA256).Hash})
+              $inventory='.\pilots\chat-history\2026-10-13-semantic-r2.inventory.json'
+              $batch='.\pilots\chat-history\2026-10-13-semantic-r2.batch.json'
+              $raw=Call-Json 'PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inventory)
+              $plan=$raw|ConvertFrom-Json
+              if($plan.status -cne 'ready' -or @($plan.batches).Count -ne 1){throw 'PLAN_NOT_ONE_READY'}
+              $null=Call-Json 'COLLECT' '.\tools\collect.ps1' @('validate','-InputPath',$batch)
+              New-Item -ItemType Directory -Path '.mind-runtime' -Force|Out-Null
+              $map=@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{batch_id=[string]$plan.batches[0].batch_id;collector_batch_path=Join-Path $root 'pilots\chat-history\2026-10-13-semantic-r2.batch.json'})}
+              $mapPath=Join-Path $root '.mind-runtime\semantic-r2-map.json'
+              [IO.File]::WriteAllText($mapPath,($map|ConvertTo-Json -Depth 10),[Text.Encoding]::UTF8)
+              $dryRaw=Call-Json 'DRYRUN' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inventory,'-CollectorMapPath',$mapPath)
+              $dry=$dryRaw|ConvertFrom-Json
+              Write-Host ('SEMANTIC_R2_DRYRUN_STATUS='+[string]$dry.status)
+              Write-Host ('SEMANTIC_R2_COUNTS='+($dry.counts|ConvertTo-Json -Compress))
+              if($dry.status -cne 'ready' -or -not [bool]$dry.ready_for_apply -or [int]$dry.counts.review -ne 0 -or [int]$dry.counts.supersede -ne 0){throw 'CLASSIFICATION_REVIEW_OR_SUPERSESSION_BLOCK'}
+              $null=Call-Json 'MIND_VALIDATE' '.\tools\mind.ps1' @('validate')
+              $null=Call-Json 'FULL_REGRESSION' '.\tests\Test-All.ps1' @()
+              $after=@($state|ForEach-Object{(Get-FileHash $_ -Algorithm SHA256).Hash})
+              for($i=0;$i -lt $before.Count;$i++){if($before[$i] -cne $after[$i]){throw 'DURABLE_READ_ONLY_DRIFT'}}
+              if((& git.exe status --porcelain|Out-String).Trim()){throw 'READ_ONLY_SOURCE_WORKTREE_DRIFT'}
+              Write-Host 'SEMANTIC_R2_QUALIFIED=PASS'
+              Write-Host 'FULL_CHAT_COVERAGE=NOT_CLAIMED'
+              Write-Host 'CHAT_DELTA_CURSOR_ADVANCED=FALSE'
+            }finally{Pop-Location}
+          }finally{if(Test-Path $root){Remove-Item $root -Recurse -Force}}
