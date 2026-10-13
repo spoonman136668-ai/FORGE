@@ -36,6 +36,39 @@ type Disposition struct{
  OriginalSHA256 string `json:"original_sha256"`
  ScientificAccepted bool `json:"scientific_accepted"`
 }
+// rejectDuplicateJSONKeys refuses ambiguous duplicate keys at every nesting
+// level. Scientific original raw evidence cannot be interpreted last-wins.
+func rejectDuplicateJSONKeys(raw []byte)bool{
+ d:=json.NewDecoder(bytes.NewReader(raw))
+ d.UseNumber()
+ var walk func()error
+ walk=func()error{
+  token,err:=d.Token()
+  if err!=nil{return err}
+  opener,ok:=token.(json.Delim)
+  if !ok{return nil}
+  if opener!='{'&&opener!='['{return ErrInvalid}
+  seen:=map[string]bool{}
+  for d.More(){
+   if opener=='{'{
+    key,err:=d.Token()
+    if err!=nil{return err}
+    value,ok:=key.(string)
+    if !ok||seen[value]{return ErrInvalid}
+    seen[value]=true
+   }
+   if err:=walk();err!=nil{return err}
+  }
+  closer,err:=d.Token()
+  if err!=nil{return err}
+  if opener=='{'&&closer!=json.Delim('}')||
+   opener=='['&&closer!=json.Delim(']'){return ErrInvalid}
+  return nil
+ }
+ if walk()!=nil{return true}
+ _,err:=d.Token()
+ return err!=io.EOF
+}
 func validSource(s string)bool{
  if len(s)!=40{return false}
  for _,c:=range s{if !(c>='0'&&c<='9'||c>='a'&&c<='f'){return false}}
@@ -43,7 +76,7 @@ func validSource(s string)bool{
 }
 func ClassifyOriginal(b []byte,lane string,f Frozen)(Disposition,error){
  var zero Disposition
- if len(b)==0||len(b)>65536{return zero,ErrInvalid}
+ if len(b)==0||len(b)>65536||rejectDuplicateJSONKeys(b){return zero,ErrInvalid}
  d:=json.NewDecoder(bytes.NewReader(b));d.DisallowUnknownFields()
  var r Raw
  if d.Decode(&r)!=nil{return zero,ErrInvalid}
