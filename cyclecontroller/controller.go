@@ -266,17 +266,11 @@ func Run(ctx context.Context,worker,workerSHA,planSHA,root string,cycles uint64,
    IntentSHA256:hash(rawIntent),WorkerEvidenceSHA256:evidence,
    WinglessVerified:true,YggdrasilVerified:true}
   if err=writeOnce(filepath.Join(root,cycleName(seq)+".terminal.json"),terminal);err!=nil{return zero,ErrQuarantine}
-  // Atomic stage completion is an observed synthetic claim only. Verifies
-  // EVERY prior file; never allow a missing negative/evidence to be skipped.
-  // The lock is excluded from the root file count during verification.
-  if err=os.Remove(lock);err!=nil{return zero,ErrQuarantine}
+  // Verify every previously committed cycle before advancing again.
   report,err=readState(root,id,floor)
   if err!=nil{return zero,ErrQuarantine}
-  if seq!=cycles {
-   lf,err=os.OpenFile(lock,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
-   if err!=nil{return zero,ErrQuarantine}
-   _=lf.Close()
-  }
  }
+ if err=os.Remove(lock);err!=nil{return zero,ErrQuarantine}
+ if err=syncDirectory(root);err!=nil{return zero,ErrQuarantine}
  return report,nil
 }
