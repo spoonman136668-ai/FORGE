@@ -5,7 +5,6 @@ import (
  "encoding/json"
  "errors"
  "fmt"
- "reflect"
 )
 
 const (
@@ -55,8 +54,10 @@ func ValidateProposedRuleset(raw []byte)(string,error){
  if len(raw)==0||len(raw)>65536||!unambiguous(raw){return "",ErrRulesetPlan}
  var proposed any
  if json.Unmarshal(raw,&proposed)!=nil{return "",ErrRulesetPlan}
- expected:=ExpectedMainPlan()
- if !reflect.DeepEqual(proposed,any(expected)){return "",ErrRulesetPlan}
+ actualJSON,err:=json.Marshal(proposed)
+ if err!=nil{return "",ErrRulesetPlan}
+ expectedJSON,err:=json.Marshal(ExpectedMainPlan())
+ if err!=nil||!bytes.Equal(actualJSON,expectedJSON){return "",ErrRulesetPlan}
  return sum(raw),nil
 }
 type checkMetadata struct{
@@ -115,4 +116,3 @@ func (r ContextReport)String()string{
  return fmt.Sprintf("%s: %s; protected=%t cutover=%t",r.Schema,
   r.Classification,r.BranchProtectionQualified,r.CutoverAuthorized)
 }
-var _ = bytes.Compare
