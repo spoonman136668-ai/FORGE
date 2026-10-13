@@ -1,0 +1,132 @@
+name: FORGE cross-runner durable two-lane synthetic recovery
+
+# Restore full immutable journal evidence on a DIFFERENT hosted runner,
+# check external SHA256 and exact committed terminal head BEFORE any
+# additional synthetic worker. Does not launch original scientific work.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'cyclecontroller/**'
+      - 'cmd/forge-cycle-controller/**'
+      - '.github/workflows/forge-cross-runner-synthetic-restore.yml'
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-cross-runner-synthetic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  producer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    outputs:
+      start_head: ${{ steps.snapshot.outputs.start_head }}
+      start_count: ${{ steps.snapshot.outputs.start_count }}
+      snapshot_sha: ${{ steps.snapshot.outputs.snapshot_sha }}
+      worker_sha: ${{ steps.snapshot.outputs.worker_sha }}
+      plan_sha: ${{ steps.snapshot.outputs.plan_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Compile and test exact synthetic controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./cyclecontroller ./cmd/forge-cycle-controller
+          go build -o "$RUNNER_TEMP/forge-sandbox-worker" ./cmd/forge-sandbox-worker
+          go build -o "$RUNNER_TEMP/forge-cycle-controller" ./cmd/forge-cycle-controller
+      - name: Run generation 1 and 2, archive exact checkpoint
+        id: snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          plan="$(sha256sum cmd/research-portfolio-select/wingless.json cmd/research-portfolio-select/yggdrasil.json cmd/forge-research-cycle/fixtures/wingless-synthetic-history.json cmd/forge-research-cycle/fixtures/yggdrasil-synthetic-history.json | sha256sum | cut -d' ' -f1)"
+          worker="$(sha256sum "$RUNNER_TEMP/forge-sandbox-worker" | cut -d' ' -f1)"
+          initial="$RUNNER_TEMP/forge-initial-proof.json"
+          "$RUNNER_TEMP/forge-cycle-controller" --synthetic-only --worker "$RUNNER_TEMP/forge-sandbox-worker" --worker-sha256 "$worker" --frozen-plan-sha256 "$plan" --journal-dir "$RUNNER_TEMP/forge-synthetic-controller" --generations 2 --min-completed 0 > "$initial"
+          jq -e '.completed==2 and .wingless_cycles==2 and .yggdrasil_cycles==2 and .original_scientific_runs==0 and .scientific_execution_authorized==false and .accepted_ref_mutation==false' "$initial" >/dev/null
+          head="$(jq -er '.last_terminal_sha256' "$initial")"
+          [[ "$head" =~ ^[0-9a-f]{64}$ ]]
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/forge-checkpoint.tar.gz" forge-synthetic-controller forge-sandbox-worker forge-cycle-controller forge-initial-proof.json
+          checkpoint="$(sha256sum "$RUNNER_TEMP/forge-checkpoint.tar.gz" | cut -d' ' -f1)"
+          {
+            echo "start_head=$head"
+            echo "start_count=2"
+            echo "snapshot_sha=$checkpoint"
+            echo "worker_sha=$worker"
+            echo "plan_sha=$plan"
+          } >> "$GITHUB_OUTPUT"
+          echo 'FORGE_TWO_PARALLEL_LANES_INITIAL=PASS'
+          echo 'SCIENTIFIC_ORIGINALS=ZERO'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-exact-cross-runner-checkpoint
+          path: ${{ runner.temp }}/forge-checkpoint.tar.gz
+          retention-days: 30
+          if-no-files-found: error
+  consumer:
+    needs: producer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-exact-cross-runner-checkpoint
+          path: ${{ runner.temp }}/forge-received
+      - name: Validate independently supplied checkpoint and resume only new synthetic generations
+        shell: bash
+        env:
+          PINNED_HEAD: ${{ needs.producer.outputs.start_head }}
+          PINNED_COUNT: ${{ needs.producer.outputs.start_count }}
+          PINNED_SNAPSHOT_SHA: ${{ needs.producer.outputs.snapshot_sha }}
+          PINNED_WORKER_SHA: ${{ needs.producer.outputs.worker_sha }}
+          PINNED_PLAN_SHA: ${{ needs.producer.outputs.plan_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$PINNED_HEAD" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$PINNED_SNAPSHOT_SHA" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$PINNED_WORKER_SHA" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$PINNED_PLAN_SHA" =~ ^[0-9a-f]{64}$ ]]
+          [ "$PINNED_COUNT" = "2" ]
+          checkpoint="$RUNNER_TEMP/forge-received/forge-checkpoint.tar.gz"
+          [ "$(sha256sum "$checkpoint" | cut -d' ' -f1)" = "$PINNED_SNAPSHOT_SHA" ]
+          tar -tzf "$checkpoint" | grep -qx 'forge-initial-proof.json'
+          tar -tzf "$checkpoint" | grep -qx 'forge-synthetic-controller/generation-0002.terminal.json'
+          tar -C "$RUNNER_TEMP" -xzf "$checkpoint" --no-same-owner
+          chmod u+x "$RUNNER_TEMP/forge-cycle-controller" "$RUNNER_TEMP/forge-sandbox-worker"
+          [ "$(sha256sum "$RUNNER_TEMP/forge-sandbox-worker" | cut -d' ' -f1)" = "$PINNED_WORKER_SHA" ]
+          plan="$(sha256sum cmd/research-portfolio-select/wingless.json cmd/research-portfolio-select/yggdrasil.json cmd/forge-research-cycle/fixtures/wingless-synthetic-history.json cmd/forge-research-cycle/fixtures/yggdrasil-synthetic-history.json | sha256sum | cut -d' ' -f1)"
+          [ "$plan" = "$PINNED_PLAN_SHA" ]
+          jq -e --arg head "$PINNED_HEAD" '.completed==2 and .last_terminal_sha256==$head and .original_scientific_runs==0' "$RUNNER_TEMP/forge-initial-proof.json" >/dev/null
+          output="$RUNNER_TEMP/forge-resume-proof.json"
+          "$RUNNER_TEMP/forge-cycle-controller" --synthetic-only --worker "$RUNNER_TEMP/forge-sandbox-worker" --worker-sha256 "$PINNED_WORKER_SHA" --frozen-plan-sha256 "$PINNED_PLAN_SHA" --journal-dir "$RUNNER_TEMP/forge-synthetic-controller" --generations 4 --min-completed 2 --min-terminal-sha256 "$PINNED_HEAD" > "$output"
+          jq -e --arg head "$PINNED_HEAD" '.completed==4 and .wingless_cycles==4 and .yggdrasil_cycles==4 and .last_terminal_sha256!=$head and .original_scientific_runs==0 and .scientific_execution_authorized==false and .accepted_ref_mutation==false' "$output" >/dev/null
+          newhead="$(jq -er '.last_terminal_sha256' "$output")"
+          "$RUNNER_TEMP/forge-cycle-controller" --synthetic-only --worker "$RUNNER_TEMP/forge-sandbox-worker" --worker-sha256 "$PINNED_WORKER_SHA" --frozen-plan-sha256 "$PINNED_PLAN_SHA" --journal-dir "$RUNNER_TEMP/forge-synthetic-controller" --generations 4 --min-completed 4 --min-terminal-sha256 "$newhead" > "$RUNNER_TEMP/forge-idempotent-proof.json"
+          jq -e --arg head "$newhead" '.completed==4 and .last_terminal_sha256==$head and .original_scientific_runs==0' "$RUNNER_TEMP/forge-idempotent-proof.json" >/dev/null
+          test ! -e "$RUNNER_TEMP/forge-synthetic-controller/controller.active"
+          echo 'CROSS_RUNNER_CHECKPOINT_RESTORE=PASS'
+          echo 'TWO_MORE_PARALLEL_SYNTHETIC_GENERATIONS=PASS'
+          echo 'EXACT_ANCHORED_NO_REPLAY=PASS'
+          echo 'REAL_SCIENCE_EXECUTED=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-cross-runner-four-generations
+          path: |
+            ${{ runner.temp }}/forge-synthetic-controller
+            ${{ runner.temp }}/forge-resume-proof.json
+            ${{ runner.temp }}/forge-idempotent-proof.json
+          retention-days: 30
+          if-no-files-found: error
