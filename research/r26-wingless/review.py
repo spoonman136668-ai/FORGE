@@ -12,7 +12,7 @@ import pathlib
 
 EXPERIMENT="W-FORGE-R26-OUT-OF-COHORT-REPLICATION-01"
 SOURCE="b1e4972f04142f1f35f76f9483b12491dec4846c"
-FROZEN_BLOB="dc11dc29ac8d885e37096f896706b9d795220173"
+FROZEN_BLOB="ba54fa51807e7135b598ac2cefbe09984f162da6"
 ARMS=("affine_only_full_batch","three_source_balanced_full_batch")
 
 def bad():
