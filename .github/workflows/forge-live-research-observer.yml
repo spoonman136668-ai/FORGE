@@ -1,0 +1,84 @@
+name: FORGE live two-lane research metadata observer
+
+# Observe actual independent research repositories without taking over
+# their workflows or treating green CI as a scientific classification.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'researchobserver/**'
+      - 'cmd/forge-research-observer/**'
+      - '.github/workflows/forge-live-research-observer.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-live-research-observation
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run exact offline metadata and negative classification tests
+        run: go test -count=1 ./researchobserver ./cmd/forge-research-observer
+      - name: Read the two independent public repositories
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-observer"
+          gh api 'repos/spoonman136668-ai/Wingless/actions/runs?per_page=50' > "$RUNNER_TEMP/forge-observer/wingless.json"
+          gh api 'repos/spoonman136668-ai/Yggdrasil/actions/runs?per_page=50' > "$RUNNER_TEMP/forge-observer/yggdrasil.json"
+          go run ./cmd/forge-research-observer \
+            --wingless "$RUNNER_TEMP/forge-observer/wingless.json" \
+            --yggdrasil "$RUNNER_TEMP/forge-observer/yggdrasil.json" \
+            > "$RUNNER_TEMP/forge-observer/observation.json"
+      - name: Explicit no-acceptance evidence gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-observer"
+          o=json.loads((root/"observation.json").read_text())
+          assert o["schema"]=="forge.research.metadata-observation.v1"
+          assert o["mode"]=="READ_ONLY_GITHUB_RUN_METADATA_NOT_SCIENTIFIC_EVIDENCE"
+          assert o["research_originals_executed"]==0
+          assert o["execution_authorized"] is False
+          assert o["scientific_accepted"] is False
+          assert o["accepted_ref_mutation"] is False
+          for key,lane in (("wingless","Wingless"),("yggdrasil","Yggdrasil")):
+              r=o[key]
+              assert r["lane"]==lane
+              assert r["repository"]=="spoonman136668-ai/"+lane
+              assert not r["scientific_evidence_authenticated"]
+              assert not r["historical_completeness_verified"]
+              assert 1<=len(r["runs"])<=50
+              assert r["observation_window"]==len(r["runs"])
+              for run in r["runs"]:
+                  assert run["scientific_classification"]=="UNVERIFIED_NOT_A_SCIENTIFIC_RESULT"
+                  assert not run["scientific_accepted"]
+                  assert not run["original_first_use_reconciled"]
+          print("FORGE_READONLY_TWO_LANE_OBSERVATION=PASS")
+          print("SCIENTIFIC_CLASSIFICATIONS_DERIVED_FROM_CI=ZERO")
+          print("NEW_ORIGINAL_LAUNCHES=ZERO")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-observed-research-metadata
+          path: ${{ runner.temp }}/forge-observer
+          retention-days: 30
+          if-no-files-found: error
