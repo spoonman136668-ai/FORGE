@@ -85,7 +85,13 @@ func receiptVerified(r SignedStepReceipt,claim StepClaim,pin ed25519.PublicKey)b
  return ed25519.Verify(pin,append([]byte(StepReceiptDomain),encoded...),signature)
 }
 
-// VerifyStepReceipt checks a separately pinned step signer, full immutable\n// claim identity and domain-separated receipt. It grants NO execution authority.\nfunc VerifyStepReceipt(r SignedStepReceipt,claim StepClaim,pin ed25519.PublicKey)bool{\n return receiptVerified(r,claim,pin)\n}\n\n// InspectStep consumes exactly one hypothetical step identity after the
+// VerifyStepReceipt checks a separately pinned step signer, full immutable
+// claim identity and domain-separated receipt. It grants NO execution authority.
+func VerifyStepReceipt(r SignedStepReceipt,claim StepClaim,pin ed25519.PublicKey)bool{
+ return receiptVerified(r,claim,pin)
+}
+
+// InspectStep consumes exactly one hypothetical step identity after the
 // existing real dual-mTLS remote epoch/binding/witness observation.
 // Even on success this is a source-only, NON-AUTHORIZING diagnostic receipt:
 // a read/CAS/read sequence cannot atomically protect a subsequent external
