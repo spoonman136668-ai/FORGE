@@ -34,7 +34,7 @@ def build(manifest, original, review, claim, run):
         "schema": "forge.r28.remote-first-use-claim.v1",
         "experiment_id": PARENT_ID,
         "prereg_blob": PARENT_BLOB,
-        "source_commit": r.get("source_commit"), 
+        "source_commit": "f7cc4da574f55b28b9cadf89bc0f3ea3b9af7381", 
         "first_use_consumed": True,
         "rerun_allowed": False,
     }:
