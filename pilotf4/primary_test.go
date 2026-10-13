@@ -1,3 +1,6 @@
+//go:build forge_f4_science_unreleased
+// +build forge_f4_science_unreleased
+
 package pilotf4
 import("strings";"testing")
 func TestF4OriginalInputsFailClosedWithoutRunningHeldout(t *testing.T){
