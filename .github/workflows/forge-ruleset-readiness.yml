@@ -1,0 +1,77 @@
+name: FORGE main ruleset proposal qualification (not enforcement)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'branchpolicy/**'
+      - 'cmd/forge-required-policy-check/**'
+      - 'reference/governance/**'
+      - '.github/workflows/forge-ruleset-readiness.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'branchpolicy/**'
+      - 'cmd/forge-required-policy-check/**'
+      - 'reference/governance/**'
+      - '.github/workflows/forge-ruleset-readiness.yml'
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  identify-required-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_MAIN_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Qualify exact proposed rules and adversarial check identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./branchpolicy ./cmd/forge-required-policy-check
+      - name: Verify actual GitHub Actions source and main job contexts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          [[ "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_MAIN_SHA/check-runs" > "$RUNNER_TEMP/main-checks.json"
+          go run ./cmd/forge-required-policy-check \
+            --repository "$GITHUB_REPOSITORY" \
+            --main-sha "$EXPECTED_MAIN_SHA" \
+            --plan "$GITHUB_WORKSPACE/reference/governance/forge-main-ruleset-proposal.json" \
+            --checks "$RUNNER_TEMP/main-checks.json" > "$RUNNER_TEMP/plan-and-checks.json"
+          jq -e '
+            .schema == "forge.ruleset-proposal-and-check-readonly.v1" and
+            .checks.check_source_verified == true and
+            .checks.main_commit_sha == env.EXPECTED_MAIN_SHA and
+            .checks.required_contexts == ["linux","windows"] and
+            .administrative_settings_changed == false and
+            .branch_protection_qualified == false and
+            .cutover_authorized == false
+          ' "$RUNNER_TEMP/plan-and-checks.json" >/dev/null
+          cat "$RUNNER_TEMP/plan-and-checks.json"
+          echo "EXACT_GITHUB_ACTIONS_REQUIRED_CHECKS=VERIFIED_NOT_ENFORCED"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-main-ruleset-proposal-check-identity
+          path: |
+            ${{ runner.temp }}/main-checks.json
+            ${{ runner.temp }}/plan-and-checks.json
+          retention-days: 90
+          if-no-files-found: error
