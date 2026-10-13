@@ -131,6 +131,7 @@ func (c *Client)exchange(ctx context.Context,target *http.Client,base,method,pat
 }
 func (c *Client)receive(ctx context.Context)(fsahead.Anchor,SignedWitness,error){
  var empty fsahead.Anchor
+ if c==nil{return empty,SignedWitness{},ErrRemote}
  var remote anchorResponse
  if _,err:=c.exchange(ctx,c.authority,c.authorityURL,http.MethodGet,"/v1/fsa/anchor",nil,&remote);err!=nil{return empty,SignedWitness{},err}
  if remote.Schema!=WireSchema{return empty,SignedWitness{},ErrRemote}
