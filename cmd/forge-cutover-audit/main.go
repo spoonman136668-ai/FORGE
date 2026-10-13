@@ -4,6 +4,7 @@ package main
 
 import (
  "bytes"
+ "context"
  "crypto/ed25519"
  "encoding/hex"
  "encoding/json"
@@ -15,6 +16,8 @@ import (
  "path/filepath"
  "time"
 
+ "github.com/spoonman136668-ai/forge/ckbhistory"
+ "github.com/spoonman136668-ai/forge/ckbreconcile"
  "github.com/spoonman136668-ai/forge/cutovergate"
  "github.com/spoonman136668-ai/forge/fsahead"
  "github.com/spoonman136668-ai/forge/fsaremote"
@@ -79,17 +82,17 @@ func readBundle(path string)(bundle,error){
  if err!=nil||!bytes.Equal(raw,append(normalized,'\n')){return bundle{},cutovergate.ErrBlocked}
  return b,nil
 }
-func assess(b bundle,now uint64)(cutovergate.Report,error){
+func assess(ctx context.Context,source ckbreconcile.WakeReader,b bundle,now uint64)(cutovergate.CompleteReport,error){
  collector,err:=publicKey(b.LegacyPlan.TrustedCollectorPublicKeyHex)
- if err!=nil{return cutovergate.Report{},err}
+ if err!=nil{return cutovergate.CompleteReport{},err}
  authority,err:=publicKey(b.FSAAnchor.PublicKeyHex)
- if err!=nil{return cutovergate.Report{},err}
+ if err!=nil{return cutovergate.CompleteReport{},err}
  fsa,err:=publicKey(b.FSAPin.PublicKeyHex)
- if err!=nil{return cutovergate.Report{},err}
+ if err!=nil{return cutovergate.CompleteReport{},err}
  witness,err:=publicKey(b.FSAPin.WitnessPublicKeyHex)
- if err!=nil{return cutovergate.Report{},err}
+ if err!=nil{return cutovergate.CompleteReport{},err}
  original,err:=publicKey(b.ForgeOriginalGrantPublicKeyHex)
- if err!=nil{return cutovergate.Report{},err}
+ if err!=nil{return cutovergate.CompleteReport{},err}
  anchor:=fsahead.Anchor{ArchiveID:b.FSAAnchor.ArchiveID,KeyID:b.FSAAnchor.KeyID,
   PublicKey:authority,AuthorityEpoch:b.FSAAnchor.AuthorityEpoch,
   Sequence:b.FSAAnchor.Sequence,HeadSHA256:b.FSAAnchor.HeadSHA256}
@@ -97,7 +100,7 @@ func assess(b bundle,now uint64)(cutovergate.Report,error){
   PublicKey:fsa,AuthorityEpoch:b.FSAPin.AuthorityEpoch,
   BindingSHA256:b.FSAPin.BindingSHA256,
   WitnessPublicKey:witness,MinimumRevision:b.FSAPin.MinimumRevision}
- return cutovergate.Assess(cutovergate.Input{
+ return cutovergate.AssessWithWake(ctx,source,cutovergate.Input{
   LegacyStateDirectory:b.LegacyStateDirectory,LegacySHA256Pins:b.LegacySHA256Pins,
   LegacyPlan:lanetakeover.Plan{TrustedCollectorKey:collector,
    Wingless:b.LegacyPlan.Wingless,Yggdrasil:b.LegacyPlan.Yggdrasil,
@@ -114,7 +117,12 @@ func run(args []string,output io.Writer,now uint64)error{
  bundlePath:=fs.String("bundle","","absolute externally pinned evidence bundle path")
  if err:=fs.Parse(args);err!=nil||fs.NArg()!=0||now==0{return cutovergate.ErrBlocked}
  b,err:=readBundle(*bundlePath);if err!=nil{return err}
- report,err:=assess(b,now);if err!=nil{return err}
+ // The full original CKB issuer wake and GitHub execution history must be
+ // authenticated from the pinned CKB repository before reporting anything.
+ client,err:=ckbhistory.New(os.Getenv("GH_TOKEN"));if err!=nil{return err}
+ ctx,cancel:=context.WithTimeout(context.Background(),60*time.Second)
+ defer cancel()
+ report,err:=assess(ctx,client,b,now);if err!=nil{return err}
  return json.NewEncoder(output).Encode(report)
 }
 func main(){
