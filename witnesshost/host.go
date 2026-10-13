@@ -19,7 +19,6 @@ import (
  "path/filepath"
  "runtime"
  "strconv"
- "strings"
  "time"
 
  "github.com/spoonman136668-ai/forge/fsaremote"
@@ -182,4 +181,3 @@ func Run(ctx context.Context,c Config)error{
  defer l.Close()
  return ServeOn(ctx,c,l)
 }
-var _ = strings.TrimSpace
