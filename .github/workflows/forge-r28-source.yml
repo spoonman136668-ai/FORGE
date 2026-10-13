@@ -1,0 +1,40 @@
+name: FORGE R28 source-only prereg and independent reviewer gate
+on:
+  pull_request:
+    paths:
+      - 'research/r28-wingless/**'
+      - '.github/workflows/forge-r28-source.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'research/r28-wingless/**'
+      - '.github/workflows/forge-r28-source.yml'
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source proof before original first use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pin = (& git rev-parse "HEAD:research/r28-wingless/prereg.json").Trim()
+          if ($LASTEXITCODE -ne 0 -or $pin -cne '0f51aedd38a726347780990027129c6881736b5d') { throw 'R28_PREREG_SOURCE_BIRTH_DRIFT' }
+          python -m py_compile research/r28-wingless/execute.py research/r28-wingless/review.py research/r28-wingless/source_only_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'R28_WORKER_OR_REVIEWER_SYNTAX_FAILED' }
+          python research/r28-wingless/source_only_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'R28_REVIEW_NEGATIVES_FAILED' }
+          Write-Host 'R28_FROZEN_SOURCE_WINDOWS_LINUX=PASS'
+          Write-Host 'R28_VALID_SCIENTIFIC_ORIGINAL_EXECUTED=FALSE'
