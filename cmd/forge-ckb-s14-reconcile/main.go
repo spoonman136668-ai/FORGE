@@ -48,7 +48,7 @@ func run(ctx context.Context,args []string,out io.Writer,token string)error{
  if err!=nil{return err}
  client,err:=ckbhistory.New(token)
  if err!=nil{return err}
- report,err:=ckbreconcile.Reconcile(ctx,client,*state,pins)
+ report,err:=ckbreconcile.ReconcileWake(ctx,client,*state,pins)
  if err!=nil{return err}
  return json.NewEncoder(out).Encode(report)
 }

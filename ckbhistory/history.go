@@ -15,12 +15,14 @@ import (
  "io"
  "net/http"
  "sort"
+ "strconv"
  "strings"
  "time"
 )
 const Schema="forge.ckb.s14-github-history.v1"
 const FixedBase="https://api.github.com/repos/spoonman136668-ai/ckb-plane"
 const OriginalPath=".github/workflows/r216-s14-synthetic-execute.yml"
+const WakeWorkflowPath=".github/workflows/research-loop-headless-wake-v2.yml"
 const ArtifactName="ckb-s14-genesis-intent"
 const maxJSON=1048576
 const runsPath="/actions/workflows/r216-s14-synthetic-execute.yml/runs?per_page=100"
@@ -114,9 +116,16 @@ func hasDuplicateKeys(raw []byte)bool{
  _,err:=d.Token()
  return !errors.Is(err,io.EOF)
 }
+func safeWakePath(path string)bool{
+ const prefix="/actions/runs/"
+ if !strings.HasPrefix(path,prefix){return false}
+ tail:=strings.TrimPrefix(path,prefix)
+ id,err:=strconv.ParseInt(tail,10,64)
+ return err==nil&&id>0&&strconv.FormatInt(id,10)==tail
+}
 func (c *Client)get(ctx context.Context,path string,destination any)error{
  if c==nil||ctx==nil||ctx.Err()!=nil||c.httpClient==nil||
-  len(c.token)<21||c.endpoint==""||(path!=runsPath&&path!=artifactsPath){return ErrBlocked}
+  len(c.token)<21||c.endpoint==""||(path!=runsPath&&path!=artifactsPath&&!safeWakePath(path)){return ErrBlocked}
  request,err:=http.NewRequestWithContext(ctx,http.MethodGet,c.endpoint+path,nil)
  if err!=nil{return ErrBlocked}
  request.Header.Set("Authorization","Bearer "+c.token)
