@@ -127,3 +127,35 @@ func TestZipTraversalCannotBeHiddenBehindExpectedDigest(t *testing.T){
   t.Fatal("path traversal archive accepted",err)
  }
 }
+
+func TestExternalGitHubMetadataRejectsAmbiguousKeysAtEveryDepth(t *testing.T){
+ _,run,meta,blob,entry,_:=synthetic(t)
+ sameRepo:=[]byte(`"full_name":"`+entry.Repository+`"`)
+ cases:=[]struct{name string;run []byte;meta []byte}{
+  {"run nested duplicate",bytes.Replace(run,sameRepo,append(append([]byte{},sameRepo...),[]byte(`,"full_name":"`+entry.Repository+`"`)...),1),meta},
+  {"run nested casefold alias",bytes.Replace(run,sameRepo,append(append([]byte{},sameRepo...),[]byte(`,"FULL_NAME":"`+entry.Repository+`"`)...),1),meta},
+  {"run top-level duplicate",bytes.Replace(run,[]byte(`"run_attempt":1`),[]byte(`"run_attempt":1,"run_attempt":1`),1),meta},
+  {"artifact nested duplicate",run,bytes.Replace(meta,[]byte(`"head_sha":"`+entry.HeadSHA+`"`),[]byte(`"head_sha":"`+entry.HeadSHA+`","head_sha":"`+entry.HeadSHA+`"`),1)},
+  {"artifact nested casefold alias",run,bytes.Replace(meta,[]byte(`"head_sha":"`+entry.HeadSHA+`"`),[]byte(`"head_sha":"`+entry.HeadSHA+`","HEAD_SHA":"`+entry.HeadSHA+`"`),1)},
+  {"artifact top-level duplicate",run,bytes.Replace(meta,[]byte(`"expired":false`),[]byte(`"expired":false,"expired":false`),1)},
+  {"run trailing second JSON",append(append([]byte{},run...),[]byte("{}")...),meta},
+ }
+ for _,tc:=range cases{
+  t.Run(tc.name,func(t *testing.T){
+   if bytes.Equal(tc.run,run)&&bytes.Equal(tc.meta,meta){t.Fatal("test did not mutate metadata")}
+   if _,err:=Verify(entry,tc.run,tc.meta,blob);!errors.Is(err,ErrBlocked){
+    t.Fatalf("accepted ambiguous GitHub provenance: %v",err)
+   }
+  })
+ }
+}
+func TestGitHubMetadataRejectsDeeplyNestedUnknownObject(t *testing.T){
+ _,run,meta,blob,entry,_:=synthetic(t)
+ // An otherwise valid GitHub payload with an irrelevant malicious nested
+ // field must not force recursion beyond the bounded trust parser.
+ extra:=`"extraneous":`+strings.Repeat(`{"layer":`,50)+`0`+strings.Repeat(`}`,50)
+ changed:=append(append([]byte{},run[:len(run)-1]...),[]byte(","+extra+"}")...)
+ if _,err:=Verify(entry,changed,meta,blob);!errors.Is(err,ErrBlocked){
+  t.Fatal("accepted unbounded nested GitHub payload",err)
+ }
+}
