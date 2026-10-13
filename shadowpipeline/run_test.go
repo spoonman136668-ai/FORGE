@@ -126,3 +126,14 @@ func TestNoSilentReplacementRoot(t *testing.T){
   if _,err:=Run(root,req);err==nil{t.Fatal("unapproved root allowed",root)}
  }
 }
+
+func TestSymlinkedShadowRootCannotEscapeCustody(t *testing.T){
+ req:=fixture(t)
+ base:=t.TempDir()
+ target:=filepath.Join(base,"untrusted-target")
+ if err:=os.Mkdir(target,0700);err!=nil{t.Fatal(err)}
+ root:=filepath.Join(base,FolderName)
+ if err:=os.Symlink(target,root);err!=nil{t.Skipf("symlink unavailable: %v",err)}
+ if _,err:=Run(root,req);err==nil{t.Fatal("symlinked output root accepted")}
+ if _,err:=Verify(root,req.WitnessPins,req.ReviewerPins);err==nil{t.Fatal("symlinked audit root accepted")}
+}
