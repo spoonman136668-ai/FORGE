@@ -54,7 +54,7 @@ func TestAnchoredRestoreToSeparateDirectoryThenTwoMoreGenerations(t *testing.T){
 func TestAnchoredRestoreRejectsRollbackAndWrongHeadBeforeWorker(t *testing.T){
  src:=filepath.Join(t.TempDir(),"forge-synthetic-controller")
  first,worker,sha:=runTwo(t,src)
- for name,head,floor:=range map[string]struct{head string;floor uint64}{
+ for name,tc:=range map[string]struct{head string;floor uint64}{
   "different head":{strings.Repeat("f",64),2},
   "lower count":{first.LastTerminalSHA256,1},
   "higher floor":{first.LastTerminalSHA256,3},
@@ -62,7 +62,7 @@ func TestAnchoredRestoreRejectsRollbackAndWrongHeadBeforeWorker(t *testing.T){
   t.Run(name,func(t *testing.T){
    target:=filepath.Join(t.TempDir(),"forge-synthetic-controller")
    copySyntheticSnapshot(t,src,target)
-   _,err:=RunAnchored(context.Background(),worker,sha,strings.Repeat("e",64),target,4,floor,head)
+   _,err:=RunAnchored(context.Background(),worker,sha,strings.Repeat("e",64),target,4,tc.floor,tc.head)
    if !errors.Is(err,ErrQuarantine){t.Fatal("external head/ordinal drift admitted",err)}
    if _,err:=os.Lstat(filepath.Join(target,cycleName(3)));!os.IsNotExist(err){
     t.Fatal("original launched before independently anchored head")
