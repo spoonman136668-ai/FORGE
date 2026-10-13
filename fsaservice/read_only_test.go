@@ -21,6 +21,8 @@ import (
  "github.com/spoonman136668-ai/forge/fsahead"
  "github.com/spoonman136668-ai/forge/fsaremote"
  "github.com/spoonman136668-ai/forge/researchlog"
+ "github.com/spoonman136668-ai/forge/workerfence"
+ "github.com/spoonman136668-ai/forge/workerlease"
 )
 func testKey(t *testing.T)(ed25519.PublicKey,ed25519.PrivateKey){
  t.Helper()
@@ -130,6 +132,28 @@ func TestIndependentReadOnlyHandlersThroughRealMutualTLSClient(t *testing.T){
  if err!=nil||got.Sequence!=0||got.HeadSHA256!=researchlog.Genesis{t.Fatal(got,err)}
  bound,err:=client.ConfirmArchiveBinding(ctx,pin.ArchiveID)
  if err!=nil||!bound{t.Fatal("independent physical binding rejected",err)}
+ lease:=workerlease.Lease{Lane:"Wingless",ExperimentID:"existing_original_w",
+  IntentSHA256:strings.Repeat("d",64),OwnerID:"FORGE_TEST_ONLY",
+  OwnerEpoch:pin.AuthorityEpoch,WorkerID:"TEST_WORKER",
+  LeaseSequence:1,ExpiresAtUnix:2000}
+ observed,err:=workerfence.Observe(ctx,client,got,lease,1000)
+ if err!=nil||observed.Mode!=workerfence.Mode||observed.WorkerDispatchAuthorized||
+  observed.FirstUseReplayAuthorized||observed.ScienceActivated{
+  t.Fatal("remote witness epoch audit incorrectly authorized a worker step",err,observed)
+ }
+ lease.FirstUseRisk=true
+ if _,err:=workerfence.Observe(ctx,client,got,lease,1000);err==nil{
+  t.Fatal("consumed original permitted through remote epoch observation")
+ }
+ lease.FirstUseRisk=false
+ lease.OwnerEpoch=pin.AuthorityEpoch+1
+ if _,err:=workerfence.Observe(ctx,client,got,lease,1000);err==nil{
+  t.Fatal("stale or split FSA worker epoch admitted")
+ }
+ lease.OwnerEpoch=pin.AuthorityEpoch
+ if _,err:=workerfence.Observe(ctx,client,got,lease,2000);err==nil{
+  t.Fatal("expired lease treated as execution proof")
+ }
  next:=got;next.Sequence=1;next.HeadSHA256=strings.Repeat("c",64)
  written,err:=client.CompareAndSwap(ctx,got,next)
  if err==nil||written{t.Fatal("unsigned read-only service authorized checkpoint mutation")}
