@@ -51,6 +51,13 @@ func newStore(t *testing.T,p fsaremote.Pin,key ed25519.PrivateKey)(*Store,string
  if err!=nil{t.Fatal("fixture provisioning",err)}
  return s,root
 }
+func TestProvisionRequiresSignedGenesis(t *testing.T){
+ p,key:=fixture(t)
+ progressed:=signed(t,p,key,1,2,strings.Repeat("c",64))
+ if _,err:=Provision(filepath.Join(t.TempDir(),FolderName),p,progressed);!errors.Is(err,ErrBlocked){
+  t.Fatal("new witness store bootstrapped from unproven non-genesis history",err)
+ }
+}
 func TestWitnessAppendRestartAndExternallyPinnedRollbackFloor(t *testing.T){
  p,key:=fixture(t)
  store,root:=newStore(t,p,key)
