@@ -9,6 +9,7 @@ import (
  "errors"
  "flag"
  "fmt"
+ "io"
  "os"
  "path/filepath"
  "strings"
@@ -62,7 +63,7 @@ func readFrozen[T any](path string)(T,error){
  decoder.DisallowUnknownFields()
  if err=decoder.Decode(&zero);err!=nil{return zero,ErrBlocked}
  var trailing any
- if err=decoder.Decode(&trailing);err==nil{return zero,ErrBlocked}
+ if err=decoder.Decode(&trailing);err!=io.EOF{return zero,ErrBlocked}
  return zero,nil
 }
 // plan refuses any changed frozen manifest, historical split, cross-lane
