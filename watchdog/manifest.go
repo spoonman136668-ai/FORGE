@@ -27,9 +27,10 @@ func buildManifest(chain []DurableIncident, batch RecoveryBatch)(RecoveryManifes
  known:=map[string]bool{}
  for _,r:=range chain{known[IncidentKey(r.Incident)]=true}
  count:=0
- for _,v:=range batch.Repairs{if !known[v.IncidentKey]||!v.RequiresIndependentRequalification{return RecoveryManifest{},ErrManifestUnsafe};count++}
+ consumed:=map[string]bool{}
+ for _,v:=range batch.Repairs{if consumed[v.IncidentKey]||!known[v.IncidentKey]||!v.RequiresIndependentRequalification{return RecoveryManifest{},ErrManifestUnsafe};consumed[v.IncidentKey]=true;count++}
  for _,group:=range [][]Incident{batch.Reconcile,batch.Scientific,batch.Blocked}{
-  for _,v:=range group{if !known[IncidentKey(v)]{return RecoveryManifest{},ErrManifestUnsafe};count++}
+  for _,v:=range group{if consumed[IncidentKey(v)]||!known[IncidentKey(v)]{return RecoveryManifest{},ErrManifestUnsafe};consumed[IncidentKey(v)]=true;count++}
  }
  if count==0||count>len(known){return RecoveryManifest{},ErrManifestUnsafe}
  m:=RecoveryManifest{Schema:manifestSchema,IncidentChainHeadSHA256:head,
@@ -44,7 +45,6 @@ func buildManifest(chain []DurableIncident, batch RecoveryBatch)(RecoveryManifes
 // overwriting a sealed manifest is forbidden.
 func SealRecoveryManifest(directory string,chain []DurableIncident,items []AssessedIncident)(RecoveryManifest,error){
  if directory==""||!filepath.IsAbs(directory){return RecoveryManifest{},ErrManifestUnsafe}
- if _,err:=ImportIncidentChain(directory);err!=nil{return RecoveryManifest{},err}
  persisted,head,err:=ImportIncidentChain(directory)
  if err!=nil{return RecoveryManifest{},err}
  suppliedHead,err:=VerifyIncidentChain(chain)
