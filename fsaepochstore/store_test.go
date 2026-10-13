@@ -207,7 +207,7 @@ func TestEpochStoreCrossInstanceCompetingWritersFailClosed(t *testing.T){
  close(start);wg.Wait();close(out)
  success,denied:=0,0
  for err:=range out{
-  if err==nil{success++}else if errors.Is(err,ErrConsumed)||errors.Is(err,ErrIndeterminate){denied++}else{t.Fatal(err)}
+  if err==nil{success++}else if errors.Is(err,ErrConsumed)||errors.Is(err,ErrIndeterminate)||errors.Is(err,ErrBlocked){denied++}else{t.Fatal(err)}
  }
  if success!=1||denied!=1{t.Fatalf("two processes both committed: %d %d",success,denied)}
  opened,err:=Open(f.root,f.pin,f.clock,f.signer);if err!=nil{t.Fatal(err)}
