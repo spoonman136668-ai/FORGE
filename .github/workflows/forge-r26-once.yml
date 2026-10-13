@@ -1,0 +1,139 @@
+name: FORGE R26 one-shot Wingless prospective original and independent review
+# Never run on main, PR, workflow_dispatch, schedule, or reruns. The
+# execution trigger is an explicit single-use GitHub branch push only.
+on:
+  push:
+    branches: [research/r26-execute-firstuse]
+    paths: ['research/r26-wingless/launch.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r26-firstuse-original
+  cancel-in-progress: false
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reject replay and authenticate independent GitHub first-use claim
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = "1"
+          test "${GITHUB_REF}" = "refs/heads/research/r26-execute-firstuse"
+          test "$(git hash-object --no-filters research/r26-wingless/prereg.json)" = ba54fa51807e7135b598ac2cefbe09984f162da6
+          # The claim MUST already exist on an independent remote ref, prior to the launch commit.
+          git fetch --no-tags origin refs/heads/research/forge-first-use-claims-r26
+          git show FETCH_HEAD:W-FORGE-R26-OUT-OF-COHORT-REPLICATION-01.json > "$RUNNER_TEMP/r26-remote-claim.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/forge-r26-once.yml/runs?branch=research/r26-execute-firstuse&event=push&per_page=50" > "$RUNNER_TEMP/r26-runs.json"
+          python3 - <<'PY'
+          import json,os,subprocess
+          claim=json.load(open(os.environ["RUNNER_TEMP"]+"/r26-remote-claim.json"))
+          launch=json.load(open("research/r26-wingless/launch.json"))
+          attempts=json.load(open(os.environ["RUNNER_TEMP"]+"/r26-runs.json"))["workflow_runs"]
+          exact=[r for r in attempts if r["head_sha"]==os.environ["GITHUB_SHA"]]
+          if len(attempts)!=1 or len(exact)!=1 or exact[0]["id"]!=int(os.environ["GITHUB_RUN_ID"]):
+              raise SystemExit("R26_DUPLICATE_OR_AMBIGUOUS_FIRST_USE_RUN")
+          if claim!={"schema":"forge.r26.remote-first-use-claim.v1",
+              "experiment_id":"W-FORGE-R26-OUT-OF-COHORT-REPLICATION-01",
+              "frozen_blob":"ba54fa51807e7135b598ac2cefbe09984f162da6",
+              "source_commit":launch.get("source_commit"),
+              "first_use_consumed":True,
+              "rerun_allowed":False}:raise SystemExit("R26_FIRST_USE_CLAIM_IDENTITY_DRIFT")
+          if launch.get("schema")!="forge.r26.single-start.v1" or launch.get("experiment_id")!=claim["experiment_id"]:
+              raise SystemExit("R26_LAUNCH_IDENTITY_DRIFT")
+          # Exact previously merged source SHA; the one-shot launch is its
+          # single authorized descendent. No changes to science implementation.
+          parent=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          if parent!=claim["source_commit"]:
+              raise SystemExit("R26_SOURCE_BIRTH_OR_FIRST_USE_PARENT_DRIFT")
+          changed=subprocess.check_output(["git","diff","--name-only","HEAD^","HEAD"],text=True).splitlines()
+          if changed!=["research/r26-wingless/launch.json"]:
+              raise SystemExit("R26_LAUNCH_COMMIT_CHANGED_FROZEN_SCIENCE_SOURCE")
+          print("R26_REMOTE_FIRST_USE_EXISTED_BEFORE_EXECUTION=PASS")
+          print("R26_ONE_GITHUB_RUN_ATTEMPT=PASS")
+          PY
+          mkdir "$RUNNER_TEMP/forge-r26-original"
+          printf 'FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/forge-r26-original/start-marker.txt"
+          echo "R26_START_RECORDED_BEFORE_SCIENCE=PASS"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          persist-credentials: false
+          path: wingless-method
+      - name: Execute new preregistered research original exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r26-wingless/execute.py \
+            --wingless-root "$GITHUB_WORKSPACE/wingless-method" \
+            --prereg "$GITHUB_WORKSPACE/research/r26-wingless/prereg.json" \
+            --output "$RUNNER_TEMP/forge-r26-original/original.json" \
+            --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/forge-r26-original" && sha256sum original.json > original.sha256)
+          echo "R26_NEW_WINGLESS_PROSPECTIVE_ORIGINAL_COMPLETED=PASS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r26-new-original-firstuse
+          path: ${{ runner.temp }}/forge-r26-original
+          retention-days: 90
+          if-no-files-found: warn
+  independent-review:
+    needs: original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.original.result == 'success'
+        with:
+          name: forge-r26-new-original-firstuse
+          path: ${{ runner.temp }}/forge-r26-received
+      - name: Independently preserve consumed-indeterminate on failed original
+        if: needs.original.result != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-r26-received"
+          printf '{"schema":"forge.r26.independent-scientific-review.v1","experiment_id":"W-FORGE-R26-OUT-OF-COHORT-REPLICATION-01","reported_outcome":"CONSUMED_INDETERMINATE","original_first_use_replayed":false,"science_production_accepted":false,"independent_bounded_validation":false}\n' > "$RUNNER_TEMP/forge-r26-received/independent-review.json"
+          echo 'R26_CONSUMED_INDETERMINATE_FIRST_USE_REPLAY_FORBIDDEN=PASS'
+      - name: Independent metrics and original evidence validation
+        if: needs.original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object --no-filters research/r26-wingless/prereg.json)" = ba54fa51807e7135b598ac2cefbe09984f162da6
+          cd "$RUNNER_TEMP/forge-r26-received"
+          sha256sum --check original.sha256
+          python3 "$GITHUB_WORKSPACE/research/r26-wingless/review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/r26-wingless/prereg.json" \
+            --raw "$PWD/original.json" \
+            --out "$PWD/independent-review.json"
+          echo "R26_NEW_SCIENTIFIC_RESULT_INDEPENDENTLY_VALIDATED=PASS"
+          echo "FORGE_PRODUCTION_AUTHORITY_GRANTED=FALSE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r26-independent-review
+          path: ${{ runner.temp }}/forge-r26-received/independent-review.json
+          retention-days: 90
+          if-no-files-found: error
