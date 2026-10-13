@@ -101,8 +101,9 @@ jobs:
           [ "$PINNED_COUNT" = "2" ]
           checkpoint="$RUNNER_TEMP/forge-received/forge-checkpoint.tar.gz"
           [ "$(sha256sum "$checkpoint" | cut -d' ' -f1)" = "$PINNED_SNAPSHOT_SHA" ]
-          tar -tzf "$checkpoint" | grep -qx 'forge-initial-proof.json'
-          tar -tzf "$checkpoint" | grep -qx 'forge-synthetic-controller/generation-0002.terminal.json'
+          tar -tzf "$checkpoint" > "$RUNNER_TEMP/forge-checkpoint-members.txt"
+          grep -qx 'forge-initial-proof.json' "$RUNNER_TEMP/forge-checkpoint-members.txt"
+          grep -qx 'forge-synthetic-controller/generation-0002.terminal.json' "$RUNNER_TEMP/forge-checkpoint-members.txt"
           tar -C "$RUNNER_TEMP" -xzf "$checkpoint" --no-same-owner
           chmod u+x "$RUNNER_TEMP/forge-cycle-controller" "$RUNNER_TEMP/forge-sandbox-worker"
           [ "$(sha256sum "$RUNNER_TEMP/forge-sandbox-worker" | cut -d' ' -f1)" = "$PINNED_WORKER_SHA" ]
