@@ -25,7 +25,7 @@ func TestIntegratedResearchEnhancementsBothLanesAndSealedHistory(t *testing.T){
   t.Fatalf("both lanes required: %+v",out)
  }
  for _,lane:=range out{
-  if lane.Policy!="diverse-efficiency"||
+  if lane.Policy!="baseline-family"||
    lane.HistoricalNegativeCount!=2||lane.HistoricalMixedCount!=1||
    len(lane.Finalists)!=2||len(lane.Nonfinalists)!=1||
    lane.NextCandidateID!=lane.Finalists[0]||lane.ScreenComputeSpent!=6||
