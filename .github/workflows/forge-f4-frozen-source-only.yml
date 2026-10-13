@@ -1,0 +1,84 @@
+name: FORGE F4 frozen source-only scientific evaluator qualification
+
+# Compile the default-off original evaluator, NEVER execute any valid original.
+# No scientific first-use owner, private secrets, release or dispatch.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'pilotf4/**'
+      - 'fsagithubcustody/**'
+      - 'research/pilot-f4/frozen.json'
+      - '.gitattributes'
+      - '.github/workflows/forge-f4-frozen-source-only.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'pilotf4/**'
+      - 'fsagithubcustody/**'
+      - 'research/pilot-f4/frozen.json'
+      - '.gitattributes'
+      - '.github/workflows/forge-f4-frozen-source-only.yml'
+permissions:
+  contents: read
+jobs:
+  validate-frozen-no-original:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Prove frozen source bytes and default-off original compile boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $frozen = 'research/pilot-f4/frozen.json'
+          $pin = '76b940cae65c2800100bf1c589949bfa17ad3258'
+          $committed = (& git rev-parse "HEAD:$frozen").Trim()
+          if ($LASTEXITCODE -ne 0 -or $committed -cne $pin) {
+            throw 'F4_COMMITTED_FROZEN_PREREG_DRIFT'
+          }
+          $checked = (& git hash-object --no-filters -- $frozen).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checked -cne $pin) {
+            throw 'F4_WORKTREE_FROZEN_PREREG_DRIFT'
+          }
+          $eol = @(& git check-attr eol -- $frozen)
+          if ($LASTEXITCODE -ne 0 -or ($eol -join ' ') -notmatch 'eol: lf') {
+            throw 'F4_FROZEN_CHECKOUT_BYTES_NOT_PINNED'
+          }
+          $default = (go list -json ./pilotf4 | ConvertFrom-Json).GoFiles
+          if ($LASTEXITCODE -ne 0 -or $default -contains 'primary.go') {
+            throw 'F4_ORIGINAL_CODE_COMPILED_IN_NORMAL_FORGE'
+          }
+          $tagged = (go list -tags=forge_f4_science_unreleased -json ./pilotf4 | ConvertFrom-Json).GoFiles
+          if ($LASTEXITCODE -ne 0 -or $tagged -notcontains 'primary.go') {
+            throw 'F4_FROZEN_EVALUATOR_SOURCE_NOT_COMPILABLE'
+          }
+          go test -count=1 ./pilotf4 ./fsagithubcustody
+          if ($LASTEXITCODE -ne 0) { throw 'F4_DEFAULT_SOURCE_NEGATIVES_FAILED' }
+          # Tagged tests only reject INVALID requests and verify read-only
+          # classifications; no test calls Primary on a valid experiment.
+          go test -count=1 -tags=forge_f4_science_unreleased ./pilotf4
+          if ($LASTEXITCODE -ne 0) { throw 'F4_TAGGED_SOURCE_ONLY_TESTS_FAILED' }
+          go vet -tags=forge_f4_science_unreleased ./pilotf4
+          if ($LASTEXITCODE -ne 0) { throw 'F4_TAGGED_STATIC_REVIEW_FAILED' }
+          go build -tags=forge_f4_science_unreleased ./pilotf4
+          if ($LASTEXITCODE -ne 0) { throw 'F4_TAGGED_BUILD_FAILED' }
+          Write-Host 'F4_ORIGINAL_NOT_COMPILED_BY_DEFAULT=PASS'
+          Write-Host 'F4_FROZEN_WINDOWS_LINUX_BYTES=PASS'
+          Write-Host 'F4_NATIVE_EVALUATOR_SOURCE_QUALIFICATION=PASS'
+          Write-Host 'F4_SCIENTIFIC_ORIGINAL_EXECUTED=FALSE'
+          Write-Host 'F4_FIRST_USE_AUTHORIZED=FALSE'
