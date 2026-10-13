@@ -80,11 +80,8 @@ func readCanonical(path string,v any)([]byte,error){
  st,err:=os.Lstat(path)
  if err!=nil||!st.Mode().IsRegular()||st.Size()==0||st.Size()>8192{return nil,ErrQuarantine}
  b,err:=os.ReadFile(path);if err!=nil{return nil,ErrQuarantine}
- enc,err:=canonical(v)
- _=enc
- _=err
  if json.Unmarshal(b,v)!=nil{return nil,ErrQuarantine}
- enc,err=canonical(v)
+ enc,err:=canonical(v)
  if err!=nil||string(enc)!=string(b){return nil,ErrQuarantine}
  return b,nil
 }
@@ -146,11 +143,8 @@ func laneEvidenceDigest(gendir string)(string,error){
 func readState(root string,id Identity,floor uint64)(Report,error){
  var zero Report
  if floor>MaxCycles{return zero,ErrBlocked}
- raw,err:=readCanonical(filepath.Join(root,"identity.json"),&Identity{})
- _=raw
- _=err
  var pinned Identity
- if _,err=readCanonical(filepath.Join(root,"identity.json"),&pinned);err!=nil||pinned!=id{
+ if _,err:=readCanonical(filepath.Join(root,"identity.json"),&pinned);err!=nil||pinned!=id{
   return zero,ErrQuarantine
  }
  identityRaw,_:=canonical(id)
@@ -188,7 +182,10 @@ func readState(root string,id Identity,floor uint64)(Report,error){
  entries,err:=os.ReadDir(root)
  if err!=nil{return zero,ErrQuarantine}
  expected:=1+int(count)*3
- if len(entries)!=expected{return zero,ErrQuarantine}
+ if len(entries)==expected+1 {
+  info,err:=os.Lstat(filepath.Join(root,"controller.active"))
+  if err!=nil||!info.Mode().IsRegular(){return zero,ErrQuarantine}
+ }else if len(entries)!=expected{return zero,ErrQuarantine}
  return Report{Schema:Schema,Mode:"DURABLE_PARALLEL_SYNTHETIC_NO_SCIENCE",
   Completed:count,LastTerminalSHA256:previous,WinglessCycles:count,
   YggdrasilCycles:count},nil
