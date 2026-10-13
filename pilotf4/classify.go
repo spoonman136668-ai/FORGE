@@ -113,8 +113,13 @@ func ClassifyOriginal(b []byte,lane string,f Frozen)(Disposition,error){
    float64(correct-baseline)/48>=.20,
    float64(hot)/96>=.55,true}
  }
- n:=0;for _,ok:=range flags{if ok{n++}}
- label:="MIXED";if n==4{label="SUPPORTED"};if n==0{label="NEGATIVE"}
+ // Capacity is a mandatory validity gate, not positive efficacy evidence.
+ // All three prespecified scientific comparisons failing is a NEGATIVE
+ // finding, not MIXED merely because the fixed-capacity check passed.
+ n:=0;for _,ok:=range flags[:3]{if ok{n++}}
+ label:="MIXED"
+ if n==3&&flags[3]{label="SUPPORTED"}
+ if n==0{label="NEGATIVE"}
  h:=sha256.Sum256(b)
  return Disposition{Lane:lane,Status:label,Clauses:flags,
   OriginalSHA256:hex.EncodeToString(h[:])},nil
