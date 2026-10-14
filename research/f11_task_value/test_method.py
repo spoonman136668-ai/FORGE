@@ -57,7 +57,8 @@ class F11Tests(unittest.TestCase):
         h=fake_history(m)
         self.assertEqual(learned_order(m,h),0)
         s=start_from_public(h)
-        m["value_table"][s*6+0]["global_loss"]=400
+        for action in range(6):
+            m["value_table"][s*6+action]["global_loss"]=400
         m["value_table"][s*6+2]["global_loss"]=35
         self.assertEqual(learned_order(m,h),2)
 
