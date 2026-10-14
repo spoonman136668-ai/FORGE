@@ -1,0 +1,119 @@
+name: FORGE R29 once-only original with independent review
+on:
+  push:
+    branches: [research/r29-execute-firstuse]
+    paths: ['research/r29-wingless/launch.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r29-single-original
+  cancel-in-progress: false
+jobs:
+  original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fail-closed first-use and qualification identity
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "${GITHUB_REF}" = refs/heads/research/r29-execute-firstuse
+          test "$(git rev-parse HEAD^)" = 270258952a481619660f7823db2bdb245ddde4de
+          test "$(git diff --name-only HEAD^ HEAD)" = research/r29-wingless/launch.json
+          test "$(git rev-parse HEAD:research/r29-wingless/prereg.json)" = 66d6908b1cc37a7aa819d1cc5a1c122d8c1ca444
+          test "$(git rev-parse HEAD:research/r29-wingless/execute.py)" = c8e4e5220b1d76e563611c862ed2e678be20dffd
+          test "$(git rev-parse HEAD:research/r29-wingless/review.py)" = a800b062e459026e0a9291fd3692fc5fa65ff030
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/forge-r29-once.yml/runs?event=push&per_page=100" > "$RUNNER_TEMP/r29-runs.json"
+          git fetch --no-tags origin refs/heads/research/forge-first-use-claims-r29
+          git show FETCH_HEAD:W-FORGE-R29-SOURCE-ROBUST-SUCCESSOR-01.json > "$RUNNER_TEMP/r29-claim.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          launch=json.loads(Path("research/r29-wingless/launch.json").read_text())
+          claim=json.loads(Path(os.environ["RUNNER_TEMP"],"r29-claim.json").read_text())
+          runs=json.loads(Path(os.environ["RUNNER_TEMP"],"r29-runs.json").read_text())["workflow_runs"]
+          frozen={"schema":"forge.r29.authorized-first-use.v1",
+            "experiment_id":"W-FORGE-R29-SOURCE-ROBUST-SUCCESSOR-01",
+            "source_commit":"270258952a481619660f7823db2bdb245ddde4de",
+            "prereg_blob":"66d6908b1cc37a7aa819d1cc5a1c122d8c1ca444",
+            "execute_blob":"c8e4e5220b1d76e563611c862ed2e678be20dffd",
+            "review_blob":"a800b062e459026e0a9291fd3692fc5fa65ff030",
+            "authority":"verified-qualified-forge-r29-once",
+            "first_use_consumed":True,"rerun_allowed":False}
+          if claim!=frozen:raise SystemExit("R29_CLAIM_NOT_AUTHORIZED_OR_DRIFT")
+          if launch!={"schema":"forge.r29.single-start.v1","experiment_id":frozen["experiment_id"],"source_commit":frozen["source_commit"],"prereg_blob":frozen["prereg_blob"]}:raise SystemExit("R29_LAUNCH_DRIFT")
+          if len(runs)!=1 or runs[0]["id"]!=int(os.environ["GITHUB_RUN_ID"]) or runs[0]["head_sha"]!=os.environ["GITHUB_SHA"]:
+              raise SystemExit("R29_FIRST_USE_DUPLICATE_OR_AMBIGUOUS")
+          print("R29_EXTERNAL_FIRST_USE_CLAIM=PASS")
+          PY
+          mkdir -p "$RUNNER_TEMP/r29-original"
+          printf 'FIRST_USE_CONSUMED_BEFORE_WORKER\n' > "$RUNNER_TEMP/r29-original/started.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-method
+          persist-credentials: false
+      - name: Compute exactly one R29 scientific original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r29-wingless/execute.py --manifest research/r29-wingless/prereg.json --wingless-root wingless-method --out "$RUNNER_TEMP/r29-original/original.json" --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/r29-original" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r29-firstuse-original
+          path: ${{ runner.temp }}/r29-original
+          retention-days: 90
+          if-no-files-found: warn
+  independent-review:
+    needs: original
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.original.result == 'success'
+        with:
+          name: forge-r29-firstuse-original
+          path: ${{ runner.temp }}/r29-evidence
+      - name: Quarantine consumed uncertain original
+        if: needs.original.result != 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r29-evidence"
+          printf '{"schema":"forge.r29.independent-original-review.v1","outcome":"CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false,"science_production_accepted":false}\n' > "$RUNNER_TEMP/r29-evidence/independent-review.json"
+      - name: Independent verification of raw metrics
+        if: needs.original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r29-evidence"
+          sha256sum -c original.sha256
+          python3 -B "$GITHUB_WORKSPACE/research/r29-wingless/review.py" --manifest "$GITHUB_WORKSPACE/research/r29-wingless/prereg.json" --raw "$PWD/original.json" --out "$PWD/independent-review.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r29-independent-review
+          path: ${{ runner.temp }}/r29-evidence/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
