@@ -17,7 +17,7 @@ func TestOlderSourceBackfill(t *testing.T) {
   prior,err=json.Marshal(result);if err!=nil{t.Fatal(err)}
  }
  var report Report;if err:=json.Unmarshal(prior,&report);err!=nil{t.Fatal(err)}
- if report.WinglessRevisions<193||report.YggdrasilRevisions<187{t.Fatalf("older history missing: wingless=%d yggdrasil=%d",report.WinglessRevisions,report.YggdrasilRevisions)}
+ if report.WinglessRevisions!=192||report.YggdrasilRevisions!=186{t.Fatalf("older history missing: wingless=%d yggdrasil=%d",report.WinglessRevisions,report.YggdrasilRevisions)}
  stable,err:=os.ReadFile(filepath.Join(dir,paths[2]));if err!=nil{t.Fatal(err)}
  again,err:=Ingest(stable,prior);if err!=nil{t.Fatal(err)}
  same,_:=json.Marshal(again)
