@@ -5,7 +5,7 @@ import unittest
 
 PATH=Path(__file__).with_name("prospective_protocol.json")
 KNOWN={(2,3),(4,5),(8,10),(11,13),(6,9),(12,14)}
-ARMS=["F5-FIXED","F5-COVERAGE","F5-MEMORY"]
+ARMS=["F5-FIXED","F5-COVERAGE","F5-MINIMAX","F5-MEMORY"]
 
 def inspect(protocol):
     def require(ok,code):
@@ -26,6 +26,14 @@ def inspect(protocol):
     require(sealed["pairs"]=="MUST_FREEZE_PREEXECUTION_NO_RESULT_DRIVEN_PAIR_SELECTION","PREMATURE_PAIR_ALLOCATION")
     require({tuple(v) for v in sealed["exclusions_prior_known_pairs"]}==KNOWN,"KNOWN_PAIR_REUSE")
     require(sealed["independent_replay_required"] is True,"INDEPENDENT_REPLAY")
+    geometry=protocol["coverage_geometry_control"]
+    require(geometry["status"]=="ENGINEERING_ONLY_NOT_SCIENTIFIC_ADMISSION","GEOMETRY_SCIENCE")
+    require(geometry["enumerated_all_pairs"]==91 and
+            geometry["possible_public_rotation_starts"]==14,"GEOMETRY_UNIVERSE")
+    require(geometry["baseline_offsets"]==[0,5,10,1] and
+            geometry["minimax_offsets"]==[0,1,4,6],"GEOMETRY_IDENTITY")
+    require(geometry["worst_case_pair_exposure_baseline"]==5 and
+            geometry["worst_case_pair_exposure_minimax"]==7,"GEOMETRY_BOUND")
     gate=protocol["admission"]
     require(gate["frozen_worker_source_commit"]=="UNRESOLVED" and
             gate["frozen_proposal_identity"]=="UNRESOLVED","SOURCE_FREEZE")
