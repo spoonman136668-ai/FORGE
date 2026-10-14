@@ -1,0 +1,241 @@
+name: FORGE Yggdrasil D1 D2 bounded independently-reviewed autonomous cycle
+on:
+  push:
+    branches: [research/forge-ygg-d-firstuse-launch]
+    paths: ['research/forge-ygg-parity-d/launch.json']
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-ygg-d-two-originals-one-shot
+  cancel-in-progress: false
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify two new owner-approved first-use reservations before science
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "D_PREFLIGHT_ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+          echo "D_PREFLIGHT_REF=${GITHUB_REF}"
+          echo "D_PREFLIGHT_HEAD=$(git rev-parse HEAD)"
+          echo "D_PREFLIGHT_PARENT=$(git rev-parse HEAD^)"
+          echo "D_PREFLIGHT_DIFF=$(git diff --name-only HEAD^ HEAD)"
+          test "${GITHUB_RUN_ATTEMPT}" = 1 || { echo D_GATE_RUN_ATTEMPT_FAILED; exit 1; }
+          test "${GITHUB_REF}" = refs/heads/research/forge-ygg-d-firstuse-launch || { echo D_GATE_REF_FAILED; exit 1; }
+          test "$(git diff --name-only HEAD^ HEAD)" = research/forge-ygg-parity-d/launch.json || { echo D_GATE_DIFF_FAILED; exit 1; }
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/forge-ygg-parity-d/launch.json"))["source_commit"])')" || { echo D_GATE_PARENT_FAILED; exit 1; }
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-d/prereg.json)" = b7fcb816dc2390c2bb1f8d31b4301ecca8405959 || { echo D_GATE_MANIFEST_BLOB_FAILED; exit 1; }
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-d/run_original.py)" = 2b63d4e1ed1c3d51ade9c874ab9a8d181418cacc || { echo D_GATE_WORKER_BLOB_FAILED; exit 1; }
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-d/independent_review.py)" = 4a83ef16c8e2b56e36e10ea4809258b6add587bc || { echo D_GATE_REVIEWER_BLOB_FAILED; exit 1; }
+          echo D_GATE_SOURCE_PINNED=PASS
+          mkdir -p "$RUNNER_TEMP/d-clearance"
+          git fetch --no-tags origin refs/heads/research/forge-ygg-d-firstuse-claims || { echo D_GATE_REMOTE_CLAIM_FETCH_FAILED; exit 1; }
+          git show FETCH_HEAD:Y-FORGE-PARITY-D1-ONSET1.json > "$RUNNER_TEMP/d-clearance/D1.json"
+          git show FETCH_HEAD:Y-FORGE-PARITY-D2-ONSET1.json > "$RUNNER_TEMP/d-clearance/D2.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"d-clearance"
+          j=json.loads((p/"D1.json").read_bytes())
+          n=j.get("operator_approval_comment_id")
+          if type(n) is not int or n<=0: raise SystemExit("D_OWNER_ID_MISSING")
+          (p/"comment-id").write_text(str(n))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/$(cat "$RUNNER_TEMP/d-clearance/comment-id")" > "$RUNNER_TEMP/d-clearance/approval.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=research/forge-ygg-d-firstuse-launch&event=push&per_page=100" > "$RUNNER_TEMP/d-clearance/runs.json"
+          echo D_GATE_OWNER_REFERENCE_FETCHED=PASS
+          python3 -B research/forge-ygg-parity-d/budget_gate.py \
+            --launch research/forge-ygg-parity-d/launch.json \
+            --claim-d1 "$RUNNER_TEMP/d-clearance/D1.json" \
+            --claim-d2 "$RUNNER_TEMP/d-clearance/D2.json" \
+            --approval "$RUNNER_TEMP/d-clearance/approval.json" \
+            --runs "$RUNNER_TEMP/d-clearance/runs.json" \
+            --source "$(git rev-parse HEAD^)" --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/d-clearance/receipt.json"
+          echo D_GATE_TWO_ORIGINALS_OWNER_BUDGET=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-ygg-d-two-first-use-clearance
+          path: ${{ runner.temp }}/d-clearance/receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
+  d1-original:
+    needs: authorization
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Execute bounded fresh Yggdrasil D1 scientific original exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          mkdir -p "$RUNNER_TEMP/ygg-d1"
+          printf 'FROZEN_D1_FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/ygg-d1/started.txt"
+          python3 -B research/forge-ygg-parity-d/run_original.py \
+            --study Y-FORGE-PARITY-D1-ONSET1 --ygg-root pinned-yggdrasil \
+            --out "$RUNNER_TEMP/ygg-d1/original.json"
+          (cd "$RUNNER_TEMP/ygg-d1" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-ygg-d1-original
+          path: ${{ runner.temp }}/ygg-d1
+          retention-days: 90
+          if-no-files-found: warn
+
+  d1-independent-review:
+    needs: d1-original
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-d1-original
+          path: ${{ runner.temp }}/ygg-d1
+      - name: Independently recompute scientific metrics and outcome from 768 sealed cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          cd "$RUNNER_TEMP/ygg-d1"
+          sha256sum -c original.sha256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/forge-ygg-parity-d/independent_review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/forge-ygg-parity-d/prereg.json" \
+            --original "$PWD/original.json" \
+            --experiment-id Y-FORGE-PARITY-D1-ONSET1 \
+            --out "$PWD/independent-review.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-ygg-d1-independent-review
+          path: ${{ runner.temp }}/ygg-d1/independent-review.json
+          retention-days: 90
+          if-no-files-found: error
+
+  d2-automatic-original:
+    needs: [d1-original, d1-independent-review]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-d1-original
+          path: ${{ runner.temp }}/ygg-d1
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-d1-independent-review
+          path: ${{ runner.temp }}/ygg-d1-review
+      - name: Fail closed unless independent D1 original and review requalify
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          (cd "$RUNNER_TEMP/ygg-d1" && sha256sum -c original.sha256)
+          python3 -B - <<'PY'
+          import importlib.util,json,os,pathlib
+          base=pathlib.Path(os.environ["GITHUB_WORKSPACE"])/"research/forge-ygg-parity-d"
+          spec=importlib.util.spec_from_file_location("ygg_reviewer",base/"independent_review.py")
+          mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          expect=mod.verify((base/"prereg.json").read_bytes(),(temp/"ygg-d1/original.json").read_bytes(),"Y-FORGE-PARITY-D1-ONSET1")
+          got=json.loads((temp/"ygg-d1-review/independent-review.json").read_bytes())
+          if expect!=got or got.get("independently_validated") is not True:
+              raise SystemExit("YGG_D1_INDEPENDENT_EVIDENCE_FAILED")
+          print("YGG_AUTOMATIC_D1_TO_D2_REVIEW_GATE=PASS")
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Automatically execute new D2 frozen cohort
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          mkdir -p "$RUNNER_TEMP/ygg-d2"
+          printf 'FROZEN_D2_FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/ygg-d2/started.txt"
+          python3 -B research/forge-ygg-parity-d/run_original.py \
+            --study Y-FORGE-PARITY-D2-ONSET1 --ygg-root pinned-yggdrasil \
+            --parent-review "$RUNNER_TEMP/ygg-d1-review/independent-review.json" \
+            --out "$RUNNER_TEMP/ygg-d2/original.json"
+          (cd "$RUNNER_TEMP/ygg-d2" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-ygg-d2-autonomous-original
+          path: ${{ runner.temp }}/ygg-d2
+          retention-days: 90
+          if-no-files-found: warn
+
+  d2-independent-review-and-c3:
+    needs: [d1-original, d1-independent-review, d2-automatic-original]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-d1-independent-review
+          path: ${{ runner.temp }}/ygg-d1-review
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-d2-autonomous-original
+          path: ${{ runner.temp }}/ygg-d2
+      - name: Independent D2 sealed review and bounded D3 proposal only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          cd "$RUNNER_TEMP/ygg-d2"
+          sha256sum -c original.sha256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/forge-ygg-parity-d/independent_review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/forge-ygg-parity-d/prereg.json" \
+            --original "$PWD/original.json" \
+            --parent-review "$RUNNER_TEMP/ygg-d1-review/independent-review.json" \
+            --experiment-id Y-FORGE-PARITY-D2-ONSET1 \
+            --out "$PWD/independent-review.json"
+          python3 -B "$GITHUB_WORKSPACE/research/forge-ygg-parity-d/successor.py" \
+            --d1-review "$RUNNER_TEMP/ygg-d1-review/independent-review.json" \
+            --d2-review "$PWD/independent-review.json" \
+            --out "$PWD/c3-proposal.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-ygg-d2-review-and-c3-proposal
+          path: |
+            ${{ runner.temp }}/ygg-d2/independent-review.json
+            ${{ runner.temp }}/ygg-d2/c3-proposal.json
+          retention-days: 90
+          if-no-files-found: warn
