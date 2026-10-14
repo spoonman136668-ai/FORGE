@@ -1,0 +1,233 @@
+name: FORGE Yggdrasil B1 B2 bounded independently-reviewed autonomous cycle
+on:
+  push:
+    branches: [research/forge-ygg-b-firstuse-launch]
+    paths: ['research/forge-ygg-parity-b/launch.json']
+permissions:
+  contents: read
+  issues: read
+  actions: read
+concurrency:
+  group: forge-ygg-b-two-originals-one-shot
+  cancel-in-progress: false
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify two new operator-approved first-use reservations before science
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "${GITHUB_REF}" = refs/heads/research/forge-ygg-b-firstuse-launch
+          test "$(git diff --name-only HEAD^ HEAD)" = research/forge-ygg-parity-b/launch.json
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/forge-ygg-parity-b/launch.json"))["source_commit"])')"
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-b/prereg.json)" = 4c62067e255076ece4df1efa907d146eb230765c
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-b/run_original.py)" = 52fc1e427fa15486e2a467989c80c8dd611208b1
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-b/independent_review.py)" = 04a7f5890f764cecc30dd9885dac58bb9a3aa0bb
+          mkdir -p "$RUNNER_TEMP/b-clearance"
+          git fetch --no-tags origin refs/heads/research/forge-ygg-b-firstuse-claims
+          git show FETCH_HEAD:Y-FORGE-PARITY-B1-ONSET1.json > "$RUNNER_TEMP/b-clearance/B1.json"
+          git show FETCH_HEAD:Y-FORGE-PARITY-B2-ONSET1.json > "$RUNNER_TEMP/b-clearance/B2.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"b-clearance"
+          q=json.loads((p/"B1.json").read_bytes())
+          x=q.get("operator_approval_comment_id")
+          if type(x) is not int or not 0<x<2**63:raise SystemExit("YGG_B_APPROVAL_ID_INVALID")
+          (p/"comment-id").write_text(str(x))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/$(cat "$RUNNER_TEMP/b-clearance/comment-id")" > "$RUNNER_TEMP/b-clearance/approval.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=research/forge-ygg-b-firstuse-launch&event=push&per_page=100" > "$RUNNER_TEMP/b-clearance/runs.json"
+          python3 -B research/forge-ygg-parity-b/budget_gate.py \
+            --launch research/forge-ygg-parity-b/launch.json \
+            --claim-b1 "$RUNNER_TEMP/b-clearance/B1.json" \
+            --claim-b2 "$RUNNER_TEMP/b-clearance/B2.json" \
+            --approval "$RUNNER_TEMP/b-clearance/approval.json" \
+            --runs "$RUNNER_TEMP/b-clearance/runs.json" \
+            --source "$(git rev-parse HEAD^)" --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/b-clearance/receipt.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-ygg-b-two-first-use-clearance
+          path: ${{ runner.temp }}/b-clearance/receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
+  b1-original:
+    needs: authorization
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797b257a75fe139313e8486cd1b1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Execute bounded fresh Yggdrasil B1 scientific original exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797b257a75fe139313e8486cd1b1ae79c44b148
+          mkdir -p "$RUNNER_TEMP/ygg-b1"
+          printf 'FROZEN_B1_FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/ygg-b1/started.txt"
+          python3 -B research/forge-ygg-parity-b/run_original.py \
+            --study Y-FORGE-PARITY-B1-ONSET1 --ygg-root pinned-yggdrasil \
+            --out "$RUNNER_TEMP/ygg-b1/original.json"
+          (cd "$RUNNER_TEMP/ygg-b1" && shb256sum original.json > original.shb256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-ygg-b1-original
+          path: ${{ runner.temp }}/ygg-b1
+          retention-days: 90
+          if-no-files-found: warn
+
+  b1-independent-review:
+    needs: b1-original
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-b1-original
+          path: ${{ runner.temp }}/ygg-b1
+      - name: Independently recompute scientific metrics and outcome from 768 sealed cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          cd "$RUNNER_TEMP/ygg-b1"
+          shb256sum -c original.shb256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/forge-ygg-parity-b/independent_review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/forge-ygg-parity-b/prereg.json" \
+            --original "$PWD/original.json" \
+            --experiment-id Y-FORGE-PARITY-B1-ONSET1 \
+            --out "$PWD/independent-review.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-ygg-b1-independent-review
+          path: ${{ runner.temp }}/ygg-b1/independent-review.json
+          retention-days: 90
+          if-no-files-found: error
+
+  b2-automatic-original:
+    needs: [b1-original, b1-independent-review]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-b1-original
+          path: ${{ runner.temp }}/ygg-b1
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-b1-independent-review
+          path: ${{ runner.temp }}/ygg-b1-review
+      - name: Fail closed unless independent B1 original and review requalify
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          (cd "$RUNNER_TEMP/ygg-b1" && shb256sum -c original.shb256)
+          python3 -B - <<'PY'
+          import importlib.util,json,os,pathlib
+          base=pathlib.Path(os.environ["GITHUB_WORKSPACE"])/"research/forge-ygg-parity"
+          spec=importlib.util.spec_from_file_location("ygg_reviewer",base/"independent_review.py")
+          mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          expect=mod.verify((base/"prereg.json").read_bytes(),(temp/"ygg-b1/original.json").read_bytes(),"Y-FORGE-PARITY-B1-ONSET1")
+          got=json.loads((temp/"ygg-b1-review/independent-review.json").read_bytes())
+          if expect!=got or got.get("independently_validated") is not True:
+              raise SystemExit("YGG_B1_INDEPENDENT_EVIDENCE_FAILED")
+          print("YGG_AUTOMATIC_B1_TO_B2_REVIEW_GATE=PASS")
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797b257a75fe139313e8486cd1b1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Automatically execute new B2 frozen cohort
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797b257a75fe139313e8486cd1b1ae79c44b148
+          mkdir -p "$RUNNER_TEMP/ygg-b2"
+          printf 'FROZEN_B2_FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/ygg-b2/started.txt"
+          python3 -B research/forge-ygg-parity-b/run_original.py \
+            --study Y-FORGE-PARITY-B2-ONSET1 --ygg-root pinned-yggdrasil \
+            --parent-review "$RUNNER_TEMP/ygg-b1-review/independent-review.json" \
+            --out "$RUNNER_TEMP/ygg-b2/original.json"
+          (cd "$RUNNER_TEMP/ygg-b2" && shb256sum original.json > original.shb256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-ygg-b2-autonomous-original
+          path: ${{ runner.temp }}/ygg-b2
+          retention-days: 90
+          if-no-files-found: warn
+
+  b2-independent-review-and-b3:
+    needs: [b1-original, b1-independent-review, b2-automatic-original]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-b1-independent-review
+          path: ${{ runner.temp }}/ygg-b1-review
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-ygg-b2-autonomous-original
+          path: ${{ runner.temp }}/ygg-b2
+      - name: Independent B2 sealed review and bounded B3 proposal only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          cd "$RUNNER_TEMP/ygg-b2"
+          shb256sum -c original.shb256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/forge-ygg-parity-b/independent_review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/forge-ygg-parity-b/prereg.json" \
+            --original "$PWD/original.json" \
+            --parent-review "$RUNNER_TEMP/ygg-b1-review/independent-review.json" \
+            --experiment-id Y-FORGE-PARITY-B2-ONSET1 \
+            --out "$PWD/independent-review.json"
+          python3 -B "$GITHUB_WORKSPACE/research/forge-ygg-parity-b/successor.py" \
+            --b1-review "$RUNNER_TEMP/ygg-b1-review/independent-review.json" \
+            --b2-review "$PWD/independent-review.json" \
+            --out "$PWD/b3-proposal.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-ygg-b2-review-and-b3-proposal
+          path: |
+            ${{ runner.temp }}/ygg-b2/independent-review.json
+            ${{ runner.temp }}/ygg-b2/b3-proposal.json
+          retention-days: 90
+          if-no-files-found: warn
