@@ -13,7 +13,7 @@ from pathlib import Path
 import pinned_wingless_dev as source
 from wingless_methods import METHODS, train
 
-R34_BLOB = "7e3db618c055e5228f9b07639e455bc9250008e"
+R34_BLOB = "7e3db618c055e5228f9b07639e4555bc9250008e"
 FROZEN_BLOB = source.PORTFOLIO_BLOB
 
 def git_blob(raw):
