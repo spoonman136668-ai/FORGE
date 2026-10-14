@@ -1,0 +1,40 @@
+name: FORGE Yggdrasil frozen parity source and recovery gate
+on:
+  push:
+    branches: [engineering/ygg-real-worker-recovery-parity-r1]
+    paths:
+      - 'research/forge-ygg-parity/**'
+      - '.github/workflows/forge-ygg-parity-source.yml'
+      - '.github/workflows/forge-ygg-parity-once.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+jobs:
+  source-negative:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen scientific source, no-replay controls and GitHub permission preflight
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/forge-ygg-parity -p 'test_*.py' -v
+          python -B -m py_compile research/forge-ygg-parity/*.py
+          test "$(git rev-parse HEAD:research/forge-ygg-parity/prereg.json)" = 031fa0e6ed051a439b1c31d334f30ca8c4af5dec
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/6158574947" --jq .user.login | grep -Fx spoonman136668-ai
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=1" --jq .total_count | grep -E '^[0-9]+$'
+          echo 'YGG_FROZEN_SCIENCE_NEGATIVE_QUALIFICATION=PASS'
+          echo 'YGG_FIRST_USE_CLAIMS_NOT_CONSUMED=TRUE'
