@@ -88,7 +88,7 @@ class F7MethodTests(unittest.TestCase):
         self.assertEqual(qualify_parent(record,reviewer),
                          "F6_MEMORY_INACTIVE_VALIDATED_F3_USED")
         record["validation_summary"]["rechecks"]=1
-        with self.assertRaisesRegex(ValueError,"INDEPENDENT_PARENT_REVIEW"):
+        with self.assertRaisesRegex(ValueError,"F6_ZERO_RECHECK_NEGATIVE"):
             qualify_parent(record,reviewer)
         record["validation_summary"]["rechecks"]=0
         reviewer["validation_summary"]=record["validation_summary"]
