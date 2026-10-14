@@ -21,7 +21,7 @@ class InstrumentTests(unittest.TestCase):
         try:
             with install_public_schedule(simulator,BASELINE):
                 observed=holder.y59.sample(67200,(3,1,9),"fixed_rotating_sentinels")
-                self.assertEqual(set(observed),(0,1,3,5,7))
+                self.assertEqual(set(observed),{0,1,3,5,7})
                 self.assertEqual(sum(map(len,observed.values())),10)
                 self.assertEqual(observed[5],{"2":7,"4":9})
                 self.assertEqual(holder.y59.sample(67200,(3,1,9),"other"),"original")
