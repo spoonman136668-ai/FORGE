@@ -9,7 +9,15 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"f5_native_coverage"))
 from policy import PROBES
-from worker import load_source,decode,SOURCE_COMMIT
+import importlib.util
+from pathlib import Path as _Path
+_f5path=_Path(__file__).resolve().parents[1]/"f5_native_coverage"/"worker.py"
+_spec=importlib.util.spec_from_file_location("f6_exact_f5_parent_worker",_f5path)
+_parent_worker=importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_parent_worker)
+load_source=_parent_worker.load_source
+decode=_parent_worker.decode
+SOURCE_COMMIT=_parent_worker.SOURCE_COMMIT
 from learner import choose_f6,CHECK_SEEDS
 
 @contextmanager
