@@ -1,12 +1,13 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f8-matched-sensor-timing-r1]
+    branches: [engineering/f9-learned-public-timing-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
       - 'research/f7_early_coverage/**'
       - 'research/f8_matched_timing/**'
+      - 'research/f9_learned_timing/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -18,6 +19,7 @@ on:
       - 'research/f6_uncertainty/**'
       - 'research/f7_early_coverage/**'
       - 'research/f8_matched_timing/**'
+      - 'research/f9_learned_timing/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -50,6 +52,7 @@ jobs:
           python -B -m unittest discover -s research/f6_uncertainty -p 'test_*.py' -v
           python -B -m unittest discover -s research/f7_early_coverage -p 'test_*.py' -v
           python -B -m unittest discover -s research/f8_matched_timing -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f9_learned_timing -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -265,6 +268,41 @@ jobs:
           print("FORGE_F7_AUTOMATIC_F8_METHOD_ATTRIBUTION=PASS")
           print("FORGE_F8_PROSPECTIVE_FIRST_USE=ZERO")
           PY
+      - name: Automatically learn F9 observation order from verified F8 timing evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f9_learned_timing/advance.py \
+            --parent "$RUNNER_TEMP/f8-timing-engineering.json" \
+            --witness "$RUNNER_TEMP/f8-timing-independent-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f9-trained-order.json"
+          python -B research/f9_learned_timing/verify.py \
+            --record "$RUNNER_TEMP/f9-trained-order.json" \
+            --parent "$RUNNER_TEMP/f8-timing-engineering.json" \
+            --witness "$RUNNER_TEMP/f8-timing-independent-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f9-independent-order-review.json"
+          python -B - "$RUNNER_TEMP/f9-trained-order.json" "$RUNNER_TEMP/f9-independent-order-review.json" <<'PY'
+          import json,sys
+          parent=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert parent["schema"]=="forge.f9.automatic-public-order-training.v1"
+          assert parent["model"]["training_seeds"]==[67204,67205]
+          assert parent["model"]["unseen_in_fit_validation_seeds"]==[67206,67207]
+          assert parent["training_case_arms"]==192
+          assert parent["validation_case_arms"] in (192,288)
+          assert witness["status"]=="PREVIOUSLY_USED_F3_SPLIT_QUALIFIED_NOT_NEW_SCIENCE"
+          assert witness["matched_f8_cases"]==96
+          assert witness["replayed_training_arms"]==192
+          assert witness["replayed_validation_arms"]==parent["validation_case_arms"]
+          assert witness["selected_rule"]==parent["model"]["selected_rule"]
+          assert witness["scientific_dispatch_authorized"] is False
+          assert parent["new_cohort_uses"]==parent["first_use_claims"]==0
+          assert parent["scientific_originals"]==parent["paid_api_calls"]==0
+          print("FORGE_F8_TO_F9_TRAINED_PUBLIC_OBSERVATION_ORDER=PASS")
+          print("FORGE_F9_PREVIOUSLY_USED_ONLY_NO_NEW_FIRST_USE=PASS")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -280,5 +318,7 @@ jobs:
             ${{ runner.temp }}/f7-independent-review.json
             ${{ runner.temp }}/f8-timing-engineering.json
             ${{ runner.temp }}/f8-timing-independent-review.json
+            ${{ runner.temp }}/f9-trained-order.json
+            ${{ runner.temp }}/f9-independent-order-review.json
           if-no-files-found: error
           retention-days: 90
