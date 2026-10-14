@@ -1,0 +1,45 @@
+name: FORGE F4 prospective protocol audit
+on:
+  push:
+    branches: [engineering/f4-prospective-sensor-set-reallocation-r1]
+    paths:
+      - 'research/f4_sensor_reallocation/**'
+      - '.github/workflows/forge-f4-prospective-audit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/f4_sensor_reallocation/**'
+      - '.github/workflows/forge-f4-prospective-audit.yml'
+permissions:
+  contents: read
+jobs:
+  proposal-admission:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate F4 prospective-only source identity and nonauthorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/f4_sensor_reallocation -p 'test_*.py' -v
+          python -B - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("research/f4_sensor_reallocation/prospective_protocol.json").read_text())
+          assert p["status"]=="PROPOSED_NOT_FROZEN_NO_SCIENTIFIC_AUTHORITY"
+          assert p["source_requirements"]["implementation_source_sha"]=="UNRESOLVED_REQUIRED_BEFORE_FREEZE"
+          assert p["selection_and_gate"]["no_scientific_original_created_by_this_proposal"] is True
+          print("F4_PROSPECTIVE_ONLY=PASS")
+          print("F4_SCIENTIFIC_EXECUTIONS=ZERO")
+          print("F4_FIRST_USE_CLAIMS=ZERO")
+          PY
