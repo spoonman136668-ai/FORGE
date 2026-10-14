@@ -47,17 +47,20 @@ func audit(candidatePath,bundlePath string,pins f5custody.Pins)(f5custody.Report
 }
 func main(){
  var candidate,bundle,pub,ledger string
- var revision,generation uint64
+ var revision,generation,winglessFloor,yggdrasilFloor uint64
  flag.StringVar(&candidate,"candidate","","externally frozen candidate JSON")
  flag.StringVar(&bundle,"bundle","","signed complete all-lane seed custody JSON")
  flag.StringVar(&pub,"custodian-public-key","","independent external Ed25519 public key (hex)")
  flag.StringVar(&ledger,"ledger-pin","","independently pinned complete ledger SHA256")
  flag.Uint64Var(&revision,"minimum-revision",0,"externally authenticated monotonic revision floor")
  flag.Uint64Var(&generation,"ledger-generation",0,"externally authenticated ledger generation")
+ flag.Uint64Var(&winglessFloor,"wingless-high-water",0,"independently pinned Wingless high-water floor")
+ flag.Uint64Var(&yggdrasilFloor,"yggdrasil-high-water",0,"independently pinned Yggdrasil high-water floor")
  flag.Parse()
  report,err:=audit(candidate,bundle,f5custody.Pins{
   CustodianPublicKeyHex:pub,LedgerSHA256:ledger,
   MinRevision:revision,ExpectedLedgerGeneration:generation,
+  WinglessMinHighWater:winglessFloor,YggdrasilMinHighWater:yggdrasilFloor,
  })
  if err!=nil{
   fmt.Println("F5_CUSTODY=BLOCKED")
