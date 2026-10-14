@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "errors"
  "strings"
+ "strconv"
  "testing"
 
  "github.com/spoonman136668-ai/forge/eligibility"
@@ -14,7 +15,7 @@ func fixture()(eligibility.Frozen,eligibility.LedgerSnapshot,string){
   Schema:eligibility.Schema,Lane:"Yggdrasil",CandidateID:TargetID,
   SourceSHA:strings.Repeat("a",40),PreregSHA256:strings.Repeat("b",64),
   CohortSHA256:strings.Repeat("c",64),ProtocolSHA256:strings.Repeat("d",64),
-  BudgetUnits:4,SeedIDs:[]string{"Yggdrasil:67640","Yggdrasil:67641"},
+  BudgetUnits:4,SeedIDs:func()[]string{ids:=[]string{};for i:=67640;i<=67655;i++{ids=append(ids,"Yggdrasil:"+strconv.Itoa(i))};return ids}(),
  }
  snapshot:=eligibility.LedgerSnapshot{
   Schema:"forge.eligibility.ledger-snapshot.v1",Scope:"ALL_LANES",
@@ -54,10 +55,10 @@ func TestF4ProposalIsNotAnExecutionToken(t *testing.T){
  if !decision.LedgerSnapshotVerified{t.Fatal("expected advisory structural detection")}
 }
 
-func TestReadOnlyCLIAbsentLedgerIsBlocked(t *testing.T){
- // Even a legitimate frozen source cannot be assumed from this proposal.
- d:=ReadOnlyCLI("missing.json","","",0)
- if d.Status!="BLOCKED"||d.ScientificDispatchAuthorized{t.Fatal(d)}
+func TestAbsentLedgerRemainsBlocked(t *testing.T){
+ c,_,_:=fixture()
+ d,err:=ReportCurrent(proto(),nil,"",0,false,c)
+ if !errors.Is(err,ErrBlocked)||d.ScientificDispatchAuthorized||d.FirstUseClaimsCreated!=0{t.Fatal(d,err)}
 }
 
 func TestMissingOrBadLedgerPinBlocks(t *testing.T){
