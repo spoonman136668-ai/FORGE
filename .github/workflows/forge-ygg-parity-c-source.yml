@@ -1,0 +1,49 @@
+name: FORGE Yggdrasil C1 C2 frozen source and tuple/list regression
+on:
+  push:
+    branches: [engineering/ygg-c1-c2-corrected-source-r1]
+    paths:
+      - 'research/forge-ygg-parity-c/**'
+      - '.github/workflows/forge-ygg-parity-c-source.yml'
+      - '.github/workflows/forge-ygg-parity-c-once.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Verify frozen C1/C2 source and rejects duplicate claims
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil rev-parse HEAD:research/contrib/chatgpt/20261013-y070-onset1/execute.py)" = 1a73edd9b29f082ad557d04d2bf3e03d2ccfcc0e
+          test "$(git -C pinned-yggdrasil rev-parse HEAD:research/contrib/chatgpt/20261013-y069-onset2/execute.py)" = 0c0799294300127c77de85435d629ed1c1248e24
+          python -B -m unittest discover -s research/forge-ygg-parity-c -p 'test_*.py' -v
+          python -B -m py_compile research/forge-ygg-parity-c/*.py
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-c/prereg.json)" = 4c62067e255076ece4df1efa907d146ec230765c
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/6158888644" --jq .user.login | grep -Fx spoonman136668-ai
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=1" --jq .total_count | grep -E '^[0-9]+$'
+          echo 'YGG_C1_C2_FROZEN_QUALIFICATION=PASS'
+          echo 'YGG_C1_C2_ORIGINALS_STARTED=FALSE'
