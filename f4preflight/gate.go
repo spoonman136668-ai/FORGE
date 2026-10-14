@@ -4,12 +4,9 @@
 package f4preflight
 
 import (
- "crypto/sha256"
- "encoding/hex"
  "encoding/json"
  "errors"
- "fmt"
- "os"
+ "strconv"
 
  "github.com/spoonman136668-ai/forge/eligibility"
 )
@@ -95,12 +92,24 @@ func ExamineLedger(
   LedgerSnapshotVerified:true,Reason:"Ledger hash and cohort collision check passed structurally, but external pin provenance, individual seed-index coverage and source freeze remain separately unverified."},nil
 }
 
+func fmtSeed(seed int) string{return "Yggdrasil:"+strconv.Itoa(seed)}
+
 // ReportCurrent remains blocked even after a structurally valid snapshot,
 // because prospective F4 source SHA and per-seed first-use are not qualified.
 func ReportCurrent(protocol []byte,snapshotBytes []byte,pin string,generation uint64,
  complete bool,candidate eligibility.Frozen)(Report,error){
- if _,err:=LoadProtocol(protocol);err!=nil{
+ proposal,err:=LoadProtocol(protocol)
+ if err!=nil{
   return base("F4_PROPOSAL_IDENTITY_OR_SOURCE_GATE_INVALID"),ErrBlocked
+ }
+ if candidate.Lane!="Yggdrasil"||candidate.CandidateID!=proposal.PlannedOriginalID||
+  len(candidate.SeedIDs)!=len(proposal.ProposedCohorts.SealedCandidateSeeds){
+  return base("F4_FROZEN_COHORT_CONTRACT_MISSING_OR_DRIFT"),ErrBlocked
+ }
+ for i,seed:=range proposal.ProposedCohorts.SealedCandidateSeeds {
+  if candidate.SeedIDs[i]!=fmtSeed(seed) {
+   return base("F4_FROZEN_COHORT_CONTRACT_MISSING_OR_DRIFT"),ErrBlocked
+  }
  }
  assessment,err:=ExamineLedger(snapshotBytes,pin,generation,complete,candidate)
  if err!=nil{return assessment,err}
@@ -109,28 +118,3 @@ func ReportCurrent(protocol []byte,snapshotBytes []byte,pin string,generation ui
  return assessment,ErrBlocked
 }
 
-// ReadOnlyCLI writes the refusal reason only; it never consumes or mutates a
-// ledger or launches a worker. Optional external data must be independently
-// pinned; it is never rehashed locally to manufacture a matching 'witness'.
-func ReadOnlyCLI(protocolPath,ledgerPath,pin string,generation uint64)Report{
- raw,err:=os.ReadFile(protocolPath)
- if err!=nil{return base("PROTOCOL_UNAVAILABLE")}
- if _,err=LoadProtocol(raw);err!=nil{return base("PROTOCOL_NOT_QUALIFIED")}
- if ledgerPath==""||pin==""||generation==0{return base("AUTHENTICATED_ALL_LANE_LEDGER_NOT_SUPPLIED")}
- ledger,err:=os.ReadFile(ledgerPath)
- if err!=nil{return base("LEDGER_UNAVAILABLE")}
- // Frozen source is not yet specified, so it would be unsafe to invent a
- // candidate Frozen fingerprint to inspect a purported complete ledger.
- _=ledger
- return base("F4_FROZEN_IDENTITY_AND_PINNED_SEED_INDEX_NOT_QUALIFIED")
-}
-
-// Verify external marker syntax only, never provenance.
-func PinShape(pin string)bool{
- if len(pin)!=64{return false}
- _,err:=hex.DecodeString(pin)
- if err!=nil{return false}
- return pin==fmt.Sprintf("%x",mustDecode(pin))
-}
-func mustDecode(pin string)[]byte{out,_:=hex.DecodeString(pin);return out}
-var _=sha256.Size
