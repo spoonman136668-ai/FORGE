@@ -56,6 +56,7 @@ type LaneReport struct{
  Repository string `json:"repository"`
  DeclaredRunCount uint64 `json:"declared_run_count"`
  ObservedRunCount int `json:"observed_run_count"`
+ RunPaginationDuplicateCount int `json:"run_pagination_duplicate_count"`
  DeclaredArtifactCount uint64 `json:"declared_artifact_count"`
  ObservedArtifactCount int `json:"observed_artifact_count"`
  CompleteAccessiblePagination bool `json:"complete_accessible_pagination"`
@@ -108,7 +109,12 @@ func lane(s Source)(LaneReport,[]Original,error){
  report:=LaneReport{Lane:s.Lane,Repository:repo,DeclaredRunCount:s.DeclaredRuns,ObservedRunCount:len(runs),DeclaredArtifactCount:s.DeclaredArtifacts,ObservedArtifactCount:len(arts),RunsSHA256:sha(s.Runs),ArtifactsSHA256:sha(s.Artifacts)}
  ids:=map[uint64]Run{}
  for _,r:=range runs{
-  if r.ID==0||r.RunAttempt==0||!validSHA(r.HeadSHA)||r.Repository.FullName!=repo||ids[r.ID].ID!=0{return zero,nil,ErrBlocked}
+  if r.ID==0||r.RunAttempt==0||!validSHA(r.HeadSHA)||r.Repository.FullName!=repo{return zero,nil,ErrBlocked}
+  if old,exists:=ids[r.ID];exists{
+   if old.HeadSHA!=r.HeadSHA||old.RunAttempt!=r.RunAttempt||old.Path!=r.Path{return zero,nil,ErrBlocked}
+   report.RunPaginationDuplicateCount++
+   continue
+  }
   ids[r.ID]=r
  }
  if s.DeclaredRuns==0||s.DeclaredArtifacts==0||s.DeclaredRuns>MaxEntries||s.DeclaredArtifacts>MaxEntries{return zero,nil,ErrBlocked}
@@ -137,7 +143,8 @@ func lane(s Source)(LaneReport,[]Original,error){
   if status=="AVAILABLE_METADATA_ONLY_RAW_BYTES_UNVERIFIED"{report.OriginalUnverifiedAvailableCount++}
   results=append(results,Original{Lane:s.Lane,RunID:a.WorkflowRun.ID,ArtifactID:a.ID,ArtifactName:a.Name,HeadSHA:a.WorkflowRun.HeadSHA,Digest:a.Digest,Status:status})
  }
- report.CompleteAccessiblePagination=uint64(len(runs))==s.DeclaredRuns&&uint64(len(arts))==s.DeclaredArtifacts&&report.ArtifactOrphanCount==0&&report.ArtifactSourceDriftCount==0
+ report.ObservedRunCount=len(ids)
+ report.CompleteAccessiblePagination=report.RunPaginationDuplicateCount==0&&uint64(len(ids))==s.DeclaredRuns&&uint64(len(arts))==s.DeclaredArtifacts&&report.ArtifactOrphanCount==0&&report.ArtifactSourceDriftCount==0
  return report,results,nil
 }
 // Build is a complete pagination *accounting* test for the API's visible
