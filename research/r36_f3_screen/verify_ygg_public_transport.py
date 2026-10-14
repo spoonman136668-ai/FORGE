@@ -26,6 +26,17 @@ def run(root):
             raise ValueError("F3_TRANSPORT_BASELINE_NOT_EQUIVALENT")
         if proposed["public_scalar_reads"]!=original["public_scalar_reads"]:
             raise ValueError("F3_TRANSPORT_READ_DRIFT")
+        from ygg_public_decoder import install_public_decoder
+        with install_public_schedule(z,BASELINE),install_public_decoder(z):
+            dynamic_native=m.candidate(seed,family,policy,ARM)
+        if dynamic_native["rows"]!=original["rows"]:
+            raise ValueError("F3_GENERALIZED_DECODER_BREAKS_NATIVE_BASELINE")
+        novel=((0,1),(0,1),(0,1),(8,11),(0,1))
+        with install_public_schedule(z,novel),install_public_decoder(z):
+            positive=m.candidate(seed,family,policy,ARM)
+        detection=positive["rows"][-1]["public_detected_swap_first_episode"]
+        if detection!=5 or positive["public_scalar_reads"]!=10:
+            raise ValueError("F3_GENERALIZED_DECODER_MISSES_CAUSAL_PUBLIC_SENSOR")
         return {"status":"PINNED_DEVELOPMENT_PUBLIC_TRANSPORT_PARITY_PASS",
                 "source_commit":"5797a257a75fe139313e8486cd1a1ae79c44b148",
                 "seed":seed,"pair":list(pair),"public_reads":10,
