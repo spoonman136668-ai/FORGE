@@ -1,4 +1,4 @@
-import importlib.util,json,hashlib,unittest
+import importlib.util,json,hashlib,subprocess,unittest
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
 def load(path):
@@ -12,7 +12,7 @@ class Freeze(unittest.TestCase):
              ("r33-wingless","W-FORGE-R33-CONDITIONAL-TEMP-01","b587bf20e5b449cabbccd88568487b07f2674b92")]
         used=set(range(6000,6250))|set(range(7000,8250))
         for folder,ident,digest in ids:
-            d=HERE.parent/folder;raw=(d/"prereg.json").read_bytes();m=json.loads(raw)
+            d=HERE.parent/folder;raw=subprocess.check_output(["git","show",f"HEAD:research/{folder}/prereg.json"]);m=json.loads(raw)
             e=load(d/"execute.py");v=load(d/"review.py")
             self.assertEqual(blob(raw),digest)
             self.assertEqual(e.PREREG_BLOB,v.BLOB)
