@@ -30,3 +30,13 @@ func TestIndependentSignedReceiptAndRestore(t *testing.T){
  anchor.StorageCustodianPub=hex.EncodeToString(custodian.Public().(ed25519.PublicKey))
  altered=receipt;altered.Claim.RetainUntil="2026-11-01";invalid(anchor,altered,original,original)
 }
+
+func TestDuplicateTrustAndReceiptKeysFailClosed(t *testing.T){
+ for _,raw:=range [][]byte{
+  []byte(`{"schema":"forge.external-retention-trust-anchor.v1","SCHEMA":"forge.external-retention-trust-anchor.v1"}`),
+  []byte(`{"schema":"forge.external-original-retention-receipt.v1","claim":{"revision":1,"REVISION":3}}`),
+  []byte(`{"schema":"forge.external-original-retention-receipt.v1"}{}`),
+ }{
+  if uniqueJSON(raw){t.Fatalf("ambiguous JSON accepted: %s",raw)}
+ }
+}
