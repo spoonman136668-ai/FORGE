@@ -5,18 +5,29 @@ it passes ONLY the previously read public values and time to F7.select.
 True pair and onset exist solely in the external evaluator environment.
 Only F3 already-consumed seeds 67206/67207 and original F3 pairs.
 """
-import sys
 import importlib.util
+import subprocess
 from pathlib import Path
 from contextlib import contextmanager
 from policy import POLICIES,READ_TIMES,select,common_decoder,verify_observations
 
-parent_path=Path(__file__).resolve().parents[1]/"f5_native_coverage"/"worker.py"
-spec=importlib.util.spec_from_file_location("f7_pinned_source_adapter",parent_path)
-parent=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(parent)
-load_source=parent.load_source
-SOURCE_COMMIT=parent.SOURCE_COMMIT
+SOURCE_COMMIT="5797a257a75fe139313e8486cd1a1ae79c44b148"
+SOURCE_PATH="research/contrib/chatgpt/20261013-y070-onset1/execute.py"
+def load_source(root):
+    root=Path(root).resolve(strict=True)
+    def git(*args):
+        return subprocess.check_output(["git","-C",str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
+    if git("rev-parse","HEAD")!=SOURCE_COMMIT or git("status","--porcelain"):
+        raise ValueError("F7_PINNED_Y070_SOURCE_DRIFT")
+    if git("ls-files","--error-unmatch",SOURCE_PATH)!=SOURCE_PATH:
+        raise ValueError("F7_PARENT_SOURCE_PATH_DRIFT")
+    spec=importlib.util.spec_from_file_location("f7_pinned_y070",root/SOURCE_PATH)
+    if spec is None or spec.loader is None:
+        raise ValueError("F7_PINNED_Y070_SOURCE_MISSING")
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 SEEDS=(67206,67207)
 PAIRS=((8,10),(11,13))
 
