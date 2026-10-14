@@ -1,0 +1,58 @@
+name: FORGE R34 E3 evidence-gated successor admission
+on:
+  push:
+    branches: [engineering/real-dual-lane-successor-admission-r1]
+    paths:
+      - 'research/dual_successor/**'
+      - '.github/workflows/forge-real-successor-admission.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  bounded-proposal:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check exact source freeze and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/dual_successor/frozen.json)" = 7cfd170edabcb95de4383a3d6f2a44dd533b92d2
+          python -B -m unittest discover -s research/dual_successor -p 'test_*.py' -v
+      - name: Verify real two-lane original source and archived acceptance
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-two-lane-proposals"
+          mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38532533700" > "$root/parent-run.json"
+          jq -e '.id == 38532533700 and .head_sha == "e707dbe02f1c938251b30a589139efdfd76430b4" and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' "$root/parent-run.json" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38532533700/artifacts" > "$root/artifact-list.json"
+          jq -e '[.artifacts[] | select(.id == 11878780518 and .name == "forge-readonly-real-two-lane-continuity" and .expired == false)] | length == 1' "$root/artifact-list.json" >/dev/null
+          gh run download 38532533700 --repo "$GITHUB_REPOSITORY" -n forge-readonly-real-two-lane-continuity -D "$root"
+          python -B research/dual_successor/prepare.py             --frozen research/dual_successor/frozen.json             --audit "$root/real-continuity-report.json"             --out "$root/admitted-proposals.json"
+          jq -e '.admission == "PREPARED_NOT_AUTHORIZED" and .next_originals_authorized == 0 and .first_use_claims_created == 0 and (.lanes | length == 2)' "$root/admitted-proposals.json" >/dev/null
+          (cd "$root" && sha256sum real-continuity-report.json admitted-proposals.json > integrity.sha256 && sha256sum --check integrity.sha256)
+          echo 'REAL_REVIEWED_R34_AND_E3_HYPOTHESES_PREPARED=PASS'
+          echo 'NEW_ORIGINALS_EXECUTED=0'
+          echo 'AUTOMATIC_SCIENCE_AUTHORITY=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r34-e3-evidence-gated-proposals-${{ matrix.os }}
+          path: ${{ runner.temp }}/forge-two-lane-proposals
+          retention-days: 90
+          if-no-files-found: error
