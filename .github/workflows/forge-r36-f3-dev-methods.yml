@@ -113,6 +113,17 @@ jobs:
           python -B research/r36_f3_screen/verify_ygg_public_transport.py --yggdrasil-root yggdrasil-source
           python -B research/r36_f3_screen/run_ygg_policy_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-policy-development.json"
           python -B research/r36_f3_screen/verify_ygg_policy_development.py --record "$RUNNER_TEMP/yggdrasil-policy-development.json" --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-policy-witness.json"
+          python -B research/r36_f3_screen/independent_dev_closeout.py --record "$RUNNER_TEMP/yggdrasil-policy-development.json" --witness "$RUNNER_TEMP/yggdrasil-policy-witness.json" --out "$RUNNER_TEMP/f3-dev-only-closeout.json"
+          python -B - "$RUNNER_TEMP/f3-dev-only-closeout.json" <<'PY'
+          import json,sys
+          review=json.load(open(sys.argv[1]))
+          assert review["status"]=="DEVELOPMENT_REVIEW_PASS_SCIENCE_METHOD_FIDELITY_PENDING"
+          assert review["provisional_leader_development_only"]=="YF3-C1"
+          assert review["scientific_admission"] is False
+          assert review["first_use_consumed"]==0
+          assert review["promotion_authorized"] is False
+          print("F3_INDEPENDENT_DEVELOPMENT_CLOSEOUT=PASS")
+          PY
           python -B research/r36_f3_screen/run_yggdrasil_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development.json"
       - name: Independently replay Yggdrasil development baseline
         shell: bash
@@ -136,5 +147,6 @@ jobs:
             ${{ runner.temp }}/yggdrasil-development-witness.json
             ${{ runner.temp }}/yggdrasil-policy-development.json
             ${{ runner.temp }}/yggdrasil-policy-witness.json
+            ${{ runner.temp }}/f3-dev-only-closeout.json
           retention-days: 90
           if-no-files-found: error
