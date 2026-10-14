@@ -35,7 +35,7 @@ def run(root):
         score["detections"]+=int(row["first_detection"] is not None)
         if row["regime"]=="steady":
             score["steady_errors"]+=row["pre_mismatch"]+row["post_mismatch"]
-        if set(row["sample_trace"]["addresses"][5])==set(row["sample_trace"]["addresses"][3]):
+        if set(row["sample_trace"]["addresses"][4])==set(row["sample_trace"]["addresses"][3]):
             score["memory_reprobe_cases"]+=1
     return {
        "schema":"forge.f5.historical-adaptive-coverage-engineering.v1",
