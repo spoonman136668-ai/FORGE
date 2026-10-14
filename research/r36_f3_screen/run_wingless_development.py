@@ -65,6 +65,9 @@ def measure(checkout):
             experiments[candidate]=train(candidate,training)
         scores={}
         for ident,model in experiments.items():
+            if "source_counts" not in model:
+                model=dict(model)
+                model["source_counts"]={g:576 for g in scientific.GEN}
             measured=evaluator.evaluate(scientific,model,validation)
             if [x["seed"] for x in measured["by_seed"]]!=validation:
                 raise ValueError("R36_DEV_EVALUATION_SEED_DRIFT")
