@@ -142,6 +142,18 @@ jobs:
           else:raise AssertionError("F3_INDEPENDENT_SCORE_TAMPER_WAS_ACCEPTED")
           print("F3_NEGATIVE_ENFORCEMENT=PASS")
           PY
+          python -B research/r36_f3_screen/c1_independent_fidelity.py --record "$RUNNER_TEMP/yggdrasil-policy-development.json" --witness "$RUNNER_TEMP/yggdrasil-policy-witness.json" --dev-closeout "$RUNNER_TEMP/f3-dev-only-closeout.json" --out "$RUNNER_TEMP/f3-c1-frozen-method-fidelity.json"
+          python -B - "$RUNNER_TEMP/f3-c1-frozen-method-fidelity.json" <<'PY'
+          import json,sys
+          audit=json.load(open(sys.argv[1]))
+          assert audit["status"]=="REJECTED_NONPERMUTATION_SENSOR_CHANGE"
+          assert audit["nonpermutation_trials"]==192
+          assert audit["new_physical_sensor_addresses"]==[8,11]
+          assert audit["scientific_candidate_accepted"] is False
+          assert audit["sealed_original_authorized"] is False
+          assert audit["first_use_claims_consumed"]==0
+          print("F3_C1_FROZEN_METHOD_FIDELITY_NEGATIVE=QUALIFIED")
+          PY
           python -B research/r36_f3_screen/run_yggdrasil_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development.json"
       - name: Independently replay Yggdrasil development baseline
         shell: bash
@@ -166,5 +178,6 @@ jobs:
             ${{ runner.temp }}/yggdrasil-policy-development.json
             ${{ runner.temp }}/yggdrasil-policy-witness.json
             ${{ runner.temp }}/f3-dev-only-closeout.json
+            ${{ runner.temp }}/f3-c1-frozen-method-fidelity.json
           retention-days: 90
           if-no-files-found: error
