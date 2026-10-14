@@ -49,7 +49,8 @@ def verify(proposal,source_bytes,witness_bytes):
             proposal.get("historical_f10_mismatches")==total and
             proposal.get("historical_best_fixed_mismatches")==66 and
             type(proposal.get("hypothesis")) is str and
-            "expected" in proposal["hypothesis"] and
+            (("task-aligned expected" in proposal["hypothesis"]) if negative
+             else ("replicate" in proposal["hypothesis"])) and
             proposal.get("original_f10_model_frozen_no_retuning") is True,
             "PROPOSAL_SELECTION")
     require(proposal.get("proposed_F11_source_and_sealed_cohorts")==
