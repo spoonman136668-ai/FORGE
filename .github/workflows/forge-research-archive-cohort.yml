@@ -211,9 +211,25 @@ jobs:
             key="$(tr '[:upper:]' '[:lower:]' <<< "$lane")"
             gh api "repos/$repo/actions/runs?per_page=1" --jq '.total_count' > "$root/$key-runs-total"
             gh api "repos/$repo/actions/artifacts?per_page=1" --jq '.total_count' > "$root/$key-artifacts-total"
-            gh api --paginate "repos/$repo/actions/runs?per_page=100" --jq '.workflow_runs[] | @json' > "$root/$key-runs.ndjson"
-            gh api --paginate "repos/$repo/actions/artifacts?per_page=100" --jq '.artifacts[] | @json' > "$root/$key-artifacts.ndjson"
+            gh api --paginate "repos/$repo/actions/runs?per_page=100" | jq -c '.workflow_runs[]' > "$root/$key-runs.ndjson"
+            gh api --paginate "repos/$repo/actions/artifacts?per_page=100" | jq -c '.artifacts[]' > "$root/$key-artifacts.ndjson"
           done
+          python3 - <<'PY'
+          import json,os,pathlib,re
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-history-coverage"
+          for lane in ("wingless","yggdrasil"):
+              runs=[json.loads(x) for x in (root/(lane+"-runs.ndjson")).read_text().splitlines()]
+              arts=[json.loads(x) for x in (root/(lane+"-artifacts.ndjson")).read_text().splitlines()]
+              good=lambda x:isinstance(x,str) and bool(re.fullmatch("[a-f0-9]{40}",x))
+              rep="spoonman136668-ai/"+lane.title()
+              print("COVERAGE_RAW_SOURCE_DIAGNOSTIC",lane,
+                    "runs",len(runs),"reported",int((root/(lane+"-runs-total")).read_text()),
+                    "artifacts",len(arts),"reported",int((root/(lane+"-artifacts-total")).read_text()),
+                    "missing_head",sum(not good(x.get("head_sha")) for x in runs),
+                    "bad_attempt",sum(not x.get("run_attempt") for x in runs),
+                    "repo_mismatch",sum((x.get("repository") or {}).get("full_name")!=rep for x in runs),
+                    "artifact_missing_workflow_run",sum(not (x.get("workflow_run") or {}).get("id") for x in arts))
+          PY
           go run ./cmd/forge-history-coverage \
             --wingless-runs "$root/wingless-runs.ndjson" \
             --wingless-artifacts "$root/wingless-artifacts.ndjson" \
