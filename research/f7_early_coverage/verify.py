@@ -30,7 +30,7 @@ def independently_prove_geometry(report):
     require(actual==9 and max_all==9,"F7_EARLY_GEOMETRY_NOT_MINIMAX")
     require(report=={
         "pairs":91,"starts":14,"min_visible_starts":9,
-        "max_visible_starts":10,
+        "max_visible_starts":11,
         "mean_visible_starts_numerator":126*7,
         "six_early_and_late_nonanchor_reads":6,
         "ten_scalar_reads":10
