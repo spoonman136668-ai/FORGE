@@ -1,0 +1,281 @@
+name: FORGE R32 to R33 bounded autonomous scientific cycle
+on:
+  push:
+    branches: [research/r32-r33-single-launch]
+    paths: ['research/r32-r33/launch.json']
+permissions:
+  contents: read
+  actions: read
+  issues: read
+concurrency:
+  group: forge-r32-r33-two-originals-once
+  cancel-in-progress: false
+
+jobs:
+  r32-original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 38492640534
+          github-token: ${{ github.token }}
+          name: forge-r31-independent-review-and-r32
+          path: ${{ runner.temp }}/r31-parent
+      - name: Validate two-originals owner approval and durable consumed claims
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "${GITHUB_REF}" = refs/heads/research/r32-r33-single-launch
+          test "$(git diff --name-only HEAD^ HEAD)" = research/r32-r33/launch.json
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/r32-r33/launch.json"))["source_commit"])')"
+          test "$(git rev-parse HEAD:research/r32-wingless/prereg.json)" = 057c14cc786ae3d1a11735c8c8dddde85d339c20
+          test "$(git rev-parse HEAD:research/r33-wingless/prereg.json)" = b587bf20e5b449cabbccd88568487b07f2674b92
+          test "$(git rev-parse HEAD:research/r32-wingless/execute.py)" = b3bb82dfc6809aeefa8186be4ccec5064b9d82e2
+          test "$(git rev-parse HEAD:research/r32-wingless/review.py)" = 99b5f46467ca38901d18c6d11ab26315895b8dac
+          test "$(git rev-parse HEAD:research/r33-wingless/execute.py)" = a6c70a4d79b9a93dcaf61bc48b3b14e1232eee80
+          test "$(git rev-parse HEAD:research/r33-wingless/review.py)" = 9b7702b40308e01b86fe7dff795ceedc459fdd2d
+          mkdir -p "$RUNNER_TEMP/r32-original"
+          git fetch --no-tags origin refs/heads/research/forge-first-use-claims-r32-r33
+          git show FETCH_HEAD:W-FORGE-R32-T05-REPLICATION-01.json > "$RUNNER_TEMP/r32-claim.json"
+          git show FETCH_HEAD:W-FORGE-R33-CONDITIONAL-TEMP-01.json > "$RUNNER_TEMP/r33-claim.json"
+          python3 - <<'PY'
+          import json,os
+          d=os.environ["RUNNER_TEMP"]
+          a=json.load(open(d+"/r32-claim.json"))
+          comment=a.get("owner_approval_comment_id")
+          if type(comment) is not int or not 0<comment<2**63:raise SystemExit("CYCLE_BAD_APPROVAL_REF")
+          with open(d+"/approval-id","w") as f:f.write(str(comment))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/$(cat "$RUNNER_TEMP/approval-id")" > "$RUNNER_TEMP/owner-approval.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=research/r32-r33-single-launch&event=push&per_page=100" > "$RUNNER_TEMP/launch-runs.json"
+          python3 -B research/r32-r33/budget_gate.py \
+            --launch research/r32-r33/launch.json \
+            --claim-r32 "$RUNNER_TEMP/r32-claim.json" \
+            --claim-r33 "$RUNNER_TEMP/r33-claim.json" \
+            --approval "$RUNNER_TEMP/owner-approval.json" \
+            --runs "$RUNNER_TEMP/launch-runs.json" \
+            --source "$(git rev-parse HEAD^)" \
+            --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r32-original/clearance.json"
+          printf 'R32_AND_R33_FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/r32-original/started.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-method
+          persist-credentials: false
+      - name: Run bounded R32 scientific original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r32-wingless/execute.py --manifest research/r32-wingless/prereg.json \
+            --wingless-root wingless-method --parent-review "$RUNNER_TEMP/r31-parent/independent-review.json" --out "$RUNNER_TEMP/r32-original/original.json" --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/r32-original" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r32-firstuse-original
+          path: ${{ runner.temp }}/r32-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  r32-independent-review:
+    needs: r32-original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.r32-original.result == 'success'
+        with:
+          name: forge-r32-firstuse-original
+          path: ${{ runner.temp }}/r32-evidence
+      - name: Preserve indeterminate consumed original
+        if: needs.r32-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/r32-evidence"
+          printf '{"outcome":"CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}\n' > "$RUNNER_TEMP/r32-evidence/independent-review.json"
+      - uses: actions/download-artifact@v4
+        if: needs.r32-original.result == 'success'
+        with:
+          run-id: 38492640534
+          github-token: ${{ github.token }}
+          name: forge-r31-independent-review-and-r32
+          path: ${{ runner.temp }}/r31-parent
+      - name: Independent R32 metric and classification review
+        if: needs.r32-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r32-evidence"
+          sha256sum -c original.sha256
+          test -s clearance.json && test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/r32-wingless/review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/r32-wingless/prereg.json" \
+            --raw "$PWD/original.json" \
+            --parent-review "$RUNNER_TEMP/r31-parent/independent-review.json" \
+            --out "$PWD/independent-review.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r32-independent-review
+          path: ${{ runner.temp }}/r32-evidence/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  r33-automatic-original:
+    needs: [r32-original, r32-independent-review]
+    if: needs.r32-original.result == 'success' && needs.r32-independent-review.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r32-firstuse-original
+          path: ${{ runner.temp }}/r32-evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r32-independent-review
+          path: ${{ runner.temp }}/r32-review
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 38492640534
+          github-token: ${{ github.token }}
+          name: forge-r31-independent-review-and-r32
+          path: ${{ runner.temp }}/r31-parent
+      - name: Fail closed unless R32 independently qualifies and R33 is unspent in this run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          (cd "$RUNNER_TEMP/r32-evidence" && sha256sum -c original.sha256)
+          python3 -B - <<'PY'
+          import importlib.util,json,os,pathlib
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          path=root/"research/r32-wingless/review.py"
+          spec=importlib.util.spec_from_file_location("r32_review",path)
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])
+          expected=m.verify((root/"research/r32-wingless/prereg.json").read_bytes(),(d/"r32-evidence/original.json").read_bytes(),(d/"r31-parent/independent-review.json").read_bytes())
+          actual=json.loads((d/"r32-review/independent-review.json").read_bytes())
+          if actual!=expected or actual.get("independently_validated") is not True:raise SystemExit("R33_PARENT_INDEPENDENT_REVIEW_UNQUALIFIED")
+          print("R33_AUTOMATIC_SUCCESSOR_FROM_INDEPENDENT_R32=PASS")
+          PY
+          mkdir -p "$RUNNER_TEMP/r33-original"
+          printf 'R33_FIRST_USE_CONSUMED_BY_TWO_EXPERIMENT_BUDGET\n' > "$RUNNER_TEMP/r33-original/started.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-method
+          persist-credentials: false
+      - name: Automatically run conditionally preregistered R33 original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r33-wingless/execute.py \
+            --manifest research/r33-wingless/prereg.json --wingless-root wingless-method \
+            --parent-review "$RUNNER_TEMP/r32-review/independent-review.json" \
+            --out "$RUNNER_TEMP/r33-original/original.json" --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/r33-original" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r33-autonomous-original
+          path: ${{ runner.temp }}/r33-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  r33-independent-review-and-r32:
+    needs: [r32-original, r32-independent-review, r33-automatic-original]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.r33-automatic-original.result == 'success'
+        with:
+          name: forge-r32-firstuse-original
+          path: ${{ runner.temp }}/r32-evidence
+      - uses: actions/download-artifact@v4
+        if: needs.r33-automatic-original.result == 'success'
+        with:
+          name: forge-r32-independent-review
+          path: ${{ runner.temp }}/r32-review
+      - uses: actions/download-artifact@v4
+        if: needs.r33-automatic-original.result == 'success'
+        with:
+          name: forge-r33-autonomous-original
+          path: ${{ runner.temp }}/r33-evidence
+      - name: Classify any interrupted or skipped R33 as not safely replayable
+        if: needs.r33-automatic-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/r33-evidence"
+          printf '{"outcome":"NOT_EXECUTED_OR_CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}\n' > "$RUNNER_TEMP/r33-evidence/independent-review.json"
+      - uses: actions/download-artifact@v4
+        if: needs.r33-automatic-original.result == 'success'
+        with:
+          run-id: 38492640534
+          github-token: ${{ github.token }}
+          name: forge-r31-independent-review-and-r32
+          path: ${{ runner.temp }}/r31-parent
+      - name: Independent R33 review and R34 evidence-based proposal
+        if: needs.r33-automatic-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r33-evidence"
+          sha256sum -c original.sha256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/r33-wingless/review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/r33-wingless/prereg.json" \
+            --raw "$PWD/original.json" \
+            --parent-review "$RUNNER_TEMP/r32-review/independent-review.json" \
+            --out "$PWD/independent-review.json"
+          python3 -B "$GITHUB_WORKSPACE/research/r32-r33/r32_proposal.py" \
+            --r31-review "$RUNNER_TEMP/r31-parent/independent-review.json" \
+            --r32-manifest "$GITHUB_WORKSPACE/research/r32-wingless/prereg.json" \
+            --r32-original "$RUNNER_TEMP/r32-evidence/original.json" \
+            --r32-review "$RUNNER_TEMP/r32-review/independent-review.json" \
+            --r33-manifest "$GITHUB_WORKSPACE/research/r33-wingless/prereg.json" \
+            --r33-original "$PWD/original.json" \
+            --r33-review "$PWD/independent-review.json" \
+            --out "$PWD/r32-proposal.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r33-independent-review-and-r32
+          path: |
+            ${{ runner.temp }}/r33-evidence/independent-review.json
+            ${{ runner.temp }}/r33-evidence/r32-proposal.json
+          retention-days: 90
+          if-no-files-found: warn

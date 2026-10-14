@@ -1,0 +1,44 @@
+name: FORGE R32 R33 frozen science and controlled interruption qualification
+on:
+  push:
+    branches: [engineering/r32-r33-bounded-recovery-r1]
+    paths:
+      - 'research/r32-wingless/**'
+      - 'research/r33-wingless/**'
+      - 'research/r32-r33/**'
+      - '.github/workflows/forge-r32-recovery-qualification.yml'
+      - '.github/workflows/forge-r32-r33-capped-cycle.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+jobs:
+  frozen-science-recovery:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen preregistration and negative science checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r32-r33 -p 'test_*.py' -v
+          python -B -m py_compile research/r32-wingless/execute.py research/r32-wingless/review.py research/r33-wingless/execute.py research/r33-wingless/review.py research/r32-r33/*.py
+          test "$(git rev-parse HEAD:research/r32-wingless/prereg.json)" = 057c14cc786ae3d1a11735c8c8dddde85d339c20
+          test "$(git rev-parse HEAD:research/r33-wingless/prereg.json)" = b587bf20e5b449cabbccd88568487b07f2674b92
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/6158376352" --jq .user.login | grep -Fx spoonman136668-ai
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=1" --jq .total_count | grep -E '^[0-9]+$'
+          echo 'R32_R33_FROZEN_SCIENCE_QUALIFICATION=PASS'
+          echo 'R32_R33_CONTROLLED_INTERRUPTION_QUALIFICATION=PASS'
+          echo 'R32_R33_SCIENTIFIC_ORIGINALS_STARTED=0'
