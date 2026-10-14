@@ -174,3 +174,55 @@ jobs:
             ${{ runner.temp }}/f4-historical-ablation-witness.json
           if-no-files-found: error
           retention-days: 90
+
+  prospective-source-feasibility:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove sensor identity boundary without new cohort access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f4_sensor_reallocation/structural_feasibility.py --pinned-source-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-source-feasibility.json"
+          python -B - "$RUNNER_TEMP/f4-source-feasibility.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          data=json.loads(Path(sys.argv[1]).read_bytes())
+          assert data["status"]=="UNOBSERVABLE_PROSPECTIVE_SWAPS_SOURCE_LEVEL_NO_SCIENCE"
+          assert data["f4_original_feasibility"]=="BLOCKED_AS_PROPOSED"
+          assert data["historically_learned_sensors"]==[8,11]
+          assert set(data["source_only_pair_checks"])=={"6_9","12_14"}
+          assert all(not arm["publicly_observable_by_schedule"]
+                     for arms in data["source_only_pair_checks"].values() for arm in arms.values())
+          assert data["candidate_retrained_after_inspecting_novel_pair_labels"] is False
+          assert data["f4_development_cohort_accesses"]==0
+          assert data["f4_sealed_cohort_accesses"]==0
+          assert data["scientific_originals_executed"]==0
+          assert data["first_use_claims_consumed"]==0
+          assert data["scientific_dispatch_authorized"] is False
+          print("F4_PROSPECTIVE_SOURCE_IDENTITY_GATE=NEGATIVE_PASS")
+          print("F4_FIRST_USES_CONSUMED=ZERO")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f4-prospective-source-observability-negative
+          path: ${{ runner.temp }}/f4-source-feasibility.json
+          if-no-files-found: error
+          retention-days: 90
