@@ -89,6 +89,21 @@ jobs:
           try:replay(changed,"pinned-yggdrasil-source")
           except ValueError:pass
           else:raise AssertionError("F4_SENSOR_TRACE_TAMPER_ACCEPTED")
+          poisoned=copy.deepcopy(record)
+          poisoned["historical_training"]["learned_physical_sensors"]=[2,4]
+          try:replay(poisoned,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_TRAINED_SENSOR_TAMPER_ACCEPTED")
+          leaked=copy.deepcopy(record)
+          leaked["historical_training"]["training_seed_ids"][-1]=67640
+          try:replay(leaked,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_FRESH_SEALED_SEED_LEAKAGE_ACCEPTED")
+          forged=copy.deepcopy(record)
+          forged["historical_training_sha256"]="0"*64
+          try:replay(forged,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_MODEL_DIGEST_TAMPER_ACCEPTED")
           print("F4_NEGATIVE_ENFORCEMENT=PASS")
           print("F4_COHORT_ELIGIBILITY=UNVERIFIED_NOT_AUTHORIZED")
           PY
