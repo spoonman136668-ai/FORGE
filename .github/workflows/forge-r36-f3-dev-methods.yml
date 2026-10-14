@@ -85,3 +85,51 @@ jobs:
             ${{ runner.temp }}/wingless-development-witness.json
           if-no-files-found: error
           retention-days: 90
+  real-yggdrasil-development:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compute pinned Yggdrasil development-only baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B research/r36_f3_screen/run_yggdrasil_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development.json"
+      - name: Independently replay Yggdrasil development baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/r36_f3_screen/verify_yggdrasil_development.py --record "$RUNNER_TEMP/yggdrasil-development.json" --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development-witness.json"
+          python -B - "$RUNNER_TEMP/yggdrasil-development-witness.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["status"]=="PINNED_DEV_BASELINE_REPLAY_VERIFIED_NO_CANDIDATE_ADMISSION"
+          assert x["replayed_trials"]==384
+          assert x["sealed_first_uses_consumed"]==0
+          assert x["scientific_winners_selected"]==0
+          print("F3_PINNED_REAL_DEVELOPMENT_BASELINE=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f3-yggdrasil-real-development-baseline
+          path: |
+            ${{ runner.temp }}/yggdrasil-development.json
+            ${{ runner.temp }}/yggdrasil-development-witness.json
+          retention-days: 90
+          if-no-files-found: error
