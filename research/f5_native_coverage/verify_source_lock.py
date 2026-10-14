@@ -69,7 +69,7 @@ def run(root):
     def git(*args):
         return subprocess.check_output(["git","-C",str(root),*args],
                                        stderr=subprocess.DEVNULL).decode().strip()
-    need(git("rev-parse","--show-toplevel")==str(root),"CHECKOUT_ROOT")
+    need(Path(git("rev-parse","--show-toplevel")).resolve()==root,"CHECKOUT_ROOT")
     need(not git("status","--porcelain"),"DIRTY_SOURCE")
     # Both the source lock and all methods must be owned by the exact
     # HEAD Git tree. The parent content is not inferred from filesystem.
