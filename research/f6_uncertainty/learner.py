@@ -7,7 +7,7 @@ training labels (F5 COVERAGE vs MEMORY errors) are used strictly during fit.
 """
 from pathlib import Path
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"f5_native_coverage"))
+sys.path.append(str(Path(__file__).resolve().parents[1]/"f5_native_coverage"))
 from policy import choose as f5_choose,validate,calibration,PROBES
 
 TRAIN_SEEDS=(67204,67205)
