@@ -23,7 +23,7 @@ def samples():
                                 "sample_trace":{"addresses":[[0,1],[0,1],
                                     [2,3],[4,5],[6,7]],
                                     "public_values":copy.deepcopy(public),
-                                    "decision":{"action_index":action}}})
+                                    "decision":{"action_index":action,"reads":10}}})
     return rows
 
 class RawPublicValueTests(unittest.TestCase):
