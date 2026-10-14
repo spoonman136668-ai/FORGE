@@ -1,0 +1,103 @@
+name: FORGE R34 archive-only recovery from consumed R32 R33 originals
+on:
+  push:
+    branches: [engineering/r34-archive-only-recovery-r1]
+    paths:
+      - '.github/workflows/forge-r34-archive-only-recovery.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  archive-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Check out exact already-qualified R32 and R33 scientific source
+        uses: actions/checkout@v4
+        with:
+          ref: 2f66a21bd32fea36909582b76e882c71a14b1bba
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Restore immutable R31 independent parent review
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38492640534
+          github-token: ${{ github.token }}
+          name: forge-r31-independent-review-and-r32
+          path: ${{ runner.temp }}/r31-review
+      - name: Restore immutable R32 original
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38494601555
+          github-token: ${{ github.token }}
+          name: forge-r32-firstuse-original
+          path: ${{ runner.temp }}/r32-original
+      - name: Restore independently accepted R32 review
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38494601555
+          github-token: ${{ github.token }}
+          name: forge-r32-independent-review
+          path: ${{ runner.temp }}/r32-review
+      - name: Restore immutable R33 original
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38494601555
+          github-token: ${{ github.token }}
+          name: forge-r33-autonomous-original
+          path: ${{ runner.temp }}/r33-original
+      - name: Restore independently accepted R33 review
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 38494601555
+          github-token: ${{ github.token }}
+          name: forge-r33-independent-review-and-r32
+          path: ${{ runner.temp }}/r33-review
+      - name: Verify archived claims and prepare R34 without launching science
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git rev-parse HEAD)" = 2f66a21bd32fea36909582b76e882c71a14b1bba
+          test "$(git rev-parse HEAD:research/r32-wingless/prereg.json)" = 057c14cc786ae3d1a11735c8c8dddde85d339c20
+          test "$(git rev-parse HEAD:research/r33-wingless/prereg.json)" = b587bf20e5b449cabbccd88568487b07f2674b92
+          (cd "$RUNNER_TEMP/r32-original" && sha256sum --check original.sha256)
+          (cd "$RUNNER_TEMP/r33-original" && sha256sum --check original.sha256)
+          test -s "$RUNNER_TEMP/r32-original/started.txt"
+          test -s "$RUNNER_TEMP/r33-original/started.txt"
+          mkdir -p "$RUNNER_TEMP/r34-archive"
+          python3 -B research/r32-r33/r34_proposal.py \
+            --r31-review "$RUNNER_TEMP/r31-review/independent-review.json" \
+            --r32-manifest research/r32-wingless/prereg.json \
+            --r32-original "$RUNNER_TEMP/r32-original/original.json" \
+            --r32-review "$RUNNER_TEMP/r32-review/independent-review.json" \
+            --r33-manifest research/r33-wingless/prereg.json \
+            --r33-original "$RUNNER_TEMP/r33-original/original.json" \
+            --r33-review "$RUNNER_TEMP/r33-review/independent-review.json" \
+            --out "$RUNNER_TEMP/r34-archive/r34-proposal.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          file=pathlib.Path(os.environ["RUNNER_TEMP"])/"r34-archive/r34-proposal.json"
+          x=json.loads(file.read_text())
+          if (x.get("schema")!="forge.r34.scientific-successor-proposal.v1" or
+              x.get("proposal_only") is not True or
+              x.get("new_original_dispatch_authorized") is not False or
+              x.get("new_science_originals_executed")!=0 or
+              x.get("experiment_id")!="W-FORGE-R34-REPLICATION-MECHANISM-01"):
+              raise SystemExit("R34_ARCHIVE_UNSAFE_OR_DRIFT")
+          print("R32_REVIEWED_OUTCOME="+x["prior_r32_outcome"])
+          print("R33_REVIEWED_OUTCOME="+x["prior_r33_outcome"])
+          print("R34_ARCHIVE_ONLY_RECOVERY=PASS")
+          print("R32_R33_SCIENTIFIC_ORIGINAL_REPLAY=FALSE")
+          print("R34_SCIENTIFIC_EXECUTION_AUTHORIZED=FALSE")
+          PY
+          (cd "$RUNNER_TEMP/r34-archive" && sha256sum r34-proposal.json > r34-proposal.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r34-verified-proposal-only
+          path: ${{ runner.temp }}/r34-archive
+          retention-days: 90
+          if-no-files-found: error
