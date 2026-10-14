@@ -73,7 +73,7 @@ class F11Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"FROZEN_MODEL"):
             choose(3,{0:h[0],1:h[1]},bad)
         bad=deepcopy(m)
-        bad["value_table"][0]["anomalies"]=999
+        bad["value_table"][0]["total_task_loss"]=-1
         with self.assertRaisesRegex(ValueError,"NONCANONICAL_TRAINED_VALUES"):
             choose(3,{0:h[0],1:h[1]},bad)
 
