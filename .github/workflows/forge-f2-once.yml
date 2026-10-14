@@ -1,0 +1,209 @@
+name: FORGE F2 legal cross-pair fresh original and R35 evidence closure
+on:
+  push:
+    branches: [research/forge-f2-firstuse-launch]
+    paths: ['research/f2_launch/launch.json']
+permissions:
+  contents: read
+  actions: read
+  issues: read
+concurrency:
+  group: forge-f2-legal-pair-once
+  cancel-in-progress: false
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed on source, duplicate launches or consumed first use
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/research/forge-f2-firstuse-launch
+          test "$(git diff --name-only HEAD^ HEAD)" = research/f2_launch/launch.json
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/f2_launch/launch.json"))["source_commit"])')"
+          test "$(git rev-parse HEAD:research/f2-yggdrasil/prereg.json)" = 04bc2ab3cb6c6e0385a9e6cc3e3132f7f254f588
+          test "$(git rev-parse HEAD:research/f2-yggdrasil/run_original.py)" = ed1c09bfe3fc1da8f066b6ddec0d5cd0297a659f
+          test "$(git rev-parse HEAD:research/f2-yggdrasil/independent_review.py)" = 0e46c7e428323bae0e02a565d483347097f242b5
+          mkdir -p "$RUNNER_TEMP/f2-clearance"
+          git fetch --no-tags origin refs/heads/research/forge-f2-firstuse-claims
+          git show FETCH_HEAD:Y-FORGE-F2-LEGAL-PAIR-TRANSFER-01.json > "$RUNNER_TEMP/f2-clearance/claim.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"f2-clearance"
+          obj=json.loads((d/"claim.json").read_bytes())
+          v=obj.get("owner_approval_comment_id")
+          if type(v) is not int or v<=0:raise SystemExit("F2_MISSING_OWNER_APPROVAL")
+          (d/"comment-id").write_text(str(v))
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$(cat "$RUNNER_TEMP/f2-clearance/comment-id")" > "$RUNNER_TEMP/f2-clearance/approval.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/forge-f2-firstuse-launch&event=push&per_page=100" > "$RUNNER_TEMP/f2-clearance/runs.json"
+          python3 -B research/f2_launch/budget_gate.py \
+            --launch research/f2_launch/launch.json \
+            --claim "$RUNNER_TEMP/f2-clearance/claim.json" \
+            --approval "$RUNNER_TEMP/f2-clearance/approval.json" \
+            --runs "$RUNNER_TEMP/f2-clearance/runs.json" \
+            --source "$(git rev-parse HEAD^)" --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/f2-clearance/receipt.json"
+          echo F2_SOURCE_AND_ONCE_ONLY_CLEARANCE=PASS
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f2-firstuse-clearance
+          path: ${{ runner.temp }}/f2-clearance/receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
+  yggdrasil-original:
+    needs: authorization
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 38535831669
+          github-token: ${{ github.token }}
+          name: forge-e3-independent-review
+          path: ${{ runner.temp }}/parent-e3
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Perform once-only real F2 cross-pair scientific original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil rev-parse HEAD:research/contrib/chatgpt/20261013-y070-onset1/execute.py)" = 1a73edd9b29f082ad557d04d2bf3e03d2ccfcc0e
+          python3 -B - <<'PY'
+          import json
+          m=json.load(open("research/f2-yggdrasil/prereg.json"))
+          assert m["pairs"]==[[2,6],[3,7]]
+          assert all(not set(pair).intersection({0,1}) and len(set(pair))==2 for pair in m["pairs"])
+          print("F2_PINNED_SCIENTIFIC_PAIR_LEGALITY=PASS")
+          PY
+          mkdir -p "$RUNNER_TEMP/f2-original"
+          printf 'F2_FIRST_USE_CONSUMED_BEFORE_COMPUTATION\n' > "$RUNNER_TEMP/f2-original/started.txt"
+          python3 -B research/f2-yggdrasil/run_original.py \
+            --study Y-FORGE-F2-LEGAL-PAIR-TRANSFER-01 --ygg-root pinned-yggdrasil \
+            --parent-review "$RUNNER_TEMP/parent-e3/independent-review.json" \
+            --out "$RUNNER_TEMP/f2-original/original.json"
+          (cd "$RUNNER_TEMP/f2-original" && sha256sum original.json > original.sha256)
+          echo F2_REAL_SCIENTIFIC_ORIGINAL=PASS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f2-original
+          path: ${{ runner.temp }}/f2-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  yggdrasil-review:
+    needs: yggdrasil-original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.yggdrasil-original.result == 'success'
+        with:
+          name: forge-f2-original
+          path: ${{ runner.temp }}/f2-review
+      - uses: actions/download-artifact@v4
+        if: needs.yggdrasil-original.result == 'success'
+        with:
+          run-id: 38535831669
+          github-token: ${{ github.token }}
+          name: forge-e3-independent-review
+          path: ${{ runner.temp }}/parent-e3
+      - name: Quarantine any failed or interrupted original; no replay
+        if: needs.yggdrasil-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/f2-review"
+          printf '{"outcome":"CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}\n' > "$RUNNER_TEMP/f2-review/independent-review.json"
+          echo F2_ORIGINAL_QUARANTINED_NO_REPLAY=PASS
+      - name: Independently recompute sealed F2 source metrics
+        if: needs.yggdrasil-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/f2-review"
+          sha256sum --check original.sha256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/f2-yggdrasil/independent_review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/f2-yggdrasil/prereg.json" \
+            --original "$PWD/original.json" --experiment-id Y-FORGE-F2-LEGAL-PAIR-TRANSFER-01 \
+            --parent-review "$RUNNER_TEMP/parent-e3/independent-review.json" \
+            --out "$PWD/independent-review.json"
+          echo F2_INDEPENDENT_REVIEW=PASS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f2-independent-review
+          path: ${{ runner.temp }}/f2-review/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  cross-lane-closure:
+    needs: [authorization, yggdrasil-original, yggdrasil-review]
+    if: needs.authorization.result == 'success' && needs.yggdrasil-original.result == 'success' && needs.yggdrasil-review.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-f2-independent-review
+          path: ${{ runner.temp }}/f2-closure
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          name: forge-r35-independent-review
+          path: ${{ runner.temp }}/r35-closure
+      - name: Accept R35 archived valid negative plus new F2 independently reviewed original
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])
+          w=json.loads((d/"r35-closure/independent-review.json").read_bytes())
+          y=json.loads((d/"f2-closure/independent-review.json").read_bytes())
+          if w.get("experiment_id")!="W-FORGE-R35-TRAIN-QUARTILE-01" or w.get("outcome")!="NO_CONFIRMED_QUARTILE_GAIN" or w.get("independently_validated") is not True or w.get("original_replay_allowed") is not False:
+              raise SystemExit("F2_MISSING_VERIFIED_R35_PARENT")
+          if y.get("experiment_id")!="Y-FORGE-F2-LEGAL-PAIR-TRANSFER-01" or y.get("independently_validated") is not True or y.get("original_replay_allowed") is not False or y.get("outcome") not in ("LATENCY_TRANSFER_GAIN","DECODER_RESIDUAL_TRANSFER","MIXED_OR_NO_TRANSFER"):
+              raise SystemExit("F2_INDEPENDENT_REVIEW_NOT_QUALIFIED")
+          out={"schema":"forge.r35-f2.cross-lane-reviewed-science.v1",
+              "r35_outcome":w["outcome"],"f2_outcome":y["outcome"],
+              "r35_original_replayed":False,"f1_original_replayed":False,
+              "f2_original_replayed":False,"next_science_authorized":False,
+              "fsa_activated":False,"ckb_authority_changed":False}
+          (d/"f2-closure/dual-lane-next-proposal.json").write_text(json.dumps(out,sort_keys=True,indent=2)+"\n")
+          print("R35_F2_TWO_LANE_REVIEWED_SCIENCE=PASS")
+          print("R35_OUTCOME="+w["outcome"])
+          print("F2_OUTCOME="+y["outcome"])
+          print("F1_REPLAY=FALSE")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r35-f2-cross-lane-closure
+          path: ${{ runner.temp }}/f2-closure/dual-lane-next-proposal.json
+          retention-days: 90
+          if-no-files-found: error
