@@ -159,7 +159,7 @@ def verify(result,parent_raw,review_raw,root):
     old={}
     for row in parent["records"]:
         key=(row["seed"],tuple(row["pair"]),row["regime"],
-             tuple(row["family"]),row["matching_policy"]))
+             tuple(row["family"]),row["matching_policy"])
         old.setdefault(key,{})[row["arm"]]=row
     new=controls(validation)
     need(len(old)==len(new)==96,"PARENT_COMPARISON_N")
