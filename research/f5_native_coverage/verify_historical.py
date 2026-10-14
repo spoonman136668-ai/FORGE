@@ -56,7 +56,7 @@ def replay(record,root):
                             score["detections"]+=int(reference["first_detection"] is not None)
                             if regime=="steady":
                                 score["steady_errors"]+=reference["pre_mismatch"]+reference["post_mismatch"]
-                            if set(trace["addresses"][5])==set(trace["addresses"][3]):
+                            if set(trace["addresses"][4])==set(trace["addresses"][3]):
                                 score["memory_reprobe_cases"]+=1
     need(out==record.get("groups"),"GROUP_METRIC_TAMPER")
     need(all(x["cases"]==CASES//len(POLICIES) for x in out.values()),"BALANCE")
