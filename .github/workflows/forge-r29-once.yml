@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           test "${GITHUB_RUN_ATTEMPT}" = 1
           test "${GITHUB_REF}" = refs/heads/research/r29-execute-firstuse
-          test "$(git rev-parse HEAD^)" = 270258952a481619660f7823db2bdb245ddde4de
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/r29-wingless/launch.json"))["source_commit"])')"
           test "$(git diff --name-only HEAD^ HEAD)" = research/r29-wingless/launch.json
           test "$(git rev-parse HEAD:research/r29-wingless/prereg.json)" = 66d6908b1cc37a7aa819d1cc5a1c122d8c1ca444
           test "$(git rev-parse HEAD:research/r29-wingless/execute.py)" = c8e4e5220b1d76e563611c862ed2e678be20dffd
@@ -45,13 +45,13 @@ jobs:
           runs=json.loads(Path(os.environ["RUNNER_TEMP"],"r29-runs.json").read_text())["workflow_runs"]
           frozen={"schema":"forge.r29.authorized-first-use.v1",
             "experiment_id":"W-FORGE-R29-SOURCE-ROBUST-SUCCESSOR-01",
-            "source_commit":"270258952a481619660f7823db2bdb245ddde4de",
+            "source_commit":launch.get("source_commit"),
             "prereg_blob":"66d6908b1cc37a7aa819d1cc5a1c122d8c1ca444",
             "execute_blob":"c8e4e5220b1d76e563611c862ed2e678be20dffd",
             "review_blob":"a800b062e459026e0a9291fd3692fc5fa65ff030",
-            "authority":"verified-qualified-forge-r29-once",
+            "authority_receipt_run_id":claim.get("authority_receipt_run_id"),
             "first_use_consumed":True,"rerun_allowed":False}
-          if claim!=frozen:raise SystemExit("R29_CLAIM_NOT_AUTHORIZED_OR_DRIFT")
+          if claim!=frozen or not isinstance(claim.get("authority_receipt_run_id"),int) or claim["authority_receipt_run_id"]<=0:\n              raise SystemExit("R29_CLAIM_NOT_AUTHORIZED_OR_DRIFT")\n          # R29 cannot self-grant research authority. Until a separately qualified\n          # owner receipt verifier is integrated, this gate MUST remain closed.\n          raise SystemExit("R29_EXTERNAL_AUTHORITY_RECEIPT_VERIFIER_NOT_INTEGRATED")
           if launch!={"schema":"forge.r29.single-start.v1","experiment_id":frozen["experiment_id"],"source_commit":frozen["source_commit"],"prereg_blob":frozen["prereg_blob"]}:raise SystemExit("R29_LAUNCH_DRIFT")
           if len(runs)!=1 or runs[0]["id"]!=int(os.environ["GITHUB_RUN_ID"]) or runs[0]["head_sha"]!=os.environ["GITHUB_SHA"]:
               raise SystemExit("R29_FIRST_USE_DUPLICATE_OR_AMBIGUOUS")
