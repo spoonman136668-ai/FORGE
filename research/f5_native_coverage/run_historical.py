@@ -10,7 +10,7 @@ from policy import POLICIES
 from worker import load_source,evaluate_historical,HISTORICAL_DEV,HISTORICAL_PAIRS,SOURCE_COMMIT
 
 REGIMES=(("steady",None),("onset1",1))
-CASES=2*2*4*4*3*3
+CASES=2*2*4*4*3*len(POLICIES)
 
 def run(root):
     source=load_source(root)
