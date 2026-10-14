@@ -49,8 +49,10 @@ def choose(policy,episode,history):
     if episode in (0,1,3):return (0,1)
     if policy=="F5-FIXED":return (2,4)
     start=public_start(history)
-    # stride five and 14 nonanchors -> four distinct public coverage points
-    coords=tuple(NONANCHOR[(start+5*i)%14] for i in range(4))
+    # Minimax geometry over all 91 nonanchor pairs and 14 public start states.
+    # It raises worst-case exposure from 5/14 to 7/14; no hidden pair input.
+    offsets=(0,1,4,6)
+    coords=tuple(NONANCHOR[(start+offset)%14] for offset in offsets)
     if episode==5:return coords[:2]
     require(episode==7,"UNEXPECTED_EPISODE")
     seen=history[5]
