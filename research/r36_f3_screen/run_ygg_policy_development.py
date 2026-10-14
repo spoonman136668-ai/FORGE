@@ -23,7 +23,8 @@ def train_public(z):
             m.y58.install_transposition(1,pair,{"anchor_pair_checks":0})
             family=z.FAMILIES[i%len(z.FAMILIES)]
             with install_public_schedule(z,BASELINE):
-                readings=m.y59.sample(seed,family,"fixed_rotating_sentinels")
+                # Y065 consumes the Y064 public sampler, not raw Y059.sample.
+                readings=m.y64.dual_public_samples(seed,family)
             def state(ep):
                 v=[0.0]*16
                 for k,x in readings[ep].items():v[int(k)]=float(x)
