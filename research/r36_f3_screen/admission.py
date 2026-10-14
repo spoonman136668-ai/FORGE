@@ -1,5 +1,5 @@
 """Read-only, no-first-use scientific hypothesis admission for R36 and F3."""
-import argparse,hashlib,json,pathlib,sys
+import argparse,hashlib,json,pathlib,subprocess,sys
 
 FROZEN_BLOB="4140cf897c05d27dd6dac01cea796f383fa2ef44"
 EXPECTED={
@@ -109,7 +109,9 @@ def main():
     args=p.parse_args()
     def get(name):return pathlib.Path(getattr(args,name)).read_bytes()
     github={lane:{kind:load(get(lane+"_"+kind)) for kind in ("run","jobs","artifacts")} for lane in EXPECTED}
-    admission=verify(get("frozen"),{"wingless":get("wingless_review"),"yggdrasil":get("yggdrasil_review")},github)
+    if args.frozen!="research/r36_f3_screen/frozen_portfolio.json":fail("FROZEN_PATH")
+    frozen=subprocess.check_output(["git","show","HEAD:research/r36_f3_screen/frozen_portfolio.json"])
+    admission=verify(frozen,{"wingless":get("wingless_review"),"yggdrasil":get("yggdrasil_review")},github)
     pathlib.Path(args.out).write_text(json.dumps(admission,indent=2,sort_keys=True)+"\n")
     print("R36_F3_BOTH_REAL_PARENTS=VERIFIED")
     print("R36_F3_FROZEN_DEV_HYPOTHESES=8")
