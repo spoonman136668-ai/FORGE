@@ -60,6 +60,19 @@ jobs:
           set -euo pipefail
           test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
           test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f5_native_coverage/coverage_geometry.py > "$RUNNER_TEMP/f5-geometry.json"
+          python -B - "$RUNNER_TEMP/f5-geometry.json" <<'PY'
+          import json,sys
+          m=json.load(open(sys.argv[1]))
+          assert m["optimal_offsets"]==[0,1,4,6]
+          assert m["optimal"]["worst_pair_exposure"]==7
+          assert m["baseline"]["worst_pair_exposure"]==5
+          assert m["enumerated_offset_patterns"]==286
+          assert m["nonanchor_pair_count"]==91
+          assert m["new_first_use_claims"]==0
+          assert m["prospective_scientific_execution_authorized"] is False
+          print("F5_FULL_NONORACLE_MINIMAX_COVERAGE=PASS")
+          PY
           python -B research/f5_native_coverage/run_historical.py --source-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f5-historical-evidence.json"
           python -B research/f5_native_coverage/verify_historical.py --record "$RUNNER_TEMP/f5-historical-evidence.json" --source-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f5-historical-witness.json"
           python -B - "$RUNNER_TEMP/f5-historical-evidence.json" "$RUNNER_TEMP/f5-historical-witness.json" <<'PY'
@@ -99,5 +112,6 @@ jobs:
           path: |
             ${{ runner.temp }}/f5-historical-evidence.json
             ${{ runner.temp }}/f5-historical-witness.json
+            ${{ runner.temp }}/f5-geometry.json
           if-no-files-found: error
           retention-days: 90
