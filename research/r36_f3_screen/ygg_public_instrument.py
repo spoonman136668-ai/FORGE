@@ -50,5 +50,31 @@ def install_public_schedule(y070,schedule):
         m.y59.sample=original
         m.y61.y59.sample=original_chain
 
+@contextmanager
+def install_public_policy(y070, method, ranking):
+    """Dynamic policy observes only previously collected public coordinates."""
+    from ygg_learned_policies import choose
+    m=y070.m
+    original=m.y59.sample
+    original_chain=m.y61.y59.sample
+    def sample(seed,family,instrument):
+        if instrument!="fixed_rotating_sentinels":
+            return original(seed,family,instrument)
+        observations={}
+        for episode in READ_EPISODES:
+            addresses=choose(method,ranking,episode,observations)
+            observations[episode]={a:m.y64.y46.coordinate(a,seed,episode,family,"late_shock")
+                                   for a in addresses}
+        if sum(len(group) for group in observations.values())!=PUBLIC_BUDGET:
+            raise ValueError("F3_POLICY_PUBLIC_BUDGET")
+        return {episode:{str(a):v for a,v in group.items()} for episode,group in observations.items()}
+    try:
+        m.y59.sample=sample
+        m.y61.y59.sample=sample
+        yield
+    finally:
+        m.y59.sample=original
+        m.y61.y59.sample=original_chain
+
 # Source-native baseline schedule, used to detect instrumentation drift.
 BASELINE=((0,1),(0,1),(0,1),(2,4),(2,4))
