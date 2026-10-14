@@ -81,9 +81,7 @@ def expected_cost(model,s,action):
     # Exact rational with predeclared shrinkage to the global training
     # mean. No validation/reward-dependent weights or post-hoc tuning.
     baseline=Fraction(row["global_loss"],96)
-    return Fraction(row["total_task_loss"],1)+PSEUDO*baseline if False else (
-        Fraction(row["total_task_loss"],1)+PSEUDO*baseline
-    )/(row["cases"]+PSEUDO)
+    return (Fraction(row["total_task_loss"],1)+PSEUDO*baseline)/(row["cases"]+PSEUDO)
 
 def learned_order(model,history):
     validate_model(model)
