@@ -36,3 +36,14 @@ func TestCountsAndDrift(t *testing.T){
  a.Runs=[]byte(`{"id":9,"run_attempt":1,"head_sha":"INVALID","repository":{"full_name":"spoonman136668-ai/Wingless"}}`+"\n")
  if _,err=Build(a,b);err==nil{t.Fatal("invalid source accepted")}
 }
+
+func TestConcurrentPaginationDuplicatesFailClosedWithoutCrashing(t *testing.T){
+ digest:="sha256:"+strings.Repeat("b",64)
+ a:=Source{Lane:"Wingless",Runs:append(mkRun("Wingless",9),mkRun("Wingless",9)...),Artifacts:mkArtifact(99,9,"W-original",false,digest),DeclaredRuns:1,DeclaredArtifacts:1}
+ b:=Source{Lane:"Yggdrasil",Runs:mkRun("Yggdrasil",8),Artifacts:mkArtifact(98,8,"Y-original",false,digest),DeclaredRuns:1,DeclaredArtifacts:1}
+ report,err:=Build(a,b)
+ if err!=nil{t.Fatal(err)}
+ if report.GithubAccessibleSnapshotReconciled||report.Wingless.RunPaginationDuplicateCount!=1||report.Wingless.ObservedRunCount!=1||report.FullHistoricalScientificCoverageVerified{t.Fatal("duplicate incorrectly accepted as complete")}
+ a.Runs=append(mkRun("Wingless",9),[]byte(`{"id":9,"run_attempt":2,"head_sha":"`+strings.Repeat("a",40)+`","repository":{"full_name":"spoonman136668-ai/Wingless"}}`+"\n")...)
+ if _,err=Build(a,b);err==nil{t.Fatal("conflicting duplicate accepted")}
+}
