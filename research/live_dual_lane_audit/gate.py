@@ -122,9 +122,18 @@ def verify_metadata(root,lane):
     records=artifacts.get("artifacts")
     if not isinstance(records,list):reject("GITHUB_ARTIFACT_LIST_MISSING")
     for slot,artifact_id in ARTIFACTS[lane].items():
+        if slot=="w31-parent":
+            continue  # This review belongs to the separately qualified R30/R31 run.
         chosen=[item for item in records if item.get("id")==artifact_id]
         if len(chosen)!=1 or chosen[0].get("name")!=ARTIFACT_NAMES[slot] or chosen[0].get("expired") is not False:
             reject("ARTIFACT_ID_NAME_OR_EXPIRY_DRIFT")
+    if lane=="wingless":
+        prior=load_json(read(root/"wingless-parent-run.json"))
+        if prior.get("id")!=38492640534 or prior.get("status")!="completed" or prior.get("conclusion")!="success" or prior.get("run_attempt")!=1:
+            reject("WINGLESS_R31_PARENT_RUN_UNQUALIFIED")
+        parents=load_json(read(root/"wingless-parent-artifacts.json")).get("artifacts")
+        if not isinstance(parents,list) or len([a for a in parents if a.get("id")==11862425556 and a.get("name")==ARTIFACT_NAMES["w31-parent"] and a.get("expired") is False])!=1:
+            reject("WINGLESS_R31_PARENT_ARTIFACT_DRIFT")
     jobs=load_json(read(root/(lane+"-jobs.json"))).get("jobs")
     if not isinstance(jobs,list):reject("JOBS_MISSING")
     expected=(["r32-original","r32-independent-review","r33-automatic-original"] if lane=="wingless" else
