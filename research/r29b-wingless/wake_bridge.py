@@ -8,10 +8,10 @@ import argparse
 import json
 from pathlib import Path
 
-EXPERIMENT = "W-FORGE-R29BB-SMOOTH-ROBUST-01"
+EXPERIMENT = "W-FORGE-R29B-SMOOTH-ROBUST-01"
 PREREG = "ccc7896760d07adcbc385ac6f1a04b4a449969d7"
-EXECUTE = "30563aad53dd3f7ef692f4e646e6855e45e58b48"
-REVIEW = "1f2e4972a8153aac5384a1820dc16aac632bd1dc"
+EXECUTE = "86d391121b3bfd058c8d92dbc96cfc248df2288d"
+REVIEW = "c2da8b98603f50435a035e2b9979111f521644ad"
 WAKE_SHA = "fab36e7c488f930505fcbaeb5f5bf04806e50c5b"
 OWNER = "spoonman136668-ai"
 WAKE_NAME = "Headless deterministic research loop wake v2"

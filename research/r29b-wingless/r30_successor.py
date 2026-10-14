@@ -8,7 +8,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-EXPERIMENT="W-FORGE-R29BB-SMOOTH-ROBUST-01"
+EXPERIMENT="W-FORGE-R29B-SMOOTH-ROBUST-01"
 NEXT="W-FORGE-R30-SOURCE-ROBUST-REPLICATION-01"
 def load(raw):
     def unique(pairs):
