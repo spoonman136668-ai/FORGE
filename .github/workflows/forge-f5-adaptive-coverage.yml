@@ -4,11 +4,13 @@ on:
     branches: [engineering/f5-native-coverage-r1]
     paths:
       - 'research/f5_native_coverage/**'
+      - 'f5custody/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
   pull_request:
     branches: [main]
     paths:
       - 'research/f5_native_coverage/**'
+      - 'f5custody/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
 permissions:
   contents: read
@@ -27,14 +29,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Qualify public-only memory and blocked scientific first-use
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Qualify signed custody rejection and source-content lock
         shell: bash
         run: |
           set -euo pipefail
           python -B -m unittest discover -s research/f5_native_coverage -p 'test_*.py' -v
+          python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
+          go test ./f5custody -count=1 -v
           python -B -m compileall -q research/f5_native_coverage
           echo F5_PUBLIC_ONLY_MEMORIED_ADAPTATION_TESTS=PASS
+          echo F5_SIGNED_ALL_LANE_CUSTODY_NEGATIVE_ENFORCEMENT=PASS
+          echo F5_SOURCE_CONTENT_PIN=PASS
+          echo F5_SCIENTIFIC_SOURCE_FREEZE=BLOCKED_NO_AUTHENTICATED_COHORT
           echo F5_PROSPECTIVE_FIRST_USE=ZERO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f5-source-content-audit-${{ matrix.os }}
+          path: ${{ runner.temp }}/f5-source-content-review.json
+          if-no-files-found: error
+          retention-days: 90
   pinned-real-history:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
