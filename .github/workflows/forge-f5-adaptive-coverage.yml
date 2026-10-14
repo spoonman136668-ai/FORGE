@@ -1,7 +1,7 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f11-task-aligned-observation-value-r1]
+    branches: [engineering/f12-cross-context-value-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
@@ -10,6 +10,7 @@ on:
       - 'research/f9_learned_timing/**'
       - 'research/f10_information_value/**'
       - 'research/f11_task_value/**'
+      - 'research/f12_context_transfer/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -24,6 +25,7 @@ on:
       - 'research/f9_learned_timing/**'
       - 'research/f10_information_value/**'
       - 'research/f11_task_value/**'
+      - 'research/f12_context_transfer/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -59,6 +61,7 @@ jobs:
           python -B -m unittest discover -s research/f9_learned_timing -p 'test_*.py' -v
           python -B -m unittest discover -s research/f10_information_value -p 'test_*.py' -v
           python -B -m unittest discover -s research/f11_task_value -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f12_context_transfer -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -413,6 +416,42 @@ jobs:
           print("FORGE_F11_REAL_SOURCE_INDEPENDENT_REPLAY=PASS")
           print("FORGE_F11_PROSPECTIVE_FIRST_USE=ZERO")
           PY
+      - name: Advance independently validated F11 negative into F12 cross-context transfer without new source use
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f12_context_transfer/fit.py \
+            --parent "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --witness "$RUNNER_TEMP/f11-task-value-independent-review.json" \
+            --out "$RUNNER_TEMP/f12-cross-context-engineering.json"
+          python -B research/f12_context_transfer/verify.py \
+            --record "$RUNNER_TEMP/f12-cross-context-engineering.json" \
+            --parent "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --witness "$RUNNER_TEMP/f11-task-value-independent-review.json" \
+            --out "$RUNNER_TEMP/f12-independent-cross-context-review.json"
+          python -B - "$RUNNER_TEMP/f12-cross-context-engineering.json" "$RUNNER_TEMP/f12-independent-cross-context-review.json" <<'PY'
+          import json,sys
+          record=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert record["schema"]=="forge.f12.cross-context-task-value-transfer.v1"
+          assert record["protocol"]=="leave-one-F3-source-family-out-training-only-cyclic-kernel"
+          assert record["training_seeds"]==[67204,67205]
+          assert record["validation_seeds"]==[67206,67207]
+          assert len(record["leave_family_out_scores"])==5
+          assert len(record["validation_case_selections"])==96
+          assert witness["validation_cases"]==96
+          assert witness["recomputed_training_folds"]==20
+          assert witness["frozen_radius"]==record["frozen_radius"]
+          assert witness["historical_validation_mismatches"]==record["historical_validation_mismatches"]
+          assert witness["status"]=="REUSED_F3_COUNTERFACTUAL_TRANSFER_ONLY_NOT_SCIENCE"
+          assert witness["source_replay_witness_verified"] is True
+          assert record["winner_selected"] is False and record["scientific_dispatch_authorized"] is False
+          assert record["new_first_use_claims"]==record["new_originals"]==0
+          assert record["new_cohort_accesses"]==record["paid_api_calls"]==0
+          print("F12_AUTOMATIC_CROSS_CONTEXT_TRANSFER=PASS")
+          print("F12_INDEPENDENT_BOUND_F11_SOURCE_EVIDENCE=PASS")
+          print("F12_SCIENTIFIC_ORIGINAL_AND_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -436,5 +475,7 @@ jobs:
             ${{ runner.temp }}/f11-successor-review.json
             ${{ runner.temp }}/f11-task-value-engineering.json
             ${{ runner.temp }}/f11-task-value-independent-review.json
+            ${{ runner.temp }}/f12-cross-context-engineering.json
+            ${{ runner.temp }}/f12-independent-cross-context-review.json
           if-no-files-found: error
           retention-days: 90
