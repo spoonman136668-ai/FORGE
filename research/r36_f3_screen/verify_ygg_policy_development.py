@@ -40,10 +40,16 @@ def verify(record,root):
                                 row=data[index];index+=1
                                 require(row["candidate"]==method and row["pair"]==list(pair) and row["regime"]==regime
                                         and row["seed"]==seed and row["family"]==list(family) and row["policy"]==policy,"ROW_IDENTITY")
-                                if method=="CONTROL":candidate=m.candidate(seed,family,policy,ARM)
+                                audit=[]
+                                if method=="CONTROL":
+                                    candidate=m.candidate(seed,family,policy,ARM)
+                                    trace=[[0,1],[0,1],[0,1],[2,4],[2,4]]
                                 else:
-                                    with install_public_policy(z,method,tuple(expected[method])):
+                                    with install_public_policy(z,method,tuple(expected[method]),audit=audit):
                                         candidate=m.candidate(seed,family,policy,ARM)
+                                    require(len(audit)==1,"SENSOR_HOOK_NOT_CALLED")
+                                    trace=audit[0]
+                                require(row.get("public_addresses")==trace,"SENSOR_TRACE_TAMPER")
                                 require(candidate["public_scalar_reads"]==10 and row["reads"]==10,"READS")
                                 first=None
                                 for item in candidate["rows"]:
@@ -65,9 +71,17 @@ def verify(record,root):
                                 aggregates[method]["trials"]+=1
                 m.y49.restore_environment()
     finally:m.y49.restore_environment()
+    baseline=[[0,1],[0,1],[0,1],[2,4],[2,4]]
+    affected={}
+    for method in METHODS:
+        observed=[row["public_addresses"] for row in data if row["candidate"]==method]
+        changed=sum(trace!=baseline for trace in observed)
+        require(len(observed)==192 and changed>0,"NO_OBSERVED_INTERVENTION")
+        affected[method]=changed
     return {"schema":"forge.f3.yggdrasil.independent-policy-development-witness.v1",
             "status":"ALL_FOUR_DEVELOPMENT_SCORES_REPLAYED_SCIENCE_NOT_ADMITTED",
-            "records_replayed":index,"aggregates":aggregates,"scientific_winners_selected":0,
+            "records_replayed":index,"aggregates":aggregates,
+            "actual_sensor_intervention_trials":affected,"scientific_winners_selected":0,
             "sealed_first_uses_consumed":0}
 
 if __name__=="__main__":
