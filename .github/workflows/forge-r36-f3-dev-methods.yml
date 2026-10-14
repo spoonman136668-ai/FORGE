@@ -1,0 +1,38 @@
+name: FORGE R36 F3 development-method qualification
+on:
+  push:
+    branches: [engineering/r36-f3-ygg-dev-methods-r1]
+    paths:
+      - 'research/r36_f3_screen/**'
+      - '.github/workflows/forge-r36-f3-dev-methods.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r36_f3_screen/**'
+      - '.github/workflows/forge-r36-f3-dev-methods.yml'
+permissions:
+  contents: read
+jobs:
+  development-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test development-only methods and frozen admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B -m unittest discover -s research/r36_f3_screen -p 'test_*.py' -v
+          python -B -m py_compile research/r36_f3_screen/ygg_methods.py
+          echo R36_F3_YGG_METHOD_UNIT_QUALIFICATION=PASS
+          echo R36_F3_SCIENTIFIC_ORIGINALS_EXECUTED=ZERO
