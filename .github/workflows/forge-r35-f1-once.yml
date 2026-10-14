@@ -1,0 +1,324 @@
+name: FORGE R35 F1 dual-lane once-only original execution and independent review
+on:
+  push:
+    branches: [research/forge-r35-f1-firstuse-launch]
+    paths: ['research/dual_followup/launch.json']
+permissions:
+  contents: read
+  actions: read
+  issues: read
+concurrency:
+  group: forge-r35-f1-two-lane-first-use
+  cancel-in-progress: false
+
+jobs:
+  authorization:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Qualify frozen source, exact owner budget and permanently consumed first-use claims
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/research/forge-r35-f1-firstuse-launch
+          test "$(git diff --name-only HEAD^ HEAD)" = research/dual_followup/launch.json
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/dual_followup/launch.json"))["source_commit"])')"
+          test "$(git rev-parse HEAD:research/r35-wingless/prereg.json)" = 8228c9006777394376549ddca418ecd7efc5b49f
+          test "$(git rev-parse HEAD:research/f1-yggdrasil/prereg.json)" = 7dec76450e2192427cd60d24035e5087ed52fb40
+          test "$(git rev-parse HEAD:research/r35-wingless/execute.py)" = c5ee11c469f34289b7af81a46eedacf722e6333f
+          test "$(git rev-parse HEAD:research/r35-wingless/review.py)" = cca2c27e9bbef7a98ad5df304e2cab9c3fc6a518
+          test "$(git rev-parse HEAD:research/f1-yggdrasil/run_original.py)" = a19288bf54ca5fb13563eb4041c593923e234631
+          test "$(git rev-parse HEAD:research/f1-yggdrasil/independent_review.py)" = 40b62bf9aabdfa13e67727d3c3d5ad865da457fa
+          mkdir -p "$RUNNER_TEMP/dual-clearance"
+          git fetch --no-tags origin refs/heads/research/forge-r35-f1-firstuse-claims
+          git show FETCH_HEAD:W-FORGE-R35-TRAIN-QUARTILE-01.json > "$RUNNER_TEMP/dual-clearance/wingless.json"
+          git show FETCH_HEAD:Y-FORGE-F1-CROSS-PAIR-LATENCY-01.json > "$RUNNER_TEMP/dual-clearance/yggdrasil.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])/"dual-clearance"
+          c=json.loads((d/"wingless.json").read_bytes())
+          value=c.get("owner_approval_comment_id")
+          if type(value) is not int or value<=0:raise SystemExit("DUAL_OWNER_APPROVAL_MISSING")
+          (d/"owner-id").write_text(str(value))
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$(cat "$RUNNER_TEMP/dual-clearance/owner-id")" > "$RUNNER_TEMP/dual-clearance/approval.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/forge-r35-f1-firstuse-launch&event=push&per_page=100" > "$RUNNER_TEMP/dual-clearance/runs.json"
+          python3 -B research/dual_followup/budget_gate.py \
+            --launch research/dual_followup/launch.json \
+            --claim-w "$RUNNER_TEMP/dual-clearance/wingless.json" \
+            --claim-y "$RUNNER_TEMP/dual-clearance/yggdrasil.json" \
+            --approval "$RUNNER_TEMP/dual-clearance/approval.json" \
+            --runs "$RUNNER_TEMP/dual-clearance/runs.json" \
+            --source "$(git rev-parse HEAD^)" --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/dual-clearance/receipt.json"
+          echo 'DUAL_R35_F1_PRECOMPUTE_CUSTODY=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r35-f1-firstuse-clearance
+          path: ${{ runner.temp }}/dual-clearance/receipt.json
+          retention-days: 90
+          if-no-files-found: error
+
+  wingless-original:
+    needs: authorization
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 38535831669
+          github-token: ${{ github.token }}
+          name: forge-r34-independent-review
+          path: ${{ runner.temp }}/wingless-parent
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - name: Execute exact frozen R35 bottom-quartile original once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"wingless-parent/independent-review.json"
+          z=json.loads(p.read_bytes())
+          if (z.get("schema")!="forge.r34.independent-original-review.v1" or
+              z.get("experiment_id")!="W-FORGE-R34-MARGIN-SUPPORT-01" or
+              z.get("outcome")!="NO_CONFIRMED_MARGIN_GAIN" or
+              z.get("independently_validated") is not True or
+              z.get("original_replay_allowed") is not False):
+              raise SystemExit("R35_PARENT_REVIEW_UNQUALIFIED")
+          PY
+          mkdir -p "$RUNNER_TEMP/wingless-original"
+          printf 'R35_SOURCE_BUDGET_ALREADY_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/wingless-original/started.txt"
+          python3 -B research/r35-wingless/execute.py \
+            --manifest research/r35-wingless/prereg.json \
+            --wingless-root pinned-wingless \
+            --parent-review "$RUNNER_TEMP/wingless-parent/independent-review.json" \
+            --out "$RUNNER_TEMP/wingless-original/original.json" \
+            --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/wingless-original" && sha256sum original.json > original.sha256)
+          echo 'R35_ACTUAL_SCIENTIFIC_ORIGINAL=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r35-original
+          path: ${{ runner.temp }}/wingless-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  yggdrasil-original:
+    needs: authorization
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: 38535831669
+          github-token: ${{ github.token }}
+          name: forge-e3-independent-review
+          path: ${{ runner.temp }}/ygg-parent
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Execute exact frozen F1 cross-pair onset-latency transfer once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          python3 - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"ygg-parent/independent-review.json"
+          z=json.loads(p.read_bytes())
+          if (z.get("schema")!="forge.yggdrasil.e3-independent-review.v1" or
+              z.get("experiment_id")!="Y-FORGE-E3-ONSET-LATENCY-01" or
+              z.get("outcome")!="LATENCY_DOMINANT_PARTIAL_GAIN" or
+              z.get("independently_validated") is not True or
+              z.get("original_replay_allowed") is not False):
+              raise SystemExit("F1_PARENT_REVIEW_UNQUALIFIED")
+          PY
+          mkdir -p "$RUNNER_TEMP/ygg-original"
+          printf 'F1_SOURCE_BUDGET_ALREADY_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/ygg-original/started.txt"
+          python3 -B research/f1-yggdrasil/run_original.py \
+            --study Y-FORGE-F1-CROSS-PAIR-LATENCY-01 \
+            --ygg-root pinned-yggdrasil \
+            --parent-review "$RUNNER_TEMP/ygg-parent/independent-review.json" \
+            --out "$RUNNER_TEMP/ygg-original/original.json"
+          (cd "$RUNNER_TEMP/ygg-original" && sha256sum original.json > original.sha256)
+          echo 'F1_ACTUAL_SCIENTIFIC_ORIGINAL=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f1-original
+          path: ${{ runner.temp }}/ygg-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  wingless-review:
+    needs: wingless-original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.wingless-original.result == 'success'
+        with:
+          name: forge-r35-original
+          path: ${{ runner.temp }}/wingless-review
+      - uses: actions/download-artifact@v4
+        if: needs.wingless-original.result == 'success'
+        with:
+          run-id: 38535831669
+          github-token: ${{ github.token }}
+          name: forge-r34-independent-review
+          path: ${{ runner.temp }}/wingless-parent
+      - name: Quarantine missing or interrupted original without replay
+        if: needs.wingless-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/wingless-review"
+          echo '{"outcome":"CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}' > "$RUNNER_TEMP/wingless-review/independent-review.json"
+      - name: Independently recompute R35 sealed source metrics
+        if: needs.wingless-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/wingless-review" && sha256sum --check original.sha256)
+          test -s "$RUNNER_TEMP/wingless-review/started.txt"
+          python3 -B research/r35-wingless/review.py \
+            --manifest research/r35-wingless/prereg.json \
+            --raw "$RUNNER_TEMP/wingless-review/original.json" \
+            --parent-review "$RUNNER_TEMP/wingless-parent/independent-review.json" \
+            --out "$RUNNER_TEMP/wingless-review/independent-review.json"
+          echo 'R35_INDEPENDENT_SEALED_REVIEW=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r35-independent-review
+          path: ${{ runner.temp }}/wingless-review/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  yggdrasil-review:
+    needs: yggdrasil-original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.yggdrasil-original.result == 'success'
+        with:
+          name: forge-f1-original
+          path: ${{ runner.temp }}/ygg-review
+      - uses: actions/download-artifact@v4
+        if: needs.yggdrasil-original.result == 'success'
+        with:
+          run-id: 38535831669
+          github-token: ${{ github.token }}
+          name: forge-e3-independent-review
+          path: ${{ runner.temp }}/ygg-parent
+      - name: Quarantine missing or interrupted original without replay
+        if: needs.yggdrasil-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ygg-review"
+          echo '{"outcome":"CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}' > "$RUNNER_TEMP/ygg-review/independent-review.json"
+      - name: Independently recompute F1 pre-detection versus decoder error
+        if: needs.yggdrasil-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/ygg-review" && sha256sum --check original.sha256)
+          test -s "$RUNNER_TEMP/ygg-review/started.txt"
+          python3 -B research/f1-yggdrasil/independent_review.py \
+            --manifest research/f1-yggdrasil/prereg.json \
+            --original "$RUNNER_TEMP/ygg-review/original.json" \
+            --parent-review "$RUNNER_TEMP/ygg-parent/independent-review.json" \
+            --experiment-id Y-FORGE-F1-CROSS-PAIR-LATENCY-01 \
+            --out "$RUNNER_TEMP/ygg-review/independent-review.json"
+          echo 'F1_INDEPENDENT_SEALED_REVIEW=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f1-independent-review
+          path: ${{ runner.temp }}/ygg-review/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  two-lane-acceptance:
+    needs: [authorization, wingless-original, yggdrasil-original, wingless-review, yggdrasil-review]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/download-artifact@v4
+        if: needs.wingless-review.result == 'success' && needs.yggdrasil-review.result == 'success'
+        with:
+          name: forge-r35-independent-review
+          path: ${{ runner.temp }}/wreview
+      - uses: actions/download-artifact@v4
+        if: needs.wingless-review.result == 'success' && needs.yggdrasil-review.result == 'success'
+        with:
+          name: forge-f1-independent-review
+          path: ${{ runner.temp }}/yreview
+      - name: Require both independent reviews and only two originals
+        if: needs.wingless-review.result == 'success' && needs.yggdrasil-review.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])
+          w=json.loads((d/"wreview/independent-review.json").read_bytes())
+          y=json.loads((d/"yreview/independent-review.json").read_bytes())
+          if (w.get("experiment_id")!="W-FORGE-R35-TRAIN-QUARTILE-01" or
+              y.get("experiment_id")!="Y-FORGE-F1-CROSS-PAIR-LATENCY-01" or
+              w.get("independently_validated") is not True or
+              y.get("independently_validated") is not True or
+              w.get("original_replay_allowed") is not False or
+              y.get("original_replay_allowed") is not False):
+              raise SystemExit("R35_F1_INDEPENDENT_REVIEW_NOT_VERIFIED")
+          target={"schema":"forge.dual-r35-f1.science-proposal.v1","first_use_consumed":2,
+                  "new_originals_executed":2,"originals_replayed":0,
+                  "next_scientific_authority":False,"wingless_outcome":w["outcome"],
+                  "yggdrasil_outcome":y["outcome"],"next_experiments_proposed_only":True}
+          out=d/"next-proposals.json"
+          with out.open("x") as f:json.dump(target,f,sort_keys=True,indent=2)
+          print("FORGE_R35_F1_TWO_LANE_INDEPENDENT_SCIENCE=PASS")
+          print("R35_E4_NEW_DISPATCH=FALSE")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r35-f1-next-science-proposals
+          path: ${{ runner.temp }}/next-proposals.json
+          retention-days: 90
+          if-no-files-found: warn

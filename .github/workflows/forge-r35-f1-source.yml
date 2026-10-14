@@ -1,0 +1,42 @@
+name: FORGE R35 F1 frozen original source and first-use safeguards
+on:
+  push:
+    branches: [engineering/r35-f1-dual-followup-r1]
+    paths:
+      - 'research/r35-wingless/**'
+      - 'research/f1-yggdrasil/**'
+      - 'research/dual_followup/**'
+      - '.github/workflows/forge-r35-f1-source.yml'
+      - '.github/workflows/forge-r35-f1-once.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  qualified-source:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify exact frozen original science and reject replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/dual_followup -p 'test_*.py' -v
+          python -B -m py_compile research/r35-wingless/execute.py research/r35-wingless/review.py research/f1-yggdrasil/run_original.py research/f1-yggdrasil/independent_review.py research/dual_followup/budget_gate.py
+          test "$(git rev-parse HEAD:research/r35-wingless/prereg.json)" = 8228c9006777394376549ddca418ecd7efc5b49f
+          test "$(git rev-parse HEAD:research/f1-yggdrasil/prereg.json)" = 7dec76450e2192427cd60d24035e5087ed52fb40
+          test "$(git rev-parse HEAD:research/r35-wingless/execute.py)" = c5ee11c469f34289b7af81a46eedacf722e6333f
+          test "$(git rev-parse HEAD:research/r35-wingless/review.py)" = cca2c27e9bbef7a98ad5df304e2cab9c3fc6a518
+          test "$(git rev-parse HEAD:research/f1-yggdrasil/run_original.py)" = a19288bf54ca5fb13563eb4041c593923e234631
+          test "$(git rev-parse HEAD:research/f1-yggdrasil/independent_review.py)" = 40b62bf9aabdfa13e67727d3c3d5ad865da457fa
+          echo 'R35_F1_FROZEN_SCIENTIFIC_SOURCE_QUALIFIED=PASS'
+          echo 'R35_F1_SCIENTIFIC_ORIGINALS_LAUNCHED=0'
