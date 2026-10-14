@@ -140,6 +140,28 @@ func TestAmbiguousOrIncompleteSeedIndexReject(t *testing.T){
  sign(&s,priv)
  expectBlocked(t,s,p,f)
 }
+func TestInvalidCandidateIdentityAndMissingSeedCannotPass(t *testing.T){
+ scenarios:=[]struct{
+  name string
+  mutate func(*eligibility.Frozen)
+ }{
+  {"empty seeds",func(c *eligibility.Frozen){c.SeedIDs=nil}},
+  {"duplicate seed",func(c *eligibility.Frozen){c.SeedIDs=[]string{"Yggdrasil:70000","Yggdrasil:70000"}}},
+  {"another lane",func(c *eligibility.Frozen){c.Lane="Wingless"}},
+  {"other project",func(c *eligibility.Frozen){c.CandidateID="Y-FORGE-F4-TEST-ONLY"}},
+  {"unqualified source",func(c *eligibility.Frozen){c.SourceSHA="unknown"}},
+  {"nondecimal seed",func(c *eligibility.Frozen){c.SeedIDs=[]string{"Yggdrasil:unknown"}}},
+  {"zero budget",func(c *eligibility.Frozen){c.BudgetUnits=0}},
+ }
+ for _,tc:=range scenarios {
+  t.Run(tc.name,func(t *testing.T){
+   s,p,f,_:=fixtures()
+   tc.mutate(&f)
+   expectBlocked(t,s,p,f)
+  })
+ }
+}
+
 func TestDigestIsNotAuthentication(t *testing.T){
  s,p,f,priv:=fixtures()
  s.Attestation.ConsumedSeedIDs=append(s.Attestation.ConsumedSeedIDs,"Yggdrasil:70000")
