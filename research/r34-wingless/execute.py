@@ -50,6 +50,7 @@ def smooth_fit(w52,block,mode):
                 margin=y*sum(a*b for a,b in zip(w,x))
                 if margin<=0.25:
                     support+=1
+                if margin<=0.75:
                     for i in range(16):gradient[i]+=y*x[i]/576
             gradients.append(gradient)
             support_counts.append(support/576)
