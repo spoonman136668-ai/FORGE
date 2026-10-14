@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import pathlib
+import subprocess
 
 FROZEN_BLOB="7cfd170edabcb95de4383a3d6f2a44dd533b92d2"
 LANES=("wingless","yggdrasil")
@@ -93,7 +94,7 @@ def main():
     p=argparse.ArgumentParser()
     for key in ("frozen","audit","out"):p.add_argument("--"+key,required=True)
     args=p.parse_args()
-    result=propose(pathlib.Path(args.frozen).read_bytes(),pathlib.Path(args.audit).read_bytes())
+    result=propose(subprocess.check_output(['git','show','HEAD:research/dual_successor/frozen.json']),pathlib.Path(args.audit).read_bytes())
     path=pathlib.Path(args.out)
     path.parent.mkdir(parents=True,exist_ok=True)
     with path.open("x") as output:output.write(json.dumps(result,sort_keys=True,indent=2)+"\n")
