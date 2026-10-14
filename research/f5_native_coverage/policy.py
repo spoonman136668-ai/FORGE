@@ -10,7 +10,7 @@ from collections import Counter
 PROBES=(0,1,3,5,7)
 NONANCHOR=tuple(range(2,16))
 BASELINE=((0,1),(0,1),(0,1),(2,4),(2,4))
-POLICIES=("F5-FIXED","F5-COVERAGE","F5-MEMORY")
+POLICIES=("F5-FIXED","F5-COVERAGE","F5-MINIMAX","F5-MEMORY")
 MAX_REMEMBERED=4
 
 def require(value,code):
@@ -49,15 +49,17 @@ def choose(policy,episode,history):
     if episode in (0,1,3):return (0,1)
     if policy=="F5-FIXED":return (2,4)
     start=public_start(history)
-    # Minimax geometry over all 91 nonanchor pairs and 14 public start states.
-    # It raises worst-case exposure from 5/14 to 7/14; no hidden pair input.
-    offsets=(0,1,4,6)
+    # Keep two independently falsifiable mechanisms:
+    # - COVERAGE / MEMORY: original fixed-stride (historically favored)
+    # - MINIMAX: exhaustive 91-pair geometry (uniform-rotation worst-case)
+    # No access to hidden swap, seed, family or prospective data.
+    offsets=(0,1,4,6) if policy=="F5-MINIMAX" else (0,5,10,1)
     coords=tuple(NONANCHOR[(start+offset)%14] for offset in offsets)
     if episode==5:return coords[:2]
     require(episode==7,"UNEXPECTED_EPISODE")
     seen=history[5]
     require(set(seen)==set(coords[:2]),"MEMORY_IDENTITY_DRIFT")
-    if policy=="F5-COVERAGE":return coords[2:]
+    if policy in ("F5-COVERAGE","F5-MINIMAX"):return coords[2:]
     b0,a,d=calibration(history)
     inv=pow(a,-1,16)
     # Public residual only; no swap truth, label or hidden physical address.
