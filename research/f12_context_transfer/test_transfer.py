@@ -56,7 +56,7 @@ class F12Tests(unittest.TestCase):
 
     def test_seed_exclusivity_and_counterfactual_integrity(self):
         rows=samples()
-        with self.assertRaisesRegex(ValueError,"CASE_OR_SOURCE_ID"):
+        with self.assertRaisesRegex(ValueError,"CASE_IDENTITY"):
             grouped(rows,CHECK,tuple(range(6)))
         altered=copy.deepcopy(rows)
         altered[3]=copy.deepcopy(altered[0])
