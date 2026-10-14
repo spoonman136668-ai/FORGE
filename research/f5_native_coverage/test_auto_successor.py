@@ -7,7 +7,7 @@ import copy
 import json
 from pathlib import Path
 import unittest
-from auto_successor import prepare,canonical,recompute_groups
+from auto_successor import prepare,canonical
 from verify_auto_successor import verify
 
 OPTIONS=Path(__file__).with_name("successor_options.json").read_bytes()
@@ -49,7 +49,19 @@ def synthetic(memory_reprobe=True,minimax_worse=True,memory_gain=False):
        "scientific_originals_executed":0,"scientific_winner_selected":False,
        "scientific_authority":False,
     }
-    record["groups"]=recompute_groups({**record,"groups":None})
+    group={arm:{"cases":0,"pre":0,"post":0,"detections":0,
+                 "steady_errors":0,"memory_reprobe_cases":0} for arm in ARMS}
+    for item in data:
+        score=group[item["arm"]]
+        score["cases"]+=1
+        score["pre"]+=item["pre_mismatch"]
+        score["post"]+=item["post_mismatch"]
+        if item["regime"]=="steady":
+            score["steady_errors"]+=item["pre_mismatch"]+item["post_mismatch"]
+        if set(item["sample_trace"]["addresses"][3])==set(
+                item["sample_trace"]["addresses"][4]):
+            score["memory_reprobe_cases"]+=1
+    record["groups"]=group
     witness={
         "schema":"forge.f5.independent-historical-engineering-review.v1",
         "status":"HISTORICAL_SOURCE_REPLAY_ONLY_NO_NEW_FIRST_USE",
