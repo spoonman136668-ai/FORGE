@@ -7,7 +7,6 @@ matched-decoder comparator without inference-time access to pair identity.
 """
 import hashlib
 import json
-from collections import Counter
 from dataclasses import dataclass
 
 HISTORICAL_TRAIN_SEEDS=(67200,67201,67202,67203)
@@ -25,7 +24,7 @@ class TrainingCase:
 def historical_training_cases():
     # F3 training labels were part of its earlier public preregistration;
     # no F4 cohort use, heldout label, or model API call occurs here.
-    return tuple(TrainingCase(seed,HISTORICAL_TRAIN_SEEDS and F3_LEGAL_TRAIN_PAIRS[i%2])
+    return tuple(TrainingCase(seed,F3_LEGAL_TRAIN_PAIRS[i%2])
                  for i,seed in enumerate(HISTORICAL_TRAIN_SEEDS))
 
 def learn_coverage(training):
