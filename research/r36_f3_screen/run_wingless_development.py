@@ -70,6 +70,7 @@ def measure(checkout):
                 raise ValueError("R36_DEV_EVALUATION_SEED_DRIFT")
             scores[ident]={
                 "weights_sha256":model["weights_sha256"],
+                "weights":list(model["weights"]),
                 "accuracy":measured["accuracy"],
                 "family_accuracy":measured["family_accuracy"],
                 "by_seed":measured["by_seed"],
