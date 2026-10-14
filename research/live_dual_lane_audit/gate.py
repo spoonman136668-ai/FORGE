@@ -204,7 +204,7 @@ def main():
     path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
     for lane,status in result["lanes"].items():
-        print("REAL_LANE_"+lane.upper()+"="+status["status"],flush=True)
+        print("REAL_LANE_"+lane.upper()+"="+status["status"]+(" reason="+status.get("reason","") if status["status"]=="QUARANTINED_NO_REPLAY" else ""),flush=True)
     print("LIVE_TWO_LANE_HISTORICAL_ACCEPTANCE="+("PASS" if result["both_real_lanes_verified"] else "QUARANTINED"),flush=True)
     if not result["both_real_lanes_verified"]:sys.exit(1)
 
