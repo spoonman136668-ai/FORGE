@@ -1,19 +1,23 @@
-name: FORGE F5 history-only adaptive sensing qualification
+name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f5-native-coverage-r1]
+    branches: [engineering/f6-learned-uncertainty-r1]
     paths:
       - 'research/f5_native_coverage/**'
+      - 'research/f6_uncertainty/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
+      - '.github/workflows/qualify.yml'
   pull_request:
     branches: [main]
     paths:
       - 'research/f5_native_coverage/**'
+      - 'research/f6_uncertainty/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
+      - '.github/workflows/qualify.yml'
 permissions:
   contents: read
 jobs:
@@ -39,6 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           python -B -m unittest discover -s research/f5_native_coverage -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f6_uncertainty -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -159,6 +164,37 @@ jobs:
           print("F5_EVIDENCE_TO_SUCCESSOR_NO_MANUAL_HANDOFF=PASS")
           print("F5_SCIENCE_AUTHORITY_AND_FIRST_USE=ZERO")
           PY
+      - name: Autonomously fit F6 learned uncertainty and independently replay used-F3 validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f6_uncertainty/run_engineering.py \
+            --parent "$RUNNER_TEMP/f5-historical-evidence.json" \
+            --successor "$RUNNER_TEMP/f5-automatic-successor.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f6-trained-engineering.json"
+          python -B research/f6_uncertainty/verify_engineering.py \
+            --record "$RUNNER_TEMP/f6-trained-engineering.json" \
+            --parent "$RUNNER_TEMP/f5-historical-evidence.json" \
+            --successor "$RUNNER_TEMP/f5-automatic-successor.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f6-independent-review.json"
+          python -B - "$RUNNER_TEMP/f6-trained-engineering.json" "$RUNNER_TEMP/f6-independent-review.json" <<'PY'
+          import sys,json
+          model=json.load(open(sys.argv[1]))
+          reviewer=json.load(open(sys.argv[2]))
+          assert model["model"]["training_seed_ids"]==[67204,67205]
+          assert model["model"]["untouched_validation_seed_ids"]==[67206,67207]
+          assert len(model["validation_records"])==96
+          assert reviewer["validation_cases"]==96
+          assert reviewer["status"]=="F3_USED_SPLIT_REPLAY_QUALIFIED_NOT_PROSPECTIVE_SCIENCE"
+          assert model["new_cohort_accesses"]==0 and model["new_first_use_claims"]==0
+          assert model["new_originals"]==0 and model["scientific_authority"] is False
+          assert reviewer["scientific_dispatch_authorized"] is False
+          print("FORGE_F5_AUTOMATIC_F6_METHOD_ENGINEERING=PASS")
+          print("FORGE_F6_INDEPENDENT_REAL_SOURCE_REPLAY=PASS")
+          print("FORGE_F6_SCIENTIFIC_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -168,5 +204,7 @@ jobs:
             ${{ runner.temp }}/f5-geometry.json
             ${{ runner.temp }}/f5-automatic-successor.json
             ${{ runner.temp }}/f5-automatic-successor-review.json
+            ${{ runner.temp }}/f6-trained-engineering.json
+            ${{ runner.temp }}/f6-independent-review.json
           if-no-files-found: error
           retention-days: 90
