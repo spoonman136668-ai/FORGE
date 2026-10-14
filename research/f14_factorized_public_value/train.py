@@ -11,10 +11,13 @@ from fractions import Fraction
 import hashlib
 import json
 from pathlib import Path
-import sys
+import importlib.util
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"f13_raw_public_value"))
-from train import grouped
+_F13_PATH=Path(__file__).resolve().parents[1]/"f13_raw_public_value"/"train.py"
+_F13_SPEC=importlib.util.spec_from_file_location("_f13_source_training",_F13_PATH)
+_F13_MODULE=importlib.util.module_from_spec(_F13_SPEC)
+_F13_SPEC.loader.exec_module(_F13_MODULE)
+grouped=_F13_MODULE.grouped
 
 SOURCE="5797a257a75fe139313e8486cd1a1ae79c44b148"
 SMOOTH=(4,12,36,108)
