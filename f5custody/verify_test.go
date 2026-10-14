@@ -39,6 +39,7 @@ func fixtures()(Signed,Pins,eligibility.Frozen,ed25519.PrivateKey){
  pins:=Pins{
   CustodianPublicKeyHex:hex.EncodeToString(pub),MinRevision:11,
   ExpectedLedgerGeneration:9,LedgerSHA256:digest,
+  WinglessMinHighWater:4,YggdrasilMinHighWater:8,
  }
  s:=Signed{Attestation:a}
  sign(&s,priv)
@@ -77,6 +78,31 @@ func TestMissingAuthorityPinsReject(t *testing.T){
  s,p,f,_=fixtures();p.LedgerSHA256=""
  expectBlocked(t,s,p,f)
 }
+func TestIndependentlyPinnedLaneHighWaterCannotBeDowngraded(t *testing.T){
+ s,p,f,_:=fixtures()
+ p.WinglessMinHighWater=0
+ expectBlocked(t,s,p,f)
+ s,p,f,_=fixtures()
+ p.YggdrasilMinHighWater=0
+ expectBlocked(t,s,p,f)
+ s,p,f,_=fixtures()
+ p.WinglessMinHighWater=5
+ expectBlocked(t,s,p,f)
+ s,p,f,_=fixtures()
+ p.YggdrasilMinHighWater=9
+ expectBlocked(t,s,p,f)
+ // A properly signed but stale report is still insufficient, even
+ // when its Ed25519 signature is genuinely valid.
+ s,p,f,priv:=fixtures()
+ s.Attestation.LaneHighWater["Wingless"]=3
+ sign(&s,priv)
+ expectBlocked(t,s,p,f)
+ s,p,f,priv=fixtures()
+ s.Attestation.LaneHighWater["Yggdrasil"]=7
+ sign(&s,priv)
+ expectBlocked(t,s,p,f)
+}
+
 func TestForgedSignatureAndChangedContentReject(t *testing.T){
  s,p,f,_:=fixtures()
  s.Attestation.Revision=12
