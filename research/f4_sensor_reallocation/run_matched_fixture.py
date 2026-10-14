@@ -11,6 +11,8 @@ from matched_worker import (
     F3_DEV_USED,verify_comparators
 )
 
+from historical_train import historical_training_cases,learn_coverage,digest_model
+
 PAIRS=((8,10),(11,13))
 REGIMES=(("steady",None),("onset1",1))
 # Exactly 36 cases, one F3 already-used development seed and one original family.
@@ -18,6 +20,9 @@ FIXTURE_SEED=F3_DEV_USED[0]
 def run(root):
     y=load_pinned(root)
     verify_comparators()
+    training=learn_coverage(historical_training_cases())
+    if training["set_schedule"]!=[list(p) for p in SET_FIXTURE] or training["order_control_schedule"]!=[list(p) for p in ORDER_FIXTURE]:
+        raise ValueError("F4_TRAIN_ONLY_MODEL_COMPARATOR_DRIFT")
     results=[]
     family=y.FAMILIES[0]
     for pair in PAIRS:
@@ -40,6 +45,8 @@ def run(root):
         "matched_decoder":"F4-PUBLIC-DECODER-V1",
         "protocol_original_id":"Y-FORGE-F4-SENSOR-SET-REALLOCATION-01",
         "arms":{arm:[list(pair) for pair in schedule] for arm,schedule in ARMS.items()},
+        "historical_training":training,
+        "historical_training_sha256":digest_model(training),
         "records":results,
         "new_f4_dev_seeds_used":0,
         "sealed_first_use_claims":0,
