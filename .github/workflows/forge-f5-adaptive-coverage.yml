@@ -5,12 +5,14 @@ on:
     paths:
       - 'research/f5_native_coverage/**'
       - 'f5custody/**'
+      - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
   pull_request:
     branches: [main]
     paths:
       - 'research/f5_native_coverage/**'
       - 'f5custody/**'
+      - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
 permissions:
   contents: read
@@ -38,7 +40,11 @@ jobs:
           set -euo pipefail
           python -B -m unittest discover -s research/f5_native_coverage -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
-          go test ./f5custody -count=1 -v
+          go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
+          if go run ./cmd/forge-f5-firstuse-audit; then
+            echo "UNSIGNED_EMPTY_CUSTODY_WRONGLY_ACCEPTED"
+            exit 1
+          fi
           python -B -m compileall -q research/f5_native_coverage
           echo F5_PUBLIC_ONLY_MEMORIED_ADAPTATION_TESTS=PASS
           echo F5_SIGNED_ALL_LANE_CUSTODY_NEGATIVE_ENFORCEMENT=PASS
