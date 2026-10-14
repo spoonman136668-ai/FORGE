@@ -58,10 +58,10 @@ class CoverageGeometryTests(unittest.TestCase):
             h={0:{0:b0,1:(b0+1)%16},
                1:{0:b0,1:(b0+1)%16},
                3:{0:b0,1:(b0+1)%16}}
-            first=choose("F5-COVERAGE",5,h)
+            first=choose("F5-MINIMAX",5,h)
             self.assertEqual(first,tuple(((start+x)%14)+2 for x in (0,1)))
             h[5]={addr:(b0+addr)%16 for addr in first}
-            second=choose("F5-COVERAGE",7,h)
+            second=choose("F5-MINIMAX",7,h)
             self.assertEqual(second,tuple(((start+x)%14)+2 for x in (4,6)))
             self.assertEqual(len(set(first+second)),4)
 
