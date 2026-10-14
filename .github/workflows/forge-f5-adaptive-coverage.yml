@@ -1,7 +1,7 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f10-learned-observation-value-r1]
+    branches: [engineering/f11-task-aligned-observation-value-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
@@ -9,6 +9,7 @@ on:
       - 'research/f8_matched_timing/**'
       - 'research/f9_learned_timing/**'
       - 'research/f10_information_value/**'
+      - 'research/f11_task_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -22,6 +23,7 @@ on:
       - 'research/f8_matched_timing/**'
       - 'research/f9_learned_timing/**'
       - 'research/f10_information_value/**'
+      - 'research/f11_task_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -56,6 +58,7 @@ jobs:
           python -B -m unittest discover -s research/f8_matched_timing -p 'test_*.py' -v
           python -B -m unittest discover -s research/f9_learned_timing -p 'test_*.py' -v
           python -B -m unittest discover -s research/f10_information_value -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f11_task_value -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -369,6 +372,47 @@ jobs:
           print("F10_AUTOMATIC_NEGATIVE_TO_F11_PROPOSAL=PASS")
           print("F11_INDEPENDENT_NO_ORIGINAL_REPLAY=PASS")
           PY
+      - name: Automatically fit task-aligned F11 values and independently replay 1248 used source cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f11_task_value/advance.py \
+            --f10 "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --f10-witness "$RUNNER_TEMP/f10-independent-value-review.json" \
+            --f11 "$RUNNER_TEMP/f11-successor-proposal.json" \
+            --f11-witness "$RUNNER_TEMP/f11-successor-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f11-task-value-engineering.json"
+          python -B research/f11_task_value/verify.py \
+            --record "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --f10 "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --f10-witness "$RUNNER_TEMP/f10-independent-value-review.json" \
+            --f11 "$RUNNER_TEMP/f11-successor-proposal.json" \
+            --f11-witness "$RUNNER_TEMP/f11-successor-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f11-task-value-independent-review.json"
+          python -B - "$RUNNER_TEMP/f11-task-value-engineering.json" "$RUNNER_TEMP/f11-task-value-independent-review.json" <<'PY'
+          import json,sys
+          source=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert source["model"]["train_seeds"]==[67204,67205]
+          assert source["model"]["validation_seeds"]==[67206,67207]
+          assert len(source["model"]["value_table"])==84
+          assert len(source["training"])==576
+          assert len(source["validation"])==672
+          assert witness["training_real_source_case_arms"]==576
+          assert witness["validation_real_source_case_arms"]==672
+          assert witness["reviewed_model_table_values"]==84
+          assert witness["status"]=="PREVIOUS_F3_SOURCE_REPLAY_ONLY_NO_NEW_SCIENCE"
+          assert source["validation_summary"]==witness["validation_totals"]
+          assert source["new_first_use_claims"]==source["new_originals"]==0
+          assert source["new_cohort_accesses"]==source["paid_api_calls"]==0
+          assert source["scientific_dispatch_authorized"] is False
+          assert witness["scientific_dispatch_authorized"] is False
+          print("FORGE_F10_TO_F11_TASK_ALIGNED_VALUE_ENGINEERING=PASS")
+          print("FORGE_F11_REAL_SOURCE_INDEPENDENT_REPLAY=PASS")
+          print("FORGE_F11_PROSPECTIVE_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -390,5 +434,7 @@ jobs:
             ${{ runner.temp }}/f10-independent-value-review.json
             ${{ runner.temp }}/f11-successor-proposal.json
             ${{ runner.temp }}/f11-successor-review.json
+            ${{ runner.temp }}/f11-task-value-engineering.json
+            ${{ runner.temp }}/f11-task-value-independent-review.json
           if-no-files-found: error
           retention-days: 90
