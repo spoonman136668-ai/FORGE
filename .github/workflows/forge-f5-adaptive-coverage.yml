@@ -128,6 +128,37 @@ jobs:
           print("F5_ACTUAL_PUBLIC_READ_REPLAY_AND_NEGATIVE_ENFORCEMENT=PASS")
           print("F5_FIRST_USE=ZERO")
           PY
+      - name: Autonomously prepare independently reviewed successor from actual source replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f5_native_coverage/auto_successor.py \
+            --record "$RUNNER_TEMP/f5-historical-evidence.json" \
+            --witness "$RUNNER_TEMP/f5-historical-witness.json" \
+            --geometry "$RUNNER_TEMP/f5-geometry.json" \
+            --options research/f5_native_coverage/successor_options.json \
+            --out "$RUNNER_TEMP/f5-automatic-successor.json"
+          python -B research/f5_native_coverage/verify_auto_successor.py \
+            --proposal "$RUNNER_TEMP/f5-automatic-successor.json" \
+            --record "$RUNNER_TEMP/f5-historical-evidence.json" \
+            --witness "$RUNNER_TEMP/f5-historical-witness.json" \
+            --geometry "$RUNNER_TEMP/f5-geometry.json" \
+            --options research/f5_native_coverage/successor_options.json \
+            --out "$RUNNER_TEMP/f5-automatic-successor-review.json"
+          python -B - "$RUNNER_TEMP/f5-automatic-successor.json" "$RUNNER_TEMP/f5-automatic-successor-review.json" <<'PY'
+          import json,sys
+          s=json.load(open(sys.argv[1]))
+          review=json.load(open(sys.argv[2]))
+          assert s["disposition"]=="SUCCESSOR_PREPARED_CUSTODY_BLOCKED_NO_ORIGINAL"
+          assert review["status"]=="PROPOSAL_HONESTLY_PREPARED_NO_ORIGINAL_AUTHORITY"
+          assert review["selected_id"]==s["selected"]["proposal_id"]
+          assert s["scientific_dispatch_authorized"] is False
+          assert s["new_scientific_originals"]==0 and s["new_first_use_claims"]==0
+          assert s["new_seed_allocations"]==0 and s["paid_api_calls"]==0
+          assert s["not_a_scientific_winner"] is True
+          print("F5_EVIDENCE_TO_SUCCESSOR_NO_MANUAL_HANDOFF=PASS")
+          print("F5_SCIENCE_AUTHORITY_AND_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -135,5 +166,7 @@ jobs:
             ${{ runner.temp }}/f5-historical-evidence.json
             ${{ runner.temp }}/f5-historical-witness.json
             ${{ runner.temp }}/f5-geometry.json
+            ${{ runner.temp }}/f5-automatic-successor.json
+            ${{ runner.temp }}/f5-automatic-successor-review.json
           if-no-files-found: error
           retention-days: 90
