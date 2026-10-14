@@ -1,0 +1,40 @@
+name: FORGE Yggdrasil B1 B2 frozen source and tuple/list regression
+on:
+  push:
+    branches: [engineering/ygg-fresh-b1-b2-parity-r1]
+    paths:
+      - 'research/forge-ygg-parity-b/**'
+      - '.github/workflows/forge-ygg-parity-b-source.yml'
+      - '.github/workflows/forge-ygg-parity-b-once.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen B1/B2 source and rejects duplicate claims
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/forge-ygg-parity-b -p 'test_*.py' -v
+          python -B -m py_compile research/forge-ygg-parity-b/*.py
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-b/prereg.json)" = 4c62067e255076ece4df1efa907d146eb230765c
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/6158888644" --jq .user.login | grep -Fx spoonman136668-ai
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=1" --jq .total_count | grep -E '^[0-9]+$'
+          echo 'YGG_B1_B2_FROZEN_QUALIFICATION=PASS'
+          echo 'YGG_B1_B2_ORIGINALS_STARTED=FALSE'
