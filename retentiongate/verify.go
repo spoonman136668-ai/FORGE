@@ -53,8 +53,33 @@ type Report struct{
  FirstUseAuthenticated bool `json:"first_use_authenticated"`
  ScientificAccepted bool `json:"scientific_accepted"`
 }
+// Reject recursive duplicate/case-aliased JSON keys before Go's decoder
+// can apply last-key-wins to a purported external trust root or receipt.
+func uniqueJSON(raw []byte)bool{
+ d:=json.NewDecoder(bytes.NewReader(raw))
+ var visit func(int)bool
+ visit=func(depth int)bool{
+  if depth>32{return false}
+  t,err:=d.Token();if err!=nil{return false}
+  delim,ok:=t.(json.Delim);if !ok{return true}
+  if delim!='{'&&delim!='['{return false}
+  keys:=map[string]bool{}
+  for d.More(){
+   if delim=='{'{
+    k,err:=d.Token();if err!=nil{return false}
+    name,ok:=k.(string);if !ok||len(name)==0||len(name)>128{return false}
+    canonical:=strings.ToLower(name)
+    if keys[canonical]{return false};keys[canonical]=true
+   }
+   if !visit(depth+1){return false}
+  }
+  end,err:=d.Token();return err==nil&&end==json.Delim(map[json.Delim]rune{'{':'}','[':']'}[delim])
+ }
+ if !visit(0){return false}
+ _,err:=d.Token();return err==io.EOF
+}
 func parse(raw []byte,dest any)bool{
- if len(raw)==0||len(raw)>4096{return false}
+ if len(raw)==0||len(raw)>4096||!uniqueJSON(raw){return false}
  d:=json.NewDecoder(bytes.NewReader(raw));d.DisallowUnknownFields()
  return d.Decode(dest)==nil&&d.Decode(new(any))==io.EOF
 }
