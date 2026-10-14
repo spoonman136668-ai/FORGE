@@ -1,5 +1,12 @@
 name: FORGE pinned real two-lane continuity and no-replay gate
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/live_dual_lane_audit/**'
+      - 'research/dual_successor/**'
+      - 'classification/**'
+      - '.github/workflows/forge-real-dual-lane-continuity.yml'
   workflow_dispatch:
   schedule:
     - cron: '17 */12 * * *'
@@ -118,3 +125,112 @@ jobs:
           path: ${{ runner.temp }}/forge-real-lane-custody/real-continuity-report.json
           retention-days: 30
           if-no-files-found: warn
+
+
+  reviewed-successor-handoff:
+    needs: verified-real-archive
+    if: needs.verified-real-archive.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require exact frozen successor constraints and signed review readiness tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:research/dual_successor/frozen.json)" = 7cfd170edabcb95de4383a3d6f2a44dd533b92d2
+          python3 -B -m unittest discover -s research/dual_successor -p 'test_*.py' -v
+      - name: Retrieve exact independently reaggregated real parent evidence from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: forge-readonly-real-two-lane-continuity
+          path: ${{ runner.temp }}/forge-r6-handoff
+      - name: Automatically propose successors from authentic reviewed historical originals
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-r6-handoff"
+          audit="$root/real-continuity-report.json"
+          jq -e '
+            .schema == "forge.two-lane.real-evidence-continuity.v1" and
+            .mode == "READ_ONLY_VERIFIED_ARCHIVES_NOT_UNATTENDED_SCIENCE_AUTHORITY" and
+            .both_real_lanes_verified == true and
+            .new_originals_executed == 0 and .originals_replayed == 0 and
+            .new_science_dispatch_authorized == false and
+            .ckb_authority_changed == false and
+            (.lanes | keys == ["wingless","yggdrasil"]) and
+            all(.lanes[];
+              .status == "QUALIFIED_HISTORICAL_TWO_ORIGINAL_CYCLE" and
+              .originals_replayed == 0 and
+              .next_science_dispatch_authorized == false and
+              (.originals | length) == 2 and
+              all(.originals[];
+                .independently_validated == true and
+                .original_replay_allowed == false))
+          ' "$audit" > /dev/null
+          python3 -B research/dual_successor/prepare.py \
+            --frozen "$GITHUB_WORKSPACE/research/dual_successor/frozen.json" \
+            --audit "$audit" \
+            --out "$root/next-proposals.json"
+          jq -e '
+            .schema == "forge.real-dual-lane.science-proposals.v1" and
+            .admission == "PREPARED_NOT_AUTHORIZED" and
+            .next_originals_authorized == 0 and
+            .first_use_claims_created == 0 and
+            .originals_replayed == 0 and
+            .paid_api_calls == 0 and
+            .external_FSA_activated == false and
+            .ckb_authority_changed == false and
+            .lanes.wingless.experiment_id == "W-FORGE-R34-MARGIN-SUPPORT-01" and
+            .lanes.yggdrasil.experiment_id == "Y-FORGE-E3-ONSET-LATENCY-01"
+          ' "$root/next-proposals.json" > /dev/null
+          python3 -B research/dual_successor/prepare.py \
+            --frozen "$GITHUB_WORKSPACE/research/dual_successor/frozen.json" \
+            --audit "$audit" \
+            --out "$root/idempotent-proposals.json"
+          cmp "$root/next-proposals.json" "$root/idempotent-proposals.json"
+          python3 - "$audit" "$root/next-proposals.json" "$root/r6-disposition.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          audit=pathlib.Path(sys.argv[1]).read_bytes()
+          proposal=pathlib.Path(sys.argv[2]).read_bytes()
+          p=json.loads(proposal)
+          out={
+            "schema":"forge.r6.real-evidence-auto-successor-handoff.v1",
+            "mode":"VERIFIED_HISTORICAL_PARENTS_TO_AUTOMATIC_ADVISORY_NOT_NEW_SCIENCE",
+            "parent_real_evidence_sha256":hashlib.sha256(audit).hexdigest(),
+            "proposal_sha256":hashlib.sha256(proposal).hexdigest(),
+            "wingless_parent":"W-FORGE-R33-CONDITIONAL-TEMP-01",
+            "yggdrasil_parent":"Y-FORGE-PARITY-E2-ONSET1",
+            "wingless_successor":p["lanes"]["wingless"]["experiment_id"],
+            "yggdrasil_successor":p["lanes"]["yggdrasil"]["experiment_id"],
+            "authenticated_r5_ed25519_parent_receipts_present":False,
+            "new_first_use_admitted":False,
+            "new_originals_executed":0,
+            "historical_originals_replayed":0,
+            "live_autonomous_science_qualified":False,
+            "owner_authority_changed":False
+          }
+          pathlib.Path(sys.argv[3]).write_text(json.dumps(out,sort_keys=True)+"\n")
+          PY
+          (cd "$root" && sha256sum real-continuity-report.json next-proposals.json r6-disposition.json > r6-sha256.txt && sha256sum --check r6-sha256.txt)
+          echo 'R6_GENUINE_HISTORICAL_ORIGINAL_TO_SUCCESSOR_AUTOMATIC_HANDOFF=PASS'
+          echo 'R6_AUTHENTIC_FIRST_USE_AND_UNATTENDED_NEW_SCIENCE=STILL_BLOCKED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r6-real-history-automatic-successor-readonly
+          path: |
+            ${{ runner.temp }}/forge-r6-handoff/real-continuity-report.json
+            ${{ runner.temp }}/forge-r6-handoff/next-proposals.json
+            ${{ runner.temp }}/forge-r6-handoff/r6-disposition.json
+            ${{ runner.temp }}/forge-r6-handoff/r6-sha256.txt
+          retention-days: 90
+          if-no-files-found: error
