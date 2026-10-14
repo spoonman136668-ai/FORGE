@@ -43,6 +43,10 @@ type Pins struct {
  MinRevision uint64
  ExpectedLedgerGeneration uint64
  LedgerSHA256 string
+ // Independently pinned lane source high-water floors, never taken from
+ // the candidate or the purported signed snapshot itself.
+ WinglessMinHighWater uint64
+ YggdrasilMinHighWater uint64
 }
 type Report struct {
  Schema string `json:"schema"`
@@ -112,6 +116,7 @@ func Inspect(s Signed,p Pins,candidate eligibility.Frozen)(Report,error){
   return deny("INVALID_FROZEN_F5_SEED_OR_SOURCE_IDENTITY")
  }
  if p.MinRevision==0||p.ExpectedLedgerGeneration==0||
+  p.WinglessMinHighWater==0||p.YggdrasilMinHighWater==0||
   len(p.CustodianPublicKeyHex)!=ed25519.PublicKeySize*2||
   len(p.LedgerSHA256)!=64{
   return deny("MISSING_INDEPENDENT_AUTHORITY_PINS")
@@ -128,8 +133,9 @@ func Inspect(s Signed,p Pins,candidate eligibility.Frozen)(Report,error){
  if a.Schema!=Schema||a.Scope!="ALL_LANES"||
   a.Coverage!="GENESIS_TO_HIGH_WATER_INCLUDING_UNCERTAIN"||
   a.Revision<p.MinRevision||a.Ledger.Generation!=p.ExpectedLedgerGeneration||
-  len(a.LaneHighWater)!=2||a.LaneHighWater["Wingless"]==0||
-  a.LaneHighWater["Yggdrasil"]==0{
+  len(a.LaneHighWater)!=2||
+  a.LaneHighWater["Wingless"]<p.WinglessMinHighWater||
+  a.LaneHighWater["Yggdrasil"]<p.YggdrasilMinHighWater{
   return deny("INCOMPLETE_ALL_LANE_OR_STALE_WITNESS")
  }
  for _,list:=range [][]string{a.ConsumedSeedIDs,a.ActiveSeedIDs,a.UncertainSeedIDs}{
