@@ -1,7 +1,7 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f13-raw-public-transfer-r1]
+    branches: [engineering/f14-factorized-public-task-value-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
@@ -12,6 +12,7 @@ on:
       - 'research/f11_task_value/**'
       - 'research/f12_context_transfer/**'
       - 'research/f13_raw_public_value/**'
+      - 'research/f14_factorized_public_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -28,6 +29,7 @@ on:
       - 'research/f11_task_value/**'
       - 'research/f12_context_transfer/**'
       - 'research/f13_raw_public_value/**'
+      - 'research/f14_factorized_public_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -65,6 +67,7 @@ jobs:
           python -B -m unittest discover -s research/f11_task_value -p 'test_*.py' -v
           python -B -m unittest discover -s research/f12_context_transfer -p 'test_*.py' -v
           python -B -m unittest discover -s research/f13_raw_public_value -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f14_factorized_public_value -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -488,6 +491,44 @@ jobs:
           print("F13_INDEPENDENT_SOURCE_BOUND_REVIEW=PASS")
           print("F13_FRESH_SCIENTIFIC_FIRST_USE=ZERO")
           PY
+      - name: Advance F13 negative into F14 learned factorized task-value and independent replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f14_factorized_public_value/train.py \
+            --f11 "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --f11-witness "$RUNNER_TEMP/f11-task-value-independent-review.json" \
+            --f13 "$RUNNER_TEMP/f13-raw-public-engineering.json" \
+            --f13-witness "$RUNNER_TEMP/f13-independent-review.json" \
+            --out "$RUNNER_TEMP/f14-factorized-public-engineering.json"
+          python -B research/f14_factorized_public_value/verify.py \
+            --record "$RUNNER_TEMP/f14-factorized-public-engineering.json" \
+            --f11 "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --f11-witness "$RUNNER_TEMP/f11-task-value-independent-review.json" \
+            --f13 "$RUNNER_TEMP/f13-raw-public-engineering.json" \
+            --f13-witness "$RUNNER_TEMP/f13-independent-review.json" \
+            --out "$RUNNER_TEMP/f14-independent-review.json"
+          python -B - "$RUNNER_TEMP/f14-factorized-public-engineering.json" "$RUNNER_TEMP/f14-independent-review.json" <<'PY'
+          import json,sys
+          result=json.load(open(sys.argv[1]))
+          review=json.load(open(sys.argv[2]))
+          assert result["schema"]=="forge.f14.factorized-public-task-value.v1"
+          assert review["schema"]=="forge.f14.independent-factorized-value-review.v1"
+          assert result["status"]=="REUSED_F3_HISTORICAL_SOURCE_ONLY"
+          assert len(result["validation_choices"])==96
+          assert review["training_case_arms"]==review["validation_case_arms"]==576
+          assert review["historical_task_mismatches"]==result["validation_task_mismatches"]
+          assert review["model_sha256"]==result["frozen_model_sha256"]
+          assert review["best_fixed_historical_mismatches"]==66
+          assert result["scientific_winner_selected"] is False
+          assert result["scientific_dispatch_authorized"] is False
+          assert result["new_originals"]==result["first_use_claims"]==0
+          assert review["new_first_use_claims"]==0
+          print("F14_AUTOMATIC_FACTORIZED_PUBLIC_TASK_VALUE=PASS")
+          print("F14_INDEPENDENT_RECOMPUTED_SOURCE_REVIEW=PASS")
+          print("F14_HISTORICAL_TASK_MISMATCHES="+str(result["validation_task_mismatches"]))
+          print("F14_FRESH_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -515,5 +556,7 @@ jobs:
             ${{ runner.temp }}/f12-independent-cross-context-review.json
             ${{ runner.temp }}/f13-raw-public-engineering.json
             ${{ runner.temp }}/f13-independent-review.json
+            ${{ runner.temp }}/f14-factorized-public-engineering.json
+            ${{ runner.temp }}/f14-independent-review.json
           if-no-files-found: error
           retention-days: 90
