@@ -1,0 +1,38 @@
+name: FORGE C1 consumed-launch authorization preflight diagnosis only
+on:
+  push:
+    branches: [engineering/ygg-c-authority-preflight-diagnostic-r1]
+    paths: ['.github/workflows/forge-ygg-c-auth-diagnostic.yml']
+permissions:
+  contents: read
+  actions: read
+  issues: read
+jobs:
+  preflight-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cab5b60d817d75ed728de356dc63b8292c76c5b8
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Diagnose archived C1 once-only authorization checks without any scientific dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ORIGINAL_PRESERVED_HEAD=$(git rev-parse HEAD)"
+          echo "ORIGINAL_PARENT=$(git rev-parse HEAD^)"
+          echo "ORIGINAL_CHANGED_PATHS=$(git diff --name-only HEAD^ HEAD)"
+          echo "ORIGINAL_FROZEN_SOURCE=$(python3 -c 'import json;print(json.load(open("research/forge-ygg-parity-c/launch.json"))["source_commit"])')"
+          echo "ORIGINAL_MANIFEST_BLOB=$(git rev-parse HEAD:research/forge-ygg-parity-c/prereg.json)"
+          echo "ORIGINAL_WORKER_BLOB=$(git rev-parse HEAD:research/forge-ygg-parity-c/run_original.py)"
+          echo "ORIGINAL_REVIEWER_BLOB=$(git rev-parse HEAD:research/forge-ygg-parity-c/independent_review.py)"
+          test "$(git rev-parse HEAD)" = cab5b60d817d75ed728de356dc63b8292c76c5b8
+          test "$(git diff --name-only HEAD^ HEAD)" = research/forge-ygg-parity-c/launch.json
+          test "$(git rev-parse HEAD^)" = 9d24ef3a27f14036f0bfb54b7a3b815bacaf6df7
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-c/prereg.json)" = ff6404eb075c9f6c1c18783cd6536bf439c80728
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-c/run_original.py)" = 62aa6b65834da4a9b18a45a3646f642c86f71648
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-c/independent_review.py)" = 951033efea3d6ec427f67382b49c9f7ba5423ddf
+          echo 'C1_ARCHIVED_AUTHORIZATION_SOURCE_VERIFIED=PASS'
+          echo 'C1_FIRST_USE_REPLAY=FALSE'
