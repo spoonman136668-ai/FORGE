@@ -124,6 +124,24 @@ jobs:
           assert review["promotion_authorized"] is False
           print("F3_INDEPENDENT_DEVELOPMENT_CLOSEOUT=PASS")
           PY
+          python -B - "$RUNNER_TEMP/yggdrasil-policy-development.json" "$RUNNER_TEMP/yggdrasil-policy-witness.json" <<'PY'
+          import json,sys,copy
+          sys.path.insert(0,"research/r36_f3_screen")
+          from independent_dev_closeout import adjudicate
+          record=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          adversarial=copy.deepcopy(record)
+          adversarial["records"][1]["public_addresses"]=[[0,1],[0,1],[0,1],[2,4],[2,4]]
+          try:adjudicate(adversarial,witness)
+          except ValueError:pass
+          else:raise AssertionError("F3_PUBLIC_SENSOR_TAMPER_WAS_ACCEPTED")
+          altered=copy.deepcopy(witness)
+          altered["aggregates"]["YF3-C1"]["pre"]+=1
+          try:adjudicate(record,altered)
+          except ValueError:pass
+          else:raise AssertionError("F3_INDEPENDENT_SCORE_TAMPER_WAS_ACCEPTED")
+          print("F3_NEGATIVE_ENFORCEMENT=PASS")
+          PY
           python -B research/r36_f3_screen/run_yggdrasil_development.py --yggdrasil-root yggdrasil-source --out "$RUNNER_TEMP/yggdrasil-development.json"
       - name: Independently replay Yggdrasil development baseline
         shell: bash
