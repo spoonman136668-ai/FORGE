@@ -1,0 +1,42 @@
+name: FORGE R34 E3 frozen original source and first-use safeguards
+on:
+  push:
+    branches: [engineering/r34-e3-two-lane-originals-r1]
+    paths:
+      - 'research/r34-wingless/**'
+      - 'research/e3-yggdrasil/**'
+      - 'research/dual_originals/**'
+      - '.github/workflows/forge-r34-e3-source.yml'
+      - '.github/workflows/forge-r34-e3-once.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  qualified-source:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify exact frozen original science and reject replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/dual_originals -p 'test_*.py' -v
+          python -B -m py_compile research/r34-wingless/execute.py research/r34-wingless/review.py research/e3-yggdrasil/run_original.py research/e3-yggdrasil/independent_review.py research/dual_originals/budget_gate.py
+          test "$(git rev-parse HEAD:research/r34-wingless/prereg.json)" = 90b07ad0a95d1aeed3910f4f078f92089fc67733
+          test "$(git rev-parse HEAD:research/e3-yggdrasil/prereg.json)" = c5406b30e45895af9a70c074ae1b5de5b70df1cf
+          test "$(git rev-parse HEAD:research/r34-wingless/execute.py)" = c3598d9119a756abbb0c8bc60c522119f2f6eac3
+          test "$(git rev-parse HEAD:research/r34-wingless/review.py)" = 1cc0c56919f47044d1be2a35989a89d5c8670799
+          test "$(git rev-parse HEAD:research/e3-yggdrasil/run_original.py)" = 6d663e691149aa1dd383977785808785ad542985
+          test "$(git rev-parse HEAD:research/e3-yggdrasil/independent_review.py)" = ff58469ae2dd458944b44c863fd17941446fe929
+          echo 'R34_E3_FROZEN_SCIENTIFIC_SOURCE_QUALIFIED=PASS'
+          echo 'R34_E3_SCIENTIFIC_ORIGINALS_LAUNCHED=0'
