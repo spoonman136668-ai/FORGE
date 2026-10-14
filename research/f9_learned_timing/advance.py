@@ -137,11 +137,11 @@ def execute(parent_raw,review_raw,root):
     trigger=preflight(json.loads(parent_raw),json.loads(review_raw))
     training=cases(source,TRAIN_SEEDS,(RULE_EARLY,RULE_SWAP))
     model=fit(training)
-    validation=cases(source,VALIDATION_SEEDS,
-                     (RULE_EARLY,RULE_SWAP,model["selected_rule"]))
-    # If selected policy is a constant comparator, avoid a duplicate
-    # evaluation: the case count remains 288 for deterministic witnesses,
-    # but the label identity must remain explicit in future refactoring.
+    validation_rules=tuple(dict.fromkeys((
+        RULE_EARLY,RULE_SWAP,model["selected_rule"])))
+    validation=cases(source,VALIDATION_SEEDS,validation_rules)
+    # Constant-rule selection means no third distinct arm. In that case
+    # the learned policy is genuinely nonadaptive; never claim otherwise.
     return {"schema":"forge.f9.automatic-public-order-training.v1",
         "status":"F3_PREVIOUSLY_USED_ENGINEERING_ONLY",
         "parent_f8_sha256":hashlib.sha256(parent_raw).hexdigest(),
@@ -150,6 +150,7 @@ def execute(parent_raw,review_raw,root):
         "training":training,"validation":validation,
         "training_case_arms":len(training),
         "validation_case_arms":len(validation),
+        "validation_rules":list(validation_rules),
         "source_commit":SOURCE_COMMIT,
         "new_cohort_uses":0,"first_use_claims":0,
         "scientific_originals":0,"paid_api_calls":0,
