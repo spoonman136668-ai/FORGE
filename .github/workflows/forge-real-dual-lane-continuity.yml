@@ -1,0 +1,120 @@
+name: FORGE pinned real two-lane continuity and no-replay gate
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */12 * * *'
+  push:
+    branches: [engineering/dual-lane-live-continuity-r1, main]
+    paths:
+      - 'research/live_dual_lane_audit/**'
+      - '.github/workflows/forge-real-dual-lane-continuity.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-real-dual-lane-evidence-watch
+  cancel-in-progress: false
+jobs:
+  verified-real-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify fail-closed dual-lane custody and isolation
+        run: python3 -B -m unittest discover -s research/live_dual_lane_audit -p 'test_*.py' -v
+      - name: Pin exact frozen Wingless scientific source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 2f66a21bd32fea36909582b76e882c71a14b1bba
+          path: pinned-wingless
+          persist-credentials: false
+      - name: Pin exact frozen Yggdrasil scientific source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: ef0f717de4a86dedae25c192cb9ca302f840a49c
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Fetch pinned historical science, GitHub job evidence and custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-real-lane-custody"
+          mkdir -p "$root/claims"
+          test "$(git -C pinned-wingless rev-parse HEAD)" = 2f66a21bd32fea36909582b76e882c71a14b1bba
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = ef0f717de4a86dedae25c192cb9ca302f840a49c
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/research/forge-first-use-claims-r32-r33" --jq .object.sha)" = 7df75d6f3b95c9429d8ae2087c395c17d78dd910
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/research/forge-ygg-e-firstuse-claims" --jq .object.sha)" = ac1aa19318cb887828a9adaa0b9d193795e29576
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38492640534" > "$root/wingless-parent-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38492640534/artifacts?per_page=100" > "$root/wingless-parent-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38494601555" > "$root/wingless-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38494601555/jobs?per_page=100" > "$root/wingless-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38494601555/artifacts?per_page=100" > "$root/wingless-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38494829090" > "$root/wingless-recovery-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38530046134" > "$root/yggdrasil-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38530046134/jobs?per_page=100" > "$root/yggdrasil-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38530046134/artifacts?per_page=100" > "$root/yggdrasil-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/blobs/d1a6739d1b2f6a0e63fbe408c0cf916ba944db5e" --jq .content | base64 --decode > "$root/claims/w32.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/blobs/561939b4525ea70a1c44ee135c370845928c7d0b" --jq .content | base64 --decode > "$root/claims/w33.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/blobs/c4414f94e9196816fc40796f36ccf9d59e820cf5" --jq .content | base64 --decode > "$root/claims/y1.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/blobs/f305f0eae802ae70030db3460c10cdd848e14ce0" --jq .content | base64 --decode > "$root/claims/y2.json"
+          gh run download 38492640534 --repo "$GITHUB_REPOSITORY" -n forge-r31-independent-review-and-r32 -D "$root/w31-parent"
+          gh run download 38494601555 --repo "$GITHUB_REPOSITORY" -n forge-r32-firstuse-original -D "$root/w32-original"
+          gh run download 38494601555 --repo "$GITHUB_REPOSITORY" -n forge-r32-independent-review -D "$root/w32-review"
+          gh run download 38494601555 --repo "$GITHUB_REPOSITORY" -n forge-r33-autonomous-original -D "$root/w33-original"
+          gh run download 38494601555 --repo "$GITHUB_REPOSITORY" -n forge-r33-independent-review-and-r32 -D "$root/w33-review"
+          gh run download 38530046134 --repo "$GITHUB_REPOSITORY" -n forge-ygg-e1-original -D "$root/y1-original"
+          gh run download 38530046134 --repo "$GITHUB_REPOSITORY" -n forge-ygg-e1-independent-review -D "$root/y1-review"
+          gh run download 38530046134 --repo "$GITHUB_REPOSITORY" -n forge-ygg-e2-autonomous-original -D "$root/y2-original"
+          gh run download 38530046134 --repo "$GITHUB_REPOSITORY" -n forge-ygg-e2-review-and-c3-proposal -D "$root/y2-review"
+          echo 'PINNED_REAL_ARTIFACTS_AND_FIRST_USE_CLAIMS=FETCHED'
+      - name: Independently recompute both real research lanes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B research/live_dual_lane_audit/gate.py \
+            --root "$RUNNER_TEMP/forge-real-lane-custody" \
+            --wingless-source "$GITHUB_WORKSPACE/pinned-wingless" \
+            --yggdrasil-source "$GITHUB_WORKSPACE/pinned-yggdrasil" \
+            --out "$RUNNER_TEMP/forge-real-lane-custody/real-continuity-report.json"
+      - name: Deliberately corrupt one real lane and verify the other survives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import importlib.util,os,pathlib,shutil,tempfile
+          src=pathlib.Path(os.environ["GITHUB_WORKSPACE"])/"research/live_dual_lane_audit/gate.py"
+          spec=importlib.util.spec_from_file_location("forge_verified_lanes",src)
+          mod=importlib.util.module_from_spec(spec);spec.loader.exec_module(mod)
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-real-lane-custody"
+          with tempfile.TemporaryDirectory() as scratch:
+              d=pathlib.Path(scratch)/"corrupt"
+              shutil.copytree(root,d)
+              (d/"w32-original/original.json").write_text("{}")
+              r=mod.audit(d,pathlib.Path(os.environ["GITHUB_WORKSPACE"])/"pinned-wingless",
+                            pathlib.Path(os.environ["GITHUB_WORKSPACE"])/"pinned-yggdrasil")
+              if (r["lanes"]["wingless"]["status"]!="QUARANTINED_NO_REPLAY" or
+                  r["lanes"]["yggdrasil"]["status"]!="QUALIFIED_HISTORICAL_TWO_ORIGINAL_CYCLE" or
+                  r["both_real_lanes_verified"] or r["new_originals_executed"]!=0 or
+                  r["new_science_dispatch_authorized"]):
+                  raise SystemExit("FORGE_CROSS_LANE_QUARANTINE_FAILED")
+          print("ONE_LANE_CORRUPTION_QUARANTINES_ONLY_THAT_LANE=PASS")
+          print("REPLAYED_ORIGINALS=ZERO")
+          print("AUTOMATIC_NEW_SCIENCE_AUTHORITY=FALSE")
+          PY
+      - name: Preserve accepted or quarantined read-only report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-readonly-real-two-lane-continuity
+          path: ${{ runner.temp }}/forge-real-lane-custody/real-continuity-report.json
+          retention-days: 30
+          if-no-files-found: warn
