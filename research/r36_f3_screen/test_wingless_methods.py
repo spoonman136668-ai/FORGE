@@ -19,6 +19,22 @@ class WinglessMethodsTests(unittest.TestCase):
                 self.assertEqual(len(a["weights"]),16)
                 self.assertEqual(a["source_training_counts"],(576,576,576))
                 self.assertTrue(all(math.isfinite(w) for w in a["weights"]))
+    def test_mechanism_capacity_is_preregistered(self):
+        training=groups()
+        projected=train("W36-C1",training)["mechanism"]
+        self.assertEqual(projected["rank"],8)
+        self.assertEqual(projected["trained_scalar_count"],16)
+        self.assertEqual(len(projected["projector_angles"]),8)
+        self.assertEqual(len(projected["prediction_head"]),8)
+        risk=train("W36-C3",training)["mechanism"]
+        self.assertEqual(risk["shared_weight_dimension"],16)
+        self.assertEqual(risk["gate_state_count"],2)
+        self.assertEqual(len(risk["learned_risk_logits"]),2)
+        memory=train("W36-C4",training)["mechanism"]
+        self.assertEqual(memory["memory_slots_per_source"],32)
+        conflict=train("W36-C2",training)["mechanism"]
+        self.assertEqual(conflict["conflict_projection"],"deterministic_pairwise_orthogonal")
+
     def test_bad_source_count_fails(self):
         with self.assertRaisesRegex(ValueError,"R36_SOURCE_COUNT"):
             train("W36-C1",groups()[:2])
