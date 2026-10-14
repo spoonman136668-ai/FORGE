@@ -1,11 +1,12 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f7-early-public-coverage-r1]
+    branches: [engineering/f8-matched-sensor-timing-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
       - 'research/f7_early_coverage/**'
+      - 'research/f8_matched_timing/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -16,6 +17,7 @@ on:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
       - 'research/f7_early_coverage/**'
+      - 'research/f8_matched_timing/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -47,6 +49,7 @@ jobs:
           python -B -m unittest discover -s research/f5_native_coverage -p 'test_*.py' -v
           python -B -m unittest discover -s research/f6_uncertainty -p 'test_*.py' -v
           python -B -m unittest discover -s research/f7_early_coverage -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f8_matched_timing -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -230,6 +233,38 @@ jobs:
           print("F7_AUTONOMOUS_F6_NEGATIVE_TO_QUALIFIED_METHOD=PASS")
           print("F7_NEW_SCIENTIFIC_FIRST_USE=ZERO")
           PY
+      - name: Autonomously attribute F7 timing effect with matched physical sensor sets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f8_matched_timing/advance.py \
+            --parent "$RUNNER_TEMP/f7-automatic-engineering.json" \
+            --witness "$RUNNER_TEMP/f7-independent-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f8-timing-engineering.json"
+          python -B research/f8_matched_timing/verify.py \
+            --record "$RUNNER_TEMP/f8-timing-engineering.json" \
+            --parent "$RUNNER_TEMP/f7-automatic-engineering.json" \
+            --witness "$RUNNER_TEMP/f7-independent-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f8-timing-independent-review.json"
+          python -B - "$RUNNER_TEMP/f8-timing-engineering.json" "$RUNNER_TEMP/f8-timing-independent-review.json" <<'PY'
+          import json,sys
+          result=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert result["schema"]=="forge.f8.automatic-f7-matched-timing-engineering.v1"
+          assert result["parent_mechanism_uncertainty"]=="F7_EARLY_GAIN_COULD_BE_SENSOR_COUNT_OR_TIMING"
+          assert result["matched_physical_sensor_sets"] is True
+          assert witness["matched_set_comparisons"]==96
+          assert witness["replayed_trial_arms"]==192
+          assert witness["status"]=="USED_F3_REAL_SOURCE_REPLAY_ONLY_NO_SCIENCE"
+          assert result["new_originals"]==result["new_first_use_claims"]==0
+          assert result["new_development_or_sealed_uses"]==result["paid_api_calls"]==0
+          assert result["scientific_dispatch_authorized"] is False
+          assert witness["scientific_dispatch_authorized"] is False
+          print("FORGE_F7_AUTOMATIC_F8_METHOD_ATTRIBUTION=PASS")
+          print("FORGE_F8_PROSPECTIVE_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -243,5 +278,7 @@ jobs:
             ${{ runner.temp }}/f6-independent-review.json
             ${{ runner.temp }}/f7-automatic-engineering.json
             ${{ runner.temp }}/f7-independent-review.json
+            ${{ runner.temp }}/f8-timing-engineering.json
+            ${{ runner.temp }}/f8-timing-independent-review.json
           if-no-files-found: error
           retention-days: 90
