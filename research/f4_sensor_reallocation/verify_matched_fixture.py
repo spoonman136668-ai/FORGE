@@ -45,7 +45,7 @@ def replay(record,ygg_root):
             model.get("sealed_first_uses")==0 and model.get("scientific_originals")==0 and
             model.get("science_admitted") is False and model.get("inference_uses_hidden_pair") is False,
             "TRAINING_LEAK_OR_AUTHORITY")
-    model_raw=(json.dumps(model,sort_keys=True,separators=(",",":"),allow_nan=False)+"\\n").encode()
+    model_raw=(json.dumps(model,sort_keys=True,separators=(",",":"),allow_nan=False)+"\n").encode()
     require(hashlib.sha256(model_raw).hexdigest()==record.get("historical_training_sha256"),"TRAINING_HASH")
 
     require(record.get("arms")=={k:[list(pair) for pair in v] for k,v in ARMS.items()},"CONTROLS")
