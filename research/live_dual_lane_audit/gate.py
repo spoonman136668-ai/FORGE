@@ -112,7 +112,7 @@ def verify_metadata(root,lane):
     run_id=W_RUN if lane=="wingless" else Y_RUN
     meta=load_json(read(root/(lane+"-run.json")))
     if meta.get("id")!=run_id or meta.get("head_sha")!=( 
-        "70d39940afa8361434518168c97566cb08d9e9c3" if lane=="wingless" else
+        "3c41ef3002271877fa5e4ddb3f2189ce2d541cf2" if lane=="wingless" else
         "ed312dbf4f01fea317d075a719b0d550a08d5773"
     ) or meta.get("run_attempt")!=1 or meta.get("status")!="completed":
         reject("GITHUB_ORIGINAL_RUN_IDENTITY")
