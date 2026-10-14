@@ -18,10 +18,10 @@ METHOD_REQUIREMENTS = {
 }
 # Explicit current implementation coverage, not assertions of scientific validity.
 IMPLEMENTED = {
-    "W36-C1": "source_mean_gradient_rescaling_surrogate",
-    "W36-C2": "per_coordinate_gradient_conflict_zeroing",
-    "W36-C3": "fixed_alternating_hardest_source_gate",
-    "W36-C4": "first_32_examples_per_source_replay",
+    "W36-C1": "rank8_trainable_joint_projection_with_source_discrepancy_penalty",
+    "W36-C2": "deterministic_pairwise_conflicting_gradient_projection",
+    "W36-C3": "learned_soft_two_state_risk_consumer",
+    "W36-C4": "hardest_32_examples_source_balanced_episodic_memory",
     "YF3-C1": "development_label_frequency_static_read_plan",
     "YF3-C2": "development_trend_static_read_plan",
     "YF3-C3": "development_delta_static_read_plan",
