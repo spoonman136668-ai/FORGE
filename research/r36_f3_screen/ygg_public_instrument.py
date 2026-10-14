@@ -56,8 +56,10 @@ def install_public_policy(y070,method,ranking,audit=None):
             # Only public address labels; no hidden swap or evaluator truth.
             audit.append([[int(a) for a in measurements[ep]] for ep in READ_EPISODES])
         return {ep:{str(a):v for a,v in group.items()} for ep,group in measurements.items()}
+    from ygg_public_decoder import install_public_decoder
     try:
         m.y64.dual_public_samples=sampling
-        yield
+        with install_public_decoder(y070):
+            yield
     finally:
         m.y64.dual_public_samples=native
