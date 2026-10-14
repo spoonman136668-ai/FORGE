@@ -5,10 +5,15 @@ shifts the episode-3 redundant anchor pair to two nonanchor locations,
 yielding six distinct late/early observations after sufficient public-only
 calibration at 0 and 1. This is hypothesis engineering, NOT new science.
 """
-import sys
+import importlib.util
 from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[1]/"f5_native_coverage"))
-from policy import choose as choose_f5, calibration, public_start
+_f5=Path(__file__).resolve().parents[1]/"f5_native_coverage"/"policy.py"
+_spec=importlib.util.spec_from_file_location("f7_frozen_f5_public_policy",_f5)
+_parent=importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_parent)
+choose_f5=_parent.choose
+calibration=_parent.calibration
+public_start=_parent.public_start
 
 POLICIES=("F7-REPLAY-F5-COVERAGE","F7-EARLY-SIX-COVERAGE")
 READ_TIMES=(0,1,3,5,7)
