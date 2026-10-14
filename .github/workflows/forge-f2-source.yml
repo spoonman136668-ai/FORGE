@@ -1,0 +1,53 @@
+name: FORGE F2 source and Y058 legal transposition qualification
+on:
+  push:
+    branches: [engineering/ygg-f2-legal-crosspair-r1]
+    paths:
+      - 'research/f2-yggdrasil/**'
+      - 'research/f2_launch/**'
+      - '.github/workflows/forge-f2-once.yml'
+      - '.github/workflows/forge-f2-source.yml'
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Reject illegal anchor-pairs, source identity drift and first-use replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/f2_launch -p 'test_*.py' -v
+          python -B -m py_compile research/f2-yggdrasil/run_original.py research/f2-yggdrasil/independent_review.py research/f2_launch/budget_gate.py
+          test "$(git rev-parse HEAD:research/f2-yggdrasil/prereg.json)" = 04bc2ab3cb6c6e0385a9e6cc3e3132f7f254f588
+          test "$(git rev-parse HEAD:research/f2-yggdrasil/run_original.py)" = ed1c09bfe3fc1da8f066b6ddec0d5cd0297a659f
+          test "$(git rev-parse HEAD:research/f2-yggdrasil/independent_review.py)" = 0e46c7e428323bae0e02a565d483347097f242b5
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil rev-parse HEAD:research/contrib/chatgpt/20261013-y058-anchor-blind/execute.py)" = 7b125f7df582eb965cf017ec3552bdf91c587954
+          python -B - <<'PY'
+          import json
+          m=json.load(open("research/f2-yggdrasil/prereg.json"))
+          for pair in m["pairs"]:
+              assert len(pair)==2 and pair[0]!=pair[1] and set(pair).isdisjoint({0,1})
+          assert m["pairs"]==[[2,6],[3,7]]
+          print("F2_PINNED_Y058_LEGAL_PAIR_GATE=PASS")
+          PY
+          echo 'F2_SOURCE_AND_SAFETY=PASS'
+          echo 'F2_SCIENTIFIC_FIRST_USE_NOT_CONSUMED=TRUE'
