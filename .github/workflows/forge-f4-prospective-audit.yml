@@ -43,3 +43,57 @@ jobs:
           print("F4_SCIENTIFIC_EXECUTIONS=ZERO")
           print("F4_FIRST_USE_CLAIMS=ZERO")
           PY
+  equal-decoder-engineering-fixture:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute real matched-decoder development-only engineering fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f4_sensor_reallocation/run_matched_fixture.py --yggdrasil-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-matched-fixture.json"
+          python -B research/f4_sensor_reallocation/verify_matched_fixture.py --record "$RUNNER_TEMP/f4-matched-fixture.json" --yggdrasil-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-matched-fixture-witness.json"
+          python -B - "$RUNNER_TEMP/f4-matched-fixture.json" "$RUNNER_TEMP/f4-matched-fixture-witness.json" <<'PY'
+          import json,sys,copy
+          sys.path.insert(0,"research/f4_sensor_reallocation")
+          from verify_matched_fixture import replay
+          record=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert witness["status"]=="EQUAL_DECODER_AND_SENSOR_ORDER_ABLATION_REPLAY_PASS"
+          assert witness["replayed"]==36
+          assert record["new_f4_dev_seeds_used"]==0 and record["sealed_first_use_claims"]==0
+          assert record["new_scientific_originals"]==0
+          assert witness["scientific_original"] is False
+          changed=copy.deepcopy(record)
+          changed["records"][0]["public_sensor_trace"][3]=[8,11]
+          try:replay(changed,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_SENSOR_TRACE_TAMPER_ACCEPTED")
+          print("F4_NEGATIVE_ENFORCEMENT=PASS")
+          print("F4_COHORT_ELIGIBILITY=UNVERIFIED_NOT_AUTHORIZED")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f4-equal-decoder-engineering-fixture
+          path: |
+            ${{ runner.temp }}/f4-matched-fixture.json
+            ${{ runner.temp }}/f4-matched-fixture-witness.json
+          if-no-files-found: error
+          retention-days: 90
