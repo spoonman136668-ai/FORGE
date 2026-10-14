@@ -31,10 +31,11 @@ def validate_pinned_transposition(root):
         return subprocess.check_output(["git","-C",str(root),*args],stderr=subprocess.DEVNULL).decode().strip()
     require(git("rev-parse","HEAD")==Y070_COMMIT and not git("status","--porcelain"),"CHECKOUT_DRIFT")
     require(git("ls-files","--error-unmatch",TRANSPOSITION_PATH)==TRANSPOSITION_PATH,"SOURCE_PATH")
-    require(blob_sha((root/TRANSPOSITION_PATH).read_bytes())==TRANSPOSITION_BLOB,"TRANSPOSITION_DRIFT")
+    require(blob_sha(subprocess.check_output(["git","-C",str(root),"show","HEAD:"+TRANSPOSITION_PATH]))==TRANSPOSITION_BLOB,"TRANSPOSITION_DRIFT")
 
 def load_proposal():
-    raw=Path(__file__).with_name("prospective_protocol.json").read_bytes()
+    repo=Path(__file__).resolve().parents[2]
+    raw=subprocess.check_output(["git","-C",str(repo),"show","HEAD:research/f4_sensor_reallocation/prospective_protocol.json"])
     require(blob_sha(raw)==PROPOSAL_BLOB,"PROPOSAL_DRIFT")
     p=json.loads(raw)
     require(p["status"]=="PROPOSED_NOT_FROZEN_NO_SCIENTIFIC_AUTHORITY","AUTHORITY")
