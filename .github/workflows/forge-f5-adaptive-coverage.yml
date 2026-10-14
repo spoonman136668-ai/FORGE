@@ -1,13 +1,14 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f9-learned-public-timing-r1]
+    branches: [engineering/f10-learned-observation-value-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
       - 'research/f7_early_coverage/**'
       - 'research/f8_matched_timing/**'
       - 'research/f9_learned_timing/**'
+      - 'research/f10_information_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -20,6 +21,7 @@ on:
       - 'research/f7_early_coverage/**'
       - 'research/f8_matched_timing/**'
       - 'research/f9_learned_timing/**'
+      - 'research/f10_information_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -53,6 +55,7 @@ jobs:
           python -B -m unittest discover -s research/f7_early_coverage -p 'test_*.py' -v
           python -B -m unittest discover -s research/f8_matched_timing -p 'test_*.py' -v
           python -B -m unittest discover -s research/f9_learned_timing -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f10_information_value -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -303,6 +306,69 @@ jobs:
           print("FORGE_F8_TO_F9_TRAINED_PUBLIC_OBSERVATION_ORDER=PASS")
           print("FORGE_F9_PREVIOUSLY_USED_ONLY_NO_NEW_FIRST_USE=PASS")
           PY
+      - name: Automatically train expected information value and independently replay F10 public sensor decisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f10_information_value/advance.py \
+            --parent "$RUNNER_TEMP/f9-trained-order.json" \
+            --witness "$RUNNER_TEMP/f9-independent-order-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f10-learned-information-value.json"
+          python -B research/f10_information_value/verify.py \
+            --record "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --parent "$RUNNER_TEMP/f9-trained-order.json" \
+            --witness "$RUNNER_TEMP/f9-independent-order-review.json" \
+            --source-root pinned-yggdrasil-source \
+            --out "$RUNNER_TEMP/f10-independent-value-review.json"
+          python -B - "$RUNNER_TEMP/f10-learned-information-value.json" "$RUNNER_TEMP/f10-independent-value-review.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1]));v=json.load(open(sys.argv[2]))
+          assert p["schema"]=="forge.f10.automatic-public-information-value-engineering.v1"
+          assert p["model"]["train_seeds"]==[67204,67205]
+          assert p["model"]["validation_seeds"]==[67206,67207]
+          assert len(p["model"]["table"])==84
+          assert p["model"]["train_public_observations"]==1152
+          assert len(p["validation"])==96
+          assert v["replayed_validation"]==96
+          assert v["training_public_labels"]==1152
+          assert v["status"]=="F3_USED_SOURCE_REPLAY_QUALIFIED_NOT_SCIENCE"
+          assert v["validation_summary"]==p["validation_summary"]
+          assert p["new_cohort_uses"]==p["new_first_use_claims"]==0
+          assert p["new_scientific_originals"]==p["paid_api_calls"]==0
+          assert p["scientific_dispatch_authorized"] is False
+          assert v["scientific_dispatch_authorized"] is False
+          print("FORGE_F9_TO_F10_LEARNED_EXPECTED_INFORMATION_VALUE=PASS")
+          print("FORGE_F10_INDEPENDENT_PUBLIC_SOURCE_REPLAY=PASS")
+          print("FORGE_F10_NEW_SCIENTIFIC_ORIGINAL=ZERO")
+          PY
+      - name: Automatically interpret F10 result and prepare independently checked F11 hypothesis
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f10_information_value/auto_successor.py \
+            --parent "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --witness "$RUNNER_TEMP/f10-independent-value-review.json" \
+            --out "$RUNNER_TEMP/f11-successor-proposal.json"
+          python -B research/f10_information_value/verify_successor.py \
+            --proposal "$RUNNER_TEMP/f11-successor-proposal.json" \
+            --parent "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --witness "$RUNNER_TEMP/f10-independent-value-review.json" \
+            --out "$RUNNER_TEMP/f11-successor-review.json"
+          python -B - "$RUNNER_TEMP/f11-successor-proposal.json" "$RUNNER_TEMP/f11-successor-review.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1]));v=json.load(open(sys.argv[2]))
+          assert p["status"]=="ENGINEERING_SUCCESSOR_ONLY_FIRST_USE_BLOCKED"
+          assert p["original_f10_model_frozen_no_retuning"] is True
+          assert v["status"]=="F11_DESIGN_PREPARED_NO_PROSPECTIVE_FIRST_USE"
+          assert v["selected_id"]==p["selected_proposal_id"]
+          assert v["replayed_rows"]==96
+          assert p["scientific_dispatch_authorized"] is False
+          assert p["new_first_use_claims"]==p["new_scientific_originals"]==0
+          assert p["new_data_accesses"]==p["paid_api_calls"]==0
+          print("F10_AUTOMATIC_NEGATIVE_TO_F11_PROPOSAL=PASS")
+          print("F11_INDEPENDENT_NO_ORIGINAL_REPLAY=PASS")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -320,5 +386,9 @@ jobs:
             ${{ runner.temp }}/f8-timing-independent-review.json
             ${{ runner.temp }}/f9-trained-order.json
             ${{ runner.temp }}/f9-independent-order-review.json
+            ${{ runner.temp }}/f10-learned-information-value.json
+            ${{ runner.temp }}/f10-independent-value-review.json
+            ${{ runner.temp }}/f11-successor-proposal.json
+            ${{ runner.temp }}/f11-successor-review.json
           if-no-files-found: error
           retention-days: 90
