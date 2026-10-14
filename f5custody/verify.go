@@ -11,6 +11,7 @@ import (
  "errors"
  "fmt"
  "slices"
+ "strings"
 
  "github.com/spoonman136668-ai/forge/eligibility"
 )
@@ -73,11 +74,43 @@ func canonicalUniqueSeedIDs(ids []string) bool {
  return true
 }
 
+func validCandidate(candidate eligibility.Frozen) bool {
+ if candidate.Schema!=eligibility.Schema ||
+  candidate.Lane!="Yggdrasil" ||
+  !strings.HasPrefix(candidate.CandidateID,"Y-FORGE-F5-") ||
+  len(candidate.SourceSHA)!=40 ||
+  len(candidate.PreregSHA256)!=64 ||
+  len(candidate.CohortSHA256)!=64 ||
+  len(candidate.ProtocolSHA256)!=64 ||
+  candidate.BudgetUnits!=10 ||
+  len(candidate.SeedIDs)<1 || len(candidate.SeedIDs)>128 {
+  return false
+ }
+ for _,sum:=range []string{candidate.SourceSHA,candidate.PreregSHA256,
+  candidate.CohortSHA256,candidate.ProtocolSHA256}{
+  if _,err:=hex.DecodeString(sum);err!=nil{return false}
+ }
+ ids:=candidate.SeedIDs
+ if !slices.IsSorted(ids){return false}
+ for i,id:=range ids {
+  if !strings.HasPrefix(id,"Yggdrasil:") ||
+   len(id)<=len("Yggdrasil:") ||
+   (i>0&&ids[i-1]==id){return false}
+  for _,c:=range strings.TrimPrefix(id,"Yggdrasil:"){
+   if c<'0'||c>'9'{return false}
+  }
+ }
+ return true
+}
+
 // Inspect requires an EXTERNALLY PINNED signer, generation, high-water
 // revision and ledger digest; it checks individual seed collisions across
 // all lanes in addition to existing eligibility.VerifyLedger checks.
 // Success is only a read-only preflight, never an execution permit.
 func Inspect(s Signed,p Pins,candidate eligibility.Frozen)(Report,error){
+ if !validCandidate(candidate){
+  return deny("INVALID_FROZEN_F5_SEED_OR_SOURCE_IDENTITY")
+ }
  if p.MinRevision==0||p.ExpectedLedgerGeneration==0||
   len(p.CustodianPublicKeyHex)!=ed25519.PublicKeySize*2||
   len(p.LedgerSHA256)!=64{
