@@ -27,7 +27,7 @@ class PublicDecoderTests(unittest.TestCase):
         for t in (3,5,7):
             self.assertIsNone(decode_public(obs,t)["first_detection_episode"])
     def test_incompatible_second_public_swap_fails_closed(self):
-        obs=reading(extra={"2":coords(7,4),"4":coords(7,4)})
+        obs=reading(extra={"2":coords(7,4),"4":coords(7,6)})
         with self.assertRaisesRegex(ValueError,"F3_SECOND_INDEPENDENT_SWAP"):
             decode_public(obs,7)
     def test_calibration_tamper_is_rejected(self):
