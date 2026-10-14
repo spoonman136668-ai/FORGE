@@ -1,0 +1,54 @@
+name: FORGE Yggdrasil E1 E2 frozen source and tuple/list regression
+on:
+  push:
+    branches: [engineering/ygg-e1-e2-worker-identity-r1]
+    paths:
+      - 'research/forge-ygg-parity-e/**'
+      - '.github/workflows/forge-ygg-parity-e-source.yml'
+      - '.github/workflows/forge-ygg-parity-e-once.yml'
+permissions:
+  contents: read
+  actions: read
+  issues: read
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil
+          persist-credentials: false
+      - name: Verify frozen E1/E2 source and rejects duplicate claims
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil rev-parse HEAD:research/contrib/chatgpt/20261013-y070-onset1/execute.py)" = 1a73edd9b29f082ad557d04d2bf3e03d2ccfcc0e
+          test "$(git -C pinned-yggdrasil rev-parse HEAD:research/contrib/chatgpt/20261013-y069-onset2/execute.py)" = 0c0799294300127c77de85435d629ed1c1248e24
+          python -B -m unittest discover -s research/forge-ygg-parity-e -p 'test_*.py' -v
+          python -B -m py_compile research/forge-ygg-parity-e/*.py
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-e/prereg.json)" = 4fba6ffe85e5f75e9a6c69c91e93a05cc0dd0e28
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/6159131286" --jq .user.login | grep -Fx spoonman136668-ai
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=1" --jq .total_count | grep -E '^[0-9]+$'
+          grep -Fq 'E_GATE_SOURCE_PINNED=PASS' .github/workflows/forge-ygg-parity-e-once.yml
+          grep -Fq 'sha256sum' .github/workflows/forge-ygg-parity-e-once.yml
+          if grep -Fq 'shb256sum' .github/workflows/forge-ygg-parity-e-once.yml; then exit 1; fi
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-e/run_original.py)" = 8b77695f56935aad689608866d42e6b069bb8a62
+          test "$(git rev-parse HEAD:research/forge-ygg-parity-e/independent_review.py)" = 5794be0b0d3990a020906d40147377f44f0f9a9a
+          echo 'YGG_E1_E2_FROZEN_QUALIFICATION=PASS'
+          echo 'YGG_E1_E2_ORIGINALS_STARTED=FALSE'
