@@ -41,11 +41,8 @@ def train(method, training):
     _check(training)
     w = [0.] * DIM
     # Training-only source means and bounded per-source memory.
-    means = [[sum(row[0][i] for row in group)/ROWS_PER_SOURCE for i in range(DIM)]
+    means = [[sum(feature[i] for feature, _label in group)/ROWS_PER_SOURCE for i in range(DIM)]
              for group in training]
-    remembered = [tuple(group[:32]) for group in training]
-    if any(len(group) != 32 for group in remembered):
-        raise ValueError("R36_MEMORY_LIMIT")
     for epoch in range(EPOCHS):
         gradients = [_gradient(group,w) for group in training]
         if method == "W36-C1":
@@ -65,7 +62,12 @@ def train(method, training):
             hardest = max(range(SOURCES), key=lambda j:(losses[j],-j))
             step = gradients[hardest] if epoch%2 else [sum(g[i] for g in gradients)/SOURCES for i in range(DIM)]
         else:
-            # Per-source episodic memory, exactly 32 examples per source.
+            # Select the hardest 32 training examples per source deterministically.
+            remembered = []
+            for group in training:
+                scored = sorted(enumerate(group),
+                    key=lambda item: (item[1][1] * sum(a*b for a,b in zip(w,item[1][0])), item[0]))
+                remembered.append(tuple(row for _index,row in scored[:32]))
             step = [sum(_gradient(remembered[j],w)[i] for j in range(SOURCES))/SOURCES for i in range(DIM)]
         w = [w[i]+0.1*step[i] for i in range(DIM)]
         if any(not math.isfinite(v) for v in w):
