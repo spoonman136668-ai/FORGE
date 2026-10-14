@@ -7,6 +7,9 @@ on:
     branches: [main]
     paths:
       - 'researchobserver/**'
+      - 'researchintake/**'
+      - 'cmd/forge-research-intake/**'
+      - 'reference/research-intake/**'
       - 'cmd/forge-research-observer/**'
       - '.github/workflows/forge-live-research-observer.yml'
   workflow_dispatch:
@@ -16,6 +19,9 @@ on:
     branches: [main]
     paths:
       - 'researchobserver/**'
+      - 'researchintake/**'
+      - 'cmd/forge-research-intake/**'
+      - 'reference/research-intake/**'
       - 'cmd/forge-research-observer/**'
       - '.github/workflows/forge-live-research-observer.yml'
 permissions:
@@ -95,4 +101,42 @@ jobs:
           name: forge-observed-research-metadata
           path: ${{ runner.temp }}/forge-observer
           retention-days: 30
+          if-no-files-found: error
+
+      - name: Observe current cross-lane PR deltas (read only)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-observer"
+          gh api 'repos/spoonman136668-ai/Wingless/pulls?state=all&sort=updated&direction=desc&per_page=100' > "$root/wingless-pr.json"
+          gh api 'repos/spoonman136668-ai/Yggdrasil/pulls?state=all&sort=updated&direction=desc&per_page=100' > "$root/yggdrasil-pr.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-observer"
+          items=[]
+          for lane in ("Wingless","Yggdrasil"):
+              records=json.loads((root/(lane.lower()+"-pr.json")).read_text())
+              assert 1<=len(records)<=100
+              for r in records:
+                  assert r["head"]["repo"]["full_name"]=="spoonman136668-ai/"+lane
+                  assert r["base"]["repo"]["full_name"]=="spoonman136668-ai/"+lane
+                  items.append(dict(lane=lane,pr=r["number"],head_sha=r["head"]["sha"],title=r["title"],url=r["html_url"],state=r["state"],draft=r["draft"],updated_at=r["updated_at"]))
+          items.sort(key=lambda r:(r["lane"],r["pr"],r["head_sha"]))
+          (root/"pr-snapshot.json").write_text(json.dumps(dict(schema="forge.cross-lane-research-pr-snapshot.v1",sources=items),ensure_ascii=False)+"\n")
+          PY
+          go run ./cmd/forge-research-intake --snapshot "$root/pr-snapshot.json" > "$root/pr-observation.json"
+          jq -e '.schema == "forge.cross-lane-research-intake.v1" and .scientific_accepted == false and .first_use_cleared == false and .authority_mutated == false' "$root/pr-observation.json" >/dev/null
+          (cd "$root"; sha256sum wingless-pr.json yggdrasil-pr.json pr-snapshot.json pr-observation.json > pr-sha256-manifest.txt)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-observed-crosslane-pr-sources
+          path: |
+            ${{ runner.temp }}/forge-observer/*-pr.json
+            ${{ runner.temp }}/forge-observer/pr-snapshot.json
+            ${{ runner.temp }}/forge-observer/pr-observation.json
+            ${{ runner.temp }}/forge-observer/pr-sha256-manifest.txt
+          retention-days: 90
           if-no-files-found: error
