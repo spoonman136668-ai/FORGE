@@ -1,0 +1,253 @@
+name: FORGE R30 to R31 bounded autonomous scientific cycle
+on:
+  push:
+    branches: [research/r30-r31-single-launch]
+    paths: ['research/r30-r31/launch.json']
+permissions:
+  contents: read
+  actions: read
+  issues: read
+concurrency:
+  group: forge-r30-r31-two-originals-once
+  cancel-in-progress: false
+
+jobs:
+  r30-original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate two-originals owner approval and durable consumed claims
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "${GITHUB_REF}" = refs/heads/research/r30-r31-single-launch
+          test "$(git diff --name-only HEAD^ HEAD)" = research/r30-r31/launch.json
+          test "$(git rev-parse HEAD^)" = "$(python3 -c 'import json;print(json.load(open("research/r30-r31/launch.json"))["source_commit"])')"
+          test "$(git rev-parse HEAD:research/r30-wingless/prereg.json)" = 835def227a9db297424509bbe44d1d5eaec2a6c5
+          test "$(git rev-parse HEAD:research/r31-wingless/prereg.json)" = 70ff7d722f0e3814e9fba777bdfa1a4134eaf59d
+          test "$(git rev-parse HEAD:research/r30-wingless/execute.py)" = 15ef546afe5658f8d24ac876e9849419ff827c9a
+          test "$(git rev-parse HEAD:research/r30-wingless/review.py)" = e08005a24df52fa49e432f96ef19d2a0a0be382f
+          test "$(git rev-parse HEAD:research/r31-wingless/execute.py)" = c0d666eaad1c344c73dcc57b416a979d9d97f58c
+          test "$(git rev-parse HEAD:research/r31-wingless/review.py)" = df57db6e96f9125c1b3ad70a8233318f643bca1a
+          mkdir -p "$RUNNER_TEMP/r30-original"
+          git fetch --no-tags origin refs/heads/research/forge-first-use-claims-r30-r31
+          git show FETCH_HEAD:W-FORGE-R30-NORMALIZED-GRADIENT-01.json > "$RUNNER_TEMP/r30-claim.json"
+          git show FETCH_HEAD:W-FORGE-R31-CONDITIONAL-REPLICATION-01.json > "$RUNNER_TEMP/r31-claim.json"
+          python3 - <<'PY'
+          import json,os
+          d=os.environ["RUNNER_TEMP"]
+          a=json.load(open(d+"/r30-claim.json"))
+          comment=a.get("owner_approval_comment_id")
+          if type(comment) is not int or not 0<comment<2**63:raise SystemExit("CYCLE_BAD_APPROVAL_REF")
+          with open(d+"/approval-id","w") as f:f.write(str(comment))
+          PY
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/$(cat "$RUNNER_TEMP/approval-id")" > "$RUNNER_TEMP/owner-approval.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=research/r30-r31-single-launch&event=push&per_page=100" > "$RUNNER_TEMP/launch-runs.json"
+          python3 -B research/r30-r31/budget_gate.py \
+            --launch research/r30-r31/launch.json \
+            --claim-r30 "$RUNNER_TEMP/r30-claim.json" \
+            --claim-r31 "$RUNNER_TEMP/r31-claim.json" \
+            --approval "$RUNNER_TEMP/owner-approval.json" \
+            --runs "$RUNNER_TEMP/launch-runs.json" \
+            --source "$(git rev-parse HEAD^)" \
+            --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r30-original/clearance.json"
+          printf 'R30_AND_R31_FIRST_USE_CONSUMED_BEFORE_COMPUTE\n' > "$RUNNER_TEMP/r30-original/started.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-method
+          persist-credentials: false
+      - name: Run bounded R30 scientific original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r30-wingless/execute.py --manifest research/r30-wingless/prereg.json \
+            --wingless-root wingless-method --out "$RUNNER_TEMP/r30-original/original.json" --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/r30-original" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r30-firstuse-original
+          path: ${{ runner.temp }}/r30-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  r30-independent-review:
+    needs: r30-original
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.r30-original.result == 'success'
+        with:
+          name: forge-r30-firstuse-original
+          path: ${{ runner.temp }}/r30-evidence
+      - name: Preserve indeterminate consumed original
+        if: needs.r30-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/r30-evidence"
+          printf '{"outcome":"CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}\n' > "$RUNNER_TEMP/r30-evidence/independent-review.json"
+      - name: Independent R30 metric and classification review
+        if: needs.r30-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r30-evidence"
+          sha256sum -c original.sha256
+          test -s clearance.json && test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/r30-wingless/review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/r30-wingless/prereg.json" \
+            --raw "$PWD/original.json" \
+            --out "$PWD/independent-review.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r30-independent-review
+          path: ${{ runner.temp }}/r30-evidence/independent-review.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  r31-automatic-original:
+    needs: [r30-original, r30-independent-review]
+    if: needs.r30-original.result == 'success' && needs.r30-independent-review.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r30-firstuse-original
+          path: ${{ runner.temp }}/r30-evidence
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r30-independent-review
+          path: ${{ runner.temp }}/r30-review
+      - name: Fail closed unless R30 independently qualifies and R31 is unspent in this run
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          (cd "$RUNNER_TEMP/r30-evidence" && sha256sum -c original.sha256)
+          python3 -B - <<'PY'
+          import importlib.util,json,os,pathlib
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          path=root/"research/r30-wingless/review.py"
+          spec=importlib.util.spec_from_file_location("r30_review",path)
+          m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+          d=pathlib.Path(os.environ["RUNNER_TEMP"])
+          expected=m.verify((root/"research/r30-wingless/prereg.json").read_bytes(),(d/"r30-evidence/original.json").read_bytes())
+          actual=json.loads((d/"r30-review/independent-review.json").read_bytes())
+          if actual!=expected or actual.get("independently_validated") is not True:raise SystemExit("R31_PARENT_INDEPENDENT_REVIEW_UNQUALIFIED")
+          print("R31_AUTOMATIC_SUCCESSOR_FROM_INDEPENDENT_R30=PASS")
+          PY
+          mkdir -p "$RUNNER_TEMP/r31-original"
+          printf 'R31_FIRST_USE_CONSUMED_BY_TWO_EXPERIMENT_BUDGET\n' > "$RUNNER_TEMP/r31-original/started.txt"
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-method
+          persist-credentials: false
+      - name: Automatically run conditionally preregistered R31 original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT}" = 1
+          test "$(git -C wingless-method rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          python3 -B research/r31-wingless/execute.py \
+            --manifest research/r31-wingless/prereg.json --wingless-root wingless-method \
+            --parent-review "$RUNNER_TEMP/r30-review/independent-review.json" \
+            --out "$RUNNER_TEMP/r31-original/original.json" --run-id "$GITHUB_RUN_ID"
+          (cd "$RUNNER_TEMP/r31-original" && sha256sum original.json > original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r31-autonomous-original
+          path: ${{ runner.temp }}/r31-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  r31-independent-review-and-r32:
+    needs: [r30-original, r30-independent-review, r31-automatic-original]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        if: needs.r31-automatic-original.result == 'success'
+        with:
+          name: forge-r30-firstuse-original
+          path: ${{ runner.temp }}/r30-evidence
+      - uses: actions/download-artifact@v4
+        if: needs.r31-automatic-original.result == 'success'
+        with:
+          name: forge-r30-independent-review
+          path: ${{ runner.temp }}/r30-review
+      - uses: actions/download-artifact@v4
+        if: needs.r31-automatic-original.result == 'success'
+        with:
+          name: forge-r31-autonomous-original
+          path: ${{ runner.temp }}/r31-evidence
+      - name: Classify any interrupted or skipped R31 as not safely replayable
+        if: needs.r31-automatic-original.result != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/r31-evidence"
+          printf '{"outcome":"NOT_EXECUTED_OR_CONSUMED_INDETERMINATE","independently_validated":false,"original_replay_allowed":false}\n' > "$RUNNER_TEMP/r31-evidence/independent-review.json"
+      - name: Independent R31 review and R32 evidence-based proposal
+        if: needs.r31-automatic-original.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/r31-evidence"
+          sha256sum -c original.sha256
+          test -s started.txt
+          python3 -B "$GITHUB_WORKSPACE/research/r31-wingless/review.py" \
+            --manifest "$GITHUB_WORKSPACE/research/r31-wingless/prereg.json" \
+            --raw "$PWD/original.json" \
+            --parent-review "$RUNNER_TEMP/r30-review/independent-review.json" \
+            --out "$PWD/independent-review.json"
+          python3 -B "$GITHUB_WORKSPACE/research/r30-r31/r32_proposal.py" \
+            --r30-manifest "$GITHUB_WORKSPACE/research/r30-wingless/prereg.json" \
+            --r30-original "$RUNNER_TEMP/r30-evidence/original.json" \
+            --r30-review "$RUNNER_TEMP/r30-review/independent-review.json" \
+            --r31-manifest "$GITHUB_WORKSPACE/research/r31-wingless/prereg.json" \
+            --r31-original "$PWD/original.json" \
+            --r31-review "$PWD/independent-review.json" \
+            --out "$PWD/r32-proposal.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r31-independent-review-and-r32
+          path: |
+            ${{ runner.temp }}/r31-evidence/independent-review.json
+            ${{ runner.temp }}/r31-evidence/r32-proposal.json
+          retention-days: 90
+          if-no-files-found: warn
