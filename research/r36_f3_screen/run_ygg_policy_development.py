@@ -47,11 +47,16 @@ def measure(root):
                         for policy in z.POLICIES:
                             truth=m.y50.evaluate(seed,policy,"canonical","continue",family)
                             for key in ("CONTROL",)+METHODS:
+                                audit=[]
                                 if key=="CONTROL":
                                     candidate=m.candidate(seed,family,policy,ARM)
                                 else:
-                                    with install_public_policy(z,key,ranks[key]):
+                                    with install_public_policy(z,key,ranks[key],audit=audit):
                                         candidate=m.candidate(seed,family,policy,ARM)
+                                    if len(audit)!=1:
+                                        raise ValueError("F3_POLICY_SENSOR_HOOK_NOT_CALLED")
+                                    if len(audit[0])!=5 or any(len(reads)!=2 for reads in audit[0]):
+                                        raise ValueError("F3_POLICY_SENSOR_TRACE_DRIFT")
                                 if candidate["public_scalar_reads"]!=10:
                                     raise ValueError("F3_POLICY_READ_BUDGET")
                                 first=next((r["public_detected_swap_first_episode"]
@@ -70,10 +75,18 @@ def measure(root):
                                 records.append({"candidate":key,"pair":list(pair),"regime":regime,
                                                 "family":list(family),"seed":seed,"policy":policy,
                                                 "first_detection":first,"pre_mismatch":pre,
-                                                "post_mismatch":post,"reads":10})
+                                                "post_mismatch":post,"reads":10,
+                                                "public_addresses":audit[0] if key!="CONTROL" else
+                                                    [[0,1],[0,1],[0,1],[2,4],[2,4]]})
                 m.y49.restore_environment()
     finally:m.y49.restore_environment()
     if len(records)!=2*2*4*4*3*5:raise ValueError("F3_POLICY_CASE_COUNT")
+    # Rule out the vacuous intervention: passing a policy ID to an untouched sampler.
+    baseline=[[0,1],[0,1],[0,1],[2,4],[2,4]]
+    for key in METHODS:
+        traces=[row["public_addresses"] for row in records if row["candidate"]==key]
+        if len(traces)!=192 or all(trace==baseline for trace in traces):
+            raise ValueError("F3_POLICY_UNOBSERVED_INTERVENTION")
     return {"schema":"forge.f3.yggdrasil.policy-development.v1",
             "status":"DEVELOPMENT_SCORED_FIDELITY_REVIEW_REQUIRED",
             "source_commit":"5797a257a75fe139313e8486cd1a1ae79c44b148",
