@@ -342,6 +342,33 @@ jobs:
           print("FORGE_F10_INDEPENDENT_PUBLIC_SOURCE_REPLAY=PASS")
           print("FORGE_F10_NEW_SCIENTIFIC_ORIGINAL=ZERO")
           PY
+      - name: Automatically interpret F10 result and prepare independently checked F11 hypothesis
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f10_information_value/auto_successor.py \
+            --parent "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --witness "$RUNNER_TEMP/f10-independent-value-review.json" \
+            --out "$RUNNER_TEMP/f11-successor-proposal.json"
+          python -B research/f10_information_value/verify_successor.py \
+            --proposal "$RUNNER_TEMP/f11-successor-proposal.json" \
+            --parent "$RUNNER_TEMP/f10-learned-information-value.json" \
+            --witness "$RUNNER_TEMP/f10-independent-value-review.json" \
+            --out "$RUNNER_TEMP/f11-successor-review.json"
+          python -B - "$RUNNER_TEMP/f11-successor-proposal.json" "$RUNNER_TEMP/f11-successor-review.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1]));v=json.load(open(sys.argv[2]))
+          assert p["status"]=="ENGINEERING_SUCCESSOR_ONLY_FIRST_USE_BLOCKED"
+          assert p["original_f10_model_frozen_no_retuning"] is True
+          assert v["status"]=="F11_DESIGN_PREPARED_NO_PROSPECTIVE_FIRST_USE"
+          assert v["selected_id"]==p["selected_proposal_id"]
+          assert v["replayed_rows"]==96
+          assert p["scientific_dispatch_authorized"] is False
+          assert p["new_first_use_claims"]==p["new_scientific_originals"]==0
+          assert p["new_data_accesses"]==p["paid_api_calls"]==0
+          print("F10_AUTOMATIC_NEGATIVE_TO_F11_PROPOSAL=PASS")
+          print("F11_INDEPENDENT_NO_ORIGINAL_REPLAY=PASS")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -361,5 +388,7 @@ jobs:
             ${{ runner.temp }}/f9-independent-order-review.json
             ${{ runner.temp }}/f10-learned-information-value.json
             ${{ runner.temp }}/f10-independent-value-review.json
+            ${{ runner.temp }}/f11-successor-proposal.json
+            ${{ runner.temp }}/f11-successor-review.json
           if-no-files-found: error
           retention-days: 90
