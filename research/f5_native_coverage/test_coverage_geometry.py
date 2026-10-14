@@ -50,18 +50,19 @@ class CoverageGeometryTests(unittest.TestCase):
         self.assertEqual(maximum,7)
 
     def test_policy_uses_qualified_offsets_from_actual_prior_public_values(self):
-        for base in range(14):
-            # Valid synthetic public calibration: a=1, d=0, b0=base-3
-            # -> inferred rotation start is base.
-            b0=(base-3)%16
+        for b0 in range(14):
+            # Valid synthetic public calibration: a=1, d=0. Compute
+            # rotation from observed public b0 using the exact modulo-16
+            # calibration followed by the modulo-14 geometry transform.
+            start=(b0+3)%14
             h={0:{0:b0,1:(b0+1)%16},
                1:{0:b0,1:(b0+1)%16},
                3:{0:b0,1:(b0+1)%16}}
             first=choose("F5-COVERAGE",5,h)
-            self.assertEqual(first,tuple(((base+x)%14)+2 for x in (0,1)))
+            self.assertEqual(first,tuple(((start+x)%14)+2 for x in (0,1)))
             h[5]={addr:(b0+addr)%16 for addr in first}
             second=choose("F5-COVERAGE",7,h)
-            self.assertEqual(second,tuple(((base+x)%14)+2 for x in (4,6)))
+            self.assertEqual(second,tuple(((start+x)%14)+2 for x in (4,6)))
             self.assertEqual(len(set(first+second)),4)
 
     def test_invalid_or_over_budget_candidate_rejected(self):
