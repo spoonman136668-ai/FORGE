@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths:
       - 'researcharchive/**'
+      - 'historycoverage/**'
+      - 'cmd/forge-history-coverage/**'
       - 'cmd/forge-research-archive/**'
       - 'reference/research-originals/20261013-six-recent-archive-cohort.json'
       - 'reference/research-originals/20261014-two-legacy-archive-cohort.json'
@@ -15,6 +17,8 @@ on:
     branches: [main]
     paths:
       - 'researcharchive/**'
+      - 'historycoverage/**'
+      - 'cmd/forge-history-coverage/**'
       - 'cmd/forge-research-archive/**'
       - 'reference/research-originals/20261013-six-recent-archive-cohort.json'
       - 'reference/research-originals/20261014-two-legacy-archive-cohort.json'
@@ -172,5 +176,80 @@ jobs:
         with:
           name: forge-two-legacy-originals-readonly
           path: ${{ runner.temp }}/forge-legacy-originals
+          retention-days: 90
+          if-no-files-found: error
+
+  historical-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify historical coverage parser and negative contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./historycoverage ./cmd/forge-history-coverage
+      - name: Read all GitHub-visible run/artifact metadata, no original execution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-history-coverage"
+          mkdir -p "$root"
+          for lane in Wingless Yggdrasil; do
+            repo="spoonman136668-ai/$lane"
+            key="$(tr '[:upper:]' '[:lower:]' <<< "$lane")"
+            gh api "repos/$repo/actions/runs?per_page=1" --jq '.total_count' > "$root/$key-runs-total"
+            gh api "repos/$repo/actions/artifacts?per_page=1" --jq '.total_count' > "$root/$key-artifacts-total"
+            gh api --paginate "repos/$repo/actions/runs?per_page=100" --jq '.workflow_runs[] | @json' > "$root/$key-runs.ndjson"
+            gh api --paginate "repos/$repo/actions/artifacts?per_page=100" --jq '.artifacts[] | @json' > "$root/$key-artifacts.ndjson"
+          done
+          go run ./cmd/forge-history-coverage \
+            --wingless-runs "$root/wingless-runs.ndjson" \
+            --wingless-artifacts "$root/wingless-artifacts.ndjson" \
+            --yggdrasil-runs "$root/yggdrasil-runs.ndjson" \
+            --yggdrasil-artifacts "$root/yggdrasil-artifacts.ndjson" \
+            --wingless-runs-total "$(cat "$root/wingless-runs-total")" \
+            --wingless-artifacts-total "$(cat "$root/wingless-artifacts-total")" \
+            --yggdrasil-runs-total "$(cat "$root/yggdrasil-runs-total")" \
+            --yggdrasil-artifacts-total "$(cat "$root/yggdrasil-artifacts-total")" \
+            > "$root/observation.json"
+      - name: Retain full gap inventory and explicitly deny scientific claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-history-coverage"
+          jq -e '
+            .schema == "forge.research-history-coverage.v1" and
+            .mode == "GITHUB_ACCESSIBLE_METADATA_AUDIT_NOT_RAW_CUSTODY" and
+            .full_historical_scientific_coverage_verified == false and
+            .long_term_original_bytes_retained == false and
+            .independent_scientific_custody_qualified == false and
+            .new_scientific_execution == false and
+            .accepted_ref_mutation == false and
+            .wingless.observed_run_count > 0 and
+            .yggdrasil.observed_run_count > 0
+          ' "$root/observation.json" > /dev/null
+          jq -c '{wingless: {runs: .wingless.observed_run_count, original_named: .wingless.original_named_count, expired: .wingless.original_expired_count, unavailable_digest: .wingless.original_missing_digest_count}, yggdrasil: {runs: .yggdrasil.observed_run_count, original_named: .yggdrasil.original_named_count, expired: .yggdrasil.original_expired_count, unavailable_digest: .yggdrasil.original_missing_digest_count}, accessible_window_reconciled: .github_accessible_snapshot_reconciled, scientific_coverage_complete: .full_historical_scientific_coverage_verified}' "$root/observation.json"
+          (cd "$root"; sha256sum observation.json > summary.sha256; sha256sum --check summary.sha256)
+          echo 'HISTORICAL_COVERAGE_GAPS_EXPLICITLY_INVENTORIED=PASS'
+          echo 'PRIVATE_OFFSITE_RETENTION_AND_INDEPENDENT_CUSTODY=NOT_PROVEN'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-research-coverage-gap-inventory
+          path: |
+            ${{ runner.temp }}/forge-history-coverage/observation.json
+            ${{ runner.temp }}/forge-history-coverage/summary.sha256
           retention-days: 90
           if-no-files-found: error
