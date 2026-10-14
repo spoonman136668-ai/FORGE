@@ -36,3 +36,52 @@ jobs:
           python -B -m py_compile research/r36_f3_screen/ygg_methods.py
           echo R36_F3_YGG_METHOD_UNIT_QUALIFICATION=PASS
           echo R36_F3_SCIENTIFIC_ORIGINALS_EXECUTED=ZERO
+  real-wingless-development:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: wingless-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Generate source-pinned development-only measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C wingless-source rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          test "$(git rev-parse HEAD:research/r36_f3_screen/frozen_portfolio.json)" = 4140cf897c05d27dd6dac01cea796f383fa2ef44
+          python -B research/r36_f3_screen/run_wingless_development.py --wingless-root wingless-source --out "$RUNNER_TEMP/wingless-development.json"
+      - name: Independently replay actual development measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/r36_f3_screen/verify_wingless_development.py --record "$RUNNER_TEMP/wingless-development.json" --wingless-root wingless-source --out "$RUNNER_TEMP/wingless-development-witness.json"
+          python -B - "$RUNNER_TEMP/wingless-development-witness.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["status"]=="REAL_DEVELOPMENT_METRICS_VERIFIED_NO_SCIENTIFIC_SELECTION"
+          assert x["recomputed_candidate_count"]==4
+          assert x["scientific_winners_selected"]==0
+          assert x["scientific_originals_executed"]==0
+          assert x["sealed_first_use_consumed"]==0
+          print("R36_SOURCE_PINNED_REAL_DEVELOPMENT=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r36-wingless-development-replay
+          path: |
+            ${{ runner.temp }}/wingless-development.json
+            ${{ runner.temp }}/wingless-development-witness.json
+          if-no-files-found: error
+          retention-days: 90
