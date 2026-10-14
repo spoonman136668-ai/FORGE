@@ -1,7 +1,7 @@
 name: FORGE F5 to F6 autonomous engineering qualification
 on:
   push:
-    branches: [engineering/f12-cross-context-value-r1]
+    branches: [engineering/f13-raw-public-transfer-r1]
     paths:
       - 'research/f5_native_coverage/**'
       - 'research/f6_uncertainty/**'
@@ -11,6 +11,7 @@ on:
       - 'research/f10_information_value/**'
       - 'research/f11_task_value/**'
       - 'research/f12_context_transfer/**'
+      - 'research/f13_raw_public_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -26,6 +27,7 @@ on:
       - 'research/f10_information_value/**'
       - 'research/f11_task_value/**'
       - 'research/f12_context_transfer/**'
+      - 'research/f13_raw_public_value/**'
       - 'f5custody/**'
       - 'cmd/forge-f5-firstuse-audit/**'
       - '.github/workflows/forge-f5-adaptive-coverage.yml'
@@ -62,6 +64,7 @@ jobs:
           python -B -m unittest discover -s research/f10_information_value -p 'test_*.py' -v
           python -B -m unittest discover -s research/f11_task_value -p 'test_*.py' -v
           python -B -m unittest discover -s research/f12_context_transfer -p 'test_*.py' -v
+          python -B -m unittest discover -s research/f13_raw_public_value -p 'test_*.py' -v
           python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
           go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
           if go run ./cmd/forge-f5-firstuse-audit; then
@@ -452,6 +455,39 @@ jobs:
           print("F12_INDEPENDENT_BOUND_F11_SOURCE_EVIDENCE=PASS")
           print("F12_SCIENTIFIC_ORIGINAL_AND_FIRST_USE=ZERO")
           PY
+      - name: In parallel science lane train F13 public-anchor representations from pinned F11/F12 source evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f13_raw_public_value/train.py \
+            --f11 "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --f11-witness "$RUNNER_TEMP/f11-task-value-independent-review.json" \
+            --f12 "$RUNNER_TEMP/f12-cross-context-engineering.json" \
+            --f12-witness "$RUNNER_TEMP/f12-independent-cross-context-review.json" \
+            --out "$RUNNER_TEMP/f13-raw-public-engineering.json"
+          python -B research/f13_raw_public_value/verify.py \
+            --record "$RUNNER_TEMP/f13-raw-public-engineering.json" \
+            --f11 "$RUNNER_TEMP/f11-task-value-engineering.json" \
+            --f11-witness "$RUNNER_TEMP/f11-task-value-independent-review.json" \
+            --f12 "$RUNNER_TEMP/f12-cross-context-engineering.json" \
+            --f12-witness "$RUNNER_TEMP/f12-independent-cross-context-review.json" \
+            --out "$RUNNER_TEMP/f13-independent-review.json"
+          python -B - "$RUNNER_TEMP/f13-raw-public-engineering.json" "$RUNNER_TEMP/f13-independent-review.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1]));w=json.load(open(sys.argv[2]))
+          assert p["schema"]=="forge.f13.raw-public-task-value-transfer.v1"
+          assert w["schema"]=="forge.f13.independent-raw-public-transfer-review.v1"
+          assert len(p["validation_choices"])==96
+          assert w["training_case_arms"]==576 and w["fixed_validation_case_arms"]==576
+          assert w["frozen_neighbors"]==p["frozen_neighbors"]
+          assert w["historical_task_mismatches"]==p["validation_task_mismatches"]
+          assert w["historical_task_mismatches"]>=0
+          assert p["scientific_dispatch_authorized"] is False
+          assert p["new_originals"]==p["first_use_claims"]==0
+          print("F13_TRAIN_ONLY_RAW_PUBLIC_TASK_VALUE=PASS")
+          print("F13_INDEPENDENT_SOURCE_BOUND_REVIEW=PASS")
+          print("F13_FRESH_SCIENTIFIC_FIRST_USE=ZERO")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: forge-f5-historical-public-sensor-adaptation-evidence
@@ -477,5 +513,7 @@ jobs:
             ${{ runner.temp }}/f11-task-value-independent-review.json
             ${{ runner.temp }}/f12-cross-context-engineering.json
             ${{ runner.temp }}/f12-independent-cross-context-review.json
+            ${{ runner.temp }}/f13-raw-public-engineering.json
+            ${{ runner.temp }}/f13-independent-review.json
           if-no-files-found: error
           retention-days: 90
