@@ -114,6 +114,75 @@ jobs:
           echo 'R18_LIVE_INSTALL=NOT_RUN'
           echo 'R18_CLOUDFLARE_WRITE_TOKEN=NOT_REQUIRED'
 
+      - name: Check updated Cloudflare token D1 Write scope (no mutation)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,re,urllib.request,urllib.error
+          token=(os.environ.get("CF_TOKEN_PRIMARY") or
+                 os.environ.get("CF_TOKEN_ALT") or "").strip()
+          account=(os.environ.get("CF_ACCOUNT_SECRET") or
+                   os.environ.get("CF_ACCOUNT_VAR") or
+                   os.environ.get("CF_ACCOUNT_ALT") or "").strip()
+          print("R18_PERMISSION_PROBE=READ_ONLY_NO_SQL")
+          if not token or not re.fullmatch("[0-9a-fA-F]{32}",account):
+              print("R18_D1_WRITE_TOKEN=NOT_BOUND")
+              raise SystemExit(0)
+          def get(path):
+              req=urllib.request.Request(
+                  "https://api.cloudflare.com/client/v4/accounts/"+account+"/tokens/"+path,
+                  headers={"Authorization":"Bearer "+token,"Accept":"application/json"},
+                  method="GET")
+              try:
+                  with urllib.request.urlopen(req,timeout=12) as resp:
+                      b=resp.read(65537)
+                  if len(b)>65536:return "TOO_LARGE",None
+                  data=json.loads(b)
+                  if data.get("success") is not True:return "REJECTED",None
+                  return "OK",data.get("result")
+              except urllib.error.HTTPError as exc:
+                  return "HTTP_"+str(exc.code),None
+              except Exception:
+                  return "UNAVAILABLE",None
+          status,verify=get("verify")
+          if status!="OK" or not isinstance(verify,dict) or verify.get("status")!="active":
+              print("R18_D1_WRITE_TOKEN=NOT_VERIFIED")
+              raise SystemExit(0)
+          tokenid=verify.get("id","")
+          if not re.fullmatch("[a-fA-F0-9]{32}",str(tokenid)):
+              print("R18_D1_WRITE_TOKEN=INVALID_TOKEN_ID")
+              raise SystemExit(0)
+          status,info=get(tokenid)
+          if status!="OK" or not isinstance(info,dict):
+              print("R18_D1_WRITE_SCOPE=NOT_INSPECTABLE_"+status)
+              raise SystemExit(0)
+          policies=info.get("policies")
+          if not isinstance(policies,list):
+              print("R18_D1_WRITE_SCOPE=NO_POLICY_METADATA")
+              raise SystemExit(0)
+          allowed=False
+          denied=False
+          for policy in policies:
+              if not isinstance(policy,dict):continue
+              groups=policy.get("permission_groups")
+              names=[str(g.get("name","")).lower() for g in groups
+                     if isinstance(g,dict)] if isinstance(groups,list) else []
+              haswrite=any(x in ("d1 write","d1 edit") for x in names)
+              if haswrite and policy.get("effect")=="allow":allowed=True
+              if haswrite and policy.get("effect")=="deny":denied=True
+          print("R18_D1_WRITE_SCOPE="+(
+              "ALLOW_REPORTED_NOT_EXECUTED" if allowed and not denied else
+              "NOT_VERIFIED"))
+          print("R18_PRODUCTION_SQL_WRITES=0")
+          PY
+
       - name: Existing Cloudflare Workers and Durable Objects read-only probe
         if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
         env:
