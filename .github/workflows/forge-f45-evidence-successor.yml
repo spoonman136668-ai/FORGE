@@ -1,0 +1,60 @@
+name: FORGE F45 authentic two-lane evidence-driven successor gate
+on:
+  push:
+    branches: [research/f45-evidence-driven-successors-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recompute-and-select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read authentic fresh Wingless and Yggdrasil run artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f45"
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for record in \
+            'Wingless 38800310426 ff93c23e7e7f1a01e8187a765ac95c9d47c8189d 12003528038 W-F45-once-only-selective-lookahead-train' \
+            'Yggdrasil 38800495808 9107ddf19ff05a0afa5a085e0c9ee477a7335db6 12003268501 Y-F45-once-only-paired-intervention-train'
+          do
+            read -r lane run head artifact name <<< "$record"
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/github-run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and .conclusion == "success" and .status == "completed"' \
+              "$root/$lane/github-run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/github-artifact.json"
+            jq -e --arg name "$name" --argjson artifact "$artifact" --argjson run "$run" \
+              '.id == $artifact and .name == $name and .expired == false and .workflow_run.id == $run and (.digest | startswith("sha256:"))' \
+              "$root/$lane/github-artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f45_evidence_successor.py \
+            --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/next.json"
+          python3 -B scripts/f45_evidence_successor.py \
+            --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/again.json"
+          cmp "$root/next.json" "$root/again.json"
+          jq -e '(.decisions | length)==2 and .fresh_train_evidence_recomputed==true and .new_science_originals_executed==0 and .worker_dispatch_authorized==false and .recursive_policy_improvement_proven==false' "$root/next.json" >/dev/null
+          sha256sum "$root/next.json" > "$root/next.sha256"
+          echo 'F45_TWO_REAL_FRESH_DIAGNOSTICS_RECOUNTED_AND_SUCCESSORS_AUTOMATICALLY_SELECTED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f45-fresh-evidence-mechanism-successors-no-science
+          path: |
+            ${{ runner.temp }}/f45/next.json
+            ${{ runner.temp }}/f45/next.sha256
+            ${{ runner.temp }}/f45/Wingless/github-run.json
+            ${{ runner.temp }}/f45/Yggdrasil/github-run.json
+            ${{ runner.temp }}/f45/Wingless/github-artifact.json
+            ${{ runner.temp }}/f45/Yggdrasil/github-artifact.json
+          retention-days: 30
+          if-no-files-found: error
