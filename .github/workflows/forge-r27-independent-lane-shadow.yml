@@ -1,0 +1,74 @@
+name: FORGE R27 independent prospective lanes acceptance
+on:
+  push:
+    branches: [research/r27-independent-lane-prospective-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r27-independent-lanes-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused single-lane source/audit/custody negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./dreamrsi ./cmd/forge-prospective-shadow
+      - name: One complete Linux regression race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Explicit true limits
+        shell: bash
+        run: |
+          echo 'R27_INDEPENDENT_PER_LANE_SHADOW=QUALIFIED_SOURCE_ONLY'
+          echo 'R27_GENUINE_RANDOMIZED_DREAM_RSI_OUTCOMES=NOT_PRESENT'
+          echo 'R27_SCIENTIFIC_EXECUTION=0'
+          echo 'R27_CLOUD_WRITES=0'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows focused tests, one regression, vet and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R27_SOURCE_HEAD_DRIFT' }
+          go test -count=1 ./dreamrsi ./cmd/forge-prospective-shadow
+          if ($LASTEXITCODE -ne 0) { throw 'R27_FOCUSED_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R27_WINDOWS_FULL_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R27_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R27_WINDOWS_BUILD_FAILED' }
