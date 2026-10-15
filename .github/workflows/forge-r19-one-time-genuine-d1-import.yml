@@ -1,0 +1,139 @@
+name: FORGE R19 once-only authentic original D1 archive import
+on:
+  push:
+    branches: [ops/forge-r19-authentic-original-ingest-20261015]
+    paths: ['.github/workflows/forge-r19-one-time-genuine-d1-import.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r19-six-original-archive-once-20261015
+  cancel-in-progress: false
+jobs:
+  ingest:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/ops/forge-r19-authentic-original-ingest-20261015'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin code, preserve authorizing boundaries and test source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(sha256sum d1retention/schema.sql | awk '{print $1}')" = d5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c
+          go test -count=1 ./researcharchive ./cmd/forge-research-archive
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+      - name: Download, independently classify and seal exactly six source originals
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r19-private"
+          mkdir -m 700 "$root"
+          manifest="$GITHUB_WORKSPACE/reference/research-originals/20261013-six-recent-archive-cohort.json"
+          jq -e '.schema=="forge.research-archive.frozen-cohort.v1" and (.entries|length)==6' "$manifest" >/dev/null
+          cp "$manifest" "$root/source-manifest.json"
+          jq -c '.entries[]' "$manifest" | while IFS= read -r entry; do
+            repo="$(jq -er '.repository' <<<"$entry")"
+            run="$(jq -er '.run_id' <<<"$entry")"
+            artifact="$(jq -er '.artifact_id' <<<"$entry")"
+            case "$repo" in
+              spoonman136668-ai/Wingless|spoonman136668-ai/Yggdrasil) ;;
+              *) echo "R19_BLOCKED=FOREIGN_SOURCE"; exit 1;;
+            esac
+            gh api "repos/$repo/actions/runs/$run" > "$root/$run.run.json"
+            gh api "repos/$repo/actions/artifacts/$artifact" > "$root/$run.artifact.json"
+            gh api "repos/$repo/actions/artifacts/$artifact/zip" > "$root/$run.zip"
+          done
+          go run ./cmd/forge-research-archive \
+            --manifest "$manifest" --evidence-dir "$root" > "$root/observation.json"
+          jq -e '.archive_count==6 and .wingless_count==3 and .yggdrasil_count==3 and
+            .scientific_accepted==false and .original_execution_authorized==false
+            and .complete_ckb_custody==false and .accepted_ref_mutation==false and
+            all(.observations[];.archival_integrity_verified==true
+              and .first_use_reconciled==false and .scientific_accepted==false)' "$root/observation.json" >/dev/null
+          python3 d1retention/r19_intake.py \
+            --manifest "$manifest" --evidence-dir "$root" --output "$root/once.sql"
+          # SQLite local execution of EXACT real original payload is an
+          # additional compatibility/negative gate, NOT a scientific rerun.
+          python3 - <<'PY'
+          import os,pathlib,sqlite3
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r19-private"
+          db=sqlite3.connect(":memory:")
+          db.execute("PRAGMA foreign_keys=ON")
+          db.executescript(pathlib.Path("d1retention/schema.sql").read_text())
+          db.executescript((root/"once.sql").read_text())
+          n=db.execute("SELECT COUNT(*) FROM forge_research_originals").fetchone()[0]
+          chunks=db.execute("SELECT COUNT(*) FROM forge_research_chunks").fetchone()[0]
+          seals=db.execute("SELECT COUNT(*) FROM forge_research_seals").fetchone()[0]
+          if (n,seals)!=(6,6) or chunks<6:raise SystemExit("R19_LOCAL_PROTECTED_SQL_REJECTED")
+          print("R19_OFFLINE_ACTUAL_SOURCE_SQL=COMPATIBLE")
+          PY
+      - name: Pin current protected Cloudflare D1 and save private recovery bookmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          PYTHONPATH="$GITHUB_WORKSPACE/d1retention" python3 d1retention/r19_live.py \
+             --phase before --manifest reference/research-originals/20261013-six-recent-archive-cohort.json \
+             --evidence "$RUNNER_TEMP/r19-private" --private-dir "$RUNNER_TEMP/r19-private" \
+             --expected-head "$GITHUB_SHA"
+          echo "R19_RECOVERY_TIME_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Import exact authenticated ZIP bytes only once through protected D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          root="$RUNNER_TEMP/r19-private"
+          test -s "$root/once.sql" && test -s "$root/r19-recovery.json"
+          test -s "$root/r19-wrangler.json"
+          echo "R19_ONE_TIME_IMPORT=ATTEMPTING"
+          if npx --yes wrangler@4.125.0 d1 execute forge \
+            --remote --yes --config "$root/r19-wrangler.json" \
+            --file "$root/once.sql" > "$root/remote-import-output.txt" 2>&1; then
+            echo "R19_ONE_TIME_IMPORT=WRANGLER_SUCCEEDED_PENDING_INDEPENDENT_READBACK"
+          else
+            echo "R19_ONE_TIME_IMPORT=FAILED_NO_AUTOMATIC_RETRY"
+            exit 1
+          fi
+      - name: Verify saved original bytes, seals and untouched foreign schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          PYTHONPATH="$GITHUB_WORKSPACE/d1retention" python3 d1retention/r19_live.py \
+             --phase after --manifest reference/research-originals/20261013-six-recent-archive-cohort.json \
+             --evidence "$RUNNER_TEMP/r19-private" --private-dir "$RUNNER_TEMP/r19-private" \
+             --expected-head "$GITHUB_SHA"
+      - name: Never publish original bytes, SQL imports, tokens or recovery bookmarks
+        if: always()
+        shell: bash
+        run: |
+          echo "R19_PUBLIC_ZIPS=NEVER_UPLOADED"
+          echo "R19_PUBLIC_RECOVERY_BOOKMARK=NEVER_PUBLISHED"
+          echo "R19_AUTOMATIC_ROLLBACK_OR_RETRY=DISABLED"
+          echo "R19_NEW_SCIENTIFIC_EXPERIMENTS=0"
