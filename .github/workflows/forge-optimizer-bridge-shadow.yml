@@ -38,6 +38,11 @@ jobs:
           python3 -m unittest discover -s d1retention -p 'test_*.py' -v
       - name: One-shot D1 installation source negative acceptance
         run: python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+      - name: R18B D1 compatibility profile and negative enforcement
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+          sha256sum d1retention/schema_d1_compat.sql
       - name: One full FORGE repository regression
         run: go test ./...
       - name: No real originals, authorization or Cloudflare secrets
@@ -575,6 +580,40 @@ jobs:
               print("CF_D1_TIME_TRAVEL_BOOKMARK=IDENTITY_NOT_QUALIFIED")
           print("CF_D1_TIME_TRAVEL_RESTORE_PERFORMED=FALSE")
           print("CF_D1_RECOVERY_TRUST_LEVEL=BOOKMARK_ONLY_NOT_RESTORE_PROOF")
+          # D1 R18B safe parser proof: only EXPLAIN CREATE TABLE,
+          # never actual DDL, and only if the authentic existing binding
+          # and a clear reserved namespace were independently verified.
+          if (verified_d1 and 'rows_collision' in locals()
+              and isinstance(rows_collision,list) and not rows_collision):
+              try:
+                  from d1retention.d1_compat import statements
+                  from pathlib import Path
+                  candidate=statements(Path("d1retention/schema_d1_compat.sql").read_bytes())
+                  accepted=0
+                  for stmt in candidate:
+                      explain_req=urllib.request.Request(url,
+                        data=json.dumps({"sql":"EXPLAIN "+stmt,"params":[]}).encode(),
+                        headers={"Authorization":"Bearer "+token,
+                                 "Accept":"application/json",
+                                 "Content-Type":"application/json"},method="POST")
+                      try:
+                          with urllib.request.urlopen(explain_req,timeout=8) as rs:
+                              raw=rs.read(16385)
+                          if len(raw)>16384:break
+                          result=json.loads(raw)
+                          if not isinstance(result,dict) or result.get("success") is not True:break
+                          parts=result.get("result")
+                          if not isinstance(parts,list) or len(parts)!=1 or parts[0].get("success") is not True:break
+                          accepted+=1
+                      except Exception:
+                          break
+                  print("CF_R18B_D1_EXPLAIN_TABLES="+str(accepted)+"/3")
+                  print("CF_R18B_SOURCE_ONLY_QUALIFIED="+("TRUE" if accepted==3 else "FALSE"))
+              except Exception:
+                  print("CF_R18B_SOURCE_ONLY_QUALIFIED=FALSE")
+          else:
+              print("CF_R18B_SOURCE_ONLY_QUALIFIED=BLOCKED_BY_IDENTITY_OR_COLLISION")
+          print("CF_R18B_REMOTE_WRITES=0")
           print("CF_D1_REMOTE_SCHEMA_INSTALL=FALSE")
           print("CF_D1_ORIGINALS_ACCEPTED=0")
           print("CF_AUTHENTIC_ORIGINAL_EVIDENCE=NOT_YET_READ")

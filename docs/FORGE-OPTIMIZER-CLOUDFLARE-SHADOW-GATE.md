@@ -114,3 +114,12 @@ python d1retention/install_remote.py --expected-head <exact-40-hex-commit> --exp
 \`\`\`
 
 No live D1 installation is implied by the presence or success of this source module. After a legitimate operator invokes the installer with write authority, the independent read-only original evidence/first-use gate must be completed before any optimizer promotion.
+
+
+## R18B — D1-specific, non-mutating table compatibility candidate
+
+The prior [R18 live attempt](https://github.com/spoonman136668-ai/FORGE/actions/runs/38710749044) failed HTTP 400. Exact-bound postfailure query verified zero `forge_research_*` objects and an unchanged unrelated table schema. A subsequent real read-only probe proved that D1 accepts a two-SELECT REST `batch`, and also `EXPLAIN CREATE TABLE`, so neither the API batch envelope nor D1 Read itself caused the problem. Trigger `EXPLAIN` against nonexistent target tables is inconclusive. Cloudflare upstream documents remotely failing compound trigger migrations (workers-sdk #4998, #15314, #15690).
+
+`schema_d1_compat.sql` is a separate **table-only** D1 candidate derived from the original three archival table definitions, preserving row constraints, foreign keys, uniqueness, and project identities. It intentionally does **not** include eight archive immutability/completeness triggers. This is an important **loss of database-enforced append-only protection**: a privileged D1 SQL writer could still UPDATE/DELETE and seal a partial archive. R18B is therefore limited to **DDL syntax and structural staging qualification**. It MUST NOT be accepted as a final archival or independent science custody solution without a separately reviewed, externally anchored once-only writer and verified restores; the stronger original `schema.sql` remains frozen.
+
+`d1retention/d1_compat.py` enforces exact three-table source, bounded LF-only syntax, no DML/triggers, no prior reserved namespace, source+foreign schema hashes, in-memory-only simulation, and an explicit result that all scientific acceptance and DB immutability fields remain false. The PR workflow tests this profile offline, and its live Cloudflare probe uses **only EXPLAIN statements** to verify parsing of all three table definitions without installing them. It does not repeat the failed live write or enable new resources.
