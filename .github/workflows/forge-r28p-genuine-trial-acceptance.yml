@@ -1,0 +1,72 @@
+name: FORGE R28P genuine trial protocol acceptance
+on:
+  push:
+    branches: [research/r28p-prospective-owner-trial-registration-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r28p-owner-protocol-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Freeze genuine-owner trial and deny simulated permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/test_r28p_owner_trial_readiness.py -v
+          python3 -B scripts/r28p_owner_trial_readiness.py | tee "$RUNNER_TEMP/r28p-report.json"
+          jq -e '.status == "BLOCKED_MISSING_AUTHENTIC_PRETRIAL_OWNER_EVIDENCE" and .scientific_trial_executed == false and .scientific_gain_established == false and .controller_or_cloudflare_writes == 0' "$RUNNER_TEMP/r28p-report.json"
+          echo 'R28P_GENUINE_RANDOMIZED_POLICY_TRIAL=BLOCKED_AUTHENTIC_OWNER_INPUT_NOT_PROVIDED'
+      - name: One full repo regression, race, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native frozen protocol tests and one full Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R28P_SOURCE_SHA_CHANGED' }
+          python scripts/test_r28p_owner_trial_readiness.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R28P_WINDOWS_PROTOCOL_TEST_FAILED' }
+          python scripts/r28p_owner_trial_readiness.py
+          if ($LASTEXITCODE -ne 0) { throw 'R28P_WINDOWS_READINESS_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R28P_WINDOWS_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R28P_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R28P_WINDOWS_BUILD_FAILED' }
