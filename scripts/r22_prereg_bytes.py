@@ -21,7 +21,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from r20b_readonly_prereg_audit import Blocked, MANIFEST, PINS, decode, fixed_inputs, NoRedirect
 
 MAX_BLOB=32768
-HEX40=re.compile(r"[0-9a-f]{40}\\Z")
+HEX40=re.compile(r"[0-9a-f]{40}\Z")
 
 def verify_blob(pin,blob):
     if not isinstance(blob,dict) or set(("sha","size","encoding","content"))-set(blob):
