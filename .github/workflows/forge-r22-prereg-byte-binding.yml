@@ -1,0 +1,80 @@
+name: FORGE R22 original prereg byte binding
+on:
+  push:
+    branches: [research/r22-original-prereg-byte-binding-20261015-r1]
+  pull_request:
+    paths:
+      - scripts/r22_prereg_bytes.py
+      - scripts/test_r22_prereg_bytes.py
+      - .github/workflows/forge-r22-prereg-byte-binding.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-r22-prereg-bytes-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux-immutable-prereg-observation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Offline negative controls and exact source pins
+        run: |
+          set -euo pipefail
+          python3 scripts/test_r22_prereg_bytes.py -v
+      - name: Authentic original GitHub immutable blob byte verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/r22_prereg_bytes.py
+      - name: One full Go repository regression vet and build
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Scope denial
+        run: |
+          echo 'R22_INDEPENDENT_BIRTH=UNVERIFIED'
+          echo 'R22_COMPLETE_FIRST_USE=UNVERIFIED'
+          echo 'R22_CLOUDFLARE_WRITES=0'
+          echo 'R22_ORIGINALS_EXECUTED=0'
+          echo 'R22_OPTIMIZER_LIVE_PROMOTION=DENIED'
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Negative tests and complete native Windows Go acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/test_r22_prereg_bytes.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R22_WINDOWS_PYTHON_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R22_WINDOWS_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R22_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R22_WINDOWS_BUILD_FAILED' }
