@@ -50,10 +50,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Reserve BOTH new original claims BEFORE any real worker can start
+      - name: Verify owner approval and the separately pre-consumed immutable two-original budget
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: \${{ github.token }}
         run: |
           set -euo pipefail
           test "$GITHUB_RUN_ATTEMPT" = 1
@@ -69,23 +69,49 @@ jobs:
           launch=protocol.load(pathlib.Path("research/r7-real-autochain/launch.json").read_bytes())
           frozen=pathlib.Path("research/r7-real-autochain/frozen.json").read_bytes()
           protocol.protocol(frozen)
-          if launch!={"schema":"forge.r7.single-two-stage-development-launch.v1",
-             "source_commit":src,"experiment_ids":list(protocol.STAGES),
-             "original_budget":2,"new_scientific_acceptance_authorized":False}:
-             raise SystemExit("R7_LAUNCH_SOURCE_OR_BUDGET_DRIFT")
+          if (launch.get("schema")!="forge.r7.single-two-stage-development-launch.v1" or
+              launch.get("source_commit")!=src or
+              launch.get("experiment_ids")!=list(protocol.STAGES) or
+              launch.get("original_budget")!=2 or
+              launch.get("new_scientific_acceptance_authorized") is not False or
+              type(launch.get("owner_approval_comment_id")) is not int or
+              launch["owner_approval_comment_id"]<=0 or
+              type(launch.get("claim_head_sha")) is not str or
+              len(launch["claim_head_sha"])!=40 or
+              any(x not in "0123456789abcdef" for x in launch["claim_head_sha"]) or
+              set(launch)!={"schema","source_commit","experiment_ids","original_budget",
+                  "new_scientific_acceptance_authorized","owner_approval_comment_id",
+                  "claim_head_sha"}):
+              raise SystemExit("R7_OWNER_APPROVED_LAUNCH_SOURCE_OR_BUDGET_DRIFT")
           PY
+          source="$(git rev-parse HEAD^)"
+          git fetch --no-tags origin refs/heads/research/forge-r7-real-autochain-firstuse-claims
+          test "$(git rev-parse FETCH_HEAD)" = "$(python3 -c 'import json;print(json.load(open("research/r7-real-autochain/launch.json"))["claim_head_sha"])')"
+          test "$(git rev-parse FETCH_HEAD^)" = "$source"
+          test "$(git diff --name-only "$source" FETCH_HEAD)" = research/r7-real-autochain/first-use-consumed.json
+          git show FETCH_HEAD:research/r7-real-autochain/first-use-consumed.json > "$RUNNER_TEMP/r7-firstuse/durable-claim.json"
+          comment="$(python3 -c 'import json;print(json.load(open("research/r7-real-autochain/launch.json"))["owner_approval_comment_id"])')"
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment" > "$RUNNER_TEMP/r7-firstuse/owner-approval.json"
           gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/forge-r7-real-autochain-firstuse&event=push&per_page=100" > "$RUNNER_TEMP/r7-firstuse/runs.json"
           python3 -B - <<'PY'
-          import json,os,pathlib,sys
+          import json,os,pathlib,subprocess,sys
           sys.path.insert(0,"research/r7-real-autochain")
           import protocol
           root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r7-firstuse"
-          runs=json.loads((root/"runs.json").read_bytes())
+          run=protocol.load((root/"runs.json").read_bytes())
+          launch=protocol.load(pathlib.Path("research/r7-real-autochain/launch.json").read_bytes())
+          approval=protocol.load((root/"owner-approval.json").read_bytes())
           rid=int(os.environ["GITHUB_RUN_ID"])
-          if runs.get("total_count")!=1 or len([x for x in runs.get("workflow_runs",[]) if
-               x.get("id")==rid and x.get("head_sha")==os.environ["GITHUB_SHA"] and
-               x.get("run_attempt")==1 and x.get("event")=="push"])!=1:
-               raise SystemExit("R7_DUPLICATE_FIRST_USE_DISPATCH")
+          source=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          protocol.verify_approval(approval,source,launch["owner_approval_comment_id"])
+          protocol.verify_durable_claim((root/"durable-claim.json").read_bytes(),
+              pathlib.Path("research/r7-real-autochain/frozen.json").read_bytes(),
+              source,launch["owner_approval_comment_id"])
+          if (run.get("total_count")!=1 or
+              len([x for x in run.get("workflow_runs",[]) if
+                   x.get("id")==rid and x.get("head_sha")==os.environ["GITHUB_SHA"] and
+                   x.get("run_attempt")==1 and x.get("event")=="push"])!=1):
+              raise SystemExit("R7_DUPLICATE_FIRST_USE_DISPATCH")
           claim={"schema":"forge.r7.firstuse-budget-consumed.v1",
             "branch":"research/forge-r7-real-autochain-firstuse",
             "experiment_ids":list(protocol.STAGES),"first_uses_consumed":2,
@@ -97,7 +123,7 @@ jobs:
           raw=(json.dumps(claim,sort_keys=True)+"\n").encode()
           with (root/"firstuse-budget-consumed.json").open("xb") as f:
               f.write(raw);f.flush();os.fsync(f.fileno())
-          print("TWO_FRESH_DEV_FIRST_USES_CONSUMED_BEFORE_SCIENCE=PASS")
+          print("R7_OWNER_APPROVAL_AND_GIT_DURABLE_PRECONSUMED_FIRST_USE=PASS")
           PY
       - uses: actions/upload-artifact@v4
         with:
