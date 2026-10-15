@@ -1,0 +1,108 @@
+name: FORGE R40 unified source qualification
+on:
+  push:
+    branches: [engineering/r40-unified-owner-preuse-20261015-r1]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head, signed preuse, recovery, monotonic SQLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./originalclaim ./cmd/forge-owner-preuse ./preusebinding
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+      - name: One full Go regression race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Package non-authorizing CLI source proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r40-linux"
+          go build -trimpath -o "$RUNNER_TEMP/r40-linux/forge-owner-preuse" ./cmd/forge-owner-preuse
+          (cd "$RUNNER_TEMP/r40-linux"; sha256sum forge-owner-preuse > SHA256SUMS)
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/r40-linux/SOURCE_SHA"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: r40-linux-owner-preuse-NOT-AUTHORIZING
+          path: ${{ runner.temp }}/r40-linux/
+          retention-days: 14
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows exact head and integrated focused qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R40_HEAD_DRIFT' }
+          go test -count=1 ./originalclaim ./cmd/forge-owner-preuse ./preusebinding
+          if ($LASTEXITCODE -ne 0) { throw 'R40_FOCUSED_FAILED' }
+          python -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R40_R35_FAILED' }
+          python -B d1retention/test_r38_monotonic_preuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R40_R38_FAILED' }
+      - name: One full Go regression vet build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R40_FULL_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R40_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R40_BUILD_FAILED' }
+      - name: Package non-authorizing Windows CLI source proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'r40-windows'
+          New-Item -ItemType Directory -Force -Path $dir|Out-Null
+          $binary=Join-Path $dir 'forge-owner-preuse.exe'
+          go build -trimpath -o $binary ./cmd/forge-owner-preuse
+          if ($LASTEXITCODE -ne 0) { throw 'R40_WINDOWS_BINARY_FAILED' }
+          $sha=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'SHA256SUMS'),"$sha  forge-owner-preuse.exe"+[Environment]::NewLine)
+          [IO.File]::WriteAllText((Join-Path $dir 'SOURCE_SHA'),$env:GITHUB_SHA+[Environment]::NewLine)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: r40-windows-owner-preuse-NOT-AUTHORIZING
+          path: ${{ runner.temp }}/r40-windows/
+          retention-days: 14
+          if-no-files-found: error
