@@ -1,0 +1,94 @@
+name: FORGE R20 authentic source-to-D1 optimizer intake
+on:
+  push:
+    branches: [research/r20-authentic-optimizer-archive-readonly-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r20-real-originals-readonly
+  cancel-in-progress: false
+jobs:
+  authentic-source-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Negative tests, focused Go tests, one full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s d1retention -p 'test_r20_*.py' -v
+          go test -count=1 ./optimizerbridge ./researcharchive ./cmd/forge-research-archive
+          go test ./...
+      - name: Independently fetch pinned original GitHub bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:reference/research-originals/20261013-six-recent-archive-cohort.json)" = 49cdc324fd2893a67045221e1689e32922ccf98a
+          root="$RUNNER_TEMP/r20-originals-private"
+          mkdir -m 700 "$root"
+          m="$GITHUB_WORKSPACE/reference/research-originals/20261013-six-recent-archive-cohort.json"
+          jq -e '.schema=="forge.research-archive.frozen-cohort.v1" and (.entries|length)==6' "$m" >/dev/null
+          jq -c '.entries[]' "$m" | while IFS= read -r e; do
+            repo="$(jq -er '.repository' <<<"$e")"
+            rid="$(jq -er '.run_id' <<<"$e")"
+            aid="$(jq -er '.artifact_id' <<<"$e")"
+            case "$repo" in
+              spoonman136668-ai/Wingless|spoonman136668-ai/Yggdrasil) ;;
+              *) exit 1;;
+            esac
+            gh api "repos/$repo/actions/runs/$rid" > "$root/$rid.run.json"
+            gh api "repos/$repo/actions/artifacts/$aid" > "$root/$rid.artifact.json"
+            gh api "repos/$repo/actions/artifacts/$aid/zip" > "$root/$rid.zip"
+          done
+          go run ./cmd/forge-research-archive --manifest "$m" --evidence-dir "$root" > "$root/observation.json"
+          echo 'R20_AUTHENTIC_GITHUB_ORIGINALS=VERIFIED_6'
+      - name: Reconstruct original bytes from existing Cloudflare D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/d1retention"
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          python3 - <<'PY'
+          import os,pathlib
+          import r19_live
+          import r20_optimizer_intake as intake
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r20-originals-private"
+          manifest=pathlib.Path("reference/research-originals/20261013-six-recent-archive-cohort.json").read_bytes()
+          obs=(root/"observation.json").read_bytes()
+          api,db=r19_live.get_client()
+          r19_live.archive_ready(api,db)
+          report=intake.qualify(manifest,obs,root,
+              lambda e,m,b:r19_live.assert_original_rows(api,db,e,m,b))
+          assert report["github_d1_originals_joined"]==6
+          assert report["wingless_originals"]==3 and report["yggdrasil_originals"]==3
+          assert report["five_optimizer_shadow_admitted"] is False
+          assert report["complete_first_use_reconciled"] is False
+          assert report["optimizer_dispatch_authorized"] is False
+          print("R20_REAL_ORIGINAL_GITHUB_D1_JOIN=PASS_6")
+          print("R20_WINGLESS_YGGDRASIL=3_3")
+          print("R20_BYTES_RESTORED="+str(report["original_bytes_readback"]))
+          print("R20_SIGNED_SELECTION_AUDITS=NOT_QUALIFIED")
+          print("R20_OPTIMIZER_ADMISSION=BLOCKED_PENDING_GENUINE_HISTORIES")
+          print("R20_REMOTE_WRITES=0")
+          print("R20_SCIENCE_EXECUTED=0")
+          PY
