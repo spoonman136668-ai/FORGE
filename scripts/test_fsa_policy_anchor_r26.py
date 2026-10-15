@@ -56,6 +56,19 @@ class R26PolicyContinuityTests(unittest.TestCase):
         self.assertFalse(v["FullRulesetAuthenticated"])
         self.assertEqual(v["Reason"], "RULESET_BYPASS_ACTORS_CHANGED")
 
+    def test_equivalent_utc_timestamp_is_same_exact_instant(self):
+        f = live_fixture()
+        f.pages[f"/rulesets/{RULESET}"]["updated_at"] = "2026-10-13T21:08:13.052Z"
+        value = self.verify(f)
+        self.assertTrue(value["PinnedSourcePolicyUnchanged"])
+        self.assertTrue(value["FullRulesetAuthenticated"])
+
+    def test_microsecond_timestamp_drift_is_denied(self):
+        f = live_fixture()
+        f.pages[f"/rulesets/{RULESET}"]["updated_at"] = "2026-10-13T21:08:13.053Z"
+        self.assertEqual(self.verify(f)["Reason"],
+                         "RULESET_UPDATED_AFTER_AUTHENTICATED_OBSERVATION")
+
     def test_hidden_bypass_with_updated_at_drift_denied(self):
         f = live_fixture()
         del f.pages[f"/rulesets/{RULESET}"]["bypass_actors"]
