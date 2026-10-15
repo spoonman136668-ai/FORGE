@@ -38,7 +38,11 @@ def c4(groups):
         for group in groups.values():
             ordered=sorted(range(576),key=lambda idx:(group[idx][1]*dot(w,group[idx][0]),idx))
             steps.append(grad([group[i] for i in ordered[:32]],w))
-        w=[w[i]+0.1*sum(step[i] for step in steps)/3 for i in range(16)]
+        # Original C4 computes a mean step before scaling by LR. Even a
+        # parenthesis change can alter floating-point tie-breaking under
+        # top-loss memory selection; preserve source order exactly.
+        mean=[sum(step[i] for step in steps)/3 for i in range(16)]
+        w=[w[i]+0.1*mean[i] for i in range(16)]
     return w
 def minimax(groups):
     w=[0.0]*16
