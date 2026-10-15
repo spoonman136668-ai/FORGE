@@ -1,0 +1,96 @@
+name: FORGE R26 authentic owner evidence availability qualification
+on:
+  push:
+    branches: [research/r26-genuine-owner-evidence-probe-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r26-authentic-owner-probe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused bounded ZIP, source and custody negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/test_r26_real_owner_evidence_discovery.py -v
+          go test -count=1 ./dreamrsi ./cmd/forge-prospective-shadow
+      - name: Read two authentic existing research artifacts (not future holdouts)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          private="$RUNNER_TEMP/r26-private"
+          mkdir -m 700 "$private"
+          manifest="$GITHUB_WORKSPACE/reference/research-originals/20261015-r26-live-artifact-probe.json"
+          jq -e '.schema=="forge.r26.authentic-latest-owner-artifact-probe.v1" and (.entries|length)==2' "$manifest" > /dev/null
+          jq -c '.entries[]' "$manifest" | while IFS= read -r row; do
+            repo="$(jq -er '.repository' <<<"$row")"
+            run="$(jq -er '.run_id' <<<"$row")"
+            artifact="$(jq -er '.artifact_id' <<<"$row")"
+            case "$repo" in spoonman136668-ai/Wingless|spoonman136668-ai/Yggdrasil) ;; *) exit 1 ;; esac
+            gh api "repos/$repo/actions/runs/$run" > "$private/$run.run.json"
+            gh api "repos/$repo/actions/runs/$run/artifacts?per_page=100" > "$private/$run.artifacts.json"
+            gh api "repos/$repo/actions/artifacts/$artifact/zip" > "$private/$run.zip"
+          done
+          python3 -B scripts/r26_real_owner_evidence_discovery.py "$private"
+          echo "R26_REAL_INPUTS_INSPECTED=2"
+          echo "R26_PROSPECTIVE_OPTIMIZER_GAIN=NOT_ESTABLISHED"
+          echo "R26_NEW_ORIGINALS=0"
+          echo "R26_CLOUDFLARE_WRITES=0"
+          rm -rf "$private"
+      - name: One full Go regression race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 22
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source-only focused and full acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R26_WINDOWS_SOURCE_DRIFT' }
+          python scripts/test_r26_real_owner_evidence_discovery.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R26_WINDOWS_FOCUSED_PYTHON_FAILED' }
+          go test -count=1 ./dreamrsi ./cmd/forge-prospective-shadow
+          if ($LASTEXITCODE -ne 0) { throw 'R26_WINDOWS_FOCUSED_GO_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R26_WINDOWS_FULL_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R26_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R26_WINDOWS_BUILD_FAILED' }
