@@ -187,6 +187,6 @@ func Build(context mindcontext.Result)(Bundle,error){
   SourceCount:len(sources),NonAuthoritative:true}
  bm,err:=data(man);if err!=nil{return empty,err}
  files[".ice/derived-export-manifest.json"]=bm
- if len(files)>4*MaxNotes+15{return empty,fmt.Errorf("%w: too many files",ErrBlocked)}
+ if len(files)>14*MaxNotes+15{return empty,fmt.Errorf("%w: too many files",ErrBlocked)}
  return Bundle{Files:files,RecordCount:len(context.Entries),SourceCount:len(sources)},nil
 }
