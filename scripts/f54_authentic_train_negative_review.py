@@ -157,8 +157,8 @@ def review(root,manifest):
     failed=manifest["separately_failed_once_only_diagnostics"]
     need(len(failed)==2 and failed[0]["run_id"]==38819249753
          and failed[1]["run_id"]==38819267489
-         and failed[0]["reason"]==failed[1]["reason"]==
-             "DATA_GENERATED_THEN_AUDIT_PROVENANCE_ASSERTION_FAILURE"
+         and failed[0]["reason"]=="DATA_GENERATED_THEN_AUDIT_PROVENANCE_ASSERTION_FAILURE"
+         and failed[1]["reason"]=="SAME_COHORT_REGENERATED_THEN_AUDIT_PROVENANCE_ASSERTION_FAILURE"
          and d["both_failed_queries_remain_unqualified"] is True
          and d["source_only_repair_cannot_promote_old_results"] is True,
          "FAILING_Y_DIAGNOSTICS_RECLASSIFIED")
