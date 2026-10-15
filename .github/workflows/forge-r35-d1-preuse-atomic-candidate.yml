@@ -1,0 +1,30 @@
+name: FORGE R35 existing D1 first-use candidate source qualification
+on:
+  push:
+    branches: [ops/forge-r35-d1-atomic-firstuse-candidate-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r35-d1-candidate-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  isolated-sqlite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source exactness and atomic claim simulation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          echo 'R35_ATOMIC_CANDIDATE_SCHEMA=TESTED_ISOLATED'
+          echo 'R35_REAL_CLOUDFLARE_SCHEMA_MIGRATION=NOT_EXECUTED'
+          echo 'R35_EXTERNAL_SIGNER=NOT_VERIFIED'
+          echo 'R35_MONOTONIC_PER_ORIGINAL_CLAIM_SERVICE=NOT_DEPLOYED'
+          echo 'R35_SCIENTIFIC_RELEASE_AUTHORIZED=FALSE'
+          echo 'R35_NEW_RESEARCH_ORIGINALS=0'
+          echo 'R35_PAID_API=0'
