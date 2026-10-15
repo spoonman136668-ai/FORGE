@@ -1,0 +1,34 @@
+name: FORGE R39 authenticated existing Cloudflare preflight
+on:
+  push:
+    branches: [ops/forge-r39-existing-cloudflare-preflight-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r39-existing-cloudflare-readonly
+  cancel-in-progress: false
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Existing account, Worker, database and frozen historical originals
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          PYTHONPATH=d1retention python3 -B d1retention/r39_existing_cloudflare_preflight.py
+          echo 'R39_SCIENTIFIC_ORIGINALS_DISPATCHED=0'
+          echo 'R39_OWNER_WITNESS_KEYS_MINTED=0'
