@@ -1,0 +1,161 @@
+name: FORGE R10 gradient-conflict versus bounded-memory development evidence
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r10-structural-methods/**'
+      - '.github/workflows/forge-r10-structural-dev.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-only:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze guards, independent negative controls, and zero-first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r10-structural-methods -p 'test_*.py' -v
+          python -B -m py_compile research/r10-structural-methods/{protocol,screen,review}.py
+          test ! -f research/r10-structural-methods/launch.json
+          echo 'R10_SOURCE_ONLY_NO_FIRST_USE=PASS'
+  genuine-development:
+    needs: source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          path: pinned-r36
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-independent-learned-representation-development-review
+          run-id: 38662331650
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r9-negative
+      - name: Train truly different mechanisms on virgin development folds
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-r36 rev-parse HEAD)" = 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          test "$(git -C pinned-r36 hash-object research/r36_f3_screen/wingless_methods.py)" = d75f36f25aca35e30a90bd50e31c8e0d90cedc28
+          test "$(git -C pinned-r36 hash-object research/r36_f3_screen/wingless_learned.py)" = 4a4d53bf992dd3e651b3f0add54f780c37f8a9a8
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          mkdir -p "$RUNNER_TEMP/r10-dev"
+          python3 -B research/r10-structural-methods/screen.py \
+            --frozen research/r10-structural-methods/frozen.json \
+            --parent "$RUNNER_TEMP/r9-negative/review.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --method-root "$GITHUB_WORKSPACE/pinned-r36" \
+            --forge-root "$GITHUB_WORKSPACE" \
+            --out "$RUNNER_TEMP/r10-dev/measurement.json"
+          jq -e '
+            .schema == "forge.r10.two-novel-methods.real-development.v1" and
+            .method_ids == ["W36-C2","W36-C4"] and
+            (.folds | length) == 3 and
+            all(.folds[]; (.score_by_arm | keys) == ["W36-C2","W36-C4","hard_minimax"]) and
+            .sealed_cohort_accessed == false and
+            .first_use_claims == 0 and
+            .scientific_originals_executed == 0 and
+            .scientific_accepted == false and
+            .paid_api_calls == 0
+          ' "$RUNNER_TEMP/r10-dev/measurement.json" > /dev/null
+          (cd "$RUNNER_TEMP/r10-dev"; sha256sum measurement.json > sha256.txt && sha256sum --check sha256.txt)
+          echo 'R10_TRUE_STRUCTURALLY_DISTINCT_TRAINING=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r10-actual-structural-methods-development
+          path: |
+            ${{ runner.temp }}/r10-dev/measurement.json
+            ${{ runner.temp }}/r10-dev/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
+  independent-review:
+    needs: genuine-development
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-independent-learned-representation-development-review
+          run-id: 38662331650
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r9-negative
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r10-actual-structural-methods-development
+          path: ${{ runner.temp }}/r10-dev
+      - name: Independently retrain methods and reaggregate all low-level evaluation rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r10-dev"; sha256sum --check sha256.txt)
+          mkdir -p "$RUNNER_TEMP/r10-review"
+          python3 -B research/r10-structural-methods/review.py \
+            --frozen research/r10-structural-methods/frozen.json \
+            --parent "$RUNNER_TEMP/r9-negative/review.json" \
+            --measurement "$RUNNER_TEMP/r10-dev/measurement.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --out "$RUNNER_TEMP/r10-review/review.json"
+          jq -e '
+            .schema == "forge.r10.independent-structural-development-verification.v1" and
+            .method_fidelity_independently_recomputed == true and
+            .development_row_verification == true and
+            (.folds | length) == 3 and
+            (.ranked_methods | length) == 2 and
+            .scientific_originals_executed == 0 and
+            .first_use_claims_created == 0 and
+            .sealed_holdouts_accessed == false and
+            .scientific_accepted == false and
+            .scientific_improvement_qualified == false and
+            .independent_fsa_qualified == false and
+            .new_science_dispatch_authorized == false and
+            .paid_api_calls == 0
+          ' "$RUNNER_TEMP/r10-review/review.json" > /dev/null
+          (cd "$RUNNER_TEMP/r10-review"; sha256sum review.json > sha256.txt && sha256sum --check sha256.txt)
+          jq -c '{selected_candidate_id, three_fold_development_gate_passed, ranked_methods}' "$RUNNER_TEMP/r10-review/review.json"
+          echo 'R10_INDEPENDENT_TRAINING_AND_SCIENTIFIC_NEGATIVE_PRESERVATION=PASS'
+          echo 'R10_NEW_FIRST_USE=NOT_AUTHORIZED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r10-independent-gradient-memory-development-review
+          path: |
+            ${{ runner.temp }}/r10-review/review.json
+            ${{ runner.temp }}/r10-review/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
