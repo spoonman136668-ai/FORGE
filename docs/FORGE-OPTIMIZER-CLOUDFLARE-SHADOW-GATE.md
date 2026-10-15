@@ -96,3 +96,21 @@ Cloudflare D1 production databases use built-in Time Travel. The currently docum
 The GitHub-hosted read-only D1 probe now verifies exactly the bound live database identity, fetches its database backend version with a GET, then retrieves its **current Time Travel bookmark with one GET only** if the version is `production`. It emits only presence/qualified status, never the bookmark itself. The local `d1retention/recovery.py` verifies the provider response shape and deliberately records `restore_attempted=false`, `full_backup_restore_qualified=false`, `live_schema_install_approved=false`. If the backend is not `production` or permission is denied, this stage remains blocked. This workflow never exports a database, changes D1 permissions, calls the restore endpoint, or installs archive schema.
 
 A live restore would **overwrite the database** and cannot be conducted as an automated public CI acceptance; require separate operator authority, interruption window and reversible evidence. The migration remains uninstalled while the one-time bookmark check qualifies.
+
+## R18 — explicit operator-only one-shot D1 archive installer
+
+\`d1retention/install_remote.py\` binds the CURRENT 100% serving \`curly-hat-6a9e\` Worker version, its EXACT \`forge\` D1 binding, independent account D1 listing and the production backend. It refuses ANY pre-existing \`forge_research_*\` object. It reads the current Time Travel bookmark, validates source HEAD + exact SHA-256 of \`d1retention/schema.sql\`, parses all 11 SQL statements while preserving trigger bodies, and **defaults to preflight without any mutation**. The only optional write mode requires \`--apply\`, \`FORGE_R18_APPLY_AUTHORIZATION=INSTALL_EXISTING_FORGE_D1_ONCE\`, a distinct scoped \`CLOUDFLARE_D1_WRITE_TOKEN\` in the process environment and a PRIVATE path for the recovery bookmark (created with exclusive O_EXCL before DDL). One D1 REST batch submits only the pre-reviewed additive SQL; post-install checks exact 3-table+8-trigger namespace and unchanged unrelated schema. On ambiguous responses the installer stops; it NEVER automatically attempts a destructive restore, deploys a Worker, updates a token, or launches science.
+
+This is an **operator script**, not a GitHub workflow action. Routine and PR CI execute mocks/local negative tests only. The preflight uses the already configured \`CLOUDFLARE_API_TOKEN\` read token. The write token must be provisioned separately only into a legitimate authorized operator session; NEVER put D1 Write in public PR CI secrets. A recovery bookmark is **not** a successfully tested backup restoration, and the private recovery file must stay in a protected, durable operator location within Cloudflare Time Travel retention.
+
+Example from a checkout of a pinned exact FORGE commit (replace both values from the qualifying run):
+
+\`\`\`powershell
+$env:CLOUDFLARE_ACCOUNT_ID = "<account-id-from-existing-config>"
+$env:CLOUDFLARE_API_TOKEN = "<read-token-in-operator-environment>"
+python d1retention/install_remote.py --expected-head <exact-40-hex-commit> --expected-sql-sha256 <qualified-sha256>
+# Production execution is a separate deliberate action with a scoped write token;
+# do not run from public PR jobs or until the preflight succeeds.
+\`\`\`
+
+No live D1 installation is implied by the presence or success of this source module. After a legitimate operator invokes the installer with write authority, the independent read-only original evidence/first-use gate must be completed before any optimizer promotion.
