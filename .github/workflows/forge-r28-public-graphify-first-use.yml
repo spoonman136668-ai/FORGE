@@ -1,0 +1,88 @@
+name: FORGE R28 real public code-only Graphify Obsidian export
+on:
+  push:
+    branches: [engineering/forge-r28-public-code-graph-first-use-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: forge-public-graphify-r28-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  public-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+      - name: Authenticate public-only Graphify script and current source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:tools/Build-FORGE-Graphify.ps1)" = 6295fde21a70a2e7371c13ad71852a569de68c3e
+          test -z "${FORGE_MIND_PALACE_READ_TOKEN:-}"
+          test -z "${OPENAI_API_KEY:-}"
+          test -z "${ANTHROPIC_API_KEY:-}"
+          python3 - <<'PY'
+          import json,pathlib
+          m=json.loads(pathlib.Path('.ice/manifest.json').read_text())
+          assert m['visibility']=='public-source-metadata-only'
+          assert m['authority']=='advisory-navigation-only'
+          assert m['graphify']['package']=='graphifyy'
+          assert m['graphify']['version']=='0.9.53'
+          assert m['graphify']['mode']=='code-only' and m['graphify']['model_calls']==0
+          assert not pathlib.Path('.ice/derived/obsidian').exists()
+          print('FORGE_R28_PINNED_PUBLIC_SOURCE=PASS')
+          PY
+      - name: Execute actual Graphify 0.9.53 code-only extraction and Obsidian export
+        shell: pwsh
+        env:
+          GRAPHIFY_QUERY_LOG_DISABLE: '1'
+          GRAPHIFY_QUERY_LOG_RESPONSES: '0'
+          OPENAI_API_KEY: ''
+          ANTHROPIC_API_KEY: ''
+          GOOGLE_API_KEY: ''
+          FORGE_MIND_PALACE_READ_TOKEN: ''
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./tools/Build-FORGE-Graphify.ps1 -UseUv
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_R28_GRAPHIFY_SCRIPT_FAILED' }
+      - name: Independently check real graph, Obsidian notes and SHA-256 provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib,subprocess
+          root=pathlib.Path('.ice/derived')
+          build=json.loads((root/'graphify/build.json').read_text(encoding='utf-8-sig'))
+          graph=(root/'graphify/graph.json').read_bytes()
+          notes=list((root/'obsidian').rglob('*.md'))
+          assert len(graph)>200 and len(notes)>0, 'EMPTY_EXTRACTED_GRAPH_OR_VAULT'
+          assert build['schema']=='forge.ice.graphify-derived.v1'
+          assert build['source_commit']==subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert build['source_tree']==subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          assert build['graph_sha256']==hashlib.sha256(graph).hexdigest()
+          assert build['extraction']=='code-only'
+          assert build['no_model_calls'] is True
+          assert build['evidence_authority']=='advisory_only'
+          assert build['originals_archived'] is False
+          assert build['scientific_execution_authorized'] is False
+          assert pathlib.Path('graphify-out/graph.json').is_file()
+          assert subprocess.check_output(['git','status','--porcelain'],text=True).strip()==''
+          print('FORGE_R28_REAL_PUBLIC_GRAPHIFY_TO_OBSIDIAN=PASS')
+          print('FORGE_R28_GRAPH_SHA256='+build['graph_sha256'])
+          print('FORGE_R28_OBSIDIAN_NOTE_COUNT='+str(len(notes)))
+          print('FORGE_R28_RESEARCH_AUTHORITY=NONE')
+          PY
+      - name: Retain public derived proof only, short lived
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-r28-public-graphify-obsidian
+          path: |
+            .ice/derived/graphify/graph.json
+            .ice/derived/graphify/build.json
+            .ice/derived/obsidian
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
