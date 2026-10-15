@@ -24,6 +24,7 @@ def frozen(raw):
         f.get("scope")!="PUBLIC_NEW_DEVELOPMENT_ONLY_NOT_SEALED_OR_ACCEPTED_SCIENCE" or
         f.get("wingless_source_commit")!=SOURCE_WING or
         f.get("method_source_commit")!=SOURCE_METHOD or
+        f.get("native_r34_git_blob")!="7e3db618c055e5228f9b07639e4555bc9250008e" or
         f.get("methods_git_blob")!=METHOD_BLOB or f.get("learned_git_blob")!=LEARNED_BLOB):fail("FROZEN_SOURCE")
     p=f.get("parent",{})
     if (p.get("id")!="W-FORGE-R9-REPRESENTATION-DEVELOPMENT-01" or
