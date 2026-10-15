@@ -159,10 +159,10 @@ def yggdrasil(d):
        len(steps)==len(idx) and len(set(idx))==len(idx) and
        all(type(i)==int and 0<=i<64 for i in idx),"Y_WITNESS")
     node=record["from_node"]
-    for (role,d),i in zip(steps,idx):
+    for (role,direction),i in zip(steps,idx):
      edge=events[i]
-     check(role==edge[1] and (edge[0] if d==1 else edge[2])==node,"Y_EVENT_ORDER")
-     node=edge[2] if d==1 else edge[0]
+     check(role==edge[1] and (edge[0] if direction==1 else edge[2])==node,"Y_EVENT_ORDER")
+     node=edge[2] if direction==1 else edge[0]
     check(node==record["to_node"],"Y_DECODE")
    check(decode(records,q)==r["results"][arm],"Y_FUTURE_TASK_RECONSTRUCTION")
   check(r["results"][arms[-1]]==1,"Y_ORACLE")
