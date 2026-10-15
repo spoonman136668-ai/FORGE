@@ -83,7 +83,7 @@ func TestR24SignedAssignmentPredecisionAudit(t *testing.T){
 func TestR24CandidateOutcomeAndAuthorityFailClosed(t *testing.T){
  pair:=[2]ProspectiveLaneInput{r24Lane(t,"Wingless",21,22),r24Lane(t,"Yggdrasil",31,32)}
  if !pair[0].Optimizer.QualifiedForProspectiveTest||!pair[1].Optimizer.QualifiedForProspectiveTest{
-  t.Skip("synthetic history fails existing optimization eligibility; cannot force positive evidence")
+  t.Fatal("future-trial positive fixture is not independently eligible; no vacuous qualification")
  }
  good,err:=AssessProspectivePair(pair)
  if err!=nil{t.Fatal(err)}
@@ -106,6 +106,8 @@ func TestR24ProspectiveDualLaneDenials(t *testing.T){
  build:=func()[2]ProspectiveLaneInput{
   return [2]ProspectiveLaneInput{r24Lane(t,"Wingless",41,42),r24Lane(t,"Yggdrasil",51,52)}
  }
+ baseline:=build()
+ if _,err:=AssessProspectivePair(baseline);err!=nil{t.Fatal("negative suite must begin from a valid verified baseline:",err)}
  cases:=[]struct{name string;bad func(*[2]ProspectiveLaneInput)}{
   {"missing heldout",func(x *[2]ProspectiveLaneInput){x[0].Heldout=Envelope{}}},
   {"fake accepted",func(x *[2]ProspectiveLaneInput){x[0].Optimizer.ScientificAccepted=true}},
