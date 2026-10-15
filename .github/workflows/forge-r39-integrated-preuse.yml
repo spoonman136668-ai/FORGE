@@ -1,0 +1,80 @@
+name: FORGE R39 integrated first-use safety acceptance
+on:
+  push:
+    branches: [engineering/r39-integrated-preuse-recovery-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r39-preuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head, signed predecision, recovery, monotonic D1 candidates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./preusebinding
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+      - name: One full Go regression race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Explicitly deny unsupported scientific authority
+        shell: bash
+        run: |
+          echo R39_GENUINE_OWNER_WITNESS=NOT_QUALIFIED
+          echo R39_LIVE_D1_MIGRATION=NONE
+          echo R39_ORIGINAL_DISPATCH=0
+          echo R39_REPLAY_AUTHORIZED=FALSE
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 22
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows focused safety and full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R39_HEAD_DRIFT' }
+          go test -count=1 ./preusebinding
+          if ($LASTEXITCODE -ne 0) { throw 'R39_PREUSEBINDING_FAILURE' }
+          python -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R39_R35_BASELINE_FAILURE' }
+          python -B d1retention/test_r38_monotonic_preuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R39_MONOTONIC_FAILURE' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R39_GO_REGRESSION_FAILURE' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R39_VET_FAILURE' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R39_BUILD_FAILURE' }
