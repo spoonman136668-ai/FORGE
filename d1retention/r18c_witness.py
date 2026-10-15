@@ -71,7 +71,9 @@ def verify_after(api,db,state):
     # Existing D1 foreign table is not readable by D1 API (HTTP 400).
     # DO NOT weaken authorization or claim row-level continuity;
     # source DDL never issues UPDATE/DELETE on foreign tables.
-    read_originals_empty(api,db)
+    # Creation-only source is SHA-pinned; evidence contents are outside this
+    # schema-installation gate. A live user-table row query is not guaranteed
+    # accessible through D1 REST and cannot be claimed as verified here.
     return len(objects)
 
 def preflight(api,db):
@@ -141,7 +143,7 @@ def run(argv=None,api=None):
         print("R18C_GUARDED_OBJECTS="+str(count))
         print("R18C_FOREIGN_SCHEMA=UNCHANGED")
         print("R18C_EXISTING_FOREIGN_ROWS=NOT_READ_OR_ATTESTED")
-        print("R18C_IMPORTED_ORIGINALS=0")
+        print("R18C_ORIGINAL_IMPORT=NOT_PERFORMED_BY_THIS_WORKFLOW")
         print("R18C_SCIENTIFIC_FIRST_USE=NOT_QUALIFIED")
         print("R18C_DISPATCH_AUTHORIZED=FALSE")
 
