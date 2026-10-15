@@ -1,0 +1,64 @@
+name: FORGE R37 interrupted-original recovery source qualification
+on:
+  push:
+    branches: [ops/forge-r37-owner-firstuse-recovery-contract-20261015-r1]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head and source-only recovery denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./preusebinding
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'R37_REAL_INTERRUPTED_WORKER_RECOVERY=NOT_PERFORMED'
+          echo 'R37_INDEPENDENT_SIGNER=NOT_VERIFIED'
+          echo 'R37_LIVE_CLOUDFLARE_WRITES=0'
+          echo 'R37_NEW_ORIGINALS=0'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows recovered-state negatives and full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R37_SHA_DRIFT' }
+          go test -count=1 ./preusebinding
+          if ($LASTEXITCODE -ne 0) { throw 'R37_RECOVERY_TEST_FAIL' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R37_FULL_TEST_FAIL' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R37_VET_FAIL' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R37_BUILD_FAIL' }
