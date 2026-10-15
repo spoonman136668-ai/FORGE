@@ -1,0 +1,401 @@
+name: FORGE R8 real two-original automatic Wingless succession (development only)
+on:
+  pull_request:
+    paths:
+      - 'research/r8-real-autochain/**'
+      - '.github/workflows/forge-r8-real-autochain.yml'
+  push:
+    branches: [research/forge-r8-real-autochain-firstuse]
+    paths: ['research/r8-real-autochain/launch.json']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: forge-r8-two-new-real-originals-once
+  cancel-in-progress: false
+
+jobs:
+  source-only:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run frozen two-stage source and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r8-real-autochain -p 'test_*.py' -v
+          python -B -m py_compile research/r8-real-autochain/protocol.py research/r8-real-autochain/execute.py research/r8-real-autochain/review.py
+          test ! -f research/r8-real-autochain/launch.json
+          echo 'SOURCE_ONLY_NO_SCIENCE_CONSUMED=PASS'
+
+  firstuse:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/research/forge-r8-real-autochain-firstuse'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify owner approval and the separately pre-consumed immutable two-original budget
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/research/forge-r8-real-autochain-firstuse
+          test "$(git diff --name-only HEAD^ HEAD)" = research/r8-real-autochain/launch.json
+          python3 -B -m unittest discover -s research/r8-real-autochain -p 'test_*.py' -q
+          mkdir -p "$RUNNER_TEMP/r8-firstuse"
+          python3 -B - <<'PY'
+          import json,os,pathlib,subprocess,sys
+          sys.path.insert(0,"research/r8-real-autochain")
+          import protocol
+          src=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          launch=protocol.load(pathlib.Path("research/r8-real-autochain/launch.json").read_bytes())
+          frozen=pathlib.Path("research/r8-real-autochain/frozen.json").read_bytes()
+          protocol.protocol(frozen)
+          if (launch.get("schema")!="forge.r8.single-two-stage-development-launch.v1" or
+              launch.get("source_commit")!=src or
+              launch.get("experiment_ids")!=list(protocol.STAGES) or
+              launch.get("original_budget")!=2 or
+              launch.get("new_scientific_acceptance_authorized") is not False or
+              type(launch.get("owner_approval_comment_id")) is not int or
+              launch["owner_approval_comment_id"]<=0 or
+              type(launch.get("claim_head_sha")) is not str or
+              len(launch["claim_head_sha"])!=40 or
+              any(x not in "0123456789abcdef" for x in launch["claim_head_sha"]) or
+              set(launch)!={"schema","source_commit","experiment_ids","original_budget",
+                  "new_scientific_acceptance_authorized","owner_approval_comment_id",
+                  "claim_head_sha"}):
+              raise SystemExit("R8_OWNER_APPROVED_LAUNCH_SOURCE_OR_BUDGET_DRIFT")
+          PY
+          source="$(git rev-parse HEAD^)"
+          git fetch --no-tags origin refs/heads/research/forge-r8-real-autochain-firstuse-claims
+          test "$(git rev-parse FETCH_HEAD)" = "$(python3 -c 'import json;print(json.load(open("research/r8-real-autochain/launch.json"))["claim_head_sha"])')"
+          test "$(git rev-parse FETCH_HEAD^)" = "$source"
+          test "$(git diff --name-only "$source" FETCH_HEAD)" = research/r8-real-autochain/first-use-consumed.json
+          git show FETCH_HEAD:research/r8-real-autochain/first-use-consumed.json > "$RUNNER_TEMP/r8-firstuse/durable-claim.json"
+          comment="$(python3 -c 'import json;print(json.load(open("research/r8-real-autochain/launch.json"))["owner_approval_comment_id"])')"
+          gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment" > "$RUNNER_TEMP/r8-firstuse/owner-approval.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/forge-r8-real-autochain-firstuse&event=push&per_page=100" > "$RUNNER_TEMP/r8-firstuse/runs.json"
+          python3 -B - <<'PY'
+          import json,os,pathlib,subprocess,sys
+          sys.path.insert(0,"research/r8-real-autochain")
+          import protocol
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r8-firstuse"
+          run=protocol.load((root/"runs.json").read_bytes())
+          launch=protocol.load(pathlib.Path("research/r8-real-autochain/launch.json").read_bytes())
+          approval=protocol.load((root/"owner-approval.json").read_bytes())
+          rid=int(os.environ["GITHUB_RUN_ID"])
+          source=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          protocol.verify_approval(approval,source,launch["owner_approval_comment_id"])
+          protocol.verify_durable_claim((root/"durable-claim.json").read_bytes(),
+              pathlib.Path("research/r8-real-autochain/frozen.json").read_bytes(),
+              source,launch["owner_approval_comment_id"])
+          if (run.get("total_count")!=1 or
+              len([x for x in run.get("workflow_runs",[]) if
+                   x.get("id")==rid and x.get("head_sha")==os.environ["GITHUB_SHA"] and
+                   x.get("run_attempt")==1 and x.get("event")=="push"])!=1):
+              raise SystemExit("R8_DUPLICATE_FIRST_USE_DISPATCH")
+          claim={"schema":"forge.r8.firstuse-budget-consumed.v1",
+            "branch":"research/forge-r8-real-autochain-firstuse",
+            "experiment_ids":list(protocol.STAGES),"first_uses_consumed":2,
+            "reruns_allowed":False,
+            "source_manifest_sha256":protocol.digest(pathlib.Path("research/r8-real-autochain/frozen.json").read_bytes()),
+            "run_id":os.environ["GITHUB_RUN_ID"],"head_sha":os.environ["GITHUB_SHA"],
+            "external_fsa_activated":False,"independent_custody_qualified":False,
+            "scientific_accepted":False,"paid_api_calls":0}
+          raw=(json.dumps(claim,sort_keys=True)+"\n").encode()
+          with (root/"firstuse-budget-consumed.json").open("xb") as f:
+              f.write(raw);f.flush();os.fsync(f.fileno())
+          print("R8_OWNER_APPROVAL_AND_GIT_DURABLE_PRECONSUMED_FIRST_USE=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r8-originals-consumed-intent
+          path: ${{ runner.temp }}/r8-firstuse
+          retention-days: 90
+          if-no-files-found: error
+
+  original-one:
+    needs: firstuse
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-originals-consumed-intent
+          path: ${{ runner.temp }}/r8-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r35-independent-review
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r8-parent
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: ec42db7c182395a95096fa55285e413fc63fdcc8
+          path: pinned-r35
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - name: Compute actual FIRST novel Wingless scientific development original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-r35 rev-parse HEAD)" = ec42db7c182395a95096fa55285e413fc63fdcc8
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          mkdir -p "$RUNNER_TEMP/r8-first-original"
+          python3 -B research/r8-real-autochain/execute.py \
+            --manifest research/r8-real-autochain/frozen.json \
+            --parent-review "$RUNNER_TEMP/r8-parent/independent-review.json" \
+            --claim "$RUNNER_TEMP/r8-firstuse/firstuse-budget-consumed.json" \
+            --legacy-root "$GITHUB_WORKSPACE/pinned-r35" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --stage 0 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r8-first-original/original.json"
+          (cd "$RUNNER_TEMP/r8-first-original" && sha256sum original.json > original.sha256 && sha256sum --check original.sha256)
+          echo 'R8_NEW_REAL_ORIGINAL_ONE_EXECUTED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r8-real-original-one
+          path: ${{ runner.temp }}/r8-first-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  review-one:
+    needs: original-one
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-originals-consumed-intent
+          path: ${{ runner.temp }}/r8-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-real-original-one
+          path: ${{ runner.temp }}/r8-first-original
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r35-independent-review
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r8-parent
+      - name: Independently review every original ONE heldout row without worker imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r8-first-original" && sha256sum --check original.sha256)
+          mkdir -p "$RUNNER_TEMP/r8-first-review"
+          python3 -B research/r8-real-autochain/review.py \
+            --manifest research/r8-real-autochain/frozen.json \
+            --original "$RUNNER_TEMP/r8-first-original/original.json" \
+            --parent-review "$RUNNER_TEMP/r8-parent/independent-review.json" \
+            --claim "$RUNNER_TEMP/r8-firstuse/firstuse-budget-consumed.json" \
+            --stage 0 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r8-first-review/review.json"
+          echo 'R8_ORIGINAL_ONE_INDEPENDENTLY_REVIEWED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r8-independent-review-one
+          path: ${{ runner.temp }}/r8-first-review
+          retention-days: 90
+          if-no-files-found: warn
+
+  original-two:
+    needs: review-one
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-originals-consumed-intent
+          path: ${{ runner.temp }}/r8-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-independent-review-one
+          path: ${{ runner.temp }}/r8-first-review
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: ec42db7c182395a95096fa55285e413fc63fdcc8
+          path: pinned-r35
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - name: AUTOMATICALLY compute genuine SECOND original after reviewed first
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-r35 rev-parse HEAD)" = ec42db7c182395a95096fa55285e413fc63fdcc8
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          mkdir -p "$RUNNER_TEMP/r8-second-original"
+          python3 -B research/r8-real-autochain/execute.py \
+            --manifest research/r8-real-autochain/frozen.json \
+            --parent-review "$RUNNER_TEMP/r8-first-review/review.json" \
+            --claim "$RUNNER_TEMP/r8-firstuse/firstuse-budget-consumed.json" \
+            --legacy-root "$GITHUB_WORKSPACE/pinned-r35" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --stage 1 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r8-second-original/original.json"
+          (cd "$RUNNER_TEMP/r8-second-original" && sha256sum original.json > original.sha256 && sha256sum --check original.sha256)
+          echo 'R8_SECOND_NEW_REAL_ORIGINAL_AUTONOMOUSLY_EXECUTED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r8-real-original-two
+          path: ${{ runner.temp }}/r8-second-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  review-two:
+    needs: original-two
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-originals-consumed-intent
+          path: ${{ runner.temp }}/r8-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-real-original-two
+          path: ${{ runner.temp }}/r8-second-original
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-independent-review-one
+          path: ${{ runner.temp }}/r8-first-review
+      - name: Independently review every original TWO heldout row without worker imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r8-second-original" && sha256sum --check original.sha256)
+          mkdir -p "$RUNNER_TEMP/r8-second-review"
+          python3 -B research/r8-real-autochain/review.py \
+            --manifest research/r8-real-autochain/frozen.json \
+            --original "$RUNNER_TEMP/r8-second-original/original.json" \
+            --parent-review "$RUNNER_TEMP/r8-first-review/review.json" \
+            --claim "$RUNNER_TEMP/r8-firstuse/firstuse-budget-consumed.json" \
+            --stage 1 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r8-second-review/review.json"
+          echo 'R8_ORIGINAL_TWO_INDEPENDENTLY_REVIEWED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r8-independent-review-two
+          path: ${{ runner.temp }}/r8-second-review
+          retention-days: 90
+          if-no-files-found: warn
+
+  exact-once-terminal:
+    needs: [firstuse, original-one, review-one, original-two, review-two]
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        if: needs.review-one.result == 'success' && needs.review-two.result == 'success'
+        with:
+          name: forge-r8-independent-review-one
+          path: ${{ runner.temp }}/r8-first-review
+      - uses: actions/download-artifact@v4
+        if: needs.review-one.result == 'success' && needs.review-two.result == 'success'
+        with:
+          name: forge-r8-independent-review-two
+          path: ${{ runner.temp }}/r8-second-review
+      - name: Fail closed unless two new original reviews are independently qualified
+        shell: bash
+        env:
+          PREFLIGHT: ${{ needs.firstuse.result }}
+          ORIGINAL_ONE: ${{ needs.original-one.result }}
+          REVIEW_ONE: ${{ needs.review-one.result }}
+          ORIGINAL_TWO: ${{ needs.original-two.result }}
+          REVIEW_TWO: ${{ needs.review-two.result }}
+        run: |
+          set -euo pipefail
+          for phase in "$PREFLIGHT" "$ORIGINAL_ONE" "$REVIEW_ONE" "$ORIGINAL_TWO" "$REVIEW_TWO"; do
+            test "$phase" = success || { echo 'CONSUMED_ORIGINALS_INDETERMINATE_NO_REPLAY'; exit 1; }
+          done
+          python3 -B - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          w=json.loads((root/"r8-first-review/review.json").read_bytes())
+          y=json.loads((root/"r8-second-review/review.json").read_bytes())
+          allowed={"ROBUST_QUARTILE_GAIN","PARTIAL_QUARTILE_GAIN","NO_CONFIRMED_QUARTILE_GAIN"}
+          if (w.get("experiment_id")!="W-FORGE-R8-QUARTILE-REPLICATION-01" or
+              y.get("experiment_id")!="W-FORGE-R8-QUARTILE-TRANSFER-02" or
+              y.get("parent_experiment_id")!=w.get("experiment_id") or
+              w.get("outcome") not in allowed or y.get("outcome") not in allowed or
+              any(r.get("independently_validated") is not True or
+                  r.get("original_replay_allowed") is not False or
+                  r.get("science_production_accepted") is not False or
+                  r.get("external_fsa_qualified") is not False or
+                  r.get("next_science_dispatch_authorized") is not False
+                  for r in (w,y))):
+              raise SystemExit("R8_TWO_NEW_ORIGINALS_NOT_INDEPENDENTLY_QUALIFIED")
+          report={"schema":"forge.r8.actual-two-new-development-originals.v1",
+            "source":"FORGE_REAL_WINGLESS_WORKER_FRESH_TWO_COHORTS",
+            "new_development_originals_executed":2,
+            "sequential_auto_progression":True,
+            "independent_row_reviews":2,
+            "first_use_consumed":2,
+            "historical_originals_replayed":0,
+            "external_fsa_activated":False,
+            "independent_sealed_custody_qualified":False,
+            "scientific_results_accepted":False,
+            "original_one_outcome":w["outcome"],
+            "original_two_outcome":y["outcome"],
+            "original_one_sha256":w["original_sha256"],
+            "original_two_sha256":y["original_sha256"]}
+          (root/"r8-terminal.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
+          print("TWO_ACTUAL_NEW_DEV_SCIENTIFIC_ORIGINALS_AUTO_CHAINED=PASS")
+          print("INDEPENDENT_FSA_SCIENTIFIC_ACCEPTANCE=NOT_QUALIFIED")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r8-real-auto-successor-two-originals-terminal
+          path: ${{ runner.temp }}/r8-terminal.json
+          retention-days: 90
+          if-no-files-found: error
