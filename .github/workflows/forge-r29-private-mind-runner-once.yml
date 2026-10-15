@@ -1,0 +1,99 @@
+name: FORGE R29 private Mind-Palace Obsidian first-use (existing isolated runner)
+on:
+  push:
+    branches: [engineering/forge-r29-private-mind-graph-once-20261015]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r29-private-mind-graph-once
+  cancel-in-progress: false
+jobs:
+  private-first-use:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/engineering/forge-r29-private-mind-graph-once-20261015'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify existing runner, installed exporter source and no Codex use
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'R29_WRONG_RUNNER_IDENTITY' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA -or $LASTEXITCODE -ne 0) { throw 'R29_FORGE_SOURCE_DRIFT' }
+          $pins = @{
+            'mindgraph/export.go' = 'd653ab81e70f66ac43f81c1acb984ae2a2cf8588'
+            'mindcontext/reader.go' = 'a5b786b4136f715b87c983c4d1e67e0e19946ea9'
+            'mindcontext/github.go' = '5228bcea7117051f20e6eda606759c7f92fedadf'
+            'cmd/forge-mind-graph/main.go' = '2080a61875d3b0290dc581cbabfb893af8288fe6'
+          }
+          foreach ($name in $pins.Keys) {
+            $actual = (& git rev-parse ('HEAD:' + $name)).Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $pins[$name]) { throw ('R29_EXPORTER_SOURCE_DRIFT:' + $name) }
+          }
+          if (-not (Get-Command gh -ErrorAction SilentlyContinue) -or -not (Get-Command go -ErrorAction SilentlyContinue)) { throw 'R29_EXISTING_PRIVATE_HOST_TOOLS_MISSING' }
+          Write-Output 'R29_ISOLATED_WINDOWS_RUNNER_AND_PINNED_FORGE_EXPORTER=PASS'
+          Write-Output 'R29_CODEX_INVOKED=FALSE'
+      - name: Read existing private authority once and verify real new Obsidian export
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $expected = '5e0e41db5810a0f8296863bac8d636ab961cc35a'
+          $output = Join-Path $env:RUNNER_TEMP ('forge-mind-graph-r29-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $output) { throw 'R29_PRIVATE_DESTINATION_ALREADY_EXISTS' }
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $privateToken = $null
+          try {
+            $privateToken = (@(& gh auth token --hostname github.com) -join '').Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($privateToken)) { throw 'R29_EXISTING_PRIVATE_GH_AUTH_UNAVAILABLE' }
+            $observed = (@(& gh api repos/spoonman136668-ai/Mind-Palace/commits/main --jq .sha) -join '').Trim()
+            if ($LASTEXITCODE -ne 0 -or $observed -cne $expected) { throw 'R29_PRIVATE_MIND_SOURCE_DRIFT' }
+            $env:FORGE_MIND_PALACE_READ_TOKEN = $privateToken
+            $privateToken = $null
+            & go run ./cmd/forge-mind-graph -out $output -projects 'Wingless,Yggdrasil,Research' -max 24
+            if ($LASTEXITCODE -ne 0) { throw 'R29_REAL_PRIVATE_EXPORT_FAILED' }
+            $manifestPath = Join-Path $output '.ice/derived-export-manifest.json'
+            $graphPath = Join-Path $output '.ice/derived-context-graph.json'
+            if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or -not (Test-Path -LiteralPath $graphPath -PathType Leaf)) { throw 'R29_PRIVATE_GRAPH_OR_MANIFEST_MISSING' }
+            $m = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $g = Get-Content -LiteralPath $graphPath -Raw | ConvertFrom-Json
+            if ($m.schema -cne 'forge.private-mind-derived-export.v1' -or $g.schema -cne 'forge.private-mind-derived-graph.v1' -or $m.pinned_mind_commit -cne $expected -or $g.pinned_mind_commit -cne $expected) { throw 'R29_PRIVATE_PIN_OR_SCHEMA_DRIFT' }
+            if (-not $m.non_authoritative -or -not $g.derived_advisory_only -or -not $g.no_inferred_relationships) { throw 'R29_PRIVATE_SCIENTIFIC_AUTHORITY_VIOLATION' }
+            if ($m.record_count -lt 7 -or $m.record_count -gt 24 -or $m.source_count -lt 1) { throw 'R29_PRIVATE_BUDGET_BOUNDARY' }
+            $digest = (Get-FileHash -LiteralPath $graphPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($digest -cne $m.graph_sha256) { throw 'R29_PRIVATE_GRAPH_HASH_MISMATCH' }
+            $fileCount = 0
+            foreach ($entry in $m.file_sha256.PSObject.Properties) {
+              $rel = [string]$entry.Name
+              if ($rel.StartsWith('/') -or $rel.Contains('..') -or $rel.Contains(':')) { throw 'R29_PRIVATE_RELATIVE_PATH_UNSAFE' }
+              $target = Join-Path $output ($rel.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+              if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { throw 'R29_PRIVATE_FILE_MISSING' }
+              if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -cne ([string]$entry.Value)) { throw 'R29_PRIVATE_FILE_HASH_MISMATCH' }
+              $fileCount++
+            }
+            if ($fileCount -lt 10 -or $fileCount -gt 700) { throw 'R29_PRIVATE_FILE_COUNT_BOUNDARY' }
+            $vault = Join-Path $output 'obsidian'
+            $records = @(Get-ChildItem -LiteralPath (Join-Path $vault 'records') -File -Filter '*.md')
+            if ($records.Count -ne [int]$m.record_count -or -not (Test-Path -LiteralPath (Join-Path $vault 'Index.md') -PathType Leaf)) { throw 'R29_OBSIDIAN_NOTES_NOT_COMPLETE' }
+            foreach ($edge in $g.edges) {
+              if ($edge.origin -cne 'EXTRACTED' -or [string]::IsNullOrWhiteSpace([string]$edge.evidence_record_id) -or $edge.kind -notin @('belongs_to','cites_source')) { throw 'R29_UNSUPPORTED_GRAPH_EDGE' }
+            }
+            if ((& git status --porcelain) -ne $null -and -not [string]::IsNullOrWhiteSpace((@(& git status --porcelain) -join ''))) { throw 'R29_PUBLIC_WORKTREE_MUTATED' }
+            Write-Output 'R29_PRIVATE_MIND_GRAPH_REAL_SOURCE_AND_EXPORT=PASS'
+            Write-Output ('R29_PRIVATE_RECORD_COUNT=' + $m.record_count)
+            Write-Output ('R29_PRIVATE_SOURCE_COUNT=' + $m.source_count)
+            Write-Output 'R29_ORIGINAL_SOURCE_AND_PRIVATE_OUTPUT_SEPARATE=PASS'
+            Write-Output 'R29_PRIVATE_GRAPH_SHA256=VERIFIED'
+            Write-Output 'R29_ADVISORY_ONLY=TRUE'
+            Write-Output 'R29_PUBLIC_ARTIFACT_UPLOAD=NONE'
+          } finally {
+            Remove-Item Env:FORGE_MIND_PALACE_READ_TOKEN -ErrorAction SilentlyContinue
+            $privateToken = $null
+            if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          if (Test-Path -LiteralPath $output) { throw 'R29_PRIVATE_SCRATCH_NOT_DESTROYED' }
+          Write-Output 'R29_PRIVATE_EPHEMERAL_OUTPUT_DESTROYED=PASS'
