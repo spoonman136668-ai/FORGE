@@ -38,9 +38,12 @@ def exact_policy(rule_list, detail):
         raise Denied("RULESET_ID_DRIFT")
     if (detail.get("name") != EXPECTED_NAME or detail.get("enforcement") != "active"
             or detail.get("target") != "branch" or detail.get("source_type") != "Repository"
-            or detail.get("source") != REPO or detail.get("bypass_actors") != []
-            or detail.get("current_user_can_bypass") != "never"):
-        raise Denied("RULESET_AUTHORITY_DRIFT")
+            or detail.get("source") != REPO):
+        raise Denied("RULESET_AUTHORITY_SCOPE_DRIFT")
+    if detail.get("bypass_actors") != []:
+        raise Denied("RULESET_BYPASS_ACTORS_PRESENT")
+    if detail.get("current_user_can_bypass") != "never":
+        raise Denied("RULESET_CALLER_BYPASS_VISIBILITY_UNQUALIFIED")
     ref = detail.get("conditions", {}).get("ref_name", {})
     if ref.get("include") != ["refs/heads/main"] or ref.get("exclude") != []:
         raise Denied("RULESET_REF_DRIFT")
