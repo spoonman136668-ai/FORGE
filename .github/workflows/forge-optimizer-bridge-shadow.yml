@@ -188,6 +188,35 @@ jobs:
           else:
               print("CF_D1_DATABASE_METADATA="+db_state)
               print("CF_D1_FORGE_DATABASE_MATCH=NOT_VERIFIED")
+          # Deployment traffic and screenshot-specific version provenance.
+          # GET-only Worker metadata; no version promotion or routing changes.
+          deploystate,deploydoc=get("accounts/"+account+
+                 "/workers/scripts/"+script+"/deployments")
+          if deploystate=="OK" and isinstance((deploydoc or {}).get("result"),dict):
+              deployments=deploydoc["result"].get("deployments")
+              if isinstance(deployments,list) and deployments:
+                  latest=deployments[0]
+                  versions=latest.get("versions") if isinstance(latest,dict) else None
+                  if isinstance(versions,list):
+                      for prefix in ("729ebded","4325bde9"):
+                          share=next((v.get("percentage") for v in versions if
+                            isinstance(v,dict) and
+                            str(v.get("version_id","")).lower().startswith(prefix)),0)
+                          if not isinstance(share,(int,float)):share="INVALID"
+                          print("CF_VERSION_"+prefix.upper()+"_TRAFFIC_PERCENT="+str(share))
+                      print("CF_DEPLOYMENT_TRAFFIC_METADATA=VERIFIED")
+                  else:print("CF_DEPLOYMENT_TRAFFIC_METADATA=MALFORMED")
+              else:print("CF_DEPLOYMENT_TRAFFIC_METADATA=EMPTY")
+          else:print("CF_DEPLOYMENT_TRAFFIC_METADATA="+deploystate)
+          vs,version=get("accounts/"+account+
+               "/workers/workers/"+script+"/versions/729ebded")
+          if vs=="OK" and isinstance((version or {}).get("result"),dict):
+              versionBindings=version["result"].get("bindings")
+              found=isinstance(versionBindings,list) and any(
+                isinstance(b,dict) and b.get("type")=="d1" and b.get("name")=="forge"
+                for b in versionBindings)
+              print("CF_VERSION_729EBDED_D1_FORGE="+("VERIFIED" if found else "ABSENT"))
+          else:print("CF_VERSION_729EBDED_D1_FORGE="+vs)
           print("CF_D1_SQL_QUERIES=0")
           print("CF_D1_WRITES=0")
           print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
