@@ -2,7 +2,7 @@ name: FORGE R33 existing Cloudflare authority capability read-only
 on:
   push:
     branches: [ops/forge-r33-existing-cloudflare-authority-readonly-20261015-r1]
-    paths: ['.github/workflows/forge-r33-existing-cloudflare-authority-readonly.yml']
+    paths: ['.github/workflows/forge-r33-existing-cloudflare-authority-readonly.yml', 'd1retention/r34_live_worker_capabilities.py']
 permissions:
   contents: read
 concurrency:
@@ -61,6 +61,14 @@ jobs:
           print("R33_ACTUAL_AUTHORIZED_PROSPECTIVE_EXPERIMENTS=0")
           print("R33_D1_DATA_OR_SCHEMA_WRITES=0")
           PY
+      - name: R34 authenticate deployed Worker binding capabilities (zero writes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 -B d1retention/r34_live_worker_capabilities.py
       - name: Explicitly refuse owner activation
         shell: bash
         run: |
