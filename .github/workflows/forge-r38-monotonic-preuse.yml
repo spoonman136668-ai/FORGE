@@ -1,0 +1,78 @@
+name: FORGE R38 monotonic original first-use candidate qualification
+on:
+  push:
+    branches: [engineering/r38-monotonic-firstuse-fence-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r38-monotonic-preuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head and focused SQLite negative acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+      - name: One full Go regression, race, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Report independent authorization still absent
+        shell: bash
+        run: |
+          echo 'R38_SQLITE_MONOTONIC_NEGATIVES=PASS_SOURCE_ONLY'
+          echo 'R38_LIVE_D1_MIGRATION=FALSE'
+          echo 'R38_OWNER_WITNESS_AUTHENTICATED=FALSE'
+          echo 'R38_ATOMIC_WORKER_PERMIT=FALSE'
+          echo 'R38_SCIENTIFIC_ORIGINALS=0'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head, native SQLite negatives and full Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R38_HEAD_DRIFT' }
+          python -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R38_R35_BASELINE_FAILED' }
+          python -B d1retention/test_r38_monotonic_preuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R38_MONOTONIC_NEGATIVES_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R38_GO_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R38_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R38_GO_BUILD_FAILED' }
