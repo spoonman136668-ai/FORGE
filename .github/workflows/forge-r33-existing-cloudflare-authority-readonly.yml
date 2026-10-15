@@ -1,0 +1,77 @@
+name: FORGE R33 existing Cloudflare authority capability read-only
+on:
+  push:
+    branches: [ops/forge-r33-existing-cloudflare-authority-readonly-20261015-r1]
+    paths: ['.github/workflows/forge-r33-existing-cloudflare-authority-readonly.yml', 'd1retention/r34_live_worker_capabilities.py']
+permissions:
+  contents: read
+concurrency:
+  group: forge-r33-existing-cloudflare-inspection
+  cancel-in-progress: false
+jobs:
+  read-only-live-identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read actual deployed D1 bindings, archived rows and all foreign schema names
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          PYTHONPATH=d1retention python3 - <<'PY'
+          import hashlib,json
+          import install_remote as c
+          import r18c_witness as w
+          api=c.Cloudflare(__import__('os').environ['CLOUDFLARE_ACCOUNT_ID'],__import__('os').environ['CLOUDFLARE_API_TOKEN'])
+          db=c.single_deployed_database(api)
+          objs=c.sql_query(api,db,"SELECT type,name,tbl_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name,tbl_name LIMIT 128")
+          if not objs or len(objs)>=128:raise SystemExit("R33_BOUNDARY=INCOMPLETE_SCHEMA")
+          names={r.get('name') for r in objs if isinstance(r,dict)}
+          if not c.EXPECTED_OBJECTS.issubset(names):raise SystemExit("R33_BOUNDARY=ARCHIVE_GUARDS_MISSING")
+          foreign=sorted(names-c.EXPECTED_OBJECTS)
+          for name in foreign:
+              if not isinstance(name,str) or len(name)>100:raise SystemExit("R33_BOUNDARY=UNSAFE_FOREIGN_SCHEMA")
+          counts={}
+          for table in ("forge_research_originals","forge_research_chunks","forge_research_seals"):
+              r=c.sql_query(api,db,"SELECT COUNT(*) AS n FROM "+table)
+              if len(r)!=1 or not isinstance(r[0].get("n"),int):raise SystemExit("R33_BOUNDARY=INVALID_ARCHIVE_COUNT")
+              counts[table]=r[0]["n"]
+          if counts["forge_research_originals"]!=6 or counts["forge_research_seals"]!=6:
+              raise SystemExit("R33_BOUNDARY=HISTORICAL_ARCHIVE_IDENTITY_CHANGED")
+          candidates=[s for s in foreign if any(x in s.lower() for x in ("firstuse","first_use","predecision","research_policy","original_permit","authority","witness","highwater"))]
+          print("R33_ACTUAL_D1_ARCHIVED_ORIGINALS="+str(counts["forge_research_originals"]))
+          print("R33_ACTUAL_D1_ORIGINAL_SEALS="+str(counts["forge_research_seals"]))
+          print("R33_FOREIGN_OBJECT_NAME_COUNT="+str(len(foreign)))
+          print("R33_AUTHORITY_LIKE_FOREIGN_OBJECT_COUNT="+str(len(candidates)))
+          print("R33_AUTHORITY_LIKE_FOREIGN_OBJECT_NAME_DIGEST_SHA256="+hashlib.sha256(json.dumps(candidates,separators=(',',':')).encode()).hexdigest())
+          print("R33_INDEPENDENT_REAL_SIGNER_DEPLOYMENT=NOT_AUTHENTICATED_BY_D1_METADATA")
+          print("R33_DISTRIBUTED_MONOTONIC_FIRST_USE_CAS=NOT_AUTHENTICATED_BY_D1_METADATA")
+          print("R33_ACTUAL_AUTHORIZED_PROSPECTIVE_EXPERIMENTS=0")
+          print("R33_D1_DATA_OR_SCHEMA_WRITES=0")
+          PY
+      - name: R34 authenticate deployed Worker binding capabilities (zero writes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 -B d1retention/r34_live_worker_capabilities.py
+      - name: Explicitly refuse owner activation
+        shell: bash
+        run: |
+          echo 'R33_EXISTING_D1_ARCHIVE_INSPECTION=READ_ONLY'
+          echo 'R33_SCIENTIFIC_ORIGINAL_DISPATCH=DISABLED'
+          echo 'R33_SIGNER_KEY_PROVISIONING=DISABLED'
