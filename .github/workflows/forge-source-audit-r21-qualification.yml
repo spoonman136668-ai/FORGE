@@ -9,6 +9,8 @@ on:
       - 'scripts/test_fsa_source_audit.py'
       - 'scripts/fsa_policy_anchor_r26.py'
       - 'scripts/test_fsa_policy_anchor_r26.py'
+      - 'scripts/fsa_atomic_promotion_r27.py'
+      - 'scripts/test_fsa_atomic_promotion_r27.py'
       - '.github/workflows/forge-automerge.yml'
       - '.github/workflows/qualify-fsa-source.yml'
       - '.github/workflows/forge-source-audit-r21-qualification.yml'
@@ -30,12 +32,15 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s scripts -p test_fsa_source_audit.py
           python3 -m unittest discover -s scripts -p test_fsa_policy_anchor_r26.py
+          python3 -m unittest discover -s scripts -p test_fsa_atomic_promotion_r27.py
       - name: Existing workflows must retain no merge execution path
         shell: bash
         run: |
           set -euo pipefail
           ! grep -Eq 'pulls/.*/merge|gh api -X PUT|merge_pull_request' .github/workflows/forge-automerge.yml
           ! grep -Eq 'merge_pull_request|pulls/.*/merge|urllib.request.Request.*PUT' scripts/fsa_source_audit.py
+          ! grep -Eq 'merge_pull_request|pulls/.*/merge|urllib.request.Request.*PUT' scripts/fsa_atomic_promotion_r27.py
+          grep -q 'contents: read' .github/workflows/forge-automerge.yml
           grep -q 'contents: read' .github/workflows/forge-automerge.yml
           grep -q 'github.sha' .github/workflows/forge-automerge.yml
           echo 'SOURCE_ONLY_NO_MERGE_WRITE=PASS'
