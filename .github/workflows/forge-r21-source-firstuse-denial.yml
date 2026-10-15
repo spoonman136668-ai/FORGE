@@ -36,3 +36,32 @@ jobs:
           echo 'R21_SCIENTIFIC_ORIGINALS_EXECUTED=0'
           echo 'R21_CLOUDFLARE_WRITES=0'
           echo 'R21_OPTIMIZER_DISPATCH=BLOCKED'
+  native-windows-focused:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Independent native Windows first-use negative checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./researcharchive ./sourcebirth ./workerreconcile
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          go vet ./researcharchive ./sourcebirth ./workerreconcile
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Preserve no-science rule
+        shell: pwsh
+        run: |
+          Write-Output 'R21_AUTHENTIC_FIRST_USE=NOT_QUALIFIED'
+          Write-Output 'R21_REMOTE_WRITES=0'
+          Write-Output 'R21_SCIENTIFIC_DISPATCH=0'
+
