@@ -94,6 +94,26 @@ jobs:
           print("CF_WORKER_SCIENCE_EXECUTIONS=0")
           PY
 
+      - name: R18 read-only original D1 schema installer preflight
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 d1retention/install_remote.py \
+            --expected-head "$GITHUB_SHA" \
+            --expected-sql-sha256 d5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c
+          echo 'R18_LIVE_INSTALL=NOT_RUN'
+          echo 'R18_CLOUDFLARE_WRITE_TOKEN=NOT_REQUIRED'
+
       - name: Existing Cloudflare Workers and Durable Objects read-only probe
         if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
         env:
