@@ -100,7 +100,7 @@ def main():
     try:
         result=audit(decode(MANIFEST.read_bytes()),decode(PINS.read_bytes()),read_blob)
     except (OSError,Blocked,TypeError,KeyError,ValueError) as exc:
-        print("R22_ORIGINAL_PREREG_BYTES=BLOCKED:"+type(exc).__name__,file=sys.stderr)
+        print("R22_ORIGINAL_PREREG_BYTES=BLOCKED:"+(str(exc) if isinstance(exc,Blocked) else type(exc).__name__),file=sys.stderr)
         return 1
     print(json.dumps(result,sort_keys=True,separators=(",",":")))
     return 0
