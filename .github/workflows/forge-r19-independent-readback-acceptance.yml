@@ -1,0 +1,115 @@
+name: FORGE R19 independent original-archive restored-byte acceptance
+on:
+  push:
+    branches: [ops/forge-r19-authentic-original-ingest-20261015]
+    paths: ['.github/workflows/forge-r19-independent-readback-acceptance.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independently-verify-remote-d1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fresh original GitHub source integrity check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r19-accept-private"
+          mkdir -m 700 "$root"
+          manifest="$GITHUB_WORKSPACE/reference/research-originals/20261013-six-recent-archive-cohort.json"
+          jq -ce '.schema=="forge.research-archive.frozen-cohort.v1" and (.entries|length)==6' "$manifest" >/dev/null
+          jq -c '.entries[]' "$manifest" | while IFS= read -r e; do
+            repo="$(jq -er '.repository' <<<"$e")"
+            rid="$(jq -er '.run_id' <<<"$e")"
+            art="$(jq -er '.artifact_id' <<<"$e")"
+            case "$repo" in
+              spoonman136668-ai/Wingless|spoonman136668-ai/Yggdrasil) ;;
+              *) echo 'R19_INDEPENDENT=FOREIGN_REPO'; exit 1;;
+            esac
+            gh api "repos/$repo/actions/runs/$rid" > "$root/$rid.run.json"
+            gh api "repos/$repo/actions/artifacts/$art" > "$root/$rid.artifact.json"
+            gh api "repos/$repo/actions/artifacts/$art/zip" > "$root/$rid.zip"
+          done
+          go run ./cmd/forge-research-archive --manifest "$manifest" --evidence-dir "$root" > "$root/observation.json"
+          jq -e '.archive_count==6 and .wingless_count==3 and .yggdrasil_count==3
+            and .scientific_accepted==false and .original_execution_authorized==false and
+            all(.observations[];.archival_integrity_verified==true and .first_use_reconciled==false)' "$root/observation.json" >/dev/null
+          echo "R19_INDEPENDENT_GITHUB_ZIPS=FRESH_AND_SOURCE_VERIFIED_6"
+      - name: Independent D1 readback and original-byte reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/d1retention"
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}"
+          python3 - <<'PY'
+          import pathlib,os
+          import install_remote as c,r18c_witness as w,r19_intake as i,r19_live as live
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r19-accept-private"
+          manifest=pathlib.Path("reference/research-originals/20261013-six-recent-archive-cohort.json").read_bytes()
+          entries=i.manifest_entries(manifest)
+          observation=(root/"observation.json").read_bytes()
+          i.verify_observation(observation,entries,i.sha(manifest))
+          api,db=live.get_client()
+          live.archive_ready(api,db)
+          total=0
+          for e in entries:
+            original=(root/(str(e["run_id"])+".zip")).read_bytes()
+            if i.sha(original)!=e["archive_sha256"]:
+                raise SystemExit("R19_INDEPENDENT_ORIGINAL_HASH_MISMATCH")
+            total+=live.assert_original_rows(api,db,e,i.sha(manifest),original)
+          for tab,num in (("forge_research_originals",6),("forge_research_seals",6)):
+            x=c.sql_query(api,db,"SELECT COUNT(*) AS n FROM "+tab)
+            if len(x)!=1 or x[0].get("n")!=num:
+                raise SystemExit("R19_INDEPENDENT_RETAINED_COUNT_DRIFT")
+          print("R19_INDEPENDENT_AUTHENTIC_ORIGINALS_RESTORED=6")
+          print("R19_INDEPENDENT_RETAINED_BYTES="+str(total))
+          print("R19_INDEPENDENT_LANE_SPLIT=3_WINGLESS_3_YGGDRASIL")
+          print("R19_INDEPENDENT_FOREIGN_SCHEMA=UNCHANGED")
+          print("R19_INDEPENDENT_D1_WRITES=0")
+          print("R19_INDEPENDENT_SCIENTIFIC_ACCEPTED=FALSE")
+          print("R19_INDEPENDENT_FIRST_USE=NOT_RECONCILED")
+          print("R19_INDEPENDENT_EXECUTIONS=0")
+          PY
+      - name: One full FORGE Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+  windows-offline-negatives:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Recheck original integrity and R19 ingestion under Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected='d5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c'
+          $actual=(Get-FileHash -Algorithm SHA256 d1retention/schema.sql).Hash.ToLowerInvariant()
+          if($actual -ne $expected){throw 'R19_WINDOWS_SOURCE_DRIFT'}
+          python -m unittest discover -s d1retention -p 'test_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'R19_WINDOWS_NEGATIVE_REGRESSION'}
+          Write-Output 'R19_WINDOWS_OFFLINE_NEGATIVES=PASS'
+          Write-Output 'R19_WINDOWS_REMOTE_DB_WRITES=0'
