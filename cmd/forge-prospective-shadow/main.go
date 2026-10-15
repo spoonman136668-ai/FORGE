@@ -31,6 +31,7 @@ func run(args []string,out io.Writer)error{
  fs.SetOutput(io.Discard)
  owner:=fs.String("owner-evidence","","existing authorized owner's frozen prospective JSON, absolute path")
  pins:=fs.String("independent-pins","","separately supplied authentic public-key/immutable SHA pins, absolute path")
+ single:=fs.Bool("single-lane",false,"review one independently authorized Wingless or Yggdrasil source lane without holding up the other")
  if err:=fs.Parse(args);err!=nil||fs.NArg()!=0||
   *owner==""||*pins==""||!filepath.IsAbs(*owner)||!filepath.IsAbs(*pins)||
   filepath.Clean(*owner)==filepath.Clean(*pins){
@@ -40,7 +41,12 @@ func run(args []string,out io.Writer)error{
  if err!=nil{return err}
  trust,err:=readStrictRegular(*pins,dreamrsi.MaxIndependentPinsBytes)
  if err!=nil{return err}
- assessment,err:=dreamrsi.ReviewOwnerEvidence(evidence,trust)
+ var assessment any
+ if *single{
+  assessment,err=dreamrsi.ReviewOwnerSingleLaneEvidence(evidence,trust)
+ }else{
+  assessment,err=dreamrsi.ReviewOwnerEvidence(evidence,trust)
+ }
  if err!=nil{return err}
  result,err:=json.Marshal(assessment)
  if err!=nil{return err}

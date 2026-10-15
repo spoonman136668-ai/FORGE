@@ -55,3 +55,21 @@ func TestR25FailureDoesNotEchoRawPrivateEvidence(t *testing.T){
   t.Fatal("incomplete real source leaked or became positive")
  }
 }
+
+func TestR27SingleLaneSwitchIsFailClosedOnUnqualifiedInputs(t *testing.T){
+ dir:=t.TempDir()
+ owner:=filepath.Join(dir,"owner.json")
+ pins:=filepath.Join(dir,"pins.json")
+ if err:=os.WriteFile(owner,[]byte("{}"),0600);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(pins,[]byte("{}"),0600);err!=nil{t.Fatal(err)}
+ for _,args:=range [][]string{
+  {"--single-lane"},
+  {"--single-lane","--owner-evidence",owner,"--independent-pins",owner},
+  {"--single-lane","--owner-evidence",owner,"--independent-pins",pins},
+ }{
+  var out bytes.Buffer
+  if err:=run(args,&out);err==nil||out.Len()!=0{
+   t.Fatalf("unqualified single-lane owner evidence reached stdout: %v",args)
+  }
+ }
+}
