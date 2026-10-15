@@ -4,7 +4,7 @@ No reserved/sealed cohort, no new original, no independent science acceptance.
 R36 C2 remains a pinned, draft method whose fidelity must be independently checked.
 """
 import argparse,hashlib,importlib.util,json,math,pathlib,subprocess,sys
-from next_policy import check_frozen,parse,sha,reject
+from next_policy import check_frozen,parse,sha,fail as reject
 def git(root,*args):
     return subprocess.check_output(["git","-C",str(root),*args],text=True,stderr=subprocess.DEVNULL).strip()
 def dynamic(path,name):
@@ -25,7 +25,6 @@ def screen(frozen_raw,proposal_raw,wingless_root,method_root,forge_root):
     source=m["pinned_sources"]
     if (git(wingless_root,"rev-parse","HEAD")!="b1e4972f04142f1f35f76f9483b12491dec4846c" or
         git(method_root,"rev-parse","HEAD")!=source["forge_method_commit"] or
-        git(method_root,"hash-object",source["method_path"])!=source["method_blob"] or
         git(method_root,"hash-object",source["method_path"])!=source["method_blob"] or
         git(wingless_root,"status","--porcelain") or git(method_root,"status","--porcelain")):reject("UNPINNED_METHOD_SOURCE")
     src=wingless_root/"research/contrib/chatgpt/20261013-w-r52-batch-diversity/execute.py"
