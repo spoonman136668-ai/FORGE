@@ -50,8 +50,10 @@ type ExternalTrust struct {
  MinimumRevision uint64 `json:"minimum_revision"`
  WinglessFirstUseLedgerSHA256 string `json:"wingless_first_use_ledger_sha256"`
  WinglessFirstUseHighWater uint64 `json:"wingless_first_use_high_water"`
+ WinglessSourceBirthLedgerSHA256 string `json:"wingless_source_birth_ledger_sha256"`
  YggdrasilFirstUseLedgerSHA256 string `json:"yggdrasil_first_use_ledger_sha256"`
  YggdrasilFirstUseHighWater uint64 `json:"yggdrasil_first_use_high_water"`
+ YggdrasilSourceBirthLedgerSHA256 string `json:"yggdrasil_source_birth_ledger_sha256"`
 }
 // This record deliberately does NOT claim actual remote read, independent
 // operational key custody, complete historical first-use, or scientific gain.
@@ -123,13 +125,14 @@ func EvaluatePinnedExport(signed SignedExport,trust ExternalTrust,raw [2][]byte,
  wantLane:=[]string{"Wingless","Yggdrasil"}
  wantLedger:=[]string{trust.WinglessFirstUseLedgerSHA256,trust.YggdrasilFirstUseLedgerSHA256}
  wantHigh:=[]uint64{trust.WinglessFirstUseHighWater,trust.YggdrasilFirstUseHighWater}
+ wantBirth:=[]string{trust.WinglessSourceBirthLedgerSHA256,trust.YggdrasilSourceBirthLedgerSHA256}
  evidence:=make([]LaneEvidence,0,2)
  for i,obj:=range m.Objects{
   if obj.Lane!=wantLane[i]||pins[i].Lane!=obj.Lane||
    !objectKeyOK(obj.ObjectKey)||!digestOK(obj.EvidenceSHA256,64)||
    shaHex(raw[i])!=obj.EvidenceSHA256||
    !digestOK(obj.FirstUseLedgerSHA256,64)||
-   !digestOK(obj.SourceBirthLedgerSHA256,64)||
+   !digestOK(obj.SourceBirthLedgerSHA256,64)||obj.SourceBirthLedgerSHA256!=wantBirth[i]||
    obj.FirstUseLedgerSHA256!=wantLedger[i]||
    obj.FirstUseHighWater==0||obj.FirstUseHighWater!=wantHigh[i]{
     return zero,fmt.Errorf("%w:lane_%s",ErrUnqualifiedExport,wantLane[i])
