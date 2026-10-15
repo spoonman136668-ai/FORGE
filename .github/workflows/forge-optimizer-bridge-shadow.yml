@@ -355,9 +355,13 @@ jobs:
                           # parameterized with exactly one discovered identifier.
                           # No names, column values or complete DDL are logged.
                           if len(rows)==1 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",rows[0]["name"]):
-                              shape_sql='SELECT name, type, "notnull", pk FROM pragma_table_info(?) LIMIT 64'
+                              # SQLite's sqlite_master is already allowed by the
+                              # qualified first query. Read ONLY the DDL for
+                              # this strictly validated identifier.
+                              shape_sql=("SELECT sql FROM sqlite_master WHERE type='table' "
+                                  "AND name='"+rows[0]["name"]+"' LIMIT 1")
                               shape_payload=json.dumps({"sql":shape_sql,
-                                  "params":[rows[0]["name"]]}).encode("utf-8")
+                                  "params":[]}).encode("utf-8")
                               shape_req=urllib.request.Request(url,data=shape_payload,
                                   headers={"Authorization":"Bearer "+token,
                                            "Accept":"application/json",
@@ -374,25 +378,22 @@ jobs:
                                       fields=one.get("results") if isinstance(one,dict) else None
                                       smeta=one.get("meta") if isinstance(one,dict) else None
                                       if (shape.get("success") is True and isinstance(fields,list)
-                                          and len(fields)<=64 and isinstance(smeta,dict)
-                                          and smeta.get("changes",0)==0 and
-                                          smeta.get("changed_db") is not True and
-                                          all(isinstance(c,dict) and isinstance(c.get("name"),str)
-                                          for c in fields)):
-                                          keys={c["name"].lower() for c in fields}
-                                          groups={
-                                              "digest":("sha256","digest","hash","content_sha"),
-                                              "identity":("original_id","experiment_id","source_sha","source_id"),
-                                              "lane":("lane","project","project_id"),
-                                              "signature":("signature","signature_hex","signer","public_key"),
-                                              "first_use":("first_use","first_use_receipt","first_use_high_water"),
-                                              "payload":("payload","record","body","content","evidence")}
-                                          score=sum(any(term in k for k in keys) for term in groups.values())
+                                          and len(fields)==1 and isinstance(fields[0],dict)
+                                          and isinstance(fields[0].get("sql"),str) and
+                                          len(fields[0]["sql"])<=8192 and isinstance(smeta,dict) and
+                                          smeta.get("changes",0)==0 and
+                                          smeta.get("changed_db") is not True):
+                                          ddl=fields[0]["sql"].lower()
+                                          # Conservative shape screening, NOT proof of
+                                          # suitable storage or authorizing provenance.
+                                          terms=("sha256","digest","original_id","experiment_id",
+                                              "source_sha","lane","project","signature",
+                                              "first_use","receipt","payload","evidence")
+                                          matches=sum(t in ddl for t in terms)
                                           print("CF_D1_TABLE_SHAPE=READ_ONLY_VERIFIED")
-                                          print("CF_D1_TABLE_COLUMNS_BOUNDED="+str(len(fields)))
-                                          print("CF_D1_EVIDENCE_SCHEMA_GROUPS="+str(score))
-                                          print("CF_D1_TABLE_CUSTODY_SUITABLE="+(
-                                              "CANDIDATE_REVIEW_ONLY" if score>=5 else "NOT_DEMONSTRATED"))
+                                          print("CF_D1_DDL_BOUNDED=TRUE")
+                                          print("CF_D1_EVIDENCE_DDL_INDICATORS="+str(matches))
+                                          print("CF_D1_TABLE_CUSTODY_SUITABLE=NOT_YET_QUALIFIED")
                                           print("CF_D1_SHAPE_CHANGED_DB=FALSE")
                                       else:print("CF_D1_TABLE_SHAPE=UNQUALIFIED_RESPONSE")
                               except urllib.error.HTTPError as e:
@@ -411,7 +412,7 @@ jobs:
               print("CF_D1_SCHEMACHECK=BLOCKED_ON_TRUST_PIN")
           print("CF_D1_ORIGINALS_ACCEPTED=0")
           print("CF_AUTHENTIC_ORIGINAL_EVIDENCE=NOT_YET_READ")
-          print("CF_D1_SQL_READONLY_SELECT_ATTEMPTS="+("1" if verified_d1 else "0"))
+          print("CF_D1_SQL_READONLY_SELECT_ATTEMPTS="+("2" if verified_d1 else "0"))
           print("CF_D1_WRITES=0")
           print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
           print("CF_ORIGINAL_EXECUTIONS=0")
