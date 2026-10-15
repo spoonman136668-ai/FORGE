@@ -1,0 +1,66 @@
+name: FORGE F47 genuine TRAIN outcome review and automatic F48 hypothesis
+on:
+  push:
+    branches: [research/f47-real-outcome-successor-intake-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independently-review-and-propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate exact original F47 GitHub study runs and artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f47"
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for row in \
+            'Wingless 38803701796 bd7f18a31369cd913d353477e60b7be6d0d87876 12005147117 W-F46-TRAIN-only-new-value-of-computation sha256:2b365b0c6674ed363a8071d6cf1fdd222684065e068a71a145d9799d5d51f735' \
+            'Yggdrasil 38803873408 88963d04511a49e935c0873bf14af15f771274d0 12005990427 Y-F46-TRAIN-only-causal-pair-shuffle sha256:9bb8a3845b4540a42ce24f9c01a1703704c633d85341216a0306638307e6cf5c'
+          do
+            read -r lane run head artifact name digest <<< "$row"
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and
+               .status == "completed" and .conclusion == "success"' "$root/$lane/run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson artifact "$artifact" --argjson run "$run" \
+              '.id == $artifact and .name == $name and .expired == false and .digest == $digest and
+               .workflow_run.id == $run' "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f47_genuine_train_review.py --wingless "$root/Wingless" \
+            --yggdrasil "$root/Yggdrasil" --out "$root/f47-review.json"
+          python3 -B scripts/f47_genuine_train_review.py --wingless "$root/Wingless" \
+            --yggdrasil "$root/Yggdrasil" --out "$root/repeat.json"
+          cmp "$root/f47-review.json" "$root/repeat.json"
+          jq -e '.actual_fresh_experiments_executed == 2 and
+                 .primary_originals_executed == 0 and .originals_replayed == 0 and
+                 .new_science_dispatch_authorized == false and
+                 .theta_promotion_eligible == false and
+                 .automatic_successor_hypotheses_prepared == true and
+                 ([.reviews[] | select(.disposition == "TRAIN_ONLY_NEGATIVE")] | length) == 2' \
+                 "$root/f47-review.json" >/dev/null
+          sha256sum "$root/f47-review.json" > "$root/f47-review.sha256"
+          echo 'F47_TWO_NEW_TRAIN_EXPERIMENTS_INDEPENDENTLY_RECOUNTED_AND_NEXT_HYPOTHESES_SELECTED=PASS'
+      - name: Single FORGE source regression
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f47-fresh-two-lane-independent-review-and-next-hypotheses
+          path: ${{ runner.temp }}/f47/
+          retention-days: 30
+          if-no-files-found: error
