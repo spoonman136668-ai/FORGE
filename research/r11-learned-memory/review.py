@@ -174,7 +174,9 @@ def audit(frozen_raw,parent_raw,record_raw,wingless_root):
         for arm,expected in controls.items():
             original=report["models"][arm]
             x=original.get("weights")
-            if not isinstance(x,list) or len(x)!=16 or any(not close(a,b,1e-9) for a,b in zip(x,expected)):stop("TRAINING_REPLAY_FAILED_"+arm)
+            if not isinstance(x,list) or len(x)!=16:stop("TRAINING_WEIGHT_DIM_"+arm)
+            err=max(abs(a-b) for a,b in zip(x,expected))
+            if err>1e-9:stop("TRAINING_REPLAY_FAILED_"+arm+"_DIFF_"+format(err,".9g"))
             fingerprint=hashlib.sha256(json.dumps(x,separators=(",",":"),allow_nan=False).encode()).hexdigest()
             if original.get("weights_sha256")!=fingerprint or report["score_by_arm"][arm].get("weights_sha256")!=fingerprint:stop("WEIGHT_FINGERPRINT")
             if original.get("source_counts")!={k:576 for k in source.GEN} or report["score_by_arm"][arm].get("source_training_example_counts")!={k:576 for k in source.GEN}:stop("SOURCE_BUDGET")
