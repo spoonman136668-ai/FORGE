@@ -1,0 +1,56 @@
+name: FORGE R19 native review and branch-rules read-only preflight
+on:
+  push:
+    branches: [engineering/fsa-r19-lastmile-review-20261015]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/fsa_lastmile.py'
+      - 'scripts/test_fsa_lastmile.py'
+      - '.github/workflows/forge-fsa-r19-lastmile.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+jobs:
+  lastmile-denial-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: R18 and R19 focused fail-closed qualification
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_fsa_native_review.py'
+          python3 -m unittest discover -s scripts -p 'test_fsa_lastmile.py'
+          go test -count=1 ./fsamergeattest ./cmd/forge-fsa-review
+      - name: Live GitHub PR review and main ruleset read-only probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          number="${PR_NUM:-242}"
+          python3 scripts/fsa_native_review.py --pr "$number" --output "$RUNNER_TEMP/r19-native.json"
+          go run ./cmd/forge-fsa-review --snapshot "$RUNNER_TEMP/r19-native.json" > "$RUNNER_TEMP/r19-go-verdict.json"
+          python3 scripts/fsa_lastmile.py --pr "$number" --snapshot "$RUNNER_TEMP/r19-native.json" --review "$RUNNER_TEMP/r19-go-verdict.json" > "$RUNNER_TEMP/r19-lastmile.json"
+          python3 - "$RUNNER_TEMP/r19-lastmile.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert r['MergeAuthorized'] is False
+          assert r['ScientificAuthority'] is False
+          assert r['Reason']
+          print('R19_GITHUB_NATIVE_READ=PASS')
+          print('R19_RULESET_VERIFIED='+str(r['RulesetVerified']).upper())
+          print('R19_EXACT_HEAD_AND_BASE_STABLE='+str(r['HeadAndBaseStable']).upper())
+          print('R19_REAL_NATIVE_REVIEW_QUALIFIED='+str(r['NativeReviewQualified']).upper())
+          print('R19_MERGE_AUTHORIZED=FALSE')
+          print('R19_DENIAL_REASON='+r['Reason'])
+          PY
