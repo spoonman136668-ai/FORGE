@@ -74,6 +74,28 @@ class FrozenGate(unittest.TestCase):
             self.assertFalse(result["external_fsa_qualified"])
             self.assertFalse(result["next_science_dispatch_authorized"])
             self.assertEqual(result["outcome"],"NO_CONFIRMED_QUARTILE_GAIN")
+    def test_owner_comment_and_durable_precompute_budget(self):
+        source="c"*40; cid=123
+        approval={"id":cid,"body":protocol.approval_text(source),
+                  "user":{"login":"spoonman136668-ai","id":253477821},
+                  "author_association":"OWNER",
+                  "created_at":"2026-10-14T20:11:00Z",
+                  "updated_at":"2026-10-14T20:11:00Z"}
+        self.assertTrue(protocol.verify_approval(approval,source,cid))
+        claim=protocol.expected_durable_claim(self.raw,source,cid)
+        self.assertTrue(protocol.verify_durable_claim(self.encode(claim),self.raw,source,cid))
+        changed=copy.deepcopy(approval);changed["user"]["login"]="other-account"
+        with self.assertRaises(ValueError):protocol.verify_approval(changed,source,cid)
+        changed=copy.deepcopy(approval);changed["updated_at"]="2026-10-14T20:11:01Z"
+        with self.assertRaises(ValueError):protocol.verify_approval(changed,source,cid)
+        changed=copy.deepcopy(approval);changed["body"]+="extra"
+        with self.assertRaises(ValueError):protocol.verify_approval(changed,source,cid)
+        changed=copy.deepcopy(claim);changed["source_commit"]="d"*40
+        with self.assertRaises(ValueError):protocol.verify_durable_claim(self.encode(changed),self.raw,source,cid)
+        changed=copy.deepcopy(claim);changed["first_uses_consumed"]=0
+        with self.assertRaises(ValueError):protocol.verify_durable_claim(self.encode(changed),self.raw,source,cid)
+        changed=copy.deepcopy(claim);changed["independent_fsa_qualified"]=True
+        with self.assertRaises(ValueError):protocol.verify_durable_claim(self.encode(changed),self.raw,source,cid)
     def test_duplicate_or_tampered_manifest(self):
         with self.assertRaises(ValueError):protocol.protocol(self.raw.replace(b'"max_real_originals": 2',b'"max_real_originals": 3'))
         with self.assertRaises(ValueError):protocol.load(b'{"stage":0,"stage":1}')
