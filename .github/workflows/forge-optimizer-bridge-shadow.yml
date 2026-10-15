@@ -208,15 +208,34 @@ jobs:
                   else:print("CF_DEPLOYMENT_TRAFFIC_METADATA=MALFORMED")
               else:print("CF_DEPLOYMENT_TRAFFIC_METADATA=EMPTY")
           else:print("CF_DEPLOYMENT_TRAFFIC_METADATA="+deploystate)
-          vs,version=get("accounts/"+account+
-               "/workers/workers/"+script+"/versions/729ebded")
-          if vs=="OK" and isinstance((version or {}).get("result"),dict):
-              versionBindings=version["result"].get("bindings")
-              found=isinstance(versionBindings,list) and any(
-                isinstance(b,dict) and b.get("type")=="d1" and b.get("name")=="forge"
-                for b in versionBindings)
-              print("CF_VERSION_729EBDED_D1_FORGE="+("VERIFIED" if found else "ABSENT"))
-          else:print("CF_VERSION_729EBDED_D1_FORGE="+vs)
+          # Fetch a *full* deployed version ID and inspect the documented
+          # script-version resources.bindings path (not just beta bindings).
+          active_version=""
+          if deploystate=="OK" and isinstance((deploydoc or {}).get("result"),dict):
+              recent=deploydoc["result"].get("deployments")
+              if isinstance(recent,list) and recent:
+                  versions=recent[0].get("versions",[])
+                  if isinstance(versions,list):
+                      active_version=next((v.get("version_id") for v in versions
+                          if isinstance(v,dict) and
+                          str(v.get("version_id","")).lower().startswith("729ebded")),"")
+          if active_version and re.fullmatch(r"[0-9a-fA-F-]{36}",active_version):
+              vs,version=get("accounts/"+account+
+                   "/workers/scripts/"+script+"/versions/"+active_version)
+              if vs=="OK" and isinstance((version or {}).get("result"),dict):
+                  resources=version["result"].get("resources")
+                  versionBindings=(resources or {}).get("bindings") if isinstance(resources,dict) else None
+                  found=isinstance(versionBindings,list) and any(
+                      isinstance(b,dict) and b.get("type")=="d1" and
+                      b.get("name")=="forge" for b in versionBindings)
+                  print("CF_VERSION_729EBDED_BINDING_READBACK="+("VERIFIED" if
+                      isinstance(versionBindings,list) else "NO_BINDINGS_ARRAY"))
+                  print("CF_VERSION_729EBDED_D1_FORGE="+("VERIFIED" if found else "ABSENT"))
+                  print("CF_VERSION_729EBDED_D1_BINDINGS_COUNT="+str(
+                      sum(isinstance(b,dict) and b.get("type")=="d1"
+                          for b in versionBindings) if isinstance(versionBindings,list) else 0))
+              else:print("CF_VERSION_729EBDED_D1_FORGE="+vs)
+          else:print("CF_VERSION_729EBDED_D1_FORGE=VERSION_ID_NOT_RESOLVED")
           print("CF_D1_SQL_QUERIES=0")
           print("CF_D1_WRITES=0")
           print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
