@@ -1,0 +1,77 @@
+name: FORGE F54 supplemental genuine TRAIN record review to F55
+on:
+  push:
+    branches: [research/f54b-new-genuine-evidence-f55-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-archive-recount:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate source exactness and fail-closed auditor
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f54_supplemental_firstuse_review.py -v
+      - name: Download two exact first-attempt successful genuine TRAIN archives
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f54-supplemental";mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for rec in \
+           'Wingless 38819060318 d1be885e5d3bbef8f5828a3d195cb3354f755881 12012406590 W-F54-active-calibration-new-TRAIN-not-F3-original sha256:d3a984c4b2cbbc34a79e623bdabc7a2f5ed0498390b862765fc419e2279707d0' \
+           'Yggdrasil 38820489117 4ae4066bfbdb7ee5fe1f85abe840cf61f280269d 12013360275 Y-F54B-new-cohort-corrected-witness-TRAIN-not-F3 sha256:17c84623f3c61226aca71fb9ce85c9379544751ab905c1d186662de2092ede69'
+          do
+           read -r lane run head artifact name digest <<< "$rec"
+           gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+           jq -e --arg head "$head" --argjson id "$run" \
+             '.id==$id and .head_sha==$head and .status=="completed" and .run_attempt==1 and .conclusion=="success"' \
+             "$root/$lane/run.json" >/dev/null
+           gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+           jq -e --arg name "$name" --arg d "$digest" --argjson id "$artifact" --argjson run "$run" \
+             '.id==$id and .name==$name and .digest==$d and .expired==false and .workflow_run.id==$run' \
+             "$root/$lane/artifact.json" >/dev/null
+           gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f54_supplemental_firstuse_review.py \
+            --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/next.json"
+          python3 -B scripts/f54_supplemental_firstuse_review.py \
+            --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/repeat.json"
+          cmp "$root/next.json" "$root/repeat.json"
+          jq -e '(.decisions|length)==2 and
+           .new_first_use_train_records_recounted==2 and
+           .historical_failed_same_cohort_runs_unchanged==true and
+           .protected_originals_executed==0 and
+           .f55_experiment_dispatched==false and
+           .recursive_dream_rsi_prospective_gain_proven==false and
+           ([.decisions[]|select(.disposition=="VALID_TRAIN_ONLY_NEGATIVE")]|length)==2' "$root/next.json" >/dev/null
+          (cd "$root";sha256sum next.json > next.sha256)
+          echo 'F54_SUPPLEMENTAL_NEW_FIRST_USE_TRAIN_TO_F55_ADVISORY_PASS'
+      - name: One complete FORGE regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f54-two-fresh-supplemental-negatives-f55-observational-only
+          path: |
+            ${{ runner.temp }}/f54-supplemental/next.json
+            ${{ runner.temp }}/f54-supplemental/next.sha256
+            ${{ runner.temp }}/f54-supplemental/Wingless/run.json
+            ${{ runner.temp }}/f54-supplemental/Yggdrasil/run.json
+            ${{ runner.temp }}/f54-supplemental/Wingless/artifact.json
+            ${{ runner.temp }}/f54-supplemental/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
