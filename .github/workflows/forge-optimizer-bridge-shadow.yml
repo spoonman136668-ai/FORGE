@@ -1,0 +1,40 @@
+name: FORGE R8 five optimizer shadow bridge qualification
+on:
+  push:
+    branches: [research/optimizer-bridge-five-method-shadow-20261014-r1]
+  pull_request:
+    paths:
+      - 'optimizerbridge/**'
+      - 'cmd/forge-optimizer-shadow/**'
+      - '.github/workflows/forge-optimizer-bridge-shadow.yml'
+permissions:
+  contents: read
+jobs:
+  dual-lane-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Five-way signed-history synthetic qualification and negatives
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio ./promptlineage ./thetaadapt ./genenv
+      - name: One full FORGE repository regression
+        run: go test ./...
+      - name: No real originals, authorization or Cloudflare secrets
+        run: |
+          echo "OPTIMIZER_BRIDGE_SYNTHETIC_ONLY=TRUE"
+          echo "RESEARCH_ORIGINALS_EXECUTED=0"
+          echo "CLOUDFLARE_NOT_CONFIGURED_OR_PROBED_BY_THIS_WORKFLOW=TRUE"
+          echo "FSA_OR_CONTROLLER_NOT_CREATED=TRUE"
