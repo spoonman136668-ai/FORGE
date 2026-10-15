@@ -1,0 +1,375 @@
+name: FORGE R7 real two-original automatic Wingless succession (development only)
+on:
+  pull_request:
+    paths:
+      - 'research/r7-real-autochain/**'
+      - '.github/workflows/forge-r7-real-autochain.yml'
+  push:
+    branches: [research/forge-r7-real-autochain-firstuse]
+    paths: ['research/r7-real-autochain/launch.json']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: forge-r7-two-new-real-originals-once
+  cancel-in-progress: false
+
+jobs:
+  source-only:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run frozen two-stage source and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r7-real-autochain -p 'test_*.py' -v
+          python -B -m py_compile research/r7-real-autochain/protocol.py research/r7-real-autochain/execute.py research/r7-real-autochain/review.py
+          test ! -f research/r7-real-autochain/launch.json
+          echo 'SOURCE_ONLY_NO_SCIENCE_CONSUMED=PASS'
+
+  firstuse:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/research/forge-r7-real-autochain-firstuse'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Reserve BOTH new original claims BEFORE any real worker can start
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_REF" = refs/heads/research/forge-r7-real-autochain-firstuse
+          test "$(git diff --name-only HEAD^ HEAD)" = research/r7-real-autochain/launch.json
+          python3 -B -m unittest discover -s research/r7-real-autochain -p 'test_*.py' -q
+          mkdir -p "$RUNNER_TEMP/r7-firstuse"
+          python3 -B - <<'PY'
+          import json,os,pathlib,subprocess,sys
+          sys.path.insert(0,"research/r7-real-autochain")
+          import protocol
+          src=subprocess.check_output(["git","rev-parse","HEAD^"],text=True).strip()
+          launch=protocol.load(pathlib.Path("research/r7-real-autochain/launch.json").read_bytes())
+          frozen=pathlib.Path("research/r7-real-autochain/frozen.json").read_bytes()
+          protocol.protocol(frozen)
+          if launch!={"schema":"forge.r7.single-two-stage-development-launch.v1",
+             "source_commit":src,"experiment_ids":list(protocol.STAGES),
+             "original_budget":2,"new_scientific_acceptance_authorized":False}:
+             raise SystemExit("R7_LAUNCH_SOURCE_OR_BUDGET_DRIFT")
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/forge-r7-real-autochain-firstuse&event=push&per_page=100" > "$RUNNER_TEMP/r7-firstuse/runs.json"
+          python3 -B - <<'PY'
+          import json,os,pathlib,sys
+          sys.path.insert(0,"research/r7-real-autochain")
+          import protocol
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r7-firstuse"
+          runs=json.loads((root/"runs.json").read_bytes())
+          rid=int(os.environ["GITHUB_RUN_ID"])
+          if runs.get("total_count")!=1 or len([x for x in runs.get("workflow_runs",[]) if
+               x.get("id")==rid and x.get("head_sha")==os.environ["GITHUB_SHA"] and
+               x.get("run_attempt")==1 and x.get("event")=="push"])!=1:
+               raise SystemExit("R7_DUPLICATE_FIRST_USE_DISPATCH")
+          claim={"schema":"forge.r7.firstuse-budget-consumed.v1",
+            "branch":"research/forge-r7-real-autochain-firstuse",
+            "experiment_ids":list(protocol.STAGES),"first_uses_consumed":2,
+            "reruns_allowed":False,
+            "source_manifest_sha256":protocol.digest(pathlib.Path("research/r7-real-autochain/frozen.json").read_bytes()),
+            "run_id":os.environ["GITHUB_RUN_ID"],"head_sha":os.environ["GITHUB_SHA"],
+            "external_fsa_activated":False,"independent_custody_qualified":False,
+            "scientific_accepted":False,"paid_api_calls":0}
+          raw=(json.dumps(claim,sort_keys=True)+"\n").encode()
+          with (root/"firstuse-budget-consumed.json").open("xb") as f:
+              f.write(raw);f.flush();os.fsync(f.fileno())
+          print("TWO_FRESH_DEV_FIRST_USES_CONSUMED_BEFORE_SCIENCE=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r7-originals-consumed-intent
+          path: ${{ runner.temp }}/r7-firstuse
+          retention-days: 90
+          if-no-files-found: error
+
+  original-one:
+    needs: firstuse
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-originals-consumed-intent
+          path: ${{ runner.temp }}/r7-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r35-independent-review
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r7-parent
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: ec42db7c182395a95096fa55285e413fc63fdcc8
+          path: pinned-r35
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - name: Compute actual FIRST novel Wingless scientific development original
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-r35 rev-parse HEAD)" = ec42db7c182395a95096fa55285e413fc63fdcc8
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          mkdir -p "$RUNNER_TEMP/r7-first-original"
+          python3 -B research/r7-real-autochain/execute.py \
+            --manifest research/r7-real-autochain/frozen.json \
+            --parent-review "$RUNNER_TEMP/r7-parent/independent-review.json" \
+            --claim "$RUNNER_TEMP/r7-firstuse/firstuse-budget-consumed.json" \
+            --legacy-root "$GITHUB_WORKSPACE/pinned-r35" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --stage 0 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r7-first-original/original.json"
+          (cd "$RUNNER_TEMP/r7-first-original" && sha256sum original.json > original.sha256 && sha256sum --check original.sha256)
+          echo 'R7_NEW_REAL_ORIGINAL_ONE_EXECUTED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r7-real-original-one
+          path: ${{ runner.temp }}/r7-first-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  review-one:
+    needs: original-one
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-originals-consumed-intent
+          path: ${{ runner.temp }}/r7-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-real-original-one
+          path: ${{ runner.temp }}/r7-first-original
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r35-independent-review
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r7-parent
+      - name: Independently review every original ONE heldout row without worker imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r7-first-original" && sha256sum --check original.sha256)
+          mkdir -p "$RUNNER_TEMP/r7-first-review"
+          python3 -B research/r7-real-autochain/review.py \
+            --manifest research/r7-real-autochain/frozen.json \
+            --original "$RUNNER_TEMP/r7-first-original/original.json" \
+            --parent-review "$RUNNER_TEMP/r7-parent/independent-review.json" \
+            --claim "$RUNNER_TEMP/r7-firstuse/firstuse-budget-consumed.json" \
+            --stage 0 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r7-first-review/review.json"
+          echo 'R7_ORIGINAL_ONE_INDEPENDENTLY_REVIEWED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r7-independent-review-one
+          path: ${{ runner.temp }}/r7-first-review
+          retention-days: 90
+          if-no-files-found: warn
+
+  original-two:
+    needs: review-one
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-originals-consumed-intent
+          path: ${{ runner.temp }}/r7-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-independent-review-one
+          path: ${{ runner.temp }}/r7-first-review
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: ec42db7c182395a95096fa55285e413fc63fdcc8
+          path: pinned-r35
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - name: AUTOMATICALLY compute genuine SECOND original after reviewed first
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git -C pinned-r35 rev-parse HEAD)" = ec42db7c182395a95096fa55285e413fc63fdcc8
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          mkdir -p "$RUNNER_TEMP/r7-second-original"
+          python3 -B research/r7-real-autochain/execute.py \
+            --manifest research/r7-real-autochain/frozen.json \
+            --parent-review "$RUNNER_TEMP/r7-first-review/review.json" \
+            --claim "$RUNNER_TEMP/r7-firstuse/firstuse-budget-consumed.json" \
+            --legacy-root "$GITHUB_WORKSPACE/pinned-r35" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --stage 1 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r7-second-original/original.json"
+          (cd "$RUNNER_TEMP/r7-second-original" && sha256sum original.json > original.sha256 && sha256sum --check original.sha256)
+          echo 'R7_SECOND_NEW_REAL_ORIGINAL_AUTONOMOUSLY_EXECUTED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r7-real-original-two
+          path: ${{ runner.temp }}/r7-second-original
+          retention-days: 90
+          if-no-files-found: warn
+
+  review-two:
+    needs: original-two
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-originals-consumed-intent
+          path: ${{ runner.temp }}/r7-firstuse
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-real-original-two
+          path: ${{ runner.temp }}/r7-second-original
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r7-independent-review-one
+          path: ${{ runner.temp }}/r7-first-review
+      - name: Independently review every original TWO heldout row without worker imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r7-second-original" && sha256sum --check original.sha256)
+          mkdir -p "$RUNNER_TEMP/r7-second-review"
+          python3 -B research/r7-real-autochain/review.py \
+            --manifest research/r7-real-autochain/frozen.json \
+            --original "$RUNNER_TEMP/r7-second-original/original.json" \
+            --parent-review "$RUNNER_TEMP/r7-first-review/review.json" \
+            --claim "$RUNNER_TEMP/r7-firstuse/firstuse-budget-consumed.json" \
+            --stage 1 --run-id "$GITHUB_RUN_ID" --head "$GITHUB_SHA" \
+            --out "$RUNNER_TEMP/r7-second-review/review.json"
+          echo 'R7_ORIGINAL_TWO_INDEPENDENTLY_REVIEWED=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-r7-independent-review-two
+          path: ${{ runner.temp }}/r7-second-review
+          retention-days: 90
+          if-no-files-found: warn
+
+  exact-once-terminal:
+    needs: [firstuse, original-one, review-one, original-two, review-two]
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        if: needs.review-one.result == 'success' && needs.review-two.result == 'success'
+        with:
+          name: forge-r7-independent-review-one
+          path: ${{ runner.temp }}/r7-first-review
+      - uses: actions/download-artifact@v4
+        if: needs.review-one.result == 'success' && needs.review-two.result == 'success'
+        with:
+          name: forge-r7-independent-review-two
+          path: ${{ runner.temp }}/r7-second-review
+      - name: Fail closed unless two new original reviews are independently qualified
+        shell: bash
+        env:
+          PREFLIGHT: ${{ needs.firstuse.result }}
+          ORIGINAL_ONE: ${{ needs.original-one.result }}
+          REVIEW_ONE: ${{ needs.review-one.result }}
+          ORIGINAL_TWO: ${{ needs.original-two.result }}
+          REVIEW_TWO: ${{ needs.review-two.result }}
+        run: |
+          set -euo pipefail
+          for phase in "$PREFLIGHT" "$ORIGINAL_ONE" "$REVIEW_ONE" "$ORIGINAL_TWO" "$REVIEW_TWO"; do
+            test "$phase" = success || { echo 'CONSUMED_ORIGINALS_INDETERMINATE_NO_REPLAY'; exit 1; }
+          done
+          python3 -B - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          w=json.loads((root/"r7-first-review/review.json").read_bytes())
+          y=json.loads((root/"r7-second-review/review.json").read_bytes())
+          allowed={"ROBUST_QUARTILE_GAIN","PARTIAL_QUARTILE_GAIN","NO_CONFIRMED_QUARTILE_GAIN"}
+          if (w.get("experiment_id")!="W-FORGE-R7-QUARTILE-REPLICATION-01" or
+              y.get("experiment_id")!="W-FORGE-R7-QUARTILE-TRANSFER-02" or
+              y.get("parent_experiment_id")!=w.get("experiment_id") or
+              w.get("outcome") not in allowed or y.get("outcome") not in allowed or
+              any(r.get("independently_validated") is not True or
+                  r.get("original_replay_allowed") is not False or
+                  r.get("science_production_accepted") is not False or
+                  r.get("external_fsa_qualified") is not False or
+                  r.get("next_science_dispatch_authorized") is not False
+                  for r in (w,y))):
+              raise SystemExit("R7_TWO_NEW_ORIGINALS_NOT_INDEPENDENTLY_QUALIFIED")
+          report={"schema":"forge.r7.actual-two-new-development-originals.v1",
+            "source":"FORGE_REAL_WINGLESS_WORKER_FRESH_TWO_COHORTS",
+            "new_development_originals_executed":2,
+            "sequential_auto_progression":True,
+            "independent_row_reviews":2,
+            "first_use_consumed":2,
+            "historical_originals_replayed":0,
+            "external_fsa_activated":False,
+            "independent_sealed_custody_qualified":False,
+            "scientific_results_accepted":False,
+            "original_one_outcome":w["outcome"],
+            "original_two_outcome":y["outcome"],
+            "original_one_sha256":w["original_sha256"],
+            "original_two_sha256":y["original_sha256"]}
+          (root/"r7-terminal.json").write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
+          print("TWO_ACTUAL_NEW_DEV_SCIENTIFIC_ORIGINALS_AUTO_CHAINED=PASS")
+          print("INDEPENDENT_FSA_SCIENTIFIC_ACCEPTANCE=NOT_QUALIFIED")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r7-real-auto-successor-two-originals-terminal
+          path: ${{ runner.temp }}/r7-terminal.json
+          retention-days: 90
+          if-no-files-found: error
