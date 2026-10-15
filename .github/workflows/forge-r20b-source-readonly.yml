@@ -1,0 +1,79 @@
+name: FORGE R20B historical source-only GitHub observation
+on:
+  push:
+    branches: [ops/forge-r20b-github-source-witness-readonly-20261015]
+  pull_request:
+    paths:
+      - 'scripts/r20b_readonly_prereg_audit.py'
+      - 'scripts/test_r20b_readonly_prereg_audit.py'
+      - '.github/workflows/forge-r20b-source-readonly.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  linux-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: R20B source/first-use denial negative tests
+        run: |
+          set -euo pipefail
+          python3 scripts/test_r20b_readonly_prereg_audit.py -v
+          go test -count=1 ./researcharchive ./sourcebirth ./ckbcustody ./custodyreconcile ./optimizerbridge
+      - name: Actual GitHub read-only source and original-run chronology
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/r20b_readonly_prereg_audit.py
+      - name: One full FORGE Go regression and static checks
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Explicitly deny unrelated authority
+        run: |
+          echo R20B_SOURCE_BIRTH_INDEPENDENT_WITNESS=NOT_PROVEN
+          echo R20B_COMPLETE_CONSUMED_FIRST_USE=NOT_PROVEN
+          echo R20B_SCIENTIFIC_PROMOTION=DENIED
+          echo R20B_CLOUDFLARE_WRITES=0
+          echo R20B_NEW_ORIGINALS_EXECUTED=0
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Windows frozen evidence and full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/test_r20b_readonly_prereg_audit.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R20B_WINDOWS_PYTHON_NEGATIVES_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R20B_WINDOWS_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R20B_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R20B_WINDOWS_BUILD_FAILED' }
