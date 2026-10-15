@@ -71,5 +71,23 @@ class R22(unittest.TestCase):
         p["entries"][0]["scientific_accepted"]=True
         with self.assertRaises(a.Blocked):a.audit(m,p,lambda l,sha:None)
 
+
+    def test_frozen_sha256_manifest_identity_and_negative(self):
+        frozen=a.decode(a.FROZEN.read_bytes())
+        result={"records":copy.deepcopy(frozen["records"])}
+        self.assertTrue(a.verify_frozen_observations(result,frozen))
+        drift=copy.deepcopy(result)
+        drift["records"][0]["prereg_sha256"]="0"*64
+        with self.assertRaises(a.Blocked):
+            a.verify_frozen_observations(drift,frozen)
+        changed=copy.deepcopy(frozen)
+        changed["records"][1]["lane"]="Yggdrasil"
+        with self.assertRaises(a.Blocked):
+            a.verify_frozen_observations(result,changed)
+        tampered=copy.deepcopy(frozen)
+        tampered["observed_github_run_id"]=1
+        with self.assertRaises(a.Blocked):
+            a.verify_frozen_observations(result,tampered)
+
 if __name__=="__main__":
     unittest.main()
