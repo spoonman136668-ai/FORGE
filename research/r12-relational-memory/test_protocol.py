@@ -46,6 +46,13 @@ class R12Contract(unittest.TestCase):
         plan=copy.deepcopy(self.plan)
         plan["decision"]["minimum_stress_gain_vs_fixed_hash"]=0.0
         with self.assertRaises(protocol.Blocked):protocol.manifest(json.dumps(plan).encode())
+    def test_row_measurement_cap_is_separate_from_frozen_source_cap(self):
+        # Real per-query evidence is larger than a frozen prereg. It must be
+        # admissible to the independent auditor, but not as a frozen manifest.
+        payload=b'{"rows":"' + b"x"*45000 + b'"}'
+        with self.assertRaises(protocol.Blocked):protocol.parse(payload)
+        self.assertEqual(len(protocol.parse(payload,cap=600000)["rows"]),45000)
+        with self.assertRaises(protocol.Blocked):protocol.parse(b'{}',cap=600001)
     def test_duplicate_keys_or_bad_science_denied(self):
         with self.assertRaises(protocol.Blocked):protocol.parse(b'{"a":1,"a":2}')
         with self.assertRaises(protocol.Blocked):protocol.parse(b'{"a":NaN}')
