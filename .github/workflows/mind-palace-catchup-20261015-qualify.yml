@@ -1,0 +1,86 @@
+name: Mind-Palace Oct 15 bounded Windows source qualification
+on:
+  push:
+    branches: [ops/mind-palace-catchup-20261015-r1]
+    paths:
+      - '.github/workflows/mind-palace-catchup-20261015-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-catchup-20261015-qualify
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Bounded source-only qualification (no Codex, no scientific work)
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'RUNNER_IDENTITY_DRIFT'}
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'REPO_IDENTITY_DRIFT'}
+          if($env:GITHUB_REF -cne 'refs/heads/ops/mind-palace-catchup-20261015-r1'){throw 'WORKFLOW_REF_DRIFT'}
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $base='c78653a6318c462706b22c1c5cde1600a3b4dc7c'
+          $head='7d6b8e75afdcf2ad258a048ada60524e4c24b8e6'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-oct15-q-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'SCRATCH_PREEXISTS'}
+          $names=@(
+            'pilots/chat-history/2026-10-15-selected-catchup.source-slice.json',
+            'pilots/chat-history/2026-10-15-selected-catchup.inventory.json',
+            'pilots/chat-history/2026-10-15-selected-catchup.batch.json'
+          )
+          function AssertExit([string]$code){if($LASTEXITCODE -ne 0){throw ($code+':'+$LASTEXITCODE)}}
+          function RunPS([string]$tag,[string]$script,[string[]]$argv){
+            $result=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script @argv 2>&1|Out-String).Trim()
+            $exit=$LASTEXITCODE
+            if($exit -ne 0){Write-Host $result;throw ('FAILED_'+$tag+':'+$exit)}
+            Write-Host ('MP_'+$tag+'=PASS')
+            return $result
+          }
+          try {
+            & git.exe clone --quiet --branch mind-palace/selected-catchup-20261015-r1 'https://github.com/spoonman136668-ai/Mind-Palace.git' $root
+            AssertExit 'PRIVATE_CLONE_FAILED'
+            $actual=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            $actualMain=(& git.exe -C $root rev-parse origin/main|Out-String).Trim()
+            if($actual -cne $head -or $actualMain -cne $base){throw 'SOURCE_IDENTITY_DRIFT'}
+            $diff=@(& git.exe -C $root diff --name-only $base $head)
+            if($diff.Count -ne $names.Count -or @($diff|Where-Object{$_ -notin $names}).Count -ne 0){throw 'SOURCE_SCOPE_DRIFT'}
+            Push-Location $root
+            try {
+              $durable=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson')
+              $before=@($durable|ForEach-Object{(Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash})
+              $inv='.\pilots\chat-history\2026-10-15-selected-catchup.inventory.json'
+              $batch='.\pilots\chat-history\2026-10-15-selected-catchup.batch.json'
+              $plan=RunPS 'PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inv)
+              $p=$plan|ConvertFrom-Json
+              if($p.status -cne 'ready' -or @($p.batches).Count -ne 1){throw ('PLAN_NOT_READY_'+$p.status)}
+              $null=RunPS 'COLLECT_VALIDATE' '.\tools\collect.ps1' @('validate','-InputPath',$batch)
+              New-Item -ItemType Directory '.mind-runtime' -Force|Out-Null
+              $map=@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{batch_id=[string]$p.batches[0].batch_id;collector_batch_path=[IO.Path]::GetFullPath($batch)})}
+              $mapPath=Join-Path $root '.mind-runtime\hosted-map.json'
+              [IO.File]::WriteAllText($mapPath,($map|ConvertTo-Json -Depth 10),[Text.Encoding]::UTF8)
+              $dry=RunPS 'DRYRUN' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inv,'-CollectorMapPath',$mapPath)
+              $d=$dry|ConvertFrom-Json
+              if($d.status -cne 'ready' -or -not [bool]$d.ready_for_apply -or [int]$d.counts.review -ne 0 -or [int]$d.counts.supersede -ne 0){throw ('CLASSIFICATION_BLOCKED_'+$d.status)}
+              $null=RunPS 'ICE_VALIDATE' '.\tools\mind.ps1' @('validate')
+              $after=@($durable|ForEach-Object{(Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash})
+              for($i=0;$i -lt $before.Count;$i++){if($before[$i] -cne $after[$i]){throw 'READ_ONLY_DURABLE_HASH_DRIFT'}}
+              if(((& git.exe status --porcelain=v1|Out-String).Trim())){throw 'TRACKED_WORKTREE_DRIFT'}
+              Write-Host 'MP_OCT15_BOUNDED_SOURCE_QUALIFICATION=PASS'
+              Write-Host 'FULL_HISTORY_COVERAGE=NOT_CLAIMED'
+              Write-Host 'DURABLE_WRITE=FALSE'
+              Write-Host 'CODEX_CALLS=0'
+              Write-Host 'SCIENTIFIC_EXECUTION=FALSE'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
