@@ -75,7 +75,7 @@ def score_rows(lane, spec, doc):
                     row["length"] in (3,5,6,8) and
                     set(row["answers"])==arms and
                     row["answers"][oracle]==row["truth"] and
-                    len(row["public"])==5,
+                    len(row["public"])==4,
                     "W_SOURCE_ROW")
         else:
             require(571100<=row["seed"]<571116 and
