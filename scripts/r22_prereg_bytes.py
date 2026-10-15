@@ -20,6 +20,7 @@ import urllib.request
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from r20b_readonly_prereg_audit import Blocked, MANIFEST, PINS, decode, fixed_inputs, NoRedirect
 
+FROZEN = pathlib.Path(__file__).resolve().parents[1] / "reference/research-originals/20261015-r22-original-prereg-sha256.json"
 MAX_BLOB=32768
 HEX40=re.compile(r"[0-9a-f]{40}\Z")
 
@@ -79,6 +80,26 @@ def audit(manifest,pins,read_blob):
         "cloudflare_writes":0,
     }
 
+def verify_frozen_observations(result, frozen):
+    if not isinstance(frozen,dict) or set(frozen)!={"schema","observed_github_run_id","status","records"} or \
+       frozen["schema"]!="forge.research-archive.r22-source-byte-pins.v1" or \
+       frozen["status"]!="ORIGINAL_PREREG_SHA256_FROZEN_NOT_SCIENTIFIC_CUSTODY" or \
+       frozen["observed_github_run_id"]!=38727033870:
+        raise Blocked("R22_FROZEN_SOURCE_PROVENANCE_INVALID")
+    records=frozen["records"]
+    observed=result["records"]
+    if not isinstance(records,list) or len(records)!=6 or len(observed)!=6:
+        raise Blocked("R22_FROZEN_SOURCE_COUNT")
+    seen=set()
+    for want,actual in zip(records,observed):
+        if not isinstance(want,dict) or set(want)!={"lane","experiment","source_commit_sha","prereg_git_blob_sha","prereg_sha256"} or want!=actual:
+            raise Blocked("R22_FROZEN_SHA256_MISMATCH")
+        pair=(want["lane"],want["experiment"])
+        if pair in seen:
+            raise Blocked("R22_DUPLICATE_FROZEN_EXPERIMENT")
+        seen.add(pair)
+    return True
+
 def read_blob(lane,oid):
     if lane not in ("Wingless","Yggdrasil") or not isinstance(oid,str) or not HEX40.fullmatch(oid):
         raise Blocked("UNTRUSTED_BLOB_REQUEST")
@@ -99,6 +120,7 @@ def read_blob(lane,oid):
 def main():
     try:
         result=audit(decode(MANIFEST.read_bytes()),decode(PINS.read_bytes()),read_blob)
+        verify_frozen_observations(result,decode(FROZEN.read_bytes()))
     except (OSError,Blocked,TypeError,KeyError,ValueError) as exc:
         print("R22_ORIGINAL_PREREG_BYTES=BLOCKED:"+(str(exc) if isinstance(exc,Blocked) else type(exc).__name__),file=sys.stderr)
         return 1
