@@ -1,0 +1,117 @@
+name: Mind-Palace Oct 15 one-shot guarded durable checkpoint
+on:
+  push:
+    branches: [ops/mind-palace-catchup-20261015-r1]
+    paths:
+      - '.github/mind-palace-catchup/ENABLE-20261015.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-catchup-20261015-apply
+  cancel-in-progress: false
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - name: Apply exactly qualified partial-source cohort with frozen preimage
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'RUNNER_IDENTITY_DRIFT'}
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'REPO_IDENTITY_DRIFT'}
+          if($env:GITHUB_REF -cne 'refs/heads/ops/mind-palace-catchup-20261015-r1'){throw 'WORKFLOW_REF_DRIFT'}
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $expectedMain='c78653a6318c462706b22c1c5cde1600a3b4dc7c'
+          $expectedHead='7d6b8e75afdcf2ad258a048ada60524e4c24b8e6'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-oct15-apply-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'SCRATCH_ALREADY_EXISTS'}
+          $src=@(
+            'pilots/chat-history/2026-10-15-selected-catchup.source-slice.json',
+            'pilots/chat-history/2026-10-15-selected-catchup.inventory.json',
+            'pilots/chat-history/2026-10-15-selected-catchup.batch.json'
+          )
+          function AssertExit([string]$code){if($LASTEXITCODE -ne 0){throw ($code+':'+$LASTEXITCODE)}}
+          function RunPS([string]$tag,[string]$script,[string[]]$argv){
+            $txt=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script @argv 2>&1|Out-String).Trim()
+            $rc=$LASTEXITCODE
+            if($rc -ne 0){Write-Host $txt;throw ('FAILED_'+$tag+':'+$rc)}
+            Write-Host ('MP_'+$tag+'=PASS')
+            return $txt
+          }
+          try{
+            $write=(& gh.exe api 'repos/spoonman136668-ai/Mind-Palace' --jq '.permissions.push' 2>$null|Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $write -cne 'true'){throw 'PRIVATE_MIND_PALACE_WRITE_UNAVAILABLE'}
+            & git.exe clone --quiet --branch main $remote $root
+            AssertExit 'PRIVATE_CLONE_FAILED'
+            $actualMain=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            if($actualMain -cne $expectedMain){throw 'MAIN_PREIMAGE_DRIFT'}
+            & git.exe -C $root fetch --quiet --no-tags origin mind-palace/selected-catchup-20261015-r1
+            AssertExit 'FETCH_SOURCE_FAILED'
+            $sourceHead=(& git.exe -C $root rev-parse FETCH_HEAD|Out-String).Trim()
+            if($sourceHead -cne $expectedHead){throw 'SOURCE_HEAD_DRIFT'}
+            $diff=@(& git.exe -C $root diff --name-only $expectedMain $sourceHead)
+            if($diff.Count -ne $src.Count -or @($diff|Where-Object{$_ -notin $src}).Count -ne 0){throw 'SOURCE_SCOPE_DRIFT'}
+            Push-Location $root
+            try{
+              if(((& git.exe status --porcelain=v1|Out-String).Trim())){throw 'WORKTREE_NOT_CLEAN'}
+              & git.exe checkout $sourceHead -- $src
+              AssertExit 'STAGE_EXACT_SOURCE_FAILED'
+              $staged=@(& git.exe diff --cached --name-only)
+              if($staged.Count -ne $src.Count -or @($staged|Where-Object{$_ -notin $src}).Count -ne 0){throw 'STAGED_SOURCE_SCOPE_DRIFT'}
+              & git.exe diff --cached --check
+              AssertExit 'SOURCE_DIFF_CHECK_FAILED'
+              & git.exe config user.name 'mind-palace-bounded-operator'
+              & git.exe config user.email 'spoonman136668-ai@users.noreply.github.com'
+              & git.exe commit -qm 'evidence: bounded Oct 15 partial operator catch-up'
+              AssertExit 'SOURCE_EVIDENCE_COMMIT_FAILED'
+              $evidenceSha=(& git.exe rev-parse HEAD|Out-String).Trim()
+              & git.exe fetch --quiet --no-tags origin main
+              AssertExit 'REFETCH_MAIN_FAILED'
+              $remoteMain=(& git.exe rev-parse FETCH_HEAD|Out-String).Trim()
+              if($remoteMain -cne $expectedMain){throw 'CONCURRENT_MAIN_DRIFT'}
+              & git.exe push --quiet origin 'HEAD:refs/heads/main'
+              AssertExit 'EVIDENCE_PUSH_FAILED'
+              & git.exe fetch --quiet --no-tags origin main
+              AssertExit 'POST_EVIDENCE_FETCH_FAILED'
+              if(((& git.exe rev-parse origin/main|Out-String).Trim()) -cne $evidenceSha){throw 'POST_EVIDENCE_SHA_MISMATCH'}
+              Write-Host ('MIND_PALACE_SOURCE_EVIDENCE_SHA='+$evidenceSha)
+              $inv='.\pilots\chat-history\2026-10-15-selected-catchup.inventory.json'
+              $batch='.\pilots\chat-history\2026-10-15-selected-catchup.batch.json'
+              $plan=RunPS 'PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inv)
+              $p=$plan|ConvertFrom-Json
+              if($p.status -cne 'ready' -or @($p.batches).Count -ne 1){throw ('PLAN_NOT_READY_'+$p.status)}
+              New-Item -ItemType Directory '.mind-runtime' -Force|Out-Null
+              $map=@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{batch_id=[string]$p.batches[0].batch_id;collector_batch_path=[IO.Path]::GetFullPath((Join-Path $root 'pilots\chat-history\2026-10-15-selected-catchup.batch.json'))})}
+              $mapPath=Join-Path $root '.mind-runtime\hosted-map.json'
+              [IO.File]::WriteAllText($mapPath,($map|ConvertTo-Json -Depth 10),[Text.Encoding]::UTF8)
+              $preview=RunPS 'FINAL_DRYRUN' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inv,'-CollectorMapPath',$mapPath)
+              $d=$preview|ConvertFrom-Json
+              if($d.status -cne 'ready' -or -not [bool]$d.ready_for_apply -or [int]$d.counts.review -ne 0 -or [int]$d.counts.supersede -ne 0){throw 'FINAL_CLASSIFICATION_BLOCKED'}
+              $apply=RunPS 'BOUNDED_APPLY' '.\tools\backfill-apply.ps1' @('-InventoryPath',$inv,'-CollectorMapPath',$mapPath,'-ConfirmApply')
+              $a=$apply|ConvertFrom-Json
+              if($a.schema -cne 'mind-palace.backfill-apply-result.v1' -or $a.status -cne 'applied' -or -not [bool]$a.parity -or -not [bool]$a.backfill_complete -or -not [bool]$a.git_commit_required){throw 'APPLY_ATTESTATION_INVALID'}
+              $null=RunPS 'FINAL_CHECKPOINT_VALIDATE' '.\tools\update-checkpoint.ps1' @('validate')
+              $null=RunPS 'CHECKPOINT_COMMIT' '.\tools\update-checkpoint.ps1' @('commit','-Message','checkpoint: bounded Oct 15 operator directions','-ConfirmCheckpoint')
+              $final=(& git.exe rev-parse HEAD|Out-String).Trim()
+              $remoteFinal=@(& git.exe ls-remote origin refs/heads/main)|Select-Object -First 1
+              if(([string]$remoteFinal).Split([char[]]@(" ","`t"),[System.StringSplitOptions]::RemoveEmptyEntries)[0] -cne $final){throw 'FINAL_REMOTE_SHA_MISMATCH'}
+              if(((& git.exe status --porcelain=v1|Out-String).Trim())){throw 'FINAL_WORKTREE_DIRTY'}
+              Write-Host ('MIND_PALACE_DURABLE_CHECKPOINT_SHA='+$final)
+              Write-Host 'MIND_PALACE_BOUNDED_INGESTION=PASS'
+              Write-Host 'PARTIAL_CHAT_COVERAGE_ONLY=TRUE'
+              Write-Host 'CODEX_CALLS=0'
+              Write-Host 'SCIENTIFIC_EXECUTION=FALSE'
+              Write-Host 'CKB_PLANE_KTRADE_RESEARCH_MUTATED=FALSE'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
