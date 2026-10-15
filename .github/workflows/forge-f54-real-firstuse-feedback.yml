@@ -1,0 +1,104 @@
+name: FORGE F54 first-use scientific evidence and F55 bounded optimizer advisory
+on:
+  push:
+    branches: [research/f54-authentic-science-feedback-to-f55-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-locked-independent-intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch and pin authentic two negative TRAIN studies and invalid diagnostic failures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f54"
+          manifest=reference/f54/f54-authentic-science-source-manifest.json
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for lane in Wingless Yggdrasil; do
+            repo=$(jq -r --arg lane "$lane" '.qualified_diagnostic_negatives[$lane].repo' "$manifest")
+            run=$(jq -r --arg lane "$lane" '.qualified_diagnostic_negatives[$lane].run_id' "$manifest")
+            sha=$(jq -r --arg lane "$lane" '.qualified_diagnostic_negatives[$lane].source_sha' "$manifest")
+            artifact=$(jq -r --arg lane "$lane" '.qualified_diagnostic_negatives[$lane].artifact_id' "$manifest")
+            name=$(jq -r --arg lane "$lane" '.qualified_diagnostic_negatives[$lane].artifact_name' "$manifest")
+            digest=$(jq -r --arg lane "$lane" '.qualified_diagnostic_negatives[$lane].artifact_digest' "$manifest")
+            gh api "repos/$repo/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg sha "$sha" --argjson run "$run" \
+              '.id == $run and .head_sha == $sha and .run_attempt == 1 and
+               .conclusion == "success" and .status == "completed"' \
+              "$root/$lane/run.json" >/dev/null
+            gh api "repos/$repo/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson run "$run" --argjson artifact "$artifact" \
+              '.id == $artifact and .name == $name and .digest == $digest
+               and .expired == false and .workflow_run.id == $run' \
+              "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "$repo" -n "$name" -D "$root/$lane"
+          done
+          jq -c '.separately_failed_once_only_diagnostics[]' "$manifest" | while IFS= read -r line; do
+            repo=$(jq -r .repo <<< "$line")
+            sha=$(jq -r .source_sha <<< "$line")
+            run=$(jq -r .run_id <<< "$line")
+            gh api "repos/$repo/actions/runs/$run" | jq -e \
+              --arg sha "$sha" --argjson run "$run" \
+              '.id == $run and .head_sha == $sha and .run_attempt == 1 and
+               .conclusion == "failure" and .status == "completed"' >/dev/null
+          done
+          python3 -B scripts/f54_authentic_train_negative_review.py --root "$root" \
+            --manifest "$manifest" --out "$root/F55_advisory.json"
+          python3 -B scripts/f54_authentic_train_negative_review.py --root "$root" \
+            --manifest "$manifest" --out "$root/F55_repeat.json"
+          cmp "$root/F55_advisory.json" "$root/F55_repeat.json"
+          jq -e '.schema == "forge.f54.authentic-feedback-f55-advisory.v1" and
+                 ([.qualified_original_train_negatives[] |
+                   select(.disposition == "VALID_TRAIN_ONLY_NEGATIVE_NO_PRIMARY_ORIGINAL")] | length) == 2 and
+                 (.separately_failed_consumed_y_diagnostics | length) == 2 and
+                 .accepted_scientific_originals == 0 and
+                 .live_dream_rsi_prospective_policy_improvement_proven == false and
+                 .theta_evolve_live_training_eligible == false and
+                 .bounded_F55_hypotheses_advisory_only == true and
+                 .new_experiment_dispatched == false' "$root/F55_advisory.json" >/dev/null
+          (cd "$root" && sha256sum F55_advisory.json > F55_advisory.sha256)
+          echo "F54_TWO_REAL_NEGATIVE_TRAIN_AND_TWO_FAILED_DIAGNOSTICS_IDENTIFIED=PASS"
+          echo "F55_HYPOTHESES_ADVISORY_ONLY_NOT_POLICY_PROMOTED=PASS"
+      - name: Focused negative witnesses and one FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import json
+          from scripts import f54_authentic_train_negative_review as v
+          m=json.load(open("reference/f54/f54-authentic-science-source-manifest.json"))
+          assert set(m["qualified_diagnostic_negatives"])=={"Wingless","Yggdrasil"}
+          assert len(m["separately_failed_once_only_diagnostics"])==2
+          try:v.need(False,"NEGATIVE")
+          except v.Blocked:pass
+          else:raise AssertionError("negative evidence admitted")
+          try:v.unique([("status",0),("status",1)])
+          except v.Blocked:pass
+          else:raise AssertionError("duplicate result keys admitted")
+          print("F54_FAIL_CLOSED_EVIDENCE_CONTRACTS=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f54-authentic-negatives-f55-advisory-no-firstuse-replay
+          path: |
+            ${{ runner.temp }}/f54/F55_advisory.json
+            ${{ runner.temp }}/f54/F55_advisory.sha256
+            ${{ runner.temp }}/f54/Wingless/run.json
+            ${{ runner.temp }}/f54/Wingless/artifact.json
+            ${{ runner.temp }}/f54/Yggdrasil/run.json
+            ${{ runner.temp }}/f54/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
