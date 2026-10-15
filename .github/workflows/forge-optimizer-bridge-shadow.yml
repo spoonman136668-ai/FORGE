@@ -451,6 +451,39 @@ jobs:
                   print("CF_D1_RESERVED_NAMESPACE=TRANSPORT_OR_PARSE_ERROR")
           else:
               print("CF_D1_RESERVED_NAMESPACE=PIN_BLOCKED")
+          # Read-only D1 Time Travel checkpoint. Cloudflare's production
+          # backend supports it automatically; this performs exactly two GETs
+          # (database info + current bookmark), never a restore or export.
+          # Do NOT log the bookmark, UUID, token, database row, or source bytes.
+          if verified_d1 and "currentid" in locals() and currentid:
+              from d1retention.recovery import validate_recovery
+              info_state,info_doc=get("accounts/"+account+"/d1/database/"+currentid)
+              if info_state=="OK" and isinstance(info_doc,dict):
+                  if (info_doc.get("result") or {}).get("uuid")==currentid:
+                      print("CF_D1_TIME_TRAVEL_DB_IDENTITY=VERIFIED")
+                      if (info_doc.get("result") or {}).get("version")=="production":
+                          checkpoint_state,checkpoint_doc=get(
+                              "accounts/"+account+"/d1/database/"+currentid+
+                              "/time_travel/bookmark")
+                          result=validate_recovery(info_doc,checkpoint_doc)
+                          print("CF_D1_TIME_TRAVEL_BOOKMARK="+(
+                              "AVAILABLE_REDACTED" if result.bookmark_readback_qualified
+                              else checkpoint_state))
+                          print("CF_D1_TIME_TRAVEL_SUPPORT="+(
+                              "PRODUCTION_BACKEND" if result.supported_backend
+                              else "NOT_QUALIFIED"))
+                      else:
+                          print("CF_D1_TIME_TRAVEL_BOOKMARK=BACKEND_NOT_PRODUCTION")
+                  else:
+                      print("CF_D1_TIME_TRAVEL_DB_IDENTITY=DRIFT")
+                      print("CF_D1_TIME_TRAVEL_BOOKMARK=BLOCKED")
+              else:
+                  print("CF_D1_TIME_TRAVEL_DB_INFO="+info_state)
+                  print("CF_D1_TIME_TRAVEL_BOOKMARK=NOT_ATTEMPTED")
+          else:
+              print("CF_D1_TIME_TRAVEL_BOOKMARK=IDENTITY_NOT_QUALIFIED")
+          print("CF_D1_TIME_TRAVEL_RESTORE_PERFORMED=FALSE")
+          print("CF_D1_RECOVERY_TRUST_LEVEL=BOOKMARK_ONLY_NOT_RESTORE_PROOF")
           print("CF_D1_REMOTE_SCHEMA_INSTALL=FALSE")
           print("CF_D1_ORIGINALS_ACCEPTED=0")
           print("CF_AUTHENTIC_ORIGINAL_EVIDENCE=NOT_YET_READ")
