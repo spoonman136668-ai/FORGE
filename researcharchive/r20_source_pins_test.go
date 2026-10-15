@@ -29,6 +29,16 @@ type r20Snapshot struct {
 }
 var errR20=errors.New("R20_SOURCE_BLOB_OBSERVATION_NOT_SCIENTIFIC_CUSTODY")
 
+var r20ExactGitBlobs = []struct{ Experiment, Path, Blob string }{
+ {"W-R24","research/contrib/chatgpt/20261013-w-r24-missingness/pre.json","b31bf89b5f0e4300a36592ffacc97a6dac5a5edc"},
+ {"W-R25","research/contrib/chatgpt/20261013-w-r25-alignment/prereg.json","0b430e6f701f939ca13e1899c8d937418c21a262"},
+ {"W-R26","research/contrib/chatgpt/20261013-w-r26-next-prediction/prereg.json","708e05de6725d9a0fe6ab3f69eced46b9de5790b"},
+ {"Y037","research/contrib/chatgpt/20261013-y037-diversity/pre.json","538f0e70a0be350f71b73ab9f5106679cf27fb5f"},
+ {"Y038","research/contrib/chatgpt/20261013-y038-retention-capacity/prereg.json","e6ee97bef29ce53bfe30f20ddccac3e61fc910af"},
+ {"Y039","research/contrib/chatgpt/20261013-y039-interrupt/prereg.json","cfeffae76c60f08d9781fbba4904b4d69ea461f5"},
+}
+
+
 func inspectR20(raw []byte, m Manifest) error {
  if len(raw)==0 || len(raw)>16384 || len(m.Entries)!=6 || !unambiguousJSON(raw){return errR20}
  var x r20Snapshot
@@ -37,11 +47,13 @@ func inspectR20(raw []byte, m Manifest) error {
  if d.Decode(&x)!=nil || d.Decode(new(any))!=io.EOF{return errR20}
  if x.Schema!="forge.research-archive.r20-source-prereg-observations.v1" ||
   x.Mode!="GITHUB_IMMUTABLE_BLOBS_ONLY_NOT_INDEPENDENT_CUSTODY" ||
-  len(x.Entries)!=len(m.Entries){return errR20}
+  len(x.Entries)!=len(m.Entries) || len(r20ExactGitBlobs)!=len(m.Entries){return errR20}
  seen:=map[string]bool{}
  for i,p:=range x.Entries {
   e:=m.Entries[i]
-  if p.Lane!=e.Lane || p.Experiment!=e.Experiment ||
+  exact:=r20ExactGitBlobs[i]
+  if p.Experiment!=exact.Experiment || p.PreregPath!=exact.Path ||
+   p.PreregGitBlobSHA!=exact.Blob || p.Lane!=e.Lane || p.Experiment!=e.Experiment ||
    p.Repository!=e.Repository || p.SourceHeadSHA!=e.HeadSHA ||
    !goodHex(p.PreregGitBlobSHA,40) ||
    !strings.HasPrefix(p.PreregPath,"research/contrib/chatgpt/20261013-") ||
@@ -69,6 +81,8 @@ func TestR20HistoricalBlobObservationsRemainUnqualified(t *testing.T) {
   "false_independent_birth":func(x *r20Snapshot){x.Entries[0].IndependentSourceBirthProven=true},
   "source_drift":func(x *r20Snapshot){x.Entries[0].SourceHeadSHA=strings.Repeat("a",40)},
   "wrong_prereg_blob":func(x *r20Snapshot){x.Entries[0].PreregGitBlobSHA="invalid"},
+  "valid_length_prereg_blob_drift":func(x *r20Snapshot){x.Entries[0].PreregGitBlobSHA=strings.Repeat("a",40)},
+  "valid_shape_prereg_path_drift":func(x *r20Snapshot){x.Entries[0].PreregPath="research/contrib/chatgpt/20261013-untrusted/pre.json"},
   "cross_lane":func(x *r20Snapshot){x.Entries[0].Lane="Yggdrasil"},
   "missing_original":func(x *r20Snapshot){x.Entries=x.Entries[1:]},
   "wrong_path":func(x *r20Snapshot){x.Entries[0].PreregPath="../private"},
