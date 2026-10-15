@@ -1,0 +1,56 @@
+name: FORGE R23 live candidate source auditor acceptance
+on:
+  push:
+    branches: [engineering/fsa-r23-real-candidate-audit-20261015]
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/forge-r23-live-audit.yml'
+      - 'docs/FSA-R23-LIVE-AUDIT.md'
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  current-candidate-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin audited program to already installed main source blob
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:scripts/fsa_source_audit.py)" = 40ab4fe08892ca0985fd64c575bd010a65fcdbbe
+          test "$(git rev-parse HEAD:.github/workflows/forge-automerge.yml)" = 7b57490419928b60fb2a91792a045c911e98c64d
+          echo R23_AUDITOR_PROGRAM_IDENTITY=PASS
+      - name: Inspect real qualified source PR through GitHub GET only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/fsa_source_audit.py | tee "$RUNNER_TEMP/r23-live.jsonl"
+          python3 - "$RUNNER_TEMP/r23-live.jsonl" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding='utf-8') as f:
+              report=json.loads(f.readline())
+          assert report['Schema']=='forge.source-admission.r21.readonly.v1'
+          assert report['MergeAuthorized'] is False
+          assert report['ScientificAuthority'] is False
+          results=[r for r in report['Candidates'] if r['PR']==246]
+          assert len(results)==1, 'R23_CURRENT_SOURCE_PR_MISSING'
+          sample=results[0]
+          assert sample['HeadSHA']=='82a6cb225e0783adebae66a5607c123080cf2355'
+          assert sample['SourceTestsQualified'] is True, 'R23_REAL_DUAL_QUALIFICATION_UNVERIFIED: '+sample['Reason']
+          assert sample['MergeAuthorized'] is False
+          assert sample['ScientificAuthority'] is False
+          allowed={'RULESET_BYPASS_VISIBILITY_MISSING','SOURCE_ONLY_READ_AUDIT_PASSED_NO_MERGE_AUTHORITY'}
+          assert sample['Reason'] in allowed, 'R23_UNEXPECTED_POLICY_OR_SOURCE_DRIFT: '+sample['Reason']
+          print('R23_REAL_SOURCE_EXACT_HEAD_AND_TWO_WORKFLOWS=PASS')
+          print('R23_RULESET_OBSERVATION='+sample['Reason'])
+          print('R23_MERGE_AUTHORIZED=FALSE')
+          print('R23_SCIENCE_AUTHORIZED=FALSE')
+          PY
