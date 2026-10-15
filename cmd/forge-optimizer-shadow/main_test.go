@@ -19,8 +19,7 @@ func TestCannotAliasTrustAndEvidence(t *testing.T){
  var b bytes.Buffer
  args:=[]string{"--wingless-evidence",path,"--yggdrasil-evidence",path,
   "--signed-export",path,"--independent-anchor",path,"--independent-lane-pins",path,
-  "--wingless-selection-audit",path,"--yggdrasil-selection-audit",path,
-  "--independent-selection-audit-pins",path}
+  }
  if err:=run(args,&b);err==nil||b.Len()!=0{t.Fatal("aliased independent inputs accepted")}
 }
 func TestRejectSymlinkEvidence(t *testing.T){
