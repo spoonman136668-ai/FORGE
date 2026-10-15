@@ -11,6 +11,8 @@ on:
       - 'cmd/forge-research-intake/**'
       - 'reference/research-intake/**'
       - 'cmd/forge-research-observer/**'
+      - 'scripts/r29_live_advisory_decision.py'
+      - 'scripts/test_r29_live_advisory_decision.py'
       - '.github/workflows/forge-live-research-observer.yml'
   workflow_dispatch:
   schedule:
@@ -23,6 +25,8 @@ on:
       - 'cmd/forge-research-intake/**'
       - 'reference/research-intake/**'
       - 'cmd/forge-research-observer/**'
+      - 'scripts/r29_live_advisory_decision.py'
+      - 'scripts/test_r29_live_advisory_decision.py'
       - '.github/workflows/forge-live-research-observer.yml'
 permissions:
   contents: read
@@ -43,7 +47,10 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Run exact offline metadata and negative classification tests
-        run: go test -count=1 ./researchobserver ./cmd/forge-research-observer
+        run: |
+          set -euo pipefail
+          go test -count=1 ./researchobserver ./cmd/forge-research-observer
+          python3 -B scripts/test_r29_live_advisory_decision.py -v
       - name: Read the two independent public repositories
         shell: bash
         env:
@@ -128,7 +135,12 @@ jobs:
           PY
           go run ./cmd/forge-research-intake --snapshot "$root/pr-snapshot.json" > "$root/pr-observation.json"
           jq -e '.schema == "forge.cross-lane-research-intake.v1" and .scientific_accepted == false and .first_use_cleared == false and .authority_mutated == false' "$root/pr-observation.json" >/dev/null
-          (cd "$root"; sha256sum wingless-pr.json yggdrasil-pr.json pr-snapshot.json pr-observation.json > pr-sha256-manifest.txt)
+          python3 -B scripts/r29_live_advisory_decision.py \
+            --snapshot "$root/pr-snapshot.json" \
+            --workflow-run-id "$GITHUB_RUN_ID" > "$root/research-decision-observation.json"
+          jq -e '.schema == "forge.dreamrsi.r29-live-advisory-observation.v1" and (.decisions|length) == 2 and .research_originals_executed == 0 and .independent_randomization_verified == false and .independent_first_use_verified == false and .live_optimizer_dispatch_authorized == false and .genuine_dreamrsi_optimizer_improvement_proven == false and all(.decisions[]; .logging_mode == "OBSERVATIONAL" and .logged_action_probability_bp == 0 and .selected_by_existing_scientific_owner == false and .decision_made_before_research_outcome == false)' "$root/research-decision-observation.json" >/dev/null
+          (cd "$root"; sha256sum wingless-pr.json yggdrasil-pr.json pr-snapshot.json pr-observation.json research-decision-observation.json > pr-sha256-manifest.txt)
+          (cd "$root"; sha256sum --check pr-sha256-manifest.txt)
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -137,6 +149,7 @@ jobs:
             ${{ runner.temp }}/forge-observer/*-pr.json
             ${{ runner.temp }}/forge-observer/pr-snapshot.json
             ${{ runner.temp }}/forge-observer/pr-observation.json
+            ${{ runner.temp }}/forge-observer/research-decision-observation.json
             ${{ runner.temp }}/forge-observer/pr-sha256-manifest.txt
           retention-days: 90
           if-no-files-found: error
