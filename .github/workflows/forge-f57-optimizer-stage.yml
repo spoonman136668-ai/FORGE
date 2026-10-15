@@ -1,0 +1,29 @@
+name: FORGE F57 staged optimizer qualification
+on:
+  push:
+    branches: [research/f57-ordered-optimizer-activation-20261015-r1]
+permissions:
+  contents: read
+jobs:
+  stage-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fail-closed independent outcome and novelty controls
+        run: go test -count=1 ./optimizerbridge
+      - name: One full repository regression, vet and build
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F57_STAGED_OPTIMIZER_SOURCE_QUALIFICATION=PASS
+      - name: Strict no policy promotion or original execution
+        run: echo "PROSPECTIVE_POLICY_ACTIVATION=AWAITING_AUTHENTIC_EVIDENCE; THETA_ACCEPTED_NEW_SCIENCE=AWAITING; NOVELTY=UNTESTED_PROPOSALS_ONLY"
