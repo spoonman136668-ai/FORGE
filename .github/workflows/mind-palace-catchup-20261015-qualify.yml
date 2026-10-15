@@ -65,7 +65,7 @@ jobs:
               if($p.status -cne 'ready' -or @($p.batches).Count -ne 1){throw ('PLAN_NOT_READY_'+$p.status)}
               $null=RunPS 'COLLECT_VALIDATE' '.\tools\collect.ps1' @('validate','-InputPath',$batch)
               New-Item -ItemType Directory '.mind-runtime' -Force|Out-Null
-              $map=@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{batch_id=[string]$p.batches[0].batch_id;collector_batch_path=[IO.Path]::GetFullPath($batch)})}
+              $map=@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{batch_id=[string]$p.batches[0].batch_id;collector_batch_path=[IO.Path]::GetFullPath((Join-Path $root 'pilots\chat-history\2026-10-15-selected-catchup.batch.json'))})}
               $mapPath=Join-Path $root '.mind-runtime\hosted-map.json'
               [IO.File]::WriteAllText($mapPath,($map|ConvertTo-Json -Depth 10),[Text.Encoding]::UTF8)
               $dry=RunPS 'DRYRUN' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inv,'-CollectorMapPath',$mapPath)
