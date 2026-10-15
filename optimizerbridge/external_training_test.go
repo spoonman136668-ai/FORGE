@@ -64,7 +64,7 @@ func TestExternalTrainingRejectsTamperedEvidenceAndPseudoRandomization(t *testin
   {"fake independent custody",func(m *ExternalTrainingManifest){m.Studies[4].IndependentSourceCustody=true}},
   {"fake passed scientific gate",func(m *ExternalTrainingManifest){m.Studies[3].ScientificGate="PASSED"}},
   {"drop scientific negative",func(m *ExternalTrainingManifest){m.Studies[7].FailedChecks=nil}},
-  {"cross lane swap",func(m *ExternalTrainingManifest){m.Studies[4].Lane="Wingless"}},
+  {"cross lane swap",func(m *ExternalTrainingManifest){m.Studies[6].Lane="Wingless"}},
   {"duplicate artifact",func(m *ExternalTrainingManifest){m.Studies[1].ArtifactID=m.Studies[0].ArtifactID}},
   {"duplicate head",func(m *ExternalTrainingManifest){m.Studies[1].HeadSHA=m.Studies[0].HeadSHA}},
   {"duplicate run",func(m *ExternalTrainingManifest){m.Studies[1].RunID=m.Studies[0].RunID}},
