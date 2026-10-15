@@ -1,0 +1,76 @@
+name: FORGE R32 native owner first-use adapter acceptance
+on:
+  push:
+    branches: [engineering/r32-native-owner-preuse-cli-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r32-native-owner-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head and source-bound owner first-use tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./cmd/forge-owner-preuse ./originalclaim
+      - name: One full regression with race, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Record non-activation
+        shell: bash
+        run: |
+          echo 'R32_SOURCE_TO_LOCAL_FIRSTUSE_CLI=QUALIFIED_CODE_ONLY'
+          echo 'R32_AUTHENTIC_WITNESS_DEPLOYMENT=NOT_VERIFIED'
+          echo 'R32_EXTERNAL_MONOTONIC_CAS=NOT_VERIFIED'
+          echo 'R32_INSTALLED_RESEARCH_OWNER_CALL=NOT_VERIFIED'
+          echo 'R32_SCIENTIFIC_ORIGINALS=0'
+          echo 'R32_CLOUDFLARE_MUTATIONS=0'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows source-firstuse and one full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R32_SOURCE_DRIFT' }
+          go test -count=1 ./cmd/forge-owner-preuse ./originalclaim
+          if ($LASTEXITCODE -ne 0) { throw 'R32_FOCUSED_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R32_FULL_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R32_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R32_BUILD_FAILED' }
