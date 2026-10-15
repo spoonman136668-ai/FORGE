@@ -4,7 +4,7 @@ No reserved/sealed cohort, no new original, no independent science acceptance.
 R36 C1 remains a pinned, draft method whose fidelity must be independently checked.
 """
 import argparse,hashlib,importlib.util,json,math,pathlib,subprocess,sys
-from select import check_frozen,parse,sha,reject
+from policy_select import check_frozen,parse,sha,reject
 def git(root,*args):
     return subprocess.check_output(["git","-C",str(root),*args],text=True,stderr=subprocess.DEVNULL).strip()
 def dynamic(path,name):
