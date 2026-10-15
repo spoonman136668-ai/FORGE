@@ -40,7 +40,10 @@ def exact_policy(rule_list, detail):
             or detail.get("target") != "branch" or detail.get("source_type") != "Repository"
             or detail.get("source") != REPO):
         raise Denied("RULESET_AUTHORITY_SCOPE_DRIFT")
-    if detail.get("bypass_actors") != []:
+    actors = detail.get("bypass_actors")
+    if not isinstance(actors, list):
+        raise Denied("RULESET_BYPASS_ACTORS_UNAVAILABLE")
+    if actors:
         raise Denied("RULESET_BYPASS_ACTORS_PRESENT")
     if detail.get("current_user_can_bypass") != "never":
         raise Denied("RULESET_CALLER_BYPASS_VISIBILITY_UNQUALIFIED")
