@@ -1,0 +1,80 @@
+name: FORGE F53 authentic independent outcomes and F54 advisory
+on:
+  push:
+    branches: [research/f53-genuine-train-to-f54-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  factual-source-to-f54:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact FORGE source and focused enforcement tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f53_two_lane_review.py -v
+      - name: Validate genuine archived run and artifact identities then independent recount
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f53"; mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for rec in \
+            'Wingless 38816813059 7c0d87501ce2c051474fd1b12372fc8298c6eda2 12010549206 W-F53-public-law-posterior-fresh-TRAIN-NO-ORIGINAL sha256:a6e5fa836e3c94b2fff2a7328423a28edb176d33b02001b11614705693e587ec' \
+            'Yggdrasil 38816998979 74ff3fa0917e23623d479b2a3311fc4aed5401d0 12010723949 Y-F53-star-bridge-fresh-TRAIN-NO-ORIGINAL sha256:9a99b176bf8a7b602d3e28ddfdd5e5ef41db2d5f5417e0db1c9e84254d8f3187'
+          do
+            read -r lane run head art name digest <<< "$rec"
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg sha "$head" --argjson id "$run" \
+             '.id==$id and .head_sha==$sha and .run_attempt==1 and .status=="completed" and .conclusion=="success"' \
+             "$root/$lane/run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$art" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg sha "$digest" --argjson id "$art" --argjson run "$run" \
+              '.id==$id and .name==$name and .digest==$sha and .workflow_run.id==$run and .expired==false' \
+              "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f53_two_lane_review.py \
+            --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/next.json"
+          python3 -B scripts/f53_two_lane_review.py \
+            --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/repeat.json"
+          cmp "$root/next.json" "$root/repeat.json"
+          jq -e '(.decisions|length)==2 and
+            .genuine_new_train_experiments_reviewed==2 and
+            .independent_f3_originals_accepted==0 and
+            .primary_originals_executed==0 and
+            .successor_worker_dispatch_authorized==false and
+            .dream_rsi_prospective_improvement_proven==false' "$root/next.json" >/dev/null
+          (cd "$root";sha256sum next.json > next.sha256)
+          echo 'F53_AUTHENTIC_TWO_LANE_TRAIN_NEGATIVES_TO_F54_ADVISORY=PASS'
+      - name: One complete FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f53-authentic-science-to-f54-advisory-no-originals
+          path: |
+            ${{ runner.temp }}/f53/next.json
+            ${{ runner.temp }}/f53/next.sha256
+            ${{ runner.temp }}/f53/Wingless/run.json
+            ${{ runner.temp }}/f53/Wingless/artifact.json
+            ${{ runner.temp }}/f53/Yggdrasil/run.json
+            ${{ runner.temp }}/f53/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
