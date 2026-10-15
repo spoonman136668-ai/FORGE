@@ -1,0 +1,76 @@
+name: FORGE R36 signed owner decision to D1 first-use qualification
+on:
+  push:
+    branches: [ops/forge-r36-signed-preuse-d1-binding-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r36-signed-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source frozen signed owner/witness and concurrent D1 test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./preusebinding
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+      - name: One Go repository regression race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Explicit science authority non-claim
+        shell: bash
+        run: |
+          echo 'R36_SIGNATURE_VALIDATION=SOURCE_ONLY_SYNTHETIC'
+          echo 'R36_EXTERNAL_OWNER_CREDENTIALS=NOT_QUALIFIED'
+          echo 'R36_D1_ATOMIC_CAS_DEPLOYED=FALSE'
+          echo 'R36_NEW_SCIENTIFIC_ORIGINALS=0'
+          echo 'R36_CLOUDFLARE_WRITES=0'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows Go focused and full test vet build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R36_SOURCE_SHA_DRIFT' }
+          go test -count=1 ./preusebinding
+          if ($LASTEXITCODE -ne 0) { throw 'R36_FOCUSED_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R36_FULL_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R36_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R36_BUILD_FAILED' }
