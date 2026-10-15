@@ -40,6 +40,13 @@ class FrozenR11(unittest.TestCase):
              "ranked_heldout_blind_development_candidates":[{"id":"W36-C4","mean_min_family_gain":0.018229166666666685,"development_gate_passed":False},
               {"id":"W36-C2","mean_min_family_gain":-0.052662037037037035,"development_gate_passed":False}]}
         with self.assertRaises(ValueError):protocol.verify_parent(self.encode(fake),self.plan)
+    def test_large_real_row_archive_bounded_separately_from_small_critical_manifests(self):
+        synthetic=(json.dumps({"rows":[{"seed":i,"value":i%3} for i in range(3000)]})+"\n").encode()
+        self.assertTrue(len(synthetic)>70000)
+        with self.assertRaises(ValueError):protocol.parse(synthetic)
+        self.assertEqual(len(protocol.parse(synthetic,cap=1000000)["rows"]),3000)
+        with self.assertRaises(ValueError):protocol.parse(synthetic,cap=1000001)
+        with self.assertRaises(ValueError):protocol.parse(b"{}"+b" "*1000000,cap=1000000)
     def test_retention_controller_reconstructible_on_small_synthetic_source(self):
         # A *synthetic unit fixture*, not a scientific original or proof of gain.
         groups=[]
