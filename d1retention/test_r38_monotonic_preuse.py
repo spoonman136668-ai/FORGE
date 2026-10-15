@@ -1,5 +1,6 @@
 """R38: isolated SQLite monotonicity contract; no live D1 or science."""
 import concurrent.futures
+import contextlib
 import pathlib
 import sqlite3
 import tempfile
@@ -10,10 +11,15 @@ OLD = HERE / "r35_atomic_preuse_candidate.sql"
 NEW = HERE / "r38_monotonic_preuse_candidate.sql"
 
 
+@contextlib.contextmanager
 def connect(path):
     db = sqlite3.connect(str(path), timeout=15, isolation_level=None)
-    db.execute("PRAGMA busy_timeout=15000")
-    return db
+    try:
+        db.execute("PRAGMA busy_timeout=15000")
+        with db:
+            yield db
+    finally:
+        db.close()
 
 
 def insert(db, key, sequence, epoch=7, mode="INSERT"):
