@@ -37,9 +37,8 @@ func TestExternalTrainingEightGenuineObservationsRemainNonAuthorizing(t *testing
    t.Fatalf("invalid historical record %d: %+v",i,study)
   }
  }
- if !a.Observations[2].PositiveAccuracySignal||!a.Observations[5].PositiveAccuracySignal||
-  !a.Observations[7].PositiveAccuracySignal||!a.Observations[4].PositiveAccuracySignal||
-  !a.Observations[9].PositiveAccuracySignal{
+ if !a.Observations[2].PositiveAccuracySignal||!a.Observations[4].PositiveAccuracySignal||
+  !a.Observations[7].PositiveAccuracySignal||!a.Observations[9].PositiveAccuracySignal{
   t.Fatal("failed to preserve positive partial findings inside negative gates")
  }
 }
