@@ -4,7 +4,7 @@ No access to the original scientific evaluator or learned training code.
 Reaggregates every reported row against pinned Wingless low-level generator.
 """
 import argparse,hashlib,importlib.util,json,math,pathlib,subprocess
-from select import check_frozen,parse,sha,reject
+from policy_select import check_frozen,parse,sha,reject
 def near(a,b):
     return isinstance(a,(int,float)) and not isinstance(a,bool) and math.isfinite(a) and abs(a-b)<1e-8
 def verify(frozen_raw,proposal_raw,screen_raw,wingless_root):
