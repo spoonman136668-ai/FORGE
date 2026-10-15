@@ -33,13 +33,13 @@ def load(root,lane):
  demand(hashlib.sha256(raw).hexdigest()==PINS[lane]["report_sha256"],"CONTENT_SHA")
  demand((root/"SOURCE_SHA").read_text().strip()==PINS[lane]["head"],"SOURCE_IDENTITY")
  checks={}
- for line in (root/"sha256-manifest.txt").read_text().splitlines():
+ for line in (root/"manifest.sha256").read_text().splitlines():
   hash_,filename=line.split(maxsplit=1)
-  demand(filename in ("result.json","independent-audit.txt"),"UNEXPECTED_FILE")
+  demand(filename in ("result.json","audit.txt"),"UNEXPECTED_FILE")
   demand(hashlib.sha256((root/filename).read_bytes()).hexdigest()==hash_,"MANIFEST_TAMPER")
   checks[filename]=hash_
  demand(len(checks)==2 and "INDEPENDENT_RECOUNT_PASS" in
-        (root/"independent-audit.txt").read_text(),"INDEPENDENT_AUDIT_ABSENT")
+        (root/"audit.txt").read_text(),"INDEPENDENT_AUDIT_ABSENT")
  return json.loads(raw,object_pairs_hook=unique)
 def traverse(pub,chain,start,sign):
  shifts={role:(y-sign*x)%7 for role,x,y in pub}
