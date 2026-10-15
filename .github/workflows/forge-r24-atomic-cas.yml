@@ -1,0 +1,52 @@
+name: FORGE R24 atomic source merge guard dry-run qualification
+on:
+  push:
+    branches: [engineering/fsa-r24-atomic-cas-20261015]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/fsa_merge_cas_r24.py'
+      - 'scripts/test_fsa_merge_cas_r24.py'
+      - '.github/workflows/forge-r24-atomic-cas.yml'
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Native fail-closed CAS, branch-policy and source guard tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_fsa_source_audit.py'
+          python3 -m unittest discover -s scripts -p 'test_fsa_merge_cas_r24.py'
+          ! grep -Eq 'merge_pull_request|pulls/.*/merge|urllib.request.Request.*PUT|gh api -X PUT' scripts/fsa_merge_cas_r24.py
+          test "$(git rev-parse HEAD:scripts/fsa_source_audit.py)" = 40ab4fe08892ca0985fd64c575bd010a65fcdbbe
+          test "$(git rev-parse HEAD:.github/workflows/forge-automerge.yml)" = 7b57490419928b60fb2a91792a045c911e98c64d
+          echo R24_EXISTING_AUDITOR_IDENTITY=PASS
+      - name: Real PR 246 exact-head last-mile deny proof
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/fsa_merge_cas_r24.py --pr 246 --head 82a6cb225e0783adebae66a5607c123080cf2355 --base 6eb6ccda00d3754e872ea791d4ccc025734274f8 | tee "$RUNNER_TEMP/r24-observed.jsonl"
+          python3 - "$RUNNER_TEMP/r24-observed.jsonl" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding='utf-8') as f:
+              r=json.loads(f.readline())
+          assert r['Schema']=='forge.source-cas.r24.readonly.v1'
+          assert r['HeadSHA']=='82a6cb225e0783adebae66a5607c123080cf2355'
+          assert r['SourceChecksPassed'] is True, r['Reason']
+          assert r['Reason']=='POLICY_VISIBILITY_BLOCKED:RULESET_BYPASS_VISIBILITY_MISSING',r['Reason']
+          assert r['PolicyComplete'] is False
+          assert r['MergeAuthorized'] is False and r['ScientificAuthority'] is False
+          print('R24_AUTHENTIC_CAS_SOURCE_QUALIFICATION=PASS')
+          print('R24_ATOMIC_SOURCE_MERGE=BLOCKED_FAIL_CLOSED')
+          PY
