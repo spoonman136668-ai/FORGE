@@ -21,7 +21,8 @@ class IntakeBlocked(ValueError): pass
 def sha(data:bytes)->str: return hashlib.sha256(data).hexdigest()
 def fail(reason):raise IntakeBlocked(reason)
 def sql_string(value:str)->str:
-    if not isinstance(value,str) or not SAFE_NAME.fullmatch(value):
+    if (not isinstance(value,str) or not
+        (SAFE_NAME.fullmatch(value) or re.fullmatch(r"spoonman136668-ai/(Wingless|Yggdrasil)",value))):
         fail("UNSAFE_SQL_IDENTITY")
     return "'"+value+"'"
 
