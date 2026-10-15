@@ -45,8 +45,11 @@ func run(args []string,out io.Writer)error{
  signed:=fs.String("signed-export","","custodian-signed Cloudflare export manifest")
  anchor:=fs.String("independent-anchor","","independently sourced public trust pins")
  lanePins:=fs.String("independent-lane-pins","","independently sourced frozen optimizer pins")
+ wa:=fs.String("wingless-selection-audit","","independently signed Wingless assignment claim audit")
+ ya:=fs.String("yggdrasil-selection-audit","","independently signed Yggdrasil assignment claim audit")
+ ap:=fs.String("independent-audit-pins","","independently pinned public audit identities")
  if err:=fs.Parse(args);err!=nil||fs.NArg()!=0{return errors.New("FORGE_OPTIMIZER_SHADOW_FLAGS_INVALID")}
- paths:=[]string{*w,*y,*signed,*anchor,*lanePins}
+ paths:=[]string{*w,*y,*signed,*anchor,*lanePins,*wa,*ya,*ap}
  seen:=map[string]bool{}
  for _,p:=range paths{
   if p==""||!filepath.IsAbs(p){return errors.New("FORGE_OPTIMIZER_SHADOW_INPUTS_MISSING")}
@@ -69,6 +72,32 @@ func run(args []string,out io.Writer)error{
  if err=parseJSON(rawPins,&pins);err!=nil{return err}
  verified,err:=optimizerbridge.EvaluatePinnedExport(export,trust,inputs,pins)
  if err!=nil{return err}
+ var evidence [2]optimizerbridge.LaneEvidence
+ for i,b:=range inputs{
+  if err:=parseJSON(b,&evidence[i]);err!=nil{return err}
+ }
+ var signedAudits [2]optimizerbridge.SignedSelectionAudit
+ auditPaths:=[]string{*wa,*ya}
+ for i,path:=range auditPaths{
+  b,err:=readRegularFile(path,optimizerbridge.MaxLaneEvidenceBytes)
+  if err!=nil{return err}
+  if err:=parseJSON(b,&signedAudits[i]);err!=nil{return err}
+ }
+ auditPinsRaw,err:=readRegularFile(*ap,64*1024)
+ if err!=nil{return err}
+ var auditPins []optimizerbridge.SelectionAuditPin
+ if err:=parseJSON(auditPinsRaw,&auditPins);err!=nil||len(auditPins)!=2{
+  return errors.New("FORGE_OPTIMIZER_INDEPENDENT_AUDIT_PINS_MISSING")
+ }
+ if auditPins[0].AuditSHA256==auditPins[1].AuditSHA256{
+  return errors.New("FORGE_OPTIMIZER_CROSS_LANE_AUDIT_REUSE")
+ }
+ for i:=0;i<2;i++{
+  checked,err:=optimizerbridge.VerifySelectionAudit(
+    evidence[i],pins[i],signedAudits[i],auditPins[i],trust.CustodianEd25519PublicKeyHex)
+  if err!=nil{return err}
+  verified.SelectionAudits=append(verified.SelectionAudits,checked)
+ }
  encoded,err:=json.MarshalIndent(verified,"","  ")
  if err!=nil{return err}
  _,err=fmt.Fprintln(out,string(encoded))
