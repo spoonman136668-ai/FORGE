@@ -1,0 +1,46 @@
+name: FORGE R21 read-only autonomous source-audit qualification
+on:
+  push:
+    branches: [engineering/fsa-r21-no-review-source-audit-20261015]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/fsa_source_audit.py'
+      - 'scripts/test_fsa_source_audit.py'
+      - '.github/workflows/forge-automerge.yml'
+      - '.github/workflows/qualify-fsa-source.yml'
+      - '.github/workflows/forge-source-audit-r21-qualification.yml'
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+jobs:
+  qualify-auditor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: R21 focused autonomous selection regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p test_fsa_source_audit.py
+      - name: Existing workflows must retain no merge execution path
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq 'pulls/.*/merge|gh api -X PUT|merge_pull_request' .github/workflows/forge-automerge.yml
+          ! grep -Eq 'merge_pull_request|pulls/.*/merge|urllib.request.Request.*PUT' scripts/fsa_source_audit.py
+          grep -q 'contents: read' .github/workflows/forge-automerge.yml
+          grep -q 'github.sha' .github/workflows/forge-automerge.yml
+          echo 'SOURCE_ONLY_NO_MERGE_WRITE=PASS'
+      - name: Authenticate current GitHub observations, no mutations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/fsa_source_audit.py
+          echo 'AUTONOMOUS_AUDIT_ONLY=PASS'
