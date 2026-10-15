@@ -234,6 +234,31 @@ jobs:
                   print("CF_VERSION_729EBDED_D1_BINDINGS_COUNT="+str(
                       sum(isinstance(b,dict) and b.get("type")=="d1"
                           for b in versionBindings) if isinstance(versionBindings,list) else 0))
+                  d1bindings=[b for b in versionBindings if
+                      isinstance(b,dict) and b.get("type")=="d1"] if isinstance(versionBindings,list) else []
+                  if len(d1bindings)==1:
+                      binding=d1bindings[0]
+                      # Binding variable names are code identifiers, not secrets.
+                      # Print a bounded case-preserving name only when the API
+                      # returns an ordinary JS identifier; never log DB IDs.
+                      envname=binding.get("name","")
+                      name_ok=isinstance(envname,str) and re.fullmatch(
+                          r"[A-Za-z_$][A-Za-z0-9_$]{0,63}",envname)
+                      print("CF_DEPLOYED_D1_ENV_NAME="+(envname if name_ok else "INVALID_OR_MISSING"))
+                      ident=binding.get("database_id") or binding.get("id")
+                      valid_id=isinstance(ident,str) and bool(re.fullmatch(
+                          r"[a-fA-F0-9-]{36}",ident))
+                      print("CF_DEPLOYED_D1_DATABASE_ID="+("STRUCTURALLY_PRESENT" if valid_id else "MISSING"))
+                      if valid_id and db_state=="OK" and isinstance((db_doc or {}).get("result"),list):
+                          matching=[d for d in db_doc["result"] if
+                              isinstance(d,dict) and d.get("uuid")==ident]
+                          print("CF_DEPLOYED_D1_SOURCE_CUSTODY="+(
+                              "DATABASE_ID_MATCHED" if len(matching)==1 else "UNMATCHED"))
+                      else:
+                          print("CF_DEPLOYED_D1_SOURCE_CUSTODY=NOT_QUALIFIED")
+                  else:
+                      print("CF_DEPLOYED_D1_ENV_NAME=NOT_QUALIFIED")
+                      print("CF_DEPLOYED_D1_SOURCE_CUSTODY=NOT_QUALIFIED")
               else:print("CF_VERSION_729EBDED_D1_FORGE="+vs)
           else:print("CF_VERSION_729EBDED_D1_FORGE=VERSION_ID_NOT_RESOLVED")
           print("CF_D1_SQL_QUERIES=0")
