@@ -1,0 +1,44 @@
+name: FORGE R19 protected D1 empty archive read-only preflight
+on:
+  push:
+    branches: [ops/forge-r19-authentic-original-ingest-20261015]
+    paths: ['.github/workflows/forge-r19-d1-empty-readonly-probe.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify guarded D1 schema and empty originals without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/d1retention"
+          python3 - <<'PY'
+          import os,install_remote as m,r18c_witness as r
+          token=os.environ.get("CF_TOKEN_PRIMARY") or os.environ.get("CF_TOKEN_ALT") or ""
+          account=os.environ.get("CF_ACCOUNT_SECRET") or os.environ.get("CF_ACCOUNT_VAR") or os.environ.get("CF_ACCOUNT_ALT") or ""
+          api=m.Cloudflare(account,token)
+          db=m.single_deployed_database(api)
+          own,foreign=m.schema_snapshot(api,db)
+          if own!=m.EXPECTED_OBJECTS or foreign!=r.BASELINE_SCHEMA_SHA256:
+            raise SystemExit("R19_BLOCKED=ARCHIVE_SCHEMA_DRIFT")
+          for name in ("forge_research_originals","forge_research_chunks","forge_research_seals"):
+            out=m.sql_query(api,db,"SELECT COUNT(*) AS n FROM "+name)
+            if len(out)!=1 or out[0].get("n")!=0:
+              raise SystemExit("R19_BLOCKED=ARCHIVE_NOT_EMPTY_OR_UNREADABLE")
+          print("R19_LIVE_D1=PINNED_AND_GUARDED")
+          print("R19_ARCHIVE_ORIGINALS_PREEXISTING=0")
+          print("R19_FOREIGN_SCHEMA=UNCHANGED")
+          print("R19_API_SQL_WRITES=0")
+          PY
