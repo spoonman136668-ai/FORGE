@@ -1,0 +1,84 @@
+name: FORGE R18C one-time protected existing D1 file import
+on:
+  push:
+    branches: [ops/forge-r18c-protected-d1-20261015]
+    paths: ['.github/workflows/forge-r18c-once-protected-d1-import.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-r18c-existing-d1-once-20261015
+  cancel-in-progress: false
+jobs:
+  import-once:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/ops/forge-r18c-protected-d1-20261015'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Strict R18C source and original protected schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'spoonman136668-ai/FORGE'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(sha256sum d1retention/schema.sql | awk '{print $1}')" = 'd5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c'
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+          echo "R18C_GUARDED_SCHEMA_IDENTITY=PASS"
+      - name: Authenticate, pin database and save private Time Travel bookmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          mkdir -m 700 "$RUNNER_TEMP/r18c-private"
+          PYTHONPATH="$GITHUB_WORKSPACE/d1retention" python3 d1retention/r18c_witness.py \
+            --stage preflight --head "$GITHUB_SHA" --private-dir "$RUNNER_TEMP/r18c-private"
+          echo "R18C_RECOVERY_TIMESTAMP_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: One D1 remote file import with ORIGINAL 8 protection triggers
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -s "$RUNNER_TEMP/r18c-private/r18c.json"
+          test -s "$RUNNER_TEMP/r18c-private/r18c-wrangler.json"
+          echo 'R18C_ONE_TIME_GUARDED_IMPORT=ATTEMPTING'
+          if npx --yes wrangler@4.125.0 d1 execute forge \
+              --remote --yes --config "$RUNNER_TEMP/r18c-private/r18c-wrangler.json" \
+              --file ./d1retention/schema.sql \
+              > "$RUNNER_TEMP/r18c-private/import-output.txt" 2>&1; then
+            echo 'R18C_WRANGLER_REMOTE_FILE_IMPORT=SUBMITTED_SUCCESSFULLY'
+          else
+            echo 'R18C_WRANGLER_REMOTE_FILE_IMPORT=FAILED_STOP_AND_READ_BACK'
+            exit 1
+          fi
+      - name: Independently verify all original guards and unchanged existing data
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          PYTHONPATH="$GITHUB_WORKSPACE/d1retention" python3 d1retention/r18c_witness.py \
+            --stage postflight --head "$GITHUB_SHA" --private-dir "$RUNNER_TEMP/r18c-private"
+      - name: Confirm no public evidence export or automatic restore
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'R18C_PUBLIC_RECOVERY_BOOKMARK=NEVER_LOGGED'
+          echo 'R18C_AUTOMATIC_DESTRUCTIVE_RESTORE=FALSE'
+          echo 'R18C_NO_SCIENCE_DISPATCH=TRUE'
