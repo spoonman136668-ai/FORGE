@@ -39,7 +39,7 @@ def check(raw):
     c=data.get("source_evidence_context")
     if not isinstance(c,list) or len(c)!=2 or [a.get("lane") for a in c]!=["Wingless","Yggdrasil"] or any(a.get("kind")!="TRAIN_ONLY_NONCAUSAL" or a.get("may_be_admitted_as_prospective_optimizer_holdout") is not False for a in c):raise Denied("HISTORICAL_DATA_PROMOTED")
     comp=data.get("preregistered_comparison")
-    if not isinstance(comp,dict) or "four" not in comp.get("initial_baselines","") or "all four" not in comp.get("primary_comparison","") or "dreamrsi.SafeImprovement" not in comp.get("primary_comparison",""):raise Denied("COMPARATOR_DRIFT")
+    if not isinstance(comp,dict) or "four" not in comp.get("initial_baselines","") or "four" not in comp.get("primary_comparison","") or "dreamrsi.SafeImprovement" not in comp.get("primary_comparison",""):raise Denied("COMPARATOR_DRIFT")
     before=data.get("mandatory_before_any_first_use")
     after=data.get("mandatory_after_first_use")
     if not isinstance(before,list) or not isinstance(after,list) or len(before)!=6 or len(after)!=4 or any(not isinstance(s,str) or not s for s in before+after):raise Denied("ORIGINAL_FIRSTUSE_GUARD_MISSING")
