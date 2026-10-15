@@ -1,0 +1,63 @@
+name: FORGE F48 genuine TRAIN science recount to F49 precode proposals
+on:
+  push:
+    branches: [research/f48-real-train-optimizer-feedback-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  authentic-f48-to-f49:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source negatives and exact-head freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f48_real_train_review.py -v
+      - name: Actual two-lane first-use TRAIN evidence to automatic successors
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f48"; mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for item in \
+            'Wingless 38805703700 0bad6a035e4257f0bc18f593a25e0770d378d17d 12005084367 W-F48-disjoint-trained-query-value-train-NO-ORIGINAL' \
+            'Yggdrasil 38805887306 b2407c469086c6a0ea99e9f3986c4336ef832e79 12006805585 Y-F48-shifted-pair-identifiability-train-NO-ORIGINAL'
+          do
+            read -r lane run head artifact name <<< "$item"
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg sha "$head" --argjson run "$run" \
+              '.id==$run and .head_sha==$sha and .run_attempt==1 and .status=="completed" and .conclusion=="success"' \
+              "$root/$lane/run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --argjson id "$artifact" --argjson run "$run" \
+              '.id==$id and .name==$name and .expired==false and .workflow_run.id==$run and (.digest|startswith("sha256:"))' \
+              "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f48_real_train_review.py --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/next.json"
+          python3 -B scripts/f48_real_train_review.py --wingless "$root/Wingless" --yggdrasil "$root/Yggdrasil" --out "$root/repeat.json"
+          cmp "$root/next.json" "$root/repeat.json"
+          jq -e '(.decisions|length)==2 and (.next_precode_proposals|length)==2 and .research_studies_recounted==2 and .originals_executed==0 and .worker_dispatch_authorized==false and .recursive_dream_rsi_improvement_proven==false' "$root/next.json" >/dev/null
+          (cd "$root";sha256sum next.json > next.sha256)
+          echo 'F48_TWO_AUTHENTIC_FRESH_TRAIN_RUNS_TO_MACHINE_SELECTED_F49_PLANS=PASS'
+          echo 'F48_ORIGINALS_ACCEPTED_OR_EXECUTED=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f48-authentic-train-results-and-f49-advisory-no-original
+          path: |
+            ${{ runner.temp }}/f48/next.json
+            ${{ runner.temp }}/f48/next.sha256
+            ${{ runner.temp }}/f48/Wingless/run.json
+            ${{ runner.temp }}/f48/Wingless/artifact.json
+            ${{ runner.temp }}/f48/Yggdrasil/run.json
+            ${{ runner.temp }}/f48/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
