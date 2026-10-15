@@ -1,0 +1,9 @@
+# F57 — read-only live GitHub TRAIN evidence integration
+
+This bounded F57 engineering increment reads the real GitHub API for four already completed historical TRAIN-only studies, two each from Wingless and Yggdrasil. Exact source commits, first-attempt GitHub run IDs, ZIP artifact IDs/names, and GitHub archive digests are immutable code pins. It verifies run-to-artifact association, intact metadata, successful historical workflow execution, absence of artifact expiry, and chronology within each lane. A GitHub-hosted read-only job retains the observed API response fingerprints and its report.
+
+F56 cryptographic signed-custody composition remains separate. A GitHub Actions success, public artifact metadata, first-attempt run or GitHub ZIP digest is NOT independent scientific STARTED/TERMINAL custody, accepted protected first-use, credible independent review, native scientific progress, FSA high-water or a linearizable distributed CAS. These four historical studies do not qualify a new protected scientific original or unattended automatic successor. Every scientific execution, authority and cutover flag is false.
+
+The existing FORGE public qualification workflow hosts this additional job only for F57 evidence PRs. It uses read-only GitHub permissions, no new polling scheduler, research worker, Cloudflare write, credential setup, paid model API or Codex auto-review. It never changes CKB-plane ownership or active Wingless/Yggdrasil research.
+
+Remaining operational qualification: read independently provisioned CURRENT owner authority and signed first-use, STARTED, TERMINAL, and reviewer receipts from the already authorized CKB-plane/FORGE/Cloudflare pathway; reconcile external once-only consumed state, prove fresh source births and a two-original unattended successor progression in each lane, then run one final integration regression and separately obtain accepted cutover. This metadata observer cannot fulfill those gates alone.
