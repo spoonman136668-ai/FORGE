@@ -1,0 +1,38 @@
+name: FORGE R21 source-birth and first-use denial
+on:
+  push:
+    branches: [research/r21-sourcebirth-firstuse-denial-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r21-firstuse-readonly
+  cancel-in-progress: false
+jobs:
+  source-only-custody-denial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused cohort identity and synthetic signature negatives
+        run: |
+          set -euo pipefail
+          go test -count=1 ./researcharchive ./sourcebirth ./workerreconcile
+          go vet ./researcharchive ./sourcebirth ./workerreconcile
+      - name: One complete FORGE regression
+        run: go test ./...
+      - name: Authority stays with the original scientific owner
+        run: |
+          echo 'R21_HISTORICAL_FIRST_USE=NOT_AUTHENTICATED'
+          echo 'R21_OPERATIONAL_INDEPENDENT_FSA=NOT_QUALIFIED'
+          echo 'R21_SCIENTIFIC_ORIGINALS_EXECUTED=0'
+          echo 'R21_CLOUDFLARE_WRITES=0'
+          echo 'R21_OPTIMIZER_DISPATCH=BLOCKED'
