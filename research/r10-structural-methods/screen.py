@@ -22,7 +22,9 @@ def execute(frozen_raw,parent_raw,wingless_root,method_root,forge_root):
         git(method_root,"hash-object","research/r36_f3_screen/wingless_learned.py")!=f["learned_git_blob"] or
         git(wingless_root,"status","--porcelain") or git(method_root,"status","--porcelain")):fail("SOURCE_IDENTITY")
     src=wingless_root/"research/contrib/chatgpt/20261013-w-r52-batch-diversity/execute.py"
-    r34=dynamic(forge_root/"research/r34-wingless/execute.py","r10_pinned_original_control")
+    r34_file=forge_root/"research/r34-wingless/execute.py"
+    if git(forge_root,"hash-object","research/r34-wingless/execute.py")!=f["native_r34_git_blob"]:fail("CONTROL_SOURCE_DRIFT")
+    r34=dynamic(r34_file,"r10_pinned_original_control")
     low=r34.load_parent(src)
     sys.path.insert(0,str(method_root/"research/r36_f3_screen"))
     import wingless_methods
