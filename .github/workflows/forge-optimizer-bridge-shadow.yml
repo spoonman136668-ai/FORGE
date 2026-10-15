@@ -88,10 +88,18 @@ jobs:
                   return ("HTTP_"+str(e.code)),None
               except Exception:
                   return "TRANSPORT_UNAVAILABLE",None
+          valid_account=bool(re.fullmatch(r"[a-fA-F0-9]{32}",account or ""))
           verify,response=get("user/tokens/verify")
           active=bool(verify=="OK" and isinstance(response,dict) and
                       (response.get("result") or {}).get("status")=="active")
-          print("CF_API_TOKEN_VERIFY="+("ACTIVE" if active else verify))
+          print("CF_USER_TOKEN_VERIFY="+("ACTIVE" if active else verify))
+          if not active and verify in ("HTTP_401","HTTP_403") and valid_account:
+              # Cloudflare account-owned tokens have a separate verify API.
+              state,response=get("accounts/"+account+"/tokens/verify")
+              active=bool(state=="OK" and isinstance(response,dict) and
+                          (response.get("result") or {}).get("status")=="active")
+              print("CF_ACCOUNT_TOKEN_VERIFY="+("ACTIVE" if active else state))
+          print("CF_AUTHENTICATED_TOKEN="+("TRUE" if active else "FALSE"))
           if not active:
               print("CF_BUCKET_READBACK=NOT_ATTEMPTED")
           elif not re.fullmatch(r"[a-fA-F0-9]{32}",account or "") or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}",bucket or ""):
