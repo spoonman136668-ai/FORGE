@@ -10,6 +10,7 @@ It never treats hidden bypass actors as freshly authenticated, nor grants
 merge authority or scientific authority.
 """
 import json
+from datetime import datetime, timezone
 
 REPO = "spoonman136668-ai/FORGE"
 RULESET = 25031517
@@ -79,7 +80,19 @@ def observe(api):
         # GitHub updates this server-maintained timestamp when the ruleset
         # changes. That is a continuity check, not a signed third-party
         # attestation or a proof of hidden fields.
-        need(r.get("updated_at") == UPDATED_AT,
+        # GitHub returns the same timestamp in different equivalent time
+        # zones to different authenticated callers. Compare the *instant*
+        # with full fractional-second precision; never truncate or allow a
+        # tolerance for an actual ruleset mutation.
+        def instant(raw):
+            need(isinstance(raw, str) and raw, "RULESET_TIMESTAMP_UNAVAILABLE")
+            try:
+                value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                need(value.tzinfo is not None, "RULESET_TIMESTAMP_TIMEZONE_MISSING")
+                return value.astimezone(timezone.utc)
+            except ValueError as error:
+                raise PolicyDenied("RULESET_TIMESTAMP_MALFORMED") from error
+        need(instant(r.get("updated_at")) == instant(UPDATED_AT),
              "RULESET_UPDATED_AFTER_AUTHENTICATED_OBSERVATION")
         rules = r.get("rules")
         need(isinstance(rules, list) and len(rules) == 4
