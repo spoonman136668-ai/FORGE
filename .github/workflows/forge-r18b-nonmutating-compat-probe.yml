@@ -1,0 +1,85 @@
+name: FORGE R18B D1 nonmutating compatibility probe
+on:
+  push:
+    branches: [ops/forge-r18-one-time-install-20261015]
+    paths: ['.github/workflows/forge-r18b-nonmutating-compat-probe.yml']
+permissions:
+  contents: read
+jobs:
+  diagnosis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Probe D1 read-only batch and EXPLAIN without changing schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/d1retention"
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error
+          import install_remote as m
+          token=(os.environ.get("CF_TOKEN_PRIMARY") or os.environ.get("CF_TOKEN_ALT") or "")
+          account=(os.environ.get("CF_ACCOUNT_SECRET") or
+                   os.environ.get("CF_ACCOUNT_VAR") or os.environ.get("CF_ACCOUNT_ALT") or "")
+          api=m.Cloudflare(account,token)
+          dbid=m.single_deployed_database(api)
+          before,foreign=m.schema_snapshot(api,dbid)
+          if before:raise SystemExit("R18B_BLOCKED=PREEXISTING_ARCHIVE_OBJECT")
+          stmts=m.split_sql(m.SQL_PATH.read_bytes())
+          # Note D1 REST /query supports BOTH {sql,...} and {batch:[{sql,...}]}.
+          # Queries below are strictly SELECT/EXPLAIN; no schema mutation.
+          diagnostics={
+            "REST_BATCH_SELECT":{"batch":[{"sql":"SELECT 1 AS a","params":[]},
+                                          {"sql":"SELECT 2 AS b","params":[]}]},
+            "REST_TABLE_EXPLAIN":{"sql":"EXPLAIN "+stmts[0],"params":[]},
+            "REST_TRIGGER_EXPLAIN":{"sql":"EXPLAIN "+stmts[3],"params":[]},
+            "REST_TRIGGER_SIMPLE_EXPLAIN":{
+                "sql":"EXPLAIN CREATE TRIGGER forge_never_created BEFORE INSERT "
+                "ON sqlite_master BEGIN SELECT 1; END;","params":[]}
+          }
+          def get_kind(message):
+              s=message.lower()
+              if "incomplete input" in s:return "INCOMPLETE_INPUT"
+              if "not authorized" in s or "sqlite_auth" in s:return "SQLITE_AUTH"
+              if "syntax error" in s:return "SYNTAX"
+              if "no such" in s:return "NO_SUCH_OBJECT"
+              if "not permitted" in s:return "NOT_PERMITTED"
+              return "OTHER"
+          for label,payload in diagnostics.items():
+              req=urllib.request.Request(
+                  "https://api.cloudflare.com/client/v4/accounts/"+account+
+                  "/d1/database/"+dbid+"/query",
+                  data=json.dumps(payload,separators=(",",":")).encode(),
+                  headers={"Authorization":"Bearer "+token,"Content-Type":"application/json",
+                           "Accept":"application/json"},method="POST")
+              try:
+                  with urllib.request.urlopen(req,timeout=12) as response:
+                      raw=response.read(16385)
+                  if len(raw)>16384:print("R18B_"+label+"=OVERSIZE");continue
+                  obj=json.loads(raw)
+                  records=obj.get("result") if isinstance(obj,dict) else None
+                  is_ok=(isinstance(obj,dict) and obj.get("success") is True
+                         and isinstance(records,list) and
+                         all(isinstance(item,dict) and item.get("success") is True
+                             for item in records))
+                  print("R18B_"+label+"="+("OK_READ_ONLY" if is_ok else "RESPONSE_NOT_QUALIFIED"))
+              except urllib.error.HTTPError as err:
+                  body=err.read(4097).decode("utf-8","replace")
+                  print("R18B_"+label+"=HTTP_"+str(err.code)+"_"+get_kind(body))
+              except Exception:
+                  print("R18B_"+label+"=TRANSPORT_OR_PARSE_ERROR")
+          after,foreign2=m.schema_snapshot(api,dbid)
+          if before!=after or foreign!=foreign2:
+              raise SystemExit("R18B_BLOCKED=SCHEMA_DRIFT")
+          print("R18B_REMOTE_SCHEMA_MUTATIONS=0")
+          print("R18B_FOREIGN_SCHEMA_UNCHANGED=TRUE")
+          PY
