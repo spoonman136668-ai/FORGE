@@ -5,8 +5,8 @@ PARENT_SHA="c47cd167f988e0dbe3258b14f82cb4b785966b3939fee5fa5b970f96cf4063b6"
 class Blocked(ValueError):pass
 def deny(reason):raise Blocked("R12_BLOCKED_"+reason)
 def digest(raw):return hashlib.sha256(raw).hexdigest()
-def parse(raw):
-    if not isinstance(raw,bytes) or len(raw)<1 or len(raw)>30000:deny("JSON_BYTES")
+def parse(raw,cap=30000):
+    if not isinstance(raw,bytes) or len(raw)<1 or len(raw)>cap or cap>600000:deny("JSON_BYTES")
     def unique(pairs):
         d={}
         for k,v in pairs:
