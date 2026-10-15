@@ -127,7 +127,7 @@ def evaluate(source,weights,seeds,observed):
 def audit(frozen_raw,parent_raw,record_raw,wingless_root):
     m=freeze(frozen_raw);verify_parent(parent_raw,m)
     if len(record_raw)>1000000:stop("MEASUREMENT_SIZE")
-    data=parse(record_raw)
+    data=parse(record_raw,cap=1000000)
     if (data.get("schema")!="forge.r11.real-learned-memory.development.v1" or
         data.get("scope")!="ACTUAL_TRAIN_ONLY_PROXY_LEARNER_ON_NEW_PUBLIC_DEVELOPMENT" or
         data.get("frozen_sha256")!=sha(frozen_raw) or data.get("parent_r10_review_sha256")!=sha(parent_raw) or
