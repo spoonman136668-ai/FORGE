@@ -14,7 +14,7 @@ func TestR37RecoveryNeverGrantsDispatchOrRetry(t *testing.T){
  }{
   x:=e;x.WorkerStartedReceiptPresent=tc.started;x.WorkerTerminalReceiptPresent=tc.terminal;x.StartedAndTerminalIdentityMatch=tc.match
   got,err:=Reconcile(c,x)
-  if err!=nil||got.Status!=tc.want||!got.FirstUseConsumed||!got.ExternalFirstUseVerified||
+  if err!=nil||got.Status!=tc.want||!got.FirstUseConsumed||got.ExternalFirstUseVerified||
    got.CanRetry||got.CanDispatch||got.ScientificAccepted{t.Fatalf("unsafe original recovery: %+v %v",got,err)}
  }
 }
