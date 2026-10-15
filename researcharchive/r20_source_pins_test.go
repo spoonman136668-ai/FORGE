@@ -30,7 +30,7 @@ type r20Snapshot struct {
 var errR20=errors.New("R20_SOURCE_BLOB_OBSERVATION_NOT_SCIENTIFIC_CUSTODY")
 
 func inspectR20(raw []byte, m Manifest) error {
- if len(raw)==0 || len(raw)>16384 || len(m.Entries)!=6{return errR20}
+ if len(raw)==0 || len(raw)>16384 || len(m.Entries)!=6 || !unambiguousJSON(raw){return errR20}
  var x r20Snapshot
  d:=json.NewDecoder(bytes.NewReader(raw))
  d.DisallowUnknownFields()
