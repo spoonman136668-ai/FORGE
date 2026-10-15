@@ -1,0 +1,44 @@
+name: FORGE R18 inspect schema after failed D1 batch
+on:
+  push:
+    branches: [ops/forge-r18-one-time-install-20261015]
+    paths: ['.github/workflows/forge-r18-postfail-readonly-check.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read only the exact existing D1 schema after batch failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/d1retention"
+          python3 - <<'PY'
+          import os,install_remote as m
+          token=os.environ.get("CF_TOKEN_PRIMARY") or os.environ.get("CF_TOKEN_ALT")
+          account=(os.environ.get("CF_ACCOUNT_SECRET") or
+                   os.environ.get("CF_ACCOUNT_VAR") or os.environ.get("CF_ACCOUNT_ALT"))
+          api=m.Cloudflare(account,token)
+          dbid=m.single_deployed_database(api)
+          archive,foreign=m.schema_snapshot(api,dbid)
+          bookmark=m.recovery_bookmark(api,dbid)
+          print("R18_POSTFAIL_SOURCE_PIN=EXISTING_WORKER_D1_MATCHED")
+          print("R18_POSTFAIL_RESERVED_OBJECT_COUNT="+str(len(archive)))
+          print("R18_POSTFAIL_EXPECTED_OBJECT_COUNT="+str(len(m.EXPECTED_OBJECTS)))
+          print("R18_POSTFAIL_COMPLETE_SCHEMA="+("YES" if archive==m.EXPECTED_OBJECTS else "NO"))
+          print("R18_POSTFAIL_ARCHIVE_NAMESPACE="+("EMPTY" if len(archive)==0 else "NONEMPTY_REVIEW_REQUIRED"))
+          print("R18_POSTFAIL_FOREIGN_SCHEMA_SHA256="+foreign)
+          print("R18_POSTFAIL_BOOKMARK=AVAILABLE_REDACTED")
+          print("R18_POSTFAIL_WRITES=0")
+          PY
