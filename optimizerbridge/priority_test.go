@@ -1,5 +1,5 @@
 package optimizerbridge
-import ("strings";"testing")
+import ("reflect";"strings";"testing")
 func TestFirstPhaseIsFrozenAdvisoryOnly(t *testing.T){
  r:=LaneResult{Lane:"Wingless",DreamPolicySHA256:strings.Repeat("a",64),
   DreamPoliciesEvaluated:3,BaselineFinalists:[]string{"baseline-1"},
@@ -32,6 +32,6 @@ func TestFirstPhaseRejectsWeakControls(t *testing.T){
  for _,tc:=range cases{t.Run(tc.name,func(t *testing.T){
   r:=base;r.CapabilityModes=map[string]string{"dream_rsi":base.CapabilityModes["dream_rsi"],"shinka_pareto":base.CapabilityModes["shinka_pareto"]}
   tc.mut(&r);p,err:=PlanFirstPhase(r)
-  if err==nil||p!=(PriorityPlan{}){t.Fatal("unsafe promotion allowed",err)}
+  if err==nil||!reflect.DeepEqual(p,PriorityPlan{}){t.Fatal("unsafe promotion allowed",err)}
  })}
 }
