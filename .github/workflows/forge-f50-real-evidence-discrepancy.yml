@@ -1,0 +1,79 @@
+name: FORGE F50 authentic archived TRAIN review and control-identity fail-closed
+on:
+  push:
+    branches: [research/f50-real-evidence-caveated-review-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-aware-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact source and fail-closed focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f50_real_evidence_discrepancy.py -v
+      - name: Read only exact genuine Wingless PASS and Yggdrasil FAILURE archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f50";mkdir -p "$root/W" "$root/Y"
+          for rec in \
+           'Wingless 38809539896 646b9db1d48eb03150ad79f1c88b7a44354ab96f 12006864741 W-F50-one-frozen-algebraic-binding-TRAIN-only sha256:beae9eac93d88a784c286e4ad56c00cf44e14ffd308f768dbaddd73ee8842b97 success W' \
+           'Yggdrasil 38809714837 ab83bd0cb2df4409f73ca9a9337e803467020477 12007393564 Y-F50-once-only-trained-memory-TRAIN sha256:b7fc9da4c322876650ce09bfa08684ede8a615b074705f6e4cf7a89a81447502 failure Y'
+          do
+           read -r lane run head artifact name digest expected short <<< "$rec"
+           gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$short/github-run.json"
+           jq -e --arg head "$head" --arg expected "$expected" --argjson run "$run" \
+              '.id==$run and .head_sha==$head and .run_attempt==1 and .status=="completed" and .conclusion==$expected' \
+              "$root/$short/github-run.json" >/dev/null
+           gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$short/github-artifact.json"
+           jq -e --arg name "$name" --arg digest "$digest" --argjson id "$artifact" --argjson run "$run" \
+              '.id==$id and .name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' \
+              "$root/$short/github-artifact.json" >/dev/null
+           gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$short"
+          done
+          python3 -B scripts/f50_real_evidence_discrepancy.py --wingless-dir "$root/W" \
+            --yggdrasil-dir "$root/Y" --out "$root/decision.json"
+          python3 -B scripts/f50_real_evidence_discrepancy.py --wingless-dir "$root/W" \
+            --yggdrasil-dir "$root/Y" --out "$root/repeat.json"
+          cmp "$root/decision.json" "$root/repeat.json"
+          jq -e '(.decisions|length)==2 and
+             .qualified_research_experiments==1 and
+             .failed_original_qualification_experiments==1 and
+             .dream_rsi_gain_proven==false and
+             .research_worker_dispatch_authorized==false and
+             .scientific_originals_executed==0' "$root/decision.json" >/dev/null
+          (cd "$root";sha256sum decision.json > decision.sha256)
+          echo 'F50_ACTUAL_TRAIN_DISCREPANCY_AUDIT=PASS'
+          echo 'F50_YGGDRASIL_FAILED_ORIGINAL_CI_PRESERVED=TRUE'
+      - name: One complete Go regression, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f50-real-review-failed-source-qualified-not-f51-approved
+          path: |
+            ${{ runner.temp }}/f50/decision.json
+            ${{ runner.temp }}/f50/decision.sha256
+            ${{ runner.temp }}/f50/W/github-run.json
+            ${{ runner.temp }}/f50/Y/github-run.json
+            ${{ runner.temp }}/f50/W/github-artifact.json
+            ${{ runner.temp }}/f50/Y/github-artifact.json
+          retention-days: 30
+          if-no-files-found: error
