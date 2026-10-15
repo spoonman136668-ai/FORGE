@@ -1,0 +1,86 @@
+name: FORGE F54 supplemental exact-source negative TRAIN → F55 advisory
+on:
+  push:
+    branches: [research/f54-supplemental-new-source-to-f55-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  real-evidence-and-advisory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-head source and safety focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f54_additional_two_lane_review.py -v
+      - name: Fetch original first-attempt archive identities, independently recount
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f54-extra";mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          manifest=reference/f54/f54-additional-firstuse-manifest.json
+          for lane in Wingless Yggdrasil;do
+            repo=$(jq -r --arg lane "$lane" '.sources[$lane].repo' "$manifest")
+            run=$(jq -r --arg lane "$lane" '.sources[$lane].run' "$manifest")
+            head=$(jq -r --arg lane "$lane" '.sources[$lane].head' "$manifest")
+            id=$(jq -r --arg lane "$lane" '.sources[$lane].artifact_id' "$manifest")
+            name=$(jq -r --arg lane "$lane" '.sources[$lane].name' "$manifest")
+            digest=$(jq -r --arg lane "$lane" '.sources[$lane].digest' "$manifest")
+            prereg=$(jq -r --arg lane "$lane" '.sources[$lane].prereg_blob' "$manifest")
+            precode=$(jq -r --arg lane "$lane" '.sources[$lane].precode' "$manifest")
+            path=$(jq -r --arg lane "$lane" '.sources[$lane].prereg_path' "$manifest")
+            gh api "repos/$repo/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg sha "$head" --argjson id "$run" \
+              '.id==$id and .head_sha==$sha and .run_attempt==1 and .status=="completed" and .conclusion=="success"' "$root/$lane/run.json" >/dev/null
+            gh api "repos/$repo/actions/artifacts/$id" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson id "$id" --argjson run "$run" \
+              '.id==$id and .name==$name and .digest==$digest and .expired==false and .workflow_run.id==$run' "$root/$lane/artifact.json" >/dev/null
+            gh api "repos/$repo/commits/$head" | jq -e --arg precode "$precode" \
+              '(.parents|length)>0' >/dev/null
+            gh api -H 'Accept: application/vnd.github.raw+json' "repos/$repo/contents/$path?ref=$head" > "$root/$lane/prereg.json"
+            test "$(git hash-object "$root/$lane/prereg.json")" = "$prereg"
+            gh run download "$run" --repo "$repo" -n "$name" -D "$root/$lane"
+          done
+          for run in 38819249753 38819267489;do
+            gh api "repos/spoonman136668-ai/Yggdrasil/actions/runs/$run" | jq -e \
+              '.id>0 and .status=="completed" and .conclusion=="failure"' >/dev/null
+          done
+          python3 -B scripts/f54_additional_two_lane_review.py --root "$root" --manifest "$manifest" --out "$root/F55-advisory.json"
+          python3 -B scripts/f54_additional_two_lane_review.py --root "$root" --manifest "$manifest" --out "$root/F55-again.json"
+          cmp "$root/F55-advisory.json" "$root/F55-again.json"
+          jq -e '.newly_recounted_real_train_runs==2 and
+             (.findings|length)==2 and
+             (.findings|all(.disposition=="VALID_NEW_TRAIN_NEGATIVE")) and
+             .independently_accepted_primary_originals==0 and
+             .dream_rsi_policy_improvement_proven==false and
+             .f55_autonomous_implementation_and_dispatch_permitted==false' "$root/F55-advisory.json" >/dev/null
+          (cd "$root";sha256sum F55-advisory.json > F55-advisory.sha256)
+          echo F54_ADDITIONAL_GENUINE_NEGATIVES_TO_F55_ADVISORY_PASS
+      - name: One full existing FORGE regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f54-extra-observational-negatives-f55-readonly
+          path: |
+            ${{ runner.temp }}/f54-extra/F55-advisory.json
+            ${{ runner.temp }}/f54-extra/F55-advisory.sha256
+            ${{ runner.temp }}/f54-extra/Wingless/run.json
+            ${{ runner.temp }}/f54-extra/Yggdrasil/run.json
+            ${{ runner.temp }}/f54-extra/Wingless/artifact.json
+            ${{ runner.temp }}/f54-extra/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
