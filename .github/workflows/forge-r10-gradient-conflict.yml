@@ -1,0 +1,206 @@
+name: FORGE R10 negative-driven gradient-conflict independent development gate
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r10-gradient-conflict/**'
+      - '.github/workflows/forge-r10-gradient-conflict.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify negative-informed method selection and zero first use
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r10-gradient-conflict -p 'test_*.py' -v
+          python -B -m py_compile research/r10-gradient-conflict/next_policy.py research/r10-gradient-conflict/development_screen.py research/r10-gradient-conflict/review_development.py
+          test ! -f research/r10-gradient-conflict/launch.json
+          echo 'R10_SOURCE_ONLY_NO_ORIGINAL=PASS'
+  independently-reviewed-successor:
+    needs: source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-authentic-negative-learned-policy-advisory
+          run-id: 38662331650
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r10-parent-policy
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-independent-learned-representation-development-review
+          run-id: 38662331650
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r10-parent-review
+      - name: Preserve exact R9 negative and select next previously frozen alternative
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r10-proposal"
+          python3 -B research/r10-gradient-conflict/next_policy.py \
+            --frozen research/r10-gradient-conflict/frozen.json \
+            --proposal "$RUNNER_TEMP/r10-parent-policy/proposal.json" \
+            --review "$RUNNER_TEMP/r10-parent-review/review.json" \
+            --out "$RUNNER_TEMP/r10-proposal/next.json"
+          jq -e '
+            .schema == "forge.r10.negative-informed-next-method-proposal.v1" and
+            .next_selected == "W36-C2" and
+            .substantively_different == true and
+            .policy_improvement_proven == false and
+            .first_use_claimed == false and
+            .new_originals_executed == 0 and
+            .scientific_accepted == false and
+            .external_fsa_qualified == false and
+            .reserved_sealed_heldout_accessed == false
+          ' "$RUNNER_TEMP/r10-proposal/next.json" > /dev/null
+          python3 -B research/r10-gradient-conflict/next_policy.py \
+            --frozen research/r10-gradient-conflict/frozen.json \
+            --proposal "$RUNNER_TEMP/r10-parent-policy/proposal.json" \
+            --review "$RUNNER_TEMP/r10-parent-review/review.json" \
+            --out "$RUNNER_TEMP/r10-proposal/repeat.json"
+          cmp "$RUNNER_TEMP/r10-proposal/next.json" "$RUNNER_TEMP/r10-proposal/repeat.json"
+          rm "$RUNNER_TEMP/r10-proposal/repeat.json"
+          (cd "$RUNNER_TEMP/r10-proposal"; sha256sum next.json > sha256.txt; sha256sum --check sha256.txt)
+          echo 'R10_REVIEWED_NEGATIVE_TO_FROZEN_GRADIENT_CONFLICT=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-r10-frozen-negative-driven-next-gradient-proposal
+          path: |
+            ${{ runner.temp }}/r10-proposal/next.json
+            ${{ runner.temp }}/r10-proposal/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
+  genuine-new-development:
+    needs: independently-reviewed-successor
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          path: pinned-r36-methods
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r10-frozen-negative-driven-next-gradient-proposal
+          path: ${{ runner.temp }}/r10-proposal
+      - name: Execute actual gradient-conflict training and three disjoint development validation folds
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-r36-methods rev-parse HEAD)" = 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          test "$(git -C pinned-r36-methods hash-object research/r36_f3_screen/wingless_methods.py)" = d75f36f25aca35e30a90bd50e31c8e0d90cedc28
+          test "$(git -C pinned-wingless rev-parse HEAD)" = b1e4972f04142f1f35f76f9483b12491dec4846c
+          mkdir -p "$RUNNER_TEMP/r10-measurement"
+          python3 -B research/r10-gradient-conflict/development_screen.py \
+            --frozen research/r10-gradient-conflict/frozen.json \
+            --proposal "$RUNNER_TEMP/r10-proposal/next.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --method-root "$GITHUB_WORKSPACE/pinned-r36-methods" \
+            --forge-root "$GITHUB_WORKSPACE" \
+            --out "$RUNNER_TEMP/r10-measurement/measurement.json"
+          jq -e '
+            .schema == "forge.r10.gradient-conflict.real-development-screen.v1" and
+            .candidate_id == "W36-C2" and
+            (.folds | length) == 3 and
+            .sealed_cohort_accessed == false and
+            .first_use_claims == 0 and
+            .new_originals_executed == 0 and
+            .scientific_accepted == false
+          ' "$RUNNER_TEMP/r10-measurement/measurement.json" > /dev/null
+          (cd "$RUNNER_TEMP/r10-measurement"; sha256sum measurement.json > sha256.txt; sha256sum --check sha256.txt)
+          echo 'R10_GENUINE_GRADIENT_CONFLICT_NEW_DEVELOPMENT=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r10-real-gradient-conflict-development-measurement
+          path: |
+            ${{ runner.temp }}/r10-measurement/measurement.json
+            ${{ runner.temp }}/r10-measurement/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
+  independent-gradient-review:
+    needs: genuine-new-development
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r10-frozen-negative-driven-next-gradient-proposal
+          path: ${{ runner.temp }}/r10-proposal
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r10-real-gradient-conflict-development-measurement
+          path: ${{ runner.temp }}/r10-measurement
+      - name: Independently rederive every source gradient and reaggregate all heldout-free development rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r10-measurement"; sha256sum --check sha256.txt)
+          mkdir -p "$RUNNER_TEMP/r10-review"
+          python3 -B research/r10-gradient-conflict/review_development.py \
+            --frozen research/r10-gradient-conflict/frozen.json \
+            --proposal "$RUNNER_TEMP/r10-proposal/next.json" \
+            --screen "$RUNNER_TEMP/r10-measurement/measurement.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --out "$RUNNER_TEMP/r10-review/review.json"
+          jq -e '
+            .schema == "forge.r10.independent-gradient-conflict-development-review.v1" and
+            .candidate_id == "W36-C2" and
+            .method_fidelity_development_verified == true and
+            .scientific_improvement_established == false and
+            .sealed_f3_first_use_admitted == false and
+            .science_production_accepted == false and
+            .next_original_authorized == false and
+            (.folds | length) == 3
+          ' "$RUNNER_TEMP/r10-review/review.json" > /dev/null
+          (cd "$RUNNER_TEMP/r10-review"; sha256sum review.json > sha256.txt; sha256sum --check sha256.txt)
+          echo 'R10_INDEPENDENT_GRADIENT_UPDATE_AND_DEVELOPMENT_FIDELITY=PASS'
+          echo 'R10_NEW_SCIENTIFIC_ORIGINAL=NOT_AUTHORIZED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r10-independent-gradient-development-review
+          path: |
+            ${{ runner.temp }}/r10-review/review.json
+            ${{ runner.temp }}/r10-review/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
