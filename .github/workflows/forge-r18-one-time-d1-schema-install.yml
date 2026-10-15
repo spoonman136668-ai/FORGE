@@ -1,0 +1,59 @@
+name: FORGE R18 one-time authorized existing-D1 schema install
+on:
+  push:
+    branches: [ops/forge-r18-one-time-install-20261015]
+    paths: ['.github/workflows/forge-r18-one-time-d1-schema-install.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-r18-existing-d1-install-20261015
+  cancel-in-progress: false
+jobs:
+  install-once:
+    if: github.repository == 'spoonman136668-ai/FORGE' && github.ref == 'refs/heads/ops/forge-r18-one-time-install-20261015'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+      FORGE_R18_APPLY_AUTHORIZATION: INSTALL_EXISTING_FORGE_D1_ONCE
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One-time source and recovery gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID_SECRET:-${CLOUDFLARE_ACCOUNT_ID_VAR:-${CLOUDFLARE_ACCOUNT_ID_ALT:-}}}"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_D1_WRITE_TOKEN"
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_REF" = "refs/heads/ops/forge-r18-one-time-install-20261015"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "R18_SOURCE_COMMIT=$GITHUB_SHA"
+          echo "R18_RECOVERY_TIMESTAMP_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "R18_BOOKMARK=PRIVATE_NOT_LOGGED"
+          echo "R18_TARGET=EXISTING_D1_FORGE_ONLY"
+          echo "R18_REMOTE_WRITE=ATTEMPTING_ONCE"
+          python3 d1retention/install_remote.py \
+            --expected-head "$GITHUB_SHA" \
+            --expected-sql-sha256 d5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c \
+            --apply \
+            --recovery-file "$RUNNER_TEMP/forge-r18-private-recovery.json"
+          echo "R18_COMPLETE=SOURCE_CHECKED_REMOTE_INSTALL_VERIFIED"
+      - name: Keep private recovery file out of public artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -e "$RUNNER_TEMP/forge-r18-private-recovery.json"; then
+            echo "R18_RECOVERY_FILE=EXISTS_LOCAL_TO_RUNNER_ONLY"
+          else
+            echo "R18_RECOVERY_FILE=NOT_CREATED_NO_REMOTE_WRITE_ATTEMPT_OR_PRECHECK_FAILED"
+          fi
+          echo "R18_NO_PUBLIC_RECOVERY_ARTIFACT=TRUE"
