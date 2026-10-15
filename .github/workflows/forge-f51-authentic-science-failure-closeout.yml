@@ -1,0 +1,90 @@
+name: FORGE F51 authenticate two failed first-attempt science gates without replay
+on:
+  push:
+    branches: [research/f51-failed-train-identity-closeout-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  exact-source-qualification-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve exactly pinned original failed science runs and source contracts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f51"
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for line in \
+            'Wingless 38812785715 38aa2b6a6bb879a76301bf290d576b81e18b8236' \
+            'Yggdrasil 38812939418 49a604b410982391f8f48f1a1c56906eee7d322b'
+          do
+            read -r lane run head <<< "$line"
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and
+               .status == "completed" and .conclusion == "failure"' "$root/$lane/run.json" >/dev/null
+            prefix="research/foundational/20261015-$(echo "$lane" | cut -c 1 | tr '[:upper:]' '[:lower:]')-f51"
+            for rec in "source_pilot.py source_pilot.py" "prereg.json prereg.json"; do
+              read -r path target <<< "$rec"
+              gh api "repos/spoonman136668-ai/$lane/contents/$prefix/$path?ref=$head" \
+                --jq '.content' | base64 -d > "$root/$lane/$target"
+              test -s "$root/$lane/$target"
+            done
+            if [ "$lane" = Yggdrasil ]; then
+              gh api "repos/spoonman136668-ai/$lane/contents/$prefix/audit_result.py?ref=$head" \
+                --jq '.content' | base64 -d > "$root/$lane/audit_result.py"
+              test -s "$root/$lane/audit_result.py"
+            fi
+          done
+          python3 -B scripts/f51_authentic_failure_closeout.py --root "$root" --out "$root/review.json"
+          python3 -B scripts/f51_authentic_failure_closeout.py --root "$root" --out "$root/repeat.json"
+          cmp "$root/review.json" "$root/repeat.json"
+          jq -e '.schema=="forge.f51.frozen-first-use-failure-closeout.v1" and
+            .prior_failed_research_runs_preserved==true and
+            ([.decisions[] | select(.scientific_source_qualified==false and
+                .original_run_conclusion=="failure" and .control_identity_exact_match==false)] | length)==2 and
+            .new_experiments_executed==0 and .primary_original_executed==false and
+            .optimizer_training_or_promotion_authorized==false and
+            .automatic_science_dispatch_authorized==false' "$root/review.json" >/dev/null
+          (cd "$root" && sha256sum review.json > review.sha256)
+          echo 'F51_REAL_FAILED_SCIENCE_GATES_CONTENT_ADDRESSED=PASS'
+          echo 'F51_SCIENCE_ACCEPTANCE_OR_ORIGINAL_REPLAY=DENIED'
+      - name: Fail closed focused source checks and single FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          from scripts import f51_authentic_failure_closeout as r
+          assert set(r.EXPECTED)=={"Wingless","Yggdrasil"}
+          for ids in r.EXPECTED.values():
+              assert len(ids["head"])==40 and ids["registered_oracle"]!=ids["executed_oracle"]
+          try:r.need(False,"EXPECTED_NEGATIVE")
+          except r.Blocked:pass
+          else:raise AssertionError("negative witness ignored")
+          try:r.unique([("x",0),("x",1)])
+          except r.Blocked:pass
+          else:raise AssertionError("duplicate JSON keys accepted")
+          print("F51_EVIDENCE_NEGATIVE_ENFORCEMENT=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f51-failed-original-identity-audited-no-replay
+          path: |
+            ${{ runner.temp }}/f51/review.json
+            ${{ runner.temp }}/f51/review.sha256
+            ${{ runner.temp }}/f51/Wingless/run.json
+            ${{ runner.temp }}/f51/Yggdrasil/run.json
+          retention-days: 30
+          if-no-files-found: error
