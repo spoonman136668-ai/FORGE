@@ -1,14 +1,14 @@
-name: FORGE F45 authentic two-lane evidence-driven successor gate
+name: FORGE F45-to-F46 evidence-driven autonomous study preparation
 on:
   push:
-    branches: [research/f45-evidence-driven-successors-20261015-r1]
+    branches: [research/f46-precode-autoprep-20261015-r1]
 permissions:
   contents: read
   actions: read
 jobs:
   recompute-and-select:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,6 +20,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f46_precode_study_prep.py -v
           root="$RUNNER_TEMP/f45"
           mkdir -p "$root/Wingless" "$root/Yggdrasil"
           for record in \
@@ -44,14 +45,23 @@ jobs:
           cmp "$root/next.json" "$root/again.json"
           jq -e '(.decisions | length)==2 and .fresh_train_evidence_recomputed==true and .new_science_originals_executed==0 and .worker_dispatch_authorized==false and .recursive_policy_improvement_proven==false' "$root/next.json" >/dev/null
           sha256sum "$root/next.json" > "$root/next.sha256"
+          python3 -B scripts/f46_precode_study_prep.py --successors "$root/next.json" --output-dir "$root"
+          (cd "$root" && sha256sum --check sha256-manifest.txt)
+          jq -e '.lane == "Wingless" and .owner_prereg_committed == false and .original_worker_dispatch_authorized == false and .implementation_present == false' "$root/wingless-f46-owner-intake.json" > /dev/null
+          jq -e '.lane == "Yggdrasil" and .owner_prereg_committed == false and .original_worker_dispatch_authorized == false and .implementation_present == false' "$root/yggdrasil-f46-owner-intake.json" > /dev/null
+          echo 'F46_FRESH_F45_OUTCOMES_TO_TWO_FROZEN_DESIGN_DRAFTS=PASS'
+          echo 'F46_OWNER_RESEARCH_EXECUTION_OR_ORIGINALS=ZERO'
           echo 'F45_TWO_REAL_FRESH_DIAGNOSTICS_RECOUNTED_AND_SUCCESSORS_AUTOMATICALLY_SELECTED=PASS'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: forge-f45-fresh-evidence-mechanism-successors-no-science
+          name: forge-f46-precode-two-lane-owner-intake-no-execution
           path: |
             ${{ runner.temp }}/f45/next.json
             ${{ runner.temp }}/f45/next.sha256
+            ${{ runner.temp }}/f45/wingless-f46-owner-intake.json
+            ${{ runner.temp }}/f45/yggdrasil-f46-owner-intake.json
+            ${{ runner.temp }}/f45/sha256-manifest.txt
             ${{ runner.temp }}/f45/Wingless/github-run.json
             ${{ runner.temp }}/f45/Yggdrasil/github-run.json
             ${{ runner.temp }}/f45/Wingless/github-artifact.json
