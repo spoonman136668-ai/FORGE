@@ -8,7 +8,10 @@ independent scientific custody/retention/first-use acceptance receipt.
 from dataclasses import dataclass
 from pathlib import Path
 import hashlib, re, sqlite3
-from migration import foreign_schema
+try:
+    from .migration import foreign_schema
+except ImportError:  # unittest discovery with d1retention as test root
+    from migration import foreign_schema
 
 PATH=Path(__file__).with_name("schema_d1_compat.sql")
 NAMES=("forge_research_originals","forge_research_chunks","forge_research_seals")
