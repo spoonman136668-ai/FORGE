@@ -1,0 +1,33 @@
+name: FORGE R18C local protected D1 file import qualification
+on:
+  push:
+    branches: [ops/forge-r18c-protected-d1-20261015]
+    paths: ['.github/workflows/forge-r18c-local-protected-ddl-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  local-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pin and test original guarded schema in SQLite
+        run: |
+          set -euo pipefail
+          sha256sum d1retention/schema.sql
+          test "$(sha256sum d1retention/schema.sql | awk '{print $1}')" = 'd5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c'
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+      - name: Use pinned Wrangler file import against LOCAL database only
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/forge-r18c-local.json" <<'JSON'
+          {"name":"forge-r18c-local-d1","compatibility_date":"2026-10-15","d1_databases":[{"binding":"forge","database_name":"forge-r18c-local","database_id":"00000000-0000-0000-0000-000000000001"}]}
+          JSON
+          npx --yes wrangler@4.125.0 d1 execute forge --local --yes --config "$RUNNER_TEMP/forge-r18c-local.json" --file ./d1retention/schema.sql
+          echo 'R18C_LOCAL_WRANGLER_IMPORT=PASS'
+          echo 'R18C_REMOTE_DB_WRITES=0'
