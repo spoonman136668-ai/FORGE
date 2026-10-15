@@ -49,5 +49,5 @@ func Reconcile(c Claim,e RecoveryEvidence)(RecoveryReport,error){
   status="CONSUMED_INTERRUPTED_NO_RETRY"
  }
  return RecoveryReport{Schema:RecoverySchema,Status:status,FirstUseConsumed:true,
-  ExternalFirstUseVerified:true},nil
+  ExternalFirstUseVerified:false},nil
 }
