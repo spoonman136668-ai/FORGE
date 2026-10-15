@@ -1,0 +1,83 @@
+name: FORGE R18C independent protected D1 post-install audit
+on:
+  push:
+    branches: [ops/forge-r18c-protected-d1-20261015]
+    paths: ['.github/workflows/forge-r18c-independent-postinstall-audit.yml']
+permissions:
+  contents: read
+jobs:
+  remote-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Independently cross-check protected D1 triggers from original SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/d1retention"
+          python3 - <<'PY'
+          import hashlib,os,re,sqlite3
+          import install_remote as m, r18c_witness as w
+          raw=m.SQL_PATH.read_bytes()
+          assert hashlib.sha256(raw).hexdigest()==w.SQL_SHA256
+          token=(os.environ.get("CF_TOKEN_PRIMARY") or os.environ.get("CF_TOKEN_ALT") or "")
+          account=(os.environ.get("CF_ACCOUNT_SECRET") or
+                   os.environ.get("CF_ACCOUNT_VAR") or os.environ.get("CF_ACCOUNT_ALT") or "")
+          api=m.Cloudflare(account,token)
+          db=m.single_deployed_database(api)
+          remote=w.read_archive_schema(api,db)
+          foreign=m.schema_snapshot(api,db)[1]
+          if foreign!=w.BASELINE_SCHEMA_SHA256: raise SystemExit("R18C_INDEPENDENT_FOREIGN_SCHEMA_DRIFT")
+          if {x["name"]:x["type"] for x in remote}!=w.EXPECTED_KINDS:
+              raise SystemExit("R18C_INDEPENDENT_PROTECTED_OBJECT_MISMATCH")
+          local=sqlite3.connect(":memory:")
+          try:
+              local.executescript(raw.decode("utf-8"))
+              src=local.execute("SELECT name,type,sql FROM sqlite_master "
+                 "WHERE name GLOB 'forge_research_*' ORDER BY name").fetchall()
+          finally:local.close()
+          original={name:(kind,sql) for name,kind,sql in src}
+          def normalized(sql):
+              return re.sub(r"\s+"," ",sql).strip().rstrip(";").upper()
+          for object in remote:
+              name=object["name"]
+              if name not in original or object["type"]!=original[name][0] or (
+                 normalized(object["sql"])!=normalized(original[name][1])):
+                  raise SystemExit("R18C_INDEPENDENT_DDL_DRIFT")
+          if len(remote)!=11:
+              raise SystemExit("R18C_INDEPENDENT_GUARD_COUNT_MISMATCH")
+          print("R18C_INDEPENDENT_LIVE_PROTECTED_OBJECTS=11")
+          print("R18C_INDEPENDENT_TRIGGER_DEFINITIONS=SOURCE_MATCHED_8")
+          print("R18C_INDEPENDENT_ORIGINAL_USER_SCHEMA=UNCHANGED")
+          print("R18C_INDEPENDENT_USER_ROWS=NOT_READ")
+          print("R18C_INDEPENDENT_D1_WRITES=0")
+          print("R18C_ORIGINAL_RESEARCH_EVIDENCE=NOT_IMPORTED")
+          print("R18C_FIRST_USE_AUTHORITY=NOT_QUALIFIED")
+          PY
+  windows-offline:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact pinned schema and isolated negative protection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected='d5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c'
+          $sha=(Get-FileHash 'd1retention/schema.sql' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -ne $expected){throw 'R18C_SCHEMA_IDENTITY_DRIFT'}
+          python -m unittest discover -s d1retention -p 'test_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'R18C_WINDOWS_LOCAL_GUARD_FAILURE'}
+          Write-Output 'R18C_WINDOWS_NEGATIVE_ACCEPTANCE=PASS'
+          Write-Output 'R18C_WINDOWS_D1_WRITES=0'
