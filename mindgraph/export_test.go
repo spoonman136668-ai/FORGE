@@ -34,6 +34,9 @@ func fixture(t *testing.T)mindcontext.Result{
  b,err:=json.Marshal(doc);if err!=nil{t.Fatal(err)}
  var out mindcontext.Result
  if err:=json.Unmarshal(b,&out);err!=nil{t.Fatal(err)}
+ canonical,err:=json.Marshal(out.Entries)
+ if err!=nil{t.Fatal(err)}
+ out.ContextSHA256=sum(canonical)
  return out
 }
 
@@ -85,6 +88,9 @@ func TestNoMindPalaceOrScientificAuthorityEscapes(t *testing.T){
  r:=fixture(t)
  r.AdvisoryOnly=false
  if _,err:=Build(r);err==nil{t.Fatal("forged authority accepted")}
+ r=fixture(t)
+ r.ContextSHA256=strings.Repeat("0",64)
+ if _,err:=Build(r);err==nil{t.Fatal("context content-digest drift accepted")}
  r=fixture(t)
  r.PinnedCommit="main"
  if _,err:=Build(r);err==nil{t.Fatal("mutable source accepted")}
