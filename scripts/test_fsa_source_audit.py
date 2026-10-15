@@ -23,16 +23,22 @@ def rules():
             "source": REPO, "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {
                 "include": ["refs/heads/main"], "exclude": []}},
+            "node_id": "RRS_lACqUmVwb3NpdG9yec5UPTgWzgF9810",
+            "updated_at": "2026-10-13T17:08:13.052-04:00",
             "current_user_can_bypass": "never", "bypass_actors": [],
             "rules": [{"type": "deletion"}, {"type": "non_fast_forward"},
               {"type": "pull_request", "parameters": {
                 "dismiss_stale_reviews_on_push": True,
+                "required_reviewers": [],
+                "require_code_owner_review": False,
+                "require_last_push_approval": False,
                 "required_review_thread_resolution": True,
                 "allowed_merge_methods": ["merge"],
                 "required_approving_review_count": 0,
                 "require_extra_approval_for_unattributed_changes": True}},
               {"type": "required_status_checks", "parameters": {
                 "strict_required_status_checks_policy": True,
+                "do_not_enforce_on_create": False,
                 "required_status_checks": [
                  {"context": "linux", "integration_id": APP_ID},
                  {"context": "windows", "integration_id": APP_ID}]}}]}
