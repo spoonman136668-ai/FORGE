@@ -5,6 +5,7 @@ does not prove a physically independent witness, signed current owner,
 distributed authorization, or atomic worker dispatch.
 """
 import concurrent.futures
+import contextlib
 import pathlib
 import sqlite3
 import tempfile
@@ -12,10 +13,15 @@ import unittest
 
 SQL=pathlib.Path(__file__).with_name("r35_atomic_preuse_candidate.sql")
 SCHEMA_NAMES={"forge_original_preuse_claims","forge_original_preuse_claims_update_immutable","forge_original_preuse_claims_delete_immutable"}
+@contextlib.contextmanager
 def connect(path):
     db=sqlite3.connect(str(path), timeout=8, isolation_level=None)
-    db.execute("PRAGMA busy_timeout=8000")
-    return db
+    try:
+        db.execute("PRAGMA busy_timeout=8000")
+        with db:
+            yield db
+    finally:
+        db.close()
 
 def candidate(db, key="a"*64, seq=1, owner_epoch=3):
     db.execute("INSERT INTO forge_original_preuse_claims (original_key_sha256,lane,owner_epoch,source_commit_sha,frozen_predecision_sha256,external_owner_witness_pin_sha256,claimed_sequence) VALUES (?,?,?,?,?,?,?)",
