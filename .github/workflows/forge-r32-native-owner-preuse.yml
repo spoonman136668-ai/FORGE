@@ -37,6 +37,21 @@ jobs:
           go test -race -count=1 ./...
           go vet ./...
           go build ./...
+      - name: Package non-authorizing Linux owner helper with exact source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r32-linux"
+          go build -trimpath -o "$RUNNER_TEMP/r32-linux/forge-owner-preuse" ./cmd/forge-owner-preuse
+          (cd "$RUNNER_TEMP/r32-linux"; sha256sum forge-owner-preuse > SHA256SUMS)
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/r32-linux/SOURCE_SHA"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: r32-linux-owner-preuse-nonauthorizing
+          path: ${{ runner.temp }}/r32-linux/
+          retention-days: 30
+          if-no-files-found: error
       - name: Record non-activation
         shell: bash
         run: |
@@ -74,3 +89,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R32_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'R32_BUILD_FAILED' }
+      - name: Package non-authorizing Windows owner helper with exact source SHA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'r32-windows'
+          New-Item -ItemType Directory -Force -Path $dir|Out-Null
+          $binary=Join-Path $dir 'forge-owner-preuse.exe'
+          go build -trimpath -o $binary ./cmd/forge-owner-preuse
+          if ($LASTEXITCODE -ne 0) { throw 'R32_WINDOWS_OWNER_BINARY_BUILD_FAILED' }
+          $sum=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $dir 'SHA256SUMS'),"$sum  forge-owner-preuse.exe"+[Environment]::NewLine)
+          [IO.File]::WriteAllText((Join-Path $dir 'SOURCE_SHA'),$env:GITHUB_SHA+[Environment]::NewLine)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: r32-windows-owner-preuse-nonauthorizing
+          path: ${{ runner.temp }}/r32-windows/
+          retention-days: 30
+          if-no-files-found: error
