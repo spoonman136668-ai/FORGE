@@ -1,0 +1,133 @@
+name: FORGE R9 authentic negatives to novel learned-method proposal
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/r9-policy-successor/**'
+      - '.github/workflows/forge-r9-policy-proposal.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-only:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fixed-source training policy and tamper negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/r9-policy-successor -p 'test_*.py' -v
+          python -B -m py_compile research/r9-policy-successor/select.py
+          test ! -f research/r9-policy-successor/launch.json
+          echo 'R9_SOURCE_ONLY_ZERO_FIRST_USE=PASS'
+  authentic-selection:
+    needs: source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin genuine distinct learned Wingless method source from existing FORGE research
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          path: pinned-r36-methods
+          persist-credentials: false
+      - name: Authenticate source blobs, no borrowed scientific claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-r36-methods rev-parse HEAD)" = 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          test "$(git -C pinned-r36-methods hash-object research/r36_f3_screen/wingless_methods.py)" = d75f36f25aca35e30a90bd50e31c8e0d90cedc28
+          test "$(git -C pinned-r36-methods hash-object research/r36_f3_screen/wingless_learned.py)" = 4a4d53bf992dd3e651b3f0add54f780c37f8a9a8
+          echo 'R9_METHOD_SOURCE_BLOBS_PINNED_DRAFT_NOT_LIVE_QUALIFIED=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r35-independent-review
+          run-id: 38538653829
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r9-parent-r35
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-independent-review-one
+          run-id: 38660840981
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r9-parent-r8-one
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-independent-review-two
+          run-id: 38660840981
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r9-parent-r8-two
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r8-real-auto-successor-two-originals-terminal
+          run-id: 38660840981
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/r9-parent-r8-terminal
+      - name: Select new mechanism using authenticated negative outcomes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r9-output"
+          mkdir -p "$root"
+          python3 -B research/r9-policy-successor/select.py \
+            --frozen research/r9-policy-successor/frozen.json \
+            --r35 "$RUNNER_TEMP/r9-parent-r35/independent-review.json" \
+            --r8-one "$RUNNER_TEMP/r9-parent-r8-one/review.json" \
+            --r8-two "$RUNNER_TEMP/r9-parent-r8-two/review.json" \
+            --r8-terminal "$RUNNER_TEMP/r9-parent-r8-terminal/r8-terminal.json" \
+            --out "$root/proposal.json"
+          jq -e '
+            .schema == "forge.r9.train-updated-prospective-hypothesis.v1" and
+            .mode == "READ_ONLY_REVIEWED_NEGATIVE_POSTERIOR_NOT_PROVEN_POLICY_IMPROVEMENT" and
+            .selected_candidate_id == "W36-C1" and
+            .selected_family == "learned-invariant-projection" and
+            .parent_negative_count == 3 and
+            (.fresh_successor_prepared | length) == 2 and
+            .first_use_authorized == false and
+            .selected_method_fidelity_qualified == false and
+            .policy_improvement_demonstrated == false and
+            .policy_training_has_other_family_outcomes == false and
+            .originals_executed == 0 and
+            .scientific_accepted == false and
+            .independent_fsa_qualified == false and
+            .ckb_authority_mutated == false and
+            .model_api_calls == 0
+          ' "$root/proposal.json" > /dev/null
+          python3 -B research/r9-policy-successor/select.py \
+            --frozen research/r9-policy-successor/frozen.json \
+            --r35 "$RUNNER_TEMP/r9-parent-r35/independent-review.json" \
+            --r8-one "$RUNNER_TEMP/r9-parent-r8-one/review.json" \
+            --r8-two "$RUNNER_TEMP/r9-parent-r8-two/review.json" \
+            --r8-terminal "$RUNNER_TEMP/r9-parent-r8-terminal/r8-terminal.json" \
+            --out "$root/repeat.json"
+          cmp "$root/proposal.json" "$root/repeat.json"
+          (cd "$root"; sha256sum proposal.json > sha256.txt; sha256sum --check sha256.txt; rm repeat.json)
+          echo 'R9_GENUINE_NEGATIVE_POSTERIOR_TO_DIFFERENT_HYPOTHESIS=PASS'
+          echo 'R9_PROSPECTIVE_METHOD_FIDELITY_AND_FIRST_USE=NOT_QUALIFIED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r9-authentic-negative-learned-policy-advisory
+          path: |
+            ${{ runner.temp }}/r9-output/proposal.json
+            ${{ runner.temp }}/r9-output/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
