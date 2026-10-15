@@ -1,0 +1,7 @@
+# F48 — actually run and independently review two newly selected TRAIN mechanisms
+
+Parent F47 source SHA `54652b259272a5d2be74838ab77e81fca395fe07`, whose historical F46 real-results path is kept unchanged. Two new source-identity-frozen scientific TRAIN evaluations were implemented after their own distinct precode commits. Wingless PR #251 source `0bad6a035e4257f0bc18f593a25e0770d378d17d`, original run #38805703700, experiment has new disjoint FIT/DIAG cohorts and learned query-dependent cost rank. Yggdrasil PR #245 source `b2407c469086c6a0ea99e9f3986c4336ef832e79`, original run #38805887306, shifted unseen sensing calibration and paired/unpaired/shuffle ablation on disjoint TRAIN.
+
+The branch workflow fetches *actual* signed-by-GitHub transport GitHub Actions runs and immutable artifacts and recounts all new raw experimental per-row accuracies, physical read caps, posterior work and subgroup guardrails. It preserves prereg thresholds rather than promoting near-wins. The result is an automatically selected **future F49 pre-code design proposal** per lane, not a committed/authorized successor, scientific accepted result, genuinely original F3, authenticated owner permission, proof of Dream-RSI recursive improvement or indefinite autonomous loop.
+
+Protected original cohorts, existing owner and worker code, Cloudflare D1, KTRADE, CKB-plane and paid API/Codex remain untouched. No new scheduler or FSA infrastructure.
