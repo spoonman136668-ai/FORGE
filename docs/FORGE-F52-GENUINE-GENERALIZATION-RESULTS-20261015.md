@@ -1,0 +1,7 @@
+# F52 genuinely new TRAIN experimental outcomes and machine-generated F53 research advisories
+
+A source-identity-bound, bounded read-only FORGE workflow retrieves and independently reconstructs the **real** W-F52 and Y-F52 outcome archives. Wingless public 8-law Bayes model averaging under reversed relationship chains obtained 106/128 vs fair Hamming-nearest 99/128 (+5.46875pp) but failed no-family-regression (law family 1006 Bayes 25/32 vs FIT-learned support 29/32); classification NEGATIVE. Yggdrasil bridge-aware learned online retention on novel star/hub distractor topology scored 5/64 vs prior learned topology and connected-component 8/64 (-4.6875pp), with family regression; classification NEGATIVE.
+
+The existence of a different positive Yggdrasil F51B public-tag memory result (23/64 vs 15/64) does not imply generalization to topology-neutral contexts. Do not replay source, post-hoc alter thresholds, or promote any negative. Future F53 research should investigate group robustness (Wingless) and budgeted graph-generalization failure (Yggdrasil) on new preregistered source identities.
+
+Source-only draft, NOT an authorization to implement, dispatch or claim independent first-use F3 originals. There is no evidence that Dream-RSI/Theta policy optimization produced or outperformed frozen controls prospectively. Existing Cloudflare, CKB controller, KTRADE, original scientific owner, research queues and Codex usage remain unchanged.
