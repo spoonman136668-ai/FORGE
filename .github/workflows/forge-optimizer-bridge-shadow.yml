@@ -38,3 +38,69 @@ jobs:
           echo "RESEARCH_ORIGINALS_EXECUTED=0"
           echo "CLOUDFLARE_NOT_CONFIGURED_OR_PROBED_BY_THIS_WORKFLOW=TRUE"
           echo "FSA_OR_CONTROLLER_NOT_CREATED=TRUE"
+
+      - name: Existing Cloudflare read-only binding probe
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALTERNATE: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_BUCKET_SECRET: ${{ secrets.CLOUDFLARE_R2_BUCKET }}
+          CF_BUCKET_VAR: ${{ vars.CLOUDFLARE_R2_BUCKET }}
+          CF_BUCKET_ALT: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          # Strictly bounded provider GET-only probe: no key output, no writes,
+          # no bucket listing and no science/evidence original consumption.
+          import json, os, re, urllib.request, urllib.error
+          def configured(*names):
+              return next((os.environ.get(n,"").strip() for n in names if os.environ.get(n,"").strip()),"")
+          token=configured("CF_TOKEN_PRIMARY","CF_TOKEN_ALTERNATE")
+          account=configured("CF_ACCOUNT_SECRET","CF_ACCOUNT_VAR","CF_ACCOUNT_ALT")
+          bucket=configured("CF_BUCKET_SECRET","CF_BUCKET_VAR","CF_BUCKET_ALT")
+          key=configured("R2_ACCESS_KEY")
+          secret=configured("R2_SECRET_KEY")
+          print("CF_PROBE_MODE=ONE_SHOT_READ_ONLY_NO_RESOURCES")
+          print("CF_S3_CREDENTIAL_PAIR_BOUND="+("TRUE" if key and secret else "FALSE"))
+          print("CF_ACCOUNT_ID_BOUND="+("TRUE" if account else "FALSE"))
+          print("CF_BUCKET_ID_BOUND="+("TRUE" if bucket else "FALSE"))
+          if not token:
+              print("CF_API_TOKEN_BINDING=ABSENT")
+              print("CF_BUCKET_READBACK=NOT_ATTEMPTED")
+              print("CF_AUTHENTIC_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
+              raise SystemExit(0)
+          def get(path):
+              req=urllib.request.Request("https://api.cloudflare.com/client/v4/"+path,
+                  headers={"Authorization":"Bearer "+token,"Accept":"application/json"},
+                  method="GET")
+              try:
+                  with urllib.request.urlopen(req,timeout=8) as r:
+                      raw=r.read(32768)
+                      if r.read(1): return "OVERSIZE",None
+                      obj=json.loads(raw)
+                      return ("OK" if obj.get("success") is True else "REJECTED"),obj
+              except urllib.error.HTTPError as e:
+                  return ("HTTP_"+str(e.code)),None
+              except Exception:
+                  return "TRANSPORT_UNAVAILABLE",None
+          verify,response=get("user/tokens/verify")
+          active=bool(verify=="OK" and isinstance(response,dict) and
+                      (response.get("result") or {}).get("status")=="active")
+          print("CF_API_TOKEN_VERIFY="+("ACTIVE" if active else verify))
+          if not active:
+              print("CF_BUCKET_READBACK=NOT_ATTEMPTED")
+          elif not re.fullmatch(r"[a-fA-F0-9]{32}",account or "") or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}",bucket or ""):
+              print("CF_BUCKET_READBACK=NOT_ATTEMPTED_MISSING_OR_INVALID_BINDINGS")
+          else:
+              state,obj=get("accounts/"+account+"/r2/buckets/"+bucket)
+              print("CF_BUCKET_READBACK="+("METADATA_VERIFIED" if state=="OK" and
+                    isinstance((obj or {}).get("result"),dict) and
+                    (obj["result"].get("name")==bucket) else state))
+          print("CF_AUTHENTIC_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
+          print("CF_PROBE_ORIGINAL_EXECUTIONS=0")
+          PY
