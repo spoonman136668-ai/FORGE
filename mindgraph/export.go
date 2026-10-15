@@ -87,6 +87,10 @@ func Build(context mindcontext.Result)(Bundle,error){
     !hexCheck(context.PinnedCommit,40)||!hexCheck(context.RecordsSHA256,64)||
     !hexCheck(context.ContextSHA256,64)||len(context.Entries)==0||
     len(context.Entries)>MaxNotes{return empty,ErrBlocked}
+ // Reader.Read computes this exact checksum over the selected, canonical
+ // entries. Reject relabeled or mutated advisory content at the export edge.
+ canonical,err:=json.Marshal(context.Entries)
+ if err!=nil||sum(canonical)!=context.ContextSHA256{return empty,ErrBlocked}
  files:=map[string][]byte{}
  graph:=Graph{Schema:Schema,PinnedMindCommit:context.PinnedCommit,
   RecordsSHA256:context.RecordsSHA256,ContextSHA256:context.ContextSHA256,
