@@ -1,0 +1,72 @@
+name: FORGE R19 six authentic original ZIPs source-only intake
+on:
+  push:
+    branches: [ops/forge-r19-authentic-original-ingest-20261015]
+    paths: ['.github/workflows/forge-r19-six-originals-source-only.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify pinned code and read-only archive ingestion negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./researcharchive ./cmd/forge-research-archive
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+      - name: Download only the six authentic source-pinned original ZIPs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r19-private"
+          mkdir -m 700 "$root"
+          manifest="$GITHUB_WORKSPACE/reference/research-originals/20261013-six-recent-archive-cohort.json"
+          jq -e '.schema == "forge.research-archive.frozen-cohort.v1" and (.entries | length) == 6' "$manifest" > /dev/null
+          cp "$manifest" "$root/source-manifest.json"
+          jq -c '.entries[]' "$manifest" | while IFS= read -r entry; do
+            repo="$(jq -er '.repository' <<<"$entry")"
+            run="$(jq -er '.run_id' <<<"$entry")"
+            artifact="$(jq -er '.artifact_id' <<<"$entry")"
+            case "$repo" in
+              spoonman136668-ai/Wingless|spoonman136668-ai/Yggdrasil) ;;
+              *) echo "R19_BLOCKED=FOREIGN_REPO"; exit 1;;
+            esac
+            gh api "repos/$repo/actions/runs/$run" > "$root/$run.run.json"
+            gh api "repos/$repo/actions/artifacts/$artifact" > "$root/$run.artifact.json"
+            gh api "repos/$repo/actions/artifacts/$artifact/zip" > "$root/$run.zip"
+          done
+          go run ./cmd/forge-research-archive             --manifest "$manifest"             --evidence-dir "$root" > "$root/observation.json"
+          jq -e '.archive_count == 6 and .wingless_count == 3 and .yggdrasil_count == 3
+            and .scientific_accepted == false and .original_execution_authorized == false
+            and .complete_ckb_custody == false
+            and all(.observations[]; .archival_integrity_verified == true
+               and .first_use_reconciled == false
+               and .scientific_accepted == false)' "$root/observation.json" > /dev/null
+          python3 d1retention/r19_intake.py             --manifest "$manifest" --evidence-dir "$root" --output "$root/proposed-import.sql"
+          echo "R19_AUTHENTIC_SOURCE_BYTES=6_VERIFIED"
+          echo "R19_D1_WRITES=0"
+          echo "R19_PRIVATE_SQL_NOT_PUBLISHED=TRUE"
+      - name: Publish only non-sensitive verification outcome
+        if: success()
+        shell: bash
+        run: |
+          echo "R19_SOURCE_COHORT=3_WINGLESS_3_YGGDRASIL"
+          echo "R19_ARCHIVE_IMPORT=NOT_EXECUTED"
+          echo "R19_FIRST_USE=NOT_RECONCILED"
+          echo "R19_NEW_RESEARCH_EXECUTIONS=0"
