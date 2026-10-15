@@ -68,8 +68,9 @@ def verify_after(api,db,state):
     own,foreign=schema_snapshot(api,db)
     if own!=EXPECTED_OBJECTS or foreign!=state["foreign_sha"]:
         reject("POST_INSTALL_FOREIGN_SCHEMA_DRIFT")
-    if table_row_count(api,db)!=state["original_rows"]:
-        reject("POST_INSTALL_ORIGINAL_ROW_COUNT_DRIFT")
+    # Existing D1 foreign table is not readable by D1 API (HTTP 400).
+    # DO NOT weaken authorization or claim row-level continuity;
+    # source DDL never issues UPDATE/DELETE on foreign tables.
     read_originals_empty(api,db)
     return len(objects)
 
@@ -78,12 +79,11 @@ def preflight(api,db):
     own,foreign=schema_snapshot(api,db)
     if own or foreign!=BASELINE_SCHEMA_SHA256:
         reject("PRE_INSTALL_SCHEMA_IDENTITY_DRIFT_OR_COLLISION")
-    print('R18C_READONLY_STAGE=EXISTING_TABLE_COUNT')
-    count=table_row_count(api,db)
+    # The D1 table in this account is not safely readable with COUNT(*):
+    # fail-closed on foreign schema identity, not bypass its row permissions.
     print('R18C_READONLY_STAGE=TIME_TRAVEL_BOOKMARK')
     bookmark=recovery_bookmark(api,db)
-    return {"foreign_sha":foreign,"original_rows":count,
-            "recovery_bookmark":bookmark}
+    return {"foreign_sha":foreign,"recovery_bookmark":bookmark}
 
 def run(argv=None,api=None):
     p=argparse.ArgumentParser()
@@ -112,7 +112,7 @@ def run(argv=None,api=None):
         if not isinstance(dbname,str) or SAFE_NAME.fullmatch(dbname) is None:
             reject("D1_NAME_NOT_SAFE_FOR_PINNED_WRANGLER")
         payload={"foreign_sha":state["foreign_sha"],
-            "original_rows":state["original_rows"],
+            "foreign_data_row_check":"NOT_AUTHORIZED_FOR_READ",
             "recovery_bookmark":state["recovery_bookmark"],
             "pinned_head":a.head,"sql_sha256":SQL_SHA256,
             "db_id":db}
@@ -139,7 +139,8 @@ def run(argv=None,api=None):
         count=verify_after(api,db,payload)
         print("R18C_INSTALLATION=LIVE_SCHEMA_VERIFIED")
         print("R18C_GUARDED_OBJECTS="+str(count))
-        print("R18C_ORIGINAL_USER_ROWS=UNCHANGED")
+        print("R18C_FOREIGN_SCHEMA=UNCHANGED")
+        print("R18C_EXISTING_FOREIGN_ROWS=NOT_READ_OR_ATTESTED")
         print("R18C_IMPORTED_ORIGINALS=0")
         print("R18C_SCIENTIFIC_FIRST_USE=NOT_QUALIFIED")
         print("R18C_DISPATCH_AUTHORIZED=FALSE")
