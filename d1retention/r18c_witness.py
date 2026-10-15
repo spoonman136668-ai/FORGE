@@ -28,12 +28,14 @@ def reject(reason):
     raise InstallBlocked(reason)
 
 def table_row_count(api, db):
+    print('R18C_READONLY_STAGE=DISCOVER_FOREIGN_TABLE')
     rows=sql_query(api,db,"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT GLOB 'forge_research_*' LIMIT 2")
     if len(rows)!=1:
         reject("EXACTLY_ONE_FOREIGN_TABLE_REQUIRED")
     name=rows[0].get("name")
     if not isinstance(name,str) or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",name) is None:
         reject("UNSAFE_FOREIGN_TABLE_IDENTIFIER")
+    print('R18C_READONLY_STAGE=COUNT_FOREIGN_ROWS')
     count=sql_query(api,db,'SELECT COUNT(*) AS n FROM "'+name+'"')
     if len(count)!=1 or not isinstance(count[0].get("n"),int) or count[0]["n"]<0:
         reject("FOREIGN_TABLE_COUNT_INVALID")
@@ -72,10 +74,13 @@ def verify_after(api,db,state):
     return len(objects)
 
 def preflight(api,db):
+    print('R18C_READONLY_STAGE=EXISTING_DDL')
     own,foreign=schema_snapshot(api,db)
     if own or foreign!=BASELINE_SCHEMA_SHA256:
         reject("PRE_INSTALL_SCHEMA_IDENTITY_DRIFT_OR_COLLISION")
+    print('R18C_READONLY_STAGE=EXISTING_TABLE_COUNT')
     count=table_row_count(api,db)
+    print('R18C_READONLY_STAGE=TIME_TRAVEL_BOOKMARK')
     bookmark=recovery_bookmark(api,db)
     return {"foreign_sha":foreign,"original_rows":count,
             "recovery_bookmark":bookmark}
@@ -93,9 +98,12 @@ def run(argv=None,api=None):
         token=os.environ.get("CLOUDFLARE_API_TOKEN","")
         account=os.environ.get("CLOUDFLARE_ACCOUNT_ID","")
         api=Cloudflare(account,token)
+    print('R18C_READONLY_STAGE=PINNED_BINDING')
     db=single_deployed_database(api)
     if a.stage=="preflight":
+        print('R18C_READONLY_STAGE=SCHEMA_AND_COUNT')
         state=preflight(api,db)
+        print('R18C_READONLY_STAGE=METADATA_RESOLVED')
         # No database changes until both objects have been created privately.
         statepath=dest/"r18c.json"
         cfgpath=dest/"r18c-wrangler.json"
