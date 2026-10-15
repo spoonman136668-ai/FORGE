@@ -1,0 +1,31 @@
+name: FORGE R18C safe read-only preflight isolation
+on:
+  push:
+    branches: [ops/forge-r18c-protected-d1-20261015]
+    paths: ['.github/workflows/forge-r18c-readonly-preflight-diagnose.yml']
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run source-identity-pinned D1 preflight with stage-only diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          mkdir -m 700 "$RUNNER_TEMP/r18c-private"
+          PYTHONPATH="$GITHUB_WORKSPACE/d1retention" python3 d1retention/r18c_witness.py \
+            --stage preflight --head "$GITHUB_SHA" --private-dir "$RUNNER_TEMP/r18c-private"
+          echo "R18C_READONLY_PREFLIGHT=PASS_NO_REMOTE_DDL"
