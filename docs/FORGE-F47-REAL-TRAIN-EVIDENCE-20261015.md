@@ -1,0 +1,5 @@
+# F47 actual experiment → automatic next hypothesis review
+
+The precode F46 owner-intake drafts from PR #287 were adopted as distinct pre-implementation preregistrations by Wingless PR #249 and Yggdrasil PR #243. Both researchers used a separate GitHub-hosted one-shot fresh TRAIN-only experiment rather than Codex quota-bound continuation launchers. This FORGE workflow authenticates the resulting run/artifact/source identities, independently recounts every example accuracy, paid reads, cost and family/mechanism subgroups, preserves frozen negative thresholds, and emits machine-readable review and next-hypothesis choices.
+
+The evidence is new **TRAIN-only** research, not independent original F3 experimental custody. Even if an arm passes its TRAIN threshold, this reviewer cannot authorize primary-original execution, accepted ref promotion, Theta adaptation or scientific Dream-RSI gain. A later owner-preauthorized and independently reviewed experiment is still required for genuine recursive policy optimization. This is evidence-to-advisory selector coupling without a new controller, Cloudflare service, paid API, Codex review or modifying either science lane.

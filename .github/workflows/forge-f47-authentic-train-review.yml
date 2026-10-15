@@ -1,0 +1,71 @@
+name: FORGE F47 verified real TRAIN outcomes to successors
+on:
+  push:
+    branches: [research/f47-live-train-review-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independently-recount-f47:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-focused negative checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B scripts/test_f47_authentic_train_review.py -v
+      - name: Fetch exact real F46 TRAIN data and independently select successors
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f47"
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for row in \
+            'Wingless 38803701796 bd7f18a31369cd913d353477e60b7be6d0d87876 W-F46-TRAIN-only-new-value-of-computation' \
+            'Yggdrasil 38803873408 88963d04511a49e935c0873bf14af15f771274d0 Y-F46-TRAIN-only-causal-pair-shuffle'
+          do
+            read -r lane run head artifact <<< "$row"
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/github-run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and .status == "completed" and .conclusion == "success"' \
+              "$root/$lane/github-run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run/artifacts" \
+              > "$root/$lane/github-artifacts.json"
+            jq -e --arg name "$artifact" --argjson run "$run" \
+              '[.artifacts[] | select(.name==$name and .expired==false and .workflow_run.id==$run and (.digest|startswith("sha256:"))) ] | length == 1' \
+              "$root/$lane/github-artifacts.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$artifact" -D "$root/$lane"
+          done
+          python3 -B scripts/f47_authentic_train_review.py --wingless-root "$root/Wingless" \
+            --yggdrasil-root "$root/Yggdrasil" --out "$root/next.json"
+          python3 -B scripts/f47_authentic_train_review.py --wingless-root "$root/Wingless" \
+            --yggdrasil-root "$root/Yggdrasil" --out "$root/again.json"
+          cmp "$root/next.json" "$root/again.json"
+          jq -e '(.decisions|length)==2 and .real_train_runs_recounted==2 and
+                 .independent_primary_originals_executed==0 and
+                 .new_worker_dispatch_authorized==false and
+                 .scientifically_accepted==false and
+                 .dreamrsi_prospective_gain_proven==false' "$root/next.json" >/dev/null
+          sha256sum "$root/next.json" > "$root/next.sha256"
+          echo 'F47_GENUINE_F46_TRAIN_RECOUNT_TO_NEXT_SCIENTIFIC_HYPOTHESES=PASS'
+          echo 'F47_DREAM_RSI_GAIN_AND_UNATTENDED_SCIENCE=NOT_CLAIMED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f47-real-train-review-and-successors-no-originals
+          path: |
+            ${{ runner.temp }}/f47/next.json
+            ${{ runner.temp }}/f47/next.sha256
+            ${{ runner.temp }}/f47/Wingless/github-run.json
+            ${{ runner.temp }}/f47/Yggdrasil/github-run.json
+            ${{ runner.temp }}/f47/Wingless/github-artifacts.json
+            ${{ runner.temp }}/f47/Yggdrasil/github-artifacts.json
+          retention-days: 30
+          if-no-files-found: error
