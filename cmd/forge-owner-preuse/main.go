@@ -13,6 +13,7 @@ import (
  "path/filepath"
 
  "github.com/spoonman136668-ai/forge/originalclaim"
+ "github.com/spoonman136668-ai/forge/preusebinding"
 )
 
 var ErrR32=errors.New("FORGE_R32_OWNER_FIRST_USE_AUTHORITY_NOT_INDEPENDENTLY_QUALIFIED")
@@ -31,6 +32,7 @@ type Report struct {
  ScientificExecutionAuthorized bool `json:"scientific_execution_authorized"`
  ScientificImprovementEstablished bool `json:"scientific_improvement_established"`
  OriginalsExecuted uint64 `json:"originals_executed"`
+ D1ClaimCandidate preusebinding.Claim `json:"d1_claim_candidate"`
 }
 func readExact[T any](path string)(T,error){
  var zero T
@@ -81,6 +83,8 @@ func run(args []string,out io.Writer)(Report,error){
   signed.Event.SourceCommitSHA!=*source||originalclaim.VerifyPredecision(signed,claim,pins)!=nil{
   return zero,ErrR32
  }
+ candidate,err:=preusebinding.FromOwnerPredecision(signed,claim,pins)
+ if err!=nil||candidate.ScientificAuthorized{return zero,ErrR32}
  if originalclaim.ConsumeWithPredecision(*journal,claim,signed,pins)!=nil{
   return zero,ErrR32
  }
@@ -92,7 +96,8 @@ func run(args []string,out io.Writer)(Report,error){
  report:=Report{Schema:"forge.original.r32-owner-local-preuse-record.v1",
   Lane:claim.Lane,ExperimentID:claim.ExperimentID,
   SourceCommitSHA:claim.SourceCommitSHA,
-  LocalFirstUseClaimVerified:true,SignedOwnerPredecisionVerified:true}
+  LocalFirstUseClaimVerified:true,SignedOwnerPredecisionVerified:true,
+  D1ClaimCandidate:candidate}
  raw,err:=json.Marshal(report)
  if err!=nil{return zero,ErrR32}
  if _,err=out.Write(append(raw,'\n'));err!=nil{return zero,ErrR32}
