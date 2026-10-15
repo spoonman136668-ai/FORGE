@@ -4,11 +4,11 @@ import sqlite3
 import unittest
 
 from restore import IndependentPin, UnqualifiedArchive, verify_original
-from test_schema import D1RetentionTests as Fixture
+import test_schema as _schema
 
 class RestoreTest(unittest.TestCase):
     def setUp(self):
-        self.fixture=Fixture()
+        self.fixture=_schema.D1RetentionTests()
         self.fixture.setUp()
         self.db=self.fixture.db
         self.payload=b"THIS_IS_NOT_REAL_SCIENCE" * 21
