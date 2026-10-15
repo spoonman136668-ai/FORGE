@@ -307,6 +307,58 @@ jobs:
                               "VERIFIED" if len(matched)==1 else "NOT_VERIFIED"))
                       else:
                           print("CF_CURRENT_TRAFFIC_D1_MATCH=NO_D1_METADATA_ACCESS")
+          # One bounded, strictly SELECT-only D1 schema read. The official
+          # D1:Read API uses POST /query even for SELECT; no SQL mutations.
+          # Query only when the CURRENT 100%-traffic Worker binding matches
+          # the independently listed D1 database UUID.
+          verified_d1=bool(
+              len(current)==1 and current[0].get("percentage")==100 and
+              db_state=="OK" and isinstance((db_doc or {}).get("result"),list) and
+              'candidates' in locals() and len(candidates)==1 and
+              'currentid' in locals() and currentid and
+              len([d for d in db_doc["result"] if isinstance(d,dict) and
+                   d.get("uuid")==currentid])==1)
+          print("CF_D1_SCHEMACHECK_BOUND="+("TRUE" if verified_d1 else "FALSE"))
+          if verified_d1:
+              sql="SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT 24"
+              assert sql.upper().startswith("SELECT ") and ";" not in sql
+              url="https://api.cloudflare.com/client/v4/accounts/"+account+\
+                  "/d1/database/"+currentid+"/query"
+              payload=json.dumps({"sql":sql,"params":[]}).encode("utf-8")
+              req=urllib.request.Request(url,data=payload,
+                  headers={"Authorization":"Bearer "+token,
+                           "Accept":"application/json",
+                           "Content-Type":"application/json"},method="POST")
+              try:
+                  with urllib.request.urlopen(req,timeout=8) as response:
+                      data=response.read(16385)
+                  if len(data)>16384:
+                      print("CF_D1_SCHEMACHECK=OVERSIZE")
+                  else:
+                      obj=json.loads(data)
+                      parts=obj.get("result") if isinstance(obj,dict) else None
+                      records=parts[0] if isinstance(parts,list) and len(parts)==1 else None
+                      rows=records.get("results") if isinstance(records,dict) else None
+                      meta=records.get("meta") if isinstance(records,dict) else None
+                      if obj.get("success") is True and isinstance(rows,list) and
+                          all(isinstance(r,dict) and isinstance(r.get("name"),str)
+                              for r in rows) and isinstance(meta,dict) and
+                          meta.get("changes",0)==0 and meta.get("changed_db") is not True:
+                          names=[r["name"].lower() for r in rows]
+                          print("CF_D1_SCHEMACHECK=READ_ONLY_VERIFIED")
+                          print("CF_D1_USER_TABLES_BOUNDED="+str(len(rows)))
+                          print("CF_D1_EVIDENCE_NAMED_TABLES="+str(sum(
+                              any(word in n for word in ("evidence","research",
+                               "custody","original","first_use")) for n in names)))
+                          print("CF_D1_RESPONSE_ROWS_WRITTEN=0")
+                      else:print("CF_D1_SCHEMACHECK=UNQUALIFIED_RESPONSE")
+              except urllib.error.HTTPError as e:
+                  print("CF_D1_SCHEMACHECK=HTTP_"+str(e.code))
+              except Exception:
+                  print("CF_D1_SCHEMACHECK=TRANSPORT_OR_SCHEMA_ERROR")
+          else:
+              print("CF_D1_SCHEMACHECK=BLOCKED_ON_TRUST_PIN")
+          print("CF_D1_ORIGINALS_ACCEPTED=0")
           print("CF_AUTHENTIC_ORIGINAL_EVIDENCE=NOT_YET_READ")
           print("CF_D1_SQL_QUERIES=0")
           print("CF_D1_WRITES=0")
