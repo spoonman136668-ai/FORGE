@@ -99,13 +99,12 @@ func decodeCanonical(raw []byte,out any)error{
  if err!=nil||!bytes.Equal(canonical,raw){return ErrUnqualifiedExport}
  return nil
 }
-// EvaluatePinnedExport checks a domain-separated custodian signature, exact
-// immutable bytes, external ledger high-waters and all five optimizers.
-// Both evidence objects are already fetched and supplied by the existing
-// authorized ingestion worker. Pins are supplied through a DIFFERENT channel.
-// Return is atomic: no partial advice on a failed verification.
-func EvaluatePinnedExport(signed SignedExport,trust ExternalTrust,raw [2][]byte,pins []LanePins)(ExportReview,error){
- var zero ExportReview
+// verifyPinnedExportInputs authenticates both immutable lane objects and
+// externally held source/first-use pins BEFORE any optimizer evaluation.
+// It is side-effect-free, does not assert independent physical custody and
+// never infers permission to start or select a scientific original.
+func verifyPinnedExportInputs(signed SignedExport,trust ExternalTrust,raw [2][]byte,pins []LanePins)([2]LaneEvidence,error){
+ var zero [2]LaneEvidence
  m:=signed.Manifest
  if m.Schema!=ExportSchema||m.Provider!="CLOUDFLARE_EXISTING"||
   len(m.StoreID)<4||len(m.StoreID)>128||m.StoreID!=trust.StoreID||
@@ -128,7 +127,7 @@ func EvaluatePinnedExport(signed SignedExport,trust ExternalTrust,raw [2][]byte,
  wantLedger:=[]string{trust.WinglessFirstUseLedgerSHA256,trust.YggdrasilFirstUseLedgerSHA256}
  wantHigh:=[]uint64{trust.WinglessFirstUseHighWater,trust.YggdrasilFirstUseHighWater}
  wantBirth:=[]string{trust.WinglessSourceBirthLedgerSHA256,trust.YggdrasilSourceBirthLedgerSHA256}
- evidence:=make([]LaneEvidence,0,2)
+ var evidence [2]LaneEvidence
  for i,obj:=range m.Objects{
   if obj.Lane!=wantLane[i]||pins[i].Lane!=obj.Lane||
    !objectKeyOK(obj.ObjectKey)||!digestOK(obj.EvidenceSHA256,64)||
@@ -141,7 +140,7 @@ func EvaluatePinnedExport(signed SignedExport,trust ExternalTrust,raw [2][]byte,
   }
   var e LaneEvidence
   if err:=decodeCanonical(raw[i],&e);err!=nil||e.Lane!=obj.Lane{return zero,ErrUnqualifiedExport}
-  evidence=append(evidence,e)
+  evidence[i]=e
  }
  if m.Objects[0].ObjectKey==m.Objects[1].ObjectKey||
   m.Objects[0].EvidenceSHA256==m.Objects[1].EvidenceSHA256||
@@ -149,7 +148,16 @@ func EvaluatePinnedExport(signed SignedExport,trust ExternalTrust,raw [2][]byte,
   m.Objects[0].SourceBirthLedgerSHA256==m.Objects[1].SourceBirthLedgerSHA256{
   return zero,ErrUnqualifiedExport
  }
- report,err:=EvaluatePair(evidence,pins)
+ return evidence,nil
+}
+
+// EvaluatePinnedExport retains the source-compatible read-only shadow API.
+// All immutable inputs are validated before the five historical optimizers.
+func EvaluatePinnedExport(signed SignedExport,trust ExternalTrust,raw [2][]byte,pins []LanePins)(ExportReview,error){
+ var zero ExportReview
+ evidence,err:=verifyPinnedExportInputs(signed,trust,raw,pins)
+ if err!=nil{return zero,err}
+ report,err:=EvaluatePair(evidence[:],pins)
  if err!=nil{return zero,fmt.Errorf("%w: %v",ErrUnqualifiedExport,err)}
  if report.DispatchAuthorized||report.ScientificAccepted||report.ScientificImprovementEstablished||
   report.FirstUseConsumed||report.ScienceOriginalsExecuted!=0{return zero,ErrUnqualifiedExport}

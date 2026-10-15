@@ -2,6 +2,9 @@ package optimizerbridge
 
 import (
  "encoding/json"
+ "errors"
+ "crypto/sha256"
+ "crypto/ed25519"
  "reflect"
  "testing"
 )
@@ -82,5 +85,32 @@ func TestAuditKeysAreActuallyDistinct(t *testing.T){
  if ap[0].IndependentAuditorPublicKeyHex==ap[1].IndependentAuditorPublicKeyHex||
   ap[0].IndependentAuditorPublicKeyHex==pins[0].IndependentEd25519PublicKeyHex{
   t.Fatal("audit fixture keys not independent")
+ }
+}
+
+func TestFailedAuditPrecedesHistoricalOptimizerWork(t *testing.T){
+ export,trust,raw,pins,audits,auditPins:=makeSignedAuditExport(t)
+ var wing LaneEvidence
+ if err:=json.Unmarshal(raw[0],&wing);err!=nil{t.Fatal(err)}
+ // Independently pinned raw bytes are valid, but the method plan is not:
+ // an audit failure must stop *before* launching any optimizer routine.
+ wing.PromptFreeze.MaxOperations=0
+ changed,err:=json.Marshal(wing);if err!=nil{t.Fatal(err)}
+ raw[0]=changed
+ export.Manifest.Objects[0].EvidenceSHA256=shaHex(changed)
+ seed:=sha256.Sum256([]byte("TEST_ONLY_INDEPENDENT_CUSTODIAN"))
+ signer:=ed25519.NewKeyFromSeed(seed[:])
+ resign(&export,&trust,signer)
+ // Bad audit is the first failing gate, even when the frozen method is bad.
+ auditPins[0].AuditSHA256=shaHex([]byte("untrusted audit"))
+ got,err:=EvaluatePinnedExportWithAudits(export,trust,raw,pins,audits,auditPins)
+ if !errors.Is(err,ErrShadowAuditIncomplete)||!reflect.DeepEqual(got,ExportReview{}){
+  t.Fatalf("optimizer ran or leaked partial advice ahead of audit: %+v err=%v",got,err)
+ }
+ // Once both signed audits pass, the unqualified method still blocks.
+ _,_,_,_,_,cleanPins:=makeSignedAuditExport(t)
+ got,err=EvaluatePinnedExportWithAudits(export,trust,raw,pins,audits,cleanPins)
+ if !errors.Is(err,ErrShadowAuditIncomplete)||!reflect.DeepEqual(got,ExportReview{}){
+  t.Fatalf("invalid method bypassed audit-first boundary: %+v err=%v",got,err)
  }
 }

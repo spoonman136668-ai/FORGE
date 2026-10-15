@@ -68,9 +68,9 @@ func EvaluatePinnedExportWithAudits(
  audits [2]SignedSelectionAudit,auditPins [2]SelectionAuditPin,
 )(ExportReview,error){
  var zero ExportReview
- verified,err:=EvaluatePinnedExport(signed,trust,raw,pins)
+ evidence,err:=verifyPinnedExportInputs(signed,trust,raw,pins)
  if err!=nil{return zero,err}
- if len(verified.Shadow.Lanes)!=2||len(pins)!=2 ||
+ if len(pins)!=2 ||
   auditPins[0].IndependentAuditorPublicKeyHex==auditPins[1].IndependentAuditorPublicKeyHex ||
   auditPins[0].IndependentAuditorPublicKeyHex==pins[1].IndependentEd25519PublicKeyHex ||
   auditPins[1].IndependentAuditorPublicKeyHex==pins[0].IndependentEd25519PublicKeyHex ||
@@ -80,10 +80,9 @@ func EvaluatePinnedExportWithAudits(
  // Separate every observed assignment across the two original research lanes.
  assignments:=map[string]bool{}
  receipts:=map[string]bool{}
+ var reviews [2]SelectionAuditReview
  for i,lane:=range []string{"Wingless","Yggdrasil"} {
-  var evidence LaneEvidence
-  if err=decodeCanonical(raw[i],&evidence);err!=nil{return zero,ErrShadowAuditIncomplete}
-  review,auditErr:=VerifySelectionAudit(evidence,pins[i],audits[i],auditPins[i],
+  review,auditErr:=VerifySelectionAudit(evidence[i],pins[i],audits[i],auditPins[i],
    trust.CustodianEd25519PublicKeyHex)
   if auditErr!=nil||review.Lane!=lane||review.EntriesCrossChecked==0||
    !review.SignedClaimsConsistent||review.ActualRandomizationIndependentlyDemonstrated||
@@ -97,11 +96,27 @@ func EvaluatePinnedExportWithAudits(
    assignments[entry.AssignmentEventSHA256]=true
    receipts[entry.ReceiptSHA256]=true
   }
-  comparison,compareErr:=historicalComparison(evidence,verified.Shadow.Lanes[i])
+  reviews[i]=review
+ }
+ // No adaptive/expensive optimizer work before both signed audits pass.
+ report,err:=EvaluatePair(evidence[:],pins)
+ if err!=nil{return zero,ErrShadowAuditIncomplete}
+ if report.ScientificAccepted||report.DispatchAuthorized||report.ScientificImprovementEstablished||
+  report.FirstUseConsumed||report.ScienceOriginalsExecuted!=0||len(report.Lanes)!=2{
+  return zero,ErrShadowAuditIncomplete
+ }
+ verified:=ExportReview{
+  Schema:"forge.optimizer.cloud-export-review.v1",
+  Mode:"EXTERNAL_EXPORT_AND_SIGNED_ASSIGNMENT_CLAIMS_SHADOW_ONLY",
+  ManifestSHA256:trust.ManifestSHA256,
+  SourceDigestAndCustodySignatureVerified:true,
+  Shadow:report,
+ }
+ for i:=range evidence {
+  comparison,compareErr:=historicalComparison(evidence[i],report.Lanes[i])
   if compareErr!=nil{return zero,ErrShadowAuditIncomplete}
-  verified.SelectionAudits=append(verified.SelectionAudits,review)
+  verified.SelectionAudits=append(verified.SelectionAudits,reviews[i])
   verified.HistoricalComparisons=append(verified.HistoricalComparisons,comparison)
  }
- verified.Mode="EXTERNAL_EXPORT_AND_SIGNED_ASSIGNMENT_CLAIMS_SHADOW_ONLY"
  return verified,nil
 }
