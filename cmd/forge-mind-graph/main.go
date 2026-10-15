@@ -6,6 +6,7 @@ import (
  "flag"
  "fmt"
  "os"
+ "path/filepath"
  "strings"
  "time"
 
@@ -22,6 +23,15 @@ func run()error{
  flag.Parse()
  if out==""||max<1||max>mindcontext.MaxRecords{
   return errors.New("FORGE_MIND_GRAPH_OUTPUT_OR_BUDGET_MISSING")
+ }
+ // A public FORGE checkout is never a permissible destination for private
+ // records, even when the output path is new and gitignored.
+ work,err:=os.Getwd()
+ if err!=nil{return errors.New("FORGE_MIND_GRAPH_WORKSPACE_IDENTITY_MISSING")}
+ if !filepath.IsAbs(out){return errors.New("FORGE_MIND_GRAPH_ABSOLUTE_DESTINATION_REQUIRED")}
+ rel,relErr:=filepath.Rel(work,filepath.Clean(out))
+ if relErr==nil&&(rel=="."||rel!=".."&&!strings.HasPrefix(rel,".."+string(os.PathSeparator))){
+  return errors.New("FORGE_MIND_GRAPH_PRIVATE_DESTINATION_INSIDE_PUBLIC_WORKTREE")
  }
  list:=strings.Split(projects,",")
  if len(list)<1||len(list)>3{return errors.New("FORGE_MIND_GRAPH_PROJECT_BOUNDS")}
