@@ -47,8 +47,14 @@ def minimax(groups):
         risks=[hinge(groups[g],w) for g in lst]
         choice=max(range(3),key=lambda s:risks[s])
         mem=groups[lst[choice]]
-        step=grad(mem,w)
-        w=[w[i]+0.1*step[i] for i in range(16)]
+        # Native hard-minimax sums full per-example contributions first,
+        # then divides once by 576. Fractionally accumulating every term
+        # changes rounding around its <=0 hinge boundary.
+        raw=[0.0]*16
+        for features,label in mem:
+            if label*dot(w,features)<=0:
+                for k in range(16):raw[k]+=label*features[k]
+        w=[w[k]+0.1*raw[k]/576 for k in range(16)]
     return w
 def retained_options(pool,w):
     order=sorted(range(len(pool)),key=lambda idx:(pool[idx][1]*dot(w,pool[idx][0]),idx))
