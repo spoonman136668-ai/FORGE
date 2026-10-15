@@ -17,16 +17,11 @@ func signedAuditFixture(t *testing.T,lane string)(LaneEvidence,LanePins,SignedSe
   TrainHistorySHA256:p.DreamTrainSHA256,
   ValidationHistorySHA256:p.DreamValidationSHA256,
  }}
- for _,history:=range []struct{records []SelectionAuditEntry}{} {_ = history}
- for _,d:=range append(append([]struct{}{},nil...),nil...) {_ = d}
- counter:=0
- for _,history:=range []struct{decisions []SelectionAuditEntry}{} {_ = history}
  // Independent fixture attests the *claims*, not actual randomized allocation.
  for _,history:=range []int{0,1}{
   ds:=e.DreamTrain.History.Decisions
   if history==1{ds=e.DreamValidation.History.Decisions}
   for _,d:=range ds{
-   counter++
    a.Audit.Entries=append(a.Audit.Entries,SelectionAuditEntry{
     Tick:d.Tick,ReceiptSHA256:d.ReceiptSHA256,
     ChosenID:d.ChosenID,CohortSHA256:d.ChosenCohortSHA256,
