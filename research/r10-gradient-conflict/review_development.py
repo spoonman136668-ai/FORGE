@@ -16,7 +16,7 @@ def verify(frozen_raw,proposal_raw,screen_raw,wingless_root):
         report.get("policy_proposal_sha256")!=sha(proposal_raw) or
         report.get("source_wingless_commit")!="b1e4972f04142f1f35f76f9483b12491dec4846c" or
         report.get("method_forge_commit")!="7f2f791f98d92ad932e0f530a7d23d0330a15643" or
-        proposal.get("selected_candidate_id")!="W36-C2" or
+        proposal.get("next_selected")!="W36-C2" or
         report.get("first_use_claims")!=0 or report.get("new_originals_executed")!=0 or
         report.get("sealed_cohort_accessed") is not False or
         report.get("scientific_accepted") is not False or
