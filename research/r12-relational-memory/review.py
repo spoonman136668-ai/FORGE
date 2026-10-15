@@ -127,7 +127,7 @@ def verify_data(rows,plan,weights,cohort,hops):
 def audit(frozen_raw,parent_raw,measurement_raw):
     plan=manifest(frozen_raw);parent(parent_raw,plan)
     if len(measurement_raw)>600000:deny("REVIEW_MEASUREMENT_SIZE")
-    m=parse(measurement_raw)
+    m=parse(measurement_raw,cap=600000)
     if (m.get("schema")!="forge.r12.learned-compression.real-public-development.v1" or
         m.get("parent_review_sha256")!=digest(parent_raw) or m.get("frozen_sha256")!=digest(frozen_raw)
         or m.get("algorithm")!="TRAIN_ONLY_8_PARAMETER_ROLE_PAIR_CODE_FUTURE_QUESTION_ACCURACY"
