@@ -1,0 +1,102 @@
+name: FORGE F49 authenticate real TRAIN evidence and select F50 advisory
+on:
+  push:
+    branches: [research/f49-independent-two-lane-outcome-review-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Revalidate first-attempt authenticated new experiment receipts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f49"
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          manifest=reference/f49/f49-authentic-source-manifest.json
+          jq -e '.schema=="forge.f49.source-manifest.v1" and
+                 .reviewer_frozen_before_results_commit=="6755dd96bdf674ec3ed0b7a9b13442ac6ff3991a" and
+                 .authority.independent_primary_originals_executed==0 and
+                 .authority.accepted_science==false and
+                 .authority.dream_rsi_prospective_gain==false' "$manifest" >/dev/null
+          for lane in Wingless Yggdrasil; do
+            run=$(jq -r --arg lane "$lane" '.lanes[$lane].run_id' "$manifest")
+            head=$(jq -r --arg lane "$lane" '.lanes[$lane].head' "$manifest")
+            artifact=$(jq -r --arg lane "$lane" '.lanes[$lane].artifact_id' "$manifest")
+            name=$(jq -r --arg lane "$lane" '.lanes[$lane].artifact_name' "$manifest")
+            digest=$(jq -r --arg lane "$lane" '.lanes[$lane].artifact_digest' "$manifest")
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and
+               .status == "completed" and .conclusion == "success"' \
+              "$root/$lane/run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson artifact "$artifact" --argjson run "$run" \
+              '.id == $artifact and .name == $name and .digest == $digest and
+               .expired == false and .workflow_run.id == $run' \
+              "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f49_authentic_train_review.py --wingless "$root/Wingless" \
+            --yggdrasil "$root/Yggdrasil" --manifest "$manifest" \
+            --out "$root/f49-review.json"
+          python3 -B scripts/f49_authentic_train_review.py --wingless "$root/Wingless" \
+            --yggdrasil "$root/Yggdrasil" --manifest "$manifest" \
+            --out "$root/f49-repeat.json"
+          cmp "$root/f49-review.json" "$root/f49-repeat.json"
+          jq -e '.new_train_diagnostics_recounted==2 and
+                 ([.outcomes[] | select(.disposition=="TRAIN_ONLY_NEGATIVE")] | length)==2 and
+                 .prospective_primary_originals_executed==0 and
+                 .owner_admission_or_accepted_science==false and
+                 .dream_rsi_prospective_improvement_proven==false and
+                 .theta_evolve_learning_eligible==false and
+                 .live_controller_or_worker_dispatch_authorized==false and
+                 .f50_hypotheses_advisory_only==true' "$root/f49-review.json" >/dev/null
+          (cd "$root" && sha256sum f49-review.json > f49-review.sha256)
+          echo 'F49_INDEPENDENT_REAL_TWO_LANE_TRAIN_NEGATIVES=PASS'
+          echo 'F50_DISTINCT_SCIENTIFIC_HYPOTHESES_ADVISORY_ONLY=PASS'
+      - name: Focused negative checks and one full FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          from scripts import f49_authentic_train_review as review
+          try:
+              review.require(False,"NEGATIVE_MUST_FAIL")
+          except review.Blocked:
+              pass
+          else:
+              raise AssertionError("invalid evidence admitted")
+          try:
+              review.parse(b'{"accepted":false,"accepted":true}')
+          except review.Blocked:
+              pass
+          else:
+              raise AssertionError("duplicate key admitted")
+          import json
+          manifest=json.load(open("reference/f49/f49-authentic-source-manifest.json"))
+          assert set(manifest["lanes"])=={"Wingless","Yggdrasil"}
+          for lane,x in manifest["lanes"].items():
+              assert len(x["head"])==40 and len(x["report_sha256"])==64
+              assert x["run_attempt"]==1
+          print("F49_FAIL_CLOSED_EVIDENCE_SOURCE_CHECKS=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f49-authentic-two-lane-independent-review-f50-advisory
+          path: ${{ runner.temp }}/f49/
+          retention-days: 30
+          if-no-files-found: error
