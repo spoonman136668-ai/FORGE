@@ -261,6 +261,53 @@ jobs:
                       print("CF_DEPLOYED_D1_SOURCE_CUSTODY=NOT_QUALIFIED")
               else:print("CF_VERSION_729EBDED_D1_FORGE="+vs)
           else:print("CF_VERSION_729EBDED_D1_FORGE=VERSION_ID_NOT_RESOLVED")
+          # Check the CURRENT real traffic-serving deployed version after the
+          # operator's correction. Never assume an old screenshot version is live.
+          # Ignore zero-traffic deployments and reject ambiguous rollout splits.
+          current=[]
+          if deploystate=="OK" and isinstance((deploydoc or {}).get("result"),dict):
+              deployments=deploydoc["result"].get("deployments")
+              if isinstance(deployments,list) and deployments:
+                  vslist=deployments[0].get("versions",[])
+                  if isinstance(vslist,list):
+                      current=[v for v in vslist if isinstance(v,dict) and
+                          isinstance(v.get("percentage"),(int,float)) and
+                          v["percentage"]>0]
+          if len(current)!=1 or current[0].get("percentage")!=100:
+              print("CF_CURRENT_TRAFFIC_VERSION=NOT_SINGLE_100_PERCENT")
+              print("CF_CURRENT_TRAFFIC_D1_FORGE=NOT_QUALIFIED")
+              print("CF_CURRENT_TRAFFIC_D1_MATCH=NOT_QUALIFIED")
+          else:
+              vid=current[0].get("version_id","")
+              if not isinstance(vid,str) or not re.fullmatch(r"[0-9a-fA-F-]{36}",vid):
+                  print("CF_CURRENT_TRAFFIC_VERSION=INVALID")
+                  print("CF_CURRENT_TRAFFIC_D1_FORGE=NOT_QUALIFIED")
+                  print("CF_CURRENT_TRAFFIC_D1_MATCH=NOT_QUALIFIED")
+              else:
+                  print("CF_CURRENT_TRAFFIC_VERSION=EXACT_PIN_RESOLVED")
+                  currstate,currdoc=get("accounts/"+account+"/workers/scripts/"+
+                      script+"/versions/"+vid)
+                  result=(currdoc or {}).get("result") if currstate=="OK" else None
+                  resources=result.get("resources") if isinstance(result,dict) else None
+                  binds=resources.get("bindings") if isinstance(resources,dict) else None
+                  if not isinstance(binds,list):
+                      print("CF_CURRENT_TRAFFIC_D1_FORGE="+currstate)
+                      print("CF_CURRENT_TRAFFIC_D1_MATCH=NOT_QUALIFIED")
+                  else:
+                      candidates=[b for b in binds if isinstance(b,dict) and
+                          b.get("type")=="d1" and b.get("name")=="forge"]
+                      print("CF_CURRENT_TRAFFIC_D1_FORGE="+("VERIFIED" if
+                          len(candidates)==1 else "NOT_FOUND"))
+                      currentid=(candidates[0].get("database_id") or
+                          candidates[0].get("id")) if len(candidates)==1 else None
+                      if db_state=="OK" and isinstance((db_doc or {}).get("result"),list):
+                          matched=[d for d in db_doc["result"] if isinstance(d,dict)
+                              and d.get("uuid")==currentid] if currentid else []
+                          print("CF_CURRENT_TRAFFIC_D1_MATCH="+(
+                              "VERIFIED" if len(matched)==1 else "NOT_VERIFIED"))
+                      else:
+                          print("CF_CURRENT_TRAFFIC_D1_MATCH=NO_D1_METADATA_ACCESS")
+          print("CF_AUTHENTIC_ORIGINAL_EVIDENCE=NOT_YET_READ")
           print("CF_D1_SQL_QUERIES=0")
           print("CF_D1_WRITES=0")
           print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
