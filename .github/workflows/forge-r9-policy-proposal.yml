@@ -131,3 +131,121 @@ jobs:
             ${{ runner.temp }}/r9-output/sha256.txt
           retention-days: 90
           if-no-files-found: error
+
+  development-screen:
+    needs: authentic-selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 7f2f791f98d92ad932e0f530a7d23d0330a15643
+          path: pinned-r36-methods
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-authentic-negative-learned-policy-advisory
+          path: ${{ runner.temp }}/r9-selected
+      - name: Run actual W36-C1 learned source-invariant learner on new DEVELOPMENT folds only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r9-development"
+          python3 -B research/r9-policy-successor/development_screen.py \
+            --frozen research/r9-policy-successor/frozen.json \
+            --proposal "$RUNNER_TEMP/r9-selected/proposal.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --method-root "$GITHUB_WORKSPACE/pinned-r36-methods" \
+            --forge-root "$GITHUB_WORKSPACE" \
+            --out "$RUNNER_TEMP/r9-development/measurement.json"
+          jq -e '
+            .schema == "forge.r9.source-invariant.learned-real-development-screen.v1" and
+            .candidate_id == "W36-C1" and
+            (.folds | length) == 3 and
+            .first_use_claims == 0 and
+            .new_originals_executed == 0 and
+            .sealed_cohort_accessed == false and
+            .scientific_accepted == false
+          ' "$RUNNER_TEMP/r9-development/measurement.json" > /dev/null
+          (cd "$RUNNER_TEMP/r9-development"; sha256sum measurement.json > sha256.txt; sha256sum --check sha256.txt)
+          echo 'R9_REAL_LEARNED_REPRESENTATION_ON_NEW_DEVELOPMENT_DATA=PASS'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r9-new-development-source-projection-measurement
+          path: |
+            ${{ runner.temp }}/r9-development/measurement.json
+            ${{ runner.temp }}/r9-development/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
+  independent-development-review:
+    needs: development-screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b1e4972f04142f1f35f76f9483b12491dec4846c
+          path: pinned-wingless
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-authentic-negative-learned-policy-advisory
+          path: ${{ runner.temp }}/r9-selected
+      - uses: actions/download-artifact@v4
+        with:
+          name: forge-r9-new-development-source-projection-measurement
+          path: ${{ runner.temp }}/r9-development
+      - name: Verify actual row-level source claims independently of learned-worker imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/r9-development"; sha256sum --check sha256.txt)
+          mkdir -p "$RUNNER_TEMP/r9-review"
+          python3 -B research/r9-policy-successor/review_development.py \
+            --frozen research/r9-policy-successor/frozen.json \
+            --proposal "$RUNNER_TEMP/r9-selected/proposal.json" \
+            --screen "$RUNNER_TEMP/r9-development/measurement.json" \
+            --wingless-root "$GITHUB_WORKSPACE/pinned-wingless" \
+            --out "$RUNNER_TEMP/r9-review/review.json"
+          jq -e '
+            .schema == "forge.r9.independent-learned-method-development-review.v1" and
+            .method_fidelity_development_verified == true and
+            .scientific_improvement_established == false and
+            .sealed_f3_first_use_admitted == false and
+            .science_production_accepted == false and
+            .next_original_authorized == false and
+            (.folds | length) == 3
+          ' "$RUNNER_TEMP/r9-review/review.json" > /dev/null
+          (cd "$RUNNER_TEMP/r9-review"; sha256sum review.json > sha256.txt; sha256sum --check sha256.txt)
+          echo 'R9_INDEPENDENT_DEVELOPMENT_LEARNED_METHOD_REVIEW=PASS'
+          echo 'R9_PROSPECTIVE_FIRST_USE_AND_LEARNED_POLICY_IMPROVEMENT=NOT_QUALIFIED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r9-independent-learned-representation-development-review
+          path: |
+            ${{ runner.temp }}/r9-review/review.json
+            ${{ runner.temp }}/r9-review/sha256.txt
+          retention-days: 90
+          if-no-files-found: error
