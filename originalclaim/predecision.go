@@ -139,6 +139,9 @@ func signedCanonical(s SignedPredecision)([]byte,error){
 // by the existing independently controlled scientific owner.
 func ConsumeWithPredecision(root string,c Claim,s SignedPredecision,p PinnedTrust)error{
  if directory(root)!=nil||VerifyPredecision(s,c,p)!=nil{return ErrPredecision}
+ // A pre-existing original claim may NEVER gain a post-hoc "predecision".
+ // A concurrent direct Consume remains an uncertain race and is denied below.
+ if _,err:=os.Lstat(path(root,c));err==nil||!os.IsNotExist(err){return ErrPredecision}
  raw,err:=signedCanonical(s)
  if err!=nil{return ErrPredecision}
  f,err:=os.OpenFile(predecisionPath(root,c),os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
