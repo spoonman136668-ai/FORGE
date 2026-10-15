@@ -23,6 +23,8 @@ def rules():
             "source": REPO, "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {
                 "include": ["refs/heads/main"], "exclude": []}},
+            "node_id": "RRS_lACqUmVwb3NpdG9yec5UPTgWzgF9810",
+            "updated_at": "2026-10-13T17:08:13.052-04:00",
             "current_user_can_bypass": "never", "bypass_actors": [],
             "rules": [{"type": "deletion"}, {"type": "non_fast_forward"},
               {"type": "pull_request", "parameters": {

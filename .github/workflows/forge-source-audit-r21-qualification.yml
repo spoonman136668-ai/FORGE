@@ -7,6 +7,8 @@ on:
     paths:
       - 'scripts/fsa_source_audit.py'
       - 'scripts/test_fsa_source_audit.py'
+      - 'scripts/fsa_policy_anchor_r26.py'
+      - 'scripts/test_fsa_policy_anchor_r26.py'
       - '.github/workflows/forge-automerge.yml'
       - '.github/workflows/qualify-fsa-source.yml'
       - '.github/workflows/forge-source-audit-r21-qualification.yml'
@@ -27,6 +29,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s scripts -p test_fsa_source_audit.py
+          python3 -m unittest discover -s scripts -p test_fsa_policy_anchor_r26.py
       - name: Existing workflows must retain no merge execution path
         shell: bash
         run: |
@@ -36,6 +39,25 @@ jobs:
           grep -q 'contents: read' .github/workflows/forge-automerge.yml
           grep -q 'github.sha' .github/workflows/forge-automerge.yml
           echo 'SOURCE_ONLY_NO_MERGE_WRITE=PASS'
+      - name: Authenticated policy-anchor continuity, never source authority
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'scripts')
+          from fsa_policy_anchor_r26 import observe
+          from fsa_source_audit import GitHub
+          r=observe(GitHub())
+          print('R26_ANCHOR_READBACK='+r['Reason'])
+          assert r['PinnedSourcePolicyUnchanged'], r['Reason']
+          assert not r['MergeAuthorized'] and not r['ScientificAuthority']
+          if not r['BypassActorsFreshlyVisible']:
+              assert not r['FullRulesetAuthenticated']
+          print('R26_PINNED_POLICY_CONTINUITY=PASS_READONLY')
+          PY
       - name: Authenticate current GitHub observations, no mutations
         env:
           GH_TOKEN: ${{ github.token }}

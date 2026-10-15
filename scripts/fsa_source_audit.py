@@ -11,6 +11,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from fsa_policy_anchor_r26 import observe as observe_policy_anchor
 
 REPO = "spoonman136668-ai/FORGE"
 ROOT = f"https://api.github.com/repos/{REPO}"
@@ -161,6 +162,8 @@ def audit_one(g, pr):
     result = {"PR": pr.get("number"), "HeadSHA": pr.get("head", {}).get("sha", ""),
               "SourceTestsQualified": False, "RulesetVisible": False,
               "MergeAuthorized": False, "ScientificAuthority": False,
+              "PolicyAnchorUnchanged": False,
+              "PolicyAnchorReason": "NOT_CHECKED",
               "Reason": "NOT_QUALIFIED"}
     try:
         expect(eligible(pr) and isinstance(pr.get("number"), int)
@@ -184,6 +187,15 @@ def audit_one(g, pr):
         verify_workflow(g, runs, sha, branch, FSA, "pull_request",
                         {"qualify (ubuntu-latest)", "qualify (windows-latest)"})
         result["SourceTestsQualified"] = True
+        # Preserve the R21 fail-closed policy. An authenticated full policy
+        # observation was pinned as reviewed engineering source on R26.
+        # A matching server-maintained updated_at is continuity, NOT a
+        # substitute for redacted bypass metadata or merge authorization.
+        anchor = observe_policy_anchor(g)
+        result["PolicyAnchorUnchanged"] = anchor["PinnedSourcePolicyUnchanged"]
+        result["PolicyAnchorReason"] = anchor["Reason"]
+        expect(anchor["PinnedSourcePolicyUnchanged"],
+               "RULESET_ANCHOR_REJECTED:" + anchor["Reason"])
         verify_ruleset(g)
         result["RulesetVisible"] = True
         late = g.get(f"/pulls/{num}")
