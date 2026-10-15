@@ -1,0 +1,80 @@
+name: FORGE R41 single canonical signed owner decision qualification
+on:
+  push:
+    branches: [engineering/r41-canonical-owner-decision-d1-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r41-canonical-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact SHA signed owner projection D1 and no-replay negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./originalclaim ./preusebinding ./cmd/forge-owner-preuse
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+      - name: One full Go regression, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Record non-authorizing source classification
+        shell: bash
+        run: |
+          echo 'R41_CANONICAL_SIGNED_R30_PROJECTION=TESTED_ONLY'
+          echo 'R41_EXTERNAL_SIGNER_OR_WORKER_PERMIT=NOT_VERIFIED'
+          echo 'R41_LIVE_D1_INSTALL=FALSE'
+          echo 'R41_ORIGINAL_EXECUTION=FALSE'
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Native Windows single decision, D1 schema and one Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R41_HEAD_DRIFT' }
+          go test -count=1 ./originalclaim ./preusebinding ./cmd/forge-owner-preuse
+          if ($LASTEXITCODE -ne 0) { throw 'R41_FOCUSED_FAILED' }
+          python -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R41_R35_BASELINE_FAILED' }
+          python -B d1retention/test_r38_monotonic_preuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R41_R38_NEGATIVES_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R41_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R41_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R41_BUILD_FAILED' }
