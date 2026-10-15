@@ -1,0 +1,109 @@
+name: FORGE R29 real advisory decision evidence qualification
+on:
+  push:
+    branches: [engineering/r29-live-selection-observation-20261015-r1]
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+concurrency:
+  group: forge-r29-real-advisory-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused source/owner nonclaims
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/test_r29_live_advisory_decision.py -v
+          go test -count=1 ./researchobserver ./researchintake ./cmd/forge-research-observer
+      - name: Read real research PR sources; produce bound advisory choice records
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r29"
+          mkdir -m 700 "$root"
+          gh api 'repos/spoonman136668-ai/Wingless/pulls?state=all&sort=updated&direction=desc&per_page=100' > "$root/wingless-pr.json"
+          gh api 'repos/spoonman136668-ai/Yggdrasil/pulls?state=all&sort=updated&direction=desc&per_page=100' > "$root/yggdrasil-pr.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"r29"
+          items=[]
+          for lane in ("Wingless","Yggdrasil"):
+              records=json.loads((root/(lane.lower()+"-pr.json")).read_text())
+              assert 1<=len(records)<=100
+              for x in records:
+                  assert x["head"]["repo"]["full_name"]=="spoonman136668-ai/"+lane
+                  assert x["base"]["repo"]["full_name"]=="spoonman136668-ai/"+lane
+                  items.append(dict(lane=lane,pr=x["number"],head_sha=x["head"]["sha"],title=x["title"],url=x["html_url"],state=x["state"],draft=x["draft"],updated_at=x["updated_at"]))
+          items.sort(key=lambda x:(x["lane"],x["pr"],x["head_sha"]))
+          (root/"pr-snapshot.json").write_text(json.dumps(dict(schema="forge.cross-lane-research-pr-snapshot.v1",sources=items),ensure_ascii=False)+"\n")
+          PY
+          python3 -B scripts/r29_live_advisory_decision.py \
+            --snapshot "$root/pr-snapshot.json" --workflow-run-id "$GITHUB_RUN_ID" \
+            > "$root/research-decision-observation.json"
+          jq -e '.schema=="forge.dreamrsi.r29-live-advisory-observation.v1" and (.decisions|length)==2 and .research_originals_executed==0 and .independent_randomization_verified==false and .independent_first_use_verified==false and .live_optimizer_dispatch_authorized==false and .genuine_dreamrsi_optimizer_improvement_proven==false and all(.decisions[]; .logging_mode=="OBSERVATIONAL" and .selected_by_existing_scientific_owner==false and .candidate_dispatched==false)' "$root/research-decision-observation.json" >/dev/null
+          (cd "$root"; sha256sum wingless-pr.json yggdrasil-pr.json pr-snapshot.json research-decision-observation.json > evidence-sha256.txt; sha256sum --check evidence-sha256.txt)
+          echo 'R29_ACTUAL_GITHUB_RESEARCH_ADVISORY_EVIDENCE=RECORDED'
+          echo 'R29_AUTHENTIC_SCIENCE_OWNER_SELECTION=NOT_AVAILABLE'
+          echo 'R29_RANDOMIZED_POLICY_IMPROVEMENT=NOT_PROVEN'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-r29-live-advisory-source-and-choices
+          path: ${{ runner.temp }}/r29
+          retention-days: 30
+          if-no-files-found: error
+      - name: One full Linux regression race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Focused and one native Windows regression vet build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'R29_SOURCE_SHA_CHANGED' }
+          python scripts/test_r29_live_advisory_decision.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R29_WINDOWS_SCRIPT_NEGATIVES' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R29_WINDOWS_GO_REGRESSION' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R29_WINDOWS_VET' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R29_WINDOWS_BUILD' }
