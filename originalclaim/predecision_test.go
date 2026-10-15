@@ -164,3 +164,19 @@ func TestR30DoesNotCreateUnownedRootsOrTreatRelativeFilesystemAsAuthority(t *tes
   t.Fatal("relative cwd treated as independent custody")
  }
 }
+
+func TestR30PriorConsumedOriginalCannotAcquireRetrospectiveDecision(t *testing.T){
+ root:=t.TempDir()
+ c:=fixture()
+ signed,pins:=r30Signed(c)
+ if err:=Consume(root,c);err!=nil{t.Fatal(err)}
+ if err:=ConsumeWithPredecision(root,c,signed,pins);err==nil{
+  t.Fatal("already consumed original obtained retrospective choice record")
+ }
+ if _,err:=os.Stat(predecisionPath(root,c));!os.IsNotExist(err){
+  t.Fatal("posthoc predecision file was published")
+ }
+ if _,_,err:=ReadPredecision(root,c,pins);err==nil{
+  t.Fatal("retrospective predecision appeared accepted")
+ }
+}
