@@ -1,0 +1,98 @@
+name: FORGE F53 real negative evidence and F54 advisory qualification
+on:
+  push:
+    branches: [research/f53-real-two-lane-outcomes-to-f54-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-f53-science-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate both complete first-attempt GitHub original TRAIN runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f53"
+          manifest=reference/f53/f53-authentic-first-use-source-manifest.json
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for lane in Wingless Yggdrasil; do
+            run=$(jq -r --arg lane "$lane" '.lanes[$lane].run_id' "$manifest")
+            head=$(jq -r --arg lane "$lane" '.lanes[$lane].head' "$manifest")
+            artifact=$(jq -r --arg lane "$lane" '.lanes[$lane].artifact_id' "$manifest")
+            name=$(jq -r --arg lane "$lane" '.lanes[$lane].artifact_name' "$manifest")
+            digest=$(jq -r --arg lane "$lane" '.lanes[$lane].artifact_digest' "$manifest")
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and
+               .status == "completed" and .conclusion == "success"' \
+              "$root/$lane/run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson artifact "$artifact" --argjson run "$run" \
+              '.id == $artifact and .name == $name and .digest == $digest and
+               .expired == false and .workflow_run.id == $run' \
+              "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f53_genuine_two_lane_review.py --root "$root" \
+            --manifest "$manifest" --out "$root/decision.json"
+          python3 -B scripts/f53_genuine_two_lane_review.py --root "$root" \
+            --manifest "$manifest" --out "$root/again.json"
+          cmp "$root/decision.json" "$root/again.json"
+          jq -e '.schema == "forge.f53.genuine-two-lane-science-feedback.v1" and
+               .independent_train_negatives_accepted_as_negative == 2 and
+               ([.outcomes[] | select(.scientific_outcome == "TRAIN_ONLY_NEGATIVE" and
+                   .original_science_accepted == false)] | length) == 2 and
+               .prospective_originals_executed == 0 and
+               .scientific_acceptance_authorized == false and
+               .dream_rsi_prospective_policy_gain_proven == false and
+               .theta_evolve_policy_weight_update_authorized == false and
+               .f54_successor_hypotheses_advisory_only == true and
+               .automatic_f54_experiment_dispatch_authorized == false' \
+            "$root/decision.json" >/dev/null
+          (cd "$root" && sha256sum decision.json > decision.sha256)
+          echo "F53_TWO_REAL_FIRST_USE_NEGATIVE_STUDIES_AUTHENTICATED=PASS"
+          echo "F54_HYPOTHESIS_ADVISORY_ONLY_NO_POLICY_PROMOTION=PASS"
+      - name: Fail-closed negative tests and one full existing FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import json
+          from scripts import f53_genuine_two_lane_review as a
+          manifest=json.load(open("reference/f53/f53-authentic-first-use-source-manifest.json"))
+          assert set(manifest["lanes"]) == {"Wingless","Yggdrasil"}
+          for entry in manifest["lanes"].values():
+              assert len(entry["head"]) == 40 and len(entry["report_sha256"]) == 64
+              assert entry["run_attempt"] == 1
+          try:a.need(False,"NEGATIVE_CONTROL")
+          except a.Blocked:pass
+          else:raise AssertionError("negative evidence accepted")
+          try:a.unique([("verdict","negative"),("verdict","positive")])
+          except a.Blocked:pass
+          else:raise AssertionError("duplicate result admitted")
+          print("F53_FAIL_CLOSED_REPORTS_AND_PROVENANCE=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f53-two-genuine-negative-evidence-f54-proposal-no-original
+          path: |
+            ${{ runner.temp }}/f53/decision.json
+            ${{ runner.temp }}/f53/decision.sha256
+            ${{ runner.temp }}/f53/Wingless/run.json
+            ${{ runner.temp }}/f53/Wingless/artifact.json
+            ${{ runner.temp }}/f53/Yggdrasil/run.json
+            ${{ runner.temp }}/f53/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
