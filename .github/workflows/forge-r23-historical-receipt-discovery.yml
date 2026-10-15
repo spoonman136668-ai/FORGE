@@ -1,0 +1,95 @@
+name: FORGE R23 authentic historical custody-receipt discovery
+on:
+  push:
+    branches: [research/r23-real-historical-receipt-discovery-20261015-r1]
+  pull_request:
+    paths:
+      - scripts/r23_archive_receipt_discovery.py
+      - scripts/test_r23_archive_receipt_discovery.py
+      - .github/workflows/forge-r23-historical-receipt-discovery.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-r23-history-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  linux-genuine-originals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Synthetic failure controls and source verifier
+        run: |
+          set -euo pipefail
+          python3 scripts/test_r23_archive_receipt_discovery.py -v
+          go test -count=1 ./researcharchive ./sourcebirth ./workerreconcile
+      - name: Download six exact original historical ZIPs and scan scoped receipt evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/r23-private"
+          mkdir -m 700 "$root"
+          manifest="$GITHUB_WORKSPACE/reference/research-originals/20261013-six-recent-archive-cohort.json"
+          jq -e '.schema=="forge.research-archive.frozen-cohort.v1" and (.entries|length)==6' "$manifest" >/dev/null
+          jq -c '.entries[]' "$manifest" | while IFS= read -r e; do
+            repo="$(jq -er '.repository' <<<"$e")"
+            rid="$(jq -er '.run_id' <<<"$e")"
+            art="$(jq -er '.artifact_id' <<<"$e")"
+            case "$repo" in spoonman136668-ai/Wingless|spoonman136668-ai/Yggdrasil) ;; *) exit 1;; esac
+            gh api "repos/$repo/actions/runs/$rid" > "$root/$rid.run.json"
+            gh api "repos/$repo/actions/artifacts/$art" > "$root/$rid.artifact.json"
+            gh api "repos/$repo/actions/artifacts/$art/zip" > "$root/$rid.zip"
+          done
+          go run ./cmd/forge-research-archive --manifest "$manifest" --evidence-dir "$root" > "$root/observation.json"
+          jq -e '.archive_count==6 and .wingless_count==3 and .yggdrasil_count==3 and .scientific_accepted==false and .complete_ckb_custody==false and all(.observations[]; .archival_integrity_verified==true and .first_use_reconciled==false)' "$root/observation.json" >/dev/null
+          python3 scripts/r23_archive_receipt_discovery.py "$root"
+          echo "R23_REAL_ORIGINAL_ZIPS_VERIFIED=6"
+          echo "R23_GITHUB_RECEIPT_SCAN_SCOPE=ONLY_SIX_SOURCE_ARTIFACTS"
+          echo "R23_INDEPENDENT_WITNESS_OR_HIGHWATER=NOT_ESTABLISHED"
+          echo "R23_REPLAY_OR_D1_WRITE=0"
+          rm -rf "$root"
+      - name: One complete Go regression vet and build
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+  windows-native:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Windows negative controls and full native regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python scripts/test_r23_archive_receipt_discovery.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'R23_WINDOWS_NEGATIVE_TESTS_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R23_WINDOWS_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R23_WINDOWS_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'R23_WINDOWS_BUILD_FAILED' }
