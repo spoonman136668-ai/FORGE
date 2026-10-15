@@ -67,6 +67,7 @@ def observe(api):
              and listing[0].get("enforcement") == "active",
              "RULESET_INVENTORY_OR_ACTIVATION_DRIFT")
         r = api.get(f"/rulesets/{RULESET}")
+        result["ObservedUpdatedAt"] = r.get("updated_at")
         need(isinstance(r, dict) and r.get("id") == RULESET
              and r.get("node_id") == NODE and r.get("source") == REPO
              and r.get("name") == "FORGE main qualified-source only"
