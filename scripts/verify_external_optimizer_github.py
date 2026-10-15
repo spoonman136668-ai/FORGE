@@ -51,7 +51,7 @@ def verify(path: str) -> None:
     assert doc["schema"] == "forge.optimizer.external-training-observations.v1"
     assert doc["mode"] == "READ_ONLY_GITHUB_TRAIN_ONLY_NOT_SIGNED_POLICY_HISTORY"
     rows = doc["studies"]
-    assert len(rows) == 8
+    assert len(rows) in (8, 12)
     unique_run = set()
     unique_artifact = set()
     for item in rows:

@@ -144,7 +144,8 @@ func validExternalStudy(s ExternalStudy,wantLane,wantGate string)bool{
   strings.Contains(s.WorkflowPath,"\\")||len(s.WorkflowPath)>128{return false}
  permitted:=map[string]bool{"accuracy":true,"accuracy_gain":true,
    "family_nondegradation":true,"compute_parity":true,
-   "mechanism_nondegradation":true,"paired_feature_ablation":true}
+   "mechanism_nondegradation":true,"paired_feature_ablation":true,
+   "hash_gate_gain":true,"first_read_ablation":true}
  fail:=map[string]bool{}
  for _,x:=range s.FailedChecks{
   if !permitted[x]||fail[x]{return false}
@@ -164,7 +165,7 @@ func ObserveExternalTraining(raw []byte)(ExternalTrainingReport,error){
  dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields()
  if dec.Decode(&m)!=nil||dec.Decode(new(any))!=io.EOF||
   m.Schema!=ExternalTrainingSchema||m.Mode!=ExternalTrainingMode||
-  len(m.Studies)!=8{return zero,ErrExternalTrainingEvidence}
+  (len(m.Studies)!=8&&len(m.Studies)!=12){return zero,ErrExternalTrainingEvidence}
  seenRun:=map[uint64]bool{}
  seenArtifact:=map[uint64]bool{}
  seenHead:=map[string]bool{}
@@ -172,9 +173,10 @@ func ObserveExternalTraining(raw []byte)(ExternalTrainingReport,error){
   Mode:"OBSERVATIONAL_TRAIN_ONLY_UNVERIFIED_OUTCOME_BYTES_NO_OPTIMIZER_AUTHORITY",
   Observations:make([]ExternalTrainingAdvisory,0,8)}
  sha:=sha256.Sum256(raw);out.SourceManifestSHA256=hex.EncodeToString(sha[:])
+ width:=len(m.Studies)/2
  for i,s:=range m.Studies{
-  lane:="Wingless";if i>=4{lane="Yggdrasil"}
-  gate:=fmt.Sprintf("F%d",42+i%4)
+  lane:="Wingless";if i>=width{lane="Yggdrasil"}
+  gate:=fmt.Sprintf("F%d",42+i%width)
   if !validExternalStudy(s,lane,gate)||seenRun[s.RunID]||
    seenArtifact[s.ArtifactID]||seenHead[s.HeadSHA]{
    return zero,ErrExternalTrainingEvidence

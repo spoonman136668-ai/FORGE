@@ -20,8 +20,8 @@ func TestExternalTrainingEightGenuineObservationsRemainNonAuthorizing(t *testing
  if err!=nil{t.Fatal(err)}
  b,err:=ObserveExternalTraining(raw)
  if err!=nil||!reflect.DeepEqual(a,b){t.Fatalf("non-idempotent read: %v",err)}
- if len(a.Observations)!=8||a.WinglessCount!=4||a.YggdrasilCount!=4||
-  a.NegativeGateCount!=8||a.PositiveAccuracySignalCount!=3{
+ if len(a.Observations)!=12||a.WinglessCount!=6||a.YggdrasilCount!=6||
+  a.NegativeGateCount!=12||a.PositiveAccuracySignalCount!=4{
   t.Fatalf("lost historical failed gates or mixed gains: %+v",a)
  }
  if a.SignedPolicyHistoryAvailable||a.DreamRSIProspectiveUseQualified||
@@ -37,8 +37,8 @@ func TestExternalTrainingEightGenuineObservationsRemainNonAuthorizing(t *testing
    t.Fatalf("invalid historical record %d: %+v",i,study)
   }
  }
- if !a.Observations[2].PositiveAccuracySignal||!a.Observations[5].PositiveAccuracySignal||
-  !a.Observations[7].PositiveAccuracySignal{
+ if !a.Observations[2].PositiveAccuracySignal||!a.Observations[4].PositiveAccuracySignal||
+  !a.Observations[7].PositiveAccuracySignal||!a.Observations[9].PositiveAccuracySignal{
   t.Fatal("failed to preserve positive partial findings inside negative gates")
  }
 }
@@ -64,7 +64,7 @@ func TestExternalTrainingRejectsTamperedEvidenceAndPseudoRandomization(t *testin
   {"fake independent custody",func(m *ExternalTrainingManifest){m.Studies[4].IndependentSourceCustody=true}},
   {"fake passed scientific gate",func(m *ExternalTrainingManifest){m.Studies[3].ScientificGate="PASSED"}},
   {"drop scientific negative",func(m *ExternalTrainingManifest){m.Studies[7].FailedChecks=nil}},
-  {"cross lane swap",func(m *ExternalTrainingManifest){m.Studies[4].Lane="Wingless"}},
+  {"cross lane swap",func(m *ExternalTrainingManifest){m.Studies[6].Lane="Wingless"}},
   {"duplicate artifact",func(m *ExternalTrainingManifest){m.Studies[1].ArtifactID=m.Studies[0].ArtifactID}},
   {"duplicate head",func(m *ExternalTrainingManifest){m.Studies[1].HeadSHA=m.Studies[0].HeadSHA}},
   {"duplicate run",func(m *ExternalTrainingManifest){m.Studies[1].RunID=m.Studies[0].RunID}},
@@ -73,7 +73,7 @@ func TestExternalTrainingRejectsTamperedEvidenceAndPseudoRandomization(t *testin
   {"nonphysical score",func(m *ExternalTrainingManifest){m.Studies[3].CandidateCorrect=m.Studies[3].Total+1}},
   {"unknown failure flag",func(m *ExternalTrainingManifest){m.Studies[0].FailedChecks=[]string{"passed"}}},
   {"wrong experiment epoch",func(m *ExternalTrainingManifest){m.Studies[0].Gate="F45"}},
-  {"missing lane original",func(m *ExternalTrainingManifest){m.Studies=m.Studies[:7]}},
+  {"missing lane original",func(m *ExternalTrainingManifest){m.Studies=m.Studies[:11]}},
  }
  for _,test:=range tests{t.Run(test.name,func(t *testing.T){mutate(t,test.change)})}
  injected:=bytes.Replace(base,[]byte(`"mode": "READ_ONLY_GITHUB_TRAIN_ONLY_NOT_SIGNED_POLICY_HISTORY"`),
