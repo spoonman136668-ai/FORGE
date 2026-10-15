@@ -20,8 +20,8 @@ func TestExternalTrainingEightGenuineObservationsRemainNonAuthorizing(t *testing
  if err!=nil{t.Fatal(err)}
  b,err:=ObserveExternalTraining(raw)
  if err!=nil||!reflect.DeepEqual(a,b){t.Fatalf("non-idempotent read: %v",err)}
- if len(a.Observations)!=8||a.WinglessCount!=4||a.YggdrasilCount!=4||
-  a.NegativeGateCount!=8||a.PositiveAccuracySignalCount!=3{
+ if len(a.Observations)!=12||a.WinglessCount!=6||a.YggdrasilCount!=6||
+  a.NegativeGateCount!=12||a.PositiveAccuracySignalCount!=4{
   t.Fatalf("lost historical failed gates or mixed gains: %+v",a)
  }
  if a.SignedPolicyHistoryAvailable||a.DreamRSIProspectiveUseQualified||
@@ -38,7 +38,8 @@ func TestExternalTrainingEightGenuineObservationsRemainNonAuthorizing(t *testing
   }
  }
  if !a.Observations[2].PositiveAccuracySignal||!a.Observations[5].PositiveAccuracySignal||
-  !a.Observations[7].PositiveAccuracySignal{
+  !a.Observations[7].PositiveAccuracySignal||!a.Observations[4].PositiveAccuracySignal||
+  !a.Observations[9].PositiveAccuracySignal{
   t.Fatal("failed to preserve positive partial findings inside negative gates")
  }
 }
@@ -73,7 +74,7 @@ func TestExternalTrainingRejectsTamperedEvidenceAndPseudoRandomization(t *testin
   {"nonphysical score",func(m *ExternalTrainingManifest){m.Studies[3].CandidateCorrect=m.Studies[3].Total+1}},
   {"unknown failure flag",func(m *ExternalTrainingManifest){m.Studies[0].FailedChecks=[]string{"passed"}}},
   {"wrong experiment epoch",func(m *ExternalTrainingManifest){m.Studies[0].Gate="F45"}},
-  {"missing lane original",func(m *ExternalTrainingManifest){m.Studies=m.Studies[:7]}},
+  {"missing lane original",func(m *ExternalTrainingManifest){m.Studies=m.Studies[:11]}},
  }
  for _,test:=range tests{t.Run(test.name,func(t *testing.T){mutate(t,test.change)})}
  injected:=bytes.Replace(base,[]byte(`"mode": "READ_ONLY_GITHUB_TRAIN_ONLY_NOT_SIGNED_POLICY_HISTORY"`),
