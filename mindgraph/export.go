@@ -180,6 +180,17 @@ func Build(context mindcontext.Result)(Bundle,error){
   return a.From+"|"+a.To+"|"+a.Kind<b.From+"|"+b.To+"|"+b.Kind
  })
  files["obsidian/Index.md"]=[]byte(index.String())
+ // Mirror all provenance/project nodes into the *private* Graphify input
+ // corpus so wikilinks can resolve within that corpus, without ever asking
+ // Graphify to parse a live private repository or follow remote links.
+ staged:=make([]string,0,len(files))
+ for name:=range files{
+  if strings.HasPrefix(name,"obsidian/"){staged=append(staged,name)}
+ }
+ sort.Strings(staged)
+ for _,name:=range staged{
+  files["graphify-input/"+strings.TrimPrefix(name,"obsidian/")]=files[name]
+ }
  files["graphify-input/README.md"]=[]byte("# Private FORGE advisory evidence corpus\n\nThis folder is a bounded export of provenance-bearing `.ice` research notes. No inferred or accepted scientific relations. If running the third-party Graphify semantic analyzer, use a PRIVATE LOCAL backend; do not send private notes to a paid or remote model.\n")
  b,err:=data(graph);if err!=nil{return empty,err}
  files[".ice/derived-context-graph.json"]=b
@@ -191,6 +202,6 @@ func Build(context mindcontext.Result)(Bundle,error){
   SourceCount:len(sources),NonAuthoritative:true}
  bm,err:=data(man);if err!=nil{return empty,err}
  files[".ice/derived-export-manifest.json"]=bm
- if len(files)>14*MaxNotes+15{return empty,fmt.Errorf("%w: too many files",ErrBlocked)}
+ if len(files)>28*MaxNotes+20{return empty,fmt.Errorf("%w: too many files",ErrBlocked)}
  return Bundle{Files:files,RecordCount:len(context.Entries),SourceCount:len(sources)},nil
 }
