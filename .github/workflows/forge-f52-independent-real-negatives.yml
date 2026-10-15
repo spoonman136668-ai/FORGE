@@ -1,0 +1,102 @@
+name: FORGE F52 independently recount genuine two-lane TRAIN negatives and select F53 advisory
+on:
+  push:
+    branches: [research/f52-authentic-negatives-to-f53-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  authentic-science-evidence-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate exact first-attempt run identities and source artifact digests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f52"
+          manifest=reference/f52/f52-real-science-source-manifest.json
+          mkdir -p "$root/Wingless" "$root/Yggdrasil"
+          for lane in Wingless Yggdrasil; do
+            run=$(jq -r --arg lane "$lane" '.science[$lane].run' "$manifest")
+            head=$(jq -r --arg lane "$lane" '.science[$lane].head' "$manifest")
+            name=$(jq -r --arg lane "$lane" '.science[$lane].name' "$manifest")
+            artifact=$(jq -r --arg lane "$lane" '.science[$lane].artifact' "$manifest")
+            digest=$(jq -r --arg lane "$lane" '.science[$lane].archive_sha256' "$manifest")
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" > "$root/$lane/run.json"
+            jq -e --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1 and
+               .status == "completed" and .conclusion == "success"' "$root/$lane/run.json" >/dev/null
+            gh api "repos/spoonman136668-ai/$lane/actions/artifacts/$artifact" > "$root/$lane/artifact.json"
+            jq -e --arg name "$name" --arg digest "$digest" --argjson artifact "$artifact" --argjson run "$run" \
+              '.id == $artifact and .name == $name and .digest == $digest and
+               .expired == false and .workflow_run.id == $run' "$root/$lane/artifact.json" >/dev/null
+            gh run download "$run" --repo "spoonman136668-ai/$lane" -n "$name" -D "$root/$lane"
+          done
+          # Distinct other F52 engineering failures must remain failures, not ignored successes.
+          jq -cr '.separate_failures[]' "$manifest" | while IFS= read -r record; do
+            lane=$(jq -r .lane <<< "$record")
+            run=$(jq -r .run <<< "$record")
+            head=$(jq -r .head <<< "$record")
+            gh api "repos/spoonman136668-ai/$lane/actions/runs/$run" | jq -e \
+              --arg head "$head" --argjson run "$run" \
+              '.id == $run and .head_sha == $head and .run_attempt == 1
+               and .status == "completed" and .conclusion == "failure"' >/dev/null
+          done
+          python3 -B scripts/f52_real_science_review.py --root "$root" --manifest "$manifest" \
+            --out "$root/decision.json"
+          python3 -B scripts/f52_real_science_review.py --root "$root" --manifest "$manifest" \
+            --out "$root/repeat.json"
+          cmp "$root/decision.json" "$root/repeat.json"
+          jq -e '.independently_recounted_real_train_experiments == 2 and
+                 ([.outcomes[] | select(.science_verdict == "TRAIN_ONLY_NEGATIVE" and
+                       .eligible_for_scientific_promotion == false)] | length) == 2 and
+                 .primary_originals_executed == 0 and .science_accepted == false and
+                 .dream_rsi_policy_improvement_proven == false and
+                 .theta_evolve_promotion_authorized == false and
+                 .new_scientific_dispatch_authorized == false and
+                 .automatic_f53_hypotheses_prepared == true' "$root/decision.json" >/dev/null
+          (cd "$root" && sha256sum decision.json > decision.sha256)
+          echo 'F52_AUTHENTIC_TWO_SCIENCE_NEGATIVES_INDEPENDENTLY_RECOUNTED=PASS'
+          echo 'F53_BOUNDED_HYPOTHESES_PREPARED_NO_NEW_EXPERIMENT=PASS'
+      - name: Focused failure-enforcement tests and one FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import json
+          from scripts import f52_real_science_review as f
+          p=json.load(open("reference/f52/f52-real-science-source-manifest.json"))
+          assert set(p["science"]) == {"Wingless","Yggdrasil"}
+          assert all(len(v["head"])==40 and len(v["report_sha256"])==64
+                     and v["attempt"]==1 for v in p["science"].values())
+          try:f.require(False,"NEGATIVE_ENFORCEMENT")
+          except f.Blocked:pass
+          else:raise AssertionError("invalid evidence was admitted")
+          try:f.unique([("accepted",False),("accepted",True)])
+          except f.Blocked:pass
+          else:raise AssertionError("duplicate report key accepted")
+          print("F52_FAIL_CLOSED_AUDIT_CHECKS=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f52-independent-negative-science-f53-advisory-no-originals
+          path: |
+            ${{ runner.temp }}/f52/decision.json
+            ${{ runner.temp }}/f52/decision.sha256
+            ${{ runner.temp }}/f52/Wingless/run.json
+            ${{ runner.temp }}/f52/Wingless/artifact.json
+            ${{ runner.temp }}/f52/Yggdrasil/run.json
+            ${{ runner.temp }}/f52/Yggdrasil/artifact.json
+          retention-days: 30
+          if-no-files-found: error
