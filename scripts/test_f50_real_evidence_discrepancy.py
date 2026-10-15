@@ -12,5 +12,5 @@ class Checks(unittest.TestCase):
      "chain":[[0,1]],"start":4}
   self.assertEqual(a.compose(r,1),4)
   with self.assertRaises(a.Unsafe):a.require(False,"DENIED")
-  with self.assertRaises(a.Unsafe):a.no_dup([("x",1),("x",2)])
+  with self.assertRaises(a.Unsafe):a.rawjson(pathlib.Path(__file__), "0"*64)
 if __name__=="__main__":unittest.main()
