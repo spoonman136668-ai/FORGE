@@ -94,30 +94,30 @@ func checkLane(lane string)bool{return lane=="Wingless"||lane=="Yggdrasil"}
 // proof: true prospective sealed assessment lives with the independent FSA.
 func EvaluateLane(e LaneEvidence,p LanePins)(LaneResult,error){
  var zero LaneResult
- if !checkLane(e.Lane)||p.Lane!=e.Lane{return zero,ErrBlocked}
+ if !checkLane(e.Lane)||p.Lane!=e.Lane{return zero,fmt.Errorf("%w:lane",ErrBlocked)}
  portfolio,err:=evoportfolio.Select(e.Portfolio,p.PortfolioSHA256)
  if err!=nil||portfolio.Lane!=e.Lane||len(portfolio.Finalists)==0||
    portfolio.ScientificAccepted||portfolio.DispatchAuthorized||
-   portfolio.AcceptedRefMutation{return zero,ErrBlocked}
+   portfolio.AcceptedRefMutation{return zero,fmt.Errorf("%w:portfolio",ErrBlocked)}
  pareto,err:=evoportfolio.ParetoAdvisory(
   e.Portfolio,p.PortfolioSHA256,e.ParetoFreeze,p.ParetoPolicySHA256,e.ParetoLineage)
  if err!=nil||pareto.Lane!=e.Lane||pareto.ImprovementScientificallyEstablished||
    pareto.MutationRuntimeActivated||pareto.DispatchAuthorized||
    pareto.AcceptedRefMutation||pareto.ScientificAccepted||
    pareto.ReservedSealedCompute>e.Portfolio.MaxSealedCompute||
-   len(pareto.Archive)!=len(portfolio.Archive){return zero,ErrBlocked}
+   len(pareto.Archive)!=len(portfolio.Archive){return zero,fmt.Errorf("%w:pareto",ErrBlocked)}
  trust:=p.IndependentEd25519PublicKeyHex
  tr,err:=dreamrsi.VerifyEnvelope(e.DreamTrain,dreamrsi.TrustPin{
    ExpectedHistorySHA256:p.DreamTrainSHA256,IndependentEd25519PublicKeyHex:trust})
- if err!=nil||tr.Lane!=e.Lane{return zero,ErrBlocked}
+ if err!=nil||tr.Lane!=e.Lane{return zero,fmt.Errorf("%w:train_auth",ErrBlocked)}
  va,err:=dreamrsi.VerifyEnvelope(e.DreamValidation,dreamrsi.TrustPin{
    ExpectedHistorySHA256:p.DreamValidationSHA256,IndependentEd25519PublicKeyHex:trust})
- if err!=nil||va.Lane!=e.Lane||va.HistorySHA256==tr.HistorySHA256{return zero,ErrBlocked}
+ if err!=nil||va.Lane!=e.Lane||va.HistorySHA256==tr.HistorySHA256{return zero,fmt.Errorf("%w:validation_auth",ErrBlocked)}
  opt,err:=dreamrsi.Optimize(tr,va,e.DreamSpec,p.DreamSpecSHA256)
  if err!=nil||dreamrsi.ValidateOptimization(opt)!=nil||
    opt.Lane!=e.Lane||opt.ScientificAccepted||opt.DispatchAuthorized||
    opt.ImprovementEstablished||opt.EvaluationsUsed>e.DreamSpec.MaxEvaluations||
-   opt.DecisionReplaysUsed>e.DreamSpec.MaxReplayDecisions{return zero,ErrBlocked}
+   opt.DecisionReplaysUsed>e.DreamSpec.MaxReplayDecisions{return zero,fmt.Errorf("%w:dream_optimization",ErrBlocked)}
 
  // Keep all proposal generators under exactly one already-frozen lane/source
  // identity. The source must already occur in the frozen portfolio; a newly
@@ -126,25 +126,25 @@ func EvaluateLane(e LaneEvidence,p LanePins)(LaneResult,error){
  sourceKnown:=false
  for _,c:=range e.Portfolio.Candidates{if c.SourceSHA==source{sourceKnown=true}}
  if !sourceKnown||e.ThetaFreeze.SourceSHA!=source||
-   e.EnvironmentFreeze.SourceSHA!=source{return zero,ErrBlocked}
+   e.EnvironmentFreeze.SourceSHA!=source{return zero,fmt.Errorf("%w:source_link",ErrBlocked)}
  prompts,err:=promptlineage.Generate(e.PromptFreeze,p.PromptSHA256)
  if err!=nil||prompts.DispatchAuthorized||prompts.ScientificAccepted||
-   prompts.SealedEvaluationConsumed||len(prompts.Candidates)==0{return zero,ErrBlocked}
+   prompts.SealedEvaluationConsumed||len(prompts.Candidates)==0{return zero,fmt.Errorf("%w:prompt",ErrBlocked)}
  theta,err:=thetaadapt.Adapt(e.ThetaFreeze,p.ThetaFreezeSHA256,
    e.ThetaTraining,p.ThetaTrainingSHA256)
  if err!=nil||theta.DispatchAuthorized||theta.ScientificAccepted||
    theta.SealedHoldoutConsumed||theta.UpdatesApplied>e.ThetaFreeze.MaxUpdates||
-   theta.ComputeSpent>e.ThetaFreeze.MaxTrainingCompute{return zero,ErrBlocked}
+   theta.ComputeSpent>e.ThetaFreeze.MaxTrainingCompute{return zero,fmt.Errorf("%w:theta",ErrBlocked)}
  env,err:=genenv.Generate(e.EnvironmentFreeze,p.EnvironmentFreezeSHA256,
    e.EnvironmentHistory,p.EnvironmentHistorySHA256)
  if err!=nil||env.DispatchAuthorized||env.ScientificAccepted||
    env.SealedHoldoutConsumed||len(env.Candidates)==0||
-   env.OperationsUsed>e.EnvironmentFreeze.MaxOperations{return zero,ErrBlocked}
+   env.OperationsUsed>e.EnvironmentFreeze.MaxOperations{return zero,fmt.Errorf("%w:genenv",ErrBlocked)}
  for _,child:=range prompts.Candidates{
-   if child.Classification!="UNTESTED"{return zero,ErrBlocked}
+   if child.Classification!="UNTESTED"{return zero,fmt.Errorf("%w:prompt_children",ErrBlocked)}
  }
  for _,child:=range env.Candidates{
-   if child.Classification!="UNTESTED_PROPOSAL"{return zero,ErrBlocked}
+   if child.Classification!="UNTESTED_PROPOSAL"{return zero,fmt.Errorf("%w:genenv_children",ErrBlocked)}
  }
  // Do not leak a successor candidate based on newly seen validation outcomes:
  // this is a shadow comparison only, not an authorizing experiment selection.
@@ -179,7 +179,7 @@ func EvaluateLane(e LaneEvidence,p LanePins)(LaneResult,error){
  }
  if out.HistoricalArchiveCount!=out.NegativeCount+out.MixedCount+
     out.InvalidCount+out.IndeterminateCount+countSupported(portfolio.Archive){
-    return zero,ErrBlocked
+    return zero,fmt.Errorf("%w:archive",ErrBlocked)
  }
  if theta.RecordsPreserved!=len(e.ThetaTraining.Records)||
     env.HistoricalCount!=len(e.EnvironmentHistory.Records){
