@@ -46,12 +46,15 @@ def recount(lane,d):
   ensure(ident not in seen and set(row[key])==set(scores),"IDENTITY_OR_ARM_DRIFT")
   seen.add(ident)
   for arm,receipts in row["receipts"].items():
-   ensure(len(receipts)<=2,"PAID_LIMIT")
    if lane=="Wingless":
+    ensure(len(receipts)<=2,"PAID_LIMIT")
     ensure(len({tuple(x[:2]) for x in receipts})==len(receipts),"DUPLICATE_MAPPING")
    else:
-    ensure(all(v[0]==0 if i==0 else v[0] in (1,2,3)
-               for i,v in enumerate(receipts)),"PAID_SENSOR")
+    # Yggdrasil legitimately buys two sensors for EACH of three roles,
+    # not two total; outer list is role-wise traces.
+    ensure(len(receipts)==3,"ROLE_COUNT")
+    ensure(all(len(trace)==2 and trace[0]==0 and trace[1] in (1,2,3)
+               for trace in receipts),"PAID_SENSOR")
  result={}
  for arm in scores:
   nright=sum(r[key][arm]==r["truth"] for r in rows)
