@@ -108,6 +108,7 @@ class SourceAuditTests(unittest.TestCase):
 
     def test_stale_head_denied(self):
         f = Fake()
+        f.pages["/pulls/311"] = pr()
         f.pages["/pulls/311"]["head"]["sha"] = "c" * 40
         self.assertEqual(audit_one(f, f.candidate)["Reason"], "PR_MUTATED_BEFORE_AUDIT")
 
