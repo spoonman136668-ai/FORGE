@@ -4,6 +4,8 @@ The six existing R19 Cloudflare D1-original ZIPs are retained for **archival byt
 
 This **R22 source-only gate** gets closer to an authentically checkable signer interface without manufacturing a signer or requiring new infrastructure: for the same frozen six-original manifest, request each immutable preregistration Git **blob** via the existing GitHub read-only API, verify Git `blob <size>\0<bytes>` SHA-1 matches the pinned Git object ID, then compute actual raw prereg SHA-256. Enforce six original lane/experiment identities and emit only SHA-256 fingerprints, not the raw prereg document.
 
+The six independently re-read SHA-256 values are frozen in `reference/research-originals/20261015-r22-original-prereg-sha256.json`, linked to [authentic original GitHub-hosted source readback run #38727033870](https://github.com/spoonman136668-ai/FORGE/actions/runs/38727033870). The live gate rejects any future byte drift against those six pins; no checksum here is an independent witness signature.
+
 That SHA-256 is the actual source-byte identity which any future independently signed `sourcebirth.Statement.PreregSHA256` MUST match. A GitHub commit or Actions-run timestamp remains **observational chronology**, not independent birth-order proof. The tool cannot prove first-use, physical signer separation, randomized selection, causal improvement, authority cutover, research dispatch or scientific acceptance; all remain false.
 
 Execution: Existing GitHub-hosted Actions, read-only repository scope, eight offline failure/positive tests and one full Linux+native Windows Go regression. No Codex reviewer, new FSA/controller, Cloudflare token changes, additional Worker/D1, private key, original replay, lane mutation or broker access.
