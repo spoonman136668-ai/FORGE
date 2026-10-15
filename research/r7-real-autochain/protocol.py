@@ -48,6 +48,37 @@ def parent_ok(raw,stage):
     else:
         if x.get("schema")!="forge.r7.independent-development-review.v1" or x.get("experiment_id")!=STAGES[0] or x.get("outcome") not in OUTCOMES or x.get("stage_index")!=0:reject("STAGE1_PARENT_IDENTITY")
     return x
+APPROVAL_SCHEMA="FORGE-R7-TWO-NEW-DEVELOPMENT-ORIGINAL-BUDGET"
+def approval_text(source):
+    return (APPROVAL_SCHEMA+"\\n"+
+      "source_commit="+source+"\\n"+
+      "experiments="+",".join(STAGES)+"\\n"+
+      "lane=Wingless\\nmax_originals=2\\npaid_model_calls=0\\n"+
+      "retry=forbidden\\nindependent_reviews_required=true\\n"+
+      "fsa_activated=false\\nscience_production_accepted=false\\n")
+def verify_approval(approval,source,comment_id):
+    if (type(comment_id) is not int or comment_id<=0 or
+        approval.get("id")!=comment_id or
+        approval.get("body")!=approval_text(source) or
+        (approval.get("user") or {}).get("login")!="spoonman136668-ai" or
+        (approval.get("user") or {}).get("id")!=253477821 or
+        approval.get("author_association")!="OWNER" or
+        not isinstance(approval.get("created_at"),str) or
+        approval.get("created_at")!=approval.get("updated_at")):
+        reject("OWNER_APPROVAL_REQUIRED")
+    return True
+def expected_durable_claim(manifest_raw,source,comment_id):
+    return {"schema":"forge.r7.durable-before-compute-two-originals.v1",
+      "source_commit":source,"experiment_ids":list(STAGES),
+      "owner_approval_comment_id":comment_id,
+      "first_uses_consumed":2,"reruns_allowed":False,
+      "source_manifest_sha256":digest(manifest_raw),
+      "paid_api_calls":0,"scientific_accepted":False,
+      "independent_fsa_qualified":False}
+def verify_durable_claim(raw,manifest_raw,source,comment_id):
+    want=expected_durable_claim(manifest_raw,source,comment_id)
+    if load(raw)!=want:reject("DURABLE_FIRST_USE_CLAIM_DRIFT")
+    return True
 def claim_ok(raw,manifest_raw,stage,run_id,head_sha):
     c=load(raw)
     if c!={"schema":"forge.r7.firstuse-budget-consumed.v1","branch":"research/forge-r7-real-autochain-firstuse",
