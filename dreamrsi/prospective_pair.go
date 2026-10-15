@@ -139,7 +139,6 @@ func AssessProspectivePair(pair [2]ProspectiveLaneInput)(ProspectivePairReview,e
   pair[0].Optimizer.Lane!="Wingless"||pair[1].Optimizer.Lane!="Yggdrasil"{
   return zero,ErrProspective
  }
- keys:=map[string]bool{}
  receipts:=map[string]bool{}
  cohorts:=map[string]bool{}
  events:=map[string]bool{}
