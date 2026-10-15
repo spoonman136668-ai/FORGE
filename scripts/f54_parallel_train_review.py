@@ -185,8 +185,8 @@ def yggdrasil(d):
         and all(type(i) is int and 0<=i<64 for i in ix),"Y_RECEIPT_BOUND")
     pos=rec["from_node"]
     for (role,direction),i in zip(steps,ix):
-     a,r,b,t=events[i]
-     require(role==r and (a if direction==1 else b)==pos,
+     a,event_role,b,t=events[i]
+     require(role==event_role and (a if direction==1 else b)==pos,
        "Y_WITNESS_DIRECTION_OR_ORDER")
      pos=b if direction==1 else a
     require(pos==rec["to_node"],"Y_WITNESS_PATH")
