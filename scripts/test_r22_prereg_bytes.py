@@ -12,7 +12,7 @@ import r22_prereg_bytes as a
 
 def blob(doc):
     raw=json.dumps(doc,separators=(",",":")).encode()
-    oid=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\x00"+raw).hexdigest()
+    oid=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
     return oid,{"sha":oid,"size":len(raw),"encoding":"base64",
                 "content":base64.b64encode(raw).decode()}
 
@@ -61,7 +61,7 @@ class R22(unittest.TestCase):
 
     def test_duplicate_json_denied(self):
         raw=b'{"experiment":"W-R24","experiment":"Y037"}'
-        oid=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\x00"+raw).hexdigest()
+        oid=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
         payload={"sha":oid,"size":len(raw),"encoding":"base64","content":base64.b64encode(raw).decode()}
         with self.assertRaises(a.Blocked):a.verify_blob({"prereg_git_blob_sha":oid},payload)
 
