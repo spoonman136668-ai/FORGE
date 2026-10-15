@@ -102,8 +102,28 @@ jobs:
           print("CF_AUTHENTICATED_TOKEN="+("TRUE" if active else "FALSE"))
           if not active:
               print("CF_BUCKET_READBACK=NOT_ATTEMPTED")
-          elif not re.fullmatch(r"[a-fA-F0-9]{32}",account or "") or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}",bucket or ""):
-              print("CF_BUCKET_READBACK=NOT_ATTEMPTED_MISSING_OR_INVALID_BINDINGS")
+          elif not valid_account:
+              print("CF_BUCKET_READBACK=NOT_ATTEMPTED_ACCOUNT_BINDING_INVALID")
+          elif not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,62}",bucket or ""):
+              # Exactly one bounded read-only metadata page. Never expose names
+              # or assume a discovered bucket is authorized science custody.
+              state,obj=get("accounts/"+account+"/r2/buckets?per_page=20")
+              if state!="OK" or not isinstance((obj or {}).get("result"),dict):
+                  print("CF_BUCKET_DISCOVERY="+state)
+              else:
+                  buckets=obj["result"].get("buckets")
+                  if not isinstance(buckets,list):
+                      print("CF_BUCKET_DISCOVERY=MALFORMED")
+                  else:
+                      candidates=[b for b in buckets
+                        if isinstance(b,dict) and isinstance(b.get("name"),str) and
+                        any(k in b["name"].lower() for k in ("forge","research","science","evidence"))]
+                      cursor=(obj.get("result_info") or {}).get("cursor")
+                      print("CF_BUCKET_DISCOVERY=METADATA_VERIFIED")
+                      print("CF_BUCKETS_RETURNED="+str(len(buckets)))
+                      print("CF_RESEARCH_NAMED_BUCKETS_RETURNED="+str(len(candidates)))
+                      print("CF_MORE_BUCKET_PAGES="+("TRUE" if cursor else "FALSE"))
+              print("CF_BUCKET_READBACK=NOT_ATTEMPTED_WITHOUT_EXACT_BUCKET_BINDING")
           else:
               state,obj=get("accounts/"+account+"/r2/buckets/"+bucket)
               print("CF_BUCKET_READBACK="+("METADATA_VERIFIED" if state=="OK" and
