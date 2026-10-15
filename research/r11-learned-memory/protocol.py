@@ -2,8 +2,8 @@
 import hashlib,json,math
 PIN="754a3a924efaeb9cdf4ca99998391d0a02d1224bf8bc43bf6ac764ea934c2031"
 def stop(s):raise ValueError("R11_"+s)
-def parse(raw):
-    if not isinstance(raw,bytes) or not 0<len(raw)<70000:stop("JSON_SIZE")
+def parse(raw,cap=70000):
+    if type(cap) is not int or not 0<cap<=1000000 or not isinstance(raw,bytes) or not 0<len(raw)<cap:stop("JSON_SIZE")
     def dedupe(pairs):
         result={}
         for k,v in pairs:
