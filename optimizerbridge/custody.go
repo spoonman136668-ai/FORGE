@@ -69,6 +69,7 @@ type ExportReview struct {
  ScientificAccepted bool `json:"scientific_accepted"`
  Shadow Report `json:"shadow"`
  SelectionAudits []SelectionAuditReview `json:"selection_audits,omitempty"`
+ HistoricalComparisons []HistoricalComparison `json:"historical_comparisons,omitempty"`
 }
 
 func shaHex(b []byte)string{sum:=sha256.Sum256(b);return hex.EncodeToString(sum[:])}

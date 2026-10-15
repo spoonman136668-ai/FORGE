@@ -1,7 +1,6 @@
 package optimizerbridge
 
 import (
- "crypto/ed25519"
  "encoding/json"
  "reflect"
  "testing"
@@ -84,5 +83,4 @@ func TestAuditKeysAreActuallyDistinct(t *testing.T){
   ap[0].IndependentAuditorPublicKeyHex==pins[0].IndependentEd25519PublicKeyHex{
   t.Fatal("audit fixture keys not independent")
  }
- _=ed25519.PublicKeySize
 }
