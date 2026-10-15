@@ -351,6 +351,57 @@ jobs:
                               any(word in n for word in ("evidence","research",
                                "custody","original","first_use")) for n in names)))
                           print("CF_D1_RESPONSE_ROWS_WRITTEN=0")
+                          # Shape-only inspection: SQLite table-valued PRAGMA,
+                          # parameterized with exactly one discovered identifier.
+                          # No names, column values or complete DDL are logged.
+                          if len(rows)==1 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",rows[0]["name"]):
+                              shape_sql='SELECT name, type, "notnull", pk FROM pragma_table_info(?) LIMIT 64'
+                              shape_payload=json.dumps({"sql":shape_sql,
+                                  "params":[rows[0]["name"]]}).encode("utf-8")
+                              shape_req=urllib.request.Request(url,data=shape_payload,
+                                  headers={"Authorization":"Bearer "+token,
+                                           "Accept":"application/json",
+                                           "Content-Type":"application/json"},method="POST")
+                              try:
+                                  with urllib.request.urlopen(shape_req,timeout=8) as sh:
+                                      shape_raw=sh.read(16385)
+                                  if len(shape_raw)>16384:
+                                      print("CF_D1_TABLE_SHAPE=OVERSIZE")
+                                  else:
+                                      shape=json.loads(shape_raw)
+                                      shape_parts=shape.get("result") if isinstance(shape,dict) else None
+                                      one=shape_parts[0] if isinstance(shape_parts,list) and len(shape_parts)==1 else None
+                                      fields=one.get("results") if isinstance(one,dict) else None
+                                      smeta=one.get("meta") if isinstance(one,dict) else None
+                                      if (shape.get("success") is True and isinstance(fields,list)
+                                          and len(fields)<=64 and isinstance(smeta,dict)
+                                          and smeta.get("changes",0)==0 and
+                                          smeta.get("changed_db") is not True and
+                                          all(isinstance(c,dict) and isinstance(c.get("name"),str)
+                                          for c in fields)):
+                                          keys={c["name"].lower() for c in fields}
+                                          groups={
+                                              "digest":("sha256","digest","hash","content_sha"),
+                                              "identity":("original_id","experiment_id","source_sha","source_id"),
+                                              "lane":("lane","project","project_id"),
+                                              "signature":("signature","signature_hex","signer","public_key"),
+                                              "first_use":("first_use","first_use_receipt","first_use_high_water"),
+                                              "payload":("payload","record","body","content","evidence")}
+                                          score=sum(any(term in k for k in keys) for term in groups.values())
+                                          print("CF_D1_TABLE_SHAPE=READ_ONLY_VERIFIED")
+                                          print("CF_D1_TABLE_COLUMNS_BOUNDED="+str(len(fields)))
+                                          print("CF_D1_EVIDENCE_SCHEMA_GROUPS="+str(score))
+                                          print("CF_D1_TABLE_CUSTODY_SUITABLE="+(
+                                              "CANDIDATE_REVIEW_ONLY" if score>=5 else "NOT_DEMONSTRATED"))
+                                          print("CF_D1_SHAPE_CHANGED_DB=FALSE")
+                                      else:print("CF_D1_TABLE_SHAPE=UNQUALIFIED_RESPONSE")
+                              except urllib.error.HTTPError as e:
+                                  print("CF_D1_TABLE_SHAPE=HTTP_"+str(e.code))
+                              except Exception:
+                                  print("CF_D1_TABLE_SHAPE=TRANSPORT_OR_SCHEMA_ERROR")
+                          else:
+                              print("CF_D1_TABLE_SHAPE=SKIPPED_UNKNOWN_IDENTIFIER")
+
                       else:print("CF_D1_SCHEMACHECK=UNQUALIFIED_RESPONSE")
               except urllib.error.HTTPError as e:
                   print("CF_D1_SCHEMACHECK=HTTP_"+str(e.code))
