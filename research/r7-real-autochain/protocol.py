@@ -19,7 +19,7 @@ def load(raw):
     return json.loads(raw,object_pairs_hook=unique,
       parse_constant=lambda x:reject("NONFINITE_JSON"))
 def digest(raw):return hashlib.sha256(raw).hexdigest()
-def gitblob(raw):return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\x00"+raw).hexdigest()
+def gitblob(raw):return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\x00"+raw).hexdigest()
 def protocol(raw):
     if not 0<len(raw)<18000:reject("MANIFEST_SIZE")
     x=load(raw)
