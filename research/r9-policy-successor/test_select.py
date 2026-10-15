@@ -1,7 +1,7 @@
 import copy,hashlib,json,pathlib,sys,unittest
 HERE=pathlib.Path(__file__).resolve().parent
 sys.path.insert(0,str(HERE))
-import select as policy
+import policy_select as policy
 def blob(value):
     return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
 class Gate(unittest.TestCase):
