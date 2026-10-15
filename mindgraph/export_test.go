@@ -58,6 +58,10 @@ func TestPrivateIceGraphAndObsidianProvenance(t *testing.T){
  }
  found:=false
  for path,body:=range bundle.Files{
+  if strings.HasPrefix(path,"obsidian/"){
+   equivalent:="graphify-input/"+strings.TrimPrefix(path,"obsidian/")
+   if string(bundle.Files[equivalent])!=string(body){t.Fatalf("Graphify source node missing or drift: %s",path)}
+  }
   if strings.HasPrefix(path,"obsidian/records/")&&strings.Contains(string(body),"R11-negative"){
    found=true
    s:=string(body)
