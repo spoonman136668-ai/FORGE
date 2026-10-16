@@ -12,3 +12,10 @@ class Tests(unittest.TestCase):
   run={"id":m.RUN,"head_sha":m.SHA,"run_attempt":1,"event":"push","path":".github/workflows/w-f61b-once-fit-source-20261016.yml","status":"completed","conclusion":"success"}
   meta={"id":m.ART,"name":"wingless-f61b-once-fit-receipts","expired":False,"digest":m.DIGEST,"workflow_run":{"head_sha":m.SHA,"id":m.RUN}}
   with self.assertRaisesRegex(m.Denied,"ARCHIVE_DIGEST"):m.audit(run,meta,b"invented")
+
+ def test_true_hash_manifest_format(self):
+  import re
+  actual="0681ffbb2f11e8556b1e2dcd2838ca4241524e385df9033656d6ced1d8326f07  evidence/f61b-fit.json"
+  pat=r"([0-9a-f]{64})\s+(?:evidence/)?(f61b-fit\.json|independent_audit\.txt)"
+  self.assertEqual(re.fullmatch(pat,actual)[2],"f61b-fit.json")
+  self.assertIsNone(re.fullmatch(pat,actual.replace("f61b-fit.json","forged-fit.json")))
