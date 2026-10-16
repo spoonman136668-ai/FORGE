@@ -1,0 +1,78 @@
+name: FORGE F74 native original-science intake (source-only)
+on:
+  push:
+    branches:
+      - engineering/f74-forge-native-firstuse-custody-execution-denial-20261016-r1
+      - main
+    paths:
+      - 'nativefirstuse/**'
+      - '.github/workflows/forge-f74-native-firstuse-intake.yml'
+      - 'docs/F74-NATIVE-ORIGINAL-FIRSTUSE-RECOVERY-BOUNDARY.md'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f74-native-science-intake-no-dispatch-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native-source-and-two-lane-real-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact-source native two-lane science first-use and no-replay negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 -v ./nativefirstuse ./originalclaim ./workerlease
+          go vet ./nativefirstuse
+          go build ./nativefirstuse
+          python3 -B -m unittest discover -s nativefirstuse -p 'test_f74_*.py' -v
+          echo 'F74_NATIVE_FIRSTUSE_SOURCE_INTEGRATION=PASS'
+          echo 'F74_REAL_SCIENCE_START=DENIED'
+      - name: Authenticate actual current Wingless and Yggdrasil repository-local source without original dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativefirstuse/f74_live_native_intake.py > "$RUNNER_TEMP/f74-native-intake.txt"
+          python3 -B - "$RUNNER_TEMP/f74-native-intake.txt" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:
+              lines=f.readlines()
+          assert len(lines)==2
+          assert lines[1]=="F74_FORGE_NATIVE_PROTECTED_ORIGINAL=DENIED\n"
+          d=json.loads(lines[0])
+          assert d["schema"]=="forge.f74.real-two-lane-native-intake.readonly.v1"
+          assert {x["lane"] for x in d["lanes"]}=={"Wingless","Yggdrasil"}
+          for x in d["lanes"]:
+              assert x["repo_local_research_workflow_confirmed"] is True
+              assert x["full_original_seed_lease_ledger_independently_observed"] is False
+              assert x["current_scientific_owner_independently_authorized"] is False
+              assert x["prospective_original_firstuse_available"] is False
+              print("F74_LIVE_LANE="+x["lane"]+" VERIFIED_REPO_LOCAL_NO_FIRSTUSE_RELEASE")
+          assert d["private_rbackup_restoration_qualified"] is False
+          assert d["atomic_live_original_firstuse_claim_qualified"] is False
+          assert d["native_worker_execution_permit_issued"] is False
+          assert d["new_protected_originals_dispatched"]==0
+          PY
+          head -n 1 "$RUNNER_TEMP/f74-native-intake.txt" > "$RUNNER_TEMP/f74-intake.json"
+          (cd "$RUNNER_TEMP" && sha256sum f74-intake.json > f74-intake.sha256 && sha256sum --check f74-intake.sha256)
+          echo 'F74_REAL_TWO_LANE_SOURCE=OBSERVED_ONLY'
+          echo 'F74_PROTECTED_ORIGINAL_DISPATCH=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f74-native-two-lane-custody-readonly
+          path: |
+            ${{ runner.temp }}/f74-intake.json
+            ${{ runner.temp }}/f74-intake.sha256
+          retention-days: 30
+          if-no-files-found: error
