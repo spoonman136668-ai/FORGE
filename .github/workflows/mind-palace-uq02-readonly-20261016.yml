@@ -1,0 +1,131 @@
+name: Mind-Palace UQ02 private unattended read-only qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ02-READONLY-20261016.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq02-20261016-private-readonly
+  cancel-in-progress: false
+jobs:
+  uq02:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 50
+    steps:
+      - name: Verify identity, exact-ledger replay, focused tests and one complete regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'UQ02_REPOSITORY_IDENTITY_DRIFT' }
+          if ($env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013') { throw 'UQ02_BRANCH_IDENTITY_DRIFT' }
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'UQ02_UNEXPECTED_RUNNER' }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN,Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $expected = 'f9f5e0555e1acbe57a36142155e490d21220ca14'
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $root = Join-Path $env:RUNNER_TEMP ('mp-uq02-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $root) { throw 'UQ02_SCRATCH_ALREADY_EXISTS' }
+          $refs = @(
+            'chat:2026-10-10-2026-10-13-selected-operator-decisions',
+            'chat:2026-10-09-2026-10-13-selected-semantic-reconciliation-r2',
+            'chat:2026-10-13-2026-10-15-selected-operator-directions'
+          )
+          $surfaces = @(
+            '.ice/records.json',
+            '.ice/source-ledger.json',
+            '.ice/chat-delta-state.json',
+            '.ice/remote-bootstrap.json',
+            '.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson',
+            'archive/index.json'
+          )
+          function Invoke-Test([string]$label,[string]$relative,[string]$log) {
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $relative *> $log
+            if ($LASTEXITCODE -ne 0) { throw ('UQ02_'+$label+'_FAILED_EXIT_'+$LASTEXITCODE) }
+            Write-Host ('UQ02_'+$label+'=PASS')
+          }
+          try {
+            $pre = @(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $pre.Count -ne 1) { throw 'UQ02_PRIVATE_REMOTE_UNAVAILABLE' }
+            $preSha = ([string]$pre[0] -split '\s+')[0]
+            if ($preSha -cne $expected) { throw 'UQ02_REMOTE_MAIN_DRIFT' }
+            & git.exe clone --quiet --branch main --single-branch $remote $root
+            if ($LASTEXITCODE -ne 0) { throw 'UQ02_PRIVATE_CLONE_FAILED' }
+            Push-Location $root
+            try {
+              $head = (& git.exe rev-parse HEAD | Out-String).Trim()
+              if ($head -cne $expected) { throw 'UQ02_CLONE_SOURCE_SHA_DRIFT' }
+              if ((& git.exe status --porcelain=v1 | Out-String).Trim()) { throw 'UQ02_DIRTY_CLONE' }
+              $before = @{}
+              foreach ($path in $surfaces) {
+                if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw ('UQ02_MISSING_DURABLE_SURFACE_'+$path) }
+                $before[$path] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+              $ledger = (Get-Content -Raw -LiteralPath '.ice/source-ledger.json') | ConvertFrom-Json
+              if ($ledger.schema -cne 'mind-palace.source-ledger.v1') { throw 'UQ02_LEDGER_SCHEMA_INVALID' }
+              $items = @()
+              foreach ($ref in $refs) {
+                $matches = @($ledger.entries | Where-Object { [string]$_.source_ref -ceq $ref })
+                if ($matches.Count -ne 1) { throw 'UQ02_KNOWN_SOURCE_NOT_UNIQUE' }
+                $entry = $matches[0]
+                if ([string]$entry.source_type -cne 'chat' -or -not ([string]$entry.source_version).StartsWith('partial-')) { throw 'UQ02_SOURCE_IDENTITY_INVALID' }
+                if ($null -ne $entry.content_sha256) { throw 'UQ02_EXPECTED_PARTIAL_SOURCE_CHANGED' }
+                $items += [ordered]@{
+                  scope='chat-history'; type='chat'; ref=$ref;
+                  version=[string]$entry.source_version; content_sha256=$null;
+                  authority='operator'; label='Exact previously ledgered partial operator source'
+                }
+              }
+              New-Item -ItemType Directory '.mind-runtime' -Force | Out-Null
+              $inventory = '.mind-runtime/uq02-known-source-inventory.json'
+              $doc = [ordered]@{schema='mind-palace.source-inventory.v1';version=1;generated_at=[DateTime]::UtcNow.ToString('o');sources=@($items)}
+              [IO.File]::WriteAllText([IO.Path]::GetFullPath($inventory),($doc | ConvertTo-Json -Depth 15),[Text.Encoding]::UTF8)
+              $v = (& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\tools\source-reconcile.ps1' validate -InventoryPath $inventory -Scope chat-history 2>&1 | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0) { throw 'UQ02_SOURCE_INVENTORY_VALIDATION_FAILED' }
+              $validation = $v | ConvertFrom-Json
+              if (-not [bool]$validation.valid -or [int]$validation.selected_sources -ne 3) { throw 'UQ02_SOURCE_INVENTORY_VALIDATION_MISMATCH' }
+              $r = (& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '.\tools\source-reconcile.ps1' reconcile -InventoryPath $inventory -Scope chat-history 2>&1 | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0) { throw 'UQ02_SOURCE_RECONCILIATION_FAILED' }
+              $result = $r | ConvertFrom-Json
+              if ($result.schema -cne 'mind-palace.source-reconcile-result.v1' -or
+                  [int]$result.exact_known -ne 3 -or [int]$result.skip -ne 3 -or
+                  [int]$result.changed -ne 0 -or [int]$result.unseen -ne 0 -or
+                  [int]$result.review -ne 0 -or [int]$result.process -ne 0 -or
+                  -not [bool]$result.parity -or -not [bool]$result.backfill_complete) { throw 'UQ02_IDEMPOTENCE_OR_PROVENANCE_NOT_QUALIFIED' }
+              Write-Host 'UQ02_PRIVATE_SOURCE_ACCESS=PASS'
+              Write-Host 'UQ02_KNOWN_PARTIAL_CHAT_SOURCE_REPLAY=SKIP_3_PROCESS_0'
+              $focus = @('Test-SourceReconcile.ps1','Test-ChatCorpusOperator.ps1','Test-ChatCorpusSafeStep.ps1')
+              foreach ($name in $focus) {
+                $testPath = Join-Path '.\tests' $name
+                $log = Join-Path $env:RUNNER_TEMP ('mp-uq02-'+$name+'.log')
+                Invoke-Test -label ($name -replace '[^A-Za-z0-9]','_') -relative $testPath -log $log
+              }
+              $fullLog = Join-Path $env:RUNNER_TEMP ('mp-uq02-full-'+$env:GITHUB_RUN_ID+'.log')
+              Invoke-Test -label 'FULL_REGRESSION' -relative '.\tests\Test-All.ps1' -log $fullLog
+              foreach ($path in $surfaces) {
+                $after = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($after -cne $before[$path]) { throw ('UQ02_DURABLE_SURFACE_MUTATED_'+$path) }
+              }
+              if ((& git.exe status --porcelain=v1 | Out-String).Trim()) { throw 'UQ02_GIT_WORKTREE_NOT_CLEAN' }
+              $post = @(& git.exe ls-remote --exit-code $remote refs/heads/main)
+              if ($LASTEXITCODE -ne 0 -or $post.Count -ne 1) { throw 'UQ02_FINAL_REMOTE_REF_UNAVAILABLE' }
+              $postSha = ([string]$post[0] -split '\s+')[0]
+              if ($postSha -cne $expected) { throw 'UQ02_FINAL_REMOTE_MAIN_DRIFT' }
+              Write-Host 'UQ02_ONE_FULL_REGRESSION=PASS'
+              Write-Host 'UQ02_DURABLE_SURFACE_HASH_PARITY=PASS'
+              Write-Host 'UQ02_MAIN_REF_UNCHANGED=PASS'
+              Write-Host 'UQ02_FULL_ACCOUNT_COVERAGE=NOT_CLAIMED'
+              Write-Host 'UQ02_RECORDS_APPLIED=0'
+              Write-Host 'UQ02_CODEX_INVOCATIONS=0'
+              Write-Host 'UQ02_CKB_PLANE_KTRADE_RESEARCH_MUTATIONS=0'
+              Write-Host 'UQ02_LIVE_READONLY_QUALIFICATION=PASS'
+            } finally { Pop-Location }
+          } finally {
+            if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+          }
