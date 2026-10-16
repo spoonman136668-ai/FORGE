@@ -14,6 +14,8 @@ import (
  "io"
  "sort"
  "strings"
+
+ "github.com/spoonman136668-ai/forge/noveltymechanisms"
 )
 
 const F97Schema="forge.optimizer.f97.revealed-external-candidate-v1"
@@ -81,6 +83,10 @@ func f97Parse(raw []byte)(F97CandidateBundle,error){
   len(b.Cases)<4||len(b.Cases)>128{return zero,ErrF97}
  return b,nil
 }
+func f97StructuredHash(domain string,v any)string{
+ raw,_:=json.Marshal(v)
+ return digest(append([]byte(domain+"\\n"),raw...))
+}
 func f97Topology(c Case)(string,error){
  if !nameOK(c.Root)||len(c.Roles)<1||len(c.Roles)>8||
   len(c.Relations)<1||len(c.Relations)>128{return "",ErrF97}
@@ -104,7 +110,7 @@ func f97Topology(c Case)(string,error){
    if r.To==node{in=append(in,r.Role)}
   }
   sort.Strings(in);sort.Strings(out)
-  colors[node]=f93Hash("F97-BASE-ROLE-IN-OUT",[]any{in,out,node==c.Root})
+  colors[node]=f97StructuredHash("F97-BASE-ROLE-IN-OUT",[]any{in,out,node==c.Root})
  }
  for step:=0;step<9;step++{
   next:=map[string]string{}
@@ -115,7 +121,7 @@ func f97Topology(c Case)(string,error){
     if r.To==node{paths=append(paths,"in:"+r.Role+":"+colors[r.From])}
    }
    sort.Strings(paths)
-   next[node]=f93Hash("F97-DIRECTED-TYPED-REFINEMENT",[]any{colors[node],paths})
+   next[node]=f97StructuredHash("F97-DIRECTED-TYPED-REFINEMENT",[]any{colors[node],paths})
   }
   colors=next
  }
@@ -123,7 +129,7 @@ func f97Topology(c Case)(string,error){
  for _,v:=range colors{values=append(values,v)}
  sort.Strings(values)
  roles:=append([]string(nil),c.Roles...)
- return f93Hash("F97-RENAMING-INVARIANT-TOPOLOGY",[]any{
+ return f97StructuredHash("F97-RENAMING-INVARIANT-TOPOLOGY",[]any{
   colors[c.Root],values,roles,len(c.Relations),len(c.ExpectedTargets),
  }),nil
 }
