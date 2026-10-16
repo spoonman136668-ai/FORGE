@@ -50,7 +50,25 @@ jobs:
           (cd "$root" && sha256sum --check frozen.sha256)
           gh api "repos/$GITHUB_REPOSITORY/contents/reference/research-originals/20261015-r28p-owner-prospective-trial.json?ref=835c33c517f1ff677066f65af0b1cba3ba6482ae" |
             jq -r '.content' | base64 --decode > "$root/owner-prereg.json"
-          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=1" > "$root/github-recent-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=1" > "$root/artifacts-page1.json"
+          total=$(jq -r '.total_count' "$root/artifacts-page1.json")
+          [[ "$total" =~ ^[0-9]+$ ]]
+          test "$total" -le 5000
+          pages=$(( (total+99)/100 ))
+          mkdir "$root/artifact-pages"
+          cp "$root/artifacts-page1.json" "$root/artifact-pages/page-001.json"
+          for ((page=2;page<=pages;page++)); do
+            printf -v num '%03d' "$page"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=$page" \
+              > "$root/artifact-pages/page-$num.json"
+          done
+          jq -s --argjson total "$total" \
+            '{total_count:$total,artifacts:[.[].artifacts[]]}' \
+            "$root/artifact-pages"/page-*.json > "$root/github-recent-artifacts.json"
+          jq -e '.total_count == (.artifacts|length) and
+            ([.artifacts[].id] | length) == ([.artifacts[].id]|unique|length)' \
+            "$root/github-recent-artifacts.json" > /dev/null
+          echo "F59_CURRENT_GITHUB_ARTIFACT_METADATA_COVERAGE=$total"
           python3 -B scripts/f59_live_owner_evidence_inventory.py \
             --controls "$root/frozen.json" \
             --commitment reference/f58/frozen-control-commitment.json \
