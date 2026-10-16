@@ -14,7 +14,7 @@ F91 consumes the F89/F90 records through `ReviewF91`, validates both lanes first
 
 The same estimator applies to compute cost, which is reported separately, rather than treating a raw score improvement as compute-adjusted superiority. Keep each research lane separate; different source families must not be pooled to manufacture gains.
 
-The design assumes outcome scores are bounded in `[0,100]`. The conditional, simultaneous 95% *familywise* Hoeffding half-width for the complete **16** planned contrasts is
+The design assumes outcome scores are bounded in `[0,100]`. The conditional, one-sided **95% familywise lower-confidence offset for positive-gain screening** across the complete **16** planned contrasts is
 
 `1200 * sqrt(log(16 / 0.05) / (2 * N))`.
 

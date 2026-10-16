@@ -100,9 +100,12 @@ func f91ValidPin(f FrozenSixPolicyTrial,p F91ExternalPin,rows []F90Observation)b
 // Conditional bounded-difference range for IPW candidate-vs-control score:
 // Z_i=6*Y_i*(I[arm=candidate]-I[arm=control]), Y in [0,100],
 // Z in [-600,600]. Hoeffding + Bonferroni over 16 planned comparisons
-// (2 lanes * 2 candidates * 4 controls): half-width
-// (600-(-600)) * sqrt(log(16/alpha)/(2*n)).
-// This is NOT a valid confidence interval for the real population until the
+// (2 lanes * 2 candidates * 4 controls): ONE-SIDED simultaneous
+// lower confidence offset (600-(-600))*sqrt(log(16/alpha)/(2*n)).
+// The upper value displayed below is descriptive and MUST NOT be represented
+// as part of a simultaneous two-sided familywise 95% interval: that would
+// require an extra factor of 2 inside the logarithm (log(32/alpha)).
+// This is NOT a valid confidence bound for the real population until the
 // source verifies independent unbiased assignment, complete intended sample,
 // timing, comparable budgets and preregistered experimental design.
 func f91ConditionalRadius(n int)float64{
