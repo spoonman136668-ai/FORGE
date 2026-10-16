@@ -1,0 +1,46 @@
+name: FORGE F76 independent Wingless Yggdrasil prospective evidence census
+on:
+  push:
+    branches: [research/forge-f76-live-science-outcome-census-20261016-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  authentic-outcomes-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect current scientific runner outcomes without accepting proxy or synthetic results
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for name in Wingless Yggdrasil; do
+            gh api "repos/spoonman136668-ai/$name/actions/runs?per_page=30" > "$RUNNER_TEMP/$name.json"
+          done
+          python3 -B - "$RUNNER_TEMP/Wingless.json" "$RUNNER_TEMP/Yggdrasil.json" <<'PY'
+          import json,sys
+          for lane,path in zip(("Wingless","Yggdrasil"),sys.argv[1:]):
+              with open(path) as f: data=json.load(f)
+              assert isinstance(data.get("workflow_runs"),list)
+              rows=data["workflow_runs"]
+              assert rows
+              classified={"source_or_synthetic":0,"proxy":0,"other":0}
+              for row in rows:
+                  name=str(row.get("name","")).lower()
+                  if "proxy" in name: classified["proxy"]+=1
+                  elif any(z in name for z in ("source","synthetic","preflight","feasibility")):classified["source_or_synthetic"]+=1
+                  else:classified["other"]+=1
+              print("F76_"+lane.upper()+"_GITHUB_LIVE_HISTORY=PASS")
+              print("F76_"+lane.upper()+"_SOURCE_OR_SYNTHETIC="+str(classified["source_or_synthetic"]))
+              print("F76_"+lane.upper()+"_PROXY="+str(classified["proxy"]))
+              print("F76_"+lane.upper()+"_OTHER_UNVERIFIED="+str(classified["other"]))
+          print("F76_INDEPENDENTLY_ACCEPTED_ORIGINALS=NOT_ATTESTED")
+          print("F76_PROSPECTIVE_DREAM_RSI_PARETO_GAIN=NOT_DEMONSTRATED")
+          print("F76_SCIENTIFIC_DISPATCH=ZERO")
+          PY
