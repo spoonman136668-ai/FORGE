@@ -26,7 +26,7 @@ def audit(run,meta,blob):
  need(files["source_identity.txt"].decode().strip().splitlines()==["head="+SHA,"qualified_ancestor=3e4af348b35bd792463c40ddafcad9e953309206"],"SOURCE_WITNESS")
  hashes={}
  for line in files["hashes.txt"].decode().splitlines():
-  m=re.fullmatch(r"([0-9a-f]{64})\\s+(?:evidence/)?(f61b-fit\\.json|independent_audit\\.txt)",line.strip())
+  m=re.fullmatch(r"([0-9a-f]{64})\s+(?:evidence/)?(f61b-fit\.json|independent_audit\.txt)",line.strip())
   need(m is not None and m[2] not in hashes,"HASH_MANIFEST")
   hashes[m[2]]=m[1]
  need(set(hashes)=={"f61b-fit.json","independent_audit.txt"} and all(hashlib.sha256(files[k]).hexdigest()==v for k,v in hashes.items()),"RECEIPT_HASH")
