@@ -123,6 +123,25 @@ def verify_policy_files(root: pathlib.Path) -> None:
         raise GateError("LEGACY_CUSTODY_COMMAND_NOT_FAIL_CLOSED")
 
 
+    # ISO-04: the former two-source S14 reconciliation executable could read
+    # local controller ledgers and reach private GitHub with a token. Its
+    # historical library remains unconnected archival source, not authority.
+    reconcile_cli = root / "cmd" / "forge-ckb-s14-reconcile" / "main.go"
+    if not reconcile_cli.is_file():
+        raise GateError("MISSING_RETIRED_RECONCILIATION_SENTINEL")
+    reconcile_body = reconcile_cli.read_text(encoding="utf-8")
+    if ("const FORGE_CKB_S14_RECONCILE_COMMAND_RETIRED = true" not in reconcile_body or
+        "func run(_ context.Context, _ []string, _ io.Writer, _ string) error {" not in reconcile_body or
+        "return errRetired" not in reconcile_body or
+        any(fragment in reconcile_body for fragment in (
+            "ckbhistory", "ckbreconcile", "ckbcustody", "os.ReadFile",
+            "os.Lstat", "os.Open(", "os.OpenFile", "readPins(",
+            "InspectS14(", "ReconcileWake(", "net/http", "http.",
+            "exec.Command", "filepath.", "flag.NewFlagSet",
+            "json.NewDecoder", "json.NewEncoder"))):
+        raise GateError("LEGACY_RECONCILIATION_COMMAND_NOT_FAIL_CLOSED")
+
+
 def audit_repo(root: pathlib.Path) -> list[tuple[str, str]]:
     verify_policy_files(root)
     head = run_git(root, "rev-parse", "HEAD").strip()
