@@ -9,6 +9,7 @@ on:
     paths:
       - 'nativeevidence/**'
       - 'reference/research-intake/f100-frozen-successor-contract.json'
+      - 'reference/research-intake/f101-wingless-development-freeze.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'cmd/forge-model-free-loop/**'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
@@ -24,6 +25,7 @@ on:
       - 'optimizerstages/**'
       - 'nativeevidence/**'
       - 'reference/research-intake/f100-frozen-successor-contract.json'
+      - 'reference/research-intake/f101-wingless-development-freeze.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'evoportfolio/**'
       - 'classification/**'
@@ -214,6 +216,55 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F100_FROZEN_FOUR_CANDIDATE_DEV_DESIGN=PASS'
           Write-Host 'FORGE_F100_NEW_SCIENCE_AND_AUTONOMOUS_MODEL=ZERO'
+      - name: Execute bounded Wingless F101 learned public-development mechanism and frozen controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f101_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F101_DEPTH_LEARNER_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f101-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $out=Join-Path $outdir 'f101-wingless-public-dev.json'
+          & $python -B nativeevidence/f101_wingless_public_depth.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F101_REAL_LEARNED_DEV_MECHANISM_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f101.public-development-mechanism-feasibility.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.lane -cne 'Wingless' -or $d.candidate_id -cne 'W100-C1' -or
+              $d.development_pair_count -ne 144 -or
+              $d.training_pair_count -ne 96 -or
+              $d.public_dev_assessment_pairs -ne 48 -or
+              $d.trainable_parameter_count -ne 4 -or
+              $d.training_updates -ne 100 -or
+              $d.control_training_updates -ne 100 -or
+              $d.independently_accepted_scientific_gain -or
+              $d.protected_first_use_authorized -or
+              $d.fresh_scientific_original_executed -or
+              $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.external_model_api_calls -ne 0 -or
+              $d.chatgpt_work_tasks -ne 0 -or
+              -not $d.previous_W_F10_negative_preserved) {
+            throw 'FORGE_F101_PUBLIC_DEV_OR_SCIENCE_BOUNDARY_DRIFT'
+          }
+          $scores=$d.public_dev_accuracy_by_arm
+          if ($scores.learned_depth_conditioned -lt 0.75 -or
+              $scores.size_matched_depth_blind -gt 0.85 -or
+              $scores.always_yes_shortcut -ne 0 -or
+              $scores.coded_exact_depth_oracle -ne 1 -or
+              -not $d.public_development_screen_passed) {
+            throw 'FORGE_F101_PUBLIC_DEV_SCREEN_FAILED_NO_SCIENCE_CLAIM'
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f101-wingless-public-dev.sha256'),
+            "$hash  f101-wingless-public-dev.json`n",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F101_REAL_BOUNDED_PUBLIC_DEVELOPMENT=PASS'
+          Write-Host 'FORGE_F101_PROSPECTIVE_ORIGINALS_AND_MODEL_APIS=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -340,6 +391,7 @@ jobs:
             ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-f98-evidence/
             ${{ runner.temp }}/forge-f100-development/
+            ${{ runner.temp }}/forge-f101-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
