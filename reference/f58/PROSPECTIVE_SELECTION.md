@@ -1,0 +1,27 @@
+# F58 — Prospective Dream-RSI + Shinka/Pareto research-selection gate
+
+**Scope:** Wingless and Yggdrasil are separate scientific owners. This protocol registers their research-selection *policies*, not task predictor accuracy. It never executes scientific experiments, creates another controller/signing authority, alters Cloudflare, approves accepted refs, or authorizes live KTRADE trading.
+
+## Frozen before new scientific selection outcomes
+
+The eight *actual implementation-derived* `dreamrsi.BasePolicies` controls (four per research lane), two prospective challenger slots per lane, all source implementation Git blobs, and the computational/provenance comparison design are locked in `optimizerbridge/f58_freeze.go`. Their first content-addressed Actions source/receipt is `frozen-control-commitment.json` with first completed run [#38828947145](https://github.com/spoonman136668-ai/FORGE/actions/runs/38828947145). The snapshot was captured before challenger selection or prospective outcome use. A hash or Actions attestation proves source reproducibility, **not** independent scientific custody.
+
+One slot is for a genuinely trained and frozen Dream-RSI selected policy, with its independently authenticated training and validation source history. One slot is for the actual bounded Shinka/Pareto frozen policy, derived from a qualified real portfolio and independently preserved lineage. Neither slot may be filled with synthetic fixtures, recent FIT task metrics, reused source identities, or a hand-selected historical replay champion.
+
+## Genuine prospective comparison — existing owner only
+
+The existing authorized owner must independently validate both challenger policies, publication/commit identities and the four registered control policy IDs **before** the first future research decision. No extra standalone FSA or signer should be created. The existing Cloudflare and source/first-use infrastructure may be read or used only through its current permissions; this branch does not write to it.
+
+For each real future choice, the owner logs the *public, predecision* slate and features, method/source family, workload/compute cap, all eligible policy choices, and an externally witnessed random treatment assignment with its actual logging propensity **before** execution. Assignment is to a research-policy arm, not an arbitrary post hoc label attached to a result. The desired design is six approximately equally represented arms, four frozen controls and two challengers; a future owner must reconcile probability representation and audit genuine randomization rather than treating `allocation_probability_bp: 0` in the unlaunched source registration as a logged assignment. Candidate-source identities, immutable assignment/first-use receipts and independent research outcomes must be linked one-to-one. An absent/failed original remains a consumed or unscored failure according to frozen rules, never an invented reward or a re-runnable first use.
+
+The separately frozen **pilot cap is 12 choices per lane**, for infrastructure and propensity coverage only—no scientific acceptance or policy promotion. The frozen minimum confirmatory cohort is **72 independent future research selections per lane** and effective sample size **at least 8 for each compared policy**, plus genuine supported overlaps, equal compute budgets, and prespecified source-family stratification. These are minimum evidence gates, not guarantees of statistical sufficiency. Keep original training, validation, and prospective heldout windows disjoint. No retrospective threshold changes, early-peeking promotion, or conversion of task-level FIT results into an optimizer policy outcome.
+
+The actual independent reviewer must check the predecision registration, assignment implementation and probabilities, original first-use custody, unsupported counterfactual handling, multiple comparisons, budget fairness and causally valid uncertainty intervals. The current `dreamrsi.SafeImprovement` criterion requires supported confidence interval dominance against the frozen controls. A green Actions run or a signed claim without genuine randomized assignments does not satisfy it.
+
+## Readiness and promotion
+
+`optimizerbridge.AssessF58OwnerSelections` binds all incoming candidate policies, baseline identities and receipts against this frozen roster, calls **only the pre-existing** `Trust` verifier, and defers to `AssessActivation`. One verified lane may be observed independently; both are required for the present joint eligibility result. Even a successful genuine selection assessment is **only eligible for the existing separate controller policy gate**—it is not automatic activation or scientific experiment dispatch.
+
+ThetaEvolve may use only independently admitted later results, not the above policy-selection task data. Promptbreeder and DGM/GenEnv continue producing substantively distinct, content-addressed **untested proposals** with explicit controls. Scientific tests continue in their existing Wingless/Yggdrasil branches without interference. No paid APIs, Codex automatic PR review, or additional credentials are introduced.
+
+**Current status:** eight real control identities and their first GitHub evidence are frozen. Actual independently custodied Dream-RSI and Pareto policy outputs, owner predecision assignments and new accepted prospective research-selection outcomes are **not yet supplied**. Live activation remains fail-closed.

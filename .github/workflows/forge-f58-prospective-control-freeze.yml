@@ -1,0 +1,103 @@
+name: FORGE F58 freeze real prospective Dream-RSI/Pareto controls
+on:
+  push:
+    branches: [research/f58-freeze-prospective-dream-pareto-selection-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-frozen-prospective-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact parent/source identity and adversarial stage gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 0771e3f38376cfd003eb978316d7df737f591289 HEAD
+          test "$(git hash-object dreamrsi/replay.go)" = e9317c400df72b7ea45059e9e8d45d9d4f46baa5
+          test "$(git hash-object evoportfolio/island_pareto.go)" = c52fbca609f94fa720f78e94d2f5f71bf3eb7b68
+          test "$(git hash-object optimizerbridge/selection_audit.go)" = 48810d9935b0cfd119991b22300cbaa783bd9adb
+          test "$(git hash-object optimizerbridge/stage_activation.go)" = c1551bc4ed69fe6a997d74d96dc6fde1e7db1b8c
+          gh --version >/dev/null
+          sourcefile=reference/f58/frozen-control-commitment.json
+          test "$(jq -r .first_frozen_source_head "$sourcefile")" = 042e04a9b6edc34d0f28ca8aecad18292f5919eb
+          gh api 'repos/spoonman136668-ai/FORGE/actions/runs/38828947145' |
+            jq -e '.id==38828947145 and .head_sha=="042e04a9b6edc34d0f28ca8aecad18292f5919eb" and .run_attempt==1 and .status=="completed" and .conclusion=="success"' >/dev/null
+          gh api 'repos/spoonman136668-ai/FORGE/actions/artifacts/12016556257' |
+            jq -e '.id==12016556257 and
+              .name=="forge-f58-frozen-control-identities-no-owner-firstuse" and
+              .digest=="sha256:988c2be05c0818a9dfa7858a2d448f9d64354aa3f2c380299633e8db1383b03b" and
+              .workflow_run.id==38828947145 and .expired==false' >/dev/null
+          go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio ./cmd/forge-f58-freeze
+      - name: Freeze eight real policy IDs without fabricating two challengers per lane
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-f58"; mkdir -p "$root"
+          go run ./cmd/forge-f58-freeze --frozen "$root/frozen.json" --readiness "$root/readiness.json"
+          go run ./cmd/forge-f58-freeze --frozen "$root/frozen-repeat.json" --readiness "$root/readiness-repeat.json"
+          cmp "$root/frozen.json" "$root/frozen-repeat.json"
+          cmp "$root/readiness.json" "$root/readiness-repeat.json"
+          snapshot=reference/f58/frozen-control-commitment.json
+          test "$(sha256sum "$root/frozen.json" | cut -d' ' -f1)" = "$(jq -r .frozen_controls_sha256 "$snapshot")"
+          test "$(sha256sum "$root/readiness.json" | cut -d' ' -f1)" = "$(jq -r .readiness_sha256 "$snapshot")"
+          jq -e '.schema=="forge.optimizer.f58.immutable-control-snapshot.v1" and
+              .controls_per_lane==4 and .prospective_challengers_per_lane==2 and
+              .external_custody_independently_verified==false and
+              .live_prospective_selection_firstuse_executed==false and
+              .dream_pareto_policy_promotion_authorized==false' "$snapshot" >/dev/null
+          jq -e '.schema=="forge.optimizer.f58.frozen-prospective-selection.v1" and
+            (.lanes|length)==2 and
+            .lanes[0].lane=="Wingless" and .lanes[1].lane=="Yggdrasil" and
+            (all(.lanes[]; (.controls|length)==4 and (.challengers|length)==2 and
+               all(.controls[]; (.policy_sha256|length)==64) and
+               all(.challengers[]; .externally_accepted_policy_sha256=="" and
+                  .independent_custodian_receipt_sha256==""))) and
+            .confirmatory_min_independent_selections_per_lane==72 and
+            .budget_matched_candidates_and_compute==true and
+            .frozen_before_future_outcomes==true and
+            .controller_or_firstuse_dispatch_authorized==false and
+            .dream_pareto_prospective_gain_established==false and
+            .theta_evolve_weight_update_authorized==false' "$root/frozen.json" > /dev/null
+          jq -e '.frozen_control_policies==8 and
+             .reserved_prospective_challengers==4 and
+             .independent_first_use_and_randomization_qualified==false and
+             .owner_published_challenger_policies==false and
+             .dream_pareto_promotion_authorized==false and
+             .theta_weight_promotion_authorized==false and
+             .selection_trial_execution_authorized==false' "$root/readiness.json" >/dev/null
+          (cd "$root" && sha256sum frozen.json readiness.json > frozen.sha256)
+          echo "F58_EIGHT_AUTHENTIC_CODE_DEFINED_CONTROLS_FROZEN=PASS"
+          echo "PROSPECTIVE_OWNER_SELECTION_REMAINS_EXTERNAL=TRUE"
+      - name: One full FORGE regression, vet and all packages build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F58_FULL_GO_REGRESSION_VET_BUILD=PASS
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f58-frozen-control-identities-no-owner-firstuse
+          path: |
+            ${{ runner.temp }}/forge-f58/frozen.json
+            ${{ runner.temp }}/forge-f58/readiness.json
+            ${{ runner.temp }}/forge-f58/frozen.sha256
+          retention-days: 90
+          if-no-files-found: error
