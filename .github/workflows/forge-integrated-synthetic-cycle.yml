@@ -264,6 +264,16 @@ jobs:
               throw 'FORGE_F101_PUBLIC_DEV_OR_CONTROLS_MISSING'
             }
           }
+          # Public development numbers are displayed for all four candidates,
+          # including genuine negatives; green CI is source qualification only.
+          foreach ($result in $proof.candidate_results) {
+            $full=$result.learned_public_dev.full.paired_accuracy
+            $missing=$result.learned_public_dev.missing.paired_accuracy
+            $permuted=$result.learned_public_dev.permuted.paired_accuracy
+            $worst=$result.learned_public_dev.full.worst_group_paired_accuracy
+            $passed=[string]::ToLowerInvariant([string]$result.passed_public_dev_thresholds)
+            Write-Host "FORGE_F101_PUBLIC_DEV_ONLY $($result.candidate_id) full=$full missing=$missing permuted=$permuted worst_group=$worst prereg_screen_pass=$passed"
+          }
           $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText(
             (Join-Path $folder 'f101-dev-candidates.sha256'),
