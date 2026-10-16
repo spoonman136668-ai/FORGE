@@ -3,7 +3,6 @@ package main
 import (
  "bytes"
  "encoding/json"
- "os"
  "reflect"
  "strings"
  "testing"
