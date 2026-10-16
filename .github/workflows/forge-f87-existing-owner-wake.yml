@@ -1,0 +1,73 @@
+name: FORGE F87 authentic CKB owner wake read-only first-use snapshot
+on:
+  push:
+    branches: [engineering/f87-existing-ckb-owner-wake-observation-20261016-r1]
+    paths:
+      - 'research/f87/**'
+      - '.github/workflows/forge-f87-existing-owner-wake.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/f87/**'
+      - '.github/workflows/forge-f87-existing-owner-wake.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f87-owner-readonly-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  owner-wake-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact commit and affected-interface negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s research/f87 -p 'test_f87_*.py' -v
+      - name: Read exact immutable CKB original-owner wake from GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET repos/spoonman136668-ai/ckb-plane/actions/runs/38928134866 > "$RUNNER_TEMP/f87-run.json"
+          gh api --method GET 'repos/spoonman136668-ai/ckb-plane/actions/runs/38928134866/jobs?per_page=100' > "$RUNNER_TEMP/f87-jobs.json"
+          mkdir -p "$RUNNER_TEMP/f87"
+          python3 -B research/f87/f87_existing_owner_wake.py \
+            --run "$RUNNER_TEMP/f87-run.json" \
+            --jobs "$RUNNER_TEMP/f87-jobs.json" \
+            --out "$RUNNER_TEMP/f87/owner-wake-observation.json"
+          python3 - "$RUNNER_TEMP/f87/owner-wake-observation.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert x["schema"]=="forge.f87.existing-ckb-owner-wake-observation.v1"
+          assert x["source_sha"]=="fab36e7c488f930505fcbaeb5f5bf04806e50c5b"
+          assert x["run_id"]==38928134866
+          assert len(x["source_steps"])==7
+          assert all(s["observed_conclusion"]=="skipped" for s in x["source_steps"])
+          assert all(x[k] is False for k in ("complete_owner_lease_history_qualified",
+              "independent_preoutcome_owner_witness_qualified",
+              "current_firstuse_availability_proven", "firstuse_dispatch_authorized",
+              "dream_rsi_pareto_activation_authorized", "cloudflare_written",
+              "controller_mutated"))
+          print("F87_AUTHENTIC_CKB_WAKE=OBSERVED_NOT_FIRSTUSE_AUTHORITY")
+          PY
+          (cd "$RUNNER_TEMP/f87"; sha256sum owner-wake-observation.json > sha256.txt; sha256sum -c sha256.txt)
+          echo 'F87_EXISTING_CKB_CONTROLLER=UNCHANGED'
+          echo 'F87_RESEARCH_DISPATCH=ZERO'
+          echo 'F87_CLOUDFLARE_WRITES=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f87-authentic-ckb-owner-wake-observation
+          path: |
+            ${{ runner.temp }}/f87/owner-wake-observation.json
+            ${{ runner.temp }}/f87/sha256.txt
+          retention-days: 45
+          if-no-files-found: error
