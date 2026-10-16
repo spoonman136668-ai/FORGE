@@ -172,10 +172,16 @@ func TestF93NoPosthocPlanRehashOrCrossLaneReuse(t *testing.T){
   t.Run(name,func(t *testing.T){
    q:=p;edit(&q)
    q.PlanSHA256=f93PlanHash(q)
-   if err:=ValidateF93MatchedPlan(w,y,q);!errors.Is(err,ErrF93){
+   if err:=ValidateF93PinnedPlan(w,y,q,p.PlanSHA256);!errors.Is(err,ErrF93){
     t.Fatalf("rehash of changed plan admitted %v",err)
    }
   })
+ }
+ if err:=ValidateF93PinnedPlan(w,y,p,p.PlanSHA256);err!=nil{
+  t.Fatalf("intact externally pinned design rejected: %v",err)
+ }
+ if err:=ValidateF93PinnedPlan(w,y,p,strings.Repeat("e",64));!errors.Is(err,ErrF93){
+  t.Fatal("wrong independent preregistration digest accepted")
  }
  changed:=y;changed.Epoch=2
  if err:=ValidateF93MatchedPlan(w,changed,p);!errors.Is(err,ErrF93){
