@@ -1,0 +1,39 @@
+name: FORGE existing Cloudflare private storage live read-only census
+on:
+  push:
+    branches: [research/forge-native-live-backup-storage-census-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  existing-private-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Frozen source and source-negative validation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 30465b19adea380e09565641fcf6b3e201675870 HEAD
+          PYTHONPATH=d1retention python3 -B -m unittest d1retention/test_r2_destination_census.py -v
+      - name: Existing Cloudflare R2 destinations GET only
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 -B d1retention/r2_destination_census.py
+          echo FORGE_CLOUDFLARE_BACKUP_EXPORT=ZERO
+          echo FORGE_CLOUDFLARE_D1_WRITE=ZERO
+          echo FORGE_RESEARCH_ORIGINAL_DISPATCH=ZERO
