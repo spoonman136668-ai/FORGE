@@ -157,10 +157,9 @@ def masked_query(x,variant):
         return y
     need(variant=="permuted","INVALID_ABLATION")
     h=hashlib.sha256(repr((y["lane"],y["seed"],y.get("depth",y.get("roles")),
-                           y["truth"],"F101-PRECOMMITTED-PUBLIC-NULL")).encode()).digest()
-    # Null query is unrelated to the matching source/query condition.
-    # The truth value is used only to ensure an independent seed per example,
-    # never as an input to a trained model: this is a CONTROL, not a candidate.
+                           "F101-PRECOMMITTED-PUBLIC-NULL")).encode()).digest()
+    # The public-control query randomization is deterministic and depends on
+    # query identity only, never on the hidden truth label or any model output.
     r=random.Random(int.from_bytes(h[:8],"big"))
     if y["lane"]=="Wingless":y["depth"]=r.choice([2,3,4])
     else:y["roles"]=tuple(r.randrange(4) for _ in range(3))
