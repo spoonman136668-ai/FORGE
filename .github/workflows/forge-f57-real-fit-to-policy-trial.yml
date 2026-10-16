@@ -1,0 +1,80 @@
+name: FORGE F57 verify actual research FIT and prospective policy-selection boundaries
+on:
+  push:
+    branches: [research/f57-authentic-fit-to-selection-prereg-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-locked two-lane FIT first-use evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/forge-f57"; mkdir -p "$root"
+          spec=reference/f57/first-use-FIT-selection-evidence.json
+          for lane in Wingless Yggdrasil; do
+            repo=$(jq -r --arg lane "$lane" '.FIT_studies[$lane].repository' "$spec")
+            run=$(jq -r --arg lane "$lane" '.FIT_studies[$lane].run' "$spec")
+            head=$(jq -r --arg lane "$lane" '.FIT_studies[$lane].head' "$spec")
+            artifact=$(jq -r --arg lane "$lane" '.FIT_studies[$lane].artifact_id' "$spec")
+            name=$(jq -r --arg lane "$lane" '.FIT_studies[$lane].artifact_name' "$spec")
+            digest=$(jq -r --arg lane "$lane" '.FIT_studies[$lane].artifact_digest' "$spec")
+            gh api "repos/$repo/actions/runs/$run" |
+              jq -e --arg head "$head" --argjson run "$run" '.id==$run and .head_sha==$head and .run_attempt==1 and .conclusion=="success" and .status=="completed"' >/dev/null
+            gh api "repos/$repo/actions/artifacts/$artifact" |
+              jq -e --arg name "$name" --arg digest "$digest" --argjson run "$run" '.name==$name and .digest==$digest and .workflow_run.id==$run and .expired==false' >/dev/null
+            mkdir "$root/$lane"
+            gh run download "$run" --repo "$repo" -n "$name" -D "$root/$lane"
+          done
+          python3 -B scripts/f57_authenticated_fit_to_policy_trial.py \
+            --root "$root" --manifest "$spec" --out "$root/result.json"
+          python3 -B scripts/f57_authenticated_fit_to_policy_trial.py \
+            --root "$root" --manifest "$spec" --out "$root/again.json"
+          cmp "$root/result.json" "$root/again.json"
+          jq -e '.schema == "forge.f57.genuine-FIT-to-Dream-Pareto-selection-plan.v1" and
+             .Wingless.correct.learned_public_belief_state==49 and
+             .Yggdrasil.correct.incremental_boundary_merge==29 and
+             .dream_pareto_live_selection_activated==false and
+             .prospective_policy_trials_executed==0 and
+             .theta_evolve_weight_updates_authorized==false and
+             .experiment_dispatch_authorized==false' "$root/result.json" >/dev/null
+          (cd "$root" && sha256sum result.json > result.sha256)
+          echo "F57_GENUINE_FIRST_USE_TWO_LANE_FIT_RECONCILIATION=PASS"
+      - name: One complete FORGE regression and negative checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m py_compile scripts/f57_authenticated_fit_to_policy_trial.py
+          python3 -B - <<'PY'
+          from scripts import f57_authenticated_fit_to_policy_trial as a
+          try:a.need(False,"negative_test")
+          except a.Blocked:pass
+          else:raise AssertionError("missing evidence accepted")
+          try:a.pairs([("policy",1),("policy",2)])
+          except a.Blocked:pass
+          else:raise AssertionError("duplicate policy result admitted")
+          print("F57_NEGATIVE_EVIDENCE_GATES=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F57_FULL_GO_REGRESSION_PASS"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f57-authenticated-fit-to-selection-prereg-no-policy-promotion
+          path: |
+            ${{ runner.temp }}/forge-f57/result.json
+            ${{ runner.temp }}/forge-f57/result.sha256
+          retention-days: 45
+          if-no-files-found: error
