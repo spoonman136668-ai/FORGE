@@ -1,0 +1,45 @@
+name: FORGE F83 authentic Yggdrasil F63C heldout negative review
+on:
+  push:
+    branches: [engineering/f83-yggdrasil-f63c-authentic-heldout-ingestion-20261016-r1]
+  pull_request:
+    paths:
+      - 'nativefirstuse/f83_actual_heldout.py'
+      - 'nativefirstuse/test_f83_actual_heldout.py'
+      - '.github/workflows/forge-f83-actual-heldout.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  real-heldout-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact source and adversarial tests
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          PYTHONPATH=nativefirstuse python3 -B -m unittest discover -s nativefirstuse -p 'test_f83_*.py' -v
+      - name: Read real Yggdrasil archive bytes and independently recount heldout outcome
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38885850944 > "$RUNNER_TEMP/run.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/artifacts/12038939609 > "$RUNNER_TEMP/artifact.json"
+          curl --fail --silent --show-error --location --max-time 70             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             'https://api.github.com/repos/spoonman136668-ai/Yggdrasil/actions/artifacts/12038939609/zip'             --output "$RUNNER_TEMP/artifact.zip"
+          python3 -B nativefirstuse/f83_actual_heldout.py             "$RUNNER_TEMP/run.json" "$RUNNER_TEMP/artifact.json" "$RUNNER_TEMP/artifact.zip" > "$RUNNER_TEMP/review.jsonl"
+          grep -Fx 'F83_REAL_FIT_HELDOUT_NEGATIVE=VERIFIED' "$RUNNER_TEMP/review.jsonl"
+          grep -Fx 'F83_OPTIMIZER_PROMOTION_AND_ORIGINAL_DISPATCH=DENIED' "$RUNNER_TEMP/review.jsonl"
+          echo 'F83_CLOUDFLARE_WRITES=ZERO'
+          echo 'F83_MODELS_INVOKED=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f83-source-bound-authentic-negative-review
+          path: ${{ runner.temp }}/review.jsonl
+          retention-days: 30
+          if-no-files-found: error
