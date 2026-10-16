@@ -147,7 +147,16 @@ jobs:
           Write-Host 'FORGE_MODEL_FREE_FROZEN_TWO_LANE_ADVISORY=PASS'
           Write-Host 'MODEL_EXECUTION_AND_NEW_ORIGINAL_SCIENCE=ZERO'
           Write-Host 'PROPOSALS_ARE_SYNTHETIC_AND_UNTESTED=TRUE'
-      - name: Verify historical Wingless and Yggdrasil archive identities without science admission
+      - name: Validate native historical-source identity and science-denial tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f98_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
+      - name: Read optional historical research archives (separate from core synthetic acceptance)
+        id: f98_external_observer
+        continue-on-error: true
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -156,8 +165,6 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP 'forge-f98-evidence'
           New-Item -ItemType Directory -Path $root -Force | Out-Null
           $python = if ($IsWindows) { 'python' } else { 'python3' }
-          & $python -B -m unittest discover -s nativeevidence -p 'test_f98_*.py' -v
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
           foreach ($lane in @(
             @{Name='wingless'; Repo='Wingless'; Run='38646170288'},
             @{Name='yggdrasil'; Repo='Yggdrasil'; Run='38646109265'}
@@ -210,6 +217,20 @@ jobs:
           Write-Host 'FORGE_REAL_HISTORICAL_SOURCE_METADATA_TWO_LANES=PASS'
           Write-Host 'AUTHENTIC_TRAINABLE_MODEL_FEATURE_RECORDS=ZERO'
           Write-Host 'SCIENTIFIC_ORIGINAL_FIRSTUSE_AND_POLICY_TRAINING=DENIED'
+      - name: Quarantine unavailable external provenance without corrupting synthetic core
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $status = '${{ steps.f98_external_observer.outcome }}'
+          if ($status -ne 'success') {
+            $root = Join-Path $env:RUNNER_TEMP 'forge-f98-evidence'
+            if (Test-Path -LiteralPath $root) {
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+            Write-Host '::warning title=FORGE external historical provenance::F98_ARCHIVE_EVIDENCE_NOT_QUALIFIED_NO_ADMISSION'
+            Write-Host 'F98_TRAINABLE_RECORDS_AND_SCIENTIFIC_PERMITS=ZERO'
+          }
       - uses: actions/upload-artifact@v4
         if: success()
         with:
