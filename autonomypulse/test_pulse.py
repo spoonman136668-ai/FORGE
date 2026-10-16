@@ -235,6 +235,7 @@ class TestAutonomyPulse(unittest.TestCase):
         path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
         failed=deepcopy(a.items[path]["workflow_runs"][0])
         failed["conclusion"]="failure"
+        failed["id"]=failed["id"]+3
         failed["created_at"]="2026-10-16T17:06:30Z"
         failed["updated_at"]="2026-10-16T17:06:45Z"
         a.items[path]["workflow_runs"].append(failed)
