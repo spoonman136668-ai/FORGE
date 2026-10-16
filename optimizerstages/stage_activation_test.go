@@ -36,8 +36,10 @@ func baselineOutcome(lane string)IndependentlyAcceptedOutcome{
  if lane=="Yggdrasil"{ev="9"}
  src:="c"
  if lane=="Yggdrasil"{src="d"}
+ admission:="d"
+ if lane=="Yggdrasil"{admission="e"}
  return IndependentlyAcceptedOutcome{Lane:lane,SourceSHA:fill(src,40),
-  AcceptedEvidenceSHA256:fill(ev,64),IndependentAdmissionSHA256:fill("d",64),
+  AcceptedEvidenceSHA256:fill(ev,64),IndependentAdmissionSHA256:fill(admission,64),
   FreshSinceFrozenPolicy:true}
 }
 func distinctProposal(lane string,generator string)StructuralMechanismProposal{
@@ -103,6 +105,8 @@ func TestThetaRequiresIndependentAcceptedOutcomesAfterSelection(t *testing.T){
    o:=y;o.AcceptedEvidenceSHA256=w.AcceptedEvidenceSHA256;return []IndependentlyAcceptedOutcome{w,o}},
   "duplicate outcome source":func()[]IndependentlyAcceptedOutcome{
    o:=y;o.SourceSHA=w.SourceSHA;return []IndependentlyAcceptedOutcome{w,o}},
+  "reused independent admission":func()[]IndependentlyAcceptedOutcome{
+   o:=y;o.IndependentAdmissionSHA256=w.IndependentAdmissionSHA256;return []IndependentlyAcceptedOutcome{w,o}},
  }{
   t.Run(name,func(t *testing.T){
    if _,err:=AssessActivation(trials,tc(),nil,stagedEvidenceCheck{});!errors.Is(err,ErrStageEvidence){t.Fatalf("unsafe theta data accepted %v",err)}
@@ -164,14 +168,17 @@ func TestCrossLaneSelectionCannotReuseOneSourceOrCausalWitness(t *testing.T){
   })
  }
 }
-func TestNoveltyRequiresTwoLanesAndDistinctMechanismFamilies(t *testing.T){
+func TestNoveltyProposalsCanRunParallelWithoutBlockingOtherLane(t *testing.T){
  w:=distinctProposal("Wingless","Promptbreeder")
  y:=distinctProposal("Yggdrasil","DGM/GenEnv")
- if _,err:=AssessActivation(nil,nil,[]StructuralMechanismProposal{w},nil);!errors.Is(err,ErrStageEvidence){
-  t.Fatalf("single-lane novelty was promoted: %v",err)
+ one,err:=AssessActivation(nil,nil,[]StructuralMechanismProposal{w},nil)
+ if err!=nil||one.PromptbreederAndGenEnv!="BOUNDED_UNTESTED_NOVELTY_PROPOSALS_READY"||
+    one.ScientificOriginalDispatchAuthorized||one.ControllerCutoverAuthorized{
+  t.Fatalf("single-lane proposal should stay advisory: %v %+v",err,one)
  }
- y.Generator=w.Generator
- if _,err:=AssessActivation(nil,nil,[]StructuralMechanismProposal{w,y},nil);!errors.Is(err,ErrStageEvidence){
-  t.Fatalf("single-family novelty was promoted: %v",err)
+ both,err:=AssessActivation(nil,nil,[]StructuralMechanismProposal{w,y},nil)
+ if err!=nil||both.PromptbreederAndGenEnv!="BOUNDED_UNTESTED_NOVELTY_PROPOSALS_READY"||
+    both.AuthenticatedProspectiveResearchSelection||both.AcceptedRefMutation{
+  t.Fatalf("parallel novelty should not acquire authority: %v %+v",err,both)
  }
 }
