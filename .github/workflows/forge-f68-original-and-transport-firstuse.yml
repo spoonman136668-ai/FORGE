@@ -1,0 +1,71 @@
+name: FORGE F68 genuine-original vs transport custody (read-only)
+on:
+  push:
+    branches: [engineering/f68-actual-original-and-proxy-firstuse-reconcile-20261016-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f68-actual-original-and-transport-readonly
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-head negative qualification of both authentic research lanes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s d1retention -p test_f67_dual_lane_readonly.py -v
+          python3 -B -m unittest discover -s d1retention -p test_f68_firstuse_origin_join.py -v
+          echo "F68_ORIGINAL_TRANSPORT_DISTINCTION_NEGATIVE_TESTS=PASS"
+      - name: Verify immutable original-run artifacts and separately classified Yggdrasil transport/cycle attempts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B d1retention/f68_firstuse_origin_join.py > "$RUNNER_TEMP/f68-origin-join.json"
+          python3 -B - "$RUNNER_TEMP/f68-origin-join.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:
+              lines=f.readlines()
+          assert len(lines)==2,"F68_REPORT_SHAPE_DRIFT"
+          d=json.loads(lines[0])
+          assert d["schema"]=="forge.f68.real-original-vs-transport-custody-readonly.v1"
+          assert len(d["authenticated_archived_original_metadata"])==2
+          assert {x["lane"] for x in d["authenticated_archived_original_metadata"]}=={"Wingless","Yggdrasil"}
+          assert {x["run_id"] for x in d["classified_ygg_transport_and_continuation"]}=={38869660982,38864578731,38868746675}
+          for x in d["authenticated_archived_original_metadata"]:
+              assert x["github_original_workflow_metadata_verified"] is True
+              assert x["pinned_artifact_metadata_and_nonexpiration_verified"] is True
+              assert x["independent_signed_original_firstuse_verified"] is False
+          for x in d["classified_ygg_transport_and_continuation"]:
+              assert x["scientific_original_workflow"] is False
+              assert x["original_firstuse_consumed_by_transport"] is False
+              assert x["retry_of_uncertain_original_authorized"] is False
+              print("F68_TRANSPORT_OR_CYCLE="+str(x["run_id"])+" "+x["classification"]+" "+x["status"])
+          assert d["complete_both_lanes_scientific_firstuse_seed_ledger_observed"] is False
+          assert d["independently_authenticated_ckb_science_owner_epoch"] is False
+          assert d["deployed_cloudflare_d1_firstuse_claim"] is False
+          assert d["existing_worker_one_use_permit_issued"] is False
+          assert d["new_protected_originals_dispatched"]==0
+          assert d["protected_original_replay_authorized"] is False
+          print("F68_GENUINE_ORIGINAL_METADATA=VERIFIED_NO_SCIENCE_RELEASE")
+          PY
+          head -n 1 "$RUNNER_TEMP/f68-origin-join.json" > "$RUNNER_TEMP/f68-evidence.json"
+          sha256sum "$RUNNER_TEMP/f68-evidence.json" > "$RUNNER_TEMP/f68-evidence.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum -c f68-evidence.sha256)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f68-original-versus-transport-no-science-release
+          path: |
+            ${{ runner.temp }}/f68-evidence.json
+            ${{ runner.temp }}/f68-evidence.sha256
+          retention-days: 30
+          if-no-files-found: error
