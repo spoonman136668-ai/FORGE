@@ -1,0 +1,48 @@
+name: FORGE F63P existing-owner witness source qualification
+on:
+  push:
+    branches: [research/f63p-owner-witness-bindings-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  source-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact F62P parent and unchanged scientific authority interfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 211ff47c2eeec87f86109dc82b93cecfd482b15e HEAD
+          test "$(git hash-object dreamrsi/replay.go)" = e9317c400df72b7ea45059e9e8d45d9d4f46baa5
+          test "$(git hash-object evoportfolio/island_pareto.go)" = c52fbca609f94fa720f78e94d2f5f71bf3eb7b68
+          test "$(git hash-object optimizerbridge/selection_audit.go)" = 48810d9935b0cfd119991b22300cbaa783bd9adb
+          go test -count=1 -run '^TestF63P' -v ./optimizerbridge
+      - name: Bounded external-trust boundary verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio
+          echo F63P_WITNESS_PIN_SIGNATURE_CHECK=SOURCE_ONLY
+          echo F63P_AUTHENTIC_EXTERNAL_PREOUTCOME_ADMISSION=NOT_YET_DEMONSTRATED
+          echo F63P_EXPERIMENT_FIRSTUSE=NOT_CONSUMED
+      - name: One final full Go regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F63P_FINAL_SOURCE_QUALIFICATION=PASS
