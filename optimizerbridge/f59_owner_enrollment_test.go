@@ -2,31 +2,32 @@ package optimizerbridge
 
 import (
  "errors"
+ "fmt"
  "strings"
  "testing"
 )
 
 func f59TestNomination(f F58Freeze,index int)F59PolicyNomination {
  n,_:=ReadinessF58(f)
- digits:=[]string{"1","2","3","4","5","6","7","8","9"}
+ // Distinct 64-character test-only hashes across BOTH lanes.
+ // They never represent independently accepted policies or receipts.
+ digits:=make([]string,9)
+ for i:=range digits {digits[i]=fmt.Sprintf("%064x",index*20+i+1)}
  source:="a"
- if index==1 {
-  digits=[]string{"a","b","c","d","e","f","0","1","2"}
-  source="b"
- }
+ if index==1 {source="b"}
  return F59PolicyNomination{
   Lane:f.Lanes[index].Lane,
   FrozenControlRegistrySHA256:n.FrozenControlRegistrySHA256,
-  DreamPolicySHA256:strings.Repeat(digits[0],64),
-  DreamOptimizerLineageSHA256:strings.Repeat(digits[1],64),
-  DreamTrainingHistorySHA256:strings.Repeat(digits[2],64),
-  DreamValidationHistorySHA256:strings.Repeat(digits[3],64),
-  ParetoPolicySHA256:strings.Repeat(digits[4],64),
-  ParetoFrozenPortfolioSHA256:strings.Repeat(digits[5],64),
-  ParetoLineageSHA256:strings.Repeat(digits[6],64),
-  OwnerPreregistrationSHA256:strings.Repeat(digits[7],64),
+  DreamPolicySHA256:digits[0],
+  DreamOptimizerLineageSHA256:digits[1],
+  DreamTrainingHistorySHA256:digits[2],
+  DreamValidationHistorySHA256:digits[3],
+  ParetoPolicySHA256:digits[4],
+  ParetoFrozenPortfolioSHA256:digits[5],
+  ParetoLineageSHA256:digits[6],
+  OwnerPreregistrationSHA256:digits[7],
   PredecisionOwnerSourceSHA:strings.Repeat(source,40),
-  IndependentExternalTrustReceiptSHA256:strings.Repeat(digits[8],64),
+  IndependentExternalTrustReceiptSHA256:digits[8],
  }
 }
 func TestF59EnrollmentIsNeverAutomaticScientificAdmission(t *testing.T){
