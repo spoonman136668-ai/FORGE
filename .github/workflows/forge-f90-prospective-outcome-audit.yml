@@ -1,0 +1,71 @@
+name: FORGE F90 signed policy outcome source consistency
+on:
+  push:
+    branches: [engineering/f90-frozen-policy-witness-outcome-audit-20261016-r1]
+    paths:
+      - 'optimizerstages/f90_*'
+      - '.github/workflows/forge-f90-prospective-outcome-audit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'optimizerstages/f90_*'
+      - '.github/workflows/forge-f90-prospective-outcome-audit.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f90-optimizer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  signed-source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Independently read qualified F89 source-engineering run from FORGE GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method GET repos/spoonman136668-ai/FORGE/actions/runs/38959172640 > "$RUNNER_TEMP/f90-f89-run.json"
+          python3 - "$RUNNER_TEMP/f90-f89-run.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert d["id"]==38959172640
+          assert d["repository"]["full_name"]=="spoonman136668-ai/FORGE"
+          assert d["head_sha"]=="f184fa526445556787125abadc7a2ca6e947ecd1"
+          assert d["status"]=="completed" and d["conclusion"]=="success"
+          assert d["name"]=="FORGE F89 frozen unbiased Dream-Pareto prospective trial design"
+          print("F90_F89_AUTHENTIC_GITHUB_DESIGN_QUALIFICATION=PASS")
+          print("F90_PROSPECTIVE_FIRSTUSE_OR_OWNER_WITNESS=NOT_ESTABLISHED")
+          PY
+      - name: Source-bound adversarial witness and evidence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 -run '^TestF90' ./optimizerstages -v
+          go test -count=1 ./optimizerstages ./dreamrsi ./evoportfolio ./thetaadapt ./promptlineage ./genenv
+          go vet ./optimizerstages
+          echo 'F90_CLAIMED_WITNESS_SIGNATURE_CONSISTENCY=SOURCE_ONLY'
+          echo 'F90_INDEPENDENT_PREOUTCOME_CUSTODY=NOT_VERIFIED'
+          echo 'F90_INDEPENDENT_OWNER_FIRSTUSE=NOT_VERIFIED'
+          echo 'F90_DREAM_PARETO_ACTIVATION=DENIED'
+          echo 'F90_THETA_ACCEPTED_TRAINING=DENIED'
+          echo 'F90_SCIENCE_DISPATCH=ZERO'
+          echo 'F90_CLOUDFLARE_WRITES=ZERO'
+      - name: Full FORGE repository tests, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F90_SIGNED_SOURCE_ONLY_AUDIT=QUALIFIED'
