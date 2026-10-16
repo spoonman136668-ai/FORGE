@@ -1,0 +1,29 @@
+name: FORGE F80 real source-linked optimizer evidence admission
+on:
+  push:
+    branches: [research/forge-f80-evidence-eligibility-selector-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  evidence-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source adversarial negatives
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          PYTHONPATH=research/f80 python3 -B -m unittest discover -s research/f80 -p 'test_*.py' -v
+      - name: Actual historical archive metadata admission
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38830952488/artifacts > "$RUNNER_TEMP/w.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38831091860/artifacts > "$RUNNER_TEMP/y.json"
+          python3 -B research/f80/f80_evidence_eligibility.py "$RUNNER_TEMP/w.json" "$RUNNER_TEMP/y.json"
+          echo 'F80_CLOUDFLARE_WRITES=ZERO'
+          echo 'F80_SCIENTIFIC_DISPATCH=ZERO'
