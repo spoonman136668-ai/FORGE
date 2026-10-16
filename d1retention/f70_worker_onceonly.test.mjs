@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync,sign,createHash,webcrypto} from "node:crypto";
-import {onceOnlyClaimAtWorkerStart,Denied} from "./f70_worker_onceonly.mjs";
+import {onceOnlyClaimAtWorkerStart,simulateOnceOnlyClaimAtWorkerStart,Denied} from "./f70_worker_onceonly.mjs";
 const digest=s=>createHash("sha256").update(s).digest("hex");
 const bytes=x=>Buffer.from(x,"base64url");
 function fixture(){
@@ -96,10 +96,16 @@ const admission={
  authorizedProtectedWorkflow:true
 };
 function call(f,db,extra={}){
- return onceOnlyClaimAtWorkerStart({
+ return simulateOnceOnlyClaimAtWorkerStart({
    ...f,db,...admission,...extra
  });
 }
+test("F71 public production symbol cannot accept user-asserted trust even with valid synthetic signatures",async()=>{
+ const f=fixture(),d=database();
+ await assert.rejects(onceOnlyClaimAtWorkerStart({...f,db:d.db,...admission}),Denied);
+ assert.equal(d.touched.schema,0);assert.equal(d.touched.writes,0);
+});
+
 test("all real external custody prerequisites are absent by default; no D1 request",async()=>{
  const f=fixture(),d=database();
  await assert.rejects(onceOnlyClaimAtWorkerStart({...f,db:d.db}),Denied);
