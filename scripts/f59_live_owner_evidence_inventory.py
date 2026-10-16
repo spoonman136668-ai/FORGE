@@ -55,8 +55,9 @@ def classify(snapshot,prereg,artifacts,commitment):
             "OWNER_AUTHORIZATION_STATUS_CHANGED")
     require(type(artifacts.get("total_count")) is int and
             type(artifacts.get("artifacts")) is list and
-            0<=len(artifacts["artifacts"])<=100,
-            "ACTUAL_GITHUB_INVENTORY_REQUIRED")
+            0<=len(artifacts["artifacts"])<=5000 and
+            len(artifacts["artifacts"])==artifacts["total_count"],
+            "INCOMPLETE_CURRENT_GITHUB_ARTIFACT_INVENTORY")
     candidate=[]
     seen=set()
     for a in artifacts["artifacts"]:
@@ -70,8 +71,9 @@ def classify(snapshot,prereg,artifacts,commitment):
                               "qualified_as_prospective_owner_custody":False})
     return {"schema":"forge.optimizer.f59.real-github-owner-inventory.v1",
         "observed_repository":"spoonman136668-ai/FORGE",
-        "github_artifact_page_limit":100,
-        "github_artifacts_observed_on_page":len(artifacts["artifacts"]),
+        "github_metadata_page_size":100,
+        "current_repository_artifact_metadata_fully_enumerated":True,
+        "github_artifacts_observed":len(artifacts["artifacts"]),
         "github_total_artifact_count_at_observation":artifacts["total_count"],
         "possible_named_evidence_on_scanned_page":sorted(candidate,key=lambda x:x["artifact_id"]),
         "source_frozen_real_control_count":8,
