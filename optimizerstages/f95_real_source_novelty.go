@@ -97,6 +97,29 @@ func f95GoASTSignature(source []byte)(string,int,int,error){
  if count>20000||functions<1{return "",0,0,ErrF95}
  return f95SHA([]byte(stream.String())),functions,tests,nil
 }
+// F95 specifically binds this candidate to the actual compiled
+// representation, consumer and novel test-condition entrypoints. The generic
+// AST fingerprint alone would otherwise accept swapped roles or meaningless
+// new filenames containing identical code shapes.
+func f95RoleEntrypoints(role string,source []byte)bool{
+ file,err:=parser.ParseFile(token.NewFileSet(),"candidate.go",source,parser.AllErrors)
+ if err!=nil||file.Name.Name!="noveltymechanisms"{return false}
+ needed:=map[string][]string{
+  "representation":{"Compile","RelationCount"},
+  "consumer":{"Resolve","Verify"},
+  "test_environment":{"TestF95NovelRelationshipComposition",
+   "TestF95HoldoutStyleRoleSwapAndDistractors","TestF95AmbiguityNoFalsePositive"},
+ }[role]
+ if len(needed)==0{return false}
+ seen:=map[string]bool{}
+ for _,decl:=range file.Decls{
+  if f,ok:=decl.(*ast.FuncDecl);ok{
+   seen[f.Name.Name]=true
+  }
+ }
+ for _,name:=range needed{if !seen[name]{return false}}
+ return true
+}
 // AuditF95SourceBytes rejects fabricated F94 artifact hash assertions by
 // comparing claims with actual Go source bytes and Go AST shapes.
 // A valid record DOES NOT establish independent git provenance, scientific
@@ -130,7 +153,7 @@ func AuditF95SourceBytes(f F94Freeze,sourcePin string,
   parentShape,_,_,err:=f95GoASTSignature(r.files.Parent)
   if err!=nil{return zero,ErrF95}
   childShape,fn,testFn,err:=f95GoASTSignature(r.files.Candidate)
-  if err!=nil||parentShape==childShape||fn<2{return zero,ErrF95}
+  if err!=nil||parentShape==childShape||fn<2||!f95RoleEntrypoints(r.role,r.files.Candidate){return zero,ErrF95}
   if r.role=="test_environment"&&testFn<3{return zero,ErrF95}
   out.StructuralClaims=append(out.StructuralClaims,F95SourceChange{
    Role:r.role,ParentSHA256:r.oldSHA,CandidateSHA256:r.newSHA,
