@@ -226,6 +226,7 @@ class TestAutonomyPulse(unittest.TestCase):
         a=API();repo=m.LANES[1][1]
         path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
         a.items[path]["workflow_runs"][0]["created_at"]="2026-10-16T16:00:00Z"
+        a.items[path]["workflow_runs"][:]=a.items[path]["workflow_runs"][:1]
         r=m.scan(a,NOW)
         self.assertFalse(r["lanes"][1]["source_and_workflow_confirmed"])
 
