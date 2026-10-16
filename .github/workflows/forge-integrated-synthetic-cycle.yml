@@ -14,6 +14,7 @@ on:
       - 'promptlineage/**'
       - 'genenv/**'
       - 'optimizerstages/**'
+      - 'nativeevidence/**'
       - 'evoportfolio/**'
       - 'classification/**'
       - 'subprocesssupervisor/**'
@@ -140,6 +141,66 @@ jobs:
           Write-Host 'FORGE_MODEL_FREE_FROZEN_TWO_LANE_ADVISORY=PASS'
           Write-Host 'MODEL_EXECUTION_AND_NEW_ORIGINAL_SCIENCE=ZERO'
           Write-Host 'PROPOSALS_ARE_SYNTHETIC_AND_UNTESTED=TRUE'
+      - name: Verify historical Wingless and Yggdrasil archive identities without science admission
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'forge-f98-evidence'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f98_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
+          foreach ($lane in @(
+            @{Name='wingless'; Repo='Wingless'; Run='38646170288'},
+            @{Name='yggdrasil'; Repo='Yggdrasil'; Run='38646109265'}
+          )) {
+            $prefix = Join-Path $root $lane.Name
+            & gh api ("repos/spoonman136668-ai/"+$lane.Repo+"/actions/runs/"+$lane.Run) |
+              Out-File -FilePath ($prefix+'-run.json') -Encoding utf8
+            if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_UPSTREAM_RUN_UNAVAILABLE' }
+            & gh api ("repos/spoonman136668-ai/"+$lane.Repo+"/actions/runs/"+$lane.Run+"/artifacts") |
+              Out-File -FilePath ($prefix+'-artifacts.json') -Encoding utf8
+            if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_UPSTREAM_ARCHIVE_UNAVAILABLE' }
+          }
+          $out = Join-Path $root 'f98-real-source-shadow.json'
+          & $python -B nativeevidence/f98_historical_shadow.py $env:GITHUB_SHA `              (Join-Path $root 'wingless-run.json') (Join-Path $root 'wingless-artifacts.json') `              (Join-Path $root 'yggdrasil-run.json') (Join-Path $root 'yggdrasil-artifacts.json') |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_REAL_GITHUB_SOURCE_CUSTODY_FAILED' }
+          $report = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($report.schema -cne 'forge.autonomy.f98.real-historical-metadata-shadow.v1' -or
+              $report.forge_source_sha -cne $env:GITHUB_SHA -or
+              $report.genuinely_observed_lanes -ne 2 -or
+              $report.historical_reviewed_records.Count -ne 2 -or
+              $report.new_trainable_genenv_records -ne 0 -or
+              $report.model_calls -ne 0 -or $report.codex_calls -ne 0 -or
+              $report.new_scientific_originals_executed -ne 0 -or
+              $report.experiment_worker_dispatched -or
+              $report.sealed_original_first_use_authorized -or
+              $report.optimizer_promotion_authorized -or
+              $report.accepted_reference_mutations -ne 0 -or
+              $report.ckb_plane_accessed) {
+            throw 'FORGE_F98_UNEARNED_SCIENCE_OR_MODEL_EXECUTION_CLAIM'
+          }
+          foreach ($lane in $report.historical_reviewed_records) {
+            if (-not $lane.github_run_metadata_verified -or
+                -not $lane.artifact_metadata_zip_digest_verified -or
+                $lane.actual_zip_bytes_downloaded_and_rehashed -or
+                $lane.contained_row_data_reaudited_now -or
+                $lane.authenticated_train_only_feature_vectors_available -or
+                $lane.genenenv_train_history_admitted -or
+                $lane.original_science_accepted) {
+              throw 'FORGE_F98_ARCHIVE_SOURCE_METADATA_MISREPRESENTED'
+            }
+          }
+          Get-ChildItem $root -File | ForEach-Object {
+            $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $($_.Name)"
+          } | Out-File -FilePath (Join-Path $root 'source-sha256.txt') -Encoding utf8
+          Write-Host 'FORGE_REAL_HISTORICAL_SOURCE_METADATA_TWO_LANES=PASS'
+          Write-Host 'AUTHENTIC_TRAINABLE_MODEL_FEATURE_RECORDS=ZERO'
+          Write-Host 'SCIENTIFIC_ORIGINAL_FIRSTUSE_AND_POLICY_TRAINING=DENIED'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -148,6 +209,7 @@ jobs:
             ${{ runner.temp }}/forge-cycle-proof.json
             ${{ runner.temp }}/forge-model-free-advisory.json
             ${{ runner.temp }}/forge-model-free-advisory.sha256
+            ${{ runner.temp }}/forge-f98-evidence/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
