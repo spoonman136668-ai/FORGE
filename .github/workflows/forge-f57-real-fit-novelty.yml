@@ -32,4 +32,32 @@ jobs:
             jq -e '.run_attempt == 1 and .conclusion == "success" and .head_sha == "4f30c36b53bb6a6a472a50a6545850b286590384"' >/dev/null
           gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38827162260 |
             jq -e '.run_attempt == 1 and .conclusion == "success" and .head_sha == "e6c2aa8fc0b0a2d4acb5eded160d34e9fa85c3b6"' >/dev/null
+          gh api repos/spoonman136668-ai/Wingless/actions/artifacts/12015716391 |
+            jq -e '.digest == "sha256:1b8668f38edb39bb4af9850b2865fa1d90ed11d3a41496ae902570462a81c059" and .expired == false' >/dev/null
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/artifacts/12015855877 |
+            jq -e '.digest == "sha256:e09afbc494dc5454dd619d4aff24a14055c75132072997682d0227e3aa0eccc7" and .expired == false' >/dev/null
           echo F57_REAL_SOURCE_RECEIPTS_OBSERVED=PASS
+      - name: Emit deterministic source-grounded novel mechanism proposals
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object reference/f57/frozen-owner-fit-evidence.json)" = 84c55f6d9ac54dca17b43783e13fe66c16dd8549
+          mkdir -p "$RUNNER_TEMP/f57"
+          go run ./cmd/forge-f57-novelty --evidence reference/f57/frozen-owner-fit-evidence.json --out "$RUNNER_TEMP/f57/novelty.json"
+          jq -e '.schema=="forge.f57.authentic-fit-novelty-advisory.v1" and
+            .mode=="BOUNDED_PROMPTBREEDER_AND_GENENV_STRUCTURAL_PROPOSALS_ONLY" and
+            (.proposals|length)==2 and
+            ([.proposals[]|select(.status=="UNTESTED")]|length)==2 and
+            .scientific_originals_executed==0 and
+            .dream_pareto_prospectively_qualified==false and
+            .theta_evolve_independent_acceptance_eligible==false and
+            .controller_dispatch_authorized==false and .accepted_ref_mutation==false' "$RUNNER_TEMP/f57/novelty.json" >/dev/null
+          (cd "$RUNNER_TEMP/f57" && sha256sum novelty.json > manifest.sha256)
+          echo F57_STRUCTURALLY_NOVEL_UNTESTED_PROPOSALS_READY=PASS
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f57-genuine-fit-promptbreeder-genenv-untested-novelty
+          path: ${{ runner.temp }}/f57/
+          retention-days: 30
+          if-no-files-found: error
