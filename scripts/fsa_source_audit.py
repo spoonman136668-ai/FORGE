@@ -34,6 +34,11 @@ class GitHub:
         self.token = os.getenv("GH_TOKEN", "") if token is None else token
 
     def _transport(self, path):
+        data, has_next = self._read_http(path, allow_next=False)
+        expect(not has_next, "UNREAD_PAGINATION")
+        return data
+
+    def _read_http(self, path, allow_next=False):
         if not path.startswith("/") or path.startswith("//"):
             raise Blocked("BAD_GITHUB_PATH")
         req = urllib.request.Request(ROOT + path,
@@ -43,14 +48,38 @@ class GitHub:
                    "User-Agent": "forge-r21-source-audit"})
         try:
             with urllib.request.urlopen(req, timeout=14) as response:
-                if response.headers.get("Link", "").find('rel="next"') != -1:
+                links = response.headers.get("Link", "")
+                next_urls = re.findall(r'<([^<>]+)>;\s*rel="next"', links)
+                if len(next_urls) > 1 or (next_urls and not allow_next):
                     raise Blocked("UNREAD_PAGINATION")
+                if next_urls:
+                    # Only our predeclared open-PR inventory can paginate.
+                    current = urllib.parse.urlsplit(ROOT + path)
+                    next_url = urllib.parse.urlsplit(next_urls[0])
+                    old = urllib.parse.parse_qs(current.query, strict_parsing=True)
+                    new = urllib.parse.parse_qs(next_url.query, strict_parsing=True)
+                    expect(current.scheme == "https" and
+                           next_url.scheme == "https" and
+                           current.netloc == next_url.netloc == "api.github.com" and
+                           current.path == next_url.path == "/repos/" + REPO + "/pulls" and
+                           old.get("state") == new.get("state") == ["open"] and
+                           old.get("per_page") == new.get("per_page") == ["100"] and
+                           set(old).issubset({"state", "per_page", "page"}) and
+                           set(new) == {"state", "per_page", "page"} and
+                           new["page"] == [str(int(old.get("page", ["1"])[0]) + 1)],
+                           "UNTRUSTED_PAGINATION_NEXT")
                 raw = response.read(2000001)
                 if len(raw) > 2000000:
                     raise Blocked("RESPONSE_TOO_LARGE")
-                return json.loads(raw)
+                return json.loads(raw), bool(next_urls)
         except (urllib.error.URLError, ValueError, OSError) as e:
             raise Blocked("GITHUB_READ_FAILED") from e
+
+    def get_page(self, path):
+        # Keep all non-inventory endpoint pagination denial unchanged.
+        if not re.fullmatch(r"/pulls\?state=open&per_page=100(?:&page=[1-9][0-9]*)?", path):
+            raise Blocked("UNSAFE_OPEN_PR_PAGINATION")
+        return self._read_http(path, allow_next=True)
 
     def get(self, path):
         if not path.startswith("/") or "//" in path or "://" in path:
@@ -70,6 +99,33 @@ def bounded_list(g, path, key=None, maximum=99):
            "MISSING_OR_UNBOUNDED_GITHUB_PAGE")
     return value
 
+
+def list_open_prs(g):
+    """Consume every GitHub Link-announced open PR page; stop on drift.
+
+    This is a read-only census, not source-approval or merge authority.
+    Missing, duplicated, truncated or unbounded pages always fail closed.
+    """
+    result, seen = [], set()
+    for page in range(1, 11):  # at most 1000 open PRs
+        path = "/pulls?state=open&per_page=100"
+        if page > 1:
+            path += "&page=" + str(page)
+        rows, has_next = g.get_page(path)
+        expect(isinstance(rows, list) and len(rows) <= 100 and
+               (page == 1 or len(rows) > 0),
+               "MISSING_OR_UNBOUNDED_GITHUB_PAGE")
+        for item in rows:
+            expect(isinstance(item, dict) and
+                   type(item.get("number")) is int and
+                   item["number"] > 0 and item["number"] not in seen,
+                   "DUPLICATE_OR_MUTATED_PR_IN_PAGINATION")
+            seen.add(item["number"])
+        result.extend(rows)
+        if not has_next:
+            return result
+        expect(len(rows) == 100, "INCOMPLETE_OPEN_PR_PAGINATION")
+    raise Blocked("OPEN_PR_PAGE_BOUND_EXCEEDED")
 
 def current_main(g):
     base = g.get("/branches/main")
@@ -211,7 +267,7 @@ def audit_one(g, pr):
 
 
 def run(g):
-    prs = bounded_list(g, "/pulls?state=open&per_page=100")
+    prs = list_open_prs(g)
     candidates = sorted((p for p in prs if eligible(p)), key=lambda x: x["number"])
     results = [audit_one(g, p) for p in candidates]
     return {"Schema": "forge.source-admission.r21.readonly.v1",

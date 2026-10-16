@@ -78,6 +78,16 @@ class Fake:
             f"/rulesets/{RULESET}": rules(),
         }
 
+    def get_page(self, path):
+        # Synthetic GitHub Link-next transport; each response is bounded.
+        self.calls.append(path)
+        if path not in self.pages:
+            raise Blocked("MISSING_OR_UNBOUNDED_GITHUB_PAGE")
+        items = copy.deepcopy(self.pages[path])
+        if not isinstance(items, list):
+            raise Blocked("MISSING_OR_UNBOUNDED_GITHUB_PAGE")
+        return items, len(items) == 100
+
     def get(self, path):
         self.calls.append(path)
         if path not in self.pages:
@@ -178,11 +188,60 @@ class SourceAuditTests(unittest.TestCase):
         self.assertFalse(r["MergeAuthorized"])
         self.assertEqual(len(f.calls), 1)
 
-    def test_100_open_prs_fail_closed_not_partial(self):
+    def test_duplicate_open_prs_fail_closed_not_partial(self):
         f = Fake()
         f.pages["/pulls?state=open&per_page=100"] = [pr() for _ in range(100)]
-        with self.assertRaisesRegex(Blocked, "UNBOUNDED"):
+        with self.assertRaisesRegex(Blocked, "DUPLICATE"):
             run(f)
+
+    def test_101_open_prs_paginates_without_missing_eligible_candidate(self):
+        f = Fake()
+        first = []
+        for num in range(1, 101):
+            item = pr()
+            item["number"] = num
+            item["draft"] = True
+            first.append(item)
+        f.pages["/pulls?state=open&per_page=100"] = first
+        f.pages["/pulls?state=open&per_page=100&page=2"] = [f.candidate]
+        r = run(f)
+        self.assertEqual(r["Count"], 1)
+        self.assertEqual(r["Candidates"][0]["PR"], 311)
+        self.assertIn("/pulls?state=open&per_page=100&page=2", f.calls)
+        self.assertFalse(r["MergeAuthorized"])
+        self.assertFalse(r["ScientificAuthority"])
+
+    def test_pagination_page_missing_or_swapped_identity_denied(self):
+        f = Fake()
+        first = []
+        for num in range(1, 101):
+            item = pr()
+            item["number"] = num
+            item["draft"] = True
+            first.append(item)
+        f.pages["/pulls?state=open&per_page=100"] = first
+        with self.assertRaisesRegex(Blocked, "MISSING_OR_UNBOUNDED"):
+            run(f)
+        f.pages["/pulls?state=open&per_page=100&page=2"] = [first[0]]
+        with self.assertRaisesRegex(Blocked, "DUPLICATE"):
+            run(f)
+
+    def test_hard_page_ceiling_does_not_scan_or_authorize_partially(self):
+        f = Fake()
+        for page in range(1, 11):
+            items = []
+            for offset in range(100):
+                item = pr()
+                item["number"] = (page - 1) * 100 + offset + 1
+                item["draft"] = True
+                items.append(item)
+            path = "/pulls?state=open&per_page=100"
+            if page > 1:
+                path += "&page=" + str(page)
+            f.pages[path] = items
+        with self.assertRaisesRegex(Blocked, "OPEN_PR_PAGE_BOUND_EXCEEDED"):
+            run(f)
+        self.assertFalse(any("/merge" in call for call in f.calls))
 
     def test_unqualified_workflow_run_attempt(self):
         f = Fake()

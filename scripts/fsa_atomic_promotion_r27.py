@@ -9,6 +9,7 @@ import json
 import sys
 
 from fsa_source_audit import (Blocked, GitHub, SHA, audit_one, bounded_list,
+                              list_open_prs,
                               current_main, eligible, expect, REPO)
 from fsa_policy_anchor_r26 import observe as policy_anchor
 
@@ -112,7 +113,7 @@ def check(api, number, expected_head, expected_main):
 
 
 def run(api):
-    open_prs = bounded_list(api, "/pulls?state=open&per_page=100", maximum=99)
+    open_prs = list_open_prs(api)
     current = current_main(api)
     eligible_prs = sorted((p for p in open_prs if eligible(p)),
                           key=lambda p: p["number"])
