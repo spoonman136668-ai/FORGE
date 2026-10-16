@@ -1,6 +1,6 @@
 # ADR 0001 — FORGE-native scientific authority
 
-**Status:** Approved architectural direction; design-only, **not deployed**.
+**Status:** Historical architecture direction, design-only, **not deployed**. **ADR 0002 supersedes all optional CKB-plane importer language here:** FORGE is independent of CKB-plane and Mind-Palace is its sole read-only cross-project context bridge.
 
 ## Canonical names and ownership
 
@@ -16,15 +16,15 @@ rename, or replace the FSA.
 | FORGE research lanes | Isolated Wingless, Yggdrasil and independently added future programs; each has its own queue and durable state |
 | FORGE execution agents | Dedicated FORGE runner pool with bounded leases, resource limits and exact immutable work orders; no existing CKB/KTRADE controller lease |
 | FORGE memory adapter | Direct **read-only** Mind-Palace retrieval of the minimum relevant records with pinned source SHA and full provenance; advisory only |
-| Optional legacy import adapter | Import independently authenticated historical results from CKB-plane as **unprivileged, read-only source evidence**, never as FORGE governance or execution authority |
+| FORGE evidence intake | Qualify genuine Wingless/Yggdrasil research evidence under **FORGE-owned independent custody** only; no CKB-plane importer, owner-wake dependency, cross-repository token or CKB-plane authorization |
 
 CKB-plane's existing live controller and scientific authority retain sole
 control **over their own current work and accepted records**. They are not
 FSA. FORGE must not route new FORGE work through their private queues merely
-because historical experiments ran there. A future transition needs a
-separate, explicit, independently qualified migration contract; an upstream
-source file or historical accepted result does not grant FORGE permission to
-replay it.
+because historical experiments ran there. FORGE never requests or uses that controller's private run history, source,
+queue, witness or first-use ledger as a FORGE eligibility gate. Historical
+references already archived in FORGE remain provenance only, not a future
+integration pathway. See [ADR 0002](ADR-0002-MIND-PALACE-ONLY-NO-CKB-DEPENDENCY.md).
 
 ## Required isolation
 
