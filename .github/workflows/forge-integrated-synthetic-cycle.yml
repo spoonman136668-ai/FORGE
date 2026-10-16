@@ -10,6 +10,7 @@ on:
       - 'nativeevidence/**'
       - 'reference/research-intake/f100-frozen-successor-contract.json'
       - 'reference/research-intake/f101-wingless-development-freeze.json'
+      - 'reference/research-intake/f102-yggdrasil-role-dev-freeze.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'cmd/forge-model-free-loop/**'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
@@ -26,6 +27,7 @@ on:
       - 'nativeevidence/**'
       - 'reference/research-intake/f100-frozen-successor-contract.json'
       - 'reference/research-intake/f101-wingless-development-freeze.json'
+      - 'reference/research-intake/f102-yggdrasil-role-dev-freeze.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'evoportfolio/**'
       - 'classification/**'
@@ -265,6 +267,57 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F101_REAL_BOUNDED_PUBLIC_DEVELOPMENT=PASS'
           Write-Host 'FORGE_F101_PROSPECTIVE_ORIGINALS_AND_MODEL_APIS=ZERO'
+      - name: Qualify learned Yggdrasil F102 typed-role public development and controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f102_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F102_TYPED_ROLE_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f102-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $out=Join-Path $outdir 'f102-yggdrasil-public-dev.json'
+          & $python -B nativeevidence/f102_yggdrasil_public_roles.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F102_REAL_LEARNED_ROLE_COMPOSITION_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f102.yggdrasil-public-dev-real-learned-role-composer.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.lane -cne 'Yggdrasil' -or $d.candidate_id -cne 'Y100-C1' -or
+              $d.total_public_development_pairs -ne 144 -or
+              $d.training_pairs -ne 96 -or
+              $d.public_development_assessment_pairs -ne 48 -or
+              $d.trainable_parameters -ne 18 -or
+              $d.learned_training_updates -ne 100 -or
+              $d.blind_control_training_updates -ne 100 -or
+              $d.scientific_originals_executed -ne 0 -or
+              $d.independent_scientific_results_accepted -ne 0 -or
+              $d.first_use_authorized -or $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_invocations -ne 0 -or
+              $d.external_model_api_calls -ne 0 -or $d.chatgpt_work_tasks -ne 0 -or
+              $d.ckb_plane_accessed -or
+              -not $d.historical_Y_F9_zero_of_192_negative_preserved -or
+              -not $d.coded_oracle_only_control) {
+            throw 'FORGE_F102_PUBLIC_DEVELOPMENT_NONAUTHORITY_DRIFT'
+          }
+          $scores=$d.paired_public_dev_accuracy
+          if ($scores.learned_typed_role_composer -lt 0.75 -or
+              $scores.size_matched_role_blind -ne 0 -or
+              $scores.always_yes_shortcut -ne 0 -or
+              $scores.coded_typed_role_oracle -ne 1 -or
+              $d.node_renaming_prediction_agreement -ne 1 -or
+              $d.worst_role_family_accuracy -lt 0.60 -or
+              -not $d.public_development_screen_passed) {
+            throw 'FORGE_F102_FROZEN_PUBLIC_DEVELOPMENT_SCREEN_FAILED'
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f102-yggdrasil-public-dev.sha256'),
+            "$digest  f102-yggdrasil-public-dev.json`n",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F102_YGGDRASIL_LEARNED_ROLE_DEVELOPMENT=PASS'
+          Write-Host 'FORGE_F102_PROTECTED_FIRST_USE_AND_PAID_MODELS=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -392,6 +445,7 @@ jobs:
             ${{ runner.temp }}/forge-f98-evidence/
             ${{ runner.temp }}/forge-f100-development/
             ${{ runner.temp }}/forge-f101-development/
+            ${{ runner.temp }}/forge-f102-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
