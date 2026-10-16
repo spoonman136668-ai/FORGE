@@ -170,6 +170,14 @@ func ValidateF93MatchedPlan(w,y FrozenSixPolicyTrial,p F93MatchedPlan)error{
  if err!=nil||expected!=p||!exactHex(p.PlanSHA256,64){return ErrF93}
  return nil
 }
+// ValidateF93PinnedPlan compares the new protocol to an independently
+// obtained pre-outcome design digest. Caller-supplied pins are NOT independent
+// evidence: this only rejects change relative to the pin actually supplied.
+func ValidateF93PinnedPlan(w,y FrozenSixPolicyTrial,p F93MatchedPlan,precommittedSHA256 string)error{
+ if !exactHex(precommittedSHA256,64)||ValidateF93MatchedPlan(w,y,p)!=nil||
+  p.PlanSHA256!=precommittedSHA256{return ErrF93}
+ return nil
+}
 // Source review NEVER implies the requested matched tasks existed or the
 // order was independently randomized. Every record and SHA here is supplied.
 func auditF93Lane(f FrozenSixPolicyTrial,blocks []F93MatchedBlock,
