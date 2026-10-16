@@ -18,7 +18,7 @@ The existing synthetic Promptbreeder and DGM/GenEnv candidate screen **remains c
 
 ## Verification
 
-The source-only `nativeevidence/f98_historical_shadow.py` validates the exact GitHub responses; tests include wrong experiment, repo, commit, event, workflow, attempt, run conclusion, metadata digest, expiry, duplicate archive IDs, incomplete listing, cross-lane substitution, malformed JSON and false training promotion. The existing integrated workflow emits `forge-f98-evidence/f98-real-source-shadow.json` plus its content-digest manifest alongside the older synthetic proof. Any upstream metadata drift blocks the workflow instead of fabricating records.
+The source-only `nativeevidence/f98_historical_shadow.py` validates the exact GitHub responses; tests include wrong experiment, repo, commit, event, workflow, attempt, run conclusion, metadata digest, expiry, duplicate archive IDs, incomplete listing, cross-lane substitution, malformed JSON and false training promotion. The existing integrated workflow emits `forge-f98-evidence/f98-real-source-shadow.json` plus its content-digest manifest alongside the older synthetic proof. All upstream metadata drift **quarantines F98's optional external-provenance step** and deletes its partial evidence output. It does **not** block the independent core two-lane synthetic acceptance. Native source-verifier unit tests remain mandatory and fail the workflow if defective.
 
 **What this closes:** A real two-lane GitHub provenance-only history bridge to FORGE's model-free operational loop.
 
