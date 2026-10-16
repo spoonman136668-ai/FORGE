@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - 'nativeevidence/**'
+      - 'reference/research-intake/f100-frozen-successor-contract.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'cmd/forge-model-free-loop/**'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
@@ -22,6 +23,7 @@ on:
       - 'genenv/**'
       - 'optimizerstages/**'
       - 'nativeevidence/**'
+      - 'reference/research-intake/f100-frozen-successor-contract.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'evoportfolio/**'
       - 'classification/**'
@@ -158,6 +160,60 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
           & $python -B -m unittest discover -s nativeevidence -p 'test_f99_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_F99_REAL_ARCHIVE_ADVERSARIAL_TESTS_FAILED' }
+      - name: Qualify bounded F100 real-negative successor preregistration (source-only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f100_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F100_PREREG_ADVERSARIAL_TESTS_FAILED' }
+          $outdir = Join-Path $env:RUNNER_TEMP 'forge-f100-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $reportPath = Join-Path $outdir 'f100-successor-prereg-proof.json'
+          & $python -B nativeevidence/f100_frozen_successors.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $reportPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F100_FROZEN_CONTRACT_FAILED' }
+          $proof=Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.autonomy.f100.development-successor-preregistration-proof.v1' -or
+              $proof.forge_source_sha -cne $env:GITHUB_SHA -or
+              $proof.f99_parent_git_blob_sha -cne 'a280814e324d80bcc2590bbab939446180683e45' -or
+              $proof.lanes.Count -ne 2 -or
+              $proof.lanes[0].lane -cne 'Wingless' -or
+              $proof.lanes[1].lane -cne 'Yggdrasil' -or
+              $proof.candidates_frozen -ne 4 -or
+              $proof.historical_development_negative_pairs -ne 288 -or
+              $proof.new_experiments_executed -ne 0 -or
+              $proof.new_results_observed -ne 0 -or
+              $proof.trainable_policy_updates -ne 0 -or
+              $proof.model_calls -ne 0 -or $proof.codex_calls -ne 0 -or
+              $proof.paid_external_model_calls -ne 0 -or
+              $proof.scientific_first_use_authorized -or
+              $proof.autonomous_research_established -or
+              $proof.accepted_ref_mutations -ne 0) {
+            throw 'FORGE_F100_UNAUTHORIZED_SCIENTIFIC_OR_MODEL_EXECUTION'
+          }
+          $all=@()
+          foreach ($lane in $proof.lanes) {
+            if ($lane.candidate_ids.Count -ne 2 -or
+                $lane.public_development_seed_count -ne 48 -or
+                $lane.implementation_started -or
+                $lane.science_first_use_authorized -or
+                $lane.retrospective_learned_correct_pairs -ne 0 -or
+                $lane.retrospective_coded_control_pairs -ne $lane.authentic_negative_pairs) {
+              throw 'FORGE_F100_FROZEN_DEV_BOUNDARY_FAILED'
+            }
+            $all += $lane.candidate_ids
+          }
+          if (@($all | Select-Object -Unique).Count -ne 4) {
+            throw 'FORGE_F100_DUPLICATED_CANDIDATE_LINEAGE'
+          }
+          $digest=(Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f100-successor-prereg-proof.sha256'),
+            "$digest  f100-successor-prereg-proof.json`n",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F100_FROZEN_FOUR_CANDIDATE_DEV_DESIGN=PASS'
+          Write-Host 'FORGE_F100_NEW_SCIENCE_AND_AUTONOMOUS_MODEL=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -283,6 +339,7 @@ jobs:
             ${{ runner.temp }}/forge-model-free-advisory.json
             ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-f98-evidence/
+            ${{ runner.temp }}/forge-f100-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
