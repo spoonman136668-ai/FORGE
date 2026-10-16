@@ -2,6 +2,7 @@ package optimizerbridge
 
 import (
  "errors"
+ "reflect"
  "strings"
  "testing"
 )
@@ -63,7 +64,7 @@ func TestF60SourceConsistentShadowNeverEarnsProspectiveAuthority(t *testing.T){
  }
  if actual,err:=ObserveF60FromSignedExport(f,SignedExport{},ExternalTrust{},
   [2][]byte{},pins,[2]SignedSelectionAudit{},[2]SelectionAuditPin{});
-  !errors.Is(err,ErrF60)||actual!=(F60ShadowCandidateObservation{}) {
+  !errors.Is(err,ErrF60)||!reflect.DeepEqual(actual,F60ShadowCandidateObservation{}) {
   t.Fatalf("missing source credentials accepted %+v %v",actual,err)
  }
 }
@@ -91,7 +92,7 @@ func TestF60SpoofedSignedHistoricalInputsRejected(t *testing.T){
    _,p,r:=f60SyntheticShadowForTest(t)
    change(&r,&p)
    out,err:=previewF60Review(f,p,r)
-   if !errors.Is(err,ErrF60)||out!=(F60ShadowCandidateObservation{}){
+   if !errors.Is(err,ErrF60)||!reflect.DeepEqual(out,F60ShadowCandidateObservation{}){
     t.Fatalf("admitted forged source claims: %+v %v",out,err)
    }
   })
