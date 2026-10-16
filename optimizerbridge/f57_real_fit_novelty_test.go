@@ -46,8 +46,7 @@ func TestF57GenuineFITNoveltyIsBoundedAndNeverAnActivation(t *testing.T){
  if err!=nil||activated.DreamPareto!="WAITING_AUTHENTIC_PROSPECTIVE_COMPARISON"||
   activated.ThetaEvolve!="WAITING_INDEPENDENTLY_ACCEPTED_NEW_RESULTS"||
   activated.PromptbreederAndGenEnv!="BOUNDED_UNTESTED_NOVELTY_PROPOSALS_READY"||
-  activated.ControllerCutoverAuthorized||activated.ScientificOriginalDispatchAuthorized||
-  activated.ScientificOriginalDispatchAuthorized||activated.AcceptedRefMutation{
+  activated.ControllerCutoverAuthorized||activated.ScientificOriginalDispatchAuthorized||activated.AcceptedRefMutation{
   t.Fatalf("proposal falsely promoted policy or experiment: %+v %v",activated,err)
  }
 }
