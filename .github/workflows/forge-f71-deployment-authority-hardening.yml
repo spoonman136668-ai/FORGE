@@ -1,7 +1,7 @@
 name: FORGE F71 deployed-authority hard-denial and real Cloudflare readiness
 on:
   push:
-    branches: [engineering/f71-deployment-authority-nonbypass-20261016-r1]
+    branches: [research/forge-f71-cloudflare-actual-readback-repair-20261016-r1]
 permissions:
   contents: read
 concurrency:
@@ -70,7 +70,9 @@ jobs:
           PYTHONPATH=d1retention python3 -B d1retention/f71_release_readiness.py > "$RUNNER_TEMP/f71-real-deployment.json"
           python3 -B - "$RUNNER_TEMP/f71-real-deployment.json" <<'PY'
           import json,sys
-          d=json.load(open(sys.argv[1]))
+          lines=open(sys.argv[1],encoding='utf-8').read().splitlines()
+          assert len(lines)>=1 and len(lines)<=4
+          d=json.loads(lines[0])
           assert d["schema"]=="forge.f71.real-deployment-firstuse-denial.v1"
           assert d["existing_serving_worker_single_version_verified"] is True
           assert d["existing_cloudflare_d1_binding_verified"] is True
@@ -88,7 +90,9 @@ jobs:
           PYTHONPATH=d1retention python3 -B d1retention/f62_firstuse_readonly.py > "$RUNNER_TEMP/f62-preflight.json"
           python3 -B - "$RUNNER_TEMP/f62-preflight.json" <<'PY'
           import json,sys
-          d=json.load(open(sys.argv[1]))
+          lines=open(sys.argv[1],encoding='utf-8').read().splitlines()
+          assert len(lines)>=1 and len(lines)<=4
+          d=json.loads(lines[0])
           assert d["schema"]=="forge.f62.existing-d1-firstuse-readonly-recovery-preflight.v1"
           assert d["d1_time_travel_bookmark_readable"] is True
           assert d["six_previous_original_archives_and_seals_unchanged"] is True
