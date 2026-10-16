@@ -10,6 +10,10 @@ on:
     branches: [main]
     paths:
       - 'cmd/forge-research-cycle/**'
+      - 'cmd/forge-model-free-loop/**'
+      - 'promptlineage/**'
+      - 'genenv/**'
+      - 'optimizerstages/**'
       - 'evoportfolio/**'
       - 'classification/**'
       - 'subprocesssupervisor/**'
@@ -47,7 +51,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          go test -count=1 ./cmd/forge-research-cycle ./evoportfolio ./classification ./researchstate ./subprocesssupervisor ./syntheticsupervisor ./sandboxworker
+          go test -count=1 ./cmd/forge-research-cycle ./cmd/forge-model-free-loop ./promptlineage ./genenv ./optimizerstages ./evoportfolio ./classification ./researchstate ./subprocesssupervisor ./syntheticsupervisor ./sandboxworker
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_INTEGRATED_SCIENTIFIC_CONTROLS_FAILED' }
       - name: Execute separately pinned native synthetic Wingless and Yggdrasil processes
         shell: pwsh
@@ -89,12 +93,61 @@ jobs:
           Write-Host 'SYNTHETIC_TWO_LANE_CYCLE=PASS'
           Write-Host 'ORIGINAL_SCIENCE_CONSUMED=0'
           Write-Host 'UNATTENDED_PROD_AUTONOMY_NOT_CLAIMED=TRUE'
+      - name: Run both frozen model-free proposal generators and stage advisory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_MODEL_FREE_GENERATORS_FAILED' }
+          $raw2 = & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0 -or ($raw -join "`n") -cne ($raw2 -join "`n")) {
+            throw 'FORGE_MODEL_FREE_PROPOSAL_NONDETERMINISTIC'
+          }
+          $proof = ($raw -join "`n") | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $proof.source_commit_sha -cne $env:GITHUB_SHA -or
+              $proof.evidence_type -cne 'SYNTHETIC_FROZEN_SOURCE_ONLY_NOT_NEW_SCIENTIFIC_EVIDENCE' -or
+              $proof.lanes.Count -ne 2 -or
+              $proof.lanes[0].lane -cne 'Wingless' -or
+              $proof.lanes[1].lane -cne 'Yggdrasil' -or
+              $proof.model_invocations -ne 0 -or $proof.codex_invocations -ne 0 -or
+              $proof.network_calls -ne 0 -or $proof.new_scientific_originals -ne 0 -or
+              $proof.scientific_first_use_authorized -or
+              $proof.real_research_progress_established -or
+              $proof.policy_promotion_authorized -or $proof.accepted_ref_mutations -ne 0) {
+            throw 'FORGE_MODEL_FREE_SOURCE_ONLY_BOUNDARY_FAILED'
+          }
+          $ids = @{}
+          foreach ($lane in $proof.lanes) {
+            if ($lane.prompt_candidates -ne 2 -or $lane.environment_candidates -ne 2 -or
+                $lane.negative_records -ne 1 -or $lane.invalid_records -ne 1 -or
+                $lane.mixed_records -ne 1 -or $lane.proposal_ids.Count -ne 4 -or
+                -not $lane.all_candidates_untested -or -not $lane.full_population_screened -or
+                $lane.science_accepted -or $lane.original_dispatch_authorized -or
+                $lane.advisory_assessment -cne 'BOUNDED_UNTESTED_NOVELTY_PROPOSALS_READY') {
+              throw 'FORGE_MODEL_FREE_MISSING_CANDIDATES_OR_UNEARNED_AUTHORITY'
+            }
+            foreach ($id in $lane.proposal_ids) {
+              if ($ids.ContainsKey([string]$id)) { throw 'FORGE_MODEL_FREE_DUPLICATE_CANDIDATE' }
+              $ids[[string]$id] = $true
+            }
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.json'
+          [System.IO.File]::WriteAllText($out, ($raw -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+          $hash = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.sha256'),
+            "$hash  forge-model-free-advisory.json`n", [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_MODEL_FREE_FROZEN_TWO_LANE_ADVISORY=PASS'
+          Write-Host 'MODEL_EXECUTION_AND_NEW_ORIGINAL_SCIENCE=ZERO'
+          Write-Host 'PROPOSALS_ARE_SYNTHETIC_AND_UNTESTED=TRUE'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
           name: forge-safe-cycle-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/forge-cycle-proof.json
+            ${{ runner.temp }}/forge-model-free-advisory.json
+            ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error

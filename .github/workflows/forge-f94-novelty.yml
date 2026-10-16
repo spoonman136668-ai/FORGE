@@ -1,0 +1,72 @@
+name: FORGE F94 Promptbreeder and GenEnv novelty source qualification
+on:
+  push:
+    branches: [engineering/f94-novelty-screening-20261016-r1]
+    paths:
+      - 'optimizerstages/f94_*'
+      - '.github/workflows/forge-f94-novelty.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'optimizerstages/f94_*'
+      - '.github/workflows/forge-f94-novelty.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f94-novelty-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  novelty-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify authentic prior FORGE optimizer source qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gh api --method GET repos/spoonman136668-ai/FORGE/actions/runs/38966044988 > "$RUNNER_TEMP/f94-f93-ci.json"
+          python3 - "$RUNNER_TEMP/f94-f93-ci.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert x["id"]==38966044988
+          assert x["repository"]["full_name"]=="spoonman136668-ai/FORGE"
+          assert x["head_sha"]=="a5d1b08e3fff6f91d58e057e00abbce9bb8f2ab9"
+          assert x["name"]=="FORGE F93 matched-block optimizer source qualification"
+          assert x["status"]=="completed" and x["conclusion"]=="success"
+          print("F94_REAL_F93_SOURCE_QUALIFICATION=PASS")
+          print("F94_SCIENTIFIC_NOVELTY=NOT_ESTABLISHED")
+          PY
+      - name: Exercise both generators and frozen structural screening
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -run '^TestF94' -v ./optimizerstages
+          go test -count=1 ./optimizerstages ./promptlineage ./genenv ./dreamrsi ./evoportfolio ./thetaadapt
+          go vet ./optimizerstages ./promptlineage ./genenv
+          echo 'F94_PROMPTBREEDER_GENENV_SOURCE_JOIN=TESTED'
+          echo 'F94_EXTERNAL_ARTIFACT_IMPLEMENTATION=NOT_VERIFIED'
+          echo 'F94_REAL_SCIENTIFIC_NOVELTY=NOT_ESTABLISHED'
+          echo 'F94_DREAM_PARETO_PROMOTION=DENIED'
+          echo 'F94_THETA_ACCEPTED_TRAINING=DENIED'
+          echo 'F94_SCIENTIFIC_DISPATCH=ZERO'
+          echo 'F94_CLOUDFLARE_WRITES=ZERO'
+          echo 'F94_CKB_DEPENDENCIES=ZERO'
+      - name: Full FORGE regression and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F94_OPTIMIZER_SOURCE_QUALIFICATION=PASS'
