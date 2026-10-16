@@ -1,0 +1,69 @@
+name: FORGE F81 native two-lane real-science evidence fence
+on:
+  push:
+    branches: [engineering/f81-native-live-two-lane-evidence-fence-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  native-real-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head native owner lease and research evidence negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          PYTHONPATH=nativefirstuse:research/f80 python3 -B -m unittest discover -s nativefirstuse -p 'test_f81_*.py' -v
+          PYTHONPATH=research/f80 python3 -B -m unittest discover -s research/f80 -p 'test_*.py' -v
+          go test -count=1 ./nativefirstuse ./originalclaim ./workerlease
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Read authentic current native lane state plus exact pinned FIT archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativefirstuse/f74_live_native_intake.py > "$RUNNER_TEMP/native-live.txt"
+          head -n 1 "$RUNNER_TEMP/native-live.txt" > "$RUNNER_TEMP/native-live.json"
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38830952488/artifacts > "$RUNNER_TEMP/w.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38831091860/artifacts > "$RUNNER_TEMP/y.json"
+          python3 -B nativefirstuse/f81_native_evidence.py "$RUNNER_TEMP/native-live.json" "$RUNNER_TEMP/w.json" "$RUNNER_TEMP/y.json" > "$RUNNER_TEMP/f81.jsonl"
+          python3 -B - "$RUNNER_TEMP/f81.jsonl" <<'PY'
+          import json,sys
+          lines=open(sys.argv[1]).read().splitlines()
+          assert len(lines)==3
+          r=json.loads(lines[0])
+          assert r["schema"]=="forge.f81.native-live-dual-lane-evidence-review.v1"
+          assert r["two_live_lanes_verified"] and r["two_real_fit_archive_metadata_identities_verified"]
+          assert r["fresh_independently_accepted_originals"]==0
+          for k in ("policy_training_qualified","dream_rsi_pareto_promoted",
+                    "cloudflare_firstuse_permit_issued","new_original_dispatched",
+                    "scientific_execution_authorized"):
+              assert r[k] is False
+          assert lines[1:] == ["F81_NEW_PROSPECTIVE_SCIENCE=DENIED","F81_DREAM_PARETO_POLICY_PROMOTION=DENIED"]
+          print("F81_REAL_BOTH_LANES_AND_ARCHIVES=VERIFIED")
+          print("F81_AUTONOMOUS_ORIGINAL_FIRSTUSE=BLOCKED")
+          PY
+          sha256sum "$RUNNER_TEMP/f81.jsonl" > "$RUNNER_TEMP/f81.sha256"
+          sha256sum -c "$RUNNER_TEMP/f81.sha256"
+          echo 'F81_CLOUDFLARE_MUTATIONS=ZERO'
+          echo 'F81_CKB_CONTROLLER_CALLS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f81-native-dual-lane-real-evidence-no-promotion
+          path: |
+            ${{ runner.temp }}/f81.jsonl
+            ${{ runner.temp }}/f81.sha256
+          retention-days: 30
+          if-no-files-found: error
