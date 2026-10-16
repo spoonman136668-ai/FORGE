@@ -11,6 +11,10 @@ import math
 import pathlib
 import sys
 import zipfile
+import os
+import subprocess
+import tempfile
+import re
 
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 FROZEN=ROOT/"reference/research-intake/f99-authentic-development-negative-history.json"
@@ -204,15 +208,45 @@ def assess(zip_paths):
        accepted_ref_mutations=0,
        new_originals_dispatched=0,
        model_calls=0,codex_calls=0,paid_api_calls=0)
+def download_readonly():
+    """Download exact pinned GitHub archives only. No other source or provider."""
+    paths=[]
+    with tempfile.TemporaryDirectory(prefix="forge-f99-") as folder:
+        for spec in frozen()["cohorts"]:
+            path=pathlib.Path(folder)/(spec["lane"].lower()+".zip")
+            endpoint=("repos/"+spec["repository"]+"/actions/artifacts/"+
+                      str(spec["artifact_id"])+"/zip")
+            need(re.fullmatch(r"repos/spoonman136668-ai/(Wingless|Yggdrasil)/actions/artifacts/[0-9]+/zip",
+                              endpoint) is not None,"UNEXPECTED_REMOTE_RESOURCE")
+            with path.open("wb") as sink:
+                proc=subprocess.run(["gh","api","-H",
+                      "Accept: application/vnd.github+json",endpoint],
+                      stdout=sink,stderr=subprocess.PIPE,check=False,timeout=40)
+            need(proc.returncode==0 and path.stat().st_size<1000000,
+                 "PINNED_GITHUB_ARCHIVE_UNAVAILABLE")
+            paths.append(path)
+        return assess(paths)
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("--wingless-zip",required=True)
-    p.add_argument("--yggdrasil-zip",required=True)
+    p.add_argument("--wingless-zip")
+    p.add_argument("--yggdrasil-zip")
+    p.add_argument("--download-readonly",action="store_true")
+    p.add_argument("--source-ref",required=True)
     args=p.parse_args()
-    print(json.dumps(assess([args.wingless_zip,args.yggdrasil_zip]),
-                     sort_keys=True,separators=(",",":")))
+    source=args.source_ref
+    need(type(source) is str and re.fullmatch(r"[0-9a-f]{40}",source) is not None and
+         (not os.environ.get("GITHUB_SHA") or os.environ["GITHUB_SHA"]==source),
+         "FORGE_SOURCE_REF_DRIFT")
+    if args.download_readonly:
+        need(not args.wingless_zip and not args.yggdrasil_zip,"AMBIGUOUS_SOURCE")
+        report=download_readonly()
+    else:
+        need(bool(args.wingless_zip) and bool(args.yggdrasil_zip),"MISSING_TWO_LOCAL_ARCHIVES")
+        report=assess([args.wingless_zip,args.yggdrasil_zip])
+    report["forge_source_sha"]=source
+    print(json.dumps(report,sort_keys=True,separators=(",",":")))
 if __name__=="__main__":
     try:main()
-    except (Quarantined,OSError,KeyError,TypeError) as exc:
+    except (Quarantined,OSError,KeyError,TypeError,subprocess.TimeoutExpired) as exc:
         print("FORGE_F99_AUTHENTIC_DEV_ARCHIVE_ROWS=QUARANTINED "+str(exc),file=sys.stderr)
         raise SystemExit(1)
