@@ -40,6 +40,14 @@ def read_json(path):
     return obj,raw
 def git_blob_sha(data):
     return hashlib.sha1(b"blob "+str(len(data)).encode("ascii")+b"\x00"+data).hexdigest()
+def canonical_git_blob(data):
+    # Windows Git may materialize CRLF for a tracked JSON text blob. Only this
+    # reversible transport normalization is accepted, and it must rehash to
+    # the exact pre-frozen Git blob SHA. Bare CR and all content drift fail.
+    need(type(data) is bytes and 0 < len(data) <= 128000,"PARENT_BYTES_INVALID")
+    need(b"\r" not in data.replace(b"\r\n",b""),"UNEXPECTED_LINE_ENDING")
+    original=data.replace(b"\r\n",b"\n")
+    return git_blob_sha(original)
 def check_contract(f100,f99,parent_bytes):
     need(f100.get("schema")==SCHEMA,"F100_CONTRACT_SCHEMA_DRIFT")
     need(f100.get("prior_f99_head_sha")==BASE,"F99_EXACT_HEAD_DRIFT")
@@ -48,7 +56,7 @@ def check_contract(f100,f99,parent_bytes):
          "F99_SOURCE_PATH_DRIFT")
     need(f100.get("prior_f99_manifest_git_blob_sha")==PARENT_BLOB,
          "F99_CONTRACT_BLOB_DRIFT")
-    need(git_blob_sha(parent_bytes)==PARENT_BLOB,"F99_ACTUAL_BLOB_HASH_DRIFT")
+    need(canonical_git_blob(parent_bytes)==PARENT_BLOB,"F99_ACTUAL_BLOB_HASH_DRIFT")
     need(f99.get("schema")=="forge.autonomy.f99.authentic-development-negative-history.v1" and
          f99.get("purpose")=="FROZEN_ARCHIVED_DEVELOPMENT_NEGATIVES_FOR_READONLY_METHOD_PLANNING_ONLY","PARENT_F99_NEGATIVE_SOURCE_MISSING")
     need(f100.get("scientific_status")=="SOURCE_ONLY_PREREGISTRATION_NO_NEW_EXPERIMENT_OR_AUTONOMOUS_MODEL" and
@@ -174,7 +182,7 @@ def audit(parent_path=F99,contract_path=F100,source_sha=""):
     records=check_contract(f100,f99,raw)
     return {
         "schema":REPORT,"forge_source_sha":source_sha,
-        "f99_parent_git_blob_sha":git_blob_sha(raw),
+        "f99_parent_git_blob_sha":canonical_git_blob(raw),
         "f100_frozen_contract_sha256":hashlib.sha256(contract_raw).hexdigest(),
         "status":"PREREGISTRATION_ONLY_NOT_MODEL_EXECUTION",
         "candidates_frozen":sum(len(z["candidate_ids"]) for z in records),
