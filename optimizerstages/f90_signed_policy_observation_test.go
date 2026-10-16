@@ -45,7 +45,7 @@ func f90SyntheticRows(t *testing.T,f FrozenSixPolicyTrial,seed byte,start uint64
 func TestF90SourceOnlyRealAuthorityNeverInferred(t *testing.T){
  w,y:=f89Frozen("Wingless"),f89Frozen("Yggdrasil")
  wr:=f90SyntheticRows(t,w,11,0,6)
- yr:=f90SyntheticRows(t,y,12,10,6)
+ yr:=f90SyntheticRows(t,y,12,6,6)
  audit,err:=AuditF90PreparedOutcomes(w,wr,y,yr)
  if err!=nil{t.Fatal(err)}
  if !audit.SourceCryptographyConsistent||len(audit.Lanes)!=2||
@@ -78,7 +78,7 @@ func TestF90SourceOnlyRealAuthorityNeverInferred(t *testing.T){
 func TestF90MissingOutcomeSuppressesAllIPSEstimates(t *testing.T){
  w,y:=f89Frozen("Wingless"),f89Frozen("Yggdrasil")
  wr:=f90SyntheticRows(t,w,11,0,6)
- yr:=f90SyntheticRows(t,y,12,10,6)
+ yr:=f90SyntheticRows(t,y,12,6,6)
  yr[3].Classification="MISSING";yr[3].Score=0;yr[3].ComputeUnits=0
  got,err:=AuditF90PreparedOutcomes(w,wr,y,yr)
  if err!=nil{t.Fatal(err)}
@@ -124,9 +124,9 @@ func TestF90CryptographyAndFirstUseClaimsFailClosed(t *testing.T){
 func TestF90TwoLaneSourceAndSignerIsolation(t *testing.T){
  w,y:=f89Frozen("Wingless"),f89Frozen("Yggdrasil")
  wr:=f90SyntheticRows(t,w,11,0,6)
- yr:=f90SyntheticRows(t,y,12,10,6)
+ yr:=f90SyntheticRows(t,y,12,6,6)
  if _,err:=AuditF90PreparedOutcomes(w,wr,y,yr);err!=nil{t.Fatal(err)}
- reusedKey:=f90SyntheticRows(t,y,11,10,6)
+ reusedKey:=f90SyntheticRows(t,y,11,6,6)
  if _,err:=AuditF90PreparedOutcomes(w,wr,y,reusedKey);!errors.Is(err,ErrF90){
   t.Fatalf("same signer across both lanes accepted: %v",err)
  }
