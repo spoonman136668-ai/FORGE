@@ -32,6 +32,10 @@ class F71Tests(unittest.TestCase):
     api,queries,select=self.setup(table_objects)
     def query(c,db,sql):
         if "COUNT(*)" in sql:
+            self.assertIs(c,api)
+            self.assertEqual(db,"existing-production-db")
+            self.assertTrue(sql.startswith("SELECT "))
+            queries.append(sql)
             return [{"n":count}]
         return select(c,db,sql)
     version=caps if caps is not None else {
