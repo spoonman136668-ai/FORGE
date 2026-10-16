@@ -1,0 +1,38 @@
+name: FORGE native Cloudflare D1 atomic first-use candidate
+on:
+  push:
+    branches: [research/forge-native-cloudflare-once-claim-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Frozen parent and native atomic replay tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor fa05c3489e3a73d226df4237b0783dea5c49fffb HEAD
+          python3 -B -m unittest discover -s nativefirstuse -p test_cloudflare_atomic.py -v
+          echo FORGE_D1_ATOMIC_SOURCE=QUALIFIED_LOCAL_ONLY
+          echo FORGE_D1_MIGRATION_AND_SCIENCE=NOT_AUTHORIZED
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Final complete Go regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
