@@ -1,0 +1,85 @@
+name: FORGE native unattended autonomy lane supervision
+on:
+  schedule:
+    - cron: '19 */6 * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - engineering/autonomy-native-lane-supervision-20261016-r1
+    paths:
+      - 'autonomypulse/**'
+      - '.github/workflows/forge-native-autonomy-supervision.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'autonomypulse/**'
+      - '.github/workflows/forge-native-autonomy-supervision.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-native-lane-supervision
+  cancel-in-progress: false
+jobs:
+  operational-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Qualify exact source and separately quarantined research lanes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s autonomypulse -p 'test_*.py' -v
+      - name: Read genuine current Wingless/Yggdrasil operational sources with no first-use grant
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/forge-native-pulse"
+          python3 -B autonomypulse/pulse.py > "$RUNNER_TEMP/forge-native-pulse/stdout.txt" || {
+             head -n 1 "$RUNNER_TEMP/forge-native-pulse/stdout.txt" > "$RUNNER_TEMP/forge-native-pulse/health.json"
+             echo 'FORGE_NATIVE_AUTONOMY_LANE_UNVERIFIED_NO_ACTION' >&2
+             exit 1
+          }
+          python3 -B - "$RUNNER_TEMP/forge-native-pulse/stdout.txt" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:lines=f.readlines()
+          assert len(lines)==3 and lines[1]=="FORGE_AUTONOMY_NATIVE_SUPERVISION=VERIFIED\n"
+          assert lines[2]=="FORGE_AUTONOMY_FIRSTUSE_OR_SCIENCE_DISPATCH=DENIED\n"
+          d=json.loads(lines[0])
+          assert d["schema"]=="forge.autonomy.native-lane-supervision.v1"
+          assert d["both_lanes_operationally_verified"] is True
+          assert [x["lane"] for x in d["lanes"]]==["Wingless","Yggdrasil"]
+          assert all(x["source_and_workflow_confirmed"] is True for x in d["lanes"])
+          assert all(x["science_first_use_approved"] is False for x in d["lanes"])
+          assert all(x["scientific_result_independently_accepted"] is False for x in d["lanes"])
+          assert d["scientific_firstuse_authorized"] is False
+          assert d["owner_or_worker_permit_issued"] is False
+          assert d["originals_dispatched"]==0
+          assert d["workflow_mutations"]==0
+          assert d["optimizer_policy_updated"] is False
+          assert d["ckb_plane_accessed"] is False
+          for x in d["lanes"]:
+              label=x["lane"]+" "+x["operational_disposition"]
+              print("FORGE_AUTONOMY_LANE="+label)
+              if x["stale_over_24_hours"]:
+                  print("::warning title=FORGE autonomy stale continuation::"+label)
+          print("FORGE_AUTONOMY_REAL_LANE_OBSERVATION=PASS")
+          PY
+          head -n 1 "$RUNNER_TEMP/forge-native-pulse/stdout.txt" > "$RUNNER_TEMP/forge-native-pulse/health.json"
+          (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum health.json > health.sha256 && sha256sum -c health.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-native-autonomy-operational-source-only
+          path: |
+            ${{ runner.temp }}/forge-native-pulse/health.json
+            ${{ runner.temp }}/forge-native-pulse/health.sha256
+          if-no-files-found: warn
+          retention-days: 21
