@@ -119,7 +119,7 @@ def qualify(api, now, current_sha):
     require(isinstance(workflow_id, int) and workflow_id > 0 and
             wf.get("path") == ".github/workflows/" + WORKFLOW and
             wf.get("state") == "active", "WORKFLOW_IDENTITY_UNVERIFIED")
-    page = api.get("/actions/runs?event=schedule&per_page=100")
+    page = api.get("/actions/workflows/" + str(workflow_id) + "/runs?event=schedule&per_page=25")
     rows = page.get("workflow_runs")
     require(isinstance(rows, list) and len(rows) <= 100,
             "SCHEDULE_HISTORY_UNVERIFIED")
