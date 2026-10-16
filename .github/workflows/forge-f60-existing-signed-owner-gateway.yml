@@ -1,0 +1,93 @@
+name: FORGE F60 existing signed-owner challenger source gateway
+on:
+  push:
+    branches: [research/f60-signed-owner-challenger-provenance-20261016-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  two-lane-signed-owner-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOMAXPROCS: "2"
+      GOFLAGS: "-p=2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Original frozen controls and exact signed historical selector source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 61becc927a1675f9d71dee5e1aa5306c7d02629f HEAD
+          test "$(git hash-object dreamrsi/replay.go)" = e9317c400df72b7ea45059e9e8d45d9d4f46baa5
+          test "$(git hash-object evoportfolio/island_pareto.go)" = c52fbca609f94fa720f78e94d2f5f71bf3eb7b68
+          test "$(git hash-object optimizerbridge/selection_audit.go)" = 48810d9935b0cfd119991b22300cbaa783bd9adb
+          test "$(git hash-object optimizerbridge/f60_signed_challenger.go)" = 19d7661c6b88dc258972e5e9ded5b346c03d1b2a
+          test "$(git hash-object cmd/forge-f60-owner-observe/main.go)" = 9a4cf0b48032f81cbfdf1ade0a1d3a3d87218758
+          go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio ./cmd/forge-f60-owner-observe
+          echo F60_REAL_SIGNED_SOURCE_ADAPTER_QUALIFIED=PASS
+      - name: Authenticated actual main observer is metadata, never scientific first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f60"; mkdir -p "$root"
+          gh api 'repos/spoonman136668-ai/FORGE/actions/runs/38866669814' |
+            jq -e '.id==38866669814 and .head_sha=="7c7c772f9210a2b20da9bb305a651a300cf543bc" and
+              .status=="completed" and .conclusion=="success" and .run_attempt==1' >/dev/null
+          gh api 'repos/spoonman136668-ai/FORGE/actions/artifacts/12031208522' |
+            jq -e '.id==12031208522 and .name=="forge-observed-research-metadata" and
+              .digest=="sha256:d041c95424086410eb22659fb3d25725a17b1b20c5cb0e735e48a4b40cbddfce" and
+              .workflow_run.id==38866669814 and .expired==false' >/dev/null
+          gh run download 38866669814 --repo "$GITHUB_REPOSITORY" \
+            -n forge-observed-research-metadata -D "$root"
+          jq -e '.schema=="forge.research.metadata-observation.v1" and
+             .mode=="READ_ONLY_GITHUB_RUN_METADATA_NOT_SCIENTIFIC_EVIDENCE" and
+             .wingless.scientific_evidence_authenticated==false and
+             .yggdrasil.scientific_evidence_authenticated==false' "$root/observation.json" >/dev/null
+          cat > "$root/f60-status.json" <<'JSON'
+          {
+            "schema":"forge.optimizer.f60.real-signed-owner-firstuse-status.v1",
+            "existing_frozen_baseline_policies":8,
+            "genuine_new_policy_enrollments_verified":0,
+            "real_prospective_randomized_selections_verified":0,
+            "independently_accepted_policy_improvements":0,
+            "actual_main_research_observer_is_metadata_only":true,
+            "owner_custody_not_supplied_to_this_job":true,
+            "live_dream_pareto_activation":false,
+            "theta_weight_promotion":false,
+            "controller_or_original_dispatch":false,
+            "status":"AWAIT_EXISTING_SIGNED_CLOUD_EXPORT_AND_EXTERNAL_OWNER_FIRSTUSE_CUSTODY"
+          }
+          JSON
+          echo 'F60_ACTUAL_MAIN_METADATA_DOES_NOT_PROMOTE_SELECTION=PASS'
+      - name: No synthetic CLI evidence and one full FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          if go run ./cmd/forge-f60-owner-observe --observation-out "$RUNNER_TEMP/f60/forbidden.json"; then
+            echo 'F60_UNTRUSTED_CANDIDATE_WAS_ACCEPTED'; exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/f60/forbidden.json"
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F60_ONE_FULL_GO_REGRESSION_VET_BUILD=PASS
+          (cd "$RUNNER_TEMP/f60" && sha256sum f60-status.json > f60-status.sha256)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f60-real-signed-owner-readonly-qualification-no-firstuse
+          path: |
+            ${{ runner.temp }}/f60/f60-status.json
+            ${{ runner.temp }}/f60/f60-status.sha256
+          retention-days: 30
+          if-no-files-found: error
