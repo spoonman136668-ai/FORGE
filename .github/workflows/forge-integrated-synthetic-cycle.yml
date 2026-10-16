@@ -165,7 +165,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_UPSTREAM_ARCHIVE_UNAVAILABLE' }
           }
           $out = Join-Path $root 'f98-real-source-shadow.json'
-          & $python -B nativeevidence/f98_historical_shadow.py $env:GITHUB_SHA `              (Join-Path $root 'wingless-run.json') (Join-Path $root 'wingless-artifacts.json') `              (Join-Path $root 'yggdrasil-run.json') (Join-Path $root 'yggdrasil-artifacts.json') |
+          $sourceArgs = @($env:GITHUB_SHA,
+            (Join-Path $root 'wingless-run.json'), (Join-Path $root 'wingless-artifacts.json'),
+            (Join-Path $root 'yggdrasil-run.json'), (Join-Path $root 'yggdrasil-artifacts.json'))
+          & $python -B nativeevidence/f98_historical_shadow.py @sourceArgs |
             Out-File -FilePath $out -Encoding utf8
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_REAL_GITHUB_SOURCE_CUSTODY_FAILED' }
           $report = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
@@ -189,7 +192,7 @@ jobs:
                 $lane.actual_zip_bytes_downloaded_and_rehashed -or
                 $lane.contained_row_data_reaudited_now -or
                 $lane.authenticated_train_only_feature_vectors_available -or
-                $lane.genenenv_train_history_admitted -or
+                $lane.genenv_train_history_admitted -or
                 $lane.original_science_accepted) {
               throw 'FORGE_F98_ARCHIVE_SOURCE_METADATA_MISREPRESENTED'
             }
