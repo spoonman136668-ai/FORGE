@@ -83,7 +83,6 @@ func TestF95CompleteF94PopulationRecomputedBeforeSourceIntake(t *testing.T){
  }
 }
 func TestF95HashOnlyAndCosmeticGoChangesDoNotQualify(t *testing.T){
- f,link,art:=f95SourceFixture(t)
  cases:=map[string]func(*F94Freeze,*F94ImplementationClaim,*F95ThreeSourceArtifacts){
   "manifest fabrication":func(_ *F94Freeze,l *F94ImplementationClaim,_ *F95ThreeSourceArtifacts){
    l.NewRepresentationSHA256=strings.Repeat("0",64)},
