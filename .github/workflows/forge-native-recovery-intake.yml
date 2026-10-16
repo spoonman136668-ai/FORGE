@@ -1,0 +1,37 @@
+name: FORGE native private recovery evidence intake
+on:
+  push:
+    branches: [research/forge-native-recovery-evidence-intake-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Exact frozen ancestry and independent recovery intake negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor e8ee30f82a5f6e552ab50e7a65f7a67265c37ea8 HEAD
+          PYTHONPATH=nativefirstuse python3 -B -m unittest discover -s nativefirstuse -p test_recovery_intake.py -v
+          PYTHONPATH=nativefirstuse python3 -B -m unittest discover -s nativefirstuse -p test_private_recovery.py -v
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Full regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
