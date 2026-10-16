@@ -17,6 +17,8 @@ func f63PSourceFixtures(t *testing.T)(F58Freeze,[]F63PResearchIntake){
  for i:=0;i<2;i++{
   _,n,trials:=f62Fixture(t,i,1)
   trial:=trials[0]
+  // Owner originals must be distinct across independent research lanes.
+  trial.OriginalReceiptSHA256=fmt.Sprintf("%064x",i+16384)
   selectClaim:=f58TestOnlyTrial(f,i)
   selectClaim.FrozenDreamPolicySHA256=n.DreamPolicySHA256
   selectClaim.FrozenParetoPolicySHA256=n.ParetoPolicySHA256
