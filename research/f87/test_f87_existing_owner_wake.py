@@ -66,7 +66,7 @@ class ExistingOwnerWake(unittest.TestCase):
             lambda j: j["jobs"][0].update(run_id=f.RUN + 1),
             lambda j: j["jobs"][0].update(run_attempt=2),
             lambda j: j["jobs"][0].update(conclusion="failure"),
-            lambda j: j["jobs"][0]["steps"].pop(),
+            lambda j: j["jobs"][0]["steps"].pop(38),
             lambda j: j["jobs"][0]["steps"][38].update(conclusion="success"),
             lambda j: j["jobs"][0]["steps"][38].update(name="unknown"),
             lambda j: j["jobs"][0]["steps"][38].update(status="in_progress"),
