@@ -1,0 +1,33 @@
+name: FORGE to rbackup no-secret cross-repository custody probe
+on:
+  push:
+    branches: [research/forge-rbackup-credentialless-write-probe-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Existing runner GitHub token private destination rights
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          response="$(curl -sS -o "$RUNNER_TEMP/rbackup-code" -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' https://api.github.com/repos/spoonman136668-ai/rbackup)"
+          test "$response" = 200 || test "$response" = 403 || test "$response" = 404
+          echo "RBACKUP_REPOSITORY_READ_HTTP=$response"
+          if [ "$response" = 200 ]; then
+            jq -e '.full_name=="spoonman136668-ai/rbackup" and .private==true' "$RUNNER_TEMP/rbackup-code" >/dev/null
+            echo 'RBACKUP_PRIVATE_IDENTITY=VERIFIED'
+          else
+            echo 'RBACKUP_PRIVATE_IDENTITY=NOT_ACCESSIBLE_WITH_FORGE_TOKEN'
+          fi
+          echo 'BACKUP_TRANSFER_PERFORMED=FALSE'
+          echo 'BACKUP_EXPORT_PERFORMED=FALSE'
+          echo 'LIVE_D1_CHANGED=FALSE'
