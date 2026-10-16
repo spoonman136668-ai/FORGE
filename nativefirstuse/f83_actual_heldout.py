@@ -25,8 +25,8 @@ def audit_rows(rows,verdict):
  for row in rows:
   require(type(row) is dict and type(row.get("score")) is dict,"ROW_SHAPE")
   seed=row.get("seed");fam=row.get("family")
-  require(type(seed) is str and seed.isdecimal() and
-   801008<=int(seed)<801016 and fam in per_family,"ROW_COHORT")
+  require(type(seed) is int and type(fam) is int and
+   801008<=seed<801016 and str(fam) in per_family,"ROW_COHORT")
   key=(seed,fam)
   require(key not in seen,"REPEATED_ROW")
   seen.add(key)
@@ -34,8 +34,8 @@ def audit_rows(rows,verdict):
    value=row["score"].get(name)
    require(type(value) is int and value in (0,1),"BINARY_SCORE")
    scores[name]+=value
-  per_family[fam]["strongest_fair"]+=row["score"]["F60_fixed"]
-  per_family[fam]["trained"]+=row["score"]["F63C_trained_reliability"]
+  per_family[str(fam)]["strongest_fair"]+=row["score"]["F60_fixed"]
+  per_family[str(fam)]["trained"]+=row["score"]["F63C_trained_reliability"]
   for audit in ("independent_model_audit","independent_ablation_audit"):
    a=row.get(audit)
    require(type(a) is dict and a.get("source_independent_F3") is False and
