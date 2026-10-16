@@ -5,7 +5,7 @@ import {verifyJWT,observeRealOrigin,Denied} from "./f73_protected_main_oidc.mjs"
 const ISS="https://token.actions.githubusercontent.com";
 const REPO="spoonman136668-ai/FORGE";
 const SHA="a".repeat(40);
-const BRANCH="engineering/f73-real-forge-oidc-origin-science-denial-20261016-r1";
+const BRANCH="engineering/f73-protected-main-real-oidc-readonly-20261016-r1";
 const REF="refs/heads/"+BRANCH;
 const WFLOW=REPO+"/.github/workflows/forge-f73-protected-main-identity.yml@"+REF;
 const AUD="forge-f73-observe-protected-main-no-science";

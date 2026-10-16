@@ -112,7 +112,7 @@ export async function observeRealOrigin({
  requireTrue(String(run.id)===pins.run_id&&
   run.head_sha===pins.sha&&run.head_branch===pins.ref.slice(11)&&
   run.event==="push"&&run.run_attempt===1&&
-  run.path===".github/workflows/forge-f73-real-oidc-readonly.yml");
+  run.path===".github/workflows/forge-f73-protected-main-identity.yml");
  const main=await getJSON(GITHUB+"/repos/"+REPO+"/branches/main",fetcher);
  requireTrue(isObj(main.commit)&&hex40.test(main.commit.sha)&&
   typeof main.protected==="boolean");
