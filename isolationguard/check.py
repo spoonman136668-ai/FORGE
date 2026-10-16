@@ -82,6 +82,29 @@ def verify_policy_files(root: pathlib.Path) -> None:
         p = root / path
         if not p.is_file() or literal not in p.read_text(encoding="utf-8"):
             raise GateError("MISSING_OPERATOR_BOUNDARY:" + path)
+    # ISO-02: Old dispatchable cross-system workflow must be absent, not merely
+    # unscheduled. Check every extant workflow, not only the newest patch.
+    workflows = root / ".github" / "workflows"
+    if not workflows.is_dir():
+        raise GateError("MISSING_GITHUB_WORKFLOWS")
+    legacy = workflows / "forge-ckb-s14-readonly-history.yml"
+    if legacy.exists():
+        raise GateError("LEGACY_CKB_WORKFLOW_NOT_RETIRED")
+    for workflow in sorted(workflows.glob("*")):
+        if workflow.is_file() and workflow.suffix in (".yml", ".yaml"):
+            for line in workflow.read_text(encoding="utf-8").splitlines():
+                if unsafe_line(line):
+                    raise GateError("ACTIVE_PRIVATE_REPO_WORKFLOW:" + workflow.name)
+    # The historical Go CLI is intentionally retained only as a guaranteed
+    # offline, fail-closed stub. The historical library is not an entrypoint.
+    legacy_cli = root / "cmd" / "forge-ckb-s14-history" / "main.go"
+    if not legacy_cli.is_file():
+        raise GateError("MISSING_RETIRED_COMMAND_SENTINEL")
+    body = legacy_cli.read_text(encoding="utf-8")
+    if ("const FORGE_CKB_LEGACY_COMMAND_RETIRED = true" not in body or
+        "return errRetired" not in body or
+        "ckbhistory" in body or "http." in body or "InspectS14(" in body):
+        raise GateError("LEGACY_CKB_COMMAND_NOT_FAIL_CLOSED")
 
 def audit_repo(root: pathlib.Path) -> list[tuple[str, str]]:
     verify_policy_files(root)
