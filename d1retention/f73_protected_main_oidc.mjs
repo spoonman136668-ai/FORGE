@@ -159,7 +159,7 @@ export async function observeRealOrigin({
    : "REAL_ENGINEERING_GITHUB_OIDC_VERIFIED_NO_SCIENCE_OWNER",
  };
 }
-if(process.argv[1]?.endsWith("f73_real_oidc_readonly.mjs")){
+if(process.argv[1]?.endsWith("f73_protected_main_oidc.mjs")){
  try{
   const r=await observeRealOrigin();
   process.stdout.write(JSON.stringify(r)+"\n");

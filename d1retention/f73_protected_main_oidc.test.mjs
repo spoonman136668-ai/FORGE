@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {generateKeyPairSync,sign} from "node:crypto";
-import {verifyJWT,observeRealOrigin,Denied} from "./f73_real_oidc_readonly.mjs";
+import {verifyJWT,observeRealOrigin,Denied} from "./f73_protected_main_oidc.mjs";
 const ISS="https://token.actions.githubusercontent.com";
 const REPO="spoonman136668-ai/FORGE";
 const SHA="a".repeat(40);
