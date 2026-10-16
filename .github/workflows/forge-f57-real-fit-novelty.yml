@@ -1,0 +1,35 @@
+name: FORGE F57 grounded novelty prequalification
+on:
+  push:
+    branches: [research/f57-authentic-fit-novelty-design-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-and-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: New structural proposal and blocked-promotion unit gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerbridge
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F57_AUTHENTIC_FIT_NOVELTY_ONLY=PASS
+      - name: Observe first-attempt public owner FIT receipts, no runner dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38827325626 |
+            jq -e '.run_attempt == 1 and .conclusion == "success" and .head_sha == "4f30c36b53bb6a6a472a50a6545850b286590384"' >/dev/null
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38827162260 |
+            jq -e '.run_attempt == 1 and .conclusion == "success" and .head_sha == "e6c2aa8fc0b0a2d4acb5eded160d34e9fa85c3b6"' >/dev/null
+          echo F57_REAL_SOURCE_RECEIPTS_OBSERVED=PASS
