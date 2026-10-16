@@ -1,28 +1,45 @@
 package main
-import(
- "bytes"
- "context"
- "encoding/json"
- "os"
- "path/filepath"
- "strings"
- "testing"
+
+import (
+    "bytes"
+    "context"
+    "errors"
+    "strings"
+    "testing"
 )
-func TestDualSourceRequiresCompleteAuthenticatedInput(t *testing.T){
- var out bytes.Buffer
- if e:=run(context.Background(),nil,&out,"");e==nil{t.Fatal("missing pins and CKB state accepted")}
- if out.Len()!=0{t.Fatal("failed gate emitted candidate")}
- path:=filepath.Join(t.TempDir(),"pins.json")
- pins:=pinsFile{Schema:pinsSchema,SHA256:map[string]string{
-  "S09":strings.Repeat("a",64),"S10":strings.Repeat("b",64),
-  "S11":strings.Repeat("c",64),"S12":strings.Repeat("d",64),
-  "S13":strings.Repeat("e",64),"S14":strings.Repeat("f",64)}}
- b,e:=json.Marshal(pins);if e!=nil{t.Fatal(e)}
- if e=os.WriteFile(path,append(b,'\n'),0600);e!=nil{t.Fatal(e)}
- if _,e=readPins(path);e!=nil{t.Fatal(e)}
- if e=run(context.Background(),[]string{"--state",t.TempDir(),"--pinned",path},&out,"");e==nil{
-  t.Fatal("unauthenticated remote client allowed")
- }
- if e=os.WriteFile(path,append(b,[]byte("{}")...),0600);e!=nil{t.Fatal(e)}
- if _,e=readPins(path);e==nil{t.Fatal("trailing JSON accepted")}
+
+func TestRetiredReconciliationRejectsEveryHistoricalInput(t *testing.T) {
+    inputs := [][]string{
+        nil, {}, {"--help"},
+        {"--state", "/tmp/old-ledgers", "--pinned", "/tmp/old-sha-pins.json"},
+        {"--state", "\\\\legacy\\state", "--pinned", "X:\\old-pins.json"},
+        {"--state", strings.Repeat("x", 16000)},
+        {"--pinned", "../../outside.json"},
+        {"--token", "synthetic-test-token-not-a-real-secret"},
+    }
+    for _, args := range inputs {
+        for _, token := range []string{"", "synthetic-test-token", "ghs_" + strings.Repeat("q", 40)} {
+            var out bytes.Buffer
+            err := run(context.Background(), args, &out, token)
+            if !errors.Is(err, errRetired) {
+                t.Fatalf("legacy reconciliation unexpectedly accessed sources: %v", err)
+            }
+            if out.Len() != 0 {
+                t.Fatal("retired reconciliation emitted misleading evidence")
+            }
+        }
+    }
+}
+
+func TestRetiredReconciliationCannotClaimFirstUse(t *testing.T) {
+    if !FORGE_CKB_S14_RECONCILE_COMMAND_RETIRED {
+        t.Fatal("reconciliation retirement sentinel removed")
+    }
+    var out bytes.Buffer
+    ctx, cancel := context.WithCancel(context.Background())
+    cancel()
+    err := run(ctx, []string{"--state", "irrelevant"}, &out, "ignored")
+    if !errors.Is(err, errRetired) || out.Len() != 0 {
+        t.Fatal("retired reconciliation accepted cancellation or emitted authority")
+    }
 }
