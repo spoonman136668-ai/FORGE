@@ -70,6 +70,7 @@ type F94NoveltyReview struct {
  MixedHistoricalRecords int `json:"mixed_historical_records"`
  UnmodifiedProposalPopulationPreserved bool `json:"unmodified_proposal_population_preserved"`
  CandidateScreens []F94CandidateScreen `json:"candidate_screens"`
+ StageProposals []StructuralMechanismProposal `json:"stage_proposals"`
  SourceOnlyStructuralClaimsConsistent bool `json:"source_only_structural_claims_consistent"`
  StructuralSourceChangesIndependentlyVerified bool `json:"structural_source_changes_independently_verified"`
  NovelScientificMechanismDemonstrated bool `json:"novel_scientific_mechanism_demonstrated"`
@@ -163,6 +164,7 @@ func ScreenF94(f F94Freeze,independentPin string,
   InvalidHistoricalRecords:env.InvalidCount,
   MixedHistoricalRecords:env.MixedCount,
   CandidateScreens:make([]F94CandidateScreen,0,len(links)),
+  StageProposals:make([]StructuralMechanismProposal,0,len(links)),
   Status:F94Status,
  }
  usedCandidate:=map[string]bool{}
@@ -195,8 +197,29 @@ func ScreenF94(f F94Freeze,independentPin string,
    HistoricalDistance:distance,FrozenControlCount:len(f.FrozenControlsSHA256),
    Status:"UNTESTED_ARTIFACT_SHA_CLAIMS_NOT_VERIFIED_CODE_OR_SCIENCE",
   })
+  stage:=StructuralMechanismProposal{
+   Lane:f.Lane,SourceSHA:f.SourceSHA,CandidateSHA256:id,
+   Generator:l.Generator,
+   ParentRepresentation:f.ParentRepresentationSHA256,
+   NewRepresentation:l.NewRepresentationSHA256,
+   ParentConsumer:f.ParentConsumerSHA256,
+   NewConsumer:l.NewConsumerSHA256,
+   ParentTestEnvironment:f.ParentTestEnvironmentSHA256,
+   NewTestEnvironment:l.NewTestEnvironmentSHA256,
+   FrozenControlSHA256:append([]string(nil),f.FrozenControlsSHA256...),
+   Status:"UNTESTED",
+  }
+  if !validMechanism(stage){return zero,ErrF94}
+  result.StageProposals=append(result.StageProposals,stage)
  }
  if len(usedCandidate)!=len(expected){return zero,ErrF94}
+ stage,err:=AssessActivation(nil,nil,result.StageProposals,nil)
+ if err!=nil||stage.ScientificOriginalDispatchAuthorized||
+  stage.ControllerCutoverAuthorized||stage.AcceptedRefMutation||
+  stage.AuthenticatedProspectiveResearchSelection||
+  stage.PromptbreederAndGenEnv!="BOUNDED_UNTESTED_NOVELTY_PROPOSALS_READY"{
+  return zero,ErrF94
+ }
  result.UnmodifiedProposalPopulationPreserved=true
  result.SourceOnlyStructuralClaimsConsistent=true
  return result,nil
