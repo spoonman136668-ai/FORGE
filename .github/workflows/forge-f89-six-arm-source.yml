@@ -1,0 +1,51 @@
+name: FORGE F89 frozen unbiased Dream-Pareto prospective trial design
+on:
+  push:
+    branches: [engineering/f89-frozen-prospective-dream-pareto-20261016-r1]
+    paths:
+      - 'optimizerstages/f89_*'
+      - '.github/workflows/forge-f89-six-arm-source.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'optimizerstages/f89_*'
+      - '.github/workflows/forge-f89-six-arm-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f89-prospective-prep-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  six-arm-frozen-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Source-bound unbiased sampling and no-privilege regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 -run 'TestF89' ./optimizerstages -v
+          go vet ./optimizerstages
+          echo 'F89_SIX_ARM_EXACT_POLICY_PROPENSITY=1/6'
+          echo 'F89_PROSPECTIVE_OWNER_REGISTRATION=UNWITNESSED'
+          echo 'F89_SCIENTIFIC_DISPATCH=ZERO'
+          echo 'F89_DREAM_PARETO_POLICY_GAIN=NOT_ESTABLISHED'
+          echo 'F89_THETA_ACCEPTED_TRAINING=ZERO'
+          echo 'F89_CLOUDFLARE_WRITES=ZERO'
+      - name: Five optimizer packages and full repository qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerstages ./dreamrsi ./evoportfolio ./thetaadapt ./promptlineage ./genenv
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F89_OPTIMIZER_ONLY_SOURCE_QUALIFICATION=PASS'
