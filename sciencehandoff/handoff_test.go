@@ -130,6 +130,10 @@ func TestF69SourceAndCohortPinDriftFailClosed(t *testing.T){
    x.Cohorts[0].SequenceHighwater=47
    h,_:=SnapshotHash(x.Cohorts[0]);x.Pins.WinglessSnapshotSHA256=h
   }},
+  {"crosslane_sequence_overlap",func(x *Input){
+   x.Cohorts[1].Records[0].DecisionSequence=41
+   h,_:=SnapshotHash(x.Cohorts[1]);x.Pins.YggdrasilSnapshotSHA256=h
+  }},
   {"intent_reuse_from_other_lane",func(x *Input){
    x.Cohorts[1].Records[0].IntentSHA256=x.Claim.IntentSHA256
    h,_:=SnapshotHash(x.Cohorts[1]);x.Pins.YggdrasilSnapshotSHA256=h

@@ -143,6 +143,7 @@ func Assess(x Input)(Report,error){
  maxSeq:=uint64(0)
  seenLanes:=map[string]bool{}
  seenIntent:=map[string]bool{}
+ seenSequences:=map[uint64]bool{}
  for _,cohort:=range x.Cohorts{
   h,err:=SnapshotHash(cohort)
   if err!=nil||cohort.OwnerEpoch!=x.Pins.OwnerEpoch||seenLanes[cohort.Lane]{
@@ -157,8 +158,11 @@ func Assess(x Input)(Report,error){
    // Never interpret an absence as an unused original. Reject any exact
    // experiment replay and repeated intent across projects conservatively.
    if r.ExperimentID==c.ExperimentID||r.IntentSHA256==c.IntentSHA256||
-    seenIntent[r.IntentSHA256]{return zero,ErrBlocked}
+    seenIntent[r.IntentSHA256]||seenSequences[r.DecisionSequence]{
+    return zero,ErrBlocked
+   }
    seenIntent[r.IntentSHA256]=true
+   seenSequences[r.DecisionSequence]=true
   }
  }
  if len(seenLanes)!=2||!seenLanes["Wingless"]||!seenLanes["Yggdrasil"]||
