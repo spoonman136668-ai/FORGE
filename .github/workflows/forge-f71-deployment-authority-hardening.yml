@@ -70,7 +70,10 @@ jobs:
           PYTHONPATH=d1retention python3 -B d1retention/f71_release_readiness.py > "$RUNNER_TEMP/f71-real-deployment.json"
           python3 -B - "$RUNNER_TEMP/f71-real-deployment.json" <<'PY'
           import json,sys
-          d=json.load(open(sys.argv[1]))
+          with open(sys.argv[1],encoding="utf-8") as f:
+              lines=f.readlines()
+          assert len(lines)==2 and lines[1].startswith("F71_CURRENT_WORKER_AND_D1=")
+          d=json.loads(lines[0])
           assert d["schema"]=="forge.f71.real-deployment-firstuse-denial.v1"
           assert d["existing_serving_worker_single_version_verified"] is True
           assert d["existing_cloudflare_d1_binding_verified"] is True
@@ -84,7 +87,8 @@ jobs:
           print("F71_REAL_CLOUDFLARE_DEPLOYMENT_FACTS=READONLY_VERIFIED")
           print("F71_OWNER_FIRSTUSE_ADMISSION=BLOCKED")
           PY
-          (cd "$RUNNER_TEMP" && sha256sum f71-real-deployment.json > f71-real-deployment.sha256 && sha256sum -c f71-real-deployment.sha256)
+          head -n 1 "$RUNNER_TEMP/f71-real-deployment.json" > "$RUNNER_TEMP/f71-report.json"
+          (cd "$RUNNER_TEMP" && sha256sum f71-report.json > f71-real-deployment.sha256 && sha256sum -c f71-real-deployment.sha256)
           PYTHONPATH=d1retention python3 -B d1retention/f62_firstuse_readonly.py > "$RUNNER_TEMP/f62-preflight.json"
           python3 -B - "$RUNNER_TEMP/f62-preflight.json" <<'PY'
           import json,sys
@@ -118,7 +122,7 @@ jobs:
           path: |
             ${{ runner.temp }}/f62-preflight.json
             ${{ runner.temp }}/f62-preflight.sha256
-            ${{ runner.temp }}/f71-real-deployment.json
+            ${{ runner.temp }}/f71-report.json
             ${{ runner.temp }}/f71-real-deployment.sha256
           retention-days: 30
           if-no-files-found: error
