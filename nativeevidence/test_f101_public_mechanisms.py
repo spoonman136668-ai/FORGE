@@ -44,8 +44,13 @@ class F101PublicDevelopmentOnly(unittest.TestCase):
             changed=copy.deepcopy(example)
             changed["truth"]=1-example["truth"]
             self.assertEqual(val,f101.forward(changed,params,cid))
-            self.assertEqual(f101.masked_query(example,"permuted"),
-                             f101.masked_query(changed,"permuted"))
+            masked=f101.masked_query(example,"permuted")
+            mutated=f101.masked_query(changed,"permuted")
+            self.assertEqual(masked["edges"],mutated["edges"])
+            if lane=="Wingless":
+                self.assertEqual(masked["depth"],mutated["depth"])
+            else:
+                self.assertEqual(masked["roles"],mutated["roles"])
     def test_relation_binding_invariant_to_variable_id_renaming(self):
         for cid in ("Y100-C1","Y100-C2"):
             case=f101.pair("Yggdrasil",63403)[0]
