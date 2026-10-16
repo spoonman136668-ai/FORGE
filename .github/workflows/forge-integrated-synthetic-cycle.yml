@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - 'nativeevidence/**'
+      - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'cmd/forge-model-free-loop/**'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
   schedule:
@@ -21,6 +22,7 @@ on:
       - 'genenv/**'
       - 'optimizerstages/**'
       - 'nativeevidence/**'
+      - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'evoportfolio/**'
       - 'classification/**'
       - 'subprocesssupervisor/**'
@@ -154,6 +156,8 @@ jobs:
           $python = if ($IsWindows) { 'python' } else { 'python3' }
           & $python -B -m unittest discover -s nativeevidence -p 'test_f98_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f99_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F99_REAL_ARCHIVE_ADVERSARIAL_TESTS_FAILED' }
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -210,6 +214,45 @@ jobs:
               throw 'FORGE_F98_ARCHIVE_SOURCE_METADATA_MISREPRESENTED'
             }
           }
+          # F99 is part of the OPTIONAL, quarantinable historical observer:
+          # authentic ZIP bytes are rehashed and rows reaggregated, never
+          # treated as a live scientific original or GenEnv policy training.
+          $f99Path = Join-Path $root 'f99-historical-development-negatives.json'
+          & $python -B nativeevidence/f99_real_archive.py --download-readonly --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $f99Path -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F99_PINNED_ARCHIVE_BYTES_FAILED' }
+          $f99 = Get-Content -LiteralPath $f99Path -Raw | ConvertFrom-Json
+          if ($f99.schema -cne 'forge.autonomy.f99.row-reaggregated-train-only-shadow.v1' -or
+              $f99.forge_source_sha -cne $env:GITHUB_SHA -or
+              $f99.cohorts.Count -ne 2 -or
+              $f99.cohorts[0].lane -cne 'Wingless' -or
+              $f99.cohorts[1].lane -cne 'Yggdrasil' -or
+              $f99.archived_negative_development_records -ne 2 -or
+              $f99.training_only_observations_observed -ne 2 -or
+              $f99.genenv_training_activated -or
+              $f99.independent_originals_accepted -ne 0 -or
+              $f99.protected_first_use_authorized -or
+              $f99.new_originals_dispatched -ne 0 -or
+              $f99.accepted_ref_mutations -ne 0 -or
+              $f99.codex_calls -ne 0 -or $f99.model_calls -ne 0 -or
+              $f99.paid_api_calls -ne 0) {
+            throw 'FORGE_F99_ACTUAL_DEV_EVIDENCE_FALSE_SCIENCE_CLAIM'
+          }
+          foreach ($entry in $f99.cohorts) {
+            if (-not $entry.actual_archive_bytes_rehashed -or
+                -not $entry.contained_json_rows_reaggregated -or
+                -not $entry.historical_development_negative_only -or
+                $entry.independently_accepted_scientific_original -or
+                $entry.genenv_training_activated -or
+                $entry.independently_reaggregated_learned_correct_pairs -ne 0 -or
+                $entry.independently_reaggregated_coded_control_pairs -ne
+                  $entry.observed_historical_development_pairs) {
+              throw 'FORGE_F99_ROW_LEVEL_EVIDENCE_UNVERIFIED'
+            }
+          }
+          Write-Host 'FORGE_F99_AUTHENTIC_ZIP_AND_ROW_LEVEL_NEGATIVES=PASS'
+          Write-Host 'FORGE_F99_TRAIN_ONLY_HISTORICAL_OBSERVATIONS=2'
+          Write-Host 'FORGE_F99_PROSPECTIVE_SCIENCE_AND_OPTIMIZER_ACTIVATION=ZERO'
           Get-ChildItem $root -File | Where-Object { $_.Name -ne 'source-sha256.txt' } | ForEach-Object {
             $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$digest  $($_.Name)"
