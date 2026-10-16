@@ -96,7 +96,6 @@ func TestF92ConditionalPrecisionCannotBeRetroactivelyRewritten(t *testing.T){
   "fake theta":func(p *F92PrecisionPlan){p.ThetaEvolveAcceptedTrainingAllowed=true},
   "fake execution":func(p *F92PrecisionPlan){p.ScientificDispatchAuthorized=true},
   "fake cloudflare":func(p *F92PrecisionPlan){p.CloudflareWriteAuthorized=true},
-  "fake digest":func(p *F92PrecisionPlan){p.PlanSHA256="0"},
  }
  for name,fn:=range tests{
   t.Run(name,func(t *testing.T){
@@ -110,6 +109,17 @@ func TestF92ConditionalPrecisionCannotBeRetroactivelyRewritten(t *testing.T){
     t.Fatalf("rehash laundered tampered design %s",name)
    }
   })
+ }
+ // A corrupted digest must fail. Recomputing the unchanged content's
+ // correct digest is not a forgery and must continue to verify.
+ wrongDigest:=original
+ wrongDigest.PlanSHA256="0"
+ if err:=ValidateF92FrozenPlan(w,y,wrongDigest);!errors.Is(err,ErrF92){
+  t.Fatal("corrupted digest admitted")
+ }
+ wrongDigest.PlanSHA256=f92PlanHash(wrongDigest)
+ if err:=ValidateF92FrozenPlan(w,y,wrongDigest);err!=nil{
+  t.Fatalf("unchanged plan with its actual digest was rejected: %v",err)
  }
  changed:=y;changed.Epoch=2
  if err:=ValidateF92FrozenPlan(w,changed,original);!errors.Is(err,ErrF92){t.Fatal("source epoch drift allowed")}
