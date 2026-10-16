@@ -1,0 +1,49 @@
+name: FORGE F62P exact rational prospective optimizer intake
+on:
+  push:
+    branches: [research/f62p-exact-rational-policy-intake-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  source-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact F61P parent and existing auditor/source identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor e80ac19569bc9294005696b7bb2c92793aea03c5 HEAD
+          test "$(git hash-object dreamrsi/replay.go)" = e9317c400df72b7ea45059e9e8d45d9d4f46baa5
+          test "$(git hash-object evoportfolio/island_pareto.go)" = c52fbca609f94fa720f78e94d2f5f71bf3eb7b68
+          test "$(git hash-object optimizerbridge/selection_audit.go)" = 48810d9935b0cfd119991b22300cbaa783bd9adb
+          go test -count=1 -run '^TestF62P' -v ./optimizerbridge
+      - name: Bounded affected-interface verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio
+          echo F62P_EXACT_POLICY_ALLOCATION_PROPENSITY=1/6
+          echo F62P_HISTORICAL_ACTION_REPLAY_MODIFIED=FALSE
+          echo F62P_CUSTODY_AND_FIRSTUSE=NOT_WITNESSED
+          echo F62P_POLICY_GAIN_AND_ACTIVATION=NOT_AUTHORIZED
+      - name: One final full FORGE regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F62P_FINAL_SOURCE_QUALIFICATION=PASS
