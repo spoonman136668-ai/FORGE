@@ -126,12 +126,20 @@ func AssessActivation(trials []ProspectiveSelection,outcomes []IndependentlyAcce
  seen:=map[string]bool{}
  frozen:=map[string]string{}
  usedReceipt:=map[string]bool{}
+ usedSource:=map[string]bool{}
+ usedRandomization:=map[string]bool{}
+ usedCausalReview:=map[string]bool{}
  for _,t:=range trials{
-  if !validTrial(t)||seen[t.Lane]||usedReceipt[t.FirstUseReceiptSHA256]{
+  if !validTrial(t)||seen[t.Lane]||usedReceipt[t.FirstUseReceiptSHA256]||
+   usedSource[t.ProspectiveSourceSHA]||usedRandomization[t.RandomizationAuditSHA256]||
+   usedCausalReview[t.IndependentCausalReviewSHA256]{
    return out,fmt.Errorf("%w:trial_identity",ErrStageEvidence)
   }
   seen[t.Lane]=true;frozen[t.Lane]=t.ProspectiveSourceSHA
   usedReceipt[t.FirstUseReceiptSHA256]=true
+  usedSource[t.ProspectiveSourceSHA]=true
+  usedRandomization[t.RandomizationAuditSHA256]=true
+  usedCausalReview[t.IndependentCausalReviewSHA256]=true
  }
  if len(trials)==2&&trust!=nil{
   for _,t:=range trials{
@@ -143,16 +151,19 @@ func AssessActivation(trials []ProspectiveSelection,outcomes []IndependentlyAcce
   out.AuthenticatedProspectiveResearchSelection=true
  }
  usedEvidence:=map[string]bool{}
+ usedOutcomeSource:=map[string]bool{}
  acceptedLanes:=map[string]bool{}
  if len(outcomes)>0&&len(trials)!=2{
   return out,fmt.Errorf("%w:no_selection_trial",ErrStageEvidence)
  }
  for _,o:=range outcomes{
   if !validOutcome(o)||!seen[o.Lane]||acceptedLanes[o.Lane]||
-   usedEvidence[o.AcceptedEvidenceSHA256]||o.SourceSHA==frozen[o.Lane]{
+   usedEvidence[o.AcceptedEvidenceSHA256]||usedOutcomeSource[o.SourceSHA]||
+   o.SourceSHA==frozen[o.Lane]{
    return out,fmt.Errorf("%w:accepted_outcome_identity",ErrStageEvidence)
   }
   acceptedLanes[o.Lane]=true;usedEvidence[o.AcceptedEvidenceSHA256]=true
+  usedOutcomeSource[o.SourceSHA]=true
   if trust==nil||!out.AuthenticatedProspectiveResearchSelection{
    return out,fmt.Errorf("%w:missing_trust",ErrStageEvidence)
   }
