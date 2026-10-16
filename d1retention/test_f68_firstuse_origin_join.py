@@ -46,6 +46,9 @@ class F68Tests(unittest.TestCase):
     self.assertEqual(run[38869660982]["status"],"pending")
     self.assertEqual(run[38864578731]["status"],"in_progress")
     self.assertEqual(run[38868746675]["conclusion"],"failure")
+    self.assertEqual(run[38868746675]["classification"],
+       "FAILED_RESEARCH_CONTINUATION_CAUSE_UNVERIFIED_NO_NEW_RESULT")
+    self.assertFalse(run[38868746675]["failure_cause_independently_verified_by_this_api"])
     self.assertFalse(d["complete_both_lanes_scientific_firstuse_seed_ledger_observed"])
     self.assertFalse(d["protected_original_replay_authorized"])
     self.assertFalse(d["deployed_cloudflare_d1_firstuse_claim"])

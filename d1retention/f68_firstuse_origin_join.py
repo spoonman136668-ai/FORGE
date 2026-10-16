@@ -137,7 +137,7 @@ def verify_ygg_run(api,run_id,main_sha):
     if status in ("pending","queued","requested","waiting"):
         need(not item or all(j["status"] in ("queued","pending","waiting") for j in item),
              "PENDING_RUN_JOB_STATE_INVALID")
-    category=("RESOURCE_LIMITED_RESEARCH_CONTINUATION_NO_NEW_RESULT"
+    category=("FAILED_RESEARCH_CONTINUATION_CAUSE_UNVERIFIED_NO_NEW_RESULT"
               if kind=="research_continuation" and conclusion=="failure"
               else "UNRESOLVED_RESEARCH_TRANSPORT_NOT_SCIENTIFIC_ORIGINAL"
               if status!="completed"
