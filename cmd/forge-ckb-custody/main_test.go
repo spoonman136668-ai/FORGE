@@ -1,27 +1,44 @@
 package main
-import(
- "bytes"
- "encoding/json"
- "os"
- "path/filepath"
- "strings"
- "testing"
+
+import (
+    "bytes"
+    "errors"
+    "strings"
+    "testing"
 )
-func TestFirstUseInspectorRequiresExternallyPinnedHistory(t *testing.T){
- var out bytes.Buffer
- if err:=run(nil,&out);err==nil{t.Fatal("unpinned legacy state accepted")}
- if out.Len()>0{t.Fatal("failed inspection disclosed report")}
- dir:=t.TempDir()
- path:=filepath.Join(dir,"pins.json")
- doc:=pinsDocument{Schema:PinsSchema,SHA256:map[string]string{
- "S09":strings.Repeat("a",64),"S10":strings.Repeat("b",64),
- "S11":strings.Repeat("c",64),"S12":strings.Repeat("d",64),"S13":strings.Repeat("e",64)}}
- raw,err:=json.Marshal(doc);if err!=nil{t.Fatal(err)}
- if err=os.WriteFile(path,append(raw,'\n'),0600);err!=nil{t.Fatal(err)}
- if _,err=readPins(path);err!=nil{t.Fatal(err)}
- if err=run([]string{"--pinned",path,"--state",dir},&out);err==nil{
-  t.Fatal("missing installed consumed ledgers accepted")
- }
- if err=os.WriteFile(path,append(raw,[]byte("{}")...),0600);err!=nil{t.Fatal(err)}
- if _,err=readPins(path);err==nil{t.Fatal("trailing custody JSON accepted")}
+
+func TestRetiredCustodyRejectsEveryFormerInputWithoutOutput(t *testing.T) {
+    inputs := [][]string{
+        nil,
+        {},
+        {"--help"},
+        {"--state", "/tmp/legacy-controller-state"},
+        {"--pinned", "/tmp/synthetic-pins.json", "--state", "/tmp/synthetic-state"},
+        {"--state", "\\\\legacy\\state", "--pinned", "X:\\external-pins.json"},
+        {"--token", "synthetic-test-token-not-a-credential"},
+        {"--state", strings.Repeat("a", 8000)},
+    }
+    for _, args := range inputs {
+        t.Run(strings.Join(args, "_"), func(t *testing.T) {
+            var out bytes.Buffer
+            err := run(args, &out)
+            if !errors.Is(err, errRetired) {
+                t.Fatalf("retired CKB custody must deny all invocations: %v", err)
+            }
+            if out.Len() != 0 {
+                t.Fatal("retired custody emitted a misleading ledger report")
+            }
+        })
+    }
+}
+
+func TestLegacyCustodyCannotReportScientificAuthority(t *testing.T) {
+    var out bytes.Buffer
+    err := run([]string{"--state", "irrelevant"}, &out)
+    if err == nil || !FORGE_CKB_CUSTODY_COMMAND_RETIRED {
+        t.Fatal("retired command unexpectedly enabled")
+    }
+    if out.Len() != 0 {
+        t.Fatal("retired command emitted evidence or permission")
+    }
 }
