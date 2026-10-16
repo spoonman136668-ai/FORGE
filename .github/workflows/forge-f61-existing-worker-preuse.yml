@@ -1,0 +1,63 @@
+name: FORGE F61 existing Worker preuse release boundary (non-authorizing)
+on:
+  push:
+    branches: [engineering/f61-existing-worker-firstuse-release-boundary-20261015-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f61-source-and-live-readonly
+  cancel-in-progress: false
+jobs:
+  qualified-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-pinned Worker boundary and adversarial negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --version
+          node --test d1retention/f61_worker_preuse.test.mjs
+          echo 'F61_GITHUB_OIDC_PROTECTED_MAIN_POLICY_SOURCE_ONLY=PASS'
+          echo 'F61_NO_WORKER_FETCH_HANDLER_EXPORTED=TRUE'
+          echo 'F61_NO_RELEASE_PERMIT=TRUE'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: R41 owner binding, R35/R38 D1 and one full Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./originalclaim ./preusebinding ./cmd/forge-owner-preuse
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Verify actual existing Cloudflare Worker/D1 and absent release table
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          PYTHONPATH=d1retention python3 -B d1retention/r39_existing_cloudflare_preflight.py
+          echo 'F61_REAL_CLOUDFLARE_BOUND_IDENTITY=READONLY_VERIFIED'
+          echo 'F61_LIVE_PREUSE_TABLE=ABSENT'
+          echo 'F61_WORKER_RELEASE_DISPATCH=FALSE'
+          echo 'F61_D1_OR_WORKER_WRITES=ZERO'
+          echo 'F61_EXTERNAL_AUTHORITY_AND_COMPLETE_COHORT_LEASES=NOT_VERIFIED'
