@@ -6,6 +6,7 @@ No external GitHub calls, model, optimizer, first-use or outcome selection.
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import re
 import sys
@@ -163,7 +164,8 @@ def check_contract(f100,f99,parent_bytes):
     need(len(all_ids)==4,"FOUR_CANDIDATE_POPULATION_MISSING")
     return records
 def audit(parent_path=F99,contract_path=F100,source_sha=""):
-    need(type(source_sha) is str and HEX40.fullmatch(source_sha) is not None,
+    need(type(source_sha) is str and HEX40.fullmatch(source_sha) is not None and
+         (not os.environ.get("GITHUB_SHA") or os.environ["GITHUB_SHA"]==source_sha),
          "FORGE_SOURCE_REF_INVALID")
     f99,raw=read_json(parent_path)
     f100,contract_raw=read_json(contract_path)
