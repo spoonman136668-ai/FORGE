@@ -61,13 +61,23 @@ class GitHub:
                     expect(current.scheme == "https" and
                            next_url.scheme == "https" and
                            current.netloc == next_url.netloc == "api.github.com" and
-                           current.path == next_url.path == "/repos/" + REPO + "/pulls" and
-                           old.get("state") == new.get("state") == ["open"] and
-                           old.get("per_page") == new.get("per_page") == ["100"] and
-                           set(old).issubset({"state", "per_page", "page"}) and
-                           set(new) == {"state", "per_page", "page"} and
-                           new["page"] == [str(int(old.get("page", ["1"])[0]) + 1)],
-                           "UNTRUSTED_PAGINATION_NEXT")
+                           not next_url.username and not next_url.password and
+                           not next_url.fragment,
+                           "UNTRUSTED_PAGINATION_NEXT_ORIGIN")
+                    expect(current.path == next_url.path ==
+                           "/repos/" + REPO + "/pulls",
+                           "UNTRUSTED_PAGINATION_NEXT_ROUTE")
+                    expect(old.get("state") == ["open"] and
+                           old.get("per_page") == ["100"] and
+                           set(old).issubset({"state", "per_page", "page"}),
+                           "UNTRUSTED_PAGINATION_OLD_QUERY")
+                    expect(new.get("state") == ["open"] and
+                           new.get("per_page") == ["100"] and
+                           set(new) == {"state", "per_page", "page"},
+                           "UNTRUSTED_PAGINATION_NEXT_QUERY")
+                    expect(new["page"] ==
+                           [str(int(old.get("page", ["1"])[0]) + 1)],
+                           "UNTRUSTED_PAGINATION_PAGE_JUMP")
                 raw = response.read(2000001)
                 if len(raw) > 2000000:
                     raise Blocked("RESPONSE_TOO_LARGE")
