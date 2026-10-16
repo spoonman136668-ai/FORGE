@@ -106,6 +106,23 @@ def verify_policy_files(root: pathlib.Path) -> None:
         "ckbhistory" in body or "http." in body or "InspectS14(" in body):
         raise GateError("LEGACY_CKB_COMMAND_NOT_FAIL_CLOSED")
 
+    # ISO-03: the old local ledger custody executable must be inert too.
+    # Its Go library and original implementation stay in Git history for
+    # reproducibility. The executable itself has no allowed access path.
+    custody_cli = root / "cmd" / "forge-ckb-custody" / "main.go"
+    if not custody_cli.is_file():
+        raise GateError("MISSING_RETIRED_CUSTODY_SENTINEL")
+    custody_body = custody_cli.read_text(encoding="utf-8")
+    if ("const FORGE_CKB_CUSTODY_COMMAND_RETIRED = true" not in custody_body or
+        "func run(_ []string, _ io.Writer) error {" not in custody_body or
+        "return errRetired" not in custody_body or
+        any(fragment in custody_body for fragment in (
+            "ckbcustody", "os.ReadFile", "os.Open(", "os.OpenFile",
+            "readPins(", "Inspect(", "net/http", "http.", "exec.Command",
+            "flag.NewFlagSet", "filepath."))):
+        raise GateError("LEGACY_CUSTODY_COMMAND_NOT_FAIL_CLOSED")
+
+
 def audit_repo(root: pathlib.Path) -> list[tuple[str, str]]:
     verify_policy_files(root)
     head = run_git(root, "rev-parse", "HEAD").strip()
