@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -9,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
 import f101_wingless_public_depth as f101
 
-SOURCE="e"*40
+SOURCE=os.environ.get("GITHUB_SHA") or "e"*40
 class F101Development(unittest.TestCase):
     def test_frozen_prereg_is_source_bound_and_non_authorizing(self):
         frozen,digest=f101.frozen()
