@@ -44,6 +44,23 @@ jobs:
           mkdir -p "$RUNNER_TEMP/forge-native-pulse"
           python3 -B autonomypulse/pulse.py > "$RUNNER_TEMP/forge-native-pulse/stdout.txt" || {
              head -n 1 "$RUNNER_TEMP/forge-native-pulse/stdout.txt" > "$RUNNER_TEMP/forge-native-pulse/health.json"
+             python3 -B - "$RUNNER_TEMP/forge-native-pulse/health.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as stream:
+              report=json.load(stream)
+          assert report["schema"]=="forge.autonomy.native-lane-supervision.v1"
+          assert report["scientific_firstuse_authorized"] is False
+          assert report["originals_dispatched"]==0
+          assert report["ckb_plane_accessed"] is False
+          for lane in report["lanes"]:
+              if lane["source_and_workflow_confirmed"] is False:
+                  program=lane["lane"]
+                  assert program in ("Wingless","Yggdrasil")
+                  reason=lane["quarantine_reason"]
+                  assert reason.startswith("FORGE_AUTONOMY_") and len(reason)<128
+                  print("::error title=FORGE "+program+" operational quarantine::"+reason)
+          PY
+             (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum health.json > health.sha256 && sha256sum -c health.sha256)
              echo 'FORGE_NATIVE_AUTONOMY_LANE_UNVERIFIED_NO_ACTION' >&2
              exit 1
           }
