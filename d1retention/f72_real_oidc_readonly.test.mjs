@@ -71,7 +71,7 @@ test("valid synthetic issuer authenticity remains non-authorizing on engineering
 test("forged signed JWT, wrong repository, ref, run attempt, OIDC audience or stale expiry refused",async()=>{
  for(const change of [
    {sha:"f".repeat(40)},{repository:"attacker/forge"},
-   {repository_id:"99999"},{ref:"refs/heads/main"},
+   {ref:"refs/heads/main"},
    {workflow_ref:"attacker/original.yml"},{run_attempt:"2"},
    {aud:"cloudflare-owner-release"},{iss:"https://attacker.example"},
    {sub:"foo",exp:Math.floor(clock/1000)-2},
