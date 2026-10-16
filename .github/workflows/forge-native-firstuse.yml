@@ -1,0 +1,39 @@
+name: FORGE native first-use independent owner boundary
+on:
+  push:
+    branches: [research/forge-native-firstuse-independent-owner-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  independent-native-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Original source identity and focused native tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 920f5b192e750a7d605ae8c0f82ae50367d117b8 HEAD
+          go test -count=1 -v ./nativefirstuse
+      - name: Full Go regression and static verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo FORGE_NATIVE_FIRSTUSE_SOURCE=PASS
+          echo FORGE_EXTERNAL_CUSTODY_AND_LIVE_CAS=NOT_QUALIFIED
+          echo FORGE_ORIGINAL_DISPATCH=NOT_AUTHORIZED
