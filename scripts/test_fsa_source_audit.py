@@ -243,6 +243,36 @@ class SourceAuditTests(unittest.TestCase):
             run(f)
         self.assertFalse(any("/merge" in call for call in f.calls))
 
+    def test_github_canonical_numeric_repo_link_is_identity_pinned(self):
+        from unittest.mock import patch
+        import json
+        class HTTP:
+            def __init__(self, link):
+                self.headers = {"Link": link}
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, max_bytes):
+                return json.dumps([{"number": 311}]).encode()
+        g = GitHub(token="synthetic-test-token")
+        for suffix,should_accept in (
+            ("/repositories/1413298198/pulls",True),
+            ("/repos/spoonman136668-ai/FORGE/pulls",True),
+            ("/repositories/1413298199/pulls",False),
+            ("/repos/other/FORGE/pulls",False),
+        ):
+            link = "<https://api.github.com" + suffix + \
+                   "?state=open&per_page=100&page=2>; rel=\"next\""
+            with patch("urllib.request.urlopen",return_value=HTTP(link)):
+                if should_accept:
+                    page,next_page=g.get_page("/pulls?state=open&per_page=100")
+                    self.assertEqual(len(page),1)
+                    self.assertTrue(next_page)
+                else:
+                    with self.assertRaisesRegex(Blocked, "UNTRUSTED_PAGINATION_NEXT_ROUTE"):
+                        g.get_page("/pulls?state=open&per_page=100")
+
     def test_unqualified_workflow_run_attempt(self):
         f = Fake()
         f.pages["/actions/runs?head_sha=" + HEAD + "&per_page=100"][

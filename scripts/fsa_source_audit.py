@@ -64,8 +64,13 @@ class GitHub:
                            not next_url.username and not next_url.password and
                            not next_url.fragment,
                            "UNTRUSTED_PAGINATION_NEXT_ORIGIN")
-                    expect(current.path == next_url.path ==
-                           "/repos/" + REPO + "/pulls",
+                    # GitHub's Link header canonicalizes repository URLs to
+                    # the immutable numeric REST route; bind that ID to
+                    # the authentic FORGE repository, not arbitrary projects.
+                    expect(current.path == "/repos/" + REPO + "/pulls" and
+                           next_url.path in (
+                               current.path,
+                               "/repositories/1413298198/pulls"),
                            "UNTRUSTED_PAGINATION_NEXT_ROUTE")
                     expect(old.get("state") == ["open"] and
                            old.get("per_page") == ["100"] and
