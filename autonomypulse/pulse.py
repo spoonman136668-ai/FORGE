@@ -132,6 +132,7 @@ def lane(api,program,repo,now):
     run=api.get(repo,"/actions/runs/"+str(run_id))
     need(run.get("id")==run_id and
          run.get("name")==program+" research continuation launcher" and
+         type(run.get("workflow_id")) is int and run["workflow_id"]>0 and
          run.get("status")=="completed" and
          run.get("conclusion")=="success" and
          run.get("head_branch")=="main" and
@@ -149,6 +150,40 @@ def lane(api,program,repo,now):
     # produced the state even if current main advanced since that run.
     commit=api.get(repo,"/commits/"+run["head_sha"])
     need(commit.get("sha")==run["head_sha"],"RUN_COMMIT_UNAVAILABLE")
+    # A previously successful state run cannot prove current continuity.
+    # Read only the bounded workflow-specific history; a newer failure, rerun,
+    # or in-flight attempt is a real degraded research-continuation condition.
+    need(cfg.get("controller_workflow")=="research-auto-launch.yml",
+         "CONTINUATION_WORKFLOW_IDENTITY_DRIFT")
+    history=api.get(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+    attempts=history.get("workflow_runs")
+    need(type(attempts) is list and 0<len(attempts)<=10,
+         "CONTINUATION_ATTEMPT_HISTORY_UNVERIFIED")
+    checked=[]
+    observed_ids=set()
+    for attempt in attempts:
+        need(type(attempt) is dict and type(attempt.get("id")) is int and
+             attempt["id"]>0 and attempt["id"] not in observed_ids and
+             attempt.get("workflow_id")==run["workflow_id"] and
+             attempt.get("name")==program+" research continuation launcher" and
+             attempt.get("head_branch")=="main" and
+             type(attempt.get("head_sha")) is str and
+             HEX40.fullmatch(attempt["head_sha"]) and
+             attempt.get("event") in ("schedule","workflow_dispatch","workflow_run","push"),
+             "CONTINUATION_ATTEMPT_IDENTITY_DRIFT")
+        observed_ids.add(attempt["id"])
+        stamp=parse_utc(attempt.get("created_at"))
+        need(stamp<=now,"CONTINUATION_ATTEMPT_FUTURE_CLOCK")
+        checked.append((stamp,attempt))
+    latest_created,latest=max(checked,key=lambda x:(x[0],x[1]["id"]))
+    need(latest_created>=created,"CONTINUATION_ATTEMPT_HISTORY_STALE")
+    need(latest.get("status")=="completed" and
+         latest.get("conclusion")=="success" and
+         latest.get("run_attempt")==1,
+         "LATEST_RESEARCH_CONTINUATION_NOT_SUCCESSFUL")
+    latest_finished=parse_utc(latest.get("updated_at"))
+    need(latest_created<=latest_finished<=now,
+         "LATEST_CONTINUATION_CLOCK_UNVERIFIED")
     # A moving research branch is an explicit uncertainty, not a reason to
     # silently pair new state with a previously frozen source identity.
     again=api.get(repo,"/branches/"+branch)
@@ -167,6 +202,10 @@ def lane(api,program,repo,now):
         "main_sha":main_sha,"active_research_sha":source,
         "last_reported_run_id":run_id,
         "last_reported_run_source_sha":run["head_sha"],
+        "latest_launcher_run_id":latest["id"],
+        "latest_launcher_event":latest["event"],
+        "latest_launcher_conclusion":latest["conclusion"],
+        "latest_launcher_run_created_utc":latest_created.isoformat(),
         "last_experiment":state["experiment"],
         "reported_classification":classification,
         "last_reported_completion_utc":finished.isoformat(),
@@ -183,9 +222,11 @@ def scan(api,now=None):
     results=[]
     for program,repo in LANES:
         try:results.append(lane(api,program,repo,now))
-        except (Blocked,ValueError,TypeError,KeyError,UnicodeError,OSError):
+        except (Blocked,ValueError,TypeError,KeyError,UnicodeError,OSError) as exc:
             results.append({
                 "lane":program,"repository":repo,
+                "quarantine_reason":str(exc) if isinstance(exc,Blocked)
+                     else "FORGE_AUTONOMY_UNVERIFIED_SOURCE_OR_ORIGIN",
                 "source_and_workflow_confirmed":False,
                 "operational_disposition":"QUARANTINED_UNVERIFIED_NO_REPLAY",
                 "science_first_use_approved":False,
