@@ -1,0 +1,71 @@
+name: FORGE F67 authentic dual-lane first-use evidence census (read-only)
+on:
+  push:
+    branches: [engineering/f67-live-dual-lane-firstuse-evidence-census-20261016-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f67-real-lane-evidence-readonly
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-head negative qualification of both authentic research lanes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s d1retention -p test_f67_dual_lane_readonly.py -v
+          echo "F67_NEGATIVE_FIRSTUSE_SCOPE_AND_REPLAY_CONTRACTS=PASS"
+      - name: Independently re-read actual GitHub research origins, unresolved runs and evidence-tree identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B d1retention/f67_dual_lane_readonly.py > "$RUNNER_TEMP/f67-dual-lane-readonly.json"
+          python3 -B - "$RUNNER_TEMP/f67-dual-lane-readonly.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:
+              lines=f.readlines()
+          assert len(lines)==2, "UNEXPECTED_REPORT"
+          d=json.loads(lines[0])
+          assert d["schema"]=="forge.f67.github-two-lane-evidence-census.readonly.v1"
+          assert {l["program"] for l in d["lanes"]}=={"Wingless","Yggdrasil"}
+          assert all(l["last_completed_run_github_confirmed"] is True for l in d["lanes"])
+          assert all(l["evidence_inventory"]["versioned_evidence_dossiers_observed"]>=1 for l in d["lanes"])
+          for l in d["lanes"]:
+              assert l["research_authority"]=="research-only"
+              assert l["original_science_firstuse_lease_history_complete"] is False
+              assert l["uncertain_scientific_original_attempts_all_resolved"] is False
+              print("F67_LANE_REPORT="+l["program"]+
+                    " historical_runs="+str(l["github_actions_total_run_count"])+
+                    " dossiers="+str(l["evidence_inventory"]["versioned_evidence_dossiers_observed"])+
+                    " unresolved_window="+str(sum(v for k,v in l["last_100_github_actions_status_counts"].items() if k.startswith("unresolved_"))))
+          for k in ("current_owner_epoch_and_research_firstuse_independently_proven",
+                   "all_active_consumed_uncertain_original_seed_leases_reconciled",
+                   "cloudflare_atomic_firstuse_deployed",
+                   "worker_execution_permit_issued","controller_cutover_authorized"):
+              assert d[k] is False,k
+          assert d["new_scientific_originals_dispatched"]==0
+          assert d["disposition"]=="REAL_REPO_LOCAL_RUNS_OBSERVED_FIRSTUSE_OWNER_AUTHORITY_STILL_BLOCKED"
+          print("F67_LIVE_RESEARCH_PROVENANCE=READONLY_PASS")
+          print("F67_NEW_ORIGINAL_SCIENCE_ADMISSION=BLOCKED")
+          PY
+          head -n 1 "$RUNNER_TEMP/f67-dual-lane-readonly.json" > "$RUNNER_TEMP/f67-evidence-report.json"
+          sha256sum "$RUNNER_TEMP/f67-evidence-report.json" > "$RUNNER_TEMP/f67-evidence-report.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum -c f67-evidence-report.sha256)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f67-live-two-lane-research-no-original-release
+          path: |
+            ${{ runner.temp }}/f67-evidence-report.json
+            ${{ runner.temp }}/f67-evidence-report.sha256
+          retention-days: 30
+          if-no-files-found: error
