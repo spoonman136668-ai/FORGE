@@ -1,0 +1,39 @@
+name: FORGE native private D1 restore clearance source gate
+on:
+  push:
+    branches: [research/forge-native-private-recovery-clearance-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Exact-source private recovery and no-permit negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor bd5f2d7b6426bbb0aaecdc100136b1c5255658cf HEAD
+          PYTHONPATH=nativefirstuse python3 -B -m unittest discover -s nativefirstuse -p test_private_recovery.py -v
+          python3 -B -m unittest discover -s nativefirstuse -p test_cloudflare_atomic.py -v
+          echo FORGE_PRIVATE_RESTORE=NOT_YET_INDEPENDENTLY_QUALIFIED
+          echo FORGE_CLOUDFLARE_D1_WRITE=ZERO
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One final Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
