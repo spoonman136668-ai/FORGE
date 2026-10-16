@@ -80,3 +80,54 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_VET_FAILED' }
           go build ./...
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_WINDOWS_BUILD_FAILED' }
+
+  f57-readonly-external-evidence:
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'engineering/f57-live-github-evidence-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Read and verify pinned historical public TRAIN metadata
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          go test -count=1 ./liveevidence/...
+          go run ./cmd/forge-f57-live-evidence > "$RUNNER_TEMP/f57-observations.json"
+          jq -e '
+            .schema == "forge.f57.pinned-github-train-metadata.v1" and
+            .pinned_github_run_metadata_observed == true and
+            .pinned_github_artifact_metadata_observed == true and
+            (.records | length) == 4 and
+            (.records | map(.lane)) == ["Wingless","Wingless","Yggdrasil","Yggdrasil"] and
+            all(.records[]; .disposition == "HISTORICAL_TRAIN_ONLY_NO_F3_FIRST_USE_AUTHORITY") and
+            .archive_contents_authenticated == false and
+            .original_start_terminal_signatures_authenticated == false and
+            .independent_owner_highwater_verified == false and
+            .distributed_first_use_cas_verified == false and
+            .new_protected_originals_executed == false and
+            .unattended_successor_proven == false and
+            .scientific_acceptance_authorized == false and
+            .research_dispatch_authorized == false and
+            .owner_cutover_authorized == false
+          ' "$RUNNER_TEMP/f57-observations.json" >/dev/null
+          (cd "$RUNNER_TEMP" && sha256sum f57-observations.json > f57-observations.sha256 && sha256sum -c f57-observations.sha256)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f57-real-github-train-only-observation
+          path: |
+            ${{ runner.temp }}/f57-observations.json
+            ${{ runner.temp }}/f57-observations.sha256
+          retention-days: 30
+          if-no-files-found: error
