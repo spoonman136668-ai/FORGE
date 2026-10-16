@@ -6,7 +6,7 @@
 
 F91's frozen comparison estimates **16** total policy-arm contrasts: for each of Wingless and Yggdrasil, Dream-RSI and Shinka/Pareto against four distinct frozen research-selection controls. The source-only F90 reader currently accepts at most **16,384** signed observation records *per lane*. Its bounded score is in **[0,100]**.
 
-F91 uses a conservative Hoeffding/Bonferroni simultaneous 95% *conditional* half-width, based on the exact **1/6** policy-arm randomization probability and score range:
+F91's positive-gain decision uses a conservative Hoeffding/Bonferroni **one-sided**, 95% *conditional* familywise lower-bound offset, based on the exact **1/6** policy-arm randomization probability and score range. F91 displays an upper value too, but **the two displayed ends do not constitute a jointly certified two-sided familywise 95% confidence interval**; a valid two-sided guarantee would require `log(32 / 0.05)` instead:
 
 `h(N)=1200*sqrt(log(16/0.05)/(2N))`.
 
