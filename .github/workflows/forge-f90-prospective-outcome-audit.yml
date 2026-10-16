@@ -1,0 +1,52 @@
+name: FORGE F90 signed policy outcome source consistency
+on:
+  push:
+    branches: [engineering/f90-frozen-policy-witness-outcome-audit-20261016-r1]
+    paths:
+      - 'optimizerstages/f90_*'
+      - '.github/workflows/forge-f90-prospective-outcome-audit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'optimizerstages/f90_*'
+      - '.github/workflows/forge-f90-prospective-outcome-audit.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f90-optimizer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  signed-source-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Source-bound adversarial witness and evidence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go test -count=1 -run '^TestF90' ./optimizerstages -v
+          go test -count=1 ./optimizerstages ./dreamrsi ./evoportfolio ./thetaadapt ./promptlineage ./genenv
+          go vet ./optimizerstages
+          echo 'F90_CLAIMED_WITNESS_SIGNATURE_CONSISTENCY=SOURCE_ONLY'
+          echo 'F90_INDEPENDENT_PREOUTCOME_CUSTODY=NOT_VERIFIED'
+          echo 'F90_INDEPENDENT_OWNER_FIRSTUSE=NOT_VERIFIED'
+          echo 'F90_DREAM_PARETO_ACTIVATION=DENIED'
+          echo 'F90_THETA_ACCEPTED_TRAINING=DENIED'
+          echo 'F90_SCIENCE_DISPATCH=ZERO'
+          echo 'F90_CLOUDFLARE_WRITES=ZERO'
+      - name: Full FORGE repository tests, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F90_SIGNED_SOURCE_ONLY_AUDIT=QUALIFIED'
