@@ -75,6 +75,9 @@ class Isolation(unittest.TestCase):
             "cmd/forge-ckb-s14-history/main.go":
                 "const FORGE_CKB_LEGACY_COMMAND_RETIRED = true\\n"
                 "func run() error {return errRetired}\\n",
+            "cmd/forge-ckb-custody/main.go":
+                "const FORGE_CKB_CUSTODY_COMMAND_RETIRED = true\\n"
+                "func run(_ []string, _ io.Writer) error {return errRetired}\\n",
             ".github/workflows/safe.yml": "on: [pull_request]\\njobs: {}\\n",
         }
         for path, data in fixed.items():
@@ -111,6 +114,45 @@ class Isolation(unittest.TestCase):
             cli.write_text("func run() { ckbhistory.New(\"token\") }",
                            encoding="utf-8")
             with self.assertRaisesRegex(f.GateError, "LEGACY_CKB_COMMAND_NOT_FAIL_CLOSED"):
+                f.verify_policy_files(root)
+
+
+    def test_local_custody_command_must_stay_retired(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            f.verify_policy_files(root)
+            cli = root / "cmd/forge-ckb-custody/main.go"
+            cli.write_text(
+                "const FORGE_CKB_CUSTODY_COMMAND_RETIRED = true\\n"
+                "func run(_ []string, _ io.Writer) error {\\n"
+                "    _ = os.ReadFile(\"/sensitive/controller-state\")\\n"
+                "    return errRetired\\n}\\n", encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError,
+                                        "LEGACY_CUSTODY_COMMAND_NOT_FAIL_CLOSED"):
+                f.verify_policy_files(root)
+
+    def test_local_custody_retirement_sentinel_cannot_be_removed(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            (root / "cmd/forge-ckb-custody/main.go").unlink()
+            with self.assertRaisesRegex(f.GateError,
+                                        "MISSING_RETIRED_CUSTODY_SENTINEL"):
+                f.verify_policy_files(root)
+
+    def test_local_custody_cannot_import_legacy_library(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            cli = root / "cmd/forge-ckb-custody/main.go"
+            cli.write_text(
+                "const FORGE_CKB_CUSTODY_COMMAND_RETIRED = true\\n"
+                "func run(_ []string, _ io.Writer) error {\\n"
+                "    ckbcustody.Inspect(\"/sensitive/state\")\\n"
+                "    return errRetired\\n}\\n", encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError,
+                                        "LEGACY_CUSTODY_COMMAND_NOT_FAIL_CLOSED"):
                 f.verify_policy_files(root)
 
 
