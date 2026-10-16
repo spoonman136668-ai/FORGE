@@ -1,0 +1,91 @@
+name: FORGE F85 real dual-lane FIT negatives, optimizer training quarantine
+on:
+  push:
+    branches: [engineering/f85-dual-fit-negative-optimizer-quarantine-20261016-r1]
+    paths:
+      - 'research/f85/**'
+      - '.github/workflows/forge-f85-dual-fit-quarantine.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/f85/**'
+      - '.github/workflows/forge-f85-dual-fit-quarantine.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-f85-dual-fit-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  genuine-negative-quarantine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-head focused interface qualifications
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          PYTHONPATH=nativefirstuse python3 -B -m unittest discover -s nativefirstuse -p 'test_f83_*.py' -v
+          PYTHONPATH=research/f84 python3 -B -m unittest discover -s research/f84 -p 'test_f84_*.py' -v
+          python3 -B -m unittest discover -s research/f85 -p 'test_f85_*.py' -v
+      - name: Read pinned real Wingless F61B and Yggdrasil F63C FIT bytes (no writes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/spoonman136668-ai/Wingless/actions/runs/38878579349 > "$RUNNER_TEMP/w-run.json"
+          gh api repos/spoonman136668-ai/Wingless/actions/artifacts/12037005113 > "$RUNNER_TEMP/w-artifact.json"
+          curl --fail --silent --show-error --location --max-time 90 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/spoonman136668-ai/Wingless/actions/artifacts/12037005113/zip' \
+            --output "$RUNNER_TEMP/w.zip"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/runs/38885850944 > "$RUNNER_TEMP/y-run.json"
+          gh api repos/spoonman136668-ai/Yggdrasil/actions/artifacts/12038939609 > "$RUNNER_TEMP/y-artifact.json"
+          curl --fail --silent --show-error --location --max-time 90 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/spoonman136668-ai/Yggdrasil/actions/artifacts/12038939609/zip' \
+            --output "$RUNNER_TEMP/y.zip"
+          mkdir -p "$RUNNER_TEMP/f85"
+          python3 -B research/f85/f85_evidence_quarantine.py \
+            --wingless-run "$RUNNER_TEMP/w-run.json" \
+            --wingless-artifact "$RUNNER_TEMP/w-artifact.json" \
+            --wingless-zip "$RUNNER_TEMP/w.zip" \
+            --yggdrasil-run "$RUNNER_TEMP/y-run.json" \
+            --yggdrasil-artifact "$RUNNER_TEMP/y-artifact.json" \
+            --yggdrasil-zip "$RUNNER_TEMP/y.zip" \
+            --out "$RUNNER_TEMP/f85/quarantine.json"
+          python3 - "$RUNNER_TEMP/f85/quarantine.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.f85.authentic-dual-fit-optimizer-quarantine.v1"
+          assert x["authentic_fit_negatives_retained"]==2
+          assert [r["lane"] for r in x["observations"]]==["Wingless","Yggdrasil"]
+          assert all(r["scientific_label_admitted"] is False for r in x["observations"])
+          assert all(x[k]==0 for k in ("accepted_originals_added",
+                  "dream_rsi_training_labels_added","pareto_scientific_wins_added"))
+          assert all(x[k] is False for k in ("owner_first_use_authorized",
+                  "original_dispatch_authorized","optimizer_improvement_demonstrated",
+                  "theta_policy_updates_authorized","cloudflare_written"))
+          print("F85_AUTHENTIC_FIT_REVIEWED=2; SCIENCE_LABELS=0")
+          PY
+          (cd "$RUNNER_TEMP/f85"; sha256sum quarantine.json > sha256.txt; sha256sum -c sha256.txt)
+          echo 'F85_DREAM_RSI_PARETO_THETA_PROMOTION=DENIED'
+          echo 'F85_WINGLESS_YGGDRASIL_DISPATCH=ZERO'
+          echo 'F85_CLOUDFLARE_CKB_PLANE_WRITES=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f85-authentic-two-lane-negative-quarantine
+          path: |
+            ${{ runner.temp }}/f85/quarantine.json
+            ${{ runner.temp }}/f85/sha256.txt
+          retention-days: 45
+          if-no-files-found: error
