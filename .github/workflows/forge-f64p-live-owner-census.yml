@@ -1,0 +1,119 @@
+name: FORGE F64P actual owner first-use READ ONLY census
+on:
+  push:
+    branches: [research/f64p-live-owner-firstuse-census-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GOFLAGS: "-p=2"
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: policy
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          ref: d6997b8f2953958ea542d472d8d4187694ef20cd
+          path: cloudflare
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 6c4b97a5a47b8be6a5bb1ad7c69a856ef4aa7091
+          path: science
+          persist-credentials: false
+      - name: Check exact source identities and cached focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C policy rev-parse HEAD)" = "$GITHUB_SHA"
+          git -C policy merge-base --is-ancestor 1a4332f88f91b5454749f2c6c7573c66d99f173f HEAD
+          test "$(git -C cloudflare rev-parse HEAD)" = d6997b8f2953958ea542d472d8d4187694ef20cd
+          test "$(git -C science rev-parse HEAD)" = 6c4b97a5a47b8be6a5bb1ad7c69a856ef4aa7091
+          test "$(git -C cloudflare hash-object d1retention/f62_firstuse_readonly.py)" = 4cb59fab01d62343deff4744ad686a8031241e3a
+          test "$(git -C science hash-object d1retention/f67_dual_lane_readonly.py)" = 58628e7a4b09685bbcf01b7d6808265471464677
+          PYTHONPATH="$GITHUB_WORKSPACE/cloudflare/d1retention" python3 -B -m unittest cloudflare/d1retention/test_f62_firstuse_readonly.py -v
+          python3 -B -m unittest science/d1retention/test_f67_dual_lane_readonly.py -v
+      - name: Re-read actual Cloudflare existing D1 with SELECT only
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$CF_TOKEN_PRIMARY" ]; then export CLOUDFLARE_API_TOKEN="$CF_TOKEN_PRIMARY"; else export CLOUDFLARE_API_TOKEN="$CF_TOKEN_ALT"; fi
+          if [ -n "$CF_ACCOUNT_SECRET" ]; then export CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_SECRET"; elif [ -n "$CF_ACCOUNT_VAR" ]; then export CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_VAR"; else export CLOUDFLARE_ACCOUNT_ID="$CF_ACCOUNT_ALT"; fi
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          PYTHONPATH="$GITHUB_WORKSPACE/cloudflare/d1retention" python3 -B "$GITHUB_WORKSPACE/cloudflare/d1retention/f62_firstuse_readonly.py" > "$RUNNER_TEMP/f64p-cloudflare.json"
+      - name: Re-read actual Wingless and Yggdrasil research origins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B "$GITHUB_WORKSPACE/science/d1retention/f67_dual_lane_readonly.py" > "$RUNNER_TEMP/f64p-science.txt"
+      - name: Reconcile live evidence, preserve blocker and digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - "$RUNNER_TEMP" <<'PY'
+          import json,pathlib,hashlib,sys
+          root=pathlib.Path(sys.argv[1])
+          cb=(root/"f64p-cloudflare.json").read_bytes()
+          gb=(root/"f64p-science.txt").read_bytes()
+          assert 0<len(cb)<2000000 and cb.count(b"\n")==1
+          g=gb.splitlines(keepends=True)
+          assert len(g)==2 and g[1]==b"F67_REAL_TWO_LANE_GITHUB_HISTORY=OBSERVED_NOT_FIRSTUSE_RELEASE\n"
+          c=json.loads(cb);s=json.loads(g[0])
+          assert c["schema"]=="forge.f62.existing-d1-firstuse-readonly-recovery-preflight.v1"
+          assert c["existing_worker_and_database_identity_verified"] is True
+          assert c["six_previous_original_archives_and_seals_unchanged"] is True
+          assert c["d1_time_travel_bookmark_readable"] is True
+          for k in ("real_atomic_preuse_table_deployed","worker_firstuse_cas_performed","worker_permit_issued","scientific_execution_authorized","owner_cutover_authorized","independently_authenticated_current_owner_and_all_lane_history"):
+              assert c[k] is False,k
+          assert c["research_originals_dispatched"]==0
+          assert s["schema"]=="forge.f67.github-two-lane-evidence-census.readonly.v1"
+          assert s["disposition"]=="REAL_REPO_LOCAL_RUNS_OBSERVED_FIRSTUSE_OWNER_AUTHORITY_STILL_BLOCKED"
+          for k in ("current_owner_epoch_and_research_firstuse_independently_proven","all_active_consumed_uncertain_original_seed_leases_reconciled","cloudflare_atomic_firstuse_deployed","worker_execution_permit_issued","controller_cutover_authorized"):
+              assert s[k] is False,k
+          lanes=s["lanes"]
+          assert [x["program"] for x in lanes]==["Wingless","Yggdrasil"]
+          for x in lanes:
+              assert x["last_completed_run_github_confirmed"] is True
+              assert x["original_science_firstuse_lease_history_complete"] is False
+              assert x["uncertain_scientific_original_attempts_all_resolved"] is False
+              assert x["new_protected_original_authorized"] is False
+          report={"schema":"forge.optimizer.f64p.actual-readonly-firstuse.v1","f63p_parent":"1a4332f88f91b5454749f2c6c7573c66d99f173f","f62_source":"d6997b8f2953958ea542d472d8d4187694ef20cd","f67_source":"6c4b97a5a47b8be6a5bb1ad7c69a856ef4aa7091","cloudflare_sha256":hashlib.sha256(cb).hexdigest(),"research_sha256":hashlib.sha256(g[0]).hexdigest(),"lanes":[{"lane":x["program"],"last_run":x["last_completed_workflow_run_id"],"active_source":x["active_research_source_sha"]} for x in lanes],"real_owner_firstuse_qualified":False,"dream_pareto_live":False,"theta_updates":False,"controller_cutover":False,"status":"LIVE_SOURCES_VERIFIED_OWNER_FIRSTUSE_BLOCKED"}
+          (root/"f64p-report.json").write_text(json.dumps(report,sort_keys=True,separators=(",",":"))+"\n")
+          print("F64P_REAL_OWNER_SOURCE_OBSERVATION=PASS")
+          print("F64P_PROSPECTIVE_OPTIMIZER_ACTIVATION=BLOCKED")
+          PY
+          (cd "$RUNNER_TEMP" && sha256sum f64p-report.json > f64p-report.sha256 && sha256sum -c f64p-report.sha256)
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: policy/go.mod
+          cache: false
+      - name: Final full FORGE regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd policy
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F64P_FINAL_FULL_FORGE_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f64p-authentic-readonly-firstuse-blocker
+          path: |
+            ${{ runner.temp }}/f64p-report.json
+            ${{ runner.temp }}/f64p-report.sha256
+          retention-days: 30
+          if-no-files-found: error
