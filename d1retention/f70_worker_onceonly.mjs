@@ -104,7 +104,16 @@ async function rows(db,query){
 // scientific executor. A successful synthetic unit test is only a transaction
 // contract. Never call from a public request without authenticating the real
 // CKB owner principal and worker start identity at that deployment boundary.
-export async function onceOnlyClaimAtWorkerStart({
+// F71: the public execution-path symbol MUST NOT be callable with only
+// caller-provided booleans and self-selected owner/witness keys. No trusted
+// current-owner factory is provisioned. Deny prior to ANY D1 read or write.
+export async function onceOnlyClaimAtWorkerStart(){
+ throw new Denied();
+}
+
+// Synthetic harness ONLY. Never import this into a deployed Worker entrypoint.
+// Its caller-supplied evidence inputs do not create independent provenance.
+export async function simulateOnceOnlyClaimAtWorkerStart({
  db,pins,claim,ownerPredecision,
  ownerAndCohortIndependentlyAttested=false,
  currentWorkerIndependentlyAuthenticated=false,

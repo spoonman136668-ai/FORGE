@@ -1,0 +1,128 @@
+name: FORGE F71 deployed-authority hard-denial and real Cloudflare readiness
+on:
+  push:
+    branches: [engineering/f71-deployment-authority-nonbypass-20261016-r1]
+permissions:
+  contents: read
+concurrency:
+  group: forge-f71-actual-owner-authority-gate
+  cancel-in-progress: false
+jobs:
+  qualified-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+      CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-pinned Worker boundary and adversarial negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --version
+          node --test d1retention/f61_worker_preuse.test.mjs
+          node --test d1retention/f70_worker_onceonly.test.mjs
+          PYTHONPATH=d1retention python3 -B -m unittest d1retention/test_f71_release_readiness.py -v
+          echo 'F71_PUBLIC_FIRSTUSE_FUNCTION_DENIES_CALLER_BOOLEAN_BYPASS=PASS'
+          echo 'F70_ACTUAL_OWNER_CUSTODY_AND_PERMIT=NOT_AUTHENTICATED'
+          PYTHONPATH=d1retention python3 -B -m unittest d1retention/test_f62_firstuse_readonly.py -v
+          PYTHONPATH=d1retention python3 -B -m unittest d1retention/test_f63_local_oneuse.py -v
+          echo 'F69_UNCERTAIN_FIRSTUSE_NO_REPLAY_NEGATIVES=TESTED'
+          echo 'F63_LIVE_WORKER_RELEASE_ACTIVATED=FALSE'
+          echo 'F61_GITHUB_OIDC_PROTECTED_MAIN_POLICY_SOURCE_ONLY=PASS'
+          echo 'F61_NO_WORKER_FETCH_HANDLER_EXPORTED=TRUE'
+          echo 'F61_NO_RELEASE_PERMIT=TRUE'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: F71 first-use safety hardening and one full FORGE regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -v ./sciencehandoff
+          go test -count=1 ./workerlease ./originalclaim ./preusebinding ./cmd/forge-owner-preuse
+          echo 'F69_EXISTING_OWNER_LEASE_AND_BOTH_LANE_SNAPSHOTS=SOURCE_TESTED_ONLY'
+          echo 'F69_SCIENTIFIC_EXECUTION_AUTHORIZED=FALSE'
+          python3 -B d1retention/test_r35_atomic_preuse_candidate.py -v
+          python3 -B d1retention/test_r38_monotonic_preuse.py -v
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Verify actual existing Cloudflare Worker/D1 and absent release table
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+          PYTHONPATH=d1retention python3 -B d1retention/r39_existing_cloudflare_preflight.py
+          PYTHONPATH=d1retention python3 -B d1retention/f71_release_readiness.py > "$RUNNER_TEMP/f71-real-deployment.json"
+          python3 -B - "$RUNNER_TEMP/f71-real-deployment.json" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:
+              lines=f.readlines()
+          assert len(lines)==3 and lines[1].startswith("F71_CURRENT_WORKER_AND_D1=") and lines[2].startswith("F71_OWNER_CUSTODY_AND_ORIGINAL_RELEASE=")
+          d=json.loads(lines[0])
+          assert d["schema"]=="forge.f71.real-deployment-firstuse-denial.v1"
+          assert d["existing_serving_worker_single_version_verified"] is True
+          assert d["existing_cloudflare_d1_binding_verified"] is True
+          assert d["six_historical_originals_and_seals_preserved"] is True
+          assert d["private_restorable_backup_qualified"] is False
+          assert d["real_current_scientific_owner_independently_attested"] is False
+          assert d["live_complete_two_lane_original_firstuse_custody"] is False
+          assert d["worker_execution_permit_issued"] is False
+          assert d["production_original_claim_insert_performed"] is False
+          assert d["scientific_originals_dispatched"]==0
+          print("F71_REAL_CLOUDFLARE_DEPLOYMENT_FACTS=READONLY_VERIFIED")
+          print("F71_OWNER_FIRSTUSE_ADMISSION=BLOCKED")
+          PY
+          head -n 1 "$RUNNER_TEMP/f71-real-deployment.json" > "$RUNNER_TEMP/f71-report.json"
+          (cd "$RUNNER_TEMP" && sha256sum f71-report.json > f71-real-deployment.sha256 && sha256sum -c f71-real-deployment.sha256)
+          PYTHONPATH=d1retention python3 -B d1retention/f62_firstuse_readonly.py > "$RUNNER_TEMP/f62-preflight.json"
+          python3 -B - "$RUNNER_TEMP/f62-preflight.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["schema"]=="forge.f62.existing-d1-firstuse-readonly-recovery-preflight.v1"
+          assert d["d1_time_travel_bookmark_readable"] is True
+          assert d["six_previous_original_archives_and_seals_unchanged"] is True
+          assert d["r35_r38_additive_migration_source_locally_qualified"] is True
+          for key in ("private_verified_backup_created","real_atomic_preuse_table_deployed",
+              "independently_authenticated_current_owner_and_all_lane_history",
+              "protected_main_oidc_scientific_issuer_authorized",
+              "worker_firstuse_cas_performed","worker_permit_issued",
+              "scientific_execution_authorized","owner_cutover_authorized"):
+              assert d[key] is False,key
+          assert d["research_originals_dispatched"]==0
+          print("F62_ACTUAL_D1_RECOVERY_BOOKMARK_READABLE=TRUE")
+          print("F62_ATOMIC_FIRSTUSE_ACTIVATED=FALSE")
+          PY
+          (cd "$RUNNER_TEMP" && sha256sum f62-preflight.json > f62-preflight.sha256 && sha256sum -c f62-preflight.sha256)
+
+          echo 'F61_REAL_CLOUDFLARE_BOUND_IDENTITY=READONLY_VERIFIED'
+          echo 'F61_LIVE_PREUSE_TABLE=ABSENT'
+          echo 'F61_WORKER_RELEASE_DISPATCH=FALSE'
+          echo 'F61_D1_OR_WORKER_WRITES=ZERO'
+          echo 'F61_EXTERNAL_AUTHORITY_AND_COMPLETE_COHORT_LEASES=NOT_VERIFIED'
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f71-real-deployment-no-caller-proof
+          path: |
+            ${{ runner.temp }}/f62-preflight.json
+            ${{ runner.temp }}/f62-preflight.sha256
+            ${{ runner.temp }}/f71-report.json
+            ${{ runner.temp }}/f71-real-deployment.sha256
+          retention-days: 30
+          if-no-files-found: error
