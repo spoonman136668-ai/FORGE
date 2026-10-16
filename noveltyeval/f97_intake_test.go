@@ -122,6 +122,11 @@ func TestF97RenamingAndRelationOrderCannotLaunderF96Cases(t *testing.T){
  if err:=json.Unmarshal(base,&first);err!=nil{t.Fatal(err)}
  // A pure relabeling of an F96 source-visible graph must be quarantined.
  old:=first.Cases[0]
+ // Clone nested slices before mutation: otherwise the adversarial fixture
+ // would rewrite the purported immutable F96 comparison in memory.
+ old.Relations=append([]noveltymechanisms.Relation(nil),old.Relations...)
+ old.ExpectedTargets=append([]string(nil),old.ExpectedTargets...)
+ old.Roles=append([]string(nil),old.Roles...)
  old.ID="renamed-f96-test"
  for i:=range old.Relations{
   old.Relations[i].From="rename-"+old.Relations[i].From
