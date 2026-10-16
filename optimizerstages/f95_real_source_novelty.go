@@ -9,6 +9,9 @@ import (
  "go/parser"
  "go/token"
  "strings"
+
+ "github.com/spoonman136668-ai/forge/genenv"
+ "github.com/spoonman136668-ai/forge/promptlineage"
 )
 
 const F95SourceSchema="forge.optimizer.f95.real-go-source-structural-observation.v1"
@@ -137,4 +140,28 @@ func AuditF95SourceBytes(f F94Freeze,sourcePin string,
  out.SourceBytesMatchClaims=true
  out.AllThreeGoASTShapesChanged=true
  return out,nil
+}
+
+// AuditF95LinkedGeneratorSource ALSO recomputes the complete F94 frozen
+// candidate population. No caller-picked subset can masquerade as a real
+// generated lineage. The selected candidate's actual implementation is
+// checked against the real source bytes, but independent scientific novelty
+// and prospective source custody still remain unqualified.
+func AuditF95LinkedGeneratorSource(f F94Freeze,sourcePin string,
+ pf promptlineage.Frozen,ef genenv.Frozen,h genenv.History,
+ links []F94ImplementationClaim,selected int,
+ artifacts F95ThreeSourceArtifacts)(F95SourceReview,error){
+ var zero F95SourceReview
+ review,err:=ScreenF94(f,sourcePin,pf,ef,h,links)
+ if err!=nil||selected<0||selected>=len(links)||
+  selected>=len(review.CandidateScreens)||selected>=len(review.StageProposals){
+  return zero,ErrF95
+ }
+ chosen:=links[selected]
+ if review.CandidateScreens[selected].Generator!=chosen.Generator||
+  review.CandidateScreens[selected].GeneratorCandidateSHA256!=chosen.GeneratorCandidateSHA256||
+  review.StageProposals[selected].CandidateSHA256!=review.CandidateScreens[selected].ProposedMechanismSHA256{
+  return zero,ErrF95
+ }
+ return AuditF95SourceBytes(f,sourcePin,chosen,artifacts)
 }
