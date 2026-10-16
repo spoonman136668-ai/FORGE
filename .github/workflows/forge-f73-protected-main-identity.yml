@@ -1,0 +1,65 @@
+name: FORGE F73 protected-main cryptographic origin (no science permission)
+on:
+  push:
+    branches:
+      - main
+      - engineering/f73-protected-main-real-oidc-readonly-20261016-r1
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: forge-f73-protected-main-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  inspect-github-origin-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source-negative trust and first-use denial
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --test d1retention/f73_protected_main_oidc.test.mjs
+      - name: Verify actual GitHub OIDC JWT and live protected-main ruleset, no owner permit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node d1retention/f73_protected_main_oidc.mjs > "$RUNNER_TEMP/f73-issuer-readonly.txt"
+          python3 -B - "$RUNNER_TEMP/f73-issuer-readonly.txt" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_REF" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as f:
+              lines=f.readlines()
+          assert len(lines)==2 and lines[1]=="F73_PROTECTED_ORIGINAL_SCIENCE=DENIED\n"
+          d=json.loads(lines[0])
+          assert d["schema"]=="forge.f73.protected-main-github-oidc-readonly.v1"
+          assert d["oidc_signature_and_live_jwks_verified"] is True
+          assert d["signed_run_source_and_repository_identity_joined"] is True
+          assert d["source_sha"]==sys.argv[2]
+          assert d["run_id"]==int(sys.argv[3])
+          assert d["on_protected_main_workflow"] == (sys.argv[4]=="refs/heads/main")
+          assert d["protected_main_ruleset_enforced"] is True
+          assert d["required_linux_and_windows_checks_observed"] is True
+          assert d["independently_accepted_current_scientific_owner"] is False
+          assert d["complete_two_lane_original_firstuse_attested"] is False
+          assert d["worker_execution_permit_issued"] is False
+          assert d["scientific_originals_dispatched"]==0
+          print("F73_REAL_SIGNED_GITHUB_WORKFLOW_IDENTITY=PASS")
+          print("F73_INDEPENDENT_SCIENCE_OWNER_AND_WORKER_PERMIT=BLOCKED")
+          PY
+          head -n 1 "$RUNNER_TEMP/f73-issuer-readonly.txt" > "$RUNNER_TEMP/f73-issuer.json"
+          (cd "$RUNNER_TEMP" && sha256sum f73-issuer.json > f73-issuer.sha256 && sha256sum -c f73-issuer.sha256)
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f73-genuine-origin-without-science-permit
+          path: |
+            ${{ runner.temp }}/f73-issuer.json
+            ${{ runner.temp }}/f73-issuer.sha256
+          retention-days: 30
+          if-no-files-found: error
