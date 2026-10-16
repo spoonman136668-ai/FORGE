@@ -4,6 +4,7 @@ on:
     branches: [research/f58-freeze-prospective-dream-pareto-selection-20261015-r1]
 permissions:
   contents: read
+  actions: read
 jobs:
   source-frozen-prospective-controls:
     runs-on: ubuntu-latest
@@ -11,6 +12,7 @@ jobs:
     env:
       GOFLAGS: "-p=2"
       GOMAXPROCS: "2"
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +32,16 @@ jobs:
           test "$(git hash-object evoportfolio/island_pareto.go)" = c52fbca609f94fa720f78e94d2f5f71bf3eb7b68
           test "$(git hash-object optimizerbridge/selection_audit.go)" = 48810d9935b0cfd119991b22300cbaa783bd9adb
           test "$(git hash-object optimizerbridge/stage_activation.go)" = c1551bc4ed69fe6a997d74d96dc6fde1e7db1b8c
+          gh --version >/dev/null
+          sourcefile=reference/f58/frozen-control-commitment.json
+          test "$(jq -r .first_frozen_source_head "$sourcefile")" = 042e04a9b6edc34d0f28ca8aecad18292f5919eb
+          gh api 'repos/spoonman136668-ai/FORGE/actions/runs/38828947145' |
+            jq -e '.id==38828947145 and .head_sha=="042e04a9b6edc34d0f28ca8aecad18292f5919eb" and .run_attempt==1 and .status=="completed" and .conclusion=="success"' >/dev/null
+          gh api 'repos/spoonman136668-ai/FORGE/actions/artifacts/12016556257' |
+            jq -e '.id==12016556257 and
+              .name=="forge-f58-frozen-control-identities-no-owner-firstuse" and
+              .digest=="sha256:988c2be05c0818a9dfa7858a2d448f9d64354aa3f2c380299633e8db1383b03b" and
+              .workflow_run.id==38828947145 and .expired==false' >/dev/null
           go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio ./cmd/forge-f58-freeze
       - name: Freeze eight real policy IDs without fabricating two challengers per lane
         shell: bash
@@ -40,6 +52,14 @@ jobs:
           go run ./cmd/forge-f58-freeze --frozen "$root/frozen-repeat.json" --readiness "$root/readiness-repeat.json"
           cmp "$root/frozen.json" "$root/frozen-repeat.json"
           cmp "$root/readiness.json" "$root/readiness-repeat.json"
+          snapshot=reference/f58/frozen-control-commitment.json
+          test "$(sha256sum "$root/frozen.json" | cut -d' ' -f1)" = "$(jq -r .frozen_controls_sha256 "$snapshot")"
+          test "$(sha256sum "$root/readiness.json" | cut -d' ' -f1)" = "$(jq -r .readiness_sha256 "$snapshot")"
+          jq -e '.schema=="forge.optimizer.f58.immutable-control-snapshot.v1" and
+              .controls_per_lane==4 and .prospective_challengers_per_lane==2 and
+              .external_custody_independently_verified==false and
+              .live_prospective_selection_firstuse_executed==false and
+              .dream_pareto_policy_promotion_authorized==false' "$snapshot" >/dev/null
           jq -e '.schema=="forge.optimizer.f58.frozen-prospective-selection.v1" and
             (.lanes|length)==2 and
             .lanes[0].lane=="Wingless" and .lanes[1].lane=="Yggdrasil" and
