@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -9,7 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parent))
 import f100_frozen_successors as f100
 
-SHA="b8d9b4ef0e58feaaedd5e12c5a810cd0e5d1c9fc"
+SHA=os.environ.get("GITHUB_SHA") or "b8d9b4ef0e58feaaedd5e12c5a810cd0e5d1c9fc"
 def fixtures():
     parent,parent_raw=f100.read_json(f100.F99)
     contract,_=f100.read_json(f100.F100)
