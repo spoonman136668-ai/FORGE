@@ -74,6 +74,40 @@ jobs:
           PY
           head -n 1 "$RUNNER_TEMP/forge-native-pulse/stdout.txt" > "$RUNNER_TEMP/forge-native-pulse/health.json"
           (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum health.json > health.sha256 && sha256sum -c health.sha256)
+      - name: Verify authentic completed scheduled observation continuity (read-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B autonomypulse/continuity.py > "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" || {
+            head -n 1 "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" >&2
+            echo 'FORGE_NATIVE_CONTINUITY_QUARANTINED_NO_SCIENCE_ACTION' >&2
+            exit 1
+          }
+          python3 - "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" <<'PY'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8") as file: lines=file.readlines()
+          assert len(lines)==2
+          result=json.loads(lines[0])
+          assert result["schema"]=="forge.autonomy.native-schedule-continuity.v1"
+          assert result["status"] in (
+              "PENDING_TWO_COMPLETED_SCHEDULED_RUNS",
+              "QUALIFIED_TWO_COMPLETED_SCHEDULED_OBSERVATIONS")
+          assert lines[1]=="FORGE_NATIVE_CONTINUITY="+result["status"]+"\n"
+          assert result["scientific_first_use_authorized"] is False
+          assert result["science_dispatches"]==0
+          assert result["accepted_ref_mutations"]==0
+          assert result["optimizer_promotions"]==0
+          assert result["ckb_plane_accessed"] is False
+          if result["qualified"]:
+              assert result["status"]=="QUALIFIED_TWO_COMPLETED_SCHEDULED_OBSERVATIONS"
+              assert len(result["observations"])==2
+              print("FORGE_NATIVE_UNATTENDED_CONTINUITY=EVIDENCE_QUALIFIED_ONLY")
+          else:
+              assert result["status"]=="PENDING_TWO_COMPLETED_SCHEDULED_RUNS"
+              print("::notice title=FORGE continuity::Await two authentic completed scheduled observer runs")
+          PY
+          head -n 1 "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" > "$RUNNER_TEMP/forge-native-pulse/continuity.json"
+          (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum continuity.json > continuity.sha256 && sha256sum -c continuity.sha256)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -81,5 +115,7 @@ jobs:
           path: |
             ${{ runner.temp }}/forge-native-pulse/health.json
             ${{ runner.temp }}/forge-native-pulse/health.sha256
+            ${{ runner.temp }}/forge-native-pulse/continuity.json
+            ${{ runner.temp }}/forge-native-pulse/continuity.sha256
           if-no-files-found: warn
           retention-days: 21
