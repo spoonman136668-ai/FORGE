@@ -41,12 +41,14 @@ def read_json(path):
 def git_blob_sha(data):
     return hashlib.sha1(b"blob "+str(len(data)).encode("ascii")+b"\x00"+data).hexdigest()
 def check_contract(f100,f99,parent_bytes):
-    need(f100.get("schema")==SCHEMA and
-         f100.get("prior_f99_head_sha")==BASE and
-         f100.get("prior_f99_repository")=="spoonman136668-ai/FORGE" and
-         f100.get("prior_f99_manifest_path")=="reference/research-intake/f99-authentic-development-negative-history.json" and
-         f100.get("prior_f99_manifest_git_blob_sha")==PARENT_BLOB and
-         git_blob_sha(parent_bytes)==PARENT_BLOB,"PARENT_SOURCE_PIN_MISMATCH")
+    need(f100.get("schema")==SCHEMA,"F100_CONTRACT_SCHEMA_DRIFT")
+    need(f100.get("prior_f99_head_sha")==BASE,"F99_EXACT_HEAD_DRIFT")
+    need(f100.get("prior_f99_repository")=="spoonman136668-ai/FORGE" and
+         f100.get("prior_f99_manifest_path")=="reference/research-intake/f99-authentic-development-negative-history.json",
+         "F99_SOURCE_PATH_DRIFT")
+    need(f100.get("prior_f99_manifest_git_blob_sha")==PARENT_BLOB,
+         "F99_CONTRACT_BLOB_DRIFT")
+    need(git_blob_sha(parent_bytes)==PARENT_BLOB,"F99_ACTUAL_BLOB_HASH_DRIFT")
     need(f99.get("schema")=="forge.autonomy.f99.authentic-development-negative-history.v1" and
          f99.get("purpose")=="FROZEN_ARCHIVED_DEVELOPMENT_NEGATIVES_FOR_READONLY_METHOD_PLANNING_ONLY","PARENT_F99_NEGATIVE_SOURCE_MISSING")
     need(f100.get("scientific_status")=="SOURCE_ONLY_PREREGISTRATION_NO_NEW_EXPERIMENT_OR_AUTONOMOUS_MODEL" and
