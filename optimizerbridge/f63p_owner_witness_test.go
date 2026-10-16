@@ -41,7 +41,7 @@ func f63PSourceFixtures(t *testing.T)(F58Freeze,[]F63PResearchIntake){
   private:=ed25519.NewKeyFromSeed(seed[:])
   pub:=private.Public().(ed25519.PublicKey)
   signed:=F63PSignedWitness{Record:record,SignatureHex:hex.EncodeToString(
-   ed25519.Sign(private,append([]byte(F63PDomain),raw...))),
+   ed25519.Sign(private,append([]byte(F63PDomain),raw...)),
   )}
   pin:=F63PExternalPin{
    Lane:n.Lane,SignedRecordSHA256:f63PHash(raw),
