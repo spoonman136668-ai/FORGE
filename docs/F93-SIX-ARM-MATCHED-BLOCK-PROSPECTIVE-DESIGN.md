@@ -28,7 +28,7 @@ Using a conservative **16,384-originals-per-lane planning budget** for compariso
 
 ## F93 source qualification
 
-- `optimizerstages/f93_matched_block.go` creates an immutable F89 two-lane-derived F93 plan, content addressed with SHA-256 and frozen matched-task, scoring, order-randomization and no-interference protocol digests. Plans are constrained to at most 2,730 complete blocks per lane in this source-only design.
+- `optimizerstages/f93_matched_block.go` creates a F89 two-lane-derived F93 plan, content addressed with SHA-256 and frozen matched-task, scoring, order-randomization and no-interference protocol digests. `ValidateF93PinnedPlan` must compare it with a **separately retrieved pre-outcome preregistration digest**; simply rehashing a changed protocol is not the same experiment. The library cannot establish that the pin is authentic or independent. Plans are constrained to at most 2,730 complete blocks per lane in this source-only design.
 - It validates six policy identities and six distinct positions per block, strict block-case/draw/receipt/outcome identifier reuse fences, class labels including NEGATIVE/MIXED/INVALID/INDETERMINATE/MISSING, and per-original compute costs.
 - No matched comparisons are emitted for a lane containing a missing outcome; no imputed 0, no partial-complete-case IPS. Source-only matched score and compute contrasts are exact rational means, with conditional one-sided lower offsets.
 - **Critical epistemic boundary:** Values, hashes, claimed random positions and block membership originate from supplied data; they do not prove source independence, genuinely random order, independent pre-outcome witness, a complete population, actual original execution, scientific acceptance or positive policy effects.
