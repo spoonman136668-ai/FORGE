@@ -1,7 +1,8 @@
 package optimizerstages
 
-// StageActivation is an evidence-gated handoff to the EXISTING FORGE
-// controller. This package has no execution, credential, signing, broker,
+// StageActivation is a FORGE-native optimizer evidence/readiness assessment.
+// Autonomy, controller implementation and deployment belong to separate gates.
+// This package has no execution, credential, signing, broker,
 // Cloudflare, or accepted-reference mutation capability. Historical/FIT
 // diagnostics cannot authorize a prospective selection policy.
 import (
@@ -152,6 +153,7 @@ func AssessActivation(trials []ProspectiveSelection,outcomes []IndependentlyAcce
  }
  usedEvidence:=map[string]bool{}
  usedOutcomeSource:=map[string]bool{}
+ usedAdmissions:=map[string]bool{}
  acceptedLanes:=map[string]bool{}
  if len(outcomes)>0&&len(trials)!=2{
   return out,fmt.Errorf("%w:no_selection_trial",ErrStageEvidence)
@@ -159,11 +161,13 @@ func AssessActivation(trials []ProspectiveSelection,outcomes []IndependentlyAcce
  for _,o:=range outcomes{
   if !validOutcome(o)||!seen[o.Lane]||acceptedLanes[o.Lane]||
    usedEvidence[o.AcceptedEvidenceSHA256]||usedOutcomeSource[o.SourceSHA]||
+   usedAdmissions[o.IndependentAdmissionSHA256]||
    o.SourceSHA==frozen[o.Lane]{
    return out,fmt.Errorf("%w:accepted_outcome_identity",ErrStageEvidence)
   }
   acceptedLanes[o.Lane]=true;usedEvidence[o.AcceptedEvidenceSHA256]=true
   usedOutcomeSource[o.SourceSHA]=true
+  usedAdmissions[o.IndependentAdmissionSHA256]=true
   if trust==nil||!out.AuthenticatedProspectiveResearchSelection{
    return out,fmt.Errorf("%w:missing_trust",ErrStageEvidence)
   }
@@ -181,11 +185,9 @@ func AssessActivation(trials []ProspectiveSelection,outcomes []IndependentlyAcce
   }
   seenNovelty[p.CandidateSHA256]=true
  }
- if len(proposals)!=0 {
-  if len(proposals)!=2 || proposals[0].Lane==proposals[1].Lane ||
-    proposals[0].Generator==proposals[1].Generator {
-    return out,fmt.Errorf("%w:both_novelty_lanes_required",ErrStageEvidence)
-  }
+ // Each lane may independently prepare untested novelty without waiting
+ // for the other lane's data; no shared admission or dispatch permission.
+ if len(proposals)>0 {
   out.PromptbreederAndGenEnv="BOUNDED_UNTESTED_NOVELTY_PROPOSALS_READY"
  }
  return out,nil
