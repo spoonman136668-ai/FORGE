@@ -1,0 +1,123 @@
+name: FORGE F59 real existing-owner challenger enrollment inventory (no dispatch)
+on:
+  push:
+    branches: [research/f59-existing-owner-prospective-enrollment-20261015-r1]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  authentic-owner-intake-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOMAXPROCS: "2"
+      GOFLAGS: "-p=2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Source and trust boundary frozen without controller access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 909cf537fc453f4afb95d259f7ae30e6f9ca6300 HEAD
+          test "$(git hash-object dreamrsi/replay.go)" = e9317c400df72b7ea45059e9e8d45d9d4f46baa5
+          test "$(git hash-object evoportfolio/island_pareto.go)" = c52fbca609f94fa720f78e94d2f5f71bf3eb7b68
+          test "$(git hash-object optimizerbridge/selection_audit.go)" = 48810d9935b0cfd119991b22300cbaa783bd9adb
+          python3 -B -m py_compile scripts/f59_live_owner_evidence_inventory.py
+          go test -count=1 ./optimizerbridge ./dreamrsi ./evoportfolio ./cmd/forge-f58-freeze
+          echo F59_FROZEN_OWNER_ENROLLMENT_SOURCE_PASS
+      - name: Read original real control freeze, genuine R28P owner protocol, and current GitHub artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f59"; mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/38828947145" |
+            jq -e '.id==38828947145 and .head_sha=="042e04a9b6edc34d0f28ca8aecad18292f5919eb" and .run_attempt==1 and .status=="completed" and .conclusion=="success"' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12016556257" |
+            jq -e '.id==12016556257 and .name=="forge-f58-frozen-control-identities-no-owner-firstuse" and
+                   .digest=="sha256:988c2be05c0818a9dfa7858a2d448f9d64354aa3f2c380299633e8db1383b03b" and .workflow_run.id==38828947145 and .expired==false' >/dev/null
+          gh run download 38828947145 --repo "$GITHUB_REPOSITORY" \
+            -n forge-f58-frozen-control-identities-no-owner-firstuse -D "$root"
+          (cd "$root" && sha256sum --check frozen.sha256)
+          gh api "repos/$GITHUB_REPOSITORY/contents/reference/research-originals/20261015-r28p-owner-prospective-trial.json?ref=835c33c517f1ff677066f65af0b1cba3ba6482ae" |
+            jq -r '.content' | base64 --decode > "$root/owner-prereg.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&page=1" > "$root/github-recent-artifacts.json"
+          python3 -B scripts/f59_live_owner_evidence_inventory.py \
+            --controls "$root/frozen.json" \
+            --commitment reference/f58/frozen-control-commitment.json \
+            --owner-prereg "$root/owner-prereg.json" \
+            --github-artifacts "$root/github-recent-artifacts.json" \
+            --out "$root/observed.json"
+          python3 -B scripts/f59_live_owner_evidence_inventory.py \
+            --controls "$root/frozen.json" \
+            --commitment reference/f58/frozen-control-commitment.json \
+            --owner-prereg "$root/owner-prereg.json" \
+            --github-artifacts "$root/github-recent-artifacts.json" \
+            --out "$root/repeat.json"
+          cmp "$root/observed.json" "$root/repeat.json"
+          jq -e '.schema=="forge.optimizer.f59.real-github-owner-inventory.v1" and
+            .source_frozen_real_control_count==8 and
+            .prospective_challenger_slots_unfilled==4 and
+            .owner_authentic_selected_policies_verified==0 and
+            .real_firstuse_randomized_selections_verified==0 and
+            .independent_causal_owner_reviews_verified==0 and
+            .cross_lane_controller_policy_activation==false and
+            .theta_updates_authorized==false' "$root/observed.json" >/dev/null
+          (cd "$root" && sha256sum observed.json > observed.sha256)
+          echo F59_GITHUB_ACTUAL_OWNER_ARTIFACT_INVENTORY_READ_ONLY=PASS
+      - name: Evidence spoofing, identity collision and full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f59"
+          python3 -B - "$root" <<'PY'
+          import sys,copy,json
+          from scripts import f59_live_owner_evidence_inventory as t
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          snapshot,_=t.read(root/"frozen.json")
+          owner,_=t.read(root/"owner-prereg.json")
+          meta,_=t.read(root/"github-recent-artifacts.json")
+          commit,_=t.read("reference/f58/frozen-control-commitment.json")
+          good=t.classify(snapshot,owner,meta,commit)
+          assert good["owner_authentic_selected_policies_verified"]==0
+          altered=copy.deepcopy(owner)
+          altered["admission_state"]["genuinely_frozen_selected_policy"]=True
+          try:t.classify(snapshot,altered,meta,commit)
+          except t.Blocked:pass
+          else:raise AssertionError("owner source forged admission")
+          altered=copy.deepcopy(snapshot)
+          altered["lanes"][0]["challengers"][0]["externally_accepted_policy_sha256"]="1"*64
+          try:t.classify(altered,owner,meta,commit)
+          except t.Blocked:pass
+          else:raise AssertionError("self-attested challenger enrollment")
+          nameOnly={"total_count":1,"artifacts":[{"id":123456,"name":"signed-dream-owner-success"}]}
+          named=t.classify(snapshot,owner,nameOnly,commit)
+          assert len(named["possible_named_evidence_on_scanned_page"])==1
+          assert named["owner_authentic_selected_policies_verified"]==0
+          assert not named["cross_lane_controller_policy_activation"]
+          print("F59_NO_ARTIFACT_NAME_COUNTS_AS_INDEPENDENT_AUTHORITY=PASS")
+          PY
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F59_ONE_FULL_GO_REGRESSION_VET_BUILD=PASS
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f59-real-owner-readonly-enrollment-observation
+          path: |
+            ${{ runner.temp }}/f59/observed.json
+            ${{ runner.temp }}/f59/observed.sha256
+            ${{ runner.temp }}/f59/owner-prereg.json
+          retention-days: 30
+          if-no-files-found: error
