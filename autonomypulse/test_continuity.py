@@ -27,7 +27,7 @@ class FakeAPI:
         self.items["/actions/workflows/" + c.WORKFLOW] = {
             "id": WF, "path": ".github/workflows/" + c.WORKFLOW,
             "state": "active"}
-        self.items["/actions/runs?event=schedule&per_page=100"] = {
+        self.items["/actions/workflows/198001/runs?event=schedule&per_page=25"] = {
             "workflow_runs": [run(1), run(0)]}
         for sha in (CURRENT,) + PREVIOUS:
             for path in c.SOURCE_PATHS:
@@ -57,27 +57,27 @@ class ContinuityTests(unittest.TestCase):
     def test_no_or_one_schedule_stays_pending_not_qualified(self):
         for retained in (0, 1):
             a = FakeAPI()
-            a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"] = [run(1)][:retained]
+            a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [run(1)][:retained]
             result = c.report(a, NOW, CURRENT)
             self.assertFalse(result["qualified"])
             self.assertEqual(result["status"], "PENDING_TWO_COMPLETED_SCHEDULED_RUNS")
 
     def test_manual_or_push_successes_do_not_count(self):
         a = FakeAPI()
-        runs = a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"]
+        runs = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
         runs[:] = [run(1, event="workflow_dispatch"), run(0)]
         with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
             c.report(a, NOW, CURRENT)
 
     def test_latest_scheduled_failure_is_not_skipped(self):
         a = FakeAPI()
-        a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"][0]["conclusion"] = "failure"
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["conclusion"] = "failure"
         with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
             c.report(a, NOW, CURRENT)
 
     def test_rerun_is_not_proof_of_first_attempt_continuity(self):
         a = FakeAPI()
-        a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"][0]["run_attempt"] = 2
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["run_attempt"] = 2
         with self.assertRaises(c.EvidenceError):
             c.report(a, NOW, CURRENT)
 
@@ -100,19 +100,19 @@ class ContinuityTests(unittest.TestCase):
 
     def test_duplicate_schedule_run_id_denied(self):
         a = FakeAPI()
-        a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"] = [run(0), run(0)]
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [run(0), run(0)]
         with self.assertRaisesRegex(c.EvidenceError, "REPEATED_SCHEDULE_RUN_ID"):
             c.report(a, NOW, CURRENT)
 
     def test_future_timestamp_denied(self):
         a = FakeAPI()
-        a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"][0]["updated_at"] = "2027-10-16T19:19:31Z"
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["updated_at"] = "2027-10-16T19:19:31Z"
         with self.assertRaises(c.EvidenceError):
             c.report(a, NOW, CURRENT)
 
     def test_stale_or_skipped_schedule_denied(self):
         a = FakeAPI()
-        a.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"][0]["created_at"] = "2026-10-17T05:19:01Z"
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["created_at"] = "2026-10-17T05:19:01Z"
         with self.assertRaisesRegex(c.EvidenceError, "SCHEDULE_CADENCE_OR_FRESHNESS"):
             c.report(a, datetime(2026, 10, 17, 6, 0, tzinfo=timezone.utc), CURRENT)
 
@@ -122,7 +122,7 @@ class ContinuityTests(unittest.TestCase):
         with self.assertRaisesRegex(c.EvidenceError, "WORKFLOW_IDENTITY_UNVERIFIED"):
             c.report(a, NOW, CURRENT)
         b = FakeAPI()
-        b.items["/actions/runs?event=schedule&per_page=100"]["workflow_runs"][0]["workflow_id"] = 122
+        b.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["workflow_id"] = 122
         self.assertFalse(c.report(b, NOW, CURRENT)["qualified"])
 
 if __name__ == "__main__":
