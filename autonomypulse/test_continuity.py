@@ -125,5 +125,85 @@ class ContinuityTests(unittest.TestCase):
         b.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["workflow_id"] = 122
         self.assertFalse(c.report(b, NOW, CURRENT)["qualified"])
 
+
+    def active_self(self):
+        r = run(1)
+        r.update({"id": 41000000002, "head_sha": CURRENT,
+                  "status": "in_progress", "conclusion": None,
+                  "created_at": "2026-10-16T20:59:00Z",
+                  "updated_at": "2026-10-16T20:59:20Z"})
+        return r
+
+    def test_current_scheduled_run_is_not_its_own_completed_witness(self):
+        a = FakeAPI()
+        own = self.active_self()
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"].insert(0, own)
+        result = c.report(a, NOW, CURRENT, current_run_id=own["id"])
+        self.assertTrue(result["qualified"])
+        self.assertTrue(result["current_scheduled_run_excluded"])
+        self.assertEqual([x["run_id"] for x in result["observations"]],
+                         [41000000000, 41000000001])
+        self.assertFalse(result["scientific_first_use_authorized"])
+        self.assertEqual(result["science_dispatches"], 0)
+
+    def test_one_completed_plus_self_remains_pending(self):
+        a = FakeAPI()
+        own = self.active_self()
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [
+            own, run(1)]
+        result = c.report(a, NOW, CURRENT, current_run_id=own["id"])
+        self.assertFalse(result["qualified"])
+        self.assertEqual(result["scheduled_runs_found"], 1)
+        self.assertTrue(result["current_scheduled_run_excluded"])
+
+    def test_self_alone_never_becomes_a_completed_observation(self):
+        a = FakeAPI()
+        own = self.active_self()
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [own]
+        result = c.report(a, NOW, CURRENT, current_run_id=own["id"])
+        self.assertFalse(result["qualified"])
+        self.assertEqual(result["scheduled_runs_found"], 0)
+
+    def test_self_id_is_not_permission_to_hide_untrusted_origins(self):
+        for update in (
+            {"head_sha": "f" * 40},
+            {"head_branch": "other"},
+            {"event": "workflow_dispatch"},
+            {"run_attempt": 2},
+            {"status": "completed", "conclusion": "success"},
+            {"status": "in_progress", "conclusion": "success"},
+        ):
+            a = FakeAPI()
+            own = self.active_self()
+            own.update(update)
+            a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"].insert(0, own)
+            with self.assertRaisesRegex(c.EvidenceError, "CURRENT_RUN_SELF_IDENTITY_UNVERIFIED"):
+                c.report(a, NOW, CURRENT, current_run_id=own["id"])
+
+    def test_self_exclusion_never_skips_another_unfinished_schedule(self):
+        a = FakeAPI()
+        own = self.active_self()
+        stranger = self.active_self()
+        stranger.update({"id": 41000000003, "created_at": "2026-10-16T20:58:00Z"})
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [
+            own, stranger, run(1), run(0)]
+        with self.assertRaises(c.EvidenceError):
+            c.report(a, NOW, CURRENT, current_run_id=own["id"])
+
+    def test_self_exclusion_never_skips_new_failed_schedule(self):
+        a = FakeAPI()
+        own = self.active_self()
+        bad = run(1)
+        bad["conclusion"] = "failure"
+        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [
+            own, bad, run(0)]
+        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
+            c.report(a, NOW, CURRENT, current_run_id=own["id"])
+
+    def test_invalid_current_run_id_denied(self):
+        for invalid in (True, "41000000002", 0, -1):
+            with self.assertRaisesRegex(c.EvidenceError, "CURRENT_RUN_ID_INVALID"):
+                c.report(FakeAPI(), NOW, CURRENT, current_run_id=invalid)
+
 if __name__ == "__main__":
     unittest.main()

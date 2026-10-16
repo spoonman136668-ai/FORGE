@@ -111,7 +111,7 @@ def artifact(api, run_id, head_sha):
             "ARTIFACT_PROVENANCE_UNVERIFIED")
     return {"id": a["id"], "sha256": a["digest"]}
 
-def qualify(api, now, current_sha):
+def qualify(api, now, current_sha, current_run_id=None):
     require(isinstance(current_sha, str) and SHA40.fullmatch(current_sha),
             "CURRENT_SOURCE_SHA_INVALID")
     wf = api.get("/actions/workflows/" + WORKFLOW)
@@ -127,10 +127,32 @@ def qualify(api, now, current_sha):
                 r.get("workflow_id") == workflow_id]
     ids = [r.get("id") for r in relevant]
     require(len(set(ids)) == len(ids), "REPEATED_SCHEDULE_RUN_ID")
+    # GitHub lists the currently executing scheduled job before its artifact
+    # exists. It is not historical completed evidence and must not poison
+    # a genuine earlier successful pair. Only exclude the exact trusted
+    # GITHUB_RUN_ID after checking its immutable origin and in-flight status.
+    current_excluded = False
+    if current_run_id is not None:
+        require(type(current_run_id) is int and current_run_id > 0,
+                "CURRENT_RUN_ID_INVALID")
+        own = [r for r in relevant if r.get("id") == current_run_id]
+        if own:
+            active = own[0]
+            require(active.get("event") == "schedule" and
+                    active.get("workflow_id") == workflow_id and
+                    active.get("head_branch") == "main" and
+                    active.get("head_sha") == current_sha and
+                    active.get("run_attempt") == 1 and
+                    active.get("status") in ("queued", "in_progress", "waiting") and
+                    active.get("conclusion") is None,
+                    "CURRENT_RUN_SELF_IDENTITY_UNVERIFIED")
+            relevant = [r for r in relevant if r.get("id") != current_run_id]
+            current_excluded = True
     if len(relevant) < 2:
         return {"status": "PENDING_TWO_COMPLETED_SCHEDULED_RUNS",
                 "scheduled_runs_found": len(relevant),
-                "qualified": False, "observations": []}
+                "qualified": False, "current_scheduled_run_excluded": current_excluded,
+                "observations": []}
     selected = sorted(relevant,
                       key=lambda r: utc(r.get("created_at")), reverse=True)[:2]
     interval = (utc(selected[0]["created_at"]) -
@@ -163,14 +185,20 @@ def qualify(api, now, current_sha):
     observations.reverse()
     return {"status": "QUALIFIED_TWO_COMPLETED_SCHEDULED_OBSERVATIONS",
             "scheduled_runs_found": len(relevant), "qualified": True,
+            "current_scheduled_run_excluded": current_excluded,
             "source_blob_sha": identities, "observations": observations}
 
-def report(api, now=None, current_sha=None):
+def report(api, now=None, current_sha=None, current_run_id=None):
     now = now or dt.datetime.now(dt.timezone.utc)
     require(now.tzinfo is not None, "CLOCK_TIMEZONE_REQUIRED")
     if current_sha is None:
         current_sha = os.environ.get("GITHUB_SHA", "")
-    evidence = qualify(api, now, current_sha)
+    if current_run_id is None and os.environ.get("GITHUB_RUN_ID"):
+        raw_id = os.environ["GITHUB_RUN_ID"]
+        require(re.fullmatch(r"[1-9][0-9]{6,17}", raw_id) is not None,
+                "CURRENT_RUN_ID_INVALID")
+        current_run_id = int(raw_id)
+    evidence = qualify(api, now, current_sha, current_run_id=current_run_id)
     return {"schema": SCHEMA, "observed_at_utc": now.isoformat(),
             "repository": REPOSITORY, "workflow": WORKFLOW, **evidence,
             "scientific_evidence_authenticated": False,
