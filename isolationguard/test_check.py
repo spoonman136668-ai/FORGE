@@ -66,5 +66,53 @@ class Isolation(unittest.TestCase):
                         f.audit_repo(root)
 
 
+    def _qualified_fixture(self, root):
+        fixed = {
+            "AGENTS.md": "FORGE MUST NOT connect to or depend on CKB-plane",
+            "README.md": "FORGE must not connect to or depend on CKB-plane",
+            "docs/ADR-0002-MIND-PALACE-ONLY-NO-CKB-DEPENDENCY.md":
+                "FORGE must not connect to CKB-plane",
+            "cmd/forge-ckb-s14-history/main.go":
+                "const FORGE_CKB_LEGACY_COMMAND_RETIRED = true\\n"
+                "func run() error {return errRetired}\\n",
+            ".github/workflows/safe.yml": "on: [pull_request]\\njobs: {}\\n",
+        }
+        for path, data in fixed.items():
+            p = root / path
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(data, encoding="utf-8")
+
+    def test_retired_legacy_workflow_can_never_reenter_main(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            f.verify_policy_files(root)
+            legacy = root / ".github/workflows/forge-ckb-s14-readonly-history.yml"
+            legacy.write_text("on: workflow_dispatch\\n", encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError, "LEGACY_CKB_WORKFLOW_NOT_RETIRED"):
+                f.verify_policy_files(root)
+
+    def test_any_workflow_direct_private_route_is_blocked(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            workflow = root / ".github/workflows/safe.yml"
+            workflow.write_text(
+                "run: gh api repos/spoonman136668-ai/" +
+                "ckb-plane/actions/runs\\n", encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError, "ACTIVE_PRIVATE_REPO_WORKFLOW"):
+                f.verify_policy_files(root)
+
+    def test_legacy_cli_cannot_become_live_client(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            cli = root / "cmd/forge-ckb-s14-history/main.go"
+            cli.write_text("func run() { ckbhistory.New(\"token\") }",
+                           encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError, "LEGACY_CKB_COMMAND_NOT_FAIL_CLOSED"):
+                f.verify_policy_files(root)
+
+
 if __name__ == "__main__":
     unittest.main()
