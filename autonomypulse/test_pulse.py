@@ -35,7 +35,8 @@ class API:
              "schema":"research.autonomy.v2","program":name,
              "authority":"research-only","mode":"repo-local-self-chain",
              "ckb_plane_role":"governance-only","enabled":True,
-             "north_star_sha256":"7"*64,"active_branch":branch})
+             "north_star_sha256":"7"*64,"active_branch":branch,
+             "controller_workflow":"research-auto-launch.yml"})
             self.items[(repo,"/branches/"+branch)]={"commit":{"sha":active}}
             self.items[(repo,"/contents/.research-autonomy/state.json?ref="+active)]=content({
              "schema":"research.repo-local-state.v1","program":name,
@@ -43,13 +44,23 @@ class API:
              "authority":"research-only","ckb_plane_role":"governance-only",
              "experiment":name+"-FUTURE-PLAN-01","classification":classified,
              "github_run_id":str(run),"last_completed_utc":done})
+            workflow_id=218001 if name=="Wingless" else 218002
             self.items[(repo,"/actions/runs/"+str(run))]={
-             "id":run,"name":name+" research continuation launcher",
+             "id":run,"workflow_id":workflow_id,
+             "name":name+" research continuation launcher",
              "status":"completed","conclusion":"success","head_branch":"main",
              "head_sha":mainsha,"run_attempt":1,
              "created_at":"2026-10-16T16:58:00Z" if name=="Yggdrasil"
                           else "2026-10-16T16:55:00Z",
              "updated_at":"2026-10-16T17:05:00Z"}
+            latest=deepcopy(self.items[(repo,"/actions/runs/"+str(run))])
+            latest.update({"id":run+1,"event":"schedule",
+                           "created_at":"2026-10-16T17:06:00Z",
+                           "updated_at":"2026-10-16T17:07:00Z"})
+            referenced=deepcopy(self.items[(repo,"/actions/runs/"+str(run))])
+            referenced["event"]="workflow_dispatch"
+            self.items[(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")]={
+                "workflow_runs":[latest,referenced]}
             self.items[(repo,"/commits/"+mainsha)]={"sha":mainsha}
     def get(self,repo,route):
         self.calls.append((repo,route))
@@ -151,5 +162,90 @@ class TestAutonomyPulse(unittest.TestCase):
     def test_strict_json_denies_duplicate_keys_and_nonfinite(self):
         for raw in (b'{"a":1,"a":2}',b'{"a":NaN}',b'{"a":Infinity}'):
             with self.assertRaises(m.Blocked):m.strict_json(raw)
+
+
+    def test_newer_failed_scheduled_attempt_blocks_old_success_for_each_lane(self):
+        for index in (0,1):
+            a=API();repo=m.LANES[index][1]
+            path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+            a.items[path]["workflow_runs"][0]["conclusion"]="failure"
+            r=m.scan(a,NOW)
+            self.assertFalse(r["both_lanes_operationally_verified"])
+            self.assertFalse(r["lanes"][index]["source_and_workflow_confirmed"])
+            self.assertEqual(r["lanes"][index]["quarantine_reason"],
+                             "FORGE_AUTONOMY_LATEST_RESEARCH_CONTINUATION_NOT_SUCCESSFUL")
+            self.assertTrue(r["lanes"][1-index]["source_and_workflow_confirmed"])
+            self.assertEqual(r["originals_dispatched"],0)
+
+    def test_in_flight_attempt_not_mistaken_for_completed_success(self):
+        a=API();repo=m.LANES[0][1]
+        path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+        a.items[path]["workflow_runs"][0].update({"status":"in_progress","conclusion":None})
+        r=m.scan(a,NOW)
+        self.assertFalse(r["lanes"][0]["source_and_workflow_confirmed"])
+        self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
+
+    def test_current_success_has_authenticated_latest_run_identity(self):
+        r=m.scan(API(),NOW)
+        self.assertTrue(r["both_lanes_operationally_verified"])
+        for x in r["lanes"]:
+            self.assertEqual(x["latest_launcher_conclusion"],"success")
+            self.assertEqual(x["latest_launcher_event"],"schedule")
+            self.assertGreater(x["latest_launcher_run_id"],x["last_reported_run_id"])
+            self.assertFalse(x["scientific_result_independently_accepted"])
+
+    def test_newer_launcher_spoof_or_rerun_does_not_pass(self):
+        variants=[
+            ("workflow_id",8888),("head_sha","e"*40),
+            ("head_branch","foreign"),("name","forged research evidence"),
+            ("event","pull_request"),("run_attempt",2),
+            ("created_at","2040-01-01T01:00:00Z"),
+            ("status","cancelled"),("conclusion","skipped")
+        ]
+        for field,value in variants:
+            a=API();repo=m.LANES[0][1]
+            path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+            a.items[path]["workflow_runs"][0][field]=value
+            result=m.scan(a,NOW)
+            self.assertFalse(result["lanes"][0]["source_and_workflow_confirmed"],
+                             msg="accepted latest attempt drift "+field)
+
+    def test_dropped_and_duplicate_history_fails_closed(self):
+        for variant in ("empty","duplicate","missing"):
+            a=API();repo=m.LANES[1][1]
+            path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+            rows=a.items[path]["workflow_runs"]
+            if variant=="empty":rows[:]=[]
+            elif variant=="duplicate":rows[1]["id"]=rows[0]["id"]
+            else:del a.items[path]
+            r=m.scan(a,NOW)
+            self.assertFalse(r["lanes"][1]["source_and_workflow_confirmed"])
+            self.assertTrue(r["lanes"][0]["source_and_workflow_confirmed"])
+
+    def test_old_success_cannot_be_reframed_as_recent_after_timestamp_drift(self):
+        a=API();repo=m.LANES[1][1]
+        path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+        a.items[path]["workflow_runs"][0]["created_at"]="2026-10-16T16:00:00Z"
+        r=m.scan(a,NOW)
+        self.assertFalse(r["lanes"][1]["source_and_workflow_confirmed"])
+
+    def test_newer_success_can_restore_operational_verification_after_prior_failure(self):
+        a=API();repo=m.LANES[1][1]
+        path=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+        failed=deepcopy(a.items[path]["workflow_runs"][0])
+        failed["conclusion"]="failure"
+        failed["created_at"]="2026-10-16T17:06:30Z"
+        failed["updated_at"]="2026-10-16T17:06:45Z"
+        a.items[path]["workflow_runs"].append(failed)
+        r=m.scan(a,NOW)
+        self.assertFalse(r["lanes"][1]["source_and_workflow_confirmed"])
+        # A real later success makes the newest attempt healthy again.
+        later=deepcopy(a.items[path]["workflow_runs"][0])
+        later.update({"id":later["id"]+2,"created_at":"2026-10-16T17:09:00Z",
+                      "updated_at":"2026-10-16T17:10:00Z"})
+        a.items[path]["workflow_runs"].append(later)
+        r=m.scan(a,NOW)
+        self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
+        self.assertFalse(r["lanes"][1]["scientific_result_independently_accepted"])
 
 if __name__=="__main__":unittest.main()
