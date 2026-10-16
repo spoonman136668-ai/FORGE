@@ -9,6 +9,7 @@ on:
     paths:
       - 'nativeevidence/**'
       - 'reference/research-intake/f100-frozen-successor-contract.json'
+      - 'reference/research-intake/f101-frozen-public-dev-implementation-plan.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'cmd/forge-model-free-loop/**'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
@@ -24,6 +25,7 @@ on:
       - 'optimizerstages/**'
       - 'nativeevidence/**'
       - 'reference/research-intake/f100-frozen-successor-contract.json'
+      - 'reference/research-intake/f101-frozen-public-dev-implementation-plan.json'
       - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'evoportfolio/**'
       - 'classification/**'
@@ -214,6 +216,61 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F100_FROZEN_FOUR_CANDIDATE_DEV_DESIGN=PASS'
           Write-Host 'FORGE_F100_NEW_SCIENCE_AND_AUTONOMOUS_MODEL=ZERO'
+      - name: Execute frozen F101 bounded learned mechanisms on public DEV only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f101_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F101_LEARNED_DEV_ADVERSARIAL_TESTS_FAILED' }
+          $folder = Join-Path $env:RUNNER_TEMP 'forge-f101-public-only'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $out = Join-Path $folder 'f101-dev-candidates.json'
+          & $python -B nativeevidence/f101_public_mechanisms.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F101_BOUNDED_PUBLIC_DEV_FAILED' }
+          $proof=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.autonomy.f101.public-development-unaccepted.v1' -or
+              $proof.forge_source_sha -cne $env:GITHUB_SHA -or
+              $proof.candidate_results.Count -ne 4 -or
+              $proof.public_development_candidate_tests -ne 4 -or
+              $proof.public_development_control_training_runs -ne 8 -or
+              $proof.protected_scientific_originals -ne 0 -or
+              $proof.accepted_scientific_results -ne 0 -or
+              $proof.accepted_reference_mutations -ne 0 -or
+              $proof.research_worker_dispatches -ne 0 -or
+              $proof.model_api_calls -ne 0 -or
+              $proof.codex_calls -ne 0 -or
+              $proof.paid_inference_calls -ne 0 -or
+              $proof.scientific_first_use_authorized -or
+              $proof.policy_promotion_authorized -or
+              $proof.autonomous_gpt_executor_active) {
+            throw 'FORGE_F101_UNAUTHORIZED_OR_INCOMPLETE_RESULT'
+          }
+          $expected = @('W100-C1','W100-C2','Y100-C1','Y100-C2')
+          for ($i=0; $i -lt 4; $i++) {
+            $result = $proof.candidate_results[$i]
+            if ($result.candidate_id -cne $expected[$i] -or
+                $result.train_public_pairs -ne 32 -or
+                $result.dev_public_pairs -ne 16 -or
+                $result.optimizer_steps -ne 100 -or
+                $result.learned_public_dev.full.pairs -ne 16 -or
+                $result.learned_public_dev.missing.pairs -ne 16 -or
+                $result.learned_public_dev.permuted.pairs -ne 16 -or
+                $result.coded_oracle_paired_accuracy -ne 1 -or
+                $result.historical_blind_paired_accuracy -ne 0 -or
+                $result.scientific_first_use_authorized -or
+                $result.outcome -cne 'PUBLIC_DEVELOPMENT_ONLY_NOT_ACCEPTED_SCIENCE') {
+              throw 'FORGE_F101_PUBLIC_DEV_OR_CONTROLS_MISSING'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $folder 'f101-dev-candidates.sha256'),
+            "$digest  f101-dev-candidates.json",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F101_FROZEN_LEARNED_PUBLIC_DEV=PASS'
+          Write-Host 'FORGE_F101_PROTECTED_ORIGINALS_AND_GPT_INFERENCE=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -340,6 +397,7 @@ jobs:
             ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-f98-evidence/
             ${{ runner.temp }}/forge-f100-development/
+            ${{ runner.temp }}/forge-f101-public-only/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
