@@ -12,7 +12,6 @@ import (
  "encoding/json"
  "errors"
  "io"
- "math"
 )
 
 const F61PilotSchema="forge.optimizer.f61p.six-arm-owner-predecision-preparation.v1"
@@ -64,7 +63,7 @@ func f61Draw(random io.Reader)(int,string,error) {
  for i:=0;i<16;i++ {
   if _,err:=io.ReadFull(random,raw[:]);err!=nil{return 0,"",ErrF61Pilot}
   v:=binary.BigEndian.Uint64(raw[:])
-  if v>=math.MaxUint64-3{continue}
+  if v>=(^uint64(0))-3{continue}
   return int(v%6),hex.EncodeToString(raw[:]),nil
  }
  return 0,"",ErrF61Pilot
@@ -151,7 +150,7 @@ func ValidateF61Prepared(f F58Freeze,n F59PolicyNomination,a F61PilotAssignment)
  b,err:=hex.DecodeString(a.RandomDrawHex)
  if err!=nil||len(b)!=8{return ErrF61Pilot}
  v:=binary.BigEndian.Uint64(b)
- if v>=math.MaxUint64-3||int(v%6)!=a.ChoiceIndex||
+ if v>=(^uint64(0))-3||int(v%6)!=a.ChoiceIndex||
   !f59Hex(a.AssignmentSHA256,64)||a.AssignmentSHA256!=f61Digest(a){
   return ErrF61Pilot
  }
