@@ -90,6 +90,17 @@ class F100FrozenDevelopment(unittest.TestCase):
             if how=="parameter_overrun":a["budget"]["max_trainable_parameters"]=1000000
             with self.subTest(how=how),self.assertRaises(f100.Rejected):
                 run(parent,raw,contract)
+    def test_exact_git_blob_retained_across_only_lf_or_crlf_checkout(self):
+        parent,raw,contract=fixtures()
+        canonical=raw.replace(b"\r\n",b"\n")
+        self.assertEqual(f100.canonical_git_blob(canonical),f100.PARENT_BLOB)
+        self.assertEqual(f100.canonical_git_blob(canonical.replace(b"\n",b"\r\n")),f100.PARENT_BLOB)
+        self.assertEqual(len(run(parent,canonical,contract)),2)
+        self.assertEqual(len(run(parent,canonical.replace(b"\n",b"\r\n"),contract)),2)
+        with self.assertRaises(f100.Rejected):
+            run(parent,canonical.replace(b"\n",b"\r")+"\n".encode(),contract)
+        with self.assertRaises(f100.Rejected):
+            run(parent,canonical.replace(b"\n",b"\r\n")+b" ",contract)
     def test_invalid_json_duplicate_keys_and_source_mismatch(self):
         with tempfile.TemporaryDirectory() as td:
             p=pathlib.Path(td)/"invalid.json"
