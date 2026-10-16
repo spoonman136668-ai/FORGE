@@ -167,6 +167,7 @@ def lane(api,program,repo,now):
              attempt.get("workflow_id")==run["workflow_id"] and
              attempt.get("name")==program+" research continuation launcher" and
              attempt.get("head_branch")=="main" and
+             attempt.get("head_sha")==main_sha and
              type(attempt.get("head_sha")) is str and
              HEX40.fullmatch(attempt["head_sha"]) and
              attempt.get("event") in ("schedule","workflow_dispatch","workflow_run","push"),
