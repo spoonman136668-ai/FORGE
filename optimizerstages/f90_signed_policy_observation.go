@@ -131,7 +131,10 @@ func f90VerifyWitness(f FrozenSixPolicyTrial,o F90Observation)error{
 }
 func f90AuditLane(f FrozenSixPolicyTrial,rows []F90Observation)(F90LaneAudit,error){
  var empty F90LaneAudit
- if ValidateF89Freeze(f)!=nil||len(rows)<1||len(rows)>128{return empty,ErrF90}
+ // Bounded higher-cardinality prospective cohorts are necessary for any
+ // meaningful six-arm familywise error control; a 128-row cap would make
+ // virtually every nontrivial confidence interval inconclusive.
+ if ValidateF89Freeze(f)!=nil||len(rows)<1||len(rows)>16384{return empty,ErrF90}
  names,policies:=f89Arms(f)
  out:=F90LaneAudit{Lane:f.Lane,FrozenDesignSHA256:F89FreezeDigest(f),
   SourceOnlyAssignmentCount:len(rows),SignedWitnessClaimsConsistent:true,
