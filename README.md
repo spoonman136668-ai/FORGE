@@ -11,10 +11,18 @@ leases, admission and scientific progression after separate qualification.
 The current public prototype is still non-executing and does not yet
 implement or activate FSA.
 
-Mind-Palace will supply bounded, pinned, **read-only** advisory context directly,
-without requiring the CKB controller or publishing private context.
-CKB-plane is an optional historical evidence source, not FORGE's authority.
-See [ADR 0001](docs/ADR-0001-FORGE-SCIENTIFIC-AUTHORITY.md).
+**Hard operator boundary: FORGE must not connect to or depend on CKB-plane.**
+Mind-Palace is the **only cross-project context bridge**: bounded, commit-pinned,
+**read-only** advisory retrieval directly from Mind-Palace. Do not make FORGE
+owner/witness evidence, first-use, optimizers, CI, recovery, or deployments
+depend on private CKB-plane repositories, workflows, tokens, controllers,
+ledgers, or artifacts. FORGE must qualify these functions natively under its
+own safeguards and existing authorized infrastructure, without interfering
+with the independent research loops.
+
+See [ADR 0002 (standing separation)](docs/ADR-0002-MIND-PALACE-ONLY-NO-CKB-DEPENDENCY.md),
+[agent instructions](AGENTS.md) and
+[ADR 0001 (historical design)](docs/ADR-0001-FORGE-SCIENTIFIC-AUTHORITY.md).
 
 ## Build and test
 
