@@ -4,7 +4,6 @@ import (
  "bytes"
  "encoding/binary"
  "errors"
- "math"
  "strings"
  "testing"
 )
@@ -48,17 +47,17 @@ func TestF89EveryArmUniformExactAndNonAuthorizing(t *testing.T){
 }
 func TestF89RejectionThresholdAndUntrustedRandomness(t *testing.T){
  f:=f89Frozen("Wingless")
- a,err:=PrepareF89Selection(f,f89Raw(math.MaxUint64,5))
+ a,err:=PrepareF89Selection(f,f89Raw(^uint64(0),5))
  if err!=nil||a.ArmIndex!=5||a.RandomDrawHex!="0000000000000005"{
   t.Fatalf("biased-tail rejection failed %+v %v",a,err)
  }
- for _,v:=range []uint64{math.MaxUint64-3,math.MaxUint64-2,math.MaxUint64-1,math.MaxUint64}{
+ for _,v:=range []uint64{^uint64(0)-3,^uint64(0)-2,^uint64(0)-1,^uint64(0)}{
   if _,_,err:=f89Draw(f89Raw(v));!errors.Is(err,ErrF89){
    t.Fatalf("accepted biased draw %d",v)
   }
  }
  invalid:=make([]uint64,16)
- for i:=range invalid{invalid[i]=math.MaxUint64}
+ for i:=range invalid{invalid[i]=^uint64(0)}
  if _,_,err:=f89Draw(f89Raw(invalid...));!errors.Is(err,ErrF89){t.Fatal("accepted exhaustion")}
  if _,err:=PrepareF89Selection(f,nil);!errors.Is(err,ErrF89){t.Fatal("missing draw allowed")}
  if _,err:=PrepareF89Selection(f,bytes.NewReader([]byte{1,2}));!errors.Is(err,ErrF89){t.Fatal("short entropy allowed")}
