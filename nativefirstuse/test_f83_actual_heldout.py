@@ -10,7 +10,7 @@ class Audit(unittest.TestCase):
     score["F63C_trained_reliability"]=int(seed==801009)
     audit={"max_payload_bytes":144,"prefixes":72,
            "publicly_grounded_question":True,"source_independent_F3":False}
-    rows.append({"seed":str(seed),"family":str(fam),"score":score,
+    rows.append({"seed":seed,"family":fam,"score":score,
       "independent_model_audit":audit,"independent_ablation_audit":audit})
   scores={k:sum(row["score"][k] for row in rows) for k in METRIC_KEYS}
   pf={str(i):{"strongest_fair":7,"trained":1} for i in range(1540,1544)}
