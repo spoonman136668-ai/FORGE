@@ -1,0 +1,137 @@
+name: FORGE F116-O learned MetaQA source-only relation composition
+on:
+  push:
+    branches: [engineering/f116o-learned-role-composition-20261017-r1]
+    paths:
+      - 'noveltyeval/f116o_*'
+      - 'noveltyeval/test_f116o_*'
+      - 'docs/F116O-*'
+      - '.github/workflows/forge-f116o-learned-composition.yml'
+permissions:
+  contents: read
+jobs:
+  learned-source-role-composition:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: original-metaqa-kb
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head; extract literal source Git blob, never QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C original-metaqa-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C original-metaqa-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C original-metaqa-kb show HEAD:metaqa/original/kb.txt > f116o-source-kb-original.bin
+          sha="$(sha256sum f116o-source-kb-original.bin | cut -d' ' -f1)"
+          test "$sha" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F116O_FULL_PUBLIC_SOURCE_GRAPH_ONLY_ORIGINAL_QA_UNTOUCHED'
+      - name: Frozen train-only learning and source denials synthetic tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f116o_learned_composition.py' -v
+      - name: Complete original source-derived 2/3-hop typed role learning and heldout controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f116o_learned_composition.py --source-raw f116o-source-kb-original.bin --out f116o-learned-role-composition.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f116o-learned-role-composition.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f116o.public-metaqa-trained-role-composition.v1'
+          assert x['status']=='PUBLIC_METAQA_SELF_SUPERVISED_ROLE_COMPATIBILITY_LEARNER_ENGINEERING_ONLY'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['original_graph_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['original_graph_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['full_original_source_rows']==134741
+          assert x['unique_source_triples']==133582
+          assert x['source_roles']==9 and x['signed_roles']==18
+          assert 0<x['whole_graph_true_2step_types']<=324
+          assert 0<x['whole_graph_true_3step_types']<=5832
+          l=x['learning']
+          assert l['pair_population']==324
+          assert l['split_train']+l['split_dev']+l['split_test']==324
+          assert l['train_positive']+l['train_negative']==l['split_train']
+          m=l['model']
+          assert m['training_epochs']==200 and m['trainable_parameters']==181
+          assert m['parameter_change_l2']>0
+          assert m['train_logloss_after']<m['train_logloss_before']
+          assert len(m['parameter_vector_sha256'])==64
+          for field in ('terminal_heldout_learned','terminal_heldout_majority_control',
+                        'terminal_heldout_marginal_control'):
+            assert l[field]['n']==l['split_test']
+          assert l['three_step_source_population']==5832
+          assert 0<l['three_step_both_pairs_unseen']['n']<=256
+          assert l['gain_disposition'] in ('LEARNED_TRANSFER_GAIN_DEMONSTRATED',
+                                           'LEARNED_TRANSFER_GAIN_NOT_DEMONSTRATED')
+          assert l['source_derived_labels_not_original_qa'] is True
+          assert l['training_only_gradient_updates'] is True
+          assert l['dev_or_test_in_model_selection'] is False
+          for field in ('original_metaqa_qa_data_read','gold_question_answer_accuracy_computed',
+                        'original_freebase_graph_qualified',
+                        'neural_task_family_generalization_qualified',
+                        'independent_scientific_firstuse','accepted_science',
+                        'accepted_ref_mutation','dream_pareto_promotion',
+                        'thetaevolve_accepted_training','scientific_dispatch'):
+            assert x[field] is False,field
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F116O_TRAINED_SOURCE_ONLY_HOLDOUT='+json.dumps({
+            'learned':l['terminal_heldout_learned'],
+            'majority':l['terminal_heldout_majority_control'],
+            'marginal':l['terminal_heldout_marginal_control'],
+            '3hop':l['three_step_both_pairs_unseen'],
+            'gain':l['gain_disposition']},sort_keys=True))
+          print('F116O_TRAINED_GRADIENTS_REAL_SCIENCE_AND_OPTIMIZER_PROMOTION_NOT_QUALIFIED')
+          PY
+          sha256sum f116o-learned-role-composition.json > f116o-learned-role-composition.sha256
+          sha256sum -c f116o-learned-role-composition.sha256
+      - name: Mandatory complete exact-head FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F116O_ZERO_QA_SCIENCE_CODEX_PAID_MODEL_CKB_CLOUDFLARE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f116o-learned-role-composition-${{ matrix.os }}
+          path: |
+            f116o-learned-role-composition.json
+            f116o-learned-role-composition.sha256
+          retention-days: 45
+          if-no-files-found: error
