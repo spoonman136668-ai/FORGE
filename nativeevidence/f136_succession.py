@@ -87,12 +87,14 @@ def identify(trigger,main_sha,now):
          and trigger.get("run_attempt")==1
          and trigger.get("event") in ("schedule","workflow_dispatch")
          and type(trigger.get("id")) is int and trigger["id"]>0
+         and type(trigger.get("created_at")) is str
          and type(trigger.get("run_started_at")) is str
          and type(trigger.get("updated_at")) is str,
          "TRIGGER_NOT_COMPLETED_GENUINE_DEVELOPMENT")
-    begin=stamp(trigger["run_started_at"])
+    begin=stamp(trigger["created_at"])
+    started=stamp(trigger["run_started_at"])
     end=stamp(trigger["updated_at"])
-    need(begin<=end<=now+dt.timedelta(minutes=2)
+    need(begin<=started<=end<=now+dt.timedelta(minutes=2)
          and now-end<=dt.timedelta(minutes=20),
          "TRIGGER_STALE_OR_TIME_TRAVEL")
     return int((end-begin).total_seconds())
