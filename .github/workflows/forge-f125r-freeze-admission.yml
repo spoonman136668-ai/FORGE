@@ -176,3 +176,167 @@ jobs:
           path: ${{ runner.temp }}/f125r-train-headroom/
           retention-days: 90
           if-no-files-found: error
+
+  path-preserving-train-only:
+    needs: headroom-source-only
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f125r-train-source-headroom-${{ matrix.os }}-${{ github.sha }}
+          path: saved-f125r-headroom
+      - name: Verify authentic frozen TRAIN source admission and learn 100 epochs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_train_qualification.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_LEARNER_INTAKE_DENIAL_TEST_FAILED' }
+          $headroom='saved-f125r-headroom/f125r-train-headroom.json'
+          $advisory='saved-f125r-headroom/advisory.json'
+          $eligible=Get-Content -LiteralPath $headroom -Raw | ConvertFrom-Json
+          $folder=Join-Path $env:RUNNER_TEMP 'f125r-public-train'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          if (-not $eligible.all_lanes_headroom_eligible) {
+            # This is a VALID scientific-development negative, NOT permission
+            # to change seeds, source vectors or thresholds after observation.
+            [IO.File]::WriteAllText((Join-Path $folder 'uninformative-headroom.txt'),
+               ('F125R_NO_TRAIN_UNINFORMATIVE_HEADROOM source='+$env:GITHUB_SHA),
+               [Text.UTF8Encoding]::new($false))
+            Write-Host 'F125R_NO_TRAIN_UNINFORMATIVE_HEADROOM=true'
+            return
+          }
+          $out=Join-Path $folder 'f125r-public-train-weights.json'
+          & $py -B nativeevidence/f125r_train_qualification.py --advisory $advisory --headroom $headroom --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_TRAIN_SOURCE_INVALID_OR_MODEL_FAILED' }
+          $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($report.schema -cne 'forge.autonomy.f125r.path-preserving-public-train-custody.v1' -or
+              $report.source_sha -cne $env:GITHUB_SHA -or
+              $report.frozen_git_blob -cne '0a2030f17123b7e096c42e730f3a536f014275bd' -or
+              $report.phase -cne 'AUTHENTIC_SOURCE_PUBLIC_TRAIN_ONLY_NOT_SCIENCE' -or
+              $report.lanes.Count -ne 2 -or $report.lanes[0].lane -cne 'Wingless' -or
+              $report.lanes[1].lane -cne 'Yggdrasil' -or
+              $report.protected_confirmation_read -or $report.scientific_first_use -or
+              $report.scientific_acceptance -or $report.optimizer_promotion -or
+              $report.accepted_ref_mutation -or $report.originals_dispatched -ne 0 -or
+              $report.codex_calls -ne 0 -or $report.paid_model_calls -ne 0 -or
+              $report.new_scheduler) { throw 'F125R_UNEARNED_TRAIN_AUTHORITY' }
+          foreach ($lane in $report.lanes) {
+            if ($lane.train_score.pairs -ne 64 -or
+                $lane.frozen_optimizer_epochs -ne 100 -or
+                $lane.learned_parameter_count -ne 20 -or
+                $lane.public_max_state_keys -gt 256 -or
+                $lane.pruned_states_by_design -ne 0 -or
+                $lane.protected_confirmation_samples -ne 0 -or
+                $lane.scientific_accepted -or
+                $lane.matched_compute_ratio_to_f123_dense_established) {
+              throw 'F125R_TRAIN_RESULT_INCOMPLETE_OR_FALSE_SCIENCE'
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+              ($sha+'  f125r-public-train-weights.json'+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          Write-Host "F125R_TRAIN_WEIGHTS_CUSTODY_SHA256=$sha"
+          Write-Host 'F125R_PROTECTED_CONFIRM=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-train-weight-custody-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-public-train/
+          retention-days: 90
+          if-no-files-found: error
+
+  f125r-full-system-regression:
+    needs: path-preserving-train-only
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source and inherited parent interface regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F125R_UNEXPECTED_SOURCE_SHA' }
+          & $py -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_ISOLATION_TEST_FAILURE' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_ISOLATION_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_F123_PARENT_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_F124R_PARENT_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_NEW_AFFECTED_INTERFACE_FAILURE' }
+      - name: Full Go tests, Linux race, vet, and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_GO_TEST_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_BUILD_FAILED' }
+          $dir=Join-Path $env:RUNNER_TEMP 'f125r-development-regression'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $receipt=[ordered]@{
+            schema='forge.autonomy.f125r.full-development-regression.v1'
+            source_sha=$env:GITHUB_SHA
+            platform=$env:RUNNER_OS
+            full_go_regression=$true
+            go_vet_and_build=$true
+            affected_interfaces=$true
+            linux_race_executed=($env:RUNNER_OS -eq 'Linux')
+            protected_confirmation_read=$false
+            scientific_first_use=$false
+            scientific_acceptance=$false
+            optimizer_promotion=$false
+          } | ConvertTo-Json -Depth 4
+          [IO.File]::WriteAllText((Join-Path $dir 'regression.json'),
+             ($receipt+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          Write-Host 'F125R_EXACT_HEAD_REGRESSION=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-public-full-regression-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-development-regression/regression.json
+          retention-days: 90
+          if-no-files-found: error
