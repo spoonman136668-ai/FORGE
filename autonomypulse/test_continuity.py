@@ -54,6 +54,84 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(result["science_dispatches"], 0)
         self.assertFalse(result["ckb_plane_accessed"])
 
+    def test_failed_history_stays_failed_despite_delayed_cadence(self):
+        a=FakeAPI()
+        rows=a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        # GitHub's schedule may be delayed, so two distinct real schedules
+        # can fall under the three-hour minimum gap; an old FAILED run is
+        # still a failed run, not a permissible successful observation.
+        rows[0]["conclusion"]="failure"
+        rows[1]["created_at"]="2026-10-16T17:19:01Z"
+        with self.assertRaisesRegex(c.EvidenceError,
+                                    "RECENT_SCHEDULE_UNSUCCESSFUL"):
+            c.report(a,NOW,CURRENT)
+        # Two actual successful runs with the SAME cadence defect remain
+        # quarantined and cannot receive a continuity qualification.
+        rows[0]["conclusion"]="success"
+        with self.assertRaisesRegex(c.EvidenceError,
+                                    "SCHEDULE_CADENCE_OR_FRESHNESS"):
+            c.report(a,NOW,CURRENT)
+
+    def test_old_forensic_artifact_never_certifies_healthy_observation(self):
+        a = FakeAPI()
+        artifact = a.items["/actions/runs/41000000001/artifacts?per_page=100"]["artifacts"][0]
+        artifact["name"] = "forge-native-autonomy-operational-source-only"
+        with self.assertRaisesRegex(c.EvidenceError,"ARTIFACT_NOT_UNIQUE"):
+            c.report(a, NOW, CURRENT)
+
+    def test_exact_historical_failure_can_be_acknowledged_without_qualification(self):
+        bad={"schema":c.SCHEMA,"qualified":False,
+             "status":"QUARANTINED_UNVERIFIED",
+             "reason":"RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED",
+             "science_dispatches":0,
+             "scientific_first_use_authorized":False,
+             "ckb_plane_accessed":False}
+        self.assertEqual(c.acknowledge_previous_failed_observation(bad),
+                         "HISTORICAL_SUPERVISION_FAILURE_ACKNOWLEDGED_NO_CONTINUITY_OR_SCIENCE")
+        for key,value in (("qualified",True),("status","QUALIFIED_TWO_COMPLETED_SCHEDULED_OBSERVATIONS"),
+                          ("reason","QUALIFICATION_SOURCE_DRIFT"),
+                          ("reason","API_ORIGIN_UNAVAILABLE"),
+                          ("reason","SCHEDULE_CADENCE_OR_FRESHNESS_UNVERIFIED"),
+                          ("reason","SOURCE_BLOB_UNVERIFIED"),
+                          ("science_dispatches",1),
+                          ("scientific_first_use_authorized",True),
+                          ("ckb_plane_accessed",True)):
+            injected=dict(bad)
+            injected[key]=value
+            with self.assertRaises(c.EvidenceError):
+                c.acknowledge_previous_failed_observation(injected)
+        for invalid in (dict(bad,extra_key=123),{"schema":c.SCHEMA},None,[]):
+            with self.assertRaises(c.EvidenceError):
+                c.acknowledge_previous_failed_observation(invalid)
+
+    def test_historical_failed_attempt_remains_negative_even_with_new_markers(self):
+        a=FakeAPI()
+        items=a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        items[0]["conclusion"]="failure"
+        with self.assertRaisesRegex(c.EvidenceError,"RECENT_SCHEDULE_UNSUCCESSFUL"):
+            c.report(a,NOW,CURRENT)
+
+    def test_scheduled_healthy_observation_marker_is_not_research_authority(self):
+        result=c.report(FakeAPI(),NOW,CURRENT)
+        self.assertTrue(result["qualified"])
+        self.assertTrue(all(a["artifact"]["sha256"].startswith("sha256:")
+                            for a in result["observations"]))
+        self.assertFalse(result["scientific_evidence_authenticated"])
+        self.assertFalse(result["scientific_first_use_authorized"])
+        self.assertEqual(result["science_dispatches"],0)
+        self.assertEqual(result["optimizer_promotions"],0)
+
+    def test_existing_workflow_retains_negative_custody_and_distinct_marker(self):
+        workflow=(Path(__file__).resolve().parents[1]/
+                  ".github/workflows/forge-native-autonomy-supervision.yml").read_text()
+        self.assertIn("name: forge-native-autonomy-operational-source-only",workflow)
+        self.assertIn("name: forge-native-autonomy-operational-verified-only",workflow)
+        self.assertIn("if: always()",workflow)
+        self.assertIn("if: success()",workflow)
+        self.assertIn("acknowledge_previous_failed_observation(report)",workflow)
+        self.assertIn("FORGE_NATIVE_CONTINUITY=QUARANTINED_UNVERIFIED",workflow)
+        self.assertIn("FORGE_AUTONOMY_FIRSTUSE_OR_SCIENCE_DISPATCH=DENIED",workflow)
+
     def test_no_or_one_schedule_stays_pending_not_qualified(self):
         for retained in (0, 1):
             a = FakeAPI()

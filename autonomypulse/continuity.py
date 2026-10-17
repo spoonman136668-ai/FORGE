@@ -14,7 +14,7 @@ import urllib.request
 
 REPOSITORY = "spoonman136668-ai/FORGE"
 WORKFLOW = "forge-native-autonomy-supervision.yml"
-ARTIFACT = "forge-native-autonomy-operational-source-only"
+ARTIFACT = "forge-native-autonomy-operational-verified-only"
 SOURCE_PATHS = (
     ".github/workflows/" + WORKFLOW,
     "autonomypulse/pulse.py",
@@ -94,6 +94,29 @@ def source_blob(api, sha, path):
             SHA40.fullmatch(blob) is not None, "SOURCE_BLOB_UNVERIFIED")
     return blob
 
+def acknowledge_previous_failed_observation(report):
+    """Acknowledge one bounded *negative* without qualifying continuity.
+
+    A healthy current read-only observation can survive an old failed run.
+    This never proves science or cross-run continuity: qualification still
+    requires two distinct genuinely scheduled successful marked observations.
+    """
+    require(type(report) is dict and set(report) == {
+        "schema", "qualified", "status", "reason", "science_dispatches",
+        "scientific_first_use_authorized", "ckb_plane_accessed"},
+        "NEGATIVE_REPORT_SCHEMA_UNVERIFIED")
+    require(report["schema"] == SCHEMA and
+            report["qualified"] is False and
+            report["status"] == "QUARANTINED_UNVERIFIED" and
+            report["reason"] == "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED" and
+            type(report["science_dispatches"]) is int and
+            report["science_dispatches"] == 0 and
+            report["scientific_first_use_authorized"] is False and
+            report["ckb_plane_accessed"] is False,
+            "NEGATIVE_OBSERVATION_NOT_NARROWLY_ADMISSIBLE")
+    return "HISTORICAL_SUPERVISION_FAILURE_ACKNOWLEDGED_NO_CONTINUITY_OR_SCIENCE"
+
+
 def artifact(api, run_id, head_sha):
     data = api.get("/actions/runs/" + str(run_id) + "/artifacts?per_page=100")
     rows = data.get("artifacts")
@@ -155,6 +178,18 @@ def qualify(api, now, current_sha, current_run_id=None):
                 "observations": []}
     selected = sorted(relevant,
                       key=lambda r: utc(r.get("created_at")), reverse=True)[:2]
+    # Failed earlier observations must be reported as failed BEFORE
+    # irregular scheduling is assessed. A delayed GitHub schedule may bring
+    # two runs less than three hours apart; this cannot change the negative
+    # into an unacknowledgeable cadence error and recreate a failure loop.
+    # A genuine cadence violation for two successful runs stays blocked.
+    for recent in selected:
+        require(recent.get("status") == "completed" and
+                recent.get("conclusion") == "success" and
+                recent.get("run_attempt") == 1 and
+                recent.get("event") == "schedule" and
+                recent.get("head_branch") == "main",
+                "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED")
     interval = (utc(selected[0]["created_at"]) -
                 utc(selected[1]["created_at"])).total_seconds()
     age = (now - utc(selected[0]["updated_at"])).total_seconds()
