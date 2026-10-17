@@ -287,7 +287,14 @@ def wing_assessment(cfg):
     train,groups=wing_cohorts()
     learned=LearnedRelationAttention().train(train)
     original_train,_=f109.wing_cohorts()
-    blind=f110.CapacityMatchedQueryOnly().train(original_train)
+    # Train the 64-parameter query-only comparator on EXACTLY the new 96
+    # relational-learning examples; no hidden answer table or ID lookup.
+    # Historical F109 offset model separately retains its original fit.
+    control_train=tuple(f109.WCase(
+        f110.wobserve.Case(p.seed,p.cohort,0,p.query_depth,
+            p.observation_depths,p.positive_values,p.negative_values),
+        0,p.cohort) for p in train)
+    blind=f110.CapacityMatchedQueryOnly().train(control_train)
     legacy=f109.LearnedSourceRouting().train(original_train)
     need(learned.updates==blind.steps==legacy.steps==100 and
          learned.parameters<=cfg["Wingless"]["max_trainable_parameters"],
