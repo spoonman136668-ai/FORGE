@@ -21,7 +21,8 @@ def trigger():
         "conclusion":"success","run_attempt":1,"head_branch":"main",
         "head_sha":SHA,"repository":{"full_name":m.REPO},
         "head_repository":{"full_name":m.REPO},
-        "path":m.WORKFLOW,"run_started_at":"2026-10-17T18:02:00Z",
+        "path":m.WORKFLOW,"created_at":"2026-10-17T18:02:00Z",
+        "run_started_at":"2026-10-17T18:02:00Z",
         "updated_at":"2026-10-17T18:09:00Z"}
 
 def artifacts():
@@ -61,6 +62,13 @@ class F136(unittest.TestCase):
         self.assertTrue(d["prior_evidence_two_os_index_verified"])
         self.assertFalse(d["scheduled_main_continuity_proven_by_dispatch"])
         self.assertEqual(d["scientific_originals_dispatched"],0)
+
+    def test_end_to_end_includes_waiting_for_runner(self):
+        slow=trigger()
+        slow["created_at"]="2026-10-17T18:00:00Z"
+        out=m.decision(slow,artifacts(),recent(),SHA,NOW)
+        self.assertEqual(out["run_seconds"],540)
+        self.assertFalse(out["observed_end_to_end_target_met"])
 
     def test_failing_rerun_wrong_origin_denied(self):
         for k,v in (("event","pull_request"),("event","push"),
