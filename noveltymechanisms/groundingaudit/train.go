@@ -122,7 +122,5 @@ func Evaluate(index *largegraph.Index,data []byte,hops,expectedRows int)(Cohort,
 // Only synthetic development fixtures call this; never use as a source
 // of an accepted scientific claim or a training-policy reward.
 func SyntheticSource(triples ...string)(*largegraph.Index,error) {
- return largegraph.Compile([]byte(strings.Join(triples,"
-")+"
-"))
+ return largegraph.Compile([]byte(strings.Join(triples,"\n")+"\n"))
 }
