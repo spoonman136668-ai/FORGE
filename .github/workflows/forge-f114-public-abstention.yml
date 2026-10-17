@@ -1,0 +1,137 @@
+name: FORGE F114 partial relation ambiguity safety study
+on:
+  push:
+    branches:
+      - research/f114-partial-relation-abstention-20261017-r1
+    paths:
+      - '.github/workflows/forge-f114-public-abstention.yml'
+      - 'nativeevidence/f114_partial_relation_abstention.py'
+      - 'nativeevidence/test_f114_partial_relation_abstention.py'
+      - 'reference/research-intake/f114-partial-relation-abstention-freeze.json'
+permissions:
+  contents: read
+jobs:
+  source-only-qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify unchanged F113 and F114 precode frozen history
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='88924d2e73d694076a5aa45bcdec3e89b3f41dac'
+          $freeze='0309db8820c94cec6ec800ddbc3f9fcc1150e7ba'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'F114_SOURCE_SHA_CHANGED' }
+          git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F114_QUALIFIED_PARENT_NOT_ANCESTOR' }
+          git merge-base --is-ancestor $freeze HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F114_PRECODE_FREEZE_NOT_ANCESTOR' }
+          $files=@(git diff --name-only $parent HEAD | Where-Object { $_ -ne '' })
+          $expected=@(
+            '.github/workflows/forge-f114-public-abstention.yml',
+            'nativeevidence/f114_partial_relation_abstention.py',
+            'nativeevidence/test_f114_partial_relation_abstention.py',
+            'reference/research-intake/f114-partial-relation-abstention-freeze.json'
+          )
+          if (@(Compare-Object $files $expected).Count -ne 0) {
+            throw 'F114_UNEXPECTED_SOURCE_CHANGE'
+          }
+          if ((git hash-object 'reference/research-intake/f114-partial-relation-abstention-freeze.json') -cne 'c2a4587aae1e1a0f05089d2c9e01fbfdc3f90002') { throw 'F114_PREREG_GIT_OBJECT_DRIFT' }
+          if ((git hash-object 'nativeevidence/f113_orthogonal_source_binding.py') -cne '6d190a7410135c1a035d48165912e27d01f74ae0') { throw 'F114_F113_PARENT_DRIFT' }
+          if ((git hash-object 'nativeevidence/f112_learned_relations.py') -cne '838050a30a37961525eba29cab42a32f651c8ca0') { throw 'F114_F112_MODEL_DRIFT' }
+      - name: Verify 13 independent ambiguity/abstention contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f114_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F114_AMBIGUITY_SAFETY_TESTS_FAILED' }
+      - name: Execute frozen public source-identifiability and refusal diagnostic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'f114-evidence'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $out=Join-Path $dir 'f114-selective-public.json'
+          python -B nativeevidence/f114_partial_relation_abstention.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F114_EVALUATOR_FAILED' }
+          $p=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f114.partial-relation-selective-retrieval-public.v1' -or
+              $p.source_sha -cne $env:GITHUB_SHA -or
+              $p.public_pairs -ne 144 -or
+              $p.public_identical_unresolvable_twins -ne 24 -or
+              $p.certificate_resolvable_covered -ne 96 -or
+              $p.certificate_unresolvable_abstained -ne 48 -or
+              $p.certificate_covered_wrong -ne 0 -or
+              $p.irresolvable_forced_correct -ne 24 -or
+              -not $p.public_selective_retrieval_screen_passed -or
+              $p.learned_superiority_claimed -or
+              $p.independent_scientific_acceptance -or
+              $p.protected_first_use_authorized -or
+              $p.optimizer_promotion_authorized -or
+              $p.accepted_ref_mutations -ne 0 -or
+              $p.new_scientific_originals -ne 0 -or
+              $p.codex_calls -ne 0 -or
+              $p.paid_model_calls -ne 0 -or
+              $p.external_controller_accessed -or $p.MindPalace_written -or
+              $p.cohorts.Count -ne 3) { throw 'F114_FALSE_EVIDENCE_OR_UNAUTHORIZED_FIRSTUSE' }
+          foreach ($b in $p.cohorts) {
+            if ($b.pairs -ne 48 -or
+                $b.policies.certificate_abstain.total -ne 48 -or
+                $b.policies.forced_public_role_or_tie.total -ne 48 -or
+                $b.policies.unchanged_f112_six_weight_learned.total -ne 48) {
+              throw 'F114_MISSING_NEGATIVE_OR_COMPARISON'
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $dir 'f114-selective-public.sha256'),
+            ("$sha  f114-selective-public.json"+[Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false))
+          foreach ($b in $p.cohorts) {
+            $v=$b.policies.certificate_abstain
+            Write-Host ('F114_COHORT='+$b.name+' CERTIFICATE_COVERAGE='+$v.coverage+'/48 ERRORS='+$v.wrong)
+          }
+          Write-Host 'F114_PUBLIC_ONLY_SCIENTIFIC_ACCEPTANCE=FALSE'
+      - name: FORGE full Go test vet build per platform
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F114_GO_REGRESSION_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F114_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F114_GO_BUILD_FAILED' }
+      - name: Assert no source writes or authority promotion
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if (@(git status --porcelain --untracked-files=all).Count -ne 0) { throw 'F114_SOURCE_CHANGED' }
+          Write-Host 'F114_MODEL_API_CODEX_FIRSTUSE_NATIVE_SCIENCE_DISPATCH=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f114-public-abstention-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f114-evidence/f114-selective-public.json
+            ${{ runner.temp }}/f114-evidence/f114-selective-public.sha256
+          retention-days: 90
