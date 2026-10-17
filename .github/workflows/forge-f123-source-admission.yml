@@ -1,0 +1,48 @@
+name: F123 public TRAIN-only graph source admission
+
+# Synthetic development qualification only. This workflow is intentionally
+# isolated from protected confirmation, scientific first-use, and optimizer
+# acceptance/promotion. The final exact-head regression remains a later gate.
+on:
+  push:
+    branches:
+      - research/f123-learned-path-routing-20261017
+    paths:
+      - 'nativeevidence/f123_*.py'
+      - 'nativeevidence/test_f123_*.py'
+      - 'reference/research-intake/f123-learned-multipath-routing-freeze.json'
+      - '.github/workflows/forge-f123-source-admission.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-f123-source-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-source-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enforce frozen F123 contract and TRAIN-only graph admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_TRAIN_ONLY_SOURCE_ADMISSION_FAILED' }
+          Write-Output "F123_SOURCE_COMMIT=${{ github.sha }}"
+          Write-Output 'F123_CONFIRM_EXECUTED=false'
+          Write-Output 'F123_LEARNED_MODEL_QUALIFIED=false'
+          Write-Output 'F123_SCIENTIFIC_FIRST_USE=false'
