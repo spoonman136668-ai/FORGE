@@ -80,7 +80,7 @@ def json_distinct(raw):
     return json.loads(raw.decode("utf-8-sig"),object_pairs_hook=reject_duplicates)
 
 def freeze():
-    raw=read_bounded(FREEZE)
+    raw=read_bounded(FREEZE).replace(b"\r\n",b"\n")
     require(blob(raw)==FROZEN_GIT_BLOB,"FROZEN_POLICY_HASH_DRIFT")
     cfg=json_distinct(raw)
     require(cfg.get("schema")==SCHEMA and
@@ -105,7 +105,7 @@ def freeze():
             "F102":"f102_yggdrasil_public_roles.py",
             "F103":"f103_yggdrasil_public_binding.py",
             "F104":"f104_wingless_public_observations.py"}[key]
-        require(blob(read_bounded(codefile,300000))==entry["source_git_blob"],
+        require(blob(read_bounded(codefile,300000).replace(b"\r\n",b"\n"))==entry["source_git_blob"],
                 "PARENT_MODEL_CODE_DRIFT_"+key)
     policy=cfg.get("decision_policy",{})
     require(policy.get("policy_id")=="F105-D0-FROZEN-PAIRWISE-RISK-FIRST" and
