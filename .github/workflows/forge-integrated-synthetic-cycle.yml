@@ -602,6 +602,62 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F107_GENUINE_TYPED_STRUCTURAL_DIVERSITY=PUBLIC_DEV_ONLY'
           Write-Host 'FORGE_F107_NO_GPT_AND_NO_SCIENTIFIC_DISPATCH=PASS'
+      - name: F108 preregistered transfer test of generated mechanisms versus unchanged parents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f108_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F108_FROZEN_SUPERIORITY_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f108-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $report=Join-Path $outdir 'f108-parent-superiority-public-transfer.json'
+          & $python -B nativeevidence/f108_public_superiority.py --source-ref $env:GITHUB_SHA --evidence-root $env:RUNNER_TEMP |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F108_FROZEN_PUBLIC_CHALLENGE_SOURCE_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f108.preregistered-public-transfer-parent-superiority.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.evidence_class -cne 'PROSPECTIVE_FROZEN_PUBLIC_DEVELOPMENT_NO_PROTECTED_FIRST_USE' -or
+              $d.total_new_public_assessment_pairs -ne 96 -or
+              $d.diagnostic_results.Count -ne 2 -or
+              -not $d.all_predeclared_outcomes_retained -or
+              -not $d.no_post_test_tuning -or
+              $d.definitive_mechanism_improvement_claim -or
+              $d.scientific_originals_dispatched -ne 0 -or
+              $d.independently_accepted_science -ne 0 -or
+              $d.first_use_authorized -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.paid_model_api_calls -ne 0 -or
+              $d.work_tasks -ne 0 -or
+              $d.ckb_plane_contact -or
+              $d.cloudflare_writes -ne 0 -or
+              $d.new_schedulers -ne 0) {
+            throw 'FORGE_F108_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $d.diagnostic_results) {
+            if ($lane.diagnostic_pair_count -ne 48 -or
+                $lane.parent_training_updates -ne 100 -or
+                $lane.all_paired_record_details.Count -ne 48 -or
+                $lane.coded_control_score -ne 1 -or
+                $lane.independent_science_claim -or
+                $lane.outcome -notin @('NO_DEMONSTRATED_GAIN_RETAIN_NEGATIVE','PUBLIC_DEV_RESOURCE_MATCHED_ADVANTAGE_NO_SCIENCE')) {
+              throw 'FORGE_F108_INCOMPLETE_PAIRED_COMPARISON'
+            }
+            if ($lane.frozen_resource_matched_superiority_gate_passed -and
+                (-not $lane.cost_parity_satisfied -or $lane.net_paired_advantage -lt 6)) {
+              throw 'FORGE_F108_UNEARNED_MECHANISM_IMPROVEMENT'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f108-parent-superiority-public-transfer.sha256'),
+            "$digest  f108-parent-superiority-public-transfer.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F108_PUBLIC_TRANSFER_SUPERIORITY_EVIDENCE=RETAINED_POSITIVE_OR_NEGATIVE'
+          Write-Host 'FORGE_F108_INDEPENDENT_SCIENCE_AND_AUTONOMOUS_GPT=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -735,6 +791,7 @@ jobs:
             ${{ runner.temp }}/forge-f105-development/
             ${{ runner.temp }}/forge-f106-development/
             ${{ runner.temp }}/forge-f107-development/
+            ${{ runner.temp }}/forge-f108-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
