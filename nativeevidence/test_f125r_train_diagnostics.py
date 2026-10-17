@@ -18,6 +18,22 @@ class CausalDiagnostics(unittest.TestCase):
             b=model.forward(null,list(model.INIT))[0]
             self.assertAlmostEqual(a,b,places=10)
             self.assertEqual(env.graph_paths(null,True),label)
+    def test_duplicate_wrong_role_tokens_still_use_distinct_null(self):
+        _,negative=env.build(100100,[1,2,3],"Wingless")
+        roles=set(negative["roles"])
+        candidates=sorted(((i,e) for i,e in enumerate(negative["edges"])
+                           if e["role"] not in roles),
+                          key=lambda pair:(pair[1]["from"],pair[1]["to"],
+                                           pair[1]["role"],model.edge_id(pair[1])))
+        self.assertGreaterEqual(len(candidates),3)
+        negative["edges"][candidates[1][0]]["src_bits"]=list(
+            negative["edges"][candidates[0][0]]["src_bits"])
+        original=env.marginals(negative)
+        null=diag.wrong_role_null(negative)
+        self.assertNotEqual(null,negative)
+        self.assertEqual(env.marginals(null),original)
+        self.assertAlmostEqual(model.forward(null,model.INIT)[0],
+                               model.forward(negative,model.INIT)[0],places=10)
     def test_no_ground_truth_in_model_read(self):
         p,_=env.build(100101,[1,2,3],"Wingless")
         with patch.object(env,"graph_paths",

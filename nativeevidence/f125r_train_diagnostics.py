@@ -43,7 +43,14 @@ def wrong_role_null(graph):
         key=lambda pair: (pair[1]["from"], pair[1]["to"],pair[1]["role"],
                           model.edge_id(pair[1])))
     need(len(choices)>=2,"OFFROLE_NULL_EDGES")
-    a,b = (choices[0][0],choices[1][0])
+    # Counterfactual source swaps may create duplicate off-role raw tokens.
+    # Pick the first lexicographically ordered DISTINCT-token pair, using
+    # only public input fields; never test truth or model scores to choose it.
+    distinct = next(((a,b) for k,(a,e) in enumerate(choices)
+                     for b,f in choices[k+1:]
+                     if e["src_bits"] != f["src_bits"]), None)
+    need(distinct is not None,"NO_DISTINCT_OFFROLE_NULL")
+    a,b = distinct
     output = copy.deepcopy(graph)
     before=env.marginals(graph)
     output["edges"][a]["src_bits"],output["edges"][b]["src_bits"]=(
