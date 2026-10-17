@@ -1,0 +1,138 @@
+name: F124-N novel-structure development
+on:
+  push:
+    branches: [research/f124n-novel-structural-transfer-20261017]
+    paths:
+      - 'reference/research-intake/f124n-novel-structural-transfer-freeze.json'
+      - 'nativeevidence/f124n_*.py'
+      - 'nativeevidence/test_f124n_*.py'
+      - '.github/workflows/forge-f124n-novel-structure-development.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124n-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cross-platform-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source, original model, and preserved source controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py = if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124N_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124n_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124N_FOCUSED_TESTS_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124k_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124N_PARENT_SOURCE_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124N_ISOLATION_FAILED' }
+          Write-Output 'F124N_PROTECTED_SOURCE_UNTOUCHED=true'
+
+  authenticated-development-measurement:
+    needs: cross-platform-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39065249744
+          github-token: ${{ github.token }}
+          name: f124h-immutable-train-signed-evidence
+          path: original-f124h-train
+      - name: Original unchanged learned B versus fixed controls on new source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $original = 'original-f124h-train/f124h-original-train-evidence.json'
+          $sha = (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -cne '3ce0356ad9c19aeb4557ffe0b138908707c65ab3ce4b6af952adbf9899988254') { throw 'F124N_ORIGINAL_WEIGHT_SHA_DRIFT' }
+          $out = Join-Path $env:RUNNER_TEMP 'f124n-novel-structure-development-evidence.json'
+          & python3 -B nativeevidence/f124n_development_evidence.py --original-train $original --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124N_AUTHENTIC_MEASUREMENT_FAILED' }
+          $r = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124n.authenticated-original-weight-new-structure-development.v1' -or
+              $r.freeze_git_blob -cne '2874e9430df88fc00eb24a9d34a7528465176f1b' -or
+              $r.lanes.Count -ne 2 -or -not $r.development_only -or
+              -not $r.forward_code_object_unchanged -or -not $r.frozen_B_weights_unchanged -or
+              $r.protected_examples_generated -ne 0 -or $r.protected_examples_scored -ne 0 -or
+              $r.independent_first_use -or $r.scientific_acceptances -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or $r.optimizer_promotions -ne 0 -or
+              $r.new_trained_mechanisms -ne 0 -or $r.codex_calls -ne 0 -or $r.paid_api_calls -ne 0) {
+            throw 'F124N_FALSE_ACCEPTANCE_OR_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil')) { throw 'F124N_LANE_MISMATCH' }
+            foreach ($part in @($lane.fit,$lane.dev)) {
+              if ($part.pairs -ne 48 -or $part.exact_paired -ne 48 -or
+                  $part.role_only_paired -ne 0 -or
+                  $part.depth.'7'.pairs -ne 16 -or $part.depth.'8'.pairs -ne 16 -or
+                  $part.depth.'9'.pairs -ne 16 -or $part.case_hashes.Count -ne 48) {
+                throw 'F124N_DENOMINATOR_MISMATCH'
+              }
+            }
+            Write-Output "F124N_DEV_$($lane.lane):B=$($lane.dev.B_paired)/48 fixed=$($lane.dev.fixed_paired)/48 errors=$($lane.dev.B_failures)"
+          }
+          $digest = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$digest + '  f124n-novel-structure-development-evidence.json' + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124N_RECEIPT_SHA256=$digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124n-source-disjoint-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124n-novel-structure-development-evidence.json
+            ${{ runner.temp }}/f124n-novel-structure-development-evidence.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  one-final-full-regression:
+    needs: authenticated-development-measurement
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Full regression, race, vet and build once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124N_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124N_ACCEPTED_REF_MUTATION=false'
