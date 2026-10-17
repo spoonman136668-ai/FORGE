@@ -1,0 +1,143 @@
+name: F124-I frozen causal key and adversarial resource audit
+on:
+  push:
+    branches: [research/f124i-frozen-arm-b-causal-resources-20261017]
+    paths:
+      - 'nativeevidence/f124i_frozen_mechanism_audit.py'
+      - 'nativeevidence/test_f124i_frozen_mechanism_audit.py'
+      - '.github/workflows/forge-f124i-frozen-mechanism-audit.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124i-frozen-training-audit-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-original-weight-science-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39065249744
+          github-token: ${{ github.token }}
+          name: f124h-immutable-train-signed-evidence
+          path: original-f124h
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: original-f123
+      - name: Exact original code and deterministic public-graph scorer tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f124i_frozen_mechanism_audit.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124I_FROZEN_DIAGNOSTIC_UNIT_FAILURE' }
+          & python3 -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124I_ISOLATION_FAILURE' }
+      - name: Reevaluate immutable B/A weights, source-born strata and fixed-public cost
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124i-causal-strata-resource-evidence.json'
+          $args=@('--f124h-report','original-f124h/f124h-original-train-evidence.json',
+                  '--f123-ubuntu-dir','original-f123','--output',$out)
+          & python3 -B nativeevidence/f124i_frozen_mechanism_audit.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124I_AUTHENTIC_ORIGINAL_TRAIN_AUDIT_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124i.frozen-train-mechanism-resource-audit.v1' -or
+              $r.parent_original_source_head -cne '409f9129442f3d47b3d9bc032342f48042f3127a' -or
+              $r.original_train_weights_receipt_sha256 -cne '3ce0356ad9c19aeb4557ffe0b138908707c65ab3ce4b6af952adbf9899988254' -or
+              $r.authenticated_candidate_vectors_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.frozen_protocol_blob -cne '5b3ca556f2cf55323b6317d506a62c6b2a4aab85' -or
+              $r.original_model_blob -cne '599d7a87f0812f3a7d2c8680861b6360d3640bc0' -or
+              $r.original_environment_blob -cne '3feab91460f29ec169e1904479a134bb04691937' -or
+              -not $r.exact_original_weights_unchanged -or
+              $r.retraining_occurred -or $r.threshold_changed -or $r.resourcing_changed -or
+              -not $r.posthoc_ablation_non_scientific -or
+              $r.reserved_confirmation_examples_generated -ne 0 -or
+              $r.independent_first_use -or $r.scientific_accepted -or
+              $r.accepted_ref_mutations -ne 0 -or $r.optimizer_promotions -ne 0 -or
+              $r.resource_matched_superiority_proven -or
+              $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or $r.lanes[1].lane -cne 'Yggdrasil') {
+            throw 'F124I_FALSE_CUSTODY_OR_SCIENTIFIC_CLAIM'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.original_train_selected_arm -cne 'B' -or
+                $lane.control_fixed_12of16.train_pairs -ne 48 -or
+                -not $lane.equal_information_not_equal_compute) {
+              throw 'F124I_CONTROL_LINEAGE_DRIFT'
+            }
+            foreach ($arm in @('A','B')) {
+              $x=$lane.arms.$arm
+              if ($x.cases.Count -ne 48 -or
+                  $x.depth.'4'.pairs -ne 24 -or $x.depth.'5'.pairs -ne 24 -or
+                  $x.frozen_0_5_decision_threshold -ne 0.5 -or
+                  $x.parameter_count -cnotin @(20,21) -or
+                  $x.strata.PSObject.Properties.Count -ne 5 -or
+                  $x.public_work_total_both_labels.public_edge_scans -le 0 -or
+                  $x.public_work_total_both_labels.raw_bit_multiply_adds -le 0) {
+                throw 'F124I_FROZEN_MODEL_ABLATION_INCOMPLETE'
+              }
+              Write-Output "F124I_CAUSAL=$($lane.lane):arm=$arm original=$($x.frozen_original_train_paired_correct)/48 necessary_stronger=$($x.causal_edge_deletion_has_stronger_effect)/48"
+              Write-Output "F124I_RESOURCES=$($lane.lane):arm=$arm scans=$($x.public_work_total_both_labels.public_edge_scans) bit_MAC=$($x.public_work_total_both_labels.raw_bit_multiply_adds) exp=$($x.public_work_total_both_labels.exp_evaluations) parameters=$($x.parameter_count)"
+              foreach ($stratum in $x.strata.PSObject.Properties) {
+                Write-Output "F124I_STRATUM=$($lane.lane):arm=$arm:$($stratum.Name) paired=$($stratum.Value.paired_correct)/$($stratum.Value.pairs)"
+              }
+            }
+            Write-Output "F124I_CONTROL_COST=$($lane.lane):scan=$($lane.public_fixed_work_total_both_labels.public_edge_scans) bits=$($lane.public_fixed_work_total_both_labels.raw_bit_comparisons)"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124i-causal-strata-resource-evidence.sha256'),
+             "$digest  f124i-causal-strata-resource-evidence.json"+[Environment]::NewLine,
+             [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124I_DIAGNOSTIC_REPORT_SHA256=$digest"
+          Write-Output 'F124I_CONFIRMS_RESERVATION_CLOSED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124i-immutable-train-causal-resource-audit
+          path: |
+            ${{ runner.temp }}/f124i-causal-strata-resource-evidence.json
+            ${{ runner.temp }}/f124i-causal-strata-resource-evidence.sha256
+          retention-days: 90
+          if-no-files-found: error
+  final-exact-head-regression:
+    needs: frozen-original-weight-science-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Single exact-head full test, race, vet, build and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124I_QUALIFIED_COMMIT=$GITHUB_SHA"
+          echo "F124I_SCIENTIFIC_FIRST_USE=false"
