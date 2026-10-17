@@ -63,6 +63,7 @@ class DoubleDotBoundaryTests(unittest.TestCase):
         self.assertEqual(x["original_parse_entries"],6)
         self.assertEqual(x["f109_original_single_accepted"],1)
         self.assertEqual(x["f110_original_interior_double_dot"],4)
+        self.assertEqual(x["source_label_cardinalities_only"]["f110_original_interior_double_dot"],4)
         self.assertEqual(x["f109_original_other_rejected"],1)
         buckets=x["exclusive_two_role_hypothesis_outcomes"]
         self.assertEqual(sum(buckets.values()),4)
