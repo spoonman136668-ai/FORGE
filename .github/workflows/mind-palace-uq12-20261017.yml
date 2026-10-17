@@ -1,0 +1,115 @@
+name: Mind-Palace UQ12 collector and direct ingest alias hardening
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ12-DIRECT-GUARD-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq12-readonly
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Qualify UQ12 earliest-stage duplicate-source admission guard against frozen main
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ12_WRONG_REPO'}
+          if($env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013'){throw 'UQ12_WRONG_HOST_BRANCH'}
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ12_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $head='10220f4f4ff28ed49b3f8b6b64029fcb20b3cee4'
+          $parent='9ac4e9542e47868b2e585700dc27f4bdc7284850'
+          $main='f9f5e0555e1acbe57a36142155e490d21220ca14'
+          $branch='qualification/chat-alias-direct-ingest-hardening-uq12-20261017'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $root=Join-Path $env:RUNNER_TEMP ('mind-palace-uq12-'+$env:GITHUB_RUN_ID)
+          $surfaces=@(
+            '.ice/records.json','.ice/source-ledger.json','.ice/chat-delta-state.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','archive/index.json'
+          )
+          function Assert-Ref([string]$ref,[string]$expect){
+            $values=@(& git.exe ls-remote --exit-code $remote $ref)
+            if($LASTEXITCODE -ne 0 -or $values.Count -ne 1 -or ([string]$values[0] -split '\s+')[0] -cne $expect){
+              throw ('UQ12_REMOTE_REF_DRIFT_'+$ref)
+            }
+          }
+          if(Test-Path -LiteralPath $root){throw 'UQ12_SCRATCH_EXISTS'}
+          try{
+            Assert-Ref refs/heads/main $main
+            Assert-Ref refs/heads/qualification/chat-source-ref-type-guard-uq12-20261017 $parent
+            Assert-Ref ('refs/heads/'+$branch) $head
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ12_CLONE_FAILED'}
+            Push-Location $root
+            try{
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $head){throw 'UQ12_CHECKOUT_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ12_INITIAL_CHECKOUT_DIRTY'}
+              $before=@{}
+              foreach($file in $surfaces){$before[$file]=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()}
+              & git.exe fetch --quiet --no-tags origin $parent
+              if($LASTEXITCODE -ne 0){throw 'UQ12_PARENT_FETCH_FAILED'}
+              & git.exe merge-base --is-ancestor $parent $head
+              if($LASTEXITCODE -ne 0){throw 'UQ12_WRONG_ANCESTRY'}
+              $changed=@(& git.exe diff --name-only $parent $head)
+              if($LASTEXITCODE -ne 0 -or $changed.Count -ne 3 -or
+                 $changed -cnotcontains 'tools/chat-source-alias-guard.ps1' -or
+                 $changed -cnotcontains 'tools/ingest.ps1' -or
+                 $changed -cnotcontains 'tests/Test-ChatSourceAliases.ps1'){
+                throw 'UQ12_DIFF_NOT_SOURCE_PRECHECK_ONLY'
+              }
+              Write-Host 'UQ12_ONLY_EARLY_PREFLIGHT_CODE_CHANGED=PASS'
+              $tests=@('tests/Test-ChatSourceAliases.ps1','tests/Test-CollectorBatch.ps1','tests/Test-IngestClassification.ps1')
+              foreach($test in $tests){
+                & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test | Out-Null
+                if($LASTEXITCODE -ne 0){throw ('UQ12_FOCUSED_TEST_FAILED_'+$test)}
+                Write-Host ('UQ12_FOCUSED_'+[IO.Path]::GetFileNameWithoutExtension($test)+'=PASS')
+              }
+              Write-Host 'UQ12_DIRECT_AND_COLLECTOR_CASE_TYPE_NEGATIVE_TESTS=PASS'
+              $log=Join-Path $root '.mind-runtime\uq12-testall-output.txt'
+              $parentDir=Split-Path -Parent $log
+              New-Item -ItemType Directory -Path $parentDir -Force|Out-Null
+              $prev= $ErrorActionPreference
+              try{
+                $ErrorActionPreference='Continue'
+                & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'tests/Test-All.ps1' *>&1 | Out-File -LiteralPath $log -Encoding UTF8
+                $testExit=$LASTEXITCODE
+              }finally{$ErrorActionPreference=$prev}
+              if($testExit -ne 0){
+                $lines=@(Get-Content -LiteralPath $log)
+                Write-Host ('UQ12_LAST_TEST='+[string](@($lines|Where-Object{$_ -match '^RUN Test-'})|Select-Object -Last 1))
+                Write-Host ('UQ12_FAILURE_DETAIL='+($lines|Select-Object -Last 14|Out-String).Trim())
+                throw ('UQ12_FULL_REGRESSION_FAILED_EXIT_'+$testExit)
+              }
+              if(-not (Select-String -LiteralPath $log -SimpleMatch 'Mind-Palace regression suite passed' -Quiet)){
+                throw 'UQ12_REGRESSION_PASS_MARKER_MISSING'
+              }
+              Write-Host 'UQ12_FULL_61_TEST_REGRESSION=PASS'
+              foreach($file in $surfaces){
+                if((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $before[$file]){
+                  throw ('UQ12_DURABLE_HASH_DRIFT_'+$file)
+                }
+              }
+              Write-Host 'UQ12_DURABLE_HASH_PARITY=PASS'
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ12_FINAL_CHECKOUT_DIRTY'}
+              Assert-Ref refs/heads/main $main
+              Assert-Ref refs/heads/qualification/chat-source-ref-type-guard-uq12-20261017 $parent
+              Assert-Ref ('refs/heads/'+$branch) $head
+              Write-Host 'UQ12_PRODUCTION_AND_SOURCE_REFS_UNCHANGED=PASS'
+              Write-Host 'UQ12_RECORDS_APPLIED=0'
+              Write-Host 'UQ12_CODEX_INVOCATIONS=0'
+              Write-Host 'UQ12_DIRECT_AND_COLLECTOR_ALIAS_QUALIFICATION=PASS'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
