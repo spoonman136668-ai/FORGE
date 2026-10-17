@@ -253,6 +253,134 @@ def main():
     print("F136_"+("DISPATCH_ELIGIBLE" if outcome["dispatch"]
                   else "NO_DISPATCH")+" "+",".join(outcome["reasons"]))
 
+
+
+# F137: independent schedule-fed development recovery via the EXISTING
+# read-only metadata observer. This never establishes integrated scheduled
+# science ancestry and never grants any scientific first use.
+OBSERVER_WORKFLOW=".github/workflows/forge-live-research-observer.yml"
+OBSERVER_NAME="FORGE live two-lane research metadata observer"
+OBSERVER_ARCHIVES=("forge-observed-research-metadata",
+                   "forge-observed-crosslane-pr-sources")
+
+def observer_bootstrap_decision(observer,index,recent,main_sha,now,paused=False):
+    protocol,freeze_sha=frozen()
+    need(type(observer) is dict and type(main_sha) is str
+         and HEX.fullmatch(main_sha) and type(now) is dt.datetime
+         and now.tzinfo is not None,"F137_INPUT_INVALID")
+    need(observer.get("repository",{}).get("full_name")==REPO
+         and observer.get("head_repository",{}).get("full_name")==REPO
+         and observer.get("path")==OBSERVER_WORKFLOW
+         and observer.get("name")==OBSERVER_NAME
+         and observer.get("head_branch")=="main"
+         and observer.get("head_sha")==main_sha,
+         "F137_OBSERVER_PROTECTED_SOURCE_INVALID")
+    need(observer.get("event")=="schedule"
+         and observer.get("status")=="completed"
+         and observer.get("conclusion")=="success"
+         and observer.get("run_attempt")==1
+         and type(observer.get("id")) is int and observer["id"]>0
+         and all(type(observer.get(k)) is str for k in
+                 ("created_at","run_started_at","updated_at")),
+         "F137_NOT_AUTHENTIC_SUCCESSFUL_SCHEDULE")
+    begin=stamp(observer["created_at"])
+    started=stamp(observer["run_started_at"])
+    ended=stamp(observer["updated_at"])
+    need(begin<=started<=ended<=now+dt.timedelta(minutes=2)
+         and dt.timedelta(0)<=now-ended<=dt.timedelta(minutes=30),
+         "F137_SCHEDULE_OBSERVER_STALE")
+
+    need(type(index) is dict and type(index.get("total_count")) is int
+         and type(index.get("artifacts")) is list
+         and index["total_count"]==len(index["artifacts"])
+         and 2<=len(index["artifacts"])<=100,
+         "F137_OBSERVER_ARCHIVES_INDEX_INVALID")
+    artifacts=index["artifacts"]
+    ids=[a.get("id") for a in artifacts if type(a) is dict]
+    need(len(ids)==len(artifacts) and
+         all(type(i) is int and i>0 for i in ids) and
+         len(ids)==len(set(ids)), "F137_OBSERVER_ARTIFACT_IDS_INVALID")
+    for name in OBSERVER_ARCHIVES:
+        matches=[a for a in artifacts if a.get("name")==name]
+        need(len(matches)==1,"F137_OBSERVER_ARCHIVE_MISSING_"+name)
+        a=matches[0]
+        need(a.get("expired") is False
+             and type(a.get("size_in_bytes")) is int
+             and a["size_in_bytes"]>0
+             and type(a.get("digest")) is str
+             and DIGEST.fullmatch(a["digest"])
+             and type(a.get("workflow_run")) is dict
+             and a["workflow_run"].get("id")==observer["id"]
+             and a["workflow_run"].get("head_sha")==main_sha,
+             "F137_OBSERVER_RECEIPT_IDENTITY_INVALID")
+
+    need(type(recent) is dict and type(recent.get("total_count")) is int
+         and type(recent.get("workflow_runs")) is list,
+         "F137_INTEGRATED_HISTORY_INVALID")
+    rows=recent["workflow_runs"]
+    need(1<=len(rows)<=300 and recent["total_count"]>=len(rows)
+         and len({r.get("id") for r in rows if type(r) is dict})==len(rows),
+         "F137_INTEGRATED_HISTORY_INCOMPLETE")
+    today=now.date()
+    # Use the same full UTC-day coverage and budget as the frozen F136 gate.
+    need(stamp(rows[-1]["created_at"]).date()<today,
+         "F137_INTEGRATED_DAILY_BUDGET_INCOMPLETE")
+    day_runs=[]
+    for run in rows:
+        need(type(run) is dict
+             and type(run.get("id")) is int
+             and type(run.get("created_at")) is str
+             and type(run.get("event")) is str
+             and type(run.get("status")) is str
+             and type(run.get("head_branch")) is str
+             and type(run.get("head_sha")) is str,
+             "F137_INTEGRATED_HISTORY_ROW_INVALID")
+        created=stamp(run["created_at"])
+        need(created<=now+dt.timedelta(minutes=2),
+             "F137_INTEGRATED_HISTORY_TIME_TRAVEL")
+        if created.date()==today and run["head_branch"]=="main":
+            day_runs.append(run)
+    initiated=sum(r["event"] in ("schedule","workflow_dispatch")
+                  for r in day_runs)
+    reasons=[]
+    if paused: reasons.append("OPERATOR_PAUSED")
+    if initiated>=protocol["max_daily_initiated_development_cycles"]:
+        reasons.append("DAILY_START_CAP")
+    if any(r["head_branch"]=="main" and
+           r["status"] in ("queued","waiting","in_progress","pending","requested")
+           for r in rows):
+        reasons.append("ACTIVE_OR_PENDING_INTEGRATED_RUN")
+    if any(r["head_branch"]=="main" and
+           dt.timedelta(0)<=now-stamp(r["created_at"])<dt.timedelta(minutes=10)
+           for r in rows):
+        reasons.append("INTEGRATED_CYCLE_RECENTLY_STARTED")
+    if any(r["head_branch"]=="main" and r["event"]=="schedule"
+           and dt.timedelta(0)<=now-stamp(r["created_at"])<dt.timedelta(hours=1)
+           for r in rows):
+        reasons.append("GENUINE_INTEGRATED_SCHEDULE_ALREADY_PRESENT")
+    return {"schema":"forge.autonomy.f137.schedule-fed-development-recovery.v1",
+            "observer_run_id":observer["id"],
+            "observer_event":"schedule",
+            "observer_workflow":OBSERVER_WORKFLOW,
+            "source_sha":main_sha,
+            "utc_day":str(today),
+            "daily_main_development_starts":initiated,
+            "daily_cap":protocol["max_daily_initiated_development_cycles"],
+            "observer_two_artifact_provenance_verified":True,
+            "dispatch":not reasons,
+            "reasons":reasons,
+            "frozen_f136_protocol_sha256":freeze_sha,
+            "development_only":True,
+            "genuine_integrated_schedule_claimed":False,
+            "first_use_authorized":False,
+            "scientific_originals_dispatched":0,
+            "accepted_ref_mutations":0,
+            "optimizer_promotions":0,
+            "paid_API_calls":0,
+            "Codex_calls":0,
+            "ckb_plane_accessed":False,
+            "mind_palace_written":False}
+
 if __name__=="__main__":
     try:main()
     except (Invalid,ValueError,TypeError,KeyError,OSError) as ex:

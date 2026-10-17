@@ -7,12 +7,14 @@ on:
   workflow_run:
     workflows:
       - FORGE integrated two-lane safe research-cycle acceptance
+      - FORGE live two-lane research metadata observer
     types: [completed]
   pull_request:
     branches: [main]
     paths:
       - 'nativeevidence/f136_succession.py'
       - 'nativeevidence/test_f136_succession.py'
+      - 'nativeevidence/test_f137_observer_bootstrap.py'
       - 'reference/research-intake/f136-development-succession-freeze.json'
       - '.github/workflows/forge-development-succession.yml'
 
@@ -34,12 +36,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check bounded source-only successor rules
-        run: python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+      - name: Check bounded F136 and F137 source-only successor rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f137_*.py' -v
 
   source-gated-successor:
     if: >-
       github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'FORGE integrated two-lane safe research-cycle acceptance' &&
       (github.event.workflow_run.event == 'schedule' ||
        github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -58,6 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f137_*.py' -v
           echo 'F136_CONTROLLER_PROVENANCE_TESTS=PASS'
       - name: Reconcile genuine successful main run and bounded historical source
         if: github.event_name == 'workflow_run'
@@ -169,5 +177,109 @@ jobs:
           path: |
             ${{ runner.temp }}/forge-f136-succession/preflight.json
             ${{ runner.temp }}/forge-f136-succession/f136-decision.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # F137 reuse of an already scheduled read-only observer; no new cron or controller.
+  source-gated-observer-recovery:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.name == 'FORGE live two-lane research metadata observer' &&
+      github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source-bound recovery and scientific denial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f137_*.py' -v
+          echo 'F137_SCHEDULE_OBSERVER_GUARDS=PASS'
+      - name: Reconcile genuine scheduled observer, artifacts, source and daily budget
+        id: gate
+        shell: bash
+        env:
+          PARENT_RUN: ${{ github.event.workflow_run.id }}
+          PAUSE: ${{ vars.FORGE_DEV_AUTONOMY_PAUSE }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          root="$RUNNER_TEMP/forge-f137-scheduled-recovery"
+          mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN" > "$root/observer.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN/artifacts?per_page=100" > "$root/artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha' > "$root/main.sha"
+          for page in 1 2 3; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&per_page=100&page=$page" > "$root/page-$page.json"
+          done
+          test "$(git rev-parse HEAD)" = "$(tr -d '\r\n' < "$root/main.sha")"
+          stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          paused=false
+          if [[ "$PAUSE" == 'true' ]]; then paused=true; fi
+          python3 - "$root" "$stamp" "$paused" <<'PY'
+          import json,sys
+          from pathlib import Path
+          sys.path.insert(0,"nativeevidence")
+          import f136_succession as f
+          root=Path(sys.argv[1])
+          pages=[f.strict((root/("page-"+str(p)+".json")).read_bytes())
+                 for p in (1,2,3)]
+          rows=[r for p in pages for r in p["workflow_runs"]]
+          if len(rows)!=len({r["id"] for r in rows}):
+              raise f.Invalid("F137_GITHUB_HISTORY_DUPLICATE")
+          if not rows or len(rows)>300:
+              raise f.Invalid("F137_GITHUB_HISTORY_BOUNDS")
+          report=f.observer_bootstrap_decision(
+              f.strict((root/"observer.json").read_bytes()),
+              f.strict((root/"artifacts.json").read_bytes()),
+              {"total_count":pages[0]["total_count"],"workflow_runs":rows},
+              (root/"main.sha").read_text().strip(),f.stamp(sys.argv[2]),
+              paused=(sys.argv[3]=="true"))
+          (root/"decision.json").write_text(
+              json.dumps(report,sort_keys=True,separators=(",",":"))+"\n")
+          print("F137_SCHEDULED_OBSERVER_ONLY_DEVELOPMENT="+str(report["dispatch"]))
+          print("F137_NO_SCIENTIFIC_ORIGINALS_OR_ACCEPTED_REFS=PASS")
+          for reason in report["reasons"]:
+              print("F137_DECLINED_"+reason)
+          PY
+          if [[ "$(jq -r '.dispatch' "$root/decision.json")" != "true" ]]; then
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "dispatch=true" >> "$GITHUB_OUTPUT"
+          echo "parent=$PARENT_RUN" >> "$GITHUB_OUTPUT"
+          echo "sha=$(tr -d '\r\n' < "$root/main.sha")" >> "$GITHUB_OUTPUT"
+      - name: Dispatch exactly one existing development-only integrated cycle
+        if: steps.gate.outputs.dispatch == 'true'
+        shell: bash
+        env:
+          PARENT_RUN: ${{ steps.gate.outputs.parent }}
+          EXPECTED_SHA: ${{ steps.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" = "$EXPECTED_SHA"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/dispatches" \
+            -f ref=main -f 'inputs[origin]=f137-scheduled-recovery' \
+            -f "inputs[parent_run_id]=$PARENT_RUN" \
+            -f "inputs[parent_source_sha]=$EXPECTED_SHA"
+          echo 'F137_ONE_EXISTING_DEVELOPMENT_CYCLE_DISPATCHED=TRUE'
+          echo 'F137_GENUINE_INTEGRATED_SCHEDULE_CLAIMED=FALSE'
+          echo 'F137_SCIENCE_ORIGINALS_AND_OPTIMIZER_PROMOTIONS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f137-scheduled-recovery-${{ github.run_id }}
+          path: ${{ runner.temp }}/forge-f137-scheduled-recovery/decision.json
           if-no-files-found: warn
           retention-days: 14
