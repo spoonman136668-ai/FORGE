@@ -196,6 +196,12 @@ def lane(api,program,repo,now):
              comparison.get("behind_by")==0,
              "CONTINUATION_HEAD_NOT_MAIN_ANCESTOR")
     latest_created,latest=max(checked,key=lambda x:(x[0],x[1]["id"]))
+    # Historic main ancestors authenticate old attempts, not the current
+    # program revision. A newly advanced main has no operational proof until
+    # its own launcher has finished successfully. Never promote a previous
+    # main's successful run to current health.
+    need(latest["head_sha"]==main_sha,
+         "LATEST_RESEARCH_CONTINUATION_NOT_ON_CURRENT_MAIN")
     need(latest_created>=created,"CONTINUATION_ATTEMPT_HISTORY_STALE")
     need(latest.get("status")=="completed" and
          latest.get("conclusion")=="success" and
