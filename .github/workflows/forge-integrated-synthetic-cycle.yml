@@ -40,6 +40,10 @@ concurrency:
 
 jobs:
   two-lane-synthetic:
+    outputs:
+      f125_admitted: ${{ steps.f129-admission.outputs.f125 }}
+      f127_admitted: ${{ steps.f129-admission.outputs.f127 }}
+      f128_admitted: ${{ steps.f129-admission.outputs.f128 }}
     strategy:
       fail-fast: false
       matrix:
@@ -381,6 +385,72 @@ jobs:
             "$digest  f120-controlled-graph-development.json"+[Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'F120_GENERATED_CHALLENGE_EXPERIMENT_AND_SOURCE_ONLY_NEGATIVES=ARCHIVED'
+      - name: F129 authenticated scheduled-stage admission and first-run bootstrap
+        id: f129-admission
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f129_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F129_ADVERSARIAL_TESTS_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'forge-f129-stage-admission'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $items=@()
+          if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            $index=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs?branch=main&event=schedule&per_page=100") | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F129_SCHEDULE_INDEX_NOT_READABLE' }
+            $runs=@($index.workflow_runs | Where-Object {
+              [int64]$_.id -lt [int64]$env:GITHUB_RUN_ID -and
+              $_.status -ceq 'completed' -and $_.conclusion -ceq 'success' -and
+              $_.event -ceq 'schedule' -and $_.head_branch -ceq 'main' -and
+              $_.run_attempt -eq 1 -and
+              $_.path -ceq '.github/workflows/forge-integrated-synthetic-cycle.yml'
+            } | Sort-Object id -Descending | Select-Object -First 40)
+            foreach ($prior in $runs) {
+              $art=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$prior.id+"/artifacts?per_page=100") | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0 -or $art.total_count -gt 100) {
+                throw 'F129_PRIOR_ARTIFACT_INDEX_UNQUALIFIED'
+              }
+              $items+=@(@{run=$prior;artifacts=$art})
+            }
+          }
+          $history=Join-Path $root 'history.json'
+          [System.IO.File]::WriteAllText($history,
+            ((@{runs=@($items)} | ConvertTo-Json -Compress -Depth 20)+[Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false))
+          $output=Join-Path $root 'f129-admission.json'
+          $args2=@('--source-ref',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--event',$env:GITHUB_EVENT_NAME,'--history-json',$history,'--output',$output)
+          & $py -B nativeevidence/f129_staged_admission.py @args2
+          if ($LASTEXITCODE -ne 0) { throw 'F129_PRIOR_RUN_QUARANTINED' }
+          $proof=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.autonomy.f129.staged-scheduled-bootstrap-development.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$proof.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              -not $proof.F124_base_execution -or -not $proof.F126_base_execution -or
+              $proof.two_genuine_scheduled_main_runs_proven -or
+              $proof.scientific_originals_dispatched -ne 0 -or
+              $proof.scientific_first_use_authorized -or
+              $proof.accepted_ref_mutations -ne 0 -or $proof.optimizer_promotions -ne 0 -or
+              $proof.Codex_calls -ne 0 -or $proof.paid_model_calls -ne 0 -or
+              $proof.new_schedulers -ne 0 -or $proof.ckb_plane_contact -or
+              $proof.cloudflare_writes -ne 0 -or $proof.mind_palace_writes -ne 0) {
+            throw 'F129_INVALID_OPERATIONAL_BOOTSTRAP_EVIDENCE'
+          }
+          foreach ($stage in @('F125','F127','F128')) {
+            $value=if ($proof.admissions.$stage.admitted) { 'true' } else { 'false' }
+            [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT,
+              ($stage.ToLowerInvariant()+'='+$value+[Environment]::NewLine),
+              [System.Text.UTF8Encoding]::new($false))
+            Write-Host ('F129_ADMITTED_'+$stage+'='+$value)
+          }
+          $sum=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f129-admission.sha256'),
+            "$sum  f129-admission.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host ('F129_FIRST_SCHEDULE_BOOTSTRAP='+$proof.first_schedule_bootstrap)
       - name: F124 autonomous generated research-direction feedback and scheduled continuity
         shell: pwsh
         env:
@@ -478,6 +548,7 @@ jobs:
           Write-Host ('F124_CONTINUITY='+$proof.continuity)
           Write-Host 'F124_TWO_LANE_FEEDBACK_DIRECTED_CHALLENGE_EVOLUTION=SOURCE_ONLY'
       - name: F125 authenticated prior GitHub feedback to autonomous new GenEnv agenda
+        if: github.event_name != 'schedule' || steps.f129-admission.outputs.f125 == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -677,6 +748,7 @@ jobs:
             "$digest  f126-original-negative-selected-agenda.json"+[Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
       - name: F127 actual previous F126 negative to executable grammar synthesis
+        if: github.event_name != 'schedule' || steps.f129-admission.outputs.f127 == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -759,6 +831,7 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $root 'f127-program-synthesis.sha256'),
             "$digest  f127-program-synthesis.json"+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
       - name: F128 counterexample-directed operator discovery from authentic F127 mechanism
+        if: github.event_name != 'schedule' || steps.f129-admission.outputs.f128 == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -980,6 +1053,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success()
         with:
+          name: forge-f129-admission-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f129-stage-admission/f129-admission.json
+            ${{ runner.temp }}/forge-f129-stage-admission/f129-admission.sha256
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
           name: forge-f124-autonomy-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/forge-f124-autonomy/state.json
@@ -987,7 +1069,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: success()
+        if: success() && (github.event_name != 'schedule' || steps.f129-admission.outputs.f125 == 'true')
         with:
           name: forge-f125-authentic-selection-${{ matrix.os }}
           path: |
@@ -1005,7 +1087,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: success()
+        if: success() && (github.event_name != 'schedule' || steps.f129-admission.outputs.f127 == 'true')
         with:
           name: forge-f127-synthesized-program-${{ matrix.os }}
           path: |
@@ -1015,7 +1097,7 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: success()
+        if: success() && (github.event_name != 'schedule' || steps.f129-admission.outputs.f128 == 'true')
         with:
           name: forge-f128-refinement-${{ matrix.os }}
           path: |
@@ -1026,6 +1108,7 @@ jobs:
 
   f127-cross-os-byte-proof:
     needs: two-lane-synthetic
+    if: github.event_name != 'schedule' || needs.two-lane-synthetic.outputs.f127_admitted == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1062,6 +1145,7 @@ jobs:
 
   f128-cross-platform-mechanism-proof:
     needs: two-lane-synthetic
+    if: github.event_name != 'schedule' || needs.two-lane-synthetic.outputs.f128_admitted == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
