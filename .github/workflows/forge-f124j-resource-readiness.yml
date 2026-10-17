@@ -1,0 +1,170 @@
+name: F124-J public control cost and protected-confirmation readiness
+on:
+  push:
+    branches: [research/f124j-resource-audit-20261017]
+    paths:
+      - 'reference/research-intake/f124j-resource-and-confirm-readiness-freeze.json'
+      - 'nativeevidence/f124j_*.py'
+      - 'nativeevidence/test_f124j_*.py'
+      - '.github/workflows/forge-f124j-resource-readiness.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124j-read-only-resource-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  cross-platform-source-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Immutable original graph control and no first-use preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124j_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124J_PRE_FREEZE_OR_RESOURCE_CONTROL_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124J_ISOLATION_FAILED' }
+          Write-Output "F124J_PREFLIGHT_HEAD=${{ github.sha }}"
+          Write-Output 'F124J_CONFIRM_GENERATED=false'
+  authenticated-resource-audit:
+    needs: cross-platform-source-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39066410440
+          github-token: ${{ github.token }}
+          name: f124i-immutable-train-causal-resource-audit
+          path: immutable-f124i
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39065249744
+          github-token: ${{ github.token }}
+          name: f124h-immutable-train-signed-evidence
+          path: immutable-f124h
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: immutable-f123
+      - name: Compare C12 C14 and public exact C16; attest first-use blocked
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124j-public-controls-and-confirm-preflight.json'
+          $args=@('--f124i-report','immutable-f124i/f124i-causal-strata-resource-evidence.json',
+                  '--f124h-report','immutable-f124h/f124h-original-train-evidence.json',
+                  '--f123-dir','immutable-f123','--output',$out)
+          & python3 -B nativeevidence/f124j_public_resource_preflight.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124J_AUTHENTIC_RESOURCE_AUDIT_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124j.public-resource-controls-and-confirmation-preflight.v1' -or
+              $r.resource_protocol_git_blob -cne 'c9131287cd30665f5928a15cab63bb7731eb6a78' -or
+              $r.original_f124h_head -cne '409f9129442f3d47b3d9bc032342f48042f3127a' -or
+              $r.original_f124i_head -cne '87459f4b493242dec090b5f0f748bf3e2e4d9604' -or
+              $r.original_f124i_report_sha256 -cne 'c97f51a04769caeadeee03889daf056cad38be826d18aada453a07371e71fb1e' -or
+              $r.original_f124h_train_sha256 -cne '3ce0356ad9c19aeb4557ffe0b138908707c65ab3ce4b6af952adbf9899988254' -or
+              $r.original_source_vectors_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              -not $r.original_B_weights_unchanged -or
+              -not $r.original_0_5_threshold_unchanged -or
+              $r.no_retraining -ne $true -or
+              $r.one_time_confirmation_preflight.source_birth_capability -cne 'BLOCKED_SOURCE_NOT_IMPLEMENTED' -or
+              $r.one_time_confirmation_preflight.authentication_capability -cne 'NOT_ESTABLISHED' -or
+              $r.one_time_confirmation_preflight.independent_first_use_authority_present -or
+              $r.one_time_confirmation_preflight.reserved_examples_generated -ne 0 -or
+              $r.reserved_confirmation_cases_generated -ne 0 -or
+              $r.independent_original_first_use -or
+              $r.accepted_scientific_results -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or
+              $r.resource_matched_superiority_established -or
+              $r.lanes.Count -ne 2) {
+            throw 'F124J_SOURCE_CUSTODY_OR_FALSE_FIRST_USE_CLAIM'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil') -or
+                $lane.frozen_selected_arm -cne 'B' -or
+                $lane.controls.'16'.paired_correct -ne 48 -or
+                $lane.controls.'16'.negative_correct -ne 48 -or
+                $lane.controls.'16'.positive_correct -ne 48 -or
+                $lane.controls.'12'.work.actual_raw_bit_comparisons -le 0 -or
+                -not $lane.C16_same_information_as_B -or
+                -not $lane.primitive_costs_not_equated -or
+                $lane.equal_resource_superiority_established -or
+                $lane.cases.Count -ne 48) {
+              throw 'F124J_EXACT_ALGORITHMIC_CEILING_OR_WORK_COUNT_DRIFT'
+            }
+            foreach ($threshold in @('12','14','16')) {
+              $c=$lane.controls.$threshold
+              Write-Output "F124J_CONTROL=$($lane.lane):threshold=$threshold paired=$($c.paired_correct)/48 scans=$($c.work.public_edge_scans) bits=$($c.work.actual_raw_bit_comparisons)"
+            }
+            Write-Output "F124J_MODEL=$($lane.lane):B=$($lane.original_train_selected_B_pairs)/48 scans=$($lane.original_B_public_work.public_edge_scans) raw_MAC=$($lane.original_B_public_work.raw_bit_multiply_adds) exp=$($lane.original_B_public_work.exp_evaluations)"
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124j-public-controls-and-confirm-preflight.sha256'),
+            "$hash  f124j-public-controls-and-confirm-preflight.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124J_AUDIT_SHA256=$hash"
+          Write-Output 'F124J_CONFIRM_FIRST_USE=BLOCKED'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124j-resource-controls-and-protected-source-preflight
+          path: |
+            ${{ runner.temp }}/f124j-public-controls-and-confirm-preflight.json
+            ${{ runner.temp }}/f124j-public-controls-and-confirm-preflight.sha256
+          retention-days: 90
+          if-no-files-found: error
+  one-full-exact-head-regression:
+    needs: authenticated-resource-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Final exact-head full Go tests race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124J_FULL_QUAL_HEAD=$GITHUB_SHA"
+          echo 'F124J_ORIGINAL_FIRST_USE=false'
