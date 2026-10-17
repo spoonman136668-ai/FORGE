@@ -81,6 +81,43 @@ jobs:
           PY
           sha256sum f102o-training-inventory.json > f102o-training-inventory.sha256
           sha256sum -c f102o-training-inventory.sha256
+      - name: Frozen 46 train-only typed-role parser and F101 preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/devroles ./cmd/forge-f102o-grammar-count
+      - name: Exact original 233176 TRAIN questions expanded fixed-role coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f102o_training_only_grammar_coverage.py --upstream public-metaqa --output f102o-training-coverage.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f102o-training-coverage.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f102o.train-only-grammar-coverage.v1'
+          assert x['status']=='PUBLIC_TRAIN_ONLY_EXPANDED_GRAMMAR_COVERAGE'
+          assert x['whole_original_train_population']==233176
+          assert x['additional_train_grammars']==46 and x['preserved_f101_fixed_grammars']==8
+          for c,hops,total in zip(x['cohorts'],(2,3),(118980,114196)):
+            assert c['hops']==hops and c['population']==total
+            y=c['counts']
+            assert y['questions']==total
+            assert y['matched']+y['abstained']==total
+            assert sum(y['reasons'].values())==y['abstained']
+            assert y['answers_read']==y['model_calls']==0
+            assert y['question_only_data_flow'] is True
+            assert y['scientific_dispatch'] is False
+            assert y['accepted_ref_mutation'] is False
+          for f in ('test_corpus_read','answers_forwarded','question_answers_compared',
+                    'predictions_made','qa_accuracy_computed','independent_scientific_firstuse',
+                    'accepted_science','dream_pareto_promotion',
+                    'thetaevolve_accepted_training','accepted_ref_mutation'):
+            assert x[f] is False,f
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F102O_TRAIN_ONLY_COMPLETE_COHORT=PASS')
+          PY
+          sha256sum f102o-training-coverage.json > f102o-training-coverage.sha256
+          sha256sum -c f102o-training-coverage.sha256
       - name: One required exact-head full Go regression vet build
         shell: bash
         run: |
@@ -96,5 +133,7 @@ jobs:
           path: |
             f102o-training-inventory.json
             f102o-training-inventory.sha256
+            f102o-training-coverage.json
+            f102o-training-coverage.sha256
           retention-days: 45
           if-no-files-found: error
