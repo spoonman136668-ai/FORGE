@@ -44,8 +44,9 @@ class ArchiveCustodyTests(unittest.TestCase):
                 m["executor_principal"]="synthetic_witness_A"
             if key=="witness_principal":
                 m["witness_principal"]="synthetic_executor_B"
-            with self.assertRaises(f.Denied,key):
-                f.verify_synthetic_fixture(self.source,m)
+            with self.subTest(frozen_mutation=key):
+                with self.assertRaises(f.Denied):
+                    f.verify_synthetic_fixture(self.source,m)
 
     def test_missing_truncated_modified_and_overlong_file_denied(self):
         m=f.witness_manifest(f.FIXTURE)
