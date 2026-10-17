@@ -75,6 +75,32 @@ class F129Admission(unittest.TestCase):
         self.assertTrue(all(x["prior_run_id"] is None for x in state["admissions"].values()))
         self.assertFalse(state["two_genuine_scheduled_main_runs_proven"])
 
+    def test_postmerge_push_cannot_reuse_closed_pr_fixture_or_claim_continuity(self):
+        for event in ("push","workflow_dispatch"):
+            report=m.admit(RUN,SOURCE,event,{"runs":[]})
+            self.assertTrue(report["non_scheduled_source_bootstrap"])
+            self.assertFalse(report["development_pr_evidence_mode"])
+            self.assertFalse(report["genuine_scheduled_source"])
+            self.assertFalse(report["first_schedule_bootstrap"])
+            self.assertTrue(report["F124_base_execution"])
+            self.assertTrue(report["F126_base_execution"])
+            self.assertTrue(all(not row["admitted"]
+                                for row in report["admissions"].values()))
+            self.assertTrue(all(row["prior_run_id"] is None
+                                for row in report["admissions"].values()))
+            self.assertFalse(report["two_genuine_scheduled_main_runs_proven"])
+
+    def test_prior_genuine_schedule_is_not_reused_by_push(self):
+        for event in ("push","workflow_dispatch"):
+            with self.assertRaisesRegex(m.Blocked,"NONSCHEDULED_PRIOR_HISTORY"):
+                m.admit(RUN,SOURCE,event,{"runs":[item(stages=("F125",))]})
+
+    def test_pr_mode_remains_distinct_and_does_not_claim_postmerge_bootstrap(self):
+        report=m.admit(RUN,SOURCE,"pull_request",{"runs":[]})
+        self.assertTrue(report["development_pr_evidence_mode"])
+        self.assertFalse(report["non_scheduled_source_bootstrap"])
+        self.assertTrue(all(row["admitted"] for row in report["admissions"].values()))
+
     def test_partial_artifact_pair_quarantines_even_when_older_run_valid(self):
         new=item(39080000002,("F125",))
         new["artifacts"]["artifacts"].pop()
