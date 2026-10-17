@@ -1,0 +1,114 @@
+name: UQ39 qualify reconciled UQ37 scheduled poll
+# Qualification-only source-equivalent copy, no recurring trigger.
+# FORGE supplies an existing isolated Windows runner, not scientific/research authority.
+on:
+  push:
+    branches: [qualification/uq39-mind-palace-reconciled-scheduler]
+    paths:
+      - '.github/workflows/mind-palace-uq39-reconciled-scheduler.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq39-reconciled-scheduler
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Inspect reviewed Mind-Palace source queue, no private data export
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'UQ37_RUNNER_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $privateRepo = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $forgeRepo = 'https://github.com/spoonman136668-ai/FORGE.git'
+          $candidateRef = 'refs/heads/engineering/uq37-mind-palace-scheduled-poll'
+          $expectedCandidate = '36c9f6b5307a10b7e65ed58b12610654bf8b8bf7'
+          $candidateLines = @(& git.exe ls-remote --exit-code $forgeRepo $candidateRef)
+          if($LASTEXITCODE -ne 0 -or $candidateLines.Count -ne 1 -or ([string]$candidateLines[0] -split '\s+')[0] -cne $expectedCandidate){
+            throw 'UQ39_FORGE_PR_HEAD_DRIFT'
+          }
+          Write-Host 'UQ39_FORGE_PR463_EXACT_HEAD=PASS'
+          $expectedToolBlob = 'efee36f895d9163f68cd88b372b27897557a1e6f'
+          $expectedToolsTree = '7dfa7dd700c04bb11204434b76805ac6ae66d904'
+          $expectedSchemasTree = '3a88cdabbe11d4cd8f95a074860f08845b1cce4a'
+          $expectedAliasPolicyBlob = 'a216e65d57061d57d07dc17fce45b9905234444e'
+          $expectedManifestBlob = '37e0f5ffe301519e2ce7d564367cbfe9312017c1'
+          $root = Join-Path $env:RUNNER_TEMP ('mp37-poll-' + $env:GITHUB_RUN_ID)
+          $stdout = Join-Path $env:RUNNER_TEMP ('mp37-poll-' + $env:GITHUB_RUN_ID + '.out')
+          $stderr = Join-Path $env:RUNNER_TEMP ('mp37-poll-' + $env:GITHUB_RUN_ID + '.err')
+          $native = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(-not (Test-Path -LiteralPath $native -PathType Container)){throw 'UQ37_PS_NATIVE_MODULES_UNAVAILABLE'}
+          $env:PSModulePath = $native + [IO.Path]::PathSeparator + $env:PSModulePath
+          $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+          $guard = @('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Assert([bool]$ok,[string]$reason){if(-not $ok){throw ('UQ37_POLL_STOP_'+$reason)}}
+          function Sha256([string]$path){
+            $s=[IO.File]::OpenRead($path);$h=[Security.Cryptography.SHA256]::Create()
+            try {return ([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLowerInvariant()}
+            finally {$h.Dispose();$s.Dispose()}
+          }
+          if(Test-Path -LiteralPath $root){throw 'UQ37_SCRATCH_ALREADY_PRESENT'}
+          if((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)){throw 'UQ37_LOG_ALREADY_PRESENT'}
+          try {
+            $beforeRemote = @(& git.exe ls-remote --exit-code $privateRepo refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $beforeRemote.Count -eq 1) 'PRIVATE_REF_UNAVAILABLE'
+            $mainHead = ([string]$beforeRemote[0] -split '\s+')[0]
+            Assert ($mainHead -ceq '22d819c3473b80be34ecac7280881a67c981207c') 'UQ39_MIND_PALACE_PRODUCTION_BASE_DRIFT'
+            & git.exe clone --quiet --depth 1 --single-branch --branch main $privateRepo $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $mainHead) 'MAIN_MOVED_DURING_CHECKOUT'
+            $tool = Join-Path $root 'tools/guarded-unattended-intake.ps1'
+            $queue = Join-Path $root 'policies/guarded-chat-source-queue.json'
+            Assert ((& git.exe -C $root hash-object -- $tool | Out-String).Trim() -ceq $expectedToolBlob) 'ENGINE_SOURCE_DRIFT_NOT_APPROVED'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools' | Out-String).Trim() -ceq $expectedToolsTree) 'TOOLS_DEPENDENCY_TREE_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:schemas' | Out-String).Trim() -ceq $expectedSchemasTree) 'SCHEMA_DEPENDENCY_TREE_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:policies/chat-source-aliases.json' | Out-String).Trim() -ceq $expectedAliasPolicyBlob) 'SOURCE_ALIAS_POLICY_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:.ice/manifest.json' | Out-String).Trim() -ceq $expectedManifestBlob) 'MANIFEST_POLICY_DRIFT'
+            Assert (Test-Path -LiteralPath $queue -PathType Leaf) 'QUEUE_UNAVAILABLE'
+            $stateBefore = @{}
+            foreach($path in $guard){$stateBefore[$path]=Sha256 (Join-Path $root $path)}
+            $argsForChild = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+              '-File',('"'+$tool+'"'),'inspect','-QueuePath',('"'+$queue+'"'),'-MaxSources','1')
+            $p=Start-Process -FilePath $psExe -ArgumentList $argsForChild -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            Assert ($p.ExitCode -eq 0) ('SOURCE_INSPECTION_FAILED_EXIT_'+$p.ExitCode)
+            $raw=[IO.File]::ReadAllText($stdout)
+            $result=$raw | ConvertFrom-Json -ErrorAction Stop
+            Assert ([string]$result.schema -ceq 'mind-palace.guarded-chat-source-queue-result.v1') 'RESULT_SCHEMA'
+            Assert ([bool]$result.durable_state_unchanged -and [int]$result.production_memory_writes -eq 0 -and
+              [int]$result.source_ledger_writes -eq 0 -and [int]$result.paid_model_invocations -eq 0 -and
+              -not [bool]$result.automatic_background_discovery -and
+              -not [bool]$result.automatic_production_updates) 'NO_WRITE_BOUNDARY_VIOLATED'
+            Assert ([int]$result.inspected_count -le 1) 'INSPECTION_BUDGET_EXCEEDED'
+            foreach($path in $guard){Assert ((Sha256 (Join-Path $root $path)) -ceq $stateBefore[$path]) ('DURABLE_DRIFT_'+$path)}
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'CHECKOUT_DIRTY'
+            $afterRemote = @(& git.exe ls-remote --exit-code $privateRepo refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $afterRemote.Count -eq 1 -and
+              (([string]$afterRemote[0] -split '\s+')[0]) -ceq $mainHead) 'MAIN_REF_DRIFT'
+            if([int]$result.inspected_count -eq 0){
+              Write-Host 'UQ37_EMPTY_AUTHORIZED_QUEUE=IDLE'
+            } else {
+              $state = [string]$result.items[0].disposition
+              Assert (@('skip_known','ready_for_authorized_preparation') -contains $state) 'UNSUPPORTED_DISPOSITION'
+              Write-Host ('UQ37_BOUNDED_SOURCE_DISPOSITION='+$state)
+            }
+            Write-Host 'UQ37_NINE_PROTECTED_HASHES_AND_MAIN_REF_STABLE=PASS'
+            Write-Host 'UQ37_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ37_CODEX_AND_PAID_INFERENCE=0'
+            Write-Host 'UQ39_RECONCILED_SCHEDULER_PREVIEW=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+            if(Test-Path -LiteralPath $stdout){Remove-Item -LiteralPath $stdout -Force -ErrorAction SilentlyContinue}
+            if(Test-Path -LiteralPath $stderr){Remove-Item -LiteralPath $stderr -Force -ErrorAction SilentlyContinue}
+          }
