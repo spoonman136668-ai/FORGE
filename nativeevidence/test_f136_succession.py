@@ -174,7 +174,7 @@ class F136(unittest.TestCase):
     def test_existing_integrated_workflow_reuses_10minute_fallback(self):
         root=Path(__file__).resolve().parents[1]
         w=(root/".github/workflows/forge-integrated-synthetic-cycle.yml").read_text()
-        self.assertIn("cron: '7-57/10 * * * *'",w)
+        self.assertIn("cron: '7,17,27,37,47,57 * * * *'",w)
         self.assertIn("group: forge-integrated-synthetic-",w)
         self.assertIn("cancel-in-progress: false",w)
         self.assertIn("event_name == 'schedule'",w)
