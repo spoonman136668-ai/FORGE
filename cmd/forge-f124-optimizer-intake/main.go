@@ -3,6 +3,7 @@
 package main
 
 import (
+ "bytes"
  "crypto/sha1"
  "crypto/sha256"
  "encoding/hex"
@@ -100,6 +101,8 @@ func pin(b []byte)string{return shasum(b)}
 func freeze(root string) error {
  b,err:=os.ReadFile(filepath.Join(root,"reference","research-intake","f124m-authentic-optimizer-freeze.json"))
  if err!=nil{return err}
+ // GitHub Windows checkouts may expand LF to CRLF; compare canonical Git blob bytes.
+ b=bytes.ReplaceAll(b,[]byte{13,10},[]byte{10})
  h:=sha1.Sum(append(append([]byte(fmt.Sprintf("blob %d",len(b))),byte(0)),b...))
  if hex.EncodeToString(h[:])!=freezeBlob{return errIntake}
  var p struct {
