@@ -1,0 +1,135 @@
+name: FORGE F113 balanced source-binding falsification
+on:
+  push:
+    branches:
+      - research/f113-independent-source-binding-20261017-r1
+    paths:
+      - '.github/workflows/forge-f113-public-balanced-falsification.yml'
+      - 'nativeevidence/f113_orthogonal_source_binding.py'
+      - 'nativeevidence/test_f113_orthogonal_source_binding.py'
+      - 'reference/research-intake/f113-orthogonal-source-binding-freeze.json'
+permissions:
+  contents: read
+jobs:
+  unchanged-f112-f113-public:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify F112 ancestry, F113 precode freeze and unchanged sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='9bd5269582e537cf5e7537c1298ec29611ddec16'
+          $freeze='04529c2f2abab7ed27dde3620bf2ddc88a15c1a6'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'HEAD_SHA_DRIFT' }
+          git merge-base --is-ancestor $base HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F112_ANCESTRY_DRIFT' }
+          git merge-base --is-ancestor $freeze HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F113_PRECODE_NOT_ANCESTOR' }
+          $found=@(git diff --name-only $base HEAD | Where-Object { $_ -ne '' })
+          $expected=@(
+            '.github/workflows/forge-f113-public-balanced-falsification.yml',
+            'nativeevidence/f113_orthogonal_source_binding.py',
+            'nativeevidence/test_f113_orthogonal_source_binding.py',
+            'reference/research-intake/f113-orthogonal-source-binding-freeze.json'
+          )
+          if (@(Compare-Object $found $expected).Count -ne 0) { throw 'UNEXPECTED_FILES_CHANGED' }
+          if ((git hash-object 'reference/research-intake/f113-orthogonal-source-binding-freeze.json') -cne '3fa7586aa22326723fa6daf0751658d13a827876') { throw 'PREREG_DRIFT' }
+          if ((git hash-object 'nativeevidence/f112_learned_relations.py') -cne '838050a30a37961525eba29cab42a32f651c8ca0') { throw 'MODEL_DRIFT' }
+          if ((git hash-object 'reference/research-intake/f112-learned-relations-freeze.json') -cne 'c42f5baaaa4cd77395229a153b059bcd4fa08181') { throw 'PARENT_FREEZE_DRIFT' }
+          if (@(git status --porcelain --untracked-files=all).Count -ne 0) { throw 'SOURCE_DIRTY' }
+      - name: Source-only F113 adversarial verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f113_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F113_ADVERSARIAL_TEST_FAILED' }
+      - name: Run 144 fresh public pairs with unchanged learned model and controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'f113-report'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $out=Join-Path $dir 'f113-public-diagnostic.json'
+          python -B nativeevidence/f113_orthogonal_source_binding.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F113_PUBLIC_EVALUATION_FAILED' }
+          $p=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f113.query-depth-orthogonal-source-binding-public.v1' -or
+              $p.source_sha -cne $env:GITHUB_SHA -or
+              $p.new_public_counterfactual_pairs -ne 144 -or
+              $p.diagnostic_training_steps -ne 0 -or
+              $p.parent_learned_training_steps -ne 100 -or
+              -not $p.new_cohorts_full_factorial_balanced -or
+              $p.strong_symbolic_total_correct -ne 144 -or
+              $p.query_depth_only_total_correct -ne 36 -or
+              $p.blocks.Count -ne 3 -or
+              $p.scientific_first_use_authorized -or
+              $p.independent_scientific_acceptance -or
+              $p.optimizer_promotion_authorized -or
+              $p.accepted_ref_mutations -ne 0 -or
+              $p.new_native_scientific_dispatches -ne 0 -or
+              $p.codex_calls -ne 0 -or
+              $p.external_paid_model_calls -ne 0 -or
+              $p.CKB_accessed -or $p.MindPalace_written) {
+            throw 'F113_FALSE_EVIDENCE_OR_SCIENCE_PERMISSION'
+          }
+          foreach ($b in $p.blocks) {
+            if ($b.pairs -ne 48 -or $b.full_factorial_4x4_each_cell_count -ne 3 -or
+                $b.individual_rows.Count -ne 48 -or
+                $b.paired_correct.full_public_symbolic_lookup_one_read -ne 48 -or
+                $b.paired_correct.query_depth_only_shortcut_one_read -ne 12) {
+              throw 'F113_UNBALANCED_OR_MISSING_CONTROL'
+            }
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $dir 'f113-public-diagnostic.sha256'),
+            ("$hash  f113-public-diagnostic.json"+[Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host ('F113_LEARNED_BALANCED_PAIRED='+$p.learned_total_correct+'/144')
+          Write-Host ('F113_FIXED_INCREMENTAL_NET='+$p.net_learned_gain_vs_fixed)
+          Write-Host ('F113_LEARNING_DISPOSITION='+$p.learning_disposition)
+      - name: Full FORGE Go regression, vet and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F113_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F113_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F113_GO_BUILD_FAILED' }
+      - name: Verify source unchanged
+        shell: pwsh
+        run: |
+          if (@(git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F113_SOURCE_MUTATED'
+          }
+          Write-Host 'F113_PUBLIC_ONLY_NO_ORIGINALS_NO_CODEX_NO_EXTERNAL_CONTROLLER=TRUE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f113-frozen-public-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f113-report/f113-public-diagnostic.json
+            ${{ runner.temp }}/f113-report/f113-public-diagnostic.sha256
+          retention-days: 90
