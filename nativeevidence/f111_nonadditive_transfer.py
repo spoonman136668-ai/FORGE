@@ -140,8 +140,6 @@ def new_wing_case(seed,block):
     ids=list(range(4))
     rng.shuffle(ids)
     # Noncyclic code: force true source mapping not reducible to additive shift.
-    if all(ids[tag]==(tag+k)%4 for tag in range(4) for k in []):
-        raise AssertionError("unreachable")
     if any(all(ids[tag]==(tag+k)%4 for tag in range(4))
            for k in range(4)):
         ids[1],ids[2]=ids[2],ids[1]
