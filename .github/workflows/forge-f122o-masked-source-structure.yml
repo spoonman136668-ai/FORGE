@@ -1,0 +1,156 @@
+name: FORGE F122-O authentic globally masked graph structure learning
+on:
+  push:
+    branches: [engineering/f122o-masked-edge-structure-20261017-r1]
+    paths:
+      - 'noveltyeval/f122o_*'
+      - 'noveltyeval/test_f122o_*'
+      - 'docs/F122O-*'
+      - '.github/workflows/forge-f122o-masked-source-structure.yml'
+permissions:
+  contents: read
+jobs:
+  independently-disjoint-source-topology:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: publisher-original-kb
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact FORGE source head and immutable full original graph, no QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C publisher-original-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C publisher-original-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C publisher-original-kb show HEAD:metaqa/original/kb.txt > f122o-original-raw-kb.bin
+          digest="$(sha256sum f122o-original-raw-kb.bin | cut -d' ' -f1)"
+          test "$digest" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "publisher-original-kb/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "publisher-original-kb/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "publisher-original-kb/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F122O_AUTHENTIC_COMPLETE_KB_ONLY_NO_ORIGINAL_QA'
+      - name: Frozen global masking, no label features, gradient and source-denial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f122o_masked_edge_structure.py' -v
+      - name: Whole original KB edge-mask and disjoint graph heldout structural inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f122o_masked_edge_structure.py --source f122o-original-raw-kb.bin --out f122o-authentic-masked-edge-evidence.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f122o-authentic-masked-edge-evidence.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f122o.original-masked-structural-inference.v1'
+          assert x['status']=='PUBLIC_METAQA_INDUCED_DISJOINT_MASKED_EDGE_STRUCTURAL_INFERENCE_ENGINEERING_ONLY'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['source_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['source_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['source_original_rows']==134741 and x['source_unique_triples']==133582
+          c=x['source_graph_census']
+          assert c['whole_original_nodes']==43234
+          assert sum(s['partition_original_nodes'] for s in c['graphs'].values())==43234
+          assert sum(s['original_physical_nonself_triples'] for s in c['graphs'].values())+c['cross_partition_original_triples_discarded']+c['original_source_self_loops_excluded']==133582
+          assert c['original_source_self_loops_excluded']==11
+          assert c['split_node_and_physical_edge_sets_disjoint'] is True
+          assert c['all_predicate_variants_and_reverse_edges_globally_masked'] is True
+          for section,stat in c['graphs'].items():
+            assert stat['masked_all_role_unordered_endpoint_pairs']>0
+            assert stat['residual_undirected_endpoint_pairs']>0
+            assert stat['original_undirected_unique_endpoint_pairs']==stat['masked_all_role_unordered_endpoint_pairs']+stat['residual_undirected_endpoint_pairs']
+          assert x['train_pair_choice_tasks']==192
+          assert x['development_pair_choice_tasks']==48
+          assert x['terminal_pair_choice_tasks']==64
+          t=x['training']
+          assert t['training_epochs']==180 and t['learned_parameters']==61
+          assert t['training_logloss_final']<t['training_logloss_initial']
+          assert t['parameter_movement_l2']>0 and len(t['learned_parameter_sha256'])==64
+          assert x['train_only_linear_baseline']['training_epochs']==180
+          for k in ('source_role_types_used_as_model_features',
+                    'complete_original_source_pairs_in_model_features',
+                    'direct_node_ids_hashes_or_exact_equality_features'):
+            assert x[k] is False,k
+          for k in ('true_original_edge_globally_removed_before_feature_extraction',
+                    'all_original_relation_variants_reciprocals_masked',
+                    'all_negative_pairs_verified_original_nonedge',
+                    'all_candidate_degrees_matched_by_integer_bitlength',
+                    'source_candidate_graphs_node_edge_disjoint'):
+            assert x[k] is True,k
+          for part,n in [('development_inspection_only',48),('terminal_heldout',64)]:
+            arms=x[part]
+            assert set(arms)=={
+              'trained_nonlinear_masked_topology','constant_candidate_zero',
+              'fixed_common_neighbor_score','fixed_adamic_adar_score',
+              'fixed_threehop_path_count','train_only_linear_topology',
+              'same_nonlinear_architecture_untrained',
+              'privileged_original_source_edge_oracle'}
+            for v in arms.values():
+              assert v['n']==n
+              assert v['tp']+v['tn']+v['fp']+v['fn']==n
+            assert arms['privileged_original_source_edge_oracle']['balanced_accuracy']==1.0
+          assert x['gain_disposition'] in (
+            'LEARNED_MASKED_GRAPH_STRUCTURE_GAIN_DEMONSTRATED',
+            'LEARNED_MASKED_GRAPH_STRUCTURE_GAIN_NOT_DEMONSTRATED')
+          for key in ('original_metaqa_qa_files_read','original_metaqa_answers_scored',
+                      'freebaseqa_original_graph_qualified',
+                      'independent_novel_graph_family_qualified',
+                      'independent_scientific_firstuse',
+                      'learned_complete_graph_connectivity_proven',
+                      'accepted_science','accepted_ref_mutation',
+                      'dream_pareto_promotion','thetaevolve_accepted_training',
+                      'scientific_dispatch'):
+            assert x[key] is False,key
+          assert x['codex_calls']==x['model_calls']==x['cloudflare_writes']==0
+          print('F122O_SOURCE_MASKED_GRAPH_CENSUS='+json.dumps(c,sort_keys=True))
+          print('F122O_TRUE_UNSEEN_STRUCTURAL_HELDOUT='+json.dumps(x['terminal_heldout'],sort_keys=True))
+          print('F122O_GENUINE_STRUCTURE_GAIN='+x['gain_disposition'])
+          PY
+          sha256sum f122o-authentic-masked-edge-evidence.json > f122o-authentic-masked-edge-evidence.sha256
+          sha256sum -c f122o-authentic-masked-edge-evidence.sha256
+      - name: Complete exact-head FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F122O_NO_CODEX_MODEL_CKB_CLOUDFLARE_SCIENTIFIC_PROMOTION'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f122o-original-masked-edge-${{ matrix.os }}
+          path: |
+            f122o-authentic-masked-edge-evidence.json
+            f122o-authentic-masked-edge-evidence.sha256
+          retention-days: 45
+          if-no-files-found: error
