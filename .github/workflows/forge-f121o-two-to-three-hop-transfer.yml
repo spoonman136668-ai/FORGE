@@ -1,0 +1,150 @@
+name: FORGE F121-O learned role alignment 2-to-3 hop disjoint source transfer
+on:
+  push:
+    branches: [engineering/f121o-crosslength-role-transfer-20261017-r1]
+    paths:
+      - 'noveltyeval/f121o_*'
+      - 'noveltyeval/test_f121o_*'
+      - 'docs/F121O-*'
+      - '.github/workflows/forge-f121o-two-to-three-hop-transfer.yml'
+permissions:
+  contents: read
+jobs:
+  authentic-original-two-to-three-hop-transfer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: original-publisher-metaqa-kb
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head original source byte identity and no QA contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C original-publisher-metaqa-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C original-publisher-metaqa-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C original-publisher-metaqa-kb show HEAD:metaqa/original/kb.txt > f121o-original-full-kb.bin
+          digest="$(sha256sum f121o-original-full-kb.bin | cut -d' ' -f1)"
+          test "$digest" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "original-publisher-metaqa-kb/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "original-publisher-metaqa-kb/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "original-publisher-metaqa-kb/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F121O_IMMUTABLE_SOURCE_KB_NO_ORIGINAL_QA_OR_GOLD_ANSWERS'
+      - name: Negative source-path, no-backtrack and real training tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f121o_crosslength_role_transfer.py' -v
+      - name: Original source whole graph frozen two-hop train and unseen 3-hop test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f121o_crosslength_role_transfer.py --source f121o-original-full-kb.bin --out f121o-original-threehop-transfer.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f121o-original-threehop-transfer.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f121o.authentic-two-to-three-hop-role-transfer.v1'
+          assert x['status']=='PUBLIC_METAQA_INDUCED_DISJOINT_TWO_TO_THREE_HOP_ROLE_TRANSFER_ENGINEERING_ONLY'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['source_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['source_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['original_source_rows']==134741 and x['original_unique_source_triples']==133582
+          assert x['signed_edge_relation_types']==18
+          g=x['new_salted_induced_graph_census']
+          assert g['whole_original_nodes']==43234
+          assert sum(g['partition_node_census'].values())==43234
+          assert sum(g['admitted_original_physical_edges'].values())+g['cross_split_edges_dropped']+g['source_self_loops_excluded']==133582
+          assert g['source_self_loops_excluded']==11
+          assert g['all_train_dev_test_nodes_and_physical_facts_disjoint'] is True
+          assert x['train_source_root_tasks_2hop']==64
+          assert x['development_unseen_graph_root_tasks_3hop']==16
+          assert x['terminal_unseen_graph_root_tasks_3hop']==32
+          for attr in ('physical_source_edges_and_nodes_disjoint',
+                       'source_exact_middle_nodes_connected',
+                       'identity_equality_signed_role_is_supplied_prior',
+                       'no_three_hop_training_labels_used'):
+            assert x[attr] is True,attr
+          t=x['training']
+          assert t['training_epochs']==120 and t['trainable_parameters']==110
+          assert t['training_loss_final']<t['training_loss_initial']
+          assert t['parameter_movement_l2']>0 and len(t['parameter_vector_sha256'])==64
+          assert x['f119_same_split_twohop_training_only']['training_epochs']==120
+          for name,denom in (('development_inspection_only',16),('terminal_unseen_three_hop',32)):
+            methods=x[name]
+            assert set(methods)=={
+              'trained_signed_role_identity_alignment',
+              'constant_first_candidate',
+              'uniform_untyped_physical_3hop_counts',
+              'same_architecture_frozen_untrained',
+              'f119_trained_linear_gates_2hop_only',
+              'fixed_soft_role_identity_prior',
+              'privileged_exact_symbolic_typed_3hop',
+            }
+            for item in methods.values():
+              assert item['n']==denom
+              assert item['tp']+item['tn']+item['fp']+item['fn']==denom
+            assert methods['privileged_exact_symbolic_typed_3hop']['balanced_accuracy']==1.0
+          assert x['gain_disposition'] in (
+            'LEARNED_TWO_TO_THREE_HOP_ROLE_ALIGNMENT_GAIN_DEMONSTRATED',
+            'LEARNED_TWO_TO_THREE_HOP_ROLE_ALIGNMENT_GAIN_NOT_DEMONSTRATED')
+          for name in ('original_metaqa_qa_read','original_metaqa_answers_compared',
+                       'original_freebaseqa_graph_qualified',
+                       'learned_graph_connectivity_proven',
+                       'independent_novel_task_family_science_proven',
+                       'independent_scientific_firstuse','accepted_science',
+                       'accepted_ref_mutation','dream_pareto_promotion',
+                       'thetaevolve_accepted_training','scientific_dispatch'):
+            assert x[name] is False,name
+          assert x['codex_calls']==x['model_calls']==x['cloudflare_writes']==0
+          print('F121O_TWOHOP_TRAIN_ONLY='+json.dumps(t,sort_keys=True))
+          print('F121O_THRICE_CONNECTED_HELDOUT='+json.dumps(x['terminal_unseen_three_hop'],sort_keys=True))
+          print('F121O_EXPLORATORY_GAIN='+x['gain_disposition'])
+          print('F121O_IDENTITY_ROLE_PRIOR_NOT_AUTONOMOUS_GRAPH_SCIENCE')
+          PY
+          sha256sum f121o-original-threehop-transfer.json > f121o-original-threehop-transfer.sha256
+          sha256sum -c f121o-original-threehop-transfer.sha256
+      - name: Full exact-head FORGE Go test vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F121O_NO_CODEX_MODEL_CKB_CLOUDFLARE_OR_ACCEPTED_SCIENCE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f121o-authentic-longer-chain-transfer-${{ matrix.os }}
+          path: |
+            f121o-original-threehop-transfer.json
+            f121o-original-threehop-transfer.sha256
+          retention-days: 45
+          if-no-files-found: error
