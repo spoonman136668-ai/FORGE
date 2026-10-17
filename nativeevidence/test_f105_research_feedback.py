@@ -29,16 +29,13 @@ def fake_report(key,meta,valid=True):
         spec["updates"]:100,
         spec["blind_updates"]:100,
         spec["negative"]:True,
-        meta["score_key"]:{
-            meta["primary"]:1.0,
-            meta["blind"]:0.25 if key=="F104" else 0.0,
-            meta["oracle"]:1.0,
-            spec["control_shortcut"]:0.0,
-            "permutation_ablation":0.0
-        },
+        meta["score_key"]:dict.fromkeys(spec["all_arms"],0.0),
         meta["worst_key"]:1.0,
         meta["screen_key"]:True
     }
+    value[meta["score_key"]][meta["primary"]]=1.0
+    value[meta["score_key"]][meta["oracle"]]=1.0
+    value[meta["score_key"]][meta["blind"]]=0.25 if key=="F104" else 0.0
     for flag in spec["booleans"]:value[flag]=False
     for field in spec["zero"]:value[field]=0
     if key=="F102":value["coded_oracle_only_control"]=True
