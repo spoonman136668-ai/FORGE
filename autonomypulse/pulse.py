@@ -62,7 +62,7 @@ class GitHub:
              and not route.startswith("//") and ".." not in route and
              "#" not in route and "://" not in route,"UNSAFE_API_ROUTE")
         self.calls+=1
-        need(self.calls<=24,"REQUEST_BUDGET_EXCEEDED")
+        need(self.calls<=40,"REQUEST_BUDGET_EXCEEDED")
         url=API+repo+route
         hdr={"Accept":"application/vnd.github+json",
              "X-GitHub-Api-Version":"2022-11-28",
@@ -167,7 +167,6 @@ def lane(api,program,repo,now):
              attempt.get("workflow_id")==run["workflow_id"] and
              attempt.get("name")==program+" research continuation launcher" and
              attempt.get("head_branch")=="main" and
-             attempt.get("head_sha")==main_sha and
              type(attempt.get("head_sha")) is str and
              HEX40.fullmatch(attempt["head_sha"]) and
              attempt.get("event") in ("schedule","workflow_dispatch","workflow_run","push"),
@@ -176,6 +175,21 @@ def lane(api,program,repo,now):
         stamp=parse_utc(attempt.get("created_at"))
         need(stamp<=now,"CONTINUATION_ATTEMPT_FUTURE_CLOCK")
         checked.append((stamp,attempt))
+    # A scheduled research launcher is pinned to the main commit on which
+    # it actually ran. When main advances, older successful/failed attempts
+    # remain genuine history and MUST NOT be misclassified as forged. Verify
+    # each distinct historical source as a real ancestor of current main.
+    # GitHub compare is read-only and fail-closed on diverged/foreign commits.
+    heads={run["head_sha"]}|{attempt["head_sha"] for _,attempt in checked}
+    for previous_sha in sorted(heads-{main_sha}):
+        comparison=api.get(repo,"/compare/"+previous_sha+"..."+main_sha)
+        need(comparison.get("status")=="ahead" and
+             comparison.get("base_commit",{}).get("sha")==previous_sha and
+             comparison.get("merge_base_commit",{}).get("sha")==previous_sha and
+             type(comparison.get("ahead_by")) is int and
+             comparison["ahead_by"]>0 and
+             comparison.get("behind_by")==0,
+             "CONTINUATION_HEAD_NOT_MAIN_ANCESTOR")
     latest_created,latest=max(checked,key=lambda x:(x[0],x[1]["id"]))
     need(latest_created>=created,"CONTINUATION_ATTEMPT_HISTORY_STALE")
     need(latest.get("status")=="completed" and
