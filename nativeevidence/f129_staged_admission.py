@@ -122,15 +122,18 @@ def admit(run_id,source,event,history):
         need(history=={"runs":[]},
              "NONSCHEDULED_PRIOR_HISTORY_NOT_AUTHORITY")
     state={key:{
-        "admitted":bool(choice[key]) if event=="schedule" else True,
+        "admitted":bool(choice[key]) if event=="schedule" else event=="pull_request",
         "prior_run_id":choice[key]["prior_run_id"] if choice[key] else None,
         "prior_source_sha":choice[key]["prior_source_sha"] if choice[key] else None}
         for key in names}
-    # For event != schedule, admitted means ONLY the existing independently
-    # pinned PR-development historical fixtures can be checked by stages.
+    # Only an actual pull_request event may use pinned PR-development evidence.
+    # A post-merge push or manual dispatch is NOT a PR and cannot resurrect
+    # historic pull_requests associations that GitHub has since cleared.
+    # Scheduled runs remain confined to prior genuine main scheduled evidence.
     return {"schema":SCHEMA,"source_sha":source,"run_id":run_id,"event":event,
         "freeze_sha256":freeze_hash,"admissions":state,
-        "development_pr_evidence_mode":event!="schedule",
+        "development_pr_evidence_mode":event=="pull_request",
+        "non_scheduled_source_bootstrap":event in ("push","workflow_dispatch"),
         "genuine_scheduled_source":event=="schedule",
         "F124_base_execution":True,"F126_base_execution":True,
         "first_schedule_bootstrap":event=="schedule" and not any(
