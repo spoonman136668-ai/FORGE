@@ -1,0 +1,131 @@
+name: FORGE F106-O cross-KG development-only interface qualification
+on:
+  push:
+    branches: [engineering/f106o-cross-kg-dev-interface-20261017-r1]
+    paths:
+      - 'noveltymechanisms/crosskg/**'
+      - 'noveltyeval/f106o_crosskg_dev_inventory.py'
+      - 'noveltyeval/test_f106o_crosskg_dev_inventory.py'
+      - 'docs/F106O-FROZEN-CROSS-KG-DEV-CONTRACT.md'
+      - '.github/workflows/forge-f106o-crosskg-dev-interface.yml'
+permissions:
+  contents: read
+jobs:
+  source-only-frozen-crosskg-development-interface:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - name: Exact FORGE source checkout without persistence
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Sparse original FreebaseQA README LICENSE TRAIN DEV only; never EVAL
+        uses: actions/checkout@v4
+        with:
+          repository: kelvin-jiang/FreebaseQA
+          ref: d16aae5149aaa25e43ff2a7bd00a06f280ca19b9
+          path: public-freebaseqa-development
+          sparse-checkout: |
+            README.md
+            LICENSE
+            FreebaseQA-train.json
+            FreebaseQA-dev.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact immutable upstream and reserved evaluation not materialized
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-freebaseqa-development rev-parse HEAD)" = 'd16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          test "$(git -C public-freebaseqa-development rev-parse HEAD:FreebaseQA-train.json)" = '24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          test "$(git -C public-freebaseqa-development rev-parse HEAD:FreebaseQA-dev.json)" = '2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          test "$(git -C public-freebaseqa-development rev-parse HEAD:FreebaseQA-eval.json)" = 'd7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          test ! -e public-freebaseqa-development/FreebaseQA-eval.json
+          test -f public-freebaseqa-development/FreebaseQA-train.json
+          test -f public-freebaseqa-development/FreebaseQA-dev.json
+          echo 'F106O_EVAL_RESERVED_NOT_CHECKED_OUT_OR_READ'
+      - name: Adversarial synthetic typed graph and answer-leakage source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/crosskg
+          python -B -m unittest discover -s noveltyeval -p 'test_f106o_*.py' -v
+      - name: Complete original FreebaseQA TRAIN and DEV inventory only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f106o_crosskg_dev_inventory.py --upstream public-freebaseqa-development --out f106o-crosskg-dev-inventory.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f106o-crosskg-dev-inventory.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f106o.cross-kg-dev-question-schema.v1'
+          assert x['status']=='PUBLIC_CROSS_KG_DEV_INTERFACE_ONLY'
+          assert x['source_repo']=='kelvin-jiang/FreebaseQA'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['full_original_dev_population']==20358+3994
+          assert x['evaluation_git_blob_metadata']=='d7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          assert set(x['dev_splits'])=={'train','dev'}
+          for name,den,blob,original_size in (
+            ('train',20358,'24dc4b13a9c4a0ad734732db094c124d086b7d67',23888089),
+            ('dev',3994,'2e16ac381efb7b9e362cbf9bd0cee90006244ea8',4656349)):
+            s=x['dev_splits'][name]
+            assert s['original_questions']==den
+            assert s['unique_question_ids']==den
+            assert s['source_git_blob']==blob and s['source_bytes']==original_size
+            assert sum(s['raw_question_length_bands'].values())==den
+            assert s['question_values_published'] is False
+            assert s['annotation_values_accessed_by_adapter'] is False
+            assert s['development_labels_used_for_planning'] is False
+          assert x['development_annotation_objects_decoded_with_json'] is True
+          for flag in ('eval_file_materialized','eval_question_bytes_read',
+                       'raw_question_values_published',
+                       'development_annotation_values_interpreted',
+                       'development_annotation_values_supplied_to_adapter',
+                       'cross_graph_entity_linker_qualified','cross_graph_role_translator_qualified',
+                       'independent_freebase_graph_qualified',
+                       'external_generalization_qualified','new_scientific_firstuse',
+                       'accepted_science','accepted_ref_mutation',
+                       'dream_pareto_promotion','thetaevolve_accepted_training',
+                       'science_dispatch'):
+            assert x[flag] is False,flag
+          assert x['eval_questions_scored']==0
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F106O_FREEBASEQA_DEV_24352_QUESTIONS_PRESERVED')
+          print('F106O_EVAL_QUERIES_ANSWERS_PREDICTIONS_AND_SCIENCE_ZERO')
+          PY
+          sha256sum f106o-crosskg-dev-inventory.json > f106o-crosskg-dev-inventory.sha256
+          sha256sum -c f106o-crosskg-dev-inventory.sha256
+      - name: Mandatory exact-head one full FORGE Go regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F106O_CODEX_CKB_CLOUDFLARE_PAID_INFERENCE=ZERO'
+          echo 'F106O_INDEPENDENT_SCIENTIFIC_FIRSTUSE=BLOCKED'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f106o-crosskg-development-${{ matrix.os }}
+          path: |
+            f106o-crosskg-dev-inventory.json
+            f106o-crosskg-dev-inventory.sha256
+          retention-days: 45
+          if-no-files-found: error
