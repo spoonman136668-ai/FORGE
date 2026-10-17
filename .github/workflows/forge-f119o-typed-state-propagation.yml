@@ -1,0 +1,134 @@
+name: FORGE F119-O heldout-root learned typed graph state propagation
+on:
+  push:
+    branches: [engineering/f119o-typed-root-propagation-20261017-r1]
+    paths:
+      - 'noveltyeval/f119o_*'
+      - 'noveltyeval/test_f119o_*'
+      - 'docs/F119O-*'
+      - '.github/workflows/forge-f119o-typed-state-propagation.yml'
+permissions:
+  contents: read
+jobs:
+  authentic-original-root-conditioned-state:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: upstream-metaqa-only
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact FORGE head and immutable full original source Git object
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C upstream-metaqa-only rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C upstream-metaqa-only rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C upstream-metaqa-only show HEAD:metaqa/original/kb.txt > f119o-original-metaqa-raw.bin
+          sha="$(sha256sum f119o-original-metaqa-raw.bin | cut -d' ' -f1)"
+          test "$sha" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "upstream-metaqa-only/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "upstream-metaqa-only/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "upstream-metaqa-only/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F119O_AUTHENTIC_FULL_METAQA_KB_ONLY_NO_ORIGINAL_QA'
+      - name: Adversarial explicit physical two-hop joins and real learning
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f119o_root_conditioned_propagation.py' -v
+      - name: Original graph 2-hop state learner versus frozen exact and weak controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f119o_root_conditioned_propagation.py --source-raw f119o-original-metaqa-raw.bin --out f119o-original-root-state-evidence.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f119o-original-root-state-evidence.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f119o.authentic-root-conditioned-typed-state.v1'
+          assert x['status']=='PUBLIC_METAQA_LEARNED_ROLE_GATE_OVER_SYMBOLIC_CONNECTED_GRAPH_ENGINEERING_ONLY'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['source_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['source_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['source_rows']==134741 and x['source_distinct_triples']==133582
+          assert x['source_signed_roles']==18
+          assert x['train_distinct_roots']==64 and x['dev_distinct_roots']==24
+          assert x['terminal_distinct_roots']==48 and x['root_split_disjoint'] is True
+          t=x['training']
+          assert t['training_epochs']==120 and t['trainable_parameters']==109
+          assert t['train_logloss_final']<t['train_logloss_initial']
+          assert t['parameter_l2_movement']>0 and len(t['learned_parameter_sha256'])==64
+          assert x['two_step_actual_shared_intermediate_required'] is True
+          assert x['negative_candidate_also_has_real_two_step_paths'] is True
+          assert x['role_mismatch_is_not_candidate_identity_equality_feature'] is True
+          for family,count in [('development_inspection_only',24),('terminal_heldout',48)]:
+            data=x[family]
+            assert set(data)=={
+                'learned_query_conditioned_role_gate','constant_candidate_zero',
+                'uniform_untyped_connected_twohop','frozen_untrained_role_gate',
+                'symbolic_exact_typed_graph_traversal'}
+            for item in data.values():
+              assert item['n']==count
+              assert item['tp']+item['tn']+item['fp']+item['fn']==count
+            assert data['symbolic_exact_typed_graph_traversal']['balanced_accuracy']==1.0
+          assert x['gain_disposition'] in (
+            'LEARNED_ROLE_GATE_TRANSFER_GAIN_DEMONSTRATED',
+            'LEARNED_ROLE_GATE_TRANSFER_GAIN_NOT_DEMONSTRATED')
+          assert x['structural_graph_join_symbolic_not_learned'] is True
+          assert x['root_heldout_same_graph_transductive'] is True
+          for name in ('original_metaqa_qa_files_read','original_metaqa_answers_scored',
+                       'original_freebaseqa_graph_qualified','learned_entity_variable_binding_proven',
+                       'independent_scientific_firstuse','accepted_science',
+                       'accepted_ref_mutation','dream_pareto_promotion',
+                       'thetaevolve_accepted_training','scientific_dispatch'):
+            assert x[name] is False,name
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F119O_FROZEN_HELDOUT_ROOT_RESULT='+json.dumps(x['terminal_heldout'],sort_keys=True))
+          print('F119O_EXPLORATORY_DISPOSITION='+x['gain_disposition'])
+          print('F119O_SYMBOLIC_ADJACENCY_SUPPLIED_NOT_LEARNED_SCIENCE')
+          PY
+          sha256sum f119o-original-root-state-evidence.json > f119o-original-root-state-evidence.sha256
+          sha256sum -c f119o-original-root-state-evidence.sha256
+      - name: Complete exact-head FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F119O_NO_CODEX_PAID_MODEL_CKB_CLOUDFLARE_SCIENTIFIC_PROMOTION'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f119o-authentic-root-state-${{ matrix.os }}
+          path: |
+            f119o-original-root-state-evidence.json
+            f119o-original-root-state-evidence.sha256
+          retention-days: 45
+          if-no-files-found: error
