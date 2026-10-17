@@ -9,6 +9,8 @@ on:
       - 'reference/research-intake/f124r-sparse-causal-routing-freeze.json'
       - 'nativeevidence/f124r_freeze_admission.py'
       - 'nativeevidence/test_f124r_freeze_admission.py'
+      - 'nativeevidence/f124r_*.py'
+      - 'nativeevidence/test_f124r_*.py'
       - '.github/workflows/forge-f124r-freeze-admission.yml'
 
 permissions:
@@ -71,3 +73,101 @@ jobs:
           path: ${{ runner.temp }}/f124r-source-only/
           retention-days: 30
           if-no-files-found: error
+
+
+  train-only-sparse2:
+    needs: freeze-source-only
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Qualify complete public graph and bounded Sparse-2 model
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_SPARSE_PUBLIC_SOURCE_TEST_FAILED' }
+      - name: Authenticated model-free advisory and two-lane TRAIN-only weights
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          $dir=Join-Path $env:RUNNER_TEMP 'f124r-sparse-train-only'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $advisory=Join-Path $dir 'f124r-advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_SOURCE_ADVISORY_GENERATOR_FAILED' }
+          $source=Get-Content -LiteralPath $advisory -Raw | ConvertFrom-Json
+          if ($source.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $source.source_commit_sha -cne $env:GITHUB_SHA -or
+              $source.lanes.Count -ne 2 -or
+              $source.model_invocations -ne 0 -or $source.codex_invocations -ne 0 -or
+              $source.network_calls -ne 0 -or $source.new_scientific_originals -ne 0 -or
+              $source.scientific_first_use_authorized -or
+              $source.policy_promotion_authorized -or
+              $source.accepted_ref_mutations -ne 0) {
+            throw 'F124R_UNTRUSTED_ADVISORY'
+          }
+          $receipt=Join-Path $dir 'f124r-sparse-train-only.json'
+          & $python -B nativeevidence/f124r_train_qualification.py --advisory $advisory --source-ref $env:GITHUB_SHA --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_SPARSE_TRAIN_QUARANTINED' }
+          $r=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f124r.sparse2-public-train-custody.v1' -or
+              $r.source_commit_sha -cne $env:GITHUB_SHA -or
+              $r.f124r_freeze_git_blob -cne '891c950e1d25eea90fbe5191abf8e9c1ab4eac7f' -or
+              $r.phase -cne 'PUBLIC_SYNTHETIC_TRAIN_ONLY' -or
+              $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.protected_confirmation_read -or $r.scientific_first_use -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.originals_dispatched -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.codex_calls -ne 0 -or $r.paid_model_calls -ne 0 -or
+              $r.new_scheduler) { throw 'F124R_UNEARNED_AUTHORITY' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.selected_model -cne 'S2' -or
+                $lane.train_scores.pairs -ne 64 -or
+                $lane.learned_parameter_count -ne 20 -or
+                $lane.optimizer_epochs -ne 100 -or
+                $lane.protected_confirm_generated -or
+                $lane.independent_scientific_acceptance -or
+                $lane.resource_matched_superiority -or
+                $lane.primitive_counts_comparable_to_dense_control) {
+              throw 'F124R_TRAIN_RECEIPT_UNQUALIFIED'
+            }
+          }
+          foreach ($name in @('f124r-advisory.json','f124r-sparse-train-only.json')) {
+            $path=Join-Path $dir $name
+            $digest=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($path+'.sha256'),
+                ($digest + '  ' + $name + [Environment]::NewLine),
+                [Text.UTF8Encoding]::new($false))
+          }
+          Write-Host "F124R_TRAIN_SOURCE_SHA=$env:GITHUB_SHA"
+          Write-Host 'F124R_PROTECTED_CONFIRM=false'
+          Write-Host 'F124R_SCIENTIFIC_FITNESS=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124r-sparse-train-only-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124r-sparse-train-only/
+          if-no-files-found: error
+          retention-days: 90
