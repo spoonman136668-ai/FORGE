@@ -531,6 +531,77 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F106_AUTOMATIC_PUBLIC_NEW_CONDITION_AND_FEEDBACK=PASS'
           Write-Host 'FORGE_F106_PROTECTED_ORIGINALS_AND_INFERENCE=ZERO'
+      - name: F107 compose and screen genuinely different typed public development mechanisms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f107_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F107_MECHANISM_GENERATOR_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f107-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $report=Join-Path $outdir 'f107-structural-mechanism-search.json'
+          & $python -B nativeevidence/f107_structural_mechanisms.py --source-ref $env:GITHUB_SHA --evidence-root $env:RUNNER_TEMP |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F107_STRUCTURAL_MECHANISM_SEARCH_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f107.model-free-structural-mechanism-search-public-dev.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.evidence_class -cne 'BOUNDED_NEW_PUBLIC_DEVELOPMENT_MECHANISM_PROGRAM_SEARCH_ONLY' -or
+              -not $d.F106_feedback_consumed -or
+              -not $d.real_machine_generated_typed_programs -or
+              -not $d.choices_from_train_only -or
+              -not $d.diagnostic_not_used_to_choose -or
+              $d.independent_new_cohorts_per_lane -ne 2 -or
+              $d.lanes.Count -ne 2 -or
+              $d.next_proposals.Count -ne 2 -or
+              $d.lanes[0].lane -cne 'Wingless' -or
+              $d.lanes[1].lane -cne 'Yggdrasil' -or
+              $d.scientific_originals_executed -ne 0 -or
+              $d.independent_science_accepted -ne 0 -or
+              $d.protected_first_use_authorized -or
+              $d.auto_native_experiment_dispatches -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.codex_invocations -ne 0 -or
+              $d.paid_api_calls -ne 0 -or
+              $d.work_tasks -ne 0 -or
+              $d.ckb_plane_contact -or
+              $d.cloudflare_writes -ne 0 -or
+              $d.new_schedulers -ne 0 -or
+              $d.free_form_GPT_inference) {
+            throw 'FORGE_F107_FALSE_SCIENTIFIC_AUTHORITY_OR_REPORT'
+          }
+          $total=0
+          foreach ($lane in $d.lanes) {
+            $total += $lane.candidates_generated
+            if ($lane.candidates_generated -lt 3 -or
+                $lane.candidates_generated -gt 18 -or
+                $lane.distinct_structural_families -lt 3 -or
+                $lane.new_train_pairs -ne 48 -or
+                $lane.new_diagnostic_pairs -ne 48 -or
+                $lane.all_candidate_train_results.Count -ne $lane.candidates_generated -or
+                $lane.parent_training_updates -ne 100 -or
+                $lane.coded_oracle_separate_control_accuracy -ne 1 -or
+                -not $lane.no_protected_first_use -or
+                -not $lane.no_automatic_dispatch -or
+                $lane.outcome -notin @('POSITIVE_DEV_NEW_STRUCTURE_ONLY','NEGATIVE_DEV_NEW_STRUCTURE_PRESERVED')) {
+              throw 'FORGE_F107_INCOMPLETE_OR_UNEARNED_MECHANISM_EVIDENCE'
+            }
+          }
+          if ($total -ne $d.candidate_count) { throw 'FORGE_F107_CANDIDATE_COUNT_DRIFT' }
+          foreach ($proposal in $d.next_proposals) {
+            if ($proposal.executable_without_next_preregistration) {
+              throw 'FORGE_F107_UNAUTHORIZED_NEXT_PROPOSAL_EXECUTION'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f107-structural-mechanism-search.sha256'),
+            "$digest  f107-structural-mechanism-search.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F107_GENUINE_TYPED_STRUCTURAL_DIVERSITY=PUBLIC_DEV_ONLY'
+          Write-Host 'FORGE_F107_NO_GPT_AND_NO_SCIENTIFIC_DISPATCH=PASS'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -663,6 +734,7 @@ jobs:
             ${{ runner.temp }}/forge-f104-development/
             ${{ runner.temp }}/forge-f105-development/
             ${{ runner.temp }}/forge-f106-development/
+            ${{ runner.temp }}/forge-f107-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
