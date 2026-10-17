@@ -1,0 +1,120 @@
+name: FORGE F109-O original TRAIN Freebase relationship-chain shape
+on:
+  push:
+    branches: [engineering/f109o-freebase-role-source-20261017-r1]
+    paths:
+      - 'noveltyeval/f109o_*'
+      - 'noveltyeval/test_f109o_*'
+      - 'docs/F109O-*'
+      - '.github/workflows/forge-f109o-source-chain.yml'
+permissions:
+  contents: read
+jobs:
+  original-source-relation-chain-shape:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: kelvin-jiang/FreebaseQA
+          ref: d16aae5149aaa25e43ff2a7bd00a06f280ca19b9
+          path: freebaseqa-original-train
+          sparse-checkout: |
+            README.md
+            LICENSE
+            FreebaseQA-train.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Frozen original Git source identities, DEV and EVAL untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C freebaseqa-original-train rev-parse HEAD)" = 'd16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          test "$(git -C freebaseqa-original-train rev-parse HEAD:FreebaseQA-train.json)" = '24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          test "$(git -C freebaseqa-original-train rev-parse HEAD:FreebaseQA-dev.json)" = '2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          test "$(git -C freebaseqa-original-train rev-parse HEAD:FreebaseQA-eval.json)" = 'd7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          test ! -e freebaseqa-original-train/FreebaseQA-dev.json
+          test ! -e freebaseqa-original-train/FreebaseQA-eval.json
+      - name: Adversarial synthetic TRAIN string shape and answer privacy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f109o_train_chain_shape.py' -v
+      - name: Complete original 20358 questions 37306 TRAIN relations shape
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f109o_train_chain_shape.py --upstream freebaseqa-original-train --out f109o-original-chain-shape.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f109o-original-chain-shape.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f109o.original-train-chain-shape.v1'
+          assert x['status']=='PUBLIC_FREEBASE_TRAIN_CHAIN_SHAPE_ENGINEERING_ONLY'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['train_original_git_blob']=='24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          assert x['train_bytes']==23888089
+          assert x['dev_git_blob_metadata_only']=='2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          assert x['eval_git_blob_metadata_only']=='d7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          s=x['source_shape']
+          assert s['original_train_rows']==s['original_train_distinct_ids']==20358
+          assert s['original_parse_entries']==37306
+          assert 0<s['distinct_full_opaque_chain_strings']<=37306
+          c=s['source_only_count_categories']
+          assert c['original_parse_entries']==37306
+          assert c['source_question_rows']==20358
+          assert sum(c.get('chain_'+k,0) for k in ('empty','bytes_001_032','bytes_033_128','bytes_129_512','bytes_513_plus'))==37306
+          assert sum(c.get('chain_comma_split_'+k,0) for k in ('zero','one','two','three','four_plus'))==37306
+          assert sum(c.get('chain_whitespace_split_'+k,0) for k in ('zero','one','two','three','four_plus'))==37306
+          for field in ('actual_chain_values_published','source_question_strings_published',
+                        'answer_subtree_walked'):
+            assert s[field] is False,field
+          for field in ('source_answers_inspected','source_roles_values_published',
+                        'dev_eval_qa_read','source_role_planner_qualified',
+                        'source_graph_admission_qualified','independent_scientific_firstuse',
+                        'accepted_science','accepted_ref_mutation',
+                        'dream_pareto_promotion','thetaevolve_accepted_training','science_dispatch'):
+            assert x[field] is False,field
+          assert x['original_train_annotation_objects_json_decoded'] is True
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F109O_AUTHENTIC_CHAIN_COUNTS='+json.dumps(c,sort_keys=True))
+          print('F109O_DISTINCT_OPAQUE_CHAIN_STRINGS='+str(s['distinct_full_opaque_chain_strings']))
+          print('F109O_TRAIN_ONLY_SCHEMA_SOURCE_NO_QA_SCORE')
+          PY
+          sha256sum f109o-original-chain-shape.json > f109o-original-chain-shape.sha256
+          sha256sum -c f109o-original-chain-shape.sha256
+      - name: Mandatory one complete exact-head Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F109O_SCIENTIFIC_FIRSTUSE_CODEX_CKB_AND_CLOUDFLARE_ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f109o-original-train-chain-${{ matrix.os }}
+          path: |
+            f109o-original-chain-shape.json
+            f109o-original-chain-shape.sha256
+          retention-days: 45
+          if-no-files-found: error
