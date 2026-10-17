@@ -172,6 +172,32 @@ class TestAutonomyPulse(unittest.TestCase):
         self.assertFalse(r["lanes"][0]["source_and_workflow_confirmed"])
         self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
 
+    def test_older_success_cannot_claim_health_for_advanced_current_main(self):
+        # All historical launchers really are ancestors; none executed the
+        # currently checked-out main. Old success must not turn this green.
+        for index in (0, 1):
+            api=API()
+            repo=m.LANES[index][1]
+            historical=("a" if index==0 else "c")*40
+            current="f"*40
+            api.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+            oldkey=(repo,"/contents/.research-autonomy/config.json?ref="+historical)
+            api.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(api.items[oldkey])
+            api.items[(repo,"/compare/"+historical+"..."+current)]={
+                "status":"ahead","ahead_by":1,"behind_by":0,
+                "base_commit":{"sha":historical},
+                "merge_base_commit":{"sha":historical},
+            }
+            result=m.scan(api,NOW)
+            self.assertFalse(result["lanes"][index]["source_and_workflow_confirmed"])
+            self.assertEqual(result["lanes"][index]["quarantine_reason"],
+                             "FORGE_AUTONOMY_LATEST_RESEARCH_CONTINUATION_NOT_ON_CURRENT_MAIN")
+            self.assertTrue(result["lanes"][1-index]["source_and_workflow_confirmed"])
+            self.assertFalse(result["both_lanes_operationally_verified"])
+            self.assertFalse(result["scientific_firstuse_authorized"])
+            self.assertEqual(result["originals_dispatched"],0)
+            self.assertEqual(result["workflow_mutations"],0)
+
     def test_main_advances_without_falsifying_authentic_older_launcher_history(self):
         a=API()
         repo=m.LANES[0][1]
