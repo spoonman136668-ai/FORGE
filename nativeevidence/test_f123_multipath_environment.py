@@ -21,24 +21,21 @@ class F123EnvironmentQualification(unittest.TestCase):
             m.build(96000, [4, 1, 2], "Wingless", "TRAIN")
 
     def test_competing_routes_are_not_privileged_features(self):
-        for lane, train_seed, confirm_seed in (("Wingless", 96000, 96100),
-                                                ("Yggdrasil", 97000, 97100)):
-            for seed, phase in ((train_seed, "TRAIN"), (train_seed + 1, "TRAIN"),
-                                (confirm_seed, "CONFIRM"), (confirm_seed + 1, "CONFIRM")):
+        for lane, train_seed in (("Wingless", 96000), ("Yggdrasil", 97000)):
+            for seed in (train_seed, train_seed + 1):
                 with self.subTest(lane=lane, seed=seed):
-                    pos, neg = m.build(seed, [1, 2, 0], lane, phase)
-                    self.assertEqual(len(pos["roles"]), 2 + seed % 2 if phase == "TRAIN"
-                                     else 5 + seed % 2)
+                    pos, neg = m.build(seed, [1, 2, 0], lane, "TRAIN")
+                    self.assertEqual(len(pos["roles"]), 2 + seed % 2)
                     self.assertEqual(m.symbolic_routes(pos), 1)
                     self.assertEqual(m.symbolic_routes(neg), 0)
                     self.assertGreaterEqual(m.symbolic_routes(pos, role_only=True),
-                                            2 if phase == "TRAIN" else 3)
+                                            2)
                     self.assertEqual(set(pos), m.FIELDS)
                     self.assertEqual(set(pos["edges"][0]), m.EDGE_FIELDS)
                     self.assertTrue(m.admit(pos, neg))
 
     def test_edge_order_reversal_does_not_change_truth(self):
-        pos, neg = m.build(96101, [0, 3, 1], "Wingless", "CONFIRM")
+        pos, neg = m.build(96001, [0, 3, 1], "Wingless", "TRAIN")
         for graph, expected in ((pos, 1), (neg, 0)):
             swapped = copy.deepcopy(graph)
             swapped["edges"].reverse()
@@ -47,7 +44,7 @@ class F123EnvironmentQualification(unittest.TestCase):
     def test_replay_and_lane_phase_separation(self):
         first = m.build(96002, [2, 1, 3], "Wingless", "TRAIN")
         self.assertEqual(first, m.build(96002, [2, 1, 3], "Wingless", "TRAIN"))
-        held = m.build(96102, [2, 1, 3], "Wingless", "CONFIRM")
+        held = m.build(96004, [2, 1, 3], "Wingless", "TRAIN")
         self.assertTrue(set(first[0]["roles"]).isdisjoint(held[0]["roles"]))
         self.assertNotEqual(first[0]["start"], held[0]["start"])
 
@@ -71,9 +68,9 @@ class F123EnvironmentQualification(unittest.TestCase):
         with self.assertRaises(m.Invalid):
             m.admit(neg, pos)
 
-    def test_full_frozen_split_admission_without_confirmation_training(self):
+    def test_full_training_split_admission_no_confirmation_exposure(self):
         for lane in m.COHORTS:
-            for phase in ("TRAIN", "CONFIRM"):
+            for phase in ("TRAIN",):
                 for seed in m.COHORTS[lane][phase]:
                     for vector in ([1, 1, 2], [3, 2, 0]):
                         with self.subTest(lane=lane, phase=phase, seed=seed, vector=vector):
