@@ -1,0 +1,112 @@
+name: F123 posthoc TRAIN causal attribution and compute audit
+on:
+  push:
+    branches: [research/f123-causal-audit-20261017]
+    paths:
+      - 'nativeevidence/f123_posthoc_causal_audit.py'
+      - 'nativeevidence/test_f123_posthoc_causal_audit.py'
+      - '.github/workflows/f123-train-causal-audit.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f123-train-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  causal-train-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          pattern: f123-train-frozen-*
+          path: frozen-train
+      - name: Run TRAIN-only causal witness qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f123_posthoc_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_CAUSAL_WITNESS_TEST_FAILED' }
+      - name: Audit previously qualified immutable TRAIN receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Join-Path $env:RUNNER_TEMP 'f123-train-causal-report.json'
+          $args=@('--ubuntu-dir','frozen-train/f123-train-frozen-ubuntu-latest',
+            '--windows-dir','frozen-train/f123-train-frozen-windows-latest',
+            '--output',$report)
+          & python3 -B nativeevidence/f123_posthoc_causal_audit.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F123_TRAIN_CAUSAL_AUDIT_FAILED' }
+          $p=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f123.posthoc-train-causal-cost-audit.v1' -or
+              $p.foundational_exact_commit -cne '7882849a59964f412a87589be653114e7bf64d52' -or
+              $p.original_f123_train_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              -not $p.cross_os_parity_verified -or -not $p.training_only -or
+              $p.confirmation_cases_constructed -ne 0 -or $p.preregistered_threshold_changed -or
+              $p.controls_changed -or $p.f123_promotion_allowed -or
+              $p.first_use_authorized -or $p.originals_dispatched -ne 0 -or
+              $p.learned_generalization_claim -or $p.lanes.Count -ne 2 -or
+              $p.lanes[0].lane -cne 'Wingless' -or $p.lanes[1].lane -cne 'Yggdrasil' -or
+              @($p.lanes | Where-Object { $_.train_threshold_met }).Count -ge 2) {
+            throw 'F123_DIAG_UNEARNED_AUTHORITY_OR_DATA_LEAK'
+          }
+          foreach ($lane in $p.lanes) {
+            if ($lane.train_pairs -ne 48 -or
+                $lane.diagnostic_training_records.Count -ne 48 -or
+                $lane.resource_matched_control_qualification -cne 'NOT_ESTABLISHED_COUNTS_ONLY' -or
+                $lane.b_public_edge_scans_mean -le 0) {
+              throw 'F123_CAUSAL_DIAGNOSTIC_INCOMPLETE'
+            }
+            Write-Output "F123_DIAG=$($lane.lane):B=$($lane.b_paired_correct_replayed)/48 margin=$($lane.train_margin_points) route_valid=$($lane.b_positive_top_route_valid)/48 ablated_changed=$($lane.b_max_ablation_matches_changed_edge)/48"
+          }
+          $h=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f123-train-causal-report.sha256'),
+            "$h  f123-train-causal-report.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F123_DIAGNOSTIC_REPORT_SHA256=$h"
+          Write-Output 'F123_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f123-train-causal-audit-receipt
+          path: |
+            ${{ runner.temp }}/f123-train-causal-report.json
+            ${{ runner.temp }}/f123-train-causal-report.sha256
+          retention-days: 90
+          if-no-files-found: error
+  final-integration:
+    needs: causal-train-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One final exact-head full regression, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F123_DIAG_EXACT_HEAD=$GITHUB_SHA"
+          echo "F123_SCIENTIFIC_ACCEPTANCE=false"
