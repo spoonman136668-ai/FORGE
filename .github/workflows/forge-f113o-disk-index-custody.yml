@@ -1,0 +1,119 @@
+name: FORGE F113-O bounded disk index and original graph custody
+on:
+  push:
+    branches: [engineering/f113o-disk-index-custody-20261017-r1]
+    paths:
+      - 'noveltyeval/f113o_*'
+      - 'noveltyeval/test_f113o_*'
+      - 'docs/F113O-*'
+      - '.github/workflows/forge-f113o-disk-index-custody.yml'
+permissions:
+  contents: read
+jobs:
+  bounded-source-neutral-synthetic-disk-index:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Sparse immutable original FreebaseQA README and LICENSE only
+        uses: actions/checkout@v4
+        with:
+          repository: kelvin-jiang/FreebaseQA
+          ref: d16aae5149aaa25e43ff2a7bd00a06f280ca19b9
+          path: freebaseqa-publisher-metadata-only
+          sparse-checkout: |
+            README.md
+            LICENSE
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source head and original public publisher metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C freebaseqa-publisher-metadata-only rev-parse HEAD)" = 'd16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          test "$(git -C freebaseqa-publisher-metadata-only rev-parse HEAD:README.md)" = 'dd4c65cbe5428b2a86afc47ae2309cb11328b31b'
+          test "$(git -C freebaseqa-publisher-metadata-only rev-parse HEAD:LICENSE)" = '10fabd90118f7ce38bb2e4753e105e744442a429'
+          for n in FreebaseQA-train.json FreebaseQA-dev.json FreebaseQA-eval.json FreebaseQA-partial.json; do
+            test ! -e "freebaseqa-publisher-metadata-only/$n"
+          done
+          echo 'F113O_ONLY_ORIGINAL_README_LICENSE_NO_GRAPH_OR_QA_READ'
+      - name: Original archive remains hard-denied and synthetic SQLite source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f113o_disk_index.py' -v
+      - name: Complete synthetic bounded disk index and explicit direction evidence only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f113o_disk_index.py --out f113o-disk-index-custody.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f113o-disk-index-custody.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f113o.synthetic-disk-index.v1'
+          assert x['status']=='SYNTHETIC_DISK_INDEX_ENGINEERING_ONLY_ORIGINAL_FREEBASE_ARCHIVE_UNQUALIFIED'
+          assert x['source']['status']=='PUBLISHER_SOURCE_LOCATED_ARCHIVE_BYTES_UNAVAILABLE'
+          assert x['source']['publisher_repo_git_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['source']['publisher_readme_git_blob']=='dd4c65cbe5428b2a86afc47ae2309cb11328b31b'
+          for key in ('archive_bytes_downloaded',
+                      'original_archive_sha256_verified',
+                      'exact_original_edge_denominator_known',
+                      'original_edge_representation_authenticated',
+                      'original_edge_directions_authenticated',
+                      'full_publisher_graph_admitted'):
+            assert x['source'][key] is False,key
+          assert x['source']['source_graph_queries']==0
+          assert len(x['source']['unresolved_custody_fields'])==14
+          assert x['synthetic_fixture_rows']==5
+          assert 0<x['synthetic_fixture_bytes']<=1048576
+          assert 0<x['synthetic_index_disk_bytes']<=8388608
+          assert x['synthetic_verified_two_hop_nodes']==2
+          assert x['synthetic_verified_reverse_nodes']==1
+          for key in ('reserved_dev_or_eval_bytes_read','source_archive_downloaded',
+                      'independent_scientific_firstuse','accepted_science',
+                      'accepted_ref_mutation','dream_pareto_promotion',
+                      'thetaevolve_accepted_training','science_dispatch'):
+            assert x[key] is False,key
+          assert x['index_bytes_written_from_original_freebase']==0
+          assert x['real_graph_queries']==x['real_qa_answers_scored']==0
+          assert x['codex_calls']==x['model_calls']==x['cloudflare_writes']==0
+          print('F113O_EXPLICIT_SYNTHETIC_READONLY_INDEX_SUCCESS')
+          print('F113O_PUBLISHER_SOURCE_ARCHIVE_BYTES_OR_DIRECTION_UNVERIFIED')
+          PY
+          sha256sum f113o-disk-index-custody.json > f113o-disk-index-custody.sha256
+          sha256sum -c f113o-disk-index-custody.sha256
+      - name: Full mandatory one exact-head FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F113O_NO_SCIENTIFIC_REWARD_CKB_CLOUDFLARE_CODEX_PAID_API'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f113o-synthetic-disk-index-${{ matrix.os }}
+          path: |
+            f113o-disk-index-custody.json
+            f113o-disk-index-custody.sha256
+          retention-days: 45
+          if-no-files-found: error
