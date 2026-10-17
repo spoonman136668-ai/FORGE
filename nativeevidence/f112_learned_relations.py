@@ -53,7 +53,9 @@ def freeze():
          [g["seeds"] for g in w["diagnostics"]]==[
             [68148,68195],[68200,68247],[68300,68347]] and
          w["diagnostic_pairs_each"]==48 and
-         w["model_trainable_parameter_limit"] if False else True,"IMPOSSIBLE")
+         w["train_only_pair_label_supervision"] is True and
+         w["source_ID_table_and_query_public_to_all_arms"] is True,
+         "FROZEN_WING_COHORT_OR_SOURCE_ACCESS_DRIFT")
     need(w["max_trainable_parameters"]==32 and
          w["train_updates_exact"]==100 and
          len(w["features"])==6 and
