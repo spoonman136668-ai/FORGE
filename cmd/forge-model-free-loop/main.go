@@ -29,6 +29,9 @@ type laneResult struct {
  InvalidRecords int `json:"invalid_records"`
  MixedRecords int `json:"mixed_records"`
  ProposalIDs []string `json:"proposal_ids"`
+ GeneratorCandidateSHA256 []string `json:"generator_candidate_sha256"`
+ PromptArtifacts []promptlineage.Candidate `json:"public_prompt_artifacts"`
+ EnvironmentArtifacts []genenv.Candidate `json:"public_environment_artifacts"`
  AllCandidatesUntested bool `json:"all_candidates_untested"`
  FullPopulationScreened bool `json:"full_population_screened"`
  AdvisoryAssessment string `json:"advisory_assessment"`
@@ -137,15 +140,19 @@ func execute(source string)(report,error){
    return zero,errBoundary
   }
   ids:=make([]string,0,len(review.CandidateScreens))
+  sourceIDs:=make([]string,0,len(review.CandidateScreens))
   for _,candidate:=range review.CandidateScreens{
    if candidate.Status!="UNTESTED_ARTIFACT_SHA_CLAIMS_NOT_VERIFIED_CODE_OR_SCIENCE"{
     return zero,errBoundary
    }
    ids=append(ids,candidate.ProposedMechanismSHA256)
+   sourceIDs=append(sourceIDs,candidate.GeneratorCandidateSHA256)
   }
   out.Lanes=append(out.Lanes,laneResult{Lane:lane,SourceIdentity:f.SourceSHA,
    FrozenScreenSHA256:digest,PromptCandidates:2,EnvironmentCandidates:2,
    NegativeRecords:1,InvalidRecords:1,MixedRecords:1,ProposalIDs:ids,
+   GeneratorCandidateSHA256:sourceIDs,
+   PromptArtifacts:prompts.Candidates,EnvironmentArtifacts:envs.Candidates,
    AllCandidatesUntested:true,FullPopulationScreened:true,
    AdvisoryAssessment:stage.PromptbreederAndGenEnv})
  }
