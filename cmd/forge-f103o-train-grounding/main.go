@@ -1,0 +1,151 @@
+// forge-f103o-train-grounding compares frozen language roles to exact
+// original public TRAIN answer sets. It is a diagnostic, NEVER a scientific
+// first-use experiment, novel score, or accepted policy adaptation.
+package main
+
+import (
+ "crypto/sha1"
+ "crypto/sha256"
+ "encoding/hex"
+ "encoding/json"
+ "flag"
+ "fmt"
+ "os"
+ "strconv"
+
+ "github.com/spoonman136668-ai/forge/noveltymechanisms/groundingaudit"
+ "github.com/spoonman136668-ai/forge/noveltymechanisms/largegraph"
+)
+
+const (
+ sourceRepo="tiantiangao7/kalm-qa"
+ sourceCommit="826ee617e4da5b087584b0e03c70fe76642c6188"
+ kbBlob="a43fa7ca5e6894236556f2984764070c4ca5562b"
+ kbSHA="9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af"
+ twoBlob="d2ce0a9f3670769f4239baa4eb6bf7bdc91d9468"
+ threeBlob="77409d56af8d1fde7a4bec23cf5e1df1e0a08e59"
+)
+
+type Source struct {
+ GitBlob string `json:"git_blob"`
+ SHA256 string `json:"sha256"`
+}
+type Report struct {
+ Schema string `json:"schema"`
+ Status string `json:"status"`
+ SourceRepository string `json:"source_repository"`
+ SourceCommit string `json:"source_commit"`
+ KB Source `json:"knowledge_graph"`
+ TwoSource Source `json:"two_hop_train_source"`
+ ThreeSource Source `json:"three_hop_train_source"`
+ Graph largegraph.Stats `json:"whole_graph"`
+ Two groundingaudit.Cohort `json:"two_hop_train"`
+ Three groundingaudit.Cohort `json:"three_hop_train"`
+ WholeTrainingDenominator int `json:"whole_training_denominator"`
+ TestQACorpusRead bool `json:"test_qa_corpus_read"`
+ AnswersSuppliedToParser bool `json:"answers_supplied_to_parser"`
+ PerRowInputsPublished bool `json:"per_row_inputs_published"`
+ IndependentScientificFirstUse bool `json:"independent_scientific_firstuse"`
+ NewScientificOriginal bool `json:"new_scientific_original"`
+ AcceptedScience bool `json:"accepted_science"`
+ DreamParetoPromotion bool `json:"dream_pareto_promotion"`
+ ThetaEvolveAcceptedTraining bool `json:"thetaevolve_accepted_training"`
+ ScientificDispatchAuthorized bool `json:"scientific_dispatch_authorized"`
+ AcceptedRefMutation bool `json:"accepted_ref_mutation"`
+ ModelCalls int `json:"model_calls"`
+ CodexCalls int `json:"codex_calls"`
+ CloudflareWrites int `json:"cloudflare_writes"`
+}
+
+func blobSHA1(raw []byte)string{
+ h:=sha1.New()
+ _,_=h.Write([]byte("blob "+strconv.Itoa(len(raw))+"\x00"))
+ _,_=h.Write(raw)
+ return hex.EncodeToString(h.Sum(nil))
+}
+func source(path,blob string,max int)([]byte,Source,error){
+ var empty Source
+ st,err:=os.Lstat(path)
+ if err!=nil||!st.Mode().IsRegular()||st.Size()<=0||st.Size()>int64(max){
+  return nil,empty,fmt.Errorf("F103O_PINNED_SOURCE_NOT_REGULAR_OR_BOUNDED")
+ }
+ raw,err:=os.ReadFile(path)
+ if err!=nil{return nil,empty,fmt.Errorf("F103O_PINNED_SOURCE_READ_DENIED: %w",err)}
+ if blobSHA1(raw)!=blob {
+  return nil,empty,fmt.Errorf("F103O_PINNED_IMMUTABLE_GIT_BLOB_MISMATCH")
+ }
+ digest:=sha256.Sum256(raw)
+ return raw,Source{GitBlob:blob,SHA256:hex.EncodeToString(digest[:])},nil
+}
+func Audit(kb,two,three []byte)(Report,error){
+ var denied Report
+ if blobSHA1(kb)!=kbBlob||blobSHA1(two)!=twoBlob||blobSHA1(three)!=threeBlob{
+  return denied,fmt.Errorf("F103O_AUTHENTIC_SOURCE_GIT_BLOB_DRIFT")
+ }
+ sha:=sha256.Sum256(kb)
+ if hex.EncodeToString(sha[:])!=kbSHA{return denied,fmt.Errorf("F103O_KB_SHA256_DRIFT")}
+ idx,err:=largegraph.Compile(kb)
+ if err!=nil{return denied,err}
+ stats:=idx.Statistics()
+ if stats.SourceRows!=134741||stats.DistinctTriples!=133582||
+  stats.DuplicateRows!=1159||stats.DistinctEntities!=43234||
+  stats.SelfRelations!=11||stats.DistinctRoles!=9{
+  return denied,fmt.Errorf("F103O_PUBLISHED_KB_SOURCE_DENOMINATORS_DRIFT")
+ }
+ a,err:=groundingaudit.Evaluate(idx,two,2,118980)
+ if err!=nil{return denied,fmt.Errorf("F103O_2HOP_TRAIN_SOURCE_DENIED: %w",err)}
+ b,err:=groundingaudit.Evaluate(idx,three,3,114196)
+ if err!=nil{return denied,fmt.Errorf("F103O_3HOP_TRAIN_SOURCE_DENIED: %w",err)}
+ tHash:=sha256.Sum256(two)
+ uHash:=sha256.Sum256(three)
+ return Report{
+  Schema:"forge.optimizer.f103o.original-train-semantic-grounding.v1",
+  Status:"PUBLIC_TRAIN_ONLY_GROUNDING_DIAGNOSTIC",
+  SourceRepository:sourceRepo,SourceCommit:sourceCommit,
+  KB:Source{GitBlob:kbBlob,SHA256:hex.EncodeToString(sha[:])},
+  TwoSource:Source{GitBlob:twoBlob,SHA256:hex.EncodeToString(tHash[:])},
+  ThreeSource:Source{GitBlob:threeBlob,SHA256:hex.EncodeToString(uHash[:])},
+  Graph:stats, Two:a,Three:b,WholeTrainingDenominator:a.SourceRows+b.SourceRows,
+ },nil
+}
+func main(){
+ kbPath:=flag.String("kb","","original pinned Git-object KB bytes")
+ twoPath:=flag.String("two-hop-train","","original pinned Git-object 2-hop TRAIN QA bytes")
+ threePath:=flag.String("three-hop-train","","original pinned Git-object 3-hop TRAIN QA bytes")
+ outPath:=flag.String("out","","new aggregate-only immutable evidence file")
+ flag.Parse()
+ if *kbPath==""||*twoPath==""||*threePath==""||*outPath==""||len(flag.Args())!=0 {
+  fmt.Fprintln(os.Stderr,"F103O_REQUIRES_THREE_PINNED_SOURCE_FILES_AND_NEW_OUTPUT")
+  os.Exit(2)
+ }
+ kb,_,err:=source(*kbPath,kbBlob,largegraph.MaxSourceBytes)
+ if err==nil {
+  var two,three []byte
+  two,_,err=source(*twoPath,twoBlob,groundingaudit.MaxTrainBytes)
+  if err==nil{three,_,err=source(*threePath,threeBlob,groundingaudit.MaxTrainBytes)
+   if err==nil{
+    report,aErr:=Audit(kb,two,three)
+    err=aErr
+    if err==nil {
+     encoded,eErr:=json.MarshalIndent(report,"","  ")
+     if eErr!=nil{err=eErr}else{
+      var f *os.File
+      f,err=os.OpenFile(*outPath,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600)
+      if err==nil{
+       _,err=f.Write(append(encoded,'\n'))
+       closeErr:=f.Close()
+       if err==nil{err=closeErr}
+      }
+     }
+    }
+   }
+  }
+ }
+ if err!=nil {
+  fmt.Fprintln(os.Stderr,"F103O_PUBLIC_TRAIN_GROUNDING_DENIED:",err)
+  os.Exit(1)
+ }
+ fmt.Println("F103O_WHOLE_ORIGINAL_TRAIN_POPULATION=233176")
+ fmt.Println("F103O_DEVELOPMENT_ONLY_GOLD_SCORING_PERMITTED=TRUE")
+ fmt.Println("F103O_BLINDED_FIRSTUSE_ACCEPTED_SCIENCE_CODEX=ZERO")
+}
