@@ -1,0 +1,119 @@
+name: FORGE F115 public costed clarification qualification
+on:
+  push:
+    branches: [research/f115-costed-public-clarification-20261017-r1]
+    paths:
+      - '.github/workflows/forge-f115-public-clarification.yml'
+      - 'nativeevidence/f115_costed_clarification.py'
+      - 'nativeevidence/test_f115_costed_clarification.py'
+      - 'reference/research-intake/f115-costed-clarification-freeze.json'
+      - 'docs/F115-COSTED-CLARIFICATION-PUBLIC-SYNTHETIC.md'
+permissions:
+  contents: read
+jobs:
+  qualification:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify source exact parent and preregistration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'F115_WRONG_HOSTED_SHA' }
+          git merge-base --is-ancestor '8a2be937cad270b89cedd9672772aca345f1cbb5' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F115_F114_PARENT_NOT_ANCESTOR' }
+          git merge-base --is-ancestor 'b29b140762bd8eca38d8f3cdabbb9c286c7775df' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F115_PRECODE_NOT_ANCESTOR' }
+          if ((git hash-object 'reference/research-intake/f115-costed-clarification-freeze.json') -cne '17237f70831d3d686776f3cfdc2f23aa43d12171') { throw 'F115_FREEZE_DRIFT' }
+          if ((git hash-object 'nativeevidence/f114_partial_relation_abstention.py') -cne '3d3c47748b8f146419e688f49067b06466749319') { throw 'F115_F114_ORIGINAL_DRIFT' }
+          $actual=@(git diff --name-only '8a2be937cad270b89cedd9672772aca345f1cbb5' HEAD | Where-Object { $_ -ne '' })
+          $expected=@(
+            '.github/workflows/forge-f115-public-clarification.yml',
+            'reference/research-intake/f115-costed-clarification-freeze.json',
+            'nativeevidence/f115_costed_clarification.py',
+            'nativeevidence/test_f115_costed_clarification.py',
+            'docs/F115-COSTED-CLARIFICATION-PUBLIC-SYNTHETIC.md'
+          )
+          if (@(Compare-Object $actual $expected).Count -ne 0) { throw 'F115_UNAUTHORIZED_FILE_CHANGE' }
+      - name: Test source-private and public-twin controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f115_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F115_FOCUSED_TEST_FAILED' }
+      - name: Execute bounded simulated witness cost screen
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-f115-public'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $report=Join-Path $dir 'f115-public-clarification.json'
+          python -B nativeevidence/f115_costed_clarification.py --source-ref $env:GITHUB_SHA |
+             Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F115_EVALUATION_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f115.costed-public-evidence-acquisition-synthetic.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.public_pairs -ne 144 -or $d.identical_public_twins -ne 72 -or
+              $d.cohorts.Count -ne 3 -or
+              $d.selective_utility -ne 26.4 -or
+              $d.never_request_utility -ne -14.4 -or
+              $d.utility_improvement -ne 40.8 -or
+              -not $d.precommitted_selective_screen_passed -or
+              -not $d.simulated_attestation_not_verified_real_issuer -or
+              $d.learned_model_superiority_claimed -or
+              $d.independently_accepted_science -ne 0 -or
+              $d.protected_scientific_first_use -or
+              $d.native_scientific_dispatches -ne 0 -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_calls -ne 0 -or $d.paid_model_calls -ne 0 -or
+              $d.work_tasks -ne 0 -or $d.new_scheduler_created -or
+              $d.ckb_plane_contact -or $d.cloudflare_writes -ne 0 -or
+              $d.mind_palace_writes -ne 0) { throw 'F115_FALSE_PUBLIC_QUALIFICATION' }
+          foreach ($block in $d.cohorts) {
+            if ($block.pairs -ne 48 -or
+                $block.policies.selective.records.Count -ne 48 -or
+                $block.policies.always.records.Count -ne 48 -or
+                $block.policies.never.records.Count -ne 48 -or
+                $block.policies.forced.records.Count -ne 48) { throw 'F115_MISSING_PAIRED_RECORDS' }
+          }
+          $sha=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $dir 'f115-public-clarification.sha256'),
+            "$sha  f115-public-clarification.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+      - name: Full FORGE Go regression and static verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F115_FULL_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F115_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F115_GO_BUILD_FAILED' }
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f115-public-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f115-public/f115-public-clarification.json
+            ${{ runner.temp }}/forge-f115-public/f115-public-clarification.sha256
+          if-no-files-found: error
+          retention-days: 14
