@@ -14,7 +14,7 @@ import urllib.request
 
 REPOSITORY = "spoonman136668-ai/FORGE"
 WORKFLOW = "forge-native-autonomy-supervision.yml"
-ARTIFACT = "forge-native-autonomy-operational-source-only"
+ARTIFACT = "forge-native-autonomy-operational-verified-only"
 SOURCE_PATHS = (
     ".github/workflows/" + WORKFLOW,
     "autonomypulse/pulse.py",
@@ -93,6 +93,29 @@ def source_blob(api, sha, path):
     require(data.get("type") == "file" and isinstance(blob, str) and
             SHA40.fullmatch(blob) is not None, "SOURCE_BLOB_UNVERIFIED")
     return blob
+
+def acknowledge_previous_failed_observation(report):
+    """Acknowledge one bounded *negative* without qualifying continuity.
+
+    A healthy current read-only observation can survive an old failed run.
+    This never proves science or cross-run continuity: qualification still
+    requires two distinct genuinely scheduled successful marked observations.
+    """
+    require(type(report) is dict and set(report) == {
+        "schema", "qualified", "status", "reason", "science_dispatches",
+        "scientific_first_use_authorized", "ckb_plane_accessed"},
+        "NEGATIVE_REPORT_SCHEMA_UNVERIFIED")
+    require(report["schema"] == SCHEMA and
+            report["qualified"] is False and
+            report["status"] == "QUARANTINED_UNVERIFIED" and
+            report["reason"] == "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED" and
+            type(report["science_dispatches"]) is int and
+            report["science_dispatches"] == 0 and
+            report["scientific_first_use_authorized"] is False and
+            report["ckb_plane_accessed"] is False,
+            "NEGATIVE_OBSERVATION_NOT_NARROWLY_ADMISSIBLE")
+    return "HISTORICAL_SUPERVISION_FAILURE_ACKNOWLEDGED_NO_CONTINUITY_OR_SCIENCE"
+
 
 def artifact(api, run_id, head_sha):
     data = api.get("/actions/runs/" + str(run_id) + "/artifacts?per_page=100")
