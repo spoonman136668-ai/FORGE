@@ -1,0 +1,128 @@
+name: F124-E frozen TRAIN memory eviction and causal lineage diagnosis
+on:
+  push:
+    branches: [research/f124e-frozen-eviction-diagnostic-20261017]
+    paths:
+      - 'nativeevidence/f124e_frozen_eviction_audit.py'
+      - 'nativeevidence/test_f124e_frozen_eviction_audit.py'
+      - '.github/workflows/forge-f124e-frozen-eviction-audit.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124e-eviction-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  immutable-train-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39053308167
+          github-token: ${{ github.token }}
+          name: f124e-key-value-train-evidence
+          path: frozen-original-f124e
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: frozen-original-f123
+      - name: Focused causal lineage and exact original-weight replay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f124e_frozen_eviction_audit.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124E_DIAGNOSTIC_TEST_FAILURE' }
+          & python3 -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124E_DIAGNOSTIC_SOURCE_ISOLATION_FAILED' }
+      - name: Measure frozen memory eviction and optional capacity-32 scorer only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124e-frozen-training-eviction-audit.json'
+          $args=@('--f124e-report','frozen-original-f124e/f124e-train-only-key-value-evidence.json',
+                  '--f123-train-dir','frozen-original-f123','--output',$out)
+          & python3 -B nativeevidence/f124e_frozen_eviction_audit.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124E_POSTHOC_EVICTION_REPLAY_QUARANTINED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124e.posthoc-frozen-eviction-causal-audit.v1' -or
+              $r.original_source_head -cne '878ba8e558a6f5fc122ff7468af0d02362750143' -or
+              $r.original_immutable_train_receipt_sha256 -cne 'f54ff4be9b3b567a2faf913e3348da114e2701ee4eab4bcc1f52c8be07aa8585' -or
+              $r.original_candidate_vector_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              -not $r.no_weights_changed -or $r.training_rerun -or
+              -not $r.capacity32_is_posthoc_non_scientific -or
+              $r.reserved_confirmation_generated -ne 0 -or
+              $r.original_first_use_authorized -or $r.science_accepted -or
+              $r.optimizer_promotions -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.resource_matched_superiority_proven -or $r.lanes.Count -ne 2) {
+            throw 'F124E_FROZEN_AUDIT_FALSE_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil')) {
+              throw 'F124E_UNEXPECTED_LANE'
+            }
+            foreach ($arm in @('A','B')) {
+              $m=$lane.arms.$arm
+              if ($m.capacity_3_qualified_frozen_model.train_paired_correct -ne 0 -or
+                  $m.capacity_3_qualified_frozen_model.cases.Count -ne 48 -or
+                  $m.capacity_32_nonpreregistered_diagnostic.cases.Count -ne 48 -or
+                  $m.training_label_oracle_used_for_retention) {
+                throw 'F124E_ORIGINAL_NEGATIVE_OR_CAUSAL_BOUNDARY_DRIFT'
+              }
+              Write-Output "F124E_AUDIT=$($lane.lane) Arm=$arm cap3_target=$($m.capacity_3_qualified_frozen_model.causal_target_retained)/48 cap32_target=$($m.capacity_32_nonpreregistered_diagnostic.causal_target_retained)/48 restored=$($m.causal_target_restored_by_relaxation)/48 cap32_paired=$($m.capacity_32_nonpreregistered_diagnostic.train_paired_correct)/48"
+              Write-Output "F124E_EVICTION=$($lane.lane) Arm=$arm cap3_mean=$($m.capacity_3_qualified_frozen_model.mean_positive_evictions) cap3_causal_prefix_drop=$($m.capacity_3_qualified_frozen_model.mean_positive_valid_prefix_evictions)"
+            }
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124e-frozen-training-eviction-audit.sha256'),
+            "$hash  f124e-frozen-training-eviction-audit.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124E_EVICTION_AUDIT_SHA256=$hash"
+          Write-Output 'F124E_ALL_RESERVED_CONFIRM_CLOSED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124e-posthoc-train-eviction-evidence
+          path: |
+            ${{ runner.temp }}/f124e-frozen-training-eviction-audit.json
+            ${{ runner.temp }}/f124e-frozen-training-eviction-audit.sha256
+          if-no-files-found: error
+          retention-days: 90
+  exact-head-regression:
+    needs: immutable-train-diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full exact-head Go regression, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124E_POSTHOC_AUDIT_HEAD=$GITHUB_SHA"
+          echo 'F124E_ORIGINAL_SCIENCE=false'
