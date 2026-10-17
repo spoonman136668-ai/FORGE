@@ -1,0 +1,193 @@
+name: Mind-Palace UQ29 selected web-client preference checkpoint shadow
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ29-PR61-SHADOW-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq29-source-one-shot
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Verify an authentic bounded browser-chat operator direction on promoted main
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ29_WRONG_RUNNER_REPOSITORY'}
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ29_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='67e95b9a0468dec12061c54e40d001a78a137cf6'
+          $sourceHead='80a87efaf3a9203e81052b1135fc8de18301c622'
+          $sourceBlob='d3b1d73c7c7551e01c053fda58a0eaeae5d3d613'
+          $sourceBranch='intake/selected-webclient-preference-uq28-20261017'
+          $sourcePath='pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json'
+          $sourceRef='chat:2026-10-15-mind-palace-web-client-ingestion'
+          $sourceVersion='visible-selected-operator-turns-20261015-r1'
+          $candidateId='preference/mind-palace-webclient-ingestion-no-desktop-app-20261015'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-uq29-'+$env:GITHUB_RUN_ID)
+          $utf8=New-Object Text.UTF8Encoding($false)
+          function CheckRef([string]$name,[string]$sha){
+            $r=@(& git.exe ls-remote --exit-code $remote $name)
+            if($LASTEXITCODE -ne 0 -or $r.Count -ne 1 -or ([string]$r[0] -split '\s+')[0] -cne $sha){throw ('UQ29_REMOTE_REF_DRIFT_'+$name)}
+          }
+          function ToJson([string]$path,$obj){
+            [IO.File]::WriteAllText($path,((ConvertTo-Json -InputObject $obj -Depth 24)+[Environment]::NewLine),$utf8)
+          }
+          function RunJson([string]$code,[string]$file,[string[]]$arguments){
+            $raw=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $file @arguments 2>&1|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){Write-Host ('UQ29_TOOL_ERROR='+($raw.Substring(0,[Math]::Min(450,$raw.Length))));throw ('UQ29_'+$code+'_FAILED')}
+            try{return ($raw | ConvertFrom-Json -ErrorAction Stop)}catch{throw ('UQ29_'+$code+'_NOT_JSON')}
+          }
+          if(Test-Path $root){throw 'UQ29_SCRATCH_ALREADY_EXISTS'}
+          try {
+            CheckRef 'refs/heads/main' $main
+            CheckRef ('refs/heads/'+$sourceBranch) $sourceHead
+            & git.exe clone --quiet --single-branch --branch main $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ29_PRIVATE_MAIN_CLONE_FAILED'}
+            Push-Location $root
+            try{
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $main){throw 'UQ29_MAIN_SHA_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ29_INITIAL_CHECKOUT_DIRTY'}
+              $protected=@(
+                '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+                '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+                '.ice/remote-index.ndjson','.ice/chat-delta-state.json'
+              )
+              $before=@{}
+              foreach($p in $protected){$before[$p]=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+              & git.exe fetch --quiet --no-tags origin ('refs/heads/'+$sourceBranch)
+              if($LASTEXITCODE -ne 0 -or (& git.exe rev-parse FETCH_HEAD|Out-String).Trim() -cne $sourceHead){throw 'UQ29_SOURCE_HEAD_NOT_FROZEN'}
+              $spec=$sourceHead+':'+$sourcePath
+              if((& git.exe rev-parse $spec|Out-String).Trim() -cne $sourceBlob){throw 'UQ29_SOURCE_BLOB_DRIFT'}
+              $runtime=Join-Path $root '.mind-runtime'
+              New-Item -ItemType Directory -Path $runtime -Force|Out-Null
+              $extract=Join-Path $runtime 'source.json'
+              $body=(& git.exe show $spec|Out-String)
+              if($LASTEXITCODE -ne 0){throw 'UQ29_SOURCE_READ_FAILED'}
+              [IO.File]::WriteAllText($extract,$body,$utf8)
+              $d=Get-Content -LiteralPath $extract -Raw|ConvertFrom-Json
+              if([string]$d.schema -cne 'mind-palace.chat-extraction.v1' -or
+                 [string]$d.conversation.ref -cne $sourceRef -or
+                 [string]$d.conversation.version -cne $sourceVersion -or
+                 $null -ne $d.conversation.content_sha256 -or
+                 @($d.turns).Count -ne 1 -or [string]$d.turns[0].role -cne 'operator' -or
+                 @($d.candidates).Count -ne 1 -or
+                 [string]$d.candidates[0].claim_class -cne 'preference' -or
+                 [bool]$d.candidates[0].details.account_history_coverage_complete -or
+                 [bool]$d.candidates[0].details.background_chat_history_collection_proven){
+                throw 'UQ29_BOUNDED_SOURCE_MISMATCH'
+              }
+              if(@($d.corroborating_sources).Count -ne 0 -or
+                 -not [bool]$d.candidates[0].details.no_app_installation -or
+                 -not [bool]$d.candidates[0].details.selected_operator_turns_only){
+                throw 'UQ29_SELECTED_PREFERENCE_PROVENANCE_MISMATCH'
+              }
+              Write-Host 'UQ29_NEW_REAL_OPERATOR_SOURCE_PROVENANCE=PASS'
+              $v=RunJson 'CHAT_VALIDATE' '.\tools\chat-collect.ps1' @('validate','-InputPath',$extract)
+              if(-not [bool]$v.valid -or [int]$v.candidates -ne 1 -or [int]$v.forced_archive -ne 0){
+                throw 'UQ29_NEW_CHAT_SOURCE_VALIDATION_FAILED'
+              }
+              $batchPath=Join-Path $runtime 'batch.json'
+              $batch=RunJson 'CHAT_BUILD' '.\tools\chat-collect.ps1' @('build','-InputPath',$extract,'-OutputPath',$batchPath)
+              if([string]$batch.schema -cne 'mind-palace.collector-batch.v1' -or @($batch.candidates).Count -ne 1 -or
+                 @($batch.sources|Where-Object{[string]$_.role -ceq 'primary'}).Count -ne 1 -or
+                 ([string]$batch.candidates[0].kind+'/'+[string]$batch.candidates[0].key) -cne $candidateId){
+                 throw 'UQ29_CANONICAL_BATCH_MISMATCH'
+              }
+              $inventory=Join-Path $runtime 'inventory.json'
+              ToJson $inventory (@{schema='mind-palace.source-inventory.v1';version=1;generated_at='2026-10-17T09:25:45Z';
+                 sources=@(@{scope='chat-history';type='chat';ref=$sourceRef;version=$sourceVersion;
+                 content_sha256=$null;authority='historical';label='one selected browser-only operator preference'})})
+              $plan=RunJson 'PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inventory,'-Scope','chat-history')
+              if([string]$plan.status -cne 'ready' -or [int]$plan.unseen -ne 1 -or
+                 [int]$plan.process -ne 1 -or [int]$plan.review -ne 0 -or [int]$plan.batch_count -ne 1){
+                throw 'UQ29_SOURCE_LEDGER_RECONCILIATION_NOT_ONE_UNSEEN'
+              }
+              Write-Host 'UQ29_PRODUCTION_LEDGER_ONE_UNSEEN_SOURCE=PASS'
+              $map=Join-Path $runtime 'map.json'
+              ToJson $map (@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{
+                 batch_id=[string]$plan.batches[0].batch_id;collector_batch_path=$batchPath})})
+              $dry=RunJson 'DRY_RUN' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inventory,'-CollectorMapPath',$map,'-Scope','chat-history')
+              if(-not [bool]$dry.durable_state_unchanged){throw 'UQ29_DRY_RUN_CHANGED_DURABLE_STATE'}
+              Write-Host ('UQ29_CLASSIFY_STATUS='+[string]$dry.status)
+              Write-Host ('UQ29_NEW_COUNT='+[int]$dry.counts.new)
+              Write-Host ('UQ29_MERGE_COUNT='+[int]$dry.counts.merge)
+              Write-Host ('UQ29_REVIEW_COUNT='+[int]$dry.counts.review)
+              Write-Host ('UQ29_SUPERSEDE_COUNT='+[int]$dry.counts.supersede)
+              if([int]$dry.candidate_count -ne 1 -or [int]$dry.counts.review -ne 0 -or
+                 [int]$dry.counts.supersede -ne 0 -or [int]$dry.counts.new -ne 1 -or
+                 [int]$dry.counts.merge -ne 0 -or -not [bool]$dry.ready_for_apply){
+                throw 'UQ29_NEW_SOURCE_NOT_UNAMBIGUOUS_ONE_NEW'
+              }
+              Write-Host 'UQ29_EXACT_ONE_NEW_SOURCE_AND_RECORD_DRYRUN=PASS'
+              $originalRecords=@(Get-Content '.ice/records.json' -Raw|ConvertFrom-Json)
+              $originalLedger=Get-Content '.ice/source-ledger.json' -Raw|ConvertFrom-Json
+              $originalIds=@($originalRecords|ForEach-Object{[string]$_.id})
+              $apply=RunJson 'SHADOW_APPLY' '.\tools\backfill-apply.ps1' @('-InventoryPath',$inventory,'-CollectorMapPath',$map,'-Scope','chat-history','-ConfirmApply')
+              if([string]$apply.schema -cne 'mind-palace.backfill-apply-result.v1' -or
+                 [string]$apply.status -cne 'applied' -or -not [bool]$apply.applied -or
+                 [int]$apply.counts.new -ne 1 -or [int]$apply.counts.merge -ne 0 -or
+                 [int]$apply.counts.review -ne 0 -or [int]$apply.counts.supersede -ne 0 -or
+                 [int]$apply.ledger_entries_added -ne 1 -or -not [bool]$apply.parity -or
+                 -not [bool]$apply.backfill_complete){throw 'UQ29_SHADOW_APPLY_BAD_STATUS'}
+              $newRecords=@(Get-Content '.ice/records.json' -Raw|ConvertFrom-Json)
+              $newLedger=Get-Content '.ice/source-ledger.json' -Raw|ConvertFrom-Json
+              if($newRecords.Count -ne $originalRecords.Count+1 -or
+                 $newLedger.entries.Count -ne $originalLedger.entries.Count+1 -or
+                 @($newRecords|Where-Object{[string]$_.id -ceq $candidateId}).Count -ne 1 -or
+                 @($newRecords|Where-Object{[string]$_.id -and $originalIds -cnotcontains [string]$_.id}).Count -ne 1 -or
+                 @($newLedger.entries|Where-Object{[string]$_.source_ref -ceq $sourceRef}).Count -ne 1){
+                 throw 'UQ29_ONE_RECORD_ONE_SOURCE_LEDGER_PARITY_FAILED'
+              }
+              Write-Host 'UQ29_SHADOW_ONE_RECORD_ONE_LEDGER_APPLY=PASS'
+              $checkpoint=RunJson 'CHECKPOINT_VALIDATE' '.\tools\update-checkpoint.ps1' @('validate')
+              if([string]$checkpoint.schema -cne 'mind-palace.update-checkpoint-result.v1' -or
+                 [string]$checkpoint.status -cne 'ready'){throw 'UQ29_CHECKPOINT_NOT_READY'}
+              Write-Host 'UQ29_GUARDED_CHECKPOINT_VALIDATE=PASS'
+              $query='Mind-Palace ChatGPT web client browser-only ingestion without installing desktop app'
+              $pack=RunJson 'RETRIEVE' '.\tools\context-pack.ps1' @('-Text',$query,'-Project','Mind-Palace','-MaxRecords','35','-MaxBytes','65536')
+              if(@($pack.records|Where-Object{[string]$_.id -ceq $candidateId}).Count -ne 1){
+                 throw 'UQ29_NEW_RECORD_MISSING_FROM_RETRIEVAL'
+              }
+              Write-Host 'UQ29_SHADOW_RECORD_RETRIEVAL=PASS'
+              $parity=RunJson 'SOURCE_REPLAY' '.\tools\source-reconcile.ps1' @('reconcile','-InventoryPath',$inventory,'-Scope','chat-history')
+              if(-not [bool]$parity.parity -or [int]$parity.skip -ne 1 -or [int]$parity.process -ne 0){
+                throw 'UQ29_NONIDEMPOTENT_SOURCE_REPLAY'
+              }
+              Write-Host 'UQ29_ONE_SOURCE_REPLAY_IDEMPOTENT=PASS'
+              $expectedDirty=@('.ice/records.json','.ice/source-ledger.json',
+                 'archive/index.json','.ice/remote-bootstrap.json',
+                 '.ice/remote-catalog.json','.ice/remote-index.ndjson',
+                 '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+              $dirty=@(& git.exe diff --name-only)
+              if($LASTEXITCODE -ne 0 -or $dirty -cnotcontains '.ice/records.json' -or
+                 $dirty -cnotcontains '.ice/source-ledger.json' -or
+                 @($dirty|Where-Object{$expectedDirty -cnotcontains [string]$_}).Count -ne 0){
+                 throw 'UQ29_UNAUTHORIZED_DIRTY_SURFACE'
+              }
+              foreach($p in @('.ice/chat-delta-state.json')){
+                 if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $before[$p]){
+                    throw 'UQ29_UNAUTHORIZED_CHAT_DELTA_STATE_MUTATION'
+                 }
+              }
+              CheckRef 'refs/heads/main' $main
+              CheckRef ('refs/heads/'+$sourceBranch) $sourceHead
+              Write-Host 'UQ29_PRODUCTION_MAIN_UNCHANGED=PASS'
+              Write-Host 'UQ29_PRODUCTION_REMOTE_WRITES=0'
+              Write-Host 'UQ29_CODEX_CALLS=0'
+              Write-Host 'UQ29_PR61_SELECTED_WEBCLIENT_SHADOW_CHECKPOINT=PASS'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
