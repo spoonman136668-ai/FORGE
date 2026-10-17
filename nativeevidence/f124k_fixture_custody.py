@@ -33,10 +33,9 @@ def blob(module):
 
 def evidence():
     protocol=fixture.frozen()
-    need(blob(fixture)==GENERATOR_BLOB and
-         blob(original_model)==ORIGINAL_MODEL_BLOB and
-         blob(original_source)==ORIGINAL_SOURCE_BLOB,
-         "MODULE_SOURCE_IDENTITY")
+    need(blob(fixture)==GENERATOR_BLOB,"FIXTURE_GENERATOR_GIT_BLOB_DRIFT")
+    need(blob(original_model)==ORIGINAL_MODEL_BLOB,"ORIGINAL_MODEL_GIT_BLOB_DRIFT")
+    need(blob(original_source)==ORIGINAL_SOURCE_BLOB,"ORIGINAL_SOURCE_GIT_BLOB_DRIFT")
     preflight=fixture.first_use_preflight()
     need(preflight["protection"]==fixture.AUTHORITY_STATUS
          and not preflight["original_f124h_model_accepts_7_to_9_hops"]
