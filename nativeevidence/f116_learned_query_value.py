@@ -253,6 +253,32 @@ def buy_if_positive(rates,cost):
     # empty -0.1 and paid cost. Frozen before evaluation.
     return response*(5*correct-3.9)-cost>0
 
+def inspect_query_decision(model,channel,cost):
+    """Trace exact contributions, independent of true target or held-out label.
+
+    This is a complete eight-logit *decision* trace, not a claim of interpretable
+    long-lived memory or reusable relationship learning. All counterfactual
+    interventions preserve the source policy's frozen threshold.
+    """
+    usable,correct=model.rates(channel)
+    gross_delta=usable*(5*correct-3.9)
+    chosen=buy_if_positive((usable,correct),cost)
+    return {
+       "channel":channel,"quoted_cost":cost,
+       "train_only_usable_estimate":round(usable,9),
+       "train_only_correct_if_usable_estimate":round(correct,9),
+       "expected_utility_delta_before_cost":round(gross_delta,9),
+       "expected_utility_delta_after_cost":round(gross_delta-cost,9),
+       "query":chosen,
+       "ablation_replace_usable_with_half":buy_if_positive((.5,correct),cost),
+       "ablation_replace_correctness_with_half":buy_if_positive((usable,.5),cost),
+       "intervention_increase_cost_by_0_25":
+          buy_if_positive((usable,correct),cost+.25),
+       "intervention_decrease_cost_by_0_05":
+          buy_if_positive((usable,correct),max(0,cost-.05)),
+       "source":"TRAIN_ONLY_EIGHT_LOGITS_NO_GUARD_INFORMATION",
+    }
+
 def valid_edge(p,edges):
     if type(edges) is not tuple or len(edges)!=1: return None
     x=edges[0]
@@ -380,6 +406,9 @@ def evaluate(head):
             "beta_correct_given_usable":round(beta.rates(i)[1],8)}
            for i in range(4)],
          guard_blocks=blocks, totals_by_arm=totals,
+         policy_trace_by_channel_cost=[
+            inspect_query_decision(learned,ch,cost)
+            for ch in range(4) for cost in COSTS],
          bounded_learned_feasibility_passed=bounded,
          incremental_learning_over_equal_information_Beta_control_passed=positive,
          disposition=(
