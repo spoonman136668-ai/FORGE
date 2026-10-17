@@ -395,6 +395,15 @@ jobs:
           $py=if ($IsWindows) { 'python' } else { 'python3' }
           & $py -B -m unittest discover -s nativeevidence -p 'test_f129_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'F129_ADVERSARIAL_TESTS_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f130_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F130_POSTMERGE_SOURCE_ADMISSION_TEST_FAILED' }
+          # The old PR-associated run metadata can disappear after merge.
+          # Exercise downstream unit-level science fences without falsely
+          # treating obsolete PR source receipts as post-merge continuity.
+          foreach ($name in @('test_f125_*.py','test_f127_*.py','test_f128_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $name -v
+            if ($LASTEXITCODE -ne 0) { throw ('F130_DOWNSTREAM_BOUNDARY_REGRESSION_'+$name) }
+          }
           $root=Join-Path $env:RUNNER_TEMP 'forge-f129-stage-admission'
           New-Item -ItemType Directory -Path $root -Force | Out-Null
           $items=@()
@@ -548,7 +557,7 @@ jobs:
           Write-Host ('F124_CONTINUITY='+$proof.continuity)
           Write-Host 'F124_TWO_LANE_FEEDBACK_DIRECTED_CHALLENGE_EVOLUTION=SOURCE_ONLY'
       - name: F125 authenticated prior GitHub feedback to autonomous new GenEnv agenda
-        if: github.event_name != 'schedule' || steps.f129-admission.outputs.f125 == 'true'
+        if: github.event_name == 'schedule' && steps.f129-admission.outputs.f125 == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -748,7 +757,7 @@ jobs:
             "$digest  f126-original-negative-selected-agenda.json"+[Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
       - name: F127 actual previous F126 negative to executable grammar synthesis
-        if: github.event_name != 'schedule' || steps.f129-admission.outputs.f127 == 'true'
+        if: github.event_name == 'schedule' && steps.f129-admission.outputs.f127 == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -831,7 +840,7 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $root 'f127-program-synthesis.sha256'),
             "$digest  f127-program-synthesis.json"+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
       - name: F128 counterexample-directed operator discovery from authentic F127 mechanism
-        if: github.event_name != 'schedule' || steps.f129-admission.outputs.f128 == 'true'
+        if: github.event_name == 'schedule' && steps.f129-admission.outputs.f128 == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1069,7 +1078,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: success() && (github.event_name != 'schedule' || steps.f129-admission.outputs.f125 == 'true')
+        if: success() && (github.event_name == 'schedule' && steps.f129-admission.outputs.f125 == 'true')
         with:
           name: forge-f125-authentic-selection-${{ matrix.os }}
           path: |
@@ -1087,7 +1096,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: success() && (github.event_name != 'schedule' || steps.f129-admission.outputs.f127 == 'true')
+        if: success() && (github.event_name == 'schedule' && steps.f129-admission.outputs.f127 == 'true')
         with:
           name: forge-f127-synthesized-program-${{ matrix.os }}
           path: |
@@ -1097,7 +1106,7 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
-        if: success() && (github.event_name != 'schedule' || steps.f129-admission.outputs.f128 == 'true')
+        if: success() && (github.event_name == 'schedule' && steps.f129-admission.outputs.f128 == 'true')
         with:
           name: forge-f128-refinement-${{ matrix.os }}
           path: |
@@ -1108,7 +1117,7 @@ jobs:
 
   f127-cross-os-byte-proof:
     needs: two-lane-synthetic
-    if: github.event_name != 'schedule' || needs.two-lane-synthetic.outputs.f127_admitted == 'true'
+    if: github.event_name == 'schedule' && needs.two-lane-synthetic.outputs.f127_admitted == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1145,7 +1154,7 @@ jobs:
 
   f128-cross-platform-mechanism-proof:
     needs: two-lane-synthetic
-    if: github.event_name != 'schedule' || needs.two-lane-synthetic.outputs.f128_admitted == 'true'
+    if: github.event_name == 'schedule' && needs.two-lane-synthetic.outputs.f128_admitted == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1247,8 +1256,12 @@ jobs:
                   assert f124["continuity"]=="BOOTSTRAP_NO_PREVIOUS_F124_SCHEDULE"
                   assert f124["generation"]==1
           else:
-              assert gate["development_pr_evidence_mode"]
+              assert gate["event"] in ("pull_request","push","workflow_dispatch")
+              assert not gate["development_pr_evidence_mode"]
+              assert gate["non_scheduled_source_bootstrap"]
               assert not gate["genuine_scheduled_source"]
+              assert all(not gate["admissions"][stage]["admitted"]
+                         for stage in ("F125","F127","F128"))
           for stage in ("F125","F127","F128"):
               entry=gate["admissions"][stage]
               assert isinstance(entry["admitted"],bool)
