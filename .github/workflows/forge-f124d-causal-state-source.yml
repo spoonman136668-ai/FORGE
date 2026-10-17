@@ -1,0 +1,72 @@
+name: F124-D frozen mass-conserving scientific source qualification
+on:
+  push:
+    branches: [research/f124d-mass-conserving-competition-20261017]
+    paths:
+      - 'reference/research-intake/f124d-mass-conserving-competition-freeze.json'
+      - 'nativeevidence/f124d_*.py'
+      - 'nativeevidence/test_f124d_*.py'
+      - '.github/workflows/forge-f124d-causal-state-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f124d-science-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-train-only-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source identity, adversarial graph, paired negative and split qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124d_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124D_FROZEN_SOURCE_FAILED' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124D_SOURCE_ISOLATION_FAILED' }
+          Write-Output "F124D_SOURCE_COMMIT=${{ github.sha }}"
+          Write-Output 'F124D_CONFIRM_GENERATED=false'
+          Write-Output 'F124D_SCIENTIFIC_FIRST_USE=false'
+          Write-Output 'F124D_SCIENTIFIC_ACCEPTANCE=false'
+  exact-head-integration:
+    needs: frozen-train-only-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Final unaffected Go regression, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124D_SOURCE_BOUND_HEAD=$GITHUB_SHA"
+          echo "F124D_MODEL_TRAINING_UNRUN=true"
+          echo "F124D_ORIGINAL_SCIENCE_UNRUN=true"
