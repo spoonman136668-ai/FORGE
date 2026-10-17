@@ -4,6 +4,23 @@ name: FORGE integrated two-lane safe research-cycle acceptance
 # separate native synthetic OS workers. It never dispatches real science.
 on:
   workflow_dispatch:
+    inputs:
+      origin:
+        description: 'Development-only manual request or F136 source-qualified completion'
+        type: choice
+        required: false
+        default: manual
+        options:
+          - manual
+          - f136-completion
+      parent_run_id:
+        description: 'Source run ID for F136 completion dispatch (never science authority)'
+        type: string
+        required: false
+      parent_source_sha:
+        description: 'Prior verified main source SHA (never science authority)'
+        type: string
+        required: false
   pull_request:
     branches: [main]
     paths:
@@ -13,7 +30,7 @@ on:
       - 'reference/research-intake/f118-autonomous-feedback-freeze.json'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
   schedule:
-    - cron: '19 */6 * * *'
+    - cron: '7-57/10 * * * *'
   push:
     branches: [main]
     paths:
@@ -397,6 +414,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'F129_ADVERSARIAL_TESTS_FAILED' }
           & $py -B -m unittest discover -s nativeevidence -p 'test_f130_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'F130_POSTMERGE_SOURCE_ADMISSION_TEST_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F136_COMPLETION_SUCCESSOR_TESTS_FAILED' }
           # The old PR-associated run metadata can disappear after merge.
           # Exercise downstream unit-level science fences without falsely
           # treating obsolete PR source receipts as post-merge continuity.
