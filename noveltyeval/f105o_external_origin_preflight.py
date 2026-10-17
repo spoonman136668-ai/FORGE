@@ -36,11 +36,18 @@ def require(condition: bool, explanation: str) -> None:
 
 
 def git_output(root: Path, command: list[str]) -> str:
-    require(not any(a in ("show", "cat-file", "-p", "--batch") for a in command),
-            "GIT_CONTENT_READ_NOT_AUTHORIZED")
-    # git cat-file -s queries original object size ONLY, not object contents.
-    require(command[:2] == ["git", "-C"] and
-            command[2] == str(root), "GIT_REPOSITORY_SCOPE")
+    require(command[:3] == ["git", "-C", str(root)],
+            "GIT_REPOSITORY_SCOPE")
+    # Explicit allowlist. No git-show, -p, --batch or reading original JSON bytes.
+    op = command[3:]
+    allowed = (
+        op == ["rev-parse", "HEAD"]
+        or (len(op) == 2 and op[0] == "rev-parse"
+            and op[1].startswith("HEAD:") and op[1][5:] in FILES)
+        or (len(op) == 3 and op[:2] == ["cat-file", "-s"]
+            and op[2].startswith("HEAD:") and op[2][5:] in FILES)
+    )
+    require(allowed, "GIT_CONTENT_READ_NOT_AUTHORIZED")
     proc = subprocess.run(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         check=False, timeout=25,
