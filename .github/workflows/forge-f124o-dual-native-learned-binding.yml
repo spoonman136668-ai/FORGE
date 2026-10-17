@@ -1,0 +1,157 @@
+name: F124-O two independent learned structural mechanisms
+on:
+  push:
+    branches: [research/f124o-dual-native-learned-binding-20261017]
+    paths:
+      - 'reference/research-intake/f124o-dual-native-learned-binding-freeze.json'
+      - 'nativeevidence/f124o_*.py'
+      - 'nativeevidence/test_f124o_*.py'
+      - '.github/workflows/forge-f124o-dual-native-learned-binding.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124o-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-and-two-architecture-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source plus independently constrained learned mechanisms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124O_HEAD_DRIFT' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124o_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_ARCHITECTURAL_FOCUSED_FAILURE' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124n_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_PARENT_SOURCE_REGRESSION' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_SOURCE_ISOLATION_FAILURE' }
+          Write-Output 'F124O_PROTECTED_CONFIRM_UNTOUCHED=true'
+
+  independent-actual-fit-and-dev:
+    needs: source-and-two-architecture-focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39077413007
+          github-token: ${{ github.token }}
+          name: f124n-source-disjoint-development-59cef2e3e877d8b76e7ac971acca69e5d1ed172b
+          path: original-f124n-development
+      - name: Verify authentic F124-N development receipt and train two independent mechanisms FIT only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $prior = 'original-f124n-development/f124n-novel-structure-development-evidence.json'
+          $sha = (Get-FileHash -LiteralPath $prior -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -cne '1c03362fcfa44dea72208867cf374b0c196b8bb3c79e6e430ffdb6685ee12739') {
+            throw 'F124O_PARENT_EVIDENCE_SHA_MISMATCH'
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'f124o-independent-two-learned-development.json'
+          & python3 -B nativeevidence/f124o_training_evidence.py --f124n-receipt $prior --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_FIT_ONLY_TRAIN_AND_DEV_QUALIFICATION_FAILED' }
+          $r = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124o.two-native-trained-development-outcomes.v1' -or
+              $r.preimplementation_freeze_git_blob -cne '30b2d1f5097f6bd781d2dcc7ca84123100959dfe' -or
+              $r.parent_f124n_receipt_sha256 -cne '1c03362fcfa44dea72208867cf374b0c196b8bb3c79e6e430ffdb6685ee12739' -or
+              -not $r.architectural_independence -or $r.training_phase -cne 'FIT_ONLY' -or
+              $r.independent_model_arms -ne 2 -or $r.lanes.Count -ne 2 -or
+              $r.protected_examples_generated -ne 0 -or $r.protected_examples_scored -ne 0 -or
+              $r.independent_first_use -or $r.scientific_acceptances -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.new_schedulers -ne 0 -or $r.codex_calls -ne 0 -or $r.paid_api_calls -ne 0 -or
+              $r.resource_matched_superiority_proven) {
+            throw 'F124O_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.training.training_steps -ne 72 -or $lane.training.pairs -ne 48 -or
+                $lane.training.epochs -ne 12 -or $lane.training.weight_update_l2 -le 0 -or
+                $lane.training.dev_seen_during_training -or $lane.training.protected_cases_seen -ne 0) {
+              throw 'F124O_NO_GENUINE_INDEPENDENT_FIT_TRAINING'
+            }
+            foreach ($part in @($lane.fit,$lane.dev)) {
+              if ($part.pairs -ne 48 -or $part.exact_paired -ne 48 -or
+                  $part.role_only_paired -ne 0 -or $part.case_sha256.Count -ne 48 -or
+                  $part.per_depth.'7'.pairs -ne 16 -or $part.per_depth.'8'.pairs -ne 16 -or
+                  $part.per_depth.'9'.pairs -ne 16 -or $part.execution_failures -ne 0) {
+                throw 'F124O_MEASURED_DENOMINATOR_DRIFT'
+              }
+            }
+            if ($lane.lane -ceq 'Wingless' -and
+                ($lane.dev.fixed_paired -ne 43 -or $lane.prior_f124n_original_B_dev_paired -ne 0)) {
+              throw 'F124O_WINGLESS_ORIGINAL_CONTROL_DRIFT'
+            }
+            if ($lane.lane -ceq 'Yggdrasil' -and
+                ($lane.dev.fixed_paired -ne 45 -or $lane.prior_f124n_original_B_dev_paired -ne 8 -or
+                 $lane.dev.max_active -gt 7 -or $lane.dev.max_retained -gt 9)) {
+              throw 'F124O_YGGDRASIL_CELL_OR_CONTROL_DRIFT'
+            }
+            Write-Output "F124O_DEV_$($lane.lane):learned=$($lane.dev.learned_paired)/48 fixed=$($lane.dev.fixed_paired)/48 legacyB=$($lane.prior_f124n_original_B_dev_paired)/48"
+          }
+          $digest = (Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            $digest + '  f124o-independent-two-learned-development.json' + [Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+          Write-Output "F124O_SOURCE_RECEIPT_SHA256=$digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124o-both-native-learned-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124o-independent-two-learned-development.json
+            ${{ runner.temp }}/f124o-independent-two-learned-development.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  final-full-regression:
+    needs: independent-actual-fit-and-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full integration regression, race, vet, build and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124O_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124O_PROTECTED_FIRST_USE=false'
