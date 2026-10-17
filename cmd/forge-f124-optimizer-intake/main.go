@@ -257,12 +257,10 @@ func main(){
  result,err:=execute(*root,*j,*i)
  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
  bytes,err:=json.MarshalIndent(result,"","  ");if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
- bytes=append(bytes,'
-')
+ bytes=append(bytes,byte(10))
  f,err:=os.OpenFile(*output,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
  if err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
  if _,err=f.Write(bytes);err!=nil{f.Close();fmt.Fprintln(os.Stderr,err);os.Exit(1)}
  if err=f.Close();err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(1)}
- fmt.Printf("F124M_DUAL_LANE_ORIGINAL_TRAIN_OPTIMIZER_ADVISORY_SHA256=%s
-",pin(bytes))
+ fmt.Println("F124M_DUAL_LANE_ORIGINAL_TRAIN_OPTIMIZER_ADVISORY_SHA256="+pin(bytes))
 }
