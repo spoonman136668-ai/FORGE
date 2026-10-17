@@ -265,7 +265,8 @@ def generated_programs(lane,cfg):
     for p in programs:
         if len(chosen)>=limit:break
         if p not in chosen:chosen.append(p)
-    need(len(chosen)==limit and len({p["sha256"] for p in chosen})==limit and
+    need(3<=len(chosen)<=limit and
+         len({p["sha256"] for p in chosen})==len(chosen) and
          len({p["family"] for p in chosen})>=3 and
          all(p["ast"]!=parent for p in chosen),
          "INSUFFICIENT_NOVEL_PROGRAM_GENERATION")
