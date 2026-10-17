@@ -8,6 +8,10 @@ on:
     branches: [main]
     paths:
       - 'nativeevidence/**'
+      - 'reference/research-intake/f100-frozen-successor-contract.json'
+      - 'reference/research-intake/f101-wingless-development-freeze.json'
+      - 'reference/research-intake/f102-yggdrasil-role-dev-freeze.json'
+      - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'cmd/forge-model-free-loop/**'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
   schedule:
@@ -21,6 +25,10 @@ on:
       - 'genenv/**'
       - 'optimizerstages/**'
       - 'nativeevidence/**'
+      - 'reference/research-intake/f100-frozen-successor-contract.json'
+      - 'reference/research-intake/f101-wingless-development-freeze.json'
+      - 'reference/research-intake/f102-yggdrasil-role-dev-freeze.json'
+      - 'reference/research-intake/f99-authentic-development-negative-history.json'
       - 'evoportfolio/**'
       - 'classification/**'
       - 'subprocesssupervisor/**'
@@ -154,6 +162,213 @@ jobs:
           $python = if ($IsWindows) { 'python' } else { 'python3' }
           & $python -B -m unittest discover -s nativeevidence -p 'test_f98_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f99_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F99_REAL_ARCHIVE_ADVERSARIAL_TESTS_FAILED' }
+      - name: Qualify bounded F100 real-negative successor preregistration (source-only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f100_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F100_PREREG_ADVERSARIAL_TESTS_FAILED' }
+          $outdir = Join-Path $env:RUNNER_TEMP 'forge-f100-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $reportPath = Join-Path $outdir 'f100-successor-prereg-proof.json'
+          & $python -B nativeevidence/f100_frozen_successors.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $reportPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F100_FROZEN_CONTRACT_FAILED' }
+          $proof=Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.autonomy.f100.development-successor-preregistration-proof.v1' -or
+              $proof.forge_source_sha -cne $env:GITHUB_SHA -or
+              $proof.f99_parent_git_blob_sha -cne 'a280814e324d80bcc2590bbab939446180683e45' -or
+              $proof.lanes.Count -ne 2 -or
+              $proof.lanes[0].lane -cne 'Wingless' -or
+              $proof.lanes[1].lane -cne 'Yggdrasil' -or
+              $proof.candidates_frozen -ne 4 -or
+              $proof.historical_development_negative_pairs -ne 288 -or
+              $proof.new_experiments_executed -ne 0 -or
+              $proof.new_results_observed -ne 0 -or
+              $proof.trainable_policy_updates -ne 0 -or
+              $proof.model_calls -ne 0 -or $proof.codex_calls -ne 0 -or
+              $proof.paid_external_model_calls -ne 0 -or
+              $proof.scientific_first_use_authorized -or
+              $proof.autonomous_research_established -or
+              $proof.accepted_ref_mutations -ne 0) {
+            throw 'FORGE_F100_UNAUTHORIZED_SCIENTIFIC_OR_MODEL_EXECUTION'
+          }
+          $all=@()
+          foreach ($lane in $proof.lanes) {
+            if ($lane.candidate_ids.Count -ne 2 -or
+                $lane.public_development_seed_count -ne 48 -or
+                $lane.implementation_started -or
+                $lane.science_first_use_authorized -or
+                $lane.retrospective_learned_correct_pairs -ne 0 -or
+                $lane.retrospective_coded_control_pairs -ne $lane.authentic_negative_pairs) {
+              throw 'FORGE_F100_FROZEN_DEV_BOUNDARY_FAILED'
+            }
+            $all += $lane.candidate_ids
+          }
+          if (@($all | Select-Object -Unique).Count -ne 4) {
+            throw 'FORGE_F100_DUPLICATED_CANDIDATE_LINEAGE'
+          }
+          $digest=(Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f100-successor-prereg-proof.sha256'),
+            "$digest  f100-successor-prereg-proof.json`n",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F100_FROZEN_FOUR_CANDIDATE_DEV_DESIGN=PASS'
+          Write-Host 'FORGE_F100_NEW_SCIENCE_AND_AUTONOMOUS_MODEL=ZERO'
+      - name: Execute bounded Wingless F101 learned public-development mechanism and frozen controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f101_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F101_DEPTH_LEARNER_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f101-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $out=Join-Path $outdir 'f101-wingless-public-dev.json'
+          & $python -B nativeevidence/f101_wingless_public_depth.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F101_REAL_LEARNED_DEV_MECHANISM_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f101.public-development-mechanism-feasibility.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.lane -cne 'Wingless' -or $d.candidate_id -cne 'W100-C1' -or
+              $d.development_pair_count -ne 144 -or
+              $d.training_pair_count -ne 96 -or
+              $d.public_dev_assessment_pairs -ne 48 -or
+              $d.trainable_parameter_count -ne 4 -or
+              $d.training_updates -ne 100 -or
+              $d.control_training_updates -ne 100 -or
+              $d.independently_accepted_scientific_gain -or
+              $d.protected_first_use_authorized -or
+              $d.fresh_scientific_original_executed -or
+              $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.external_model_api_calls -ne 0 -or
+              $d.chatgpt_work_tasks -ne 0 -or
+              -not $d.previous_W_F10_negative_preserved) {
+            throw 'FORGE_F101_PUBLIC_DEV_OR_SCIENCE_BOUNDARY_DRIFT'
+          }
+          $scores=$d.public_dev_accuracy_by_arm
+          if ($scores.learned_depth_conditioned -lt 0.75 -or
+              $scores.size_matched_depth_blind -gt 0.85 -or
+              $scores.always_yes_shortcut -ne 0 -or
+              $scores.coded_exact_depth_oracle -ne 1 -or
+              -not $d.public_development_screen_passed) {
+            throw 'FORGE_F101_PUBLIC_DEV_SCREEN_FAILED_NO_SCIENCE_CLAIM'
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f101-wingless-public-dev.sha256'),
+            "$hash  f101-wingless-public-dev.json`n",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F101_REAL_BOUNDED_PUBLIC_DEVELOPMENT=PASS'
+          Write-Host 'FORGE_F101_PROSPECTIVE_ORIGINALS_AND_MODEL_APIS=ZERO'
+      - name: Qualify learned Yggdrasil F102 typed-role public development and controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f102_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F102_TYPED_ROLE_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f102-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $out=Join-Path $outdir 'f102-yggdrasil-public-dev.json'
+          & $python -B nativeevidence/f102_yggdrasil_public_roles.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F102_REAL_LEARNED_ROLE_COMPOSITION_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f102.yggdrasil-public-dev-real-learned-role-composer.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.lane -cne 'Yggdrasil' -or $d.candidate_id -cne 'Y100-C1' -or
+              $d.total_public_development_pairs -ne 144 -or
+              $d.training_pairs -ne 96 -or
+              $d.public_development_assessment_pairs -ne 48 -or
+              $d.trainable_parameters -ne 18 -or
+              $d.learned_training_updates -ne 100 -or
+              $d.blind_control_training_updates -ne 100 -or
+              $d.scientific_originals_executed -ne 0 -or
+              $d.independent_scientific_results_accepted -ne 0 -or
+              $d.first_use_authorized -or $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_invocations -ne 0 -or
+              $d.external_model_api_calls -ne 0 -or $d.chatgpt_work_tasks -ne 0 -or
+              $d.ckb_plane_accessed -or
+              -not $d.historical_Y_F9_zero_of_192_negative_preserved -or
+              -not $d.coded_oracle_only_control) {
+            throw 'FORGE_F102_PUBLIC_DEVELOPMENT_NONAUTHORITY_DRIFT'
+          }
+          $scores=$d.paired_public_dev_accuracy
+          if ($scores.learned_typed_role_composer -lt 0.75 -or
+              $scores.size_matched_role_blind -ne 0 -or
+              $scores.always_yes_shortcut -ne 0 -or
+              $scores.coded_typed_role_oracle -ne 1 -or
+              $d.node_renaming_prediction_agreement -ne 1 -or
+              $d.worst_role_family_accuracy -lt 0.60 -or
+              -not $d.public_development_screen_passed) {
+            throw 'FORGE_F102_FROZEN_PUBLIC_DEVELOPMENT_SCREEN_FAILED'
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f102-yggdrasil-public-dev.sha256'),
+            "$digest  f102-yggdrasil-public-dev.json`n",
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F102_YGGDRASIL_LEARNED_ROLE_DEVELOPMENT=PASS'
+          Write-Host 'FORGE_F102_PROTECTED_FIRST_USE_AND_PAID_MODELS=ZERO'
+      - name: Train and audit F103 learned Yggdrasil variable-binding public development
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f103_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F103_VARIABLE_BINDING_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f103-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $out=Join-Path $outdir 'f103-yggdrasil-variable-binding-dev.json'
+          & $python -B nativeevidence/f103_yggdrasil_public_binding.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F103_LEARNED_BINDER_EXECUTION_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f103.yggdrasil-public-dev-learned-variable-binding.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.lane -cne 'Yggdrasil' -or $d.candidate_id -cne 'Y100-C2' -or
+              $d.total_development_pairs -ne 144 -or
+              $d.training_pairs -ne 96 -or $d.assessment_pairs -ne 48 -or
+              $d.trainable_parameters -ne 20 -or
+              $d.learned_training_updates -ne 100 -or
+              $d.variable_blind_training_updates -ne 100 -or
+              $d.first_use_authorized -or $d.scientific_originals_executed -ne 0 -or
+              $d.independent_scientific_results_accepted -ne 0 -or
+              $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or $d.codex_invocations -ne 0 -or
+              $d.paid_api_calls -ne 0 -or $d.chatgpt_work_tasks -ne 0 -or
+              $d.ckb_plane_accessed -or
+              -not $d.historical_Y_F9_negative_0_of_192_preserved -or
+              -not $d.oracle_only_separate_control) {
+            throw 'FORGE_F103_UNEARNED_SCIENTIFIC_AUTHORITY_OR_SOURCE_DRIFT'
+          }
+          $scores=$d.paired_public_dev_accuracy
+          if ($scores.learned_variable_slot_binder -lt 0.75 -or
+              ($scores.learned_variable_slot_binder - $scores.size_matched_role_aware_variable_blind) -lt 0.15 -or
+              $d.worst_group_accuracy -lt 0.60 -or
+              $d.variable_renaming_agreement -lt 0.95 -or
+              $d.node_renaming_agreement -ne 1 -or
+              $scores.size_matched_role_aware_variable_blind -ne 0 -or
+              $scores.always_yes_shortcut -ne 0 -or
+              $scores.coded_exact_binding_oracle -ne 1 -or
+              -not $d.public_development_screen_passed) {
+            throw 'FORGE_F103_FROZEN_PUBLIC_DEV_SCREEN_FAILED_RETAIN_NEGATIVE'
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f103-yggdrasil-variable-binding-dev.sha256'),
+            "$digest  f103-yggdrasil-variable-binding-dev.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F103_LEARNED_VARIABLE_BINDING_PUBLIC_DEV=PASS'
+          Write-Host 'FORGE_F103_PROTECTED_FIRST_USE_AND_PAID_INFERENCE=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -210,6 +425,45 @@ jobs:
               throw 'FORGE_F98_ARCHIVE_SOURCE_METADATA_MISREPRESENTED'
             }
           }
+          # F99 is part of the OPTIONAL, quarantinable historical observer:
+          # authentic ZIP bytes are rehashed and rows reaggregated, never
+          # treated as a live scientific original or GenEnv policy training.
+          $f99Path = Join-Path $root 'f99-historical-development-negatives.json'
+          & $python -B nativeevidence/f99_real_archive.py --download-readonly --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $f99Path -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F99_PINNED_ARCHIVE_BYTES_FAILED' }
+          $f99 = Get-Content -LiteralPath $f99Path -Raw | ConvertFrom-Json
+          if ($f99.schema -cne 'forge.autonomy.f99.row-reaggregated-train-only-shadow.v1' -or
+              $f99.forge_source_sha -cne $env:GITHUB_SHA -or
+              $f99.cohorts.Count -ne 2 -or
+              $f99.cohorts[0].lane -cne 'Wingless' -or
+              $f99.cohorts[1].lane -cne 'Yggdrasil' -or
+              $f99.archived_negative_development_records -ne 2 -or
+              $f99.training_only_observations_observed -ne 2 -or
+              $f99.genenv_training_activated -or
+              $f99.independent_originals_accepted -ne 0 -or
+              $f99.protected_first_use_authorized -or
+              $f99.new_originals_dispatched -ne 0 -or
+              $f99.accepted_ref_mutations -ne 0 -or
+              $f99.codex_calls -ne 0 -or $f99.model_calls -ne 0 -or
+              $f99.paid_api_calls -ne 0) {
+            throw 'FORGE_F99_ACTUAL_DEV_EVIDENCE_FALSE_SCIENCE_CLAIM'
+          }
+          foreach ($entry in $f99.cohorts) {
+            if (-not $entry.actual_archive_bytes_rehashed -or
+                -not $entry.contained_json_rows_reaggregated -or
+                -not $entry.historical_development_negative_only -or
+                $entry.independently_accepted_scientific_original -or
+                $entry.genenv_training_activated -or
+                $entry.independently_reaggregated_learned_correct_pairs -ne 0 -or
+                $entry.independently_reaggregated_coded_control_pairs -ne
+                  $entry.observed_historical_development_pairs) {
+              throw 'FORGE_F99_ROW_LEVEL_EVIDENCE_UNVERIFIED'
+            }
+          }
+          Write-Host 'FORGE_F99_AUTHENTIC_ZIP_AND_ROW_LEVEL_NEGATIVES=PASS'
+          Write-Host 'FORGE_F99_TRAIN_ONLY_HISTORICAL_OBSERVATIONS=2'
+          Write-Host 'FORGE_F99_PROSPECTIVE_SCIENCE_AND_OPTIMIZER_ACTIVATION=ZERO'
           Get-ChildItem $root -File | Where-Object { $_.Name -ne 'source-sha256.txt' } | ForEach-Object {
             $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$digest  $($_.Name)"
@@ -240,6 +494,10 @@ jobs:
             ${{ runner.temp }}/forge-model-free-advisory.json
             ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-f98-evidence/
+            ${{ runner.temp }}/forge-f100-development/
+            ${{ runner.temp }}/forge-f101-development/
+            ${{ runner.temp }}/forge-f102-development/
+            ${{ runner.temp }}/forge-f103-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
