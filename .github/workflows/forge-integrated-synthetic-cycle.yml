@@ -658,6 +658,66 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F108_PUBLIC_TRANSFER_SUPERIORITY_EVIDENCE=RETAINED_POSITIVE_OR_NEGATIVE'
           Write-Host 'FORGE_F108_INDEPENDENT_SCIENCE_AND_AUTONOMOUS_GPT=ZERO'
+      - name: F109 test frozen resource-matched failure-driven public mechanisms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f109_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F109_ADVERSARIAL_PUBLIC_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f109-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $report=Join-Path $outdir 'f109-failure-driven-public-dev.json'
+          & $python -B nativeevidence/f109_failure_driven_mechanisms.py --source-ref $env:GITHUB_SHA --evidence-root $env:RUNNER_TEMP |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F109_FROZEN_NEW_MECHANISM_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f109.resource-matched-failure-driven-public-development.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.evidence_class -cne 'PUBLIC_SYNTHETIC_FROZEN_RESOURCE_MATCHED_NO_SCIENCE' -or
+              -not $d.prior_F108_negative_results_preserved -or
+              -not $d.all_arm_and_per_pair_outcomes_preserved -or
+              $d.lanes.Count -ne 2 -or
+              $d.lanes[0].lane -cne 'Wingless' -or
+              $d.lanes[1].lane -cne 'Yggdrasil' -or
+              $d.scientific_originals_executed -ne 0 -or
+              $d.independent_science_accepted -ne 0 -or
+              $d.first_use_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.native_science_dispatches -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.paid_model_api_calls -ne 0 -or
+              $d.chatgpt_work_tasks -ne 0 -or
+              $d.new_schedulers -ne 0 -or
+              $d.ckb_plane_contact -or
+              $d.cloudflare_writes -ne 0) {
+            throw 'FORGE_F109_FALSE_AUTHORITY_OR_UNTRUSTED_EVIDENCE'
+          }
+          foreach ($lane in $d.lanes) {
+            if ($lane.training_pairs -ne 96 -or
+                $lane.diagnostic_pairs -ne 48 -or
+                $lane.parent_training_steps -ne 100 -or
+                $lane.candidate_training_steps -ne 100 -or
+                $lane.all_paired_records.Count -ne 48 -or
+                $lane.exact_control_score -ne 1 -or
+                $lane.candidate_resource_cost -gt $lane.parent_resource_cost -or
+                $lane.disposition -notin @('NO_DEMONSTRATED_GAIN_RETAIN_NEGATIVE','POSITIVE_PUBLIC_DEV_SCREEN_NOT_INDEPENDENT_SCIENCE') -or
+                -not $lane.no_scientific_permission) {
+              throw 'FORGE_F109_UNFAIR_COMPARISON_OR_LOST_NEGATIVES'
+            }
+            if ($lane.resource_matched_public_screen_passed -and
+                ($lane.net_pair_advantage -lt 6 -or $lane.worst_candidate_family_accuracy -lt 0.6)) {
+              throw 'FORGE_F109_UNEARNED_SUPERIORITY'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f109-failure-driven-public-dev.sha256'),
+            "$digest  f109-failure-driven-public-dev.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F109_FROZEN_PUBLIC_MECHANISM_SCREEN=EVIDENCE_RETAINED'
+          Write-Host 'FORGE_F109_SCIENCE_AND_EXTERNAL_INFERENCE=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -792,6 +852,7 @@ jobs:
             ${{ runner.temp }}/forge-f106-development/
             ${{ runner.temp }}/forge-f107-development/
             ${{ runner.temp }}/forge-f108-development/
+            ${{ runner.temp }}/forge-f109-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
