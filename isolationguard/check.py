@@ -142,6 +142,25 @@ def verify_policy_files(root: pathlib.Path) -> None:
         raise GateError("LEGACY_RECONCILIATION_COMMAND_NOT_FAIL_CLOSED")
 
 
+    # ISO-05: an additional live CLI still imported private GitHub history,
+    # read caller-provided legacy state and described cutover custody. It
+    # must now stay an inert denial, irrespective of bundle, time or token.
+    cutover_cli = root / "cmd" / "forge-cutover-audit" / "main.go"
+    if not cutover_cli.is_file():
+        raise GateError("MISSING_RETIRED_CUTOVER_SENTINEL")
+    cutover_body = cutover_cli.read_text(encoding="utf-8")
+    if ("const FORGE_CKB_CUTOVER_AUDIT_COMMAND_RETIRED = true" not in cutover_body or
+        "func run(_ []string, _ io.Writer, _ uint64) error {" not in cutover_body or
+        "return errRetired" not in cutover_body or
+        any(fragment in cutover_body for fragment in (
+            "ckbhistory", "ckbreconcile", "ckbcustody", "cutovergate",
+            "os.ReadFile", "os.Lstat", "os.Open(", "os.OpenFile",
+            "os.Getenv", "os.Args", "time.Now", "filepath.",
+            "flag.NewFlagSet", "context.", "http.", "net/http",
+            "json.NewDecoder", "json.NewEncoder", "exec.Command"))):
+        raise GateError("LEGACY_CUTOVER_COMMAND_NOT_FAIL_CLOSED")
+
+
 def audit_repo(root: pathlib.Path) -> list[tuple[str, str]]:
     verify_policy_files(root)
     head = run_git(root, "rev-parse", "HEAD").strip()
