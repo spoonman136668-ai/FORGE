@@ -381,6 +381,102 @@ jobs:
             "$digest  f120-controlled-graph-development.json"+[Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'F120_GENERATED_CHALLENGE_EXPERIMENT_AND_SOURCE_ONLY_NEGATIVES=ARCHIVED'
+      - name: F124 autonomous generated research-direction feedback and scheduled continuity
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124_FEEDBACK_ADVERSARIAL_TESTS_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'forge-f124-autonomy'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $advisory=Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.json'
+          $receipt=Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.sha256'
+          $digest=(Get-FileHash -LiteralPath $advisory -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ((Get-Content -LiteralPath $receipt -Raw).Trim() -cne "$digest  forge-model-free-advisory.json") {
+            throw 'F124_SOURCE_ADVISORY_RECEIPT_DRIFT'
+          }
+          $args2=@('--advisory',$advisory,'--source-ref',$env:GITHUB_SHA,
+            '--run-id',$env:GITHUB_RUN_ID,'--event',$env:GITHUB_EVENT_NAME,
+            '--output',(Join-Path $root 'state.json'))
+          if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            $runs=& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+              "/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&event=schedule&per_page=40") | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F124_SCHEDULE_HISTORY_READ_FAILED' }
+            foreach ($prior in @($runs.workflow_runs | Sort-Object id -Descending)) {
+              if ([int64]$prior.id -ge [int64]$env:GITHUB_RUN_ID -or
+                  $prior.conclusion -cne 'success' -or $prior.run_attempt -ne 1 -or
+                  $prior.event -cne 'schedule' -or $prior.head_branch -cne 'main') { continue }
+              $all=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$prior.id+
+                "/artifacts?per_page=100") | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { throw 'F124_SCHEDULE_ARTIFACT_QUERY_FAILED' }
+              $matches=@($all.artifacts | Where-Object {
+                $_.name -ceq 'forge-f124-autonomy-ubuntu-latest' -and -not $_.expired
+              })
+              if ($matches.Count -eq 0) { continue }
+              if ($matches.Count -ne 1) { throw 'F124_DUPLICATE_PRIOR_ARTIFACT' }
+              $old=Join-Path $root 'prior'
+              New-Item -ItemType Directory -Path $old -Force | Out-Null
+              & gh run download $prior.id --repo $env:GITHUB_REPOSITORY -n 'forge-f124-autonomy-ubuntu-latest' -D $old
+              if ($LASTEXITCODE -ne 0) { throw 'F124_PREVIOUS_DOWNLOAD_FAILED' }
+              $state=Join-Path $old 'state.json'
+              $sha=Join-Path $old 'state.sha256'
+              if (-not (Test-Path -LiteralPath $state) -or
+                  -not (Test-Path -LiteralPath $sha)) { throw 'F124_MISSING_PRIOR_BYTES' }
+              $sum=(Get-FileHash -LiteralPath $state -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ((Get-Content -LiteralPath $sha -Raw).Trim() -cne "$sum  state.json") {
+                throw 'F124_PRIOR_CHECKSUM_MISMATCH'
+              }
+              $metadata=Join-Path $root 'prior-github-run.json'
+              [System.IO.File]::WriteAllText($metadata,($prior | ConvertTo-Json -Depth 14 -Compress),
+                [System.Text.UTF8Encoding]::new($false))
+              $args2+=@('--previous',$state,'--previous-meta',$metadata)
+              break
+            }
+          }
+          & $python -B nativeevidence/f124_feedback_curriculum.py @args2
+          if ($LASTEXITCODE -ne 0) { throw 'F124_DEVELOPMENT_LOOP_QUARANTINED' }
+          $report=Join-Path $root 'state.json'
+          $proof=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.autonomy.f124.feedback-directed-development.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$proof.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $proof.rounds.Count -ne 4 -or
+              $proof.actual_controlled_graph_pairs -ne 96 -or
+              $proof.bounded_generated_hypothesis_choices -ne 3 -or
+              -not $proof.feedback_changes_second_round -or
+              -not $proof.model_free_source_only_challenge_selection -or
+              $proof.scientific_hypothesis_invention_proven -or
+              $proof.unattended_two_run_continuity_proven -or
+              $proof.scientific_originals -ne 0 -or
+              $proof.accepted_ref_mutations -ne 0 -or
+              $proof.optimizer_promotions -ne 0 -or
+              $proof.Codex_calls -ne 0 -or $proof.paid_model_calls -ne 0 -or
+              $proof.new_schedulers -ne 0 -or $proof.ckb_plane_contact -or
+              $proof.cloudflare_writes -ne 0 -or $proof.mind_palace_writes -ne 0) {
+            throw 'F124_FALSE_SCIENTIFIC_AUTONOMY_OR_AUTHORITY'
+          }
+          foreach ($lane in @('Wingless','Yggdrasil')) {
+            $actions=@($proof.rounds | Where-Object {$_.lane -ceq $lane})
+            if ($actions.Count -ne 2 -or
+                $actions[0].direction -ceq $actions[1].direction -or
+                $actions[0].confirmation.cases -ne 16 -or
+                $actions[1].confirmation.cases -ne 16 -or
+                $actions[0].training.cases -ne 8 -or
+                $actions[1].training.cases -ne 8) {
+              throw 'F124_NOT_REAL_FEEDBACK_DIRECTED_TWO_ROUNDS'
+            }
+            Write-Host ('F124_AUTONOMOUS_DEVELOPMENT '+$lane+
+              ' first='+$actions[0].direction+' second='+$actions[1].direction+
+              ' next='+$proof.next_scheduled_development_directions.$lane)
+          }
+          $stateHash=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'state.sha256'),
+            "$stateHash  state.json"+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
+          Write-Host ('F124_CONTINUITY='+$proof.continuity)
+          Write-Host 'F124_TWO_LANE_FEEDBACK_DIRECTED_CHALLENGE_EVOLUTION=SOURCE_ONLY'
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -509,3 +605,13 @@ jobs:
             ${{ runner.temp }}/forge-f120-development/f120-controlled-graph-development.sha256
           if-no-files-found: error
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f124-autonomy-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f124-autonomy/state.json
+            ${{ runner.temp }}/forge-f124-autonomy/state.sha256
+          retention-days: 30
+          if-no-files-found: error
+
