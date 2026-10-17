@@ -102,6 +102,60 @@ jobs:
           PY
           sha256sum f110o-rejection-morphology.json > f110o-rejection-morphology.sha256
           sha256sum -c f110o-rejection-morphology.sha256
+      - name: Second frozen leading-dot source grammar and graph denial controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f110o_empty_dot_candidate.py' -v
+      - name: All 37306 TRAIN labels second preregistered candidate and graph custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f110o_empty_dot_candidate.py --upstream original-freebaseqa-train --out f110o-leading-dot-candidate.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f110o-leading-dot-candidate.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f110o.original-train-leading-dot-candidate.v1'
+          assert x['status']=='PUBLIC_FREEBASE_TRAIN_EMPTY_DOT_CANDIDATE_DIAGNOSTIC'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['source_train_git_blob']=='24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          assert x['source_train_bytes']==23888089
+          c=x['candidate']
+          assert c['original_train_rows']==c['source_unique_question_ids']==20358
+          assert c['original_parse_instances']==37306
+          a=c['exclusive_original_subtype_counts']
+          assert a['f109_accepted']==25498
+          assert a['f109_non_empty_dot_rejected']==1
+          assert sum(v for k,v in a.items() if k not in ('f109_accepted','f109_non_empty_dot_rejected'))==11807
+          assert sum(a.values())==37306
+          b=c['one_preselected_candidate_status_counts']
+          assert b['candidate_one_leading_dot_accepted']+b['candidate_additional_rejected']==11807
+          for k in ('f109_predicate_grammar_modified',
+                    'original_source_predicate_values_published',
+                    'source_label_is_question_prediction',
+                    'source_answers_inspected','role_direction_inferred'):
+            assert c[k] is False,k
+          g=x['original_freebase_graph_custody']
+          assert g['status']=='FREEBASE_GRAPH_SOURCE_NOT_QUALIFIED'
+          assert g['admitted'] is False
+          assert g['real_graph_calls']==0
+          assert g['original_full_edge_corpus_read'] is False
+          assert g['original_freebase_archive_auto_download_allowed'] is False
+          assert len(g['missing_or_invalid_metadata_fields'])==g['source_metadata_field_total']
+          for key in ('train_answers_interpreted','dev_eval_qa_read',
+                      'real_graph_source_read','independent_scientific_firstuse',
+                      'accepted_science','accepted_ref_mutation',
+                      'dream_pareto_promotion','thetaevolve_accepted_training',
+                      'science_dispatch'):
+            assert x[key] is False,key
+          assert x['qa_answers_compared']==x['original_graph_queries']==0
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F110O_FROZEN_DOT_SUBTYPES='+json.dumps(a,sort_keys=True))
+          print('F110O_ONE_CANDIDATE='+json.dumps(b,sort_keys=True))
+          print('F110O_AUTHENTIC_GRAPH_ANSWERS_AND_SCIENCE=ZERO')
+          PY
+          sha256sum f110o-leading-dot-candidate.json > f110o-leading-dot-candidate.sha256
+          sha256sum -c f110o-leading-dot-candidate.sha256
       - name: Exact-head full FORGE Go tests vet build
         shell: bash
         run: |
@@ -117,5 +171,7 @@ jobs:
           path: |
             f110o-rejection-morphology.json
             f110o-rejection-morphology.sha256
+            f110o-leading-dot-candidate.json
+            f110o-leading-dot-candidate.sha256
           retention-days: 45
           if-no-files-found: error
