@@ -42,8 +42,11 @@ def sources():
 def edge_key(e):
     return (e["from"], e["to"], e["role"])
 
+def public_edge_id(e):
+    return (e["from"], e["to"], e["role"], tuple(e["src_bits"]), tuple(e["dst_bits"]))
+
 def route_key(path):
-    return hashlib.sha256(json.dumps([edge_key(e) for e in path],
+    return hashlib.sha256(json.dumps([public_edge_id(e) for e in path],
                           sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 def route_witness(obs, weights):
@@ -94,31 +97,40 @@ def model_cost(obs):
 def edge_ablation(obs, weights):
     """Invert each downstream route-edge source slot, with no oracle coordinates."""
     actual = learned.predict_b(obs, weights)[0]
-    keys = set()
+    ids = set()
     for route in learned.public_paths(obs):
         for e in route[1:]:
-            keys.add(edge_key(e))
+            ids.add(public_edge_id(e))
     diffs = []
-    for key in sorted(keys):
+    for ident in sorted(ids):
         candidate = copy.deepcopy(obs)
-        matches = [edge for edge in candidate["edges"] if edge_key(edge) == key]
-        require(len(matches) == 1, "EDGE_KEY_AMBIGUITY")
+        matches = [edge for edge in candidate["edges"] if public_edge_id(edge) == ident]
+        require(len(matches) == 1, "MULTIEDGE_PUBLIC_TOKEN_ID_AMBIGUITY")
         matches[0]["src_bits"] = [1-v for v in matches[0]["src_bits"]]
         change = abs(learned.predict_b(candidate, weights)[0] - actual)
-        diffs.append((key, change))
+        diffs.append((ident[:3], change))
     return diffs
 
 def paired_audit(positive, negative, weights):
     env.admit(positive, negative)
     yes, pos_routes = route_witness(positive, weights)
     no, neg_routes = route_witness(negative, weights)
-    p_edges = {edge_key(e): e for e in positive["edges"]}
-    n_edges = {edge_key(e): e for e in negative["edges"]}
-    require(len(p_edges) == len(positive["edges"]) and
-            set(p_edges) == set(n_edges), "EDGE_IDENTITY_DRIFT")
-    altered = {k for k in p_edges if p_edges[k]["src_bits"] != n_edges[k]["src_bits"]
-               or p_edges[k]["dst_bits"] != n_edges[k]["dst_bits"]}
-    require(len(altered) == 2, "MATCHED_INTERVENTION_DRIFT")
+    from collections import Counter
+    topologies = set(edge_key(e) for e in positive["edges"])
+    require(topologies == set(edge_key(e) for e in negative["edges"]),
+            "EDGE_TOPOLOGY_DRIFT")
+    def group(obs, topo):
+        return Counter((tuple(e["src_bits"]), tuple(e["dst_bits"]))
+                       for e in obs["edges"] if edge_key(e) == topo)
+    altered = set()
+    swapped_edge_count = 0
+    for key in topologies:
+        pos, neg = group(positive, key), group(negative, key)
+        if pos != neg:
+            altered.add(key)
+            swapped_edge_count += sum((pos - neg).values())
+    require(swapped_edge_count == 2 and len(altered) >= 1,
+            "MATCHED_MULTIEDGE_INTERVENTION_DRIFT")
     abl = edge_ablation(positive, weights)
     require(bool(abl), "NO_ELIGIBLE_CAUSAL_ABLATION")
     biggest = max(x[1] for x in abl)
