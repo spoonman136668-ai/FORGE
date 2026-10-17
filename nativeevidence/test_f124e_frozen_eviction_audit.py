@@ -65,7 +65,7 @@ class F124EFrozenEvictionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f=Path(d)/"fake.json"
             f.write_text("{}")
-            with self.assertRaisesRegex(graph.Invalid,"IMMUTABLE_TRAIN_DIGEST_MISMATCH"):
+            with self.assertRaisesRegex(graph.Invalid,"ORIGINAL_TRAIN_DIGEST_MISMATCH"):
                 a.source_receipt(f)
 
     def test_never_open_reservation_or_oracle_model_inputs(self):
