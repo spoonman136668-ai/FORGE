@@ -18,7 +18,7 @@ import f124h_source as original_source
 import f124k_extended_source as fixture
 
 SCHEMA="forge.research.f124k.fixture-only-long-depth-source-qualification.v1"
-GENERATOR_BLOB="b7c665e20c00b74fcff6655dba969a7e3de2c525ffab"
+GENERATOR_BLOB="b7c665e20c0fcff6655dba969a7e3de2c525ffab"
 ORIGINAL_MODEL_BLOB="599d7a87f0812f3a7d2c8680861b6360d3640bc0"
 ORIGINAL_SOURCE_BLOB="3feab91460f29ec169e1904479a134bb04691937"
 
