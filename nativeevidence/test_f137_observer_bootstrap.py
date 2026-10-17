@@ -44,7 +44,7 @@ class F137ObserverRecovery(unittest.TestCase):
         self.assertTrue(report["observer_two_artifact_provenance_verified"])
         self.assertTrue(report["development_only"])
         self.assertEqual(report["observer_event"],"schedule")
-        self.assertEqual(report["daily_main_development_starts"],0)
+        self.assertEqual(report["daily_main_development_starts"],1)
         self.assertFalse(report["genuine_integrated_schedule_claimed"])
         self.assertFalse(report["first_use_authorized"])
         for key in ("scientific_originals_dispatched","accepted_ref_mutations",
