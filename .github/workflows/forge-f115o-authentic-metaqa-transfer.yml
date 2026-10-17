@@ -1,0 +1,117 @@
+name: FORGE F115-O authentic MetaQA graph role-composition invariants
+on:
+  push:
+    branches: [engineering/f115o-metaqa-structural-transfer-20261017-r1]
+    paths:
+      - 'cmd/forge-f115o-metaqa-transfer/**'
+      - 'docs/F115O-*'
+      - '.github/workflows/forge-f115o-authentic-metaqa-transfer.yml'
+permissions:
+  contents: read
+jobs:
+  full-authenticated-source-multihop-invariants:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - name: Exact FORGE checkout no credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Original public MetaQA complete source graph ONLY
+        uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: original-metaqa-kb
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Original full MetaQA source exact Git blob and NO benchmark QA source read
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C original-metaqa-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C original-metaqa-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          sha="$(sha256sum original-metaqa-kb/metaqa/original/kb.txt | cut -d' ' -f1)"
+          test "$sha" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F115O_COMPLETE_ORIGINAL_GRAPH_ONLY_QA_SPLITS_NOT_MATERIALIZED'
+      - name: Focused frozen source-neutral synthetic structural controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./cmd/forge-f115o-metaqa-transfer
+      - name: Complete 134741 original source rows, exact 2/3 hop graph invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-f115o-metaqa-transfer --source-raw-kb original-metaqa-kb/metaqa/original/kb.txt --output f115o-authentic-metaqa-transfer.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f115o-authentic-metaqa-transfer.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f115o.authenticated-metaqa-graph-structural-transfer.v1'
+          assert x['status']=='PUBLIC_AUTHENTIC_METAQA_GRAPH_STRUCTURAL_INVARIANTS_ONLY'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['original_graph_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['original_source_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          g=x['original_whole_graph']
+          assert g['source_rows']==134741 and g['distinct_triples']==133582
+          assert g['duplicate_rows']==1159 and g['self_relations']==11
+          assert g['distinct_entities']==43234 and g['distinct_roles']==9
+          assert g['searchable_directional_arcs']==267164
+          for name in ('two_hop','three_hop'):
+            c=x[name]
+            assert c['selected']==64
+            assert c['source_order_equivalent']==64
+            assert c['role_renaming_equivalent']==64
+            assert c['forward_resolved']+c['forward_budget_refused']==64
+            assert c['reverse_source_witness_present']+c['reverse_budget_refused']==64
+            print('F115O_SOURCE_INVARIANCE_'+name+'='+json.dumps(c,sort_keys=True))
+          assert x['full_original_source_used'] is True
+          assert x['relation_renaming_is_bijective_only'] is True
+          for key in ('original_qa_questions_read','original_answers_read_or_scored',
+                      'freebase_publisher_graph_qualified','learned_neural_transfer_claim',
+                      'independent_scientific_firstuse','accepted_science',
+                      'accepted_ref_mutation','dream_pareto_promotion',
+                      'thetaevolve_accepted_training','science_dispatch'):
+            assert x[key] is False,key
+          assert x['codex_calls']==x['model_calls']==x['cloudflare_writes']==0
+          print('F115O_CLASSICAL_STRUCTURAL_INVARIANTS_NOT_LEARNED_MODEL_ACCURACY')
+          PY
+          sha256sum f115o-authentic-metaqa-transfer.json > f115o-authentic-metaqa-transfer.sha256
+          sha256sum -c f115o-authentic-metaqa-transfer.sha256
+      - name: Complete full exact-head FORGE Go test vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F115O_NO_FREEBASE_ARCHIVE_DOWNLOAD_CKB_CODEX_CLOUDFLARE_OR_SCIENTIFIC_PROMOTION'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f115o-authentic-metaqa-transfer-${{ matrix.os }}
+          path: |
+            f115o-authentic-metaqa-transfer.json
+            f115o-authentic-metaqa-transfer.sha256
+          retention-days: 45
+          if-no-files-found: error
