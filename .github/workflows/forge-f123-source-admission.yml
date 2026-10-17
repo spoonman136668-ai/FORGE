@@ -106,6 +106,37 @@ jobs:
           Write-Output "F123_SOURCE_ADVISORY_SHA256=$sourceHash"
           Write-Output "F123_TRAIN_WEIGHT_SHA256=$digest"
           Write-Output 'F123_CONFIRM_UNTOUCHED=true'
+      - name: TRAIN-only B route trace and model-vs-null causal audit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          $root=Join-Path $env:RUNNER_TEMP 'f123-frozen-training'
+          $report=Join-Path $root 'f123-train-route-ablation.json'
+          & $python -B nativeevidence/f123_route_ablation.py --advisory (Join-Path $root 'advisory.json') --train-report (Join-Path $root 'f123-train-weights.json') --source-ref $env:GITHUB_SHA --output $report
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ROUTE_CAUSAL_DIAGNOSTIC_QUARANTINED' }
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f123.train-only-route-causal-diagnostic.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or $r.lanes[1].lane -cne 'Yggdrasil' -or
+              -not $r.train_only -or $r.protected_confirmation_read -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.resource_parity_established -or $r.originals_dispatched -ne 0) {
+            throw 'F123_ROUTE_DIAGNOSTIC_FALSE_SCIENCE_OR_SOURCE'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.train_pairs -ne 48 -or $lane.causal_traces.Count -ne 96 -or
+                $lane.strata.Count -ne 2 -or $lane.selected_arm -cne 'B' -or
+                $lane.resource_matched -or $lane.scientific_claim_earned) {
+              throw 'F123_ROUTE_AUDIT_INCOMPLETE'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $root 'f123-train-route-ablation.sha256'),
+             ($digest + '  f123-train-route-ablation.json' + [Environment]::NewLine),
+             [Text.UTF8Encoding]::new($false))
+          Write-Output "F123_ROUTE_DIAGNOSTIC_SHA256=$digest"
+          Write-Output 'F123_CONFIRM_UNTOUCHED=true'
       - uses: actions/upload-artifact@v4
         with:
           name: f123-train-frozen-${{ matrix.os }}
@@ -114,6 +145,8 @@ jobs:
             ${{ runner.temp }}/f123-frozen-training/f123-train-weights.sha256
             ${{ runner.temp }}/f123-frozen-training/advisory.json
             ${{ runner.temp }}/f123-frozen-training/advisory.sha256
+            ${{ runner.temp }}/f123-frozen-training/f123-train-route-ablation.json
+            ${{ runner.temp }}/f123-frozen-training/f123-train-route-ablation.sha256
           if-no-files-found: error
           retention-days: 90
 
