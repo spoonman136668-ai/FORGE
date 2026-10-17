@@ -1,0 +1,153 @@
+name: F124-L original-bytecode 7-9-hop fixture-only validation
+on:
+  push:
+    branches: [research/f124l-validation-only-7to9-20261017]
+    paths:
+      - 'reference/research-intake/f124l-fixture-only-model-interface-freeze.json'
+      - 'nativeevidence/f124l_*.py'
+      - 'nativeevidence/test_f124l_*.py'
+      - '.github/workflows/forge-f124l-fixture-only-model-validation.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124l-fixture-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frozen-fixture-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify immutable source and validation-only original code identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F124L_SOURCE_DRIFT'
+          }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124l_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124L_ORIGINAL_CODE_INTERFACE_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124k_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124L_PARENT_SOURCE_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124L_ISOLATION_FAILED' }
+          Write-Host 'F124L_ORIGINAL_FORWARD_EQUATIONS_UNMODIFIED=true'
+          Write-Host 'F124L_NO_PROTECTED_FIRST_USE=true'
+
+  authenticated-fixture-evaluation:
+    needs: frozen-fixture-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39065249744
+          github-token: ${{ github.token }}
+          name: f124h-immutable-train-signed-evidence
+          path: original-f124h-train
+      - name: Verify original immutable trained Arm B custody and replay 48 fixtures per lane
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $original=Join-Path 'original-f124h-train' 'f124h-original-train-evidence.json'
+          $hash=(Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne '3ce0356ad9c19aeb4557ffe0b138908707c65ab3ce4b6af952adbf9899988254') {
+            throw 'F124L_AUTHENTIC_TRAIN_RECEIPT_MISMATCH'
+          }
+          $dir=Join-Path $env:RUNNER_TEMP 'f124l-original-model-fixtures'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $receipt=Join-Path $dir 'f124l-long-depth-fixture-evidence.json'
+          & python3 -B nativeevidence/f124l_fixture_only_evidence.py --train-receipt $original --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F124L_ORIGINAL_TRAIN_WEIGHT_FIXTURE_RUN_FAILED' }
+          $r=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124l.authentic-original-weight-fixture-only-7to9.v1' -or
+              $r.protocol_git_blob -cne '0280d0a669f68fb739833ec2f2e05a943b2124f1' -or
+              $r.original_model_git_blob -cne '599d7a87f0812f3a7d2c8680861b6360d3640bc0' -or
+              $r.original_train_receipt_sha256 -cne '3ce0356ad9c19aeb4557ffe0b138908707c65ab3ce4b6af952adbf9899988254' -or
+              $r.lanes.Count -ne 2 -or
+              -not $r.original_model_forward_code_object_reused -or
+              $r.original_model_source_modified -or
+              $r.original_model_weights_updated -or
+              $r.protected_examples_generated -ne 0 -or
+              $r.protected_examples_scored -ne 0 -or
+              $r.independent_first_use_witness_verified -or
+              $r.independent_original_scientific_first_use -or
+              $r.scientific_acceptances -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or
+              $r.Codex_calls -ne 0 -or
+              $r.paid_API_calls -ne 0) { throw 'F124L_UNEARNED_SCIENCE' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.fixture_pairs -ne 48 -or
+                $lane.exact_symbolic_paired_correct -ne 48 -or
+                $lane.depth.'7'.pairs -ne 16 -or
+                $lane.depth.'8'.pairs -ne 16 -or
+                $lane.depth.'9'.pairs -ne 16 -or
+                $lane.no_model_retraining -ne $true -or
+                $lane.no_protected_source_generation -ne $true) {
+              throw 'F124L_FIXTURE_DENOMINATOR_NOT_COMPLETE'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($receipt+'.sha256'),
+            ($digest+'  f124l-long-depth-fixture-evidence.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F124L_SOURCE_RECEIPT_SHA256=$digest"
+          Write-Host 'F124L_DEVELOPMENT_FIXTURE_ONLY=true'
+          Write-Host 'F124L_PROTECTED_CONFIRM_UNOPENED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124l-original-frozen-weight-fixture-${{ github.sha }}
+          path: ${{ runner.temp }}/f124l-original-model-fixtures/
+          retention-days: 90
+          if-no-files-found: error
+
+  full-regression:
+    needs: frozen-fixture-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full Go regression, Linux race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F124L_GO_REGRESSION=PASS'
+          echo 'F124L_PROTECTED_FIRST_USE=false'
