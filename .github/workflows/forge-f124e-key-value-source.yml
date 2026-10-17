@@ -9,9 +9,10 @@ on:
       - '.github/workflows/forge-f124e-key-value-source.yml'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: f124e-source-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   source-only:
     strategy:
@@ -40,8 +41,86 @@ jobs:
           Write-Output "F124E_QUALIFIED_SOURCE=${{ github.sha }}"
           Write-Output 'F124E_CONFIRM_GENERATED=false'
           Write-Output 'F124E_SCIENTIFIC_ACCEPTANCE=false'
-  exact-head-regression:
+  train-learned-key-value:
     needs: source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: authenticated-source
+      - name: Actually train both associative-memory arms for 100 epochs per lane
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124e-train-only-key-value-evidence.json'
+          $args=@('--f123-receipt-dir','authenticated-source',
+            '--source-sha',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--output',$out)
+          & python3 -B nativeevidence/f124e_train_receipt.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124E_SOURCE_PINNED_TRAIN_OR_COMPARATOR_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124e.train-only-associative-key-value-custody.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.original_candidate_source_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.generator_git_blob -cne 'a310c8f285b18a73bdce864335153beba4e1ea3d' -or
+              $r.model_git_blob -cne '83c55510d329f11c6552c927e80f2435b855a427' -or
+              $r.freeze_git_blob -cne '264e6812f4acff6431737f6c3a500218ce64558d' -or
+              $r.phase -cne 'TRAIN_ONLY' -or
+              $r.lanes.Count -ne 2 -or
+              $r.confirmation_cases_generated -ne 0 -or
+              $r.scientific_first_use -or $r.scientific_acceptances -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.Codex_calls -ne 0 -or $r.paid_model_calls -ne 0 -or
+              $r.new_scheduler -or $r.ckb_plane_contact -or
+              $r.cloudflare_writes -ne 0 -or $r.mind_palace_writes -ne 0 -or
+              $r.resource_matched_superiority_established) {
+            throw 'F124E_RECEIPT_SOURCE_OR_AUTHORITY_INVALID'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil') -or
+                $lane.frozen_selector_arm -cnotin @('A','B') -or
+                $lane.control_fixed_12_of_16.pairs -ne 48 -or
+                $lane.model_arms.A.train_pairs -ne 48 -or
+                $lane.model_arms.B.train_pairs -ne 48 -or
+                $lane.model_arms.A.epochs -ne 100 -or
+                $lane.model_arms.B.epochs -ne 100 -or
+                $lane.model_arms.A.parameter_count -ne 132 -or
+                $lane.model_arms.B.parameter_count -ne 156 -or
+                $lane.model_arms.A.training_displacement_l2 -le 0 -or
+                $lane.model_arms.B.training_displacement_l2 -le 0 -or
+                $lane.confirmation_generated -ne 0) {
+              throw 'F124E_LEARNER_TRAINING_NOT_QUALIFIED'
+            }
+            Write-Output "F124E_TRAIN=$($lane.lane):A=$($lane.model_arms.A.train_paired_correct)/48 B=$($lane.model_arms.B.train_paired_correct)/48 fixed=$($lane.control_fixed_12_of_16.paired_correct)/48 selected=$($lane.frozen_selector_arm)"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124e-train-only-key-value-evidence.sha256'),
+            "$digest  f124e-train-only-key-value-evidence.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124E_FROZEN_TRAIN_SHA256=$digest"
+          Write-Output 'F124E_PROTECTED_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124e-key-value-train-evidence
+          path: |
+            ${{ runner.temp }}/f124e-train-only-key-value-evidence.json
+            ${{ runner.temp }}/f124e-train-only-key-value-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90
+  exact-head-regression:
+    needs: train-learned-key-value
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
