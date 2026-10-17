@@ -1,0 +1,149 @@
+name: F124-P frozen structural ablations and cross-source qualification
+on:
+  push:
+    branches: [research/f124p-frozen-structural-ablations-20261017]
+    paths:
+      - 'reference/research-intake/f124p-structural-ablation-freeze.json'
+      - 'nativeevidence/f124p_*.py'
+      - 'nativeevidence/test_f124p_*.py'
+      - '.github/workflows/forge-f124p-frozen-structural-ablations.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124p-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frozen-identity-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen protocol, parent original model and both bounded deltas
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124P_SOURCE_HEAD_DRIFT' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124p_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124P_ABLATION_FOCUSED_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124o_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124P_PARENT_MECHANISM_DRIFT' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124k_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124P_K_SOURCE_DRIFT' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124P_ISOLATION_FAILED' }
+          Write-Output 'F124P_ORIGINAL_MODELS_UNMODIFIED=true'
+          Write-Output 'F124P_PROTECTED_FIRST_USE=false'
+
+  signed-frozen-development-evidence:
+    needs: frozen-identity-cross-platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-f124o
+      - name: Replay original frozen weights, analyze failure patterns and both bounded candidates on independent sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $original='original-f124o/f124o-independent-two-learned-development.json'
+          $sha=(Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -cne '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d') { throw 'F124P_FROZEN_WEIGHTS_AUTHENTICITY_FAILURE' }
+          $out=Join-Path $env:RUNNER_TEMP 'f124p-frozen-ablation-cross-source-receipt.json'
+          & python3 -B nativeevidence/f124p_ablation_receipt.py --f124o-receipt $original --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124P_NEGATIVE_OR_SOURCE_ADMISSION_QUARANTINED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124p.frozen-development-cross-source-ablations.v1' -or
+              $r.frozen_contract_git_blob -cne 'f0b0be02fd0ee6baef77f17ed66fd9cd1ca045ae' -or
+              $r.original_f124o_receipt_sha256 -cne '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d' -or
+              $r.lanes.Count -ne 2 -or $r.weight_updates -ne 0 -or
+              $r.new_training_steps -ne 0 -or $r.independent_first_use -or
+              $r.scientific_acceptances -ne 0 -or $r.optimizer_promotions -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or $r.protected_examples_generated -ne 0 -or
+              $r.paid_model_calls -ne 0 -or $r.resource_matched_superiority_proven) {
+            throw 'F124P_FALSE_QUALIFIED_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil')) { throw 'F124P_UNKNOWN_LANE' }
+            foreach ($cohort in @($lane.diagnostic_consumed_f124n_dev, $lane.cross_source_nonreserved_f124k_fixture)) {
+              if ($cohort.pairs -ne 48 -or $cohort.exact_reference_paired -ne 48 -or
+                  $cohort.role_only_paired -ne 0 -or
+                  @($cohort.arms.PSObject.Properties).Count -ne 4) { throw 'F124P_COHORT_IDENTITY' }
+              foreach ($arm in $cohort.arms.PSObject.Properties) {
+                $a=$arm.Value
+                if ($a.case_hashes.Count -ne 48 -or $a.per_depth.'7'.pairs -ne 16 -or
+                    $a.per_depth.'8'.pairs -ne 16 -or $a.per_depth.'9'.pairs -ne 16 -or
+                    $a.paired -lt 0 -or $a.paired -gt 48 -or
+                    $a.max_retained -gt 9) { throw 'F124P_FULL_DENOMINATOR_OR_CAPACITY' }
+              }
+            }
+            $k=$lane.cross_source_nonreserved_f124k_fixture
+            Write-Output "F124P_CROSS_SOURCE_$($lane.lane):original=$($k.arms.original.paired)/48 candidate=$($k.arms.candidate.paired)/48 fixed=$($k.fixed_public_12of16.paired)/48 compress_ablation=$($k.arms.ablate_compression.paired)/48 secondary_ablation=$($k.arms.ablate_secondary.paired)/48"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            $digest + '  f124p-frozen-ablation-cross-source-receipt.json' + [Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+          Write-Output "F124P_EVIDENCE_SHA256=$digest"
+          Write-Output 'F124P_DEVELOPMENT_NEGATIVES_RETAINED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124p-authenticated-two-lane-ablations-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124p-frozen-ablation-cross-source-receipt.json
+            ${{ runner.temp }}/f124p-frozen-ablation-cross-source-receipt.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  one-required-full-regression:
+    needs: signed-frozen-development-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Final full integration regression, race, vet, build, and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124P_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124P_NO_PROTECTED_FIRST_USE=true'
