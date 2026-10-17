@@ -274,7 +274,9 @@ def original_query_only(p,values,model):
     # Only the public depth/query interface; zero hidden source-ID mapping.
     w=f110.wobserve.Case(p.seed,p.cohort,0,p.query_depth,p.observation_depths,
                          p.positive_values,p.negative_values)
-    return model.predicts(w,values)
+    # F110's control requires the public WCase carrier (offset is present,
+    # but the query-only control is forbidden to condition its weights on it).
+    return model.predicts(f109.WCase(w,0,p.cohort),values)
 
 def legacy_offset(p,values,model):
     # Offset interface is explicitly fixed to canonical zero, never secretly
