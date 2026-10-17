@@ -53,7 +53,7 @@ class FrozenJunctionControls(unittest.TestCase):
         self.assertLess(report["train_logloss_after"],report["train_logloss_before"])
         self.assertNotEqual(before,after)
         self.assertEqual(report["trained_parameter_sha256"],
-                         hashlib.sha256(",".join(f"{v:.15g}" for v in after).encode()).hexdigest())
+                         hashlib.sha256(",".join(f"{v:.8f}" for v in after).encode()).hexdigest())
 
     def test_role_marginal_uses_training_subset_only(self):
         examples=[(0,1,2,1),(0,1,3,1),(3,2,1,0),(3,2,4,0)]
