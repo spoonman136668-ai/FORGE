@@ -55,9 +55,9 @@ class F116Contracts(unittest.TestCase):
     def test_misleading_and_uninformative_evidence_exist_every_guard(self):
         for g in self.guards:
             self.assertGreater(sum(not w.sensor for w in g),0)
-            self.assertGreater(sum(w.sensor and w.sensor[0].source_code!=
+            self.assertGreater(sum(bool(w.sensor) and w.sensor[0].source_code!=
                               w.public.candidate_codes[w.graph_truth] for w in g),0)
-            self.assertGreater(sum(w.sensor and w.sensor[0].source_code==
+            self.assertGreater(sum(bool(w.sensor) and w.sensor[0].source_code==
                               w.public.candidate_codes[w.graph_truth] for w in g),0)
 
     def test_licensing_of_only_one_paid_sensor_read(self):
