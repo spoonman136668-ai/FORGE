@@ -167,7 +167,7 @@ func runLane(j jLane,i iLane)(laneOutput,error){
   MaxScreenCompute:5,MaxSealedCompute:2,MaxFinalists:2,MaxPerFamily:1,MaxScreensPerFamily:5,
   Candidates:candidates}
  fpin:=evoportfolio.Digest(f)
- decision,err:=evoportfolio.Select(f,fpin);if err!=nil{return zero,err}
+ decision,err:=evoportfolio.Select(f,fpin);if err!=nil{return zero,fmt.Errorf("portfolio:%w",err)}
  lineages:=make([]evoportfolio.IslandLineage,0,len(candidates))
  for _,c:=range candidates{
   lineages=append(lineages,evoportfolio.IslandLineage{CandidateID:c.ID,
@@ -179,7 +179,7 @@ func runLane(j jLane,i iLane)(laneOutput,error){
   BaselineID:"C14",Islands:[]string{"ceiling","fixed","learned"},
   MaxFinalists:2,MaxIslandFinalists:1,FixedBeforeScreening:true,HistoricalOnly:true}
  pareto,err:=evoportfolio.ParetoAdvisory(f,fpin,par,evoportfolio.DigestParetoFreeze(par),lineages)
- if err!=nil{return zero,err}
+ if err!=nil{return zero,fmt.Errorf("island_pareto:%w",err)}
  if decision.ScientificAccepted||decision.DispatchAuthorized||decision.AcceptedRefMutation||
     pareto.ScientificAccepted||pareto.DispatchAuthorized||pareto.AcceptedRefMutation||
     pareto.ImprovementScientificallyEstablished||pareto.MutationRuntimeActivated{return zero,errIntake}
@@ -214,17 +214,17 @@ func runLane(j jLane,i iLane)(laneOutput,error){
    {ID:"stress-parallel",Changes:[]genenv.Change{{Index:0,Delta:1}}},
    {ID:"stress-cross",Changes:[]genenv.Change{{Index:1,Delta:1}}},
   }}
- generated,err:=genenv.Generate(env,genenv.FrozenDigest(env),history,hpin);if err!=nil{return zero,err}
+ generated,err:=genenv.Generate(env,genenv.FrozenDigest(env),history,hpin);if err!=nil{return zero,fmt.Errorf("genenv:%w",err)}
  prompt:=promptlineage.Frozen{Schema:promptlineage.Schema,Lane:lane,Epoch:124,SourceSHA:originalSource,
   Parent:"test causal competition readout",Vocabulary:[]string{"parallel","balanced"},
   MaxOperations:2,Operations:[]promptlineage.Operation{
    {Kind:"replace",Position:2,Replacement:"parallel"},
    {Kind:"replace",Position:1,Replacement:"balanced"},
   }}
- prompts,err:=promptlineage.Generate(prompt,promptlineage.Digest(prompt));if err!=nil{return zero,err}
+ prompts,err:=promptlineage.Generate(prompt,promptlineage.Digest(prompt));if err!=nil{return zero,fmt.Errorf("promptlineage:%w",err)}
  if generated.ScientificAccepted||generated.DispatchAuthorized||generated.SealedHoldoutConsumed||
  prompts.ScientificAccepted||prompts.DispatchAuthorized||prompts.SealedEvaluationConsumed ||
- generated.NegativeCount!=2||len(generated.Candidates)!=2||len(prompts.Candidates)!=2{return zero,errIntake}
+ generated.NegativeCount!=2||len(generated.Candidates)!=2||len(prompts.Candidates)!=2{return zero,fmt.Errorf("%w:generator_status_or_negative_count",errIntake)}
  // A Pareto finalist is not an accepted policy or a new source-level mechanism.
  return laneOutput{Lane:lane,HistoricalF124HScore:j.BPaired,
   StrongestApproxBaseline:j.Controls["14"].Paired,ExactPublicCeiling:j.Controls["16"].Paired,
