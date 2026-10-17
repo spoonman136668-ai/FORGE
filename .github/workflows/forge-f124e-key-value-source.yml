@@ -1,0 +1,70 @@
+name: F124-E key-value associative TRAIN source admission
+on:
+  push:
+    branches: [research/f124e-associative-key-value-binding-20261017]
+    paths:
+      - 'reference/research-intake/f124e-associative-key-value-freeze.json'
+      - 'nativeevidence/f124e_*.py'
+      - 'nativeevidence/test_f124e_*.py'
+      - '.github/workflows/forge-f124e-key-value-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f124e-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check frozen TRAIN-only key-value source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124e_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124E_SOURCE_TEST_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124E_ISOLATION_FAILED' }
+          Write-Output "F124E_QUALIFIED_SOURCE=${{ github.sha }}"
+          Write-Output 'F124E_CONFIRM_GENERATED=false'
+          Write-Output 'F124E_SCIENTIFIC_ACCEPTANCE=false'
+  exact-head-regression:
+    needs: source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Single full Go regression race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124E_FINAL_HEAD=$GITHUB_SHA"
+          echo 'F124E_FIRST_USE=false'
