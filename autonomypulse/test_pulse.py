@@ -136,6 +136,67 @@ class TestAutonomyPulse(unittest.TestCase):
         self.assertFalse(r["lanes"][0]["source_and_workflow_confirmed"])
         self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
 
+    def test_main_advances_without_falsifying_authentic_older_launcher_history(self):
+        a=API()
+        repo=m.LANES[0][1]
+        old="a"*40
+        current="f"*40
+        a.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+        a.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(
+            a.items[(repo,"/contents/.research-autonomy/config.json?ref="+old)])
+        a.items[(repo,"/compare/"+old+"..."+current)]={
+            "status":"ahead","ahead_by":1,"behind_by":0,
+            "base_commit":{"sha":old},"merge_base_commit":{"sha":old}}
+        history=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+        new=deepcopy(a.items[history]["workflow_runs"][0])
+        new.update({"id":new["id"]+20,"head_sha":current,
+                    "created_at":"2026-10-16T17:15:00Z",
+                    "updated_at":"2026-10-16T17:16:00Z"})
+        a.items[history]["workflow_runs"].insert(0,new)
+        report=m.scan(a,NOW)
+        lane=report["lanes"][0]
+        self.assertTrue(lane["source_and_workflow_confirmed"])
+        self.assertEqual(lane["main_sha"],current)
+        self.assertEqual(lane["last_reported_run_source_sha"],old)
+        self.assertEqual(lane["latest_launcher_run_id"],new["id"])
+        self.assertEqual(lane["latest_launcher_conclusion"],"success")
+        self.assertFalse(lane["scientific_result_independently_accepted"])
+        self.assertTrue(report["both_lanes_operationally_verified"])
+        self.assertIn((repo,"/compare/"+old+"..."+current),a.calls)
+        self.assertEqual(report["originals_dispatched"],0)
+
+    def test_old_launcher_main_must_be_authenticated_ancestor_not_diverged(self):
+        a=API()
+        repo=m.LANES[1][1]
+        old="c"*40
+        current="f"*40
+        a.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+        a.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(
+            a.items[(repo,"/contents/.research-autonomy/config.json?ref="+old)])
+        a.items[(repo,"/compare/"+old+"..."+current)]={
+            "status":"diverged","ahead_by":1,"behind_by":1,
+            "base_commit":{"sha":old},"merge_base_commit":{"sha":"e"*40}}
+        report=m.scan(a,NOW)
+        self.assertTrue(report["lanes"][0]["source_and_workflow_confirmed"])
+        self.assertFalse(report["lanes"][1]["source_and_workflow_confirmed"])
+        self.assertEqual(report["lanes"][1]["quarantine_reason"],
+                         "FORGE_AUTONOMY_CONTINUATION_HEAD_NOT_MAIN_ANCESTOR")
+        self.assertFalse(report["both_lanes_operationally_verified"])
+        self.assertEqual(report["originals_dispatched"],0)
+
+    def test_missing_git_ancestry_evidence_does_not_get_assumed(self):
+        a=API()
+        repo=m.LANES[0][1]
+        current="f"*40
+        old="a"*40
+        a.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+        a.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(
+            a.items[(repo,"/contents/.research-autonomy/config.json?ref="+old)])
+        r=m.scan(a,NOW)
+        self.assertFalse(r["lanes"][0]["source_and_workflow_confirmed"])
+        self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
+        self.assertFalse(r["scientific_firstuse_authorized"])
+
     def test_older_than_day_diagnosed_but_never_retried(self):
         a=API()
         r=m.scan(a,datetime.fromisoformat("2026-10-18T19:00:00+00:00"))
