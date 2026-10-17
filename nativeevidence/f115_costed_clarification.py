@@ -121,7 +121,7 @@ def groups():
             require(a.offer==b.offer and
                     a.public_twin==b.public_twin and
                     a.offline_true_tag!=b.offline_true_tag and
-                    a.positive!=b.positive and a.negative!=b.negative,
+                    (a.positive!=b.positive or a.negative!=b.negative),
                     "PUBLIC_TWIN_INFORMATION_LEAK")
     return all_cases
 
