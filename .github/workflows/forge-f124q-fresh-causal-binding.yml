@@ -86,18 +86,35 @@ jobs:
               $r.scientific_acceptances -ne 0 -or $r.accepted_refs_changed -ne 0 -or
               $r.optimizer_promotions -ne 0 -or $r.paid_api_calls -ne 0 -or
               $r.codex_calls -ne 0 -or $r.cross_lane_parameter_sharing -or
-              $r.matched_compute_superiority_proven) {
+              $r.matched_compute_superiority_proven -or
+              $r.training_gate_negatives -ne 1 -or
+              $r.two_lane_scientific_training_qualified) {
             throw 'F124Q_FALSE_SCIENTIFIC_AUTHORITY'
           }
           foreach ($lane in $r.lanes) {
-            if ($lane.lane -cnotin @('Wingless','Yggdrasil') -or
-                $lane.training.training_steps -ne 72 -or
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil')) {
+              throw 'F124Q_UNKNOWN_LANE'
+            }
+            if ($lane.lane -ceq 'Yggdrasil') {
+              if ($lane.training_status -cne 'FIT_GATE_BLOCKED' -or
+                  $lane.training_gate_negative -cne 'F124Q_LEARNER_GENUINE_FIT_ONLY_LEARNER_UPDATE' -or
+                  $lane.dev_scored -or $null -ne $lane.training -or
+                  $null -ne $lane.fit -or $null -ne $lane.dev -or
+                  $lane.development_verdict -cne 'FIT_ONLY_LEARNING_NOT_QUALIFIED__DEV_PREDICTIONS_NOT_GENERATED') {
+                throw 'F124Q_YGGDRASIL_FIT_NEGATIVE_MUST_NOT_BE_PROMOTED'
+              }
+              Write-Output 'F124Q_YGGDRASIL_FIT_CLASSIFICATION=NEGATIVE_NO_QUALIFIED_UPDATE'
+              Write-Output 'F124Q_YGGDRASIL_DEV_PREDICTIONS_GENERATED=0'
+              continue
+            }
+            if ($lane.training_status -cne 'GENUINE_FIT_PASS' -or
+                -not $lane.dev_scored -or $lane.training.training_steps -ne 72 -or
                 $lane.training.epochs -ne 12 -or
                 $lane.training.fit_pairs -ne 48 -or
                 $lane.training.weight_update_l2 -le 0 -or
                 $lane.training.dev_access_during_training -ne 0 -or
                 $lane.training.protected_access_during_training -ne 0) {
-              throw 'F124Q_FALSE_OR_MISSING_FIT_LEARNING'
+              throw 'F124Q_WINGLESS_FIT_TRAIN_MISSING'
             }
             foreach ($cohort in @($lane.fit,$lane.dev)) {
               if ($cohort.pairs -ne 48 -or $cohort.exact_symbolic_paired -ne 48 -or
@@ -110,15 +127,12 @@ jobs:
                 if ($arm.pairs -ne 48 -or $arm.case_sha256.Count -ne 48 -or
                     $arm.depth.'7'.pairs -ne 16 -or $arm.depth.'8'.pairs -ne 16 -or
                     $arm.depth.'9'.pairs -ne 16 -or $arm.execution_errors -ne 0 -or
-                    $arm.max_retained -gt 9) {
-                  throw 'F124Q_MODEL_COHORT_CUSTODY_OR_MEMORY_CAP_FAILURE'
-                }
-                if ($lane.lane -ceq 'Yggdrasil' -and $arm.max_active -gt 7) {
-                  throw 'F124Q_YGGDRASIL_ACTIVE_CELL_BUDGET'
+                    $arm.max_retained -gt 9 -or $arm.max_active -gt 192) {
+                  throw 'F124Q_WINGLESS_DEV_OR_CAPACITY_DRIFT'
                 }
               }
             }
-            Write-Output "F124Q_DEV_$($lane.lane):new=$($lane.dev.arms.new_fit_only_learned.paired)/48 original=$($lane.dev.arms.original_F124O.paired)/48 previous_ablation=$($lane.dev.arms.prior_frozen_ablation.paired)/48 strong_fixed=$($lane.dev.arms.strong_fixed.paired)/48"
+            Write-Output "F124Q_DEV_Wingless:new=$($lane.dev.arms.new_fit_only_learned.paired)/48 original=$($lane.dev.arms.original_F124O.paired)/48 previous_ablation=$($lane.dev.arms.prior_frozen_ablation.paired)/48 strong_fixed=$($lane.dev.arms.strong_fixed.paired)/48"
           }
           $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText(($out+'.sha256'),
