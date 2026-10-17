@@ -93,6 +93,10 @@ jobs:
           PY
           stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           main_sha="$(tr -d '\r\n' < "$root/main.sha")"
+          # A workflow_run executes on default-branch code, not the source
+          # workflow head. Reject any checkout drifting from authenticated
+          # protected main while this one-shot controller was queued.
+          test "$(git rev-parse HEAD)" = "$main_sha"
           paused=false
           if [[ "$PAUSE" == 'true' ]]; then paused=true; fi
           # Preflight decision does not require zipped payload readback. We
