@@ -50,9 +50,9 @@ class StrictTrainOnlySourceTests(unittest.TestCase):
         ]
         lex,stats=f.construct_lexicon(rows)
         self.assertEqual(stats["lexicon_ambiguous_mid_mentions"],1)
-        self.assertEqual(f.link("Who directed Case?",lex),"ambiguous_train_lexicon")
-        self.assertEqual(f.link("Who directed Other Film?",lex),"lexical_anchor_resolved")
-        self.assertEqual(f.link("Case & Other Film?",lex),"ambiguous_train_lexicon")
+        self.assertEqual(f.link("Who directed Case",lex),"ambiguous_train_lexicon")
+        self.assertEqual(f.link("Who directed Other Film",lex),"lexical_anchor_resolved")
+        self.assertEqual(f.link("Case & Other Film",lex),"ambiguous_train_lexicon")
 
     def test_multiple_unique_entity_hits_denied_without_selection(self):
         rows=[make_row("a","A?", "Alpha", "/m/a"),make_row("b","B?","Beta","/m/b")]
