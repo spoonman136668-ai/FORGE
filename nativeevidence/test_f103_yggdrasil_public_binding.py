@@ -96,7 +96,8 @@ class F103FrozenDevelopment(unittest.TestCase):
         with mock.patch.dict("os.environ",{"GITHUB_SHA":"a"*40}):
             with self.assertRaisesRegex(f103.Rejected,"EXACT_SOURCE_REF"):
                 f103.evaluate("b"*40)
-        proof=f103.evaluate("a"*40)
+        with mock.patch.dict("os.environ",{"GITHUB_SHA":"a"*40}):
+            proof=f103.evaluate("a"*40)
         self.assertEqual(proof["schema"],f103.REPORT)
         self.assertEqual(proof["candidate_id"],"Y100-C2")
         self.assertEqual(proof["total_development_pairs"],144)
