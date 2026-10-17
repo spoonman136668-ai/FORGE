@@ -8,7 +8,7 @@
 
 Build a self-contained Go package `noveltymechanisms/langroles` that accepts **only one natural-language question**, with **exactly one bracketed topic**, and an independently specified hop expectation (2 or 3). It returns an exact case-preserving root and a caller-independent predetermined ordered sequence of F100-O `largegraph.Step` typed roles and directions. No expected answer, answer tab or expected path is accepted. The function is deliberately a limited fixed-template semantic translator, not a language-model parser, trainable mechanism, generic MetaQA solver or scientific first-use.
 
-Freeze **seven unambiguous exact public-development sentence grammars** (case-insensitive wording, whitespace-preserving case-sensitive topic, optional final question mark/period, no fuzzy/partial matching):
+Freeze **eight unambiguous exact public-development sentence grammars** (case-insensitive wording, whitespace-preserving case-sensitive topic, optional final question mark/period, no fuzzy/partial matching):
 
 - 2-hop: `which person directed the movies starred by [TOPIC]` → `starred_actors:R, directed_by:F`.
 - 2-hop: `the movies written by [TOPIC] were directed by who` → `written_by:R, directed_by:F`.
@@ -19,7 +19,7 @@ Freeze **seven unambiguous exact public-development sentence grammars** (case-in
 - 3-hop: `who acted in the films written by the screenwriter of [TOPIC]` → `written_by:F, written_by:R, starred_actors:F`.
 - 3-hop: `what genres do the movies that share directors with [TOPIC] fall under` → `directed_by:F, directed_by:R, has_genre:F`.
 
-**Correction of enumeration:** exactly **eight** frozen templates: five 2-hop and three 3-hop, not seven. Do not expand or tune this population during F101-O. Published public MetaQA descriptions and example questions motivate these, but cannot establish independence, a sealed benchmark, complete linguistic coverage, or semantic correctness in unobserved phrasings.
+There are exactly **eight** frozen templates: five 2-hop and three 3-hop. Do not expand or tune this population during F101-O. Published public MetaQA descriptions and example questions motivate these, but cannot establish independence, a sealed benchmark, complete linguistic coverage, or semantic correctness in unobserved phrasings.
 
 ## Required strict abstention and data-flow controls
 
