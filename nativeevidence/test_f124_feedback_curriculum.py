@@ -48,6 +48,10 @@ class F124Autonomy(unittest.TestCase):
             rounds=[x for x in report["rounds"] if x["lane"]==lane]
             self.assertEqual(len(rounds),2)
             self.assertNotEqual(rounds[0]["direction"],rounds[1]["direction"])
+            shift=1 if rounds[0]["feedback_discrimination"]>0 else 2
+            next_direction=m.DIRECTIONS[(
+                m.DIRECTIONS.index(rounds[0]["direction"])+shift)%3]
+            self.assertEqual(rounds[1]["direction"],next_direction)
             self.assertNotEqual(rounds[0]["selection_history_sha256"],
                                 rounds[1]["selection_history_sha256"])
             self.assertTrue(all(x["training"]["cases"]==8 and
@@ -57,6 +61,19 @@ class F124Autonomy(unittest.TestCase):
         self.assertFalse(report["scientific_hypothesis_invention_proven"])
         self.assertEqual(report["scientific_originals"],0)
         self.assertEqual(report["optimizer_promotions"],0)
+
+    def test_observed_outcome_causes_different_successor_from_same_history(self):
+        pool=m.calibration(m.f120.validate(advisory(),SOURCE)["Wingless"],
+                           "Wingless",1)
+        excluded=(m.DIRECTIONS[0],)
+        poor=m.choose(pool,{}, "Wingless", exclude=excluded,
+                      recent=(m.DIRECTIONS[0],0))
+        success=m.choose(pool,{}, "Wingless", exclude=excluded,
+                         recent=(m.DIRECTIONS[0],16))
+        self.assertEqual(poor["direction"],m.DIRECTIONS[2])
+        self.assertEqual(success["direction"],m.DIRECTIONS[1])
+        self.assertNotEqual(poor["derived_candidate_sha256"],
+                            success["derived_candidate_sha256"])
 
     def test_same_exact_source_is_byte_deterministic(self):
         left=m.execute(advisory(),SOURCE,1001,"pull_request")
