@@ -195,12 +195,14 @@ def main() -> None:
     audit = f98.inspect(args.upstream)
     require(audit['real_git_object_readback_performed'] is True, 'NO_AUTHENTIC_SOURCE')
     contents = []
+    verified_blobs = []
     for (_, relative, expected_blob, _), source in zip(f98.FILES, audit['source_files'], strict=True):
         raw = immutable_git_object(args.upstream, relative)
         require(0 < len(raw) <= 7_000_000 and git_blob(raw) == expected_blob,
                 'AUTHENTIC_GIT_OBJECT_BYTES_DRIFT')
         require(source['source_git_blob_sha1'] == expected_blob,
                 'F98O_SOURCE_TREE_IDENTITY_DRIFT')
+        verified_blobs.append(raw)
         contents.append(raw.decode('utf-8').splitlines())
     output = assess(contents[0], contents[1], contents[2],
                     denominator2=14872, denominator3=14274)
@@ -211,7 +213,7 @@ def main() -> None:
         'kind': row['kind'], 'path': row['path'],
         'source_git_blob_sha1': row['source_git_blob_sha1'],
         'source_bytes_sha256': hashlib.sha256(raw).hexdigest(),
-    } for row, raw in zip(audit['source_files'], [immutable_git_object(args.upstream, r[1]) for r in f98.FILES], strict=True)]
+    } for row, raw in zip(audit['source_files'], verified_blobs, strict=True)]
     args.output.write_text(json.dumps(output, sort_keys=True, indent=2) + '\n',
                            encoding='utf-8')
     print('F99O_AUTHENTIC_PUBLIC_QA_ROWS=29146')
