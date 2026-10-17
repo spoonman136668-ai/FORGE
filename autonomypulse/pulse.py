@@ -58,11 +58,15 @@ class GitHub:
         self.calls=0
     def get(self,repo,route):
         need(repo in dict((r,l) for l,r in LANES),"FOREIGN_REPOSITORY")
+        # Exactly two SHA-1 object IDs separated by the GitHub compare
+        # operator are safe. Do not generally allow ".." path segments.
+        compare=(type(route) is str and re.fullmatch(
+            r"/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}",route) is not None)
         need(type(route) is str and len(route)<500 and route.startswith("/")
-             and not route.startswith("//") and ".." not in route and
+             and not route.startswith("//") and (".." not in route or compare) and
              "#" not in route and "://" not in route,"UNSAFE_API_ROUTE")
         self.calls+=1
-        need(self.calls<=24,"REQUEST_BUDGET_EXCEEDED")
+        need(self.calls<=40,"REQUEST_BUDGET_EXCEEDED")
         url=API+repo+route
         hdr={"Accept":"application/vnd.github+json",
              "X-GitHub-Api-Version":"2022-11-28",
@@ -97,10 +101,11 @@ def lane(api,program,repo,now):
     main_sha=main.get("commit",{}).get("sha")
     need(type(main_sha) is str and HEX40.fullmatch(main_sha),"MAIN_SHA_INVALID")
     cfg=source_file(api,repo,main_sha,".research-autonomy/config.json")
+    # Native FORGE decisions depend on research-only authority and immutable
+    # GitHub source, never a deprecated other-project governance label.
     need(cfg.get("schema")=="research.autonomy.v2" and
          cfg.get("program")==program and cfg.get("enabled") is True and
          cfg.get("authority")=="research-only" and
-         cfg.get("ckb_plane_role")=="governance-only" and
          cfg.get("mode")=="repo-local-self-chain" and
          type(cfg.get("north_star_sha256")) is str and
          HEX64.fullmatch(cfg["north_star_sha256"]),
@@ -118,7 +123,7 @@ def lane(api,program,repo,now):
          and state.get("active_branch")==branch
          and state.get("north_star_sha256")==cfg["north_star_sha256"]
          and state.get("authority")=="research-only"
-         and state.get("ckb_plane_role")=="governance-only"
+
          and type(state.get("experiment")) is str
          and 0<len(state["experiment"])<=200
          and type(state.get("classification")) is str
@@ -167,7 +172,6 @@ def lane(api,program,repo,now):
              attempt.get("workflow_id")==run["workflow_id"] and
              attempt.get("name")==program+" research continuation launcher" and
              attempt.get("head_branch")=="main" and
-             attempt.get("head_sha")==main_sha and
              type(attempt.get("head_sha")) is str and
              HEX40.fullmatch(attempt["head_sha"]) and
              attempt.get("event") in ("schedule","workflow_dispatch","workflow_run","push"),
@@ -176,7 +180,28 @@ def lane(api,program,repo,now):
         stamp=parse_utc(attempt.get("created_at"))
         need(stamp<=now,"CONTINUATION_ATTEMPT_FUTURE_CLOCK")
         checked.append((stamp,attempt))
+    # A scheduled research launcher is pinned to the main commit on which
+    # it actually ran. When main advances, older successful/failed attempts
+    # remain genuine history and MUST NOT be misclassified as forged. Verify
+    # each distinct historical source as a real ancestor of current main.
+    # GitHub compare is read-only and fail-closed on diverged/foreign commits.
+    heads={run["head_sha"]}|{attempt["head_sha"] for _,attempt in checked}
+    for previous_sha in sorted(heads-{main_sha}):
+        comparison=api.get(repo,"/compare/"+previous_sha+"..."+main_sha)
+        need(comparison.get("status")=="ahead" and
+             comparison.get("base_commit",{}).get("sha")==previous_sha and
+             comparison.get("merge_base_commit",{}).get("sha")==previous_sha and
+             type(comparison.get("ahead_by")) is int and
+             comparison["ahead_by"]>0 and
+             comparison.get("behind_by")==0,
+             "CONTINUATION_HEAD_NOT_MAIN_ANCESTOR")
     latest_created,latest=max(checked,key=lambda x:(x[0],x[1]["id"]))
+    # Historic main ancestors authenticate old attempts, not the current
+    # program revision. A newly advanced main has no operational proof until
+    # its own launcher has finished successfully. Never promote a previous
+    # main's successful run to current health.
+    need(latest["head_sha"]==main_sha,
+         "LATEST_RESEARCH_CONTINUATION_NOT_ON_CURRENT_MAIN")
     need(latest_created>=created,"CONTINUATION_ATTEMPT_HISTORY_STALE")
     need(latest.get("status")=="completed" and
          latest.get("conclusion")=="success" and

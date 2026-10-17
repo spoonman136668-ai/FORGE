@@ -87,7 +87,7 @@ class TestAutonomyPulse(unittest.TestCase):
         for mutate in (
             lambda obj:obj.__setitem__("enabled",False),
             lambda obj:obj.__setitem__("authority","source-and-worker-owner"),
-            lambda obj:obj.__setitem__("ckb_plane_role","research-controller"),
+            lambda obj:obj.__setitem__("north_star_sha256","bad-sha"),
             lambda obj:obj.__setitem__("mode","live-first-use-dispatch")
         ):
             a=API();repo=m.LANES[1][1]
@@ -102,6 +102,42 @@ class TestAutonomyPulse(unittest.TestCase):
                              "QUARANTINED_UNVERIFIED_NO_REPLAY")
             self.assertFalse(r["both_lanes_operationally_verified"])
             self.assertEqual(r["originals_dispatched"],0)
+
+    def test_legacy_other_project_role_labels_never_gate_forge_autonomy(self):
+        # Real research sources may still retain a historical unrelated role
+        # label. FORGE must not consume it as an authority or permission grant.
+        for index in (0,1):
+            a=API()
+            repo=m.LANES[index][1]
+            current=("a" if index==0 else "c")*40
+            active=("b" if index==0 else "d")*40
+            config=(repo,"/contents/.research-autonomy/config.json?ref="+current)
+            state=(repo,"/contents/.research-autonomy/state.json?ref="+active)
+            for key in (config,state):
+                doc=json.loads(base64.b64decode(a.items[key]["content"]))
+                doc["ckb_plane_role"]="historical-unrelated-value"
+                a.items[key]=content(doc)
+            out=m.scan(a,NOW)
+            self.assertTrue(out["both_lanes_operationally_verified"])
+            self.assertFalse(out["ckb_plane_accessed"])
+            self.assertFalse(out["scientific_firstuse_authorized"])
+            self.assertEqual(out["originals_dispatched"],0)
+            self.assertFalse(out["optimizer_policy_updated"])
+
+    def test_legacy_role_field_absence_does_not_require_external_infrastructure(self):
+        a=API()
+        for idx in (0,1):
+            repo=m.LANES[idx][1]
+            for commit,path in ((("a" if idx==0 else "c")*40,"config"),
+                                (("b" if idx==0 else "d")*40,"state")):
+                k=(repo,"/contents/.research-autonomy/"+path+".json?ref="+commit)
+                d=json.loads(base64.b64decode(a.items[k]["content"]))
+                d.pop("ckb_plane_role",None)
+                a.items[k]=content(d)
+        out=m.scan(a,NOW)
+        self.assertTrue(out["both_lanes_operationally_verified"])
+        self.assertFalse(out["ckb_plane_accessed"])
+        self.assertFalse(out["scientific_firstuse_authorized"])
 
     def test_stale_source_or_forged_success_run_is_quarantined(self):
         variants=[
@@ -135,6 +171,93 @@ class TestAutonomyPulse(unittest.TestCase):
         r=m.scan(a,NOW)
         self.assertFalse(r["lanes"][0]["source_and_workflow_confirmed"])
         self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
+
+    def test_older_success_cannot_claim_health_for_advanced_current_main(self):
+        # All historical launchers really are ancestors; none executed the
+        # currently checked-out main. Old success must not turn this green.
+        for index in (0, 1):
+            api=API()
+            repo=m.LANES[index][1]
+            historical=("a" if index==0 else "c")*40
+            current="f"*40
+            api.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+            oldkey=(repo,"/contents/.research-autonomy/config.json?ref="+historical)
+            api.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(api.items[oldkey])
+            api.items[(repo,"/compare/"+historical+"..."+current)]={
+                "status":"ahead","ahead_by":1,"behind_by":0,
+                "base_commit":{"sha":historical},
+                "merge_base_commit":{"sha":historical},
+            }
+            result=m.scan(api,NOW)
+            self.assertFalse(result["lanes"][index]["source_and_workflow_confirmed"])
+            self.assertEqual(result["lanes"][index]["quarantine_reason"],
+                             "FORGE_AUTONOMY_LATEST_RESEARCH_CONTINUATION_NOT_ON_CURRENT_MAIN")
+            self.assertTrue(result["lanes"][1-index]["source_and_workflow_confirmed"])
+            self.assertFalse(result["both_lanes_operationally_verified"])
+            self.assertFalse(result["scientific_firstuse_authorized"])
+            self.assertEqual(result["originals_dispatched"],0)
+            self.assertEqual(result["workflow_mutations"],0)
+
+    def test_main_advances_without_falsifying_authentic_older_launcher_history(self):
+        a=API()
+        repo=m.LANES[0][1]
+        old="a"*40
+        current="f"*40
+        a.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+        a.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(
+            a.items[(repo,"/contents/.research-autonomy/config.json?ref="+old)])
+        a.items[(repo,"/compare/"+old+"..."+current)]={
+            "status":"ahead","ahead_by":1,"behind_by":0,
+            "base_commit":{"sha":old},"merge_base_commit":{"sha":old}}
+        history=(repo,"/actions/workflows/research-auto-launch.yml/runs?per_page=10")
+        new=deepcopy(a.items[history]["workflow_runs"][0])
+        new.update({"id":new["id"]+20,"head_sha":current,
+                    "created_at":"2026-10-16T17:15:00Z",
+                    "updated_at":"2026-10-16T17:16:00Z"})
+        a.items[history]["workflow_runs"].insert(0,new)
+        report=m.scan(a,NOW)
+        lane=report["lanes"][0]
+        self.assertTrue(lane["source_and_workflow_confirmed"])
+        self.assertEqual(lane["main_sha"],current)
+        self.assertEqual(lane["last_reported_run_source_sha"],old)
+        self.assertEqual(lane["latest_launcher_run_id"],new["id"])
+        self.assertEqual(lane["latest_launcher_conclusion"],"success")
+        self.assertFalse(lane["scientific_result_independently_accepted"])
+        self.assertTrue(report["both_lanes_operationally_verified"])
+        self.assertIn((repo,"/compare/"+old+"..."+current),a.calls)
+        self.assertEqual(report["originals_dispatched"],0)
+
+    def test_old_launcher_main_must_be_authenticated_ancestor_not_diverged(self):
+        a=API()
+        repo=m.LANES[1][1]
+        old="c"*40
+        current="f"*40
+        a.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+        a.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(
+            a.items[(repo,"/contents/.research-autonomy/config.json?ref="+old)])
+        a.items[(repo,"/compare/"+old+"..."+current)]={
+            "status":"diverged","ahead_by":1,"behind_by":1,
+            "base_commit":{"sha":old},"merge_base_commit":{"sha":"e"*40}}
+        report=m.scan(a,NOW)
+        self.assertTrue(report["lanes"][0]["source_and_workflow_confirmed"])
+        self.assertFalse(report["lanes"][1]["source_and_workflow_confirmed"])
+        self.assertEqual(report["lanes"][1]["quarantine_reason"],
+                         "FORGE_AUTONOMY_CONTINUATION_HEAD_NOT_MAIN_ANCESTOR")
+        self.assertFalse(report["both_lanes_operationally_verified"])
+        self.assertEqual(report["originals_dispatched"],0)
+
+    def test_missing_git_ancestry_evidence_does_not_get_assumed(self):
+        a=API()
+        repo=m.LANES[0][1]
+        current="f"*40
+        old="a"*40
+        a.items[(repo,"/branches/main")]={"commit":{"sha":current}}
+        a.items[(repo,"/contents/.research-autonomy/config.json?ref="+current)]=deepcopy(
+            a.items[(repo,"/contents/.research-autonomy/config.json?ref="+old)])
+        r=m.scan(a,NOW)
+        self.assertFalse(r["lanes"][0]["source_and_workflow_confirmed"])
+        self.assertTrue(r["lanes"][1]["source_and_workflow_confirmed"])
+        self.assertFalse(r["scientific_firstuse_authorized"])
 
     def test_older_than_day_diagnosed_but_never_retried(self):
         a=API()
