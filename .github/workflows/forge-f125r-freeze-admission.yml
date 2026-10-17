@@ -1,0 +1,78 @@
+name: F125-R path-preserving freeze admission
+# Frozen preregistration only: no graph generation, model training,
+# original first use, confirmation access or new executor.
+on:
+  push:
+    branches: [research/f125r-path-preserving-compose-freeze-20261017]
+    paths:
+      - 'reference/research-intake/f125r-path-preserving-composition-freeze.json'
+      - 'nativeevidence/f125r_freeze_admission.py'
+      - 'nativeevidence/test_f125r_freeze_admission.py'
+      - '.github/workflows/forge-f125r-freeze-admission.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f125r-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact source head and F124-R ancestry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F125R_HEAD_IDENTITY_DRIFT'
+          }
+          & git cat-file -e '6fbfff31ed4795bfe1a0880fd0d941cc200936f8^{commit}'
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_PARENT_MISSING' }
+          & git merge-base --is-ancestor 6fbfff31ed4795bfe1a0880fd0d941cc200936f8 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_PARENT_NOT_ANCESTOR' }
+      - name: Freeze validation and adversarial tamper tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_freeze_admission.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_TAMPER_TESTS_FAILED' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f125r-source-only'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $receipt=Join-Path $folder 'source-admission.json'
+          & $py -B nativeevidence/f125r_freeze_admission.py --source-sha $env:GITHUB_SHA --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_SOURCE_ADMISSION_FAILED' }
+          $r=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f125r.source-admission.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.freeze_git_blob -cne '0a2030f17123b7e096c42e730f3a536f014275bd' -or
+              $r.parent_sha -cne '6fbfff31ed4795bfe1a0880fd0d941cc200936f8' -or
+              $r.graph_cases_generated -ne 0 -or $r.model_trained -or
+              $r.protected_confirmation_read -or $r.scientific_first_use -or
+              $r.scientific_accepted -or $r.optimizer_promoted -or
+              $r.accepted_ref_mutations -ne 0) {
+            throw 'F125R_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          $hash=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($receipt+'.sha256'),
+            ($hash+'  source-admission.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F125R_SOURCE_RECEIPT_SHA256=$hash"
+          Write-Host 'F125R_PROTECTED_CONFIRM=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-preregistered-source-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-source-only/
+          if-no-files-found: error
+          retention-days: 30
