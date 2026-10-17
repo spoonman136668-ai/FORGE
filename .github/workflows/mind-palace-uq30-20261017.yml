@@ -1,0 +1,94 @@
+name: Mind-Palace UQ30 combined intake + selected preference qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ30-COMBINED-RELEASE-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq30
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - name: Verify browser chat intake no-write qualified shortcut
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ30_ISOLATED_RUNNER_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $head='63a4845eeec07cac368ff69080b20a7511f96279'
+          $main='67e95b9a0468dec12061c54e40d001a78a137cf6'
+          $branch='release/browser-intake-and-selected-preference-uq30-20261017'
+          $root=Join-Path $env:RUNNER_TEMP ('mind-palace-uq30-'+$env:GITHUB_RUN_ID)
+          function Pin([string]$ref,[string]$sha) {
+            $result=@(& git.exe ls-remote --exit-code $remote $ref)
+            if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or ([string]$result[0] -split '\s+')[0] -cne $sha) {
+              throw ('UQ30_REMOTE_REF_DRIFT_'+$ref)
+            }
+          }
+          if(Test-Path $root){throw 'UQ30_SCRATCH_EXISTS'}
+          try {
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $head
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ30_CLONE_FAILED'}
+            Push-Location $root
+            try {
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $head){throw 'UQ30_CLONE_HEAD_MISMATCH'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ30_INITIAL_DIRTY'}
+              $before=@{}
+              foreach($path in @('.ice/records.json','.ice/source-ledger.json',
+                  'archive/index.json','.ice/remote-bootstrap.json',
+                  '.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json')){
+                $before[$path]=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+              foreach($test in @('tests/Test-All.ps1')) {
+                $raw=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $test 2>&1 | Out-String)
+                if($LASTEXITCODE -ne 0) {
+                  Write-Host ('UQ30_FAILED_TEST='+$test)
+                  Write-Host $raw.Substring(0,[Math]::Min(5000,$raw.Length))
+                  throw 'UQ30_FULL_REGRESSION_FAILED'
+                }
+                Write-Host ('UQ30_FOCUSED_'+[IO.Path]::GetFileNameWithoutExtension($test)+'=PASS')
+              }
+              foreach($path in $before.Keys) {
+                if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $before[$path]){
+                  throw ('UQ30_DURABLE_DRIFT_'+$path)
+                }
+              }
+              if((& git.exe status --porcelain=v1|Out-String).Trim()) {throw 'UQ30_POST_TEST_GIT_DIRTY'}
+              Pin 'refs/heads/main' $main
+              Pin ('refs/heads/'+$branch) $head
+              Write-Host 'UQ30_SEVEN_DURABLE_HASHES_AND_REFS_UNCHANGED=PASS'
+              Write-Host 'UQ30_RECORDS_APPLIED=0'
+              Write-Host 'UQ30_GIT_COMMITS=0'
+              Write-Host 'UQ30_CODEX_INVOCATIONS=0'
+              $source='pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json'
+              if(-not (Test-Path -LiteralPath $source)){throw 'UQ30_SELECTED_SOURCE_MISSING'}
+              $actualBlob=(& git.exe hash-object -- $source|Out-String).Trim()
+              if($actualBlob -cne 'd3b1d73c7c7551e01c053fda58a0eaeae5d3d613'){throw 'UQ30_ORIGINAL_PREFERENCE_SOURCE_BLOB_DRIFT'}
+              $data=Get-Content -LiteralPath $source -Raw|ConvertFrom-Json
+              if([string]$data.schema -cne 'mind-palace.chat-extraction.v1' -or
+                 [string]$data.conversation.ref -cne 'chat:2026-10-15-mind-palace-web-client-ingestion' -or
+                 @($data.candidates).Count -ne 1 -or
+                 [string]$data.candidates[0].kind+'/'+[string]$data.candidates[0].key -cne 'preference/mind-palace-webclient-ingestion-no-desktop-app-20261015'){
+                   throw 'UQ30_EXACT_SELECTED_PREFERENCE_SEMANTICS_CHANGED'
+              }
+              Write-Host 'UQ30_EXACT_PR61_SOURCE_BLOB_AND_IDENTITY=PASS'
+              Write-Host 'UQ30_FULL_REGRESSION_QUALIFICATION=PASS'
+            } finally {Pop-Location}
+          } finally {
+            if(Test-Path $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
