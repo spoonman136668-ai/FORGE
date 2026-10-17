@@ -120,6 +120,9 @@ func execute(source string)(report,error){
  for _,lane:=range []string{"Wingless","Yggdrasil"}{
   f,p,e,h,links:=fixture(lane)
   digest:=optimizerstages.F94FreezeDigest(f)
+  prompts,perr:=promptlineage.Generate(p,f.PromptPlanSHA256)
+  envs,eerr:=genenv.Generate(e,f.EnvironmentPlanSHA256,h,f.TrainingHistorySHA256)
+  if perr!=nil||eerr!=nil{return zero,errBoundary}
   review,err:=optimizerstages.ScreenF94(f,digest,p,e,h,links)
   if err!=nil{return zero,fmt.Errorf("%w: %s: %v",errBoundary,lane,err)}
   stage,err:=optimizerstages.AssessActivation(nil,nil,review.StageProposals,nil)
