@@ -101,6 +101,51 @@ jobs:
           PY
           sha256sum f109o-original-chain-shape.json > f109o-original-chain-shape.sha256
           sha256sum -c f109o-original-chain-shape.sha256
+      - name: Separately frozen single-predicate and fail-closed Freebase graph tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f109o_train_predicate_admission.py' -v
+      - name: Full 37306 original TRAIN predicate labels syntax-only, no graph admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f109o_train_predicate_admission.py --upstream freebaseqa-original-train --out f109o-original-predicate-admission.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f109o-original-predicate-admission.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f109o.original-freebase-train-one-predicate.v1'
+          assert x['status']=='PUBLIC_FREEBASE_TRAIN_ONE_PREDICATE_GRAMMAR_ONLY'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['train_blob']=='24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          assert x['train_bytes']==23888089
+          s=x['source_data']
+          assert s['original_train_rows']==s['original_train_unique_ids']==20358
+          assert s['original_parse_entries']==37306
+          assert 0<=s['unique_whole_valid_predicates']<=1644
+          c=s['predicate_status_counts']
+          assert sum(c.values())==37306
+          assert s['single_predicate_not_hop_chain'] is True
+          assert s['original_source_direction_provided'] is False
+          assert s['original_predicate_names_published'] is False
+          assert s['source_answer_fields_read'] is False
+          assert x['freebase_graph_admission_status']=='FREEBASE_GRAPH_SOURCE_NOT_QUALIFIED'
+          assert x['original_train_json_annotations_decoded'] is True
+          for field in ('source_answers_interpreted','dev_eval_source_contents_accessed',
+                        'source_predicate_values_published',
+                        'independent_direction_mapping_qualified',
+                        'freebase_qa_model_qualified','scientific_firstuse',
+                        'accepted_science','accepted_ref_mutation',
+                        'dream_pareto_promotion','thetaevolve_accepted_training',
+                        'science_dispatch'):
+            assert x[field] is False,field
+          assert x['freebase_graph_queries']==x['real_question_answer_sets_compared']==0
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F109O_SOURCE_ONE_PREDICATE='+json.dumps(c,sort_keys=True))
+          print('F109O_UNQUALIFIED_FREEBASE_GRAPH_AND_SCIENCE_REFUSED')
+          PY
+          sha256sum f109o-original-predicate-admission.json > f109o-original-predicate-admission.sha256
+          sha256sum -c f109o-original-predicate-admission.sha256
       - name: Mandatory one complete exact-head Go regression vet build
         shell: bash
         run: |
@@ -116,5 +161,7 @@ jobs:
           path: |
             f109o-original-chain-shape.json
             f109o-original-chain-shape.sha256
+            f109o-original-predicate-admission.json
+            f109o-original-predicate-admission.sha256
           retention-days: 45
           if-no-files-found: error
