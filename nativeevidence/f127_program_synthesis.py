@@ -169,7 +169,7 @@ def execute_ast(ast,case,edges):
          "UNQUALIFIED_GENERATED_PROGRAM")
     # Exhaustive bounded relational algebra. The compiled mechanism sees only
     # source graph edges, role sequence and the public query endpoints.
-    matches=[e for e in edges if e[1]==case["roles"][0] and
+    matches=[(e,) for e in edges if e[1]==case["roles"][0] and
              (not ast["start_anchor"] or e[0]==case["start"])]
     for role in case["roles"][1:]:
         new=[(path+(e,)) for path in matches for e in edges
