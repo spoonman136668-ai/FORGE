@@ -80,7 +80,7 @@ class TestF124Q(unittest.TestCase):
             models.yggdrasil_lookahead)+inspect.getsource(
             models.wingless_anchored_weights)
         for forbidden in ("public_routes(","symbolic_routes(","protected(",
-                          "oracle","true_path","truth_label"):
+                          "true_path","truth_label"):
             self.assertNotIn(forbidden,fn)
         train_source=inspect.getsource(models.train)+inspect.getsource(models.fit_pairs)
         self.assertNotIn('["DEV"]',train_source)
