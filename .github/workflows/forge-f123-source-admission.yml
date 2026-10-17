@@ -1,0 +1,266 @@
+name: F123 public TRAIN-only graph source admission
+
+# Synthetic development qualification only. This workflow is intentionally
+# isolated from protected confirmation, scientific first-use, and optimizer
+# acceptance/promotion. The final exact-head regression remains a later gate.
+on:
+  push:
+    branches:
+      - research/f123-learned-path-routing-20261017
+    paths:
+      - 'nativeevidence/f123_*.py'
+      - 'nativeevidence/test_f123_*.py'
+      - 'reference/research-intake/f123-learned-multipath-routing-freeze.json'
+      - '.github/workflows/forge-f123-source-admission.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-f123-source-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-source-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Enforce frozen F123 contract and TRAIN-only graph admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_TRAIN_ONLY_SOURCE_ADMISSION_FAILED' }
+          Write-Output "F123_SOURCE_COMMIT=${{ github.sha }}"
+          Write-Output 'F123_CONFIRM_EXECUTED=false'
+          Write-Output 'F123_LEARNED_MODEL_QUALIFIED=false'
+          Write-Output 'F123_SCIENTIFIC_FIRST_USE=false'
+
+      - name: Freeze training weights and synthetic candidate custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          $root=Join-Path $env:RUNNER_TEMP 'f123-frozen-training'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $advisory=Join-Path $root 'advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ADVISORY_GENERATOR_FAILED' }
+          $report=Join-Path $root 'f123-train-weights.json'
+          $args=@('--advisory',$advisory,'--source-ref',$env:GITHUB_SHA,
+            '--run-id',$env:GITHUB_RUN_ID,'--event',$env:GITHUB_EVENT_NAME,'--output',$report)
+          & $python -B nativeevidence/f123_controls.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F123_TRAIN_WEIGHTS_QUARANTINED' }
+          $p=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f123.train-only-controls-custody.v1' -or
+              $p.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$p.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $p.event -cne $env:GITHUB_EVENT_NAME -or
+              $p.cohorts -cne 'TRAIN_ONLY' -or $p.confirmation_inputs_generated -ne 0 -or
+              $p.freeze_git_blob -cne '9663e453051642bd798f9647df9993c3470c8672' -or
+              $p.lanes.Count -ne 2 -or $p.scientific_first_use -or
+              $p.originals_dispatched -ne 0 -or $p.scientific_acceptances -ne 0 -or
+              $p.accepted_ref_mutations -ne 0 -or $p.optimizer_promotions -ne 0 -or
+              $p.Codex_calls -ne 0 -or $p.paid_model_calls -ne 0 -or $p.new_scheduler -or
+              $p.ckb_plane_contact -or $p.cloudflare_writes -ne 0 -or $p.mind_palace_writes -ne 0) {
+            throw 'F123_FROZEN_REPORT_FALSE_AUTHORITY'
+          }
+          $seen=@{}
+          foreach ($lane in $p.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil') -or
+                $seen.ContainsKey($lane.lane) -or
+                $lane.confirmation_inputs_generated -ne 0 -or
+                $lane.advisory_candidate_source_shas.Count -ne 2 -or
+                $lane.training_vectors.Count -ne 2 -or
+                $lane.train_source_only_selection -cnotin @('A','B') -or
+                -not $lane.train_frozen_weights.A -or -not $lane.train_frozen_weights.B -or
+                $lane.train_query_only_weights.Count -ne 20 -or
+                $lane.train_control_scores.CTRL_EXACT_SYMBOLIC.paired_correct -ne 48) {
+              throw 'F123_INCOMPLETE_LANE_CUSTODY'
+            }
+            $seen[$lane.lane]=$true
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f123-train-weights.sha256'),
+            "$digest  f123-train-weights.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          $sourceHash=(Get-FileHash -LiteralPath $advisory -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $root 'advisory.sha256'),
+            ($sourceHash + '  advisory.json' + [Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Output "F123_SOURCE_ADVISORY_SHA256=$sourceHash"
+          Write-Output "F123_TRAIN_WEIGHT_SHA256=$digest"
+          Write-Output 'F123_CONFIRM_UNTOUCHED=true'
+      - name: TRAIN-only B route trace and model-vs-null causal audit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          $root=Join-Path $env:RUNNER_TEMP 'f123-frozen-training'
+          $report=Join-Path $root 'f123-train-route-ablation.json'
+          & $python -B nativeevidence/f123_route_ablation.py --advisory (Join-Path $root 'advisory.json') --train-report (Join-Path $root 'f123-train-weights.json') --source-ref $env:GITHUB_SHA --output $report
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ROUTE_CAUSAL_DIAGNOSTIC_QUARANTINED' }
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f123.train-only-route-causal-diagnostic.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or $r.lanes[1].lane -cne 'Yggdrasil' -or
+              -not $r.train_only -or $r.protected_confirmation_read -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.resource_parity_established -or $r.originals_dispatched -ne 0) {
+            throw 'F123_ROUTE_DIAGNOSTIC_FALSE_SCIENCE_OR_SOURCE'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.train_pairs -ne 48 -or $lane.causal_traces.Count -ne 96 -or
+                $lane.strata.Count -ne 2 -or $lane.selected_arm -cne 'B' -or
+                $lane.resource_matched -or $lane.scientific_claim_earned) {
+              throw 'F123_ROUTE_AUDIT_INCOMPLETE'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $root 'f123-train-route-ablation.sha256'),
+             ($digest + '  f123-train-route-ablation.json' + [Environment]::NewLine),
+             [Text.UTF8Encoding]::new($false))
+          Write-Output "F123_ROUTE_DIAGNOSTIC_SHA256=$digest"
+          Write-Output 'F123_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f123-train-frozen-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f123-frozen-training/f123-train-weights.json
+            ${{ runner.temp }}/f123-frozen-training/f123-train-weights.sha256
+            ${{ runner.temp }}/f123-frozen-training/advisory.json
+            ${{ runner.temp }}/f123-frozen-training/advisory.sha256
+            ${{ runner.temp }}/f123-frozen-training/f123-train-route-ablation.json
+            ${{ runner.temp }}/f123-frozen-training/f123-train-route-ablation.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  frozen-training-parity:
+    needs: synthetic-source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: f123-train-frozen-*
+          path: frozen-training
+      - name: Audit exact OS receipts and bounded numeric parity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='frozen-training'
+          $report=Join-Path $root 'f123-cross-os-parity.json'
+          $args=@('--ubuntu',(Join-Path $root 'f123-train-frozen-ubuntu-latest'),'--windows',(Join-Path $root 'f123-train-frozen-windows-latest'),'--output',$report)
+          & python3 -B nativeevidence/f123_cross_os_custody.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F123_CROSS_PLATFORM_TRAIN_CUSTODY_FAILED' }
+          $p=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f123.cross-os-train-receipt-parity.v1' -or
+              $p.source_sha -cne $env:GITHUB_SHA -or
+              $p.confirmation_inputs_generated -ne 0 -or
+              $p.scientific_first_use_authorized -or
+              $p.canonical_inference_os -cne 'ubuntu-latest' -or
+              -not $p.score_and_selection_exact_identity -or
+              -not $p.nonfloat_provenance_exact_identity -or
+              $p.cross_os_weight_max_absolute_difference -gt 1e-12) {
+            throw 'F123_CROSS_PLATFORM_CUSTODY_CONTRACT_FAILED'
+          }
+          $h=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f123-cross-os-parity.sha256'),
+            "$h  f123-cross-os-parity.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F123_REFERENCE_TRAIN_SHA256=$($p.ubuntu_train_receipt_sha256)"
+          Write-Output "F123_WINDOWS_TRAIN_SHA256=$($p.windows_train_receipt_sha256)"
+          Write-Output "F123_MAX_OS_WEIGHT_DIFFERENCE=$($p.cross_os_weight_max_absolute_difference)"
+          Write-Output 'F123_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f123-cross-os-train-custody
+          path: |
+            frozen-training/f123-cross-os-parity.json
+            frozen-training/f123-cross-os-parity.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  final-system-regression:
+    needs: frozen-training-parity
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact-head isolation and affected research interfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ISOLATION_TEST_FAILED' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ISOLATION_POLICY_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f12[012]_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_AFFECTED_RESEARCH_INTERFACE_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_BOUNDARY_TEST_FAILED' }
+      - name: One final exact-head complete Go regression and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_GO_REGRESSION_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_GO_VET_FAILED' }
+      - name: Build only after regression and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_BUILD_FAILED' }
+          Write-Output "F123_EXACT_HEAD=${{ github.sha }}"
+          Write-Output 'F123_TRAIN_ONLY_QUALIFICATION=true'
+          Write-Output 'F123_CONFIRM_READ=false'
+          Write-Output 'F123_SCIENTIFIC_ACCEPTED=false'
