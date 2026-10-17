@@ -676,6 +676,88 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $root 'f126-original-negative-selected-agenda.sha256'),
             "$digest  f126-original-negative-selected-agenda.json"+[Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
+      - name: F127 actual previous F126 negative to executable grammar synthesis
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f127_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F127_SYNTHESIS_ADVERSARIAL_TEST_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'f127-synthesis'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $prior=[int64]39041234945
+          if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            $runs=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&event=schedule&per_page=40") | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F127_PRIOR_SCHEDULE_READ_FAILED' }
+            $prior=0
+            foreach ($entry in @($runs.workflow_runs | Sort-Object id -Descending)) {
+              if ([int64]$entry.id -ge [int64]$env:GITHUB_RUN_ID -or $entry.run_attempt -ne 1 -or
+                  $entry.conclusion -cne 'success' -or $entry.event -cne 'schedule' -or
+                  $entry.head_branch -cne 'main') { continue }
+              $items=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$entry.id+"/artifacts?per_page=100") | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { throw 'F127_PRIOR_SCHEDULE_ARTIFACT_QUERY_FAILED' }
+              $names=@($items.artifacts | Where-Object {-not $_.expired} | ForEach-Object { $_.name })
+              if ($names -contains 'forge-f126-original-negative-agenda-ubuntu-latest' -and
+                  $names -contains 'forge-f126-original-negative-agenda-windows-latest') {
+                $prior=[int64]$entry.id
+                break
+              }
+            }
+            if ($prior -eq 0) { throw 'F127_NO_PRIOR_REAL_SCHEDULED_F126_SOURCE' }
+          }
+          if ($prior -ge [int64]$env:GITHUB_RUN_ID) { throw 'F127_PREVIOUS_RUN_NOT_EARLIER' }
+          $raw=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$prior)
+          if ($LASTEXITCODE -ne 0) { throw 'F127_PRIOR_RUN_READ_FAILED' }
+          $arts=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$prior+"/artifacts?per_page=100")
+          if ($LASTEXITCODE -ne 0) { throw 'F127_PRIOR_ARTIFACTS_READ_FAILED' }
+          $run=Join-Path $root 'prior-run.json'
+          $index=Join-Path $root 'prior-index.json'
+          [System.IO.File]::WriteAllText($run,($raw -join [Environment]::NewLine)+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText($index,($arts -join [Environment]::NewLine)+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
+          $linux=Join-Path $root 'linux'
+          $windows=Join-Path $root 'windows'
+          New-Item -ItemType Directory -Path $linux,$windows -Force | Out-Null
+          & gh run download $prior --repo $env:GITHUB_REPOSITORY -n 'forge-f126-original-negative-agenda-ubuntu-latest' -D $linux
+          if ($LASTEXITCODE -ne 0) { throw 'F127_PRIOR_LINUX_DOWNLOAD_FAILED' }
+          & gh run download $prior --repo $env:GITHUB_REPOSITORY -n 'forge-f126-original-negative-agenda-windows-latest' -D $windows
+          if ($LASTEXITCODE -ne 0) { throw 'F127_PRIOR_WINDOWS_DOWNLOAD_FAILED' }
+          $out=Join-Path $root 'f127-program-synthesis.json'
+          $args2=@('--run-json',$run,'--artifacts-json',$index,
+            '--ubuntu-report',(Join-Path $linux 'f126-original-negative-selected-agenda.json'),
+            '--ubuntu-receipt',(Join-Path $linux 'f126-original-negative-selected-agenda.sha256'),
+            '--windows-report',(Join-Path $windows 'f126-original-negative-selected-agenda.json'),
+            '--windows-receipt',(Join-Path $windows 'f126-original-negative-selected-agenda.sha256'),
+            '--source-ref',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--event',$env:GITHUB_EVENT_NAME,'--output',$out)
+          & $py -B nativeevidence/f127_program_synthesis.py @args2
+          if ($LASTEXITCODE -ne 0) { throw 'F127_EVIDENCE_SYNTHESIS_QUARANTINED' }
+          $x=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.autonomy.f127.evidence-driven-program-synthesis-development.v1' -or
+              $x.source_sha -cne $env:GITHUB_SHA -or [int64]$x.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $x.generated_executable_programs.Count -ne 8 -or $x.program_count -ne 8 -or
+              $x.selected_complexity -ne 3 -or -not $x.selection_from_training_only -or
+              $x.source_only_heldout.paired_correct -ne 64 -or
+              $x.exact_symbolic_ceiling.paired_correct -ne 64 -or
+              -not $x.frozen_heldout_mechanism_criterion_passed -or
+              $x.independent_scientific_mechanism_invented -or
+              $x.general_algorithmic_invention_proven -or
+              $x.genuine_two_scheduled_run_continuity_proven -or
+              $x.scientific_originals_dispatched -ne 0 -or
+              $x.scientific_first_use_authorized -or
+              $x.accepted_ref_mutations -ne 0 -or $x.optimizer_promotions -ne 0 -or
+              $x.Codex_calls -ne 0 -or $x.paid_model_calls -ne 0 -or
+              $x.new_schedulers -ne 0 -or $x.ckb_plane_contact -or
+              $x.cloudflare_writes -ne 0 -or $x.mind_palace_writes -ne 0) {
+            throw 'F127_SCIENTIFIC_AUTHORITY_OR_EXECUTABLE_EVIDENCE_INVALID'
+          }
+          Write-Host ('F127_AUTONOMOUS_AST '+$x.selected_ast_sha256+
+            ' synthesized_from='+$x.synthesized_problem.source_experiment+
+            ' heldout='+$x.source_only_heldout.paired_correct+'/64')
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f127-program-synthesis.sha256'),
+            "$digest  f127-program-synthesis.json"+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -831,3 +913,48 @@ jobs:
             ${{ runner.temp }}/forge-f126-authentic-originals/f126-original-negative-selected-agenda.sha256
           retention-days: 30
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f127-synthesized-program-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f127-synthesis/f127-program-synthesis.json
+            ${{ runner.temp }}/f127-synthesis/f127-program-synthesis.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+  f127-cross-os-byte-proof:
+    needs: two-lane-synthetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-f127-synthesized-program-*
+          path: f127-artifacts
+          merge-multiple: false
+      - name: Verify independent Ubuntu and Windows generated AST receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          reports=[]
+          for os in ("ubuntu-latest","windows-latest"):
+              folder=Path("f127-artifacts")/("forge-f127-synthesized-program-"+os)
+              raw=(folder/"f127-program-synthesis.json").read_bytes()
+              receipt=(folder/"f127-program-synthesis.sha256").read_text().strip()
+              digest=hashlib.sha256(raw).hexdigest()
+              assert receipt==digest+"  f127-program-synthesis.json",("F127_BAD_RECEIPT",os)
+              obj=json.loads(raw)
+              assert obj["schema"]=="forge.autonomy.f127.evidence-driven-program-synthesis-development.v1"
+              assert obj["source_only_heldout"]["paired_correct"]==64
+              assert obj["scientific_originals_dispatched"]==0
+              reports.append(raw)
+          assert reports[0]==reports[1],"F127_DIFFERENT_GENERATED_MECHANISMS_ACROSS_OS"
+          print("F127_CROSS_OS_IDENTICAL",hashlib.sha256(reports[0]).hexdigest())
+          PY
