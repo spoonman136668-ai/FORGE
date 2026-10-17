@@ -1,0 +1,318 @@
+// forge-f115o-metaqa-transfer checks label-equivariance and source-order invariance
+// on a genuine pinned public knowledge graph. These are deterministic classical
+// graph-index invariants, not learned neural generalization or benchmark QA.
+package main
+
+import (
+	"bytes"
+	"crypto/sha1"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"reflect"
+	"sort"
+	"strconv"
+
+	"github.com/spoonman136668-ai/forge/noveltymechanisms/largegraph"
+)
+
+const (
+	upstreamRepo = "tiantiangao7/kalm-qa"
+	upstreamGit = "826ee617e4da5b087584b0e03c70fe76642c6188"
+	originalBlob = "a43fa7ca5e6894236556f2984764070c4ca5562b"
+	originalSHA = "9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af"
+	frozenCount = 64
+)
+var errInvariant = errors.New("F115O_AUTHENTIC_GRAPH_COMPOSITION_INVARIANT_FAILED")
+
+type triple struct {
+	from, role, to string
+}
+type arc struct {
+	to, role string
+	dir largegraph.Direction
+}
+type candidate struct {
+	root, terminal string
+	steps []largegraph.Step
+}
+type counts struct {
+	Selected int `json:"selected"`
+	ForwardComplete int `json:"forward_resolved"`
+	ForwardBudgetRefused int `json:"forward_budget_refused"`
+	ReversedRowOrderEquivalent int `json:"source_order_equivalent"`
+	BijectiveRoleNamesEquivalent int `json:"role_renaming_equivalent"`
+	ReverseWitnessPresent int `json:"reverse_source_witness_present"`
+	ReverseBudgetRefused int `json:"reverse_budget_refused"`
+}
+type report struct {
+	Schema string `json:"schema"`
+	Status string `json:"status"`
+	SourceRepository string `json:"source_repository"`
+	SourceCommit string `json:"source_commit"`
+	OriginalGraphBlob string `json:"original_graph_blob"`
+	OriginalSourceSHA256 string `json:"original_source_sha256"`
+	OriginalWholeGraph largegraph.Stats `json:"original_whole_graph"`
+	TwoHop counts `json:"two_hop"`
+	ThreeHop counts `json:"three_hop"`
+	AllGraphSourceRowsUsed bool `json:"full_original_source_used"`
+	RelabelingBijectionOnly bool `json:"relation_renaming_is_bijective_only"`
+	OriginalQAQuestionsRead bool `json:"original_qa_questions_read"`
+	OriginalAnswersReadOrScored bool `json:"original_answers_read_or_scored"`
+	FreebasePublisherGraphQualified bool `json:"freebase_publisher_graph_qualified"`
+	LearnedNeuralTransferClaim bool `json:"learned_neural_transfer_claim"`
+	IndependentScientificFirstuse bool `json:"independent_scientific_firstuse"`
+	AcceptedScience bool `json:"accepted_science"`
+	AcceptedRefMutation bool `json:"accepted_ref_mutation"`
+	DreamParetoPromotion bool `json:"dream_pareto_promotion"`
+	ThetaAccepted bool `json:"thetaevolve_accepted_training"`
+	ScienceDispatch bool `json:"science_dispatch"`
+	CodexCalls int `json:"codex_calls"`
+	ModelCalls int `json:"model_calls"`
+	CloudflareWrites int `json:"cloudflare_writes"`
+}
+
+func sourceBytesQualified(raw []byte) bool {
+	if len(raw)==0 || len(raw)>largegraph.MaxSourceBytes {return false}
+	prefix:=[]byte("blob "+strconv.Itoa(len(raw))+"\x00")
+	sha:=sha1.New()
+	_,_=sha.Write(prefix)
+	_,_=sha.Write(raw)
+	h:=sha256.Sum256(raw)
+	return hex.EncodeToString(sha.Sum(nil))==originalBlob &&
+		hex.EncodeToString(h[:])==originalSHA
+}
+
+func splitSource(raw []byte) ([]triple, [][]byte, error) {
+	if len(raw)==0 || raw[len(raw)-1]!='\n' {return nil,nil,errInvariant}
+	all:=bytes.Split(raw[:len(raw)-1],[]byte{'\n'})
+	if len(all)!=134741 {return nil,nil,errInvariant}
+	rows:=make([]triple,0,len(all))
+	seen:=make(map[triple]struct{})
+	unique:=make([]triple,0,len(all))
+	for _,b:=range all {
+		p:=bytes.Split(b,[]byte{'|'})
+		if len(p)!=3 || len(p[0])==0 || len(p[1])==0 || len(p[2])==0 {
+			return nil,nil,errInvariant
+		}
+		t:=triple{string(p[0]),string(p[1]),string(p[2])}
+		rows=append(rows,t)
+		if _,ok:=seen[t];!ok {seen[t]=struct{}{};unique=append(unique,t)}
+	}
+	if len(unique)!=133582 {return nil,nil,errInvariant}
+	// Freeze seed order to SHA256 of full original raw triple bytes.
+	sort.Slice(unique,func(i,j int)bool{
+		li:=[]byte(unique[i].from+"|"+unique[i].role+"|"+unique[i].to)
+		lj:=[]byte(unique[j].from+"|"+unique[j].role+"|"+unique[j].to)
+		hi,hj:=sha256.Sum256(li),sha256.Sum256(lj)
+		if hi!=hj {return bytes.Compare(hi[:],hj[:])<0}
+		return bytes.Compare(li,lj)<0
+	})
+	return unique,all,nil
+}
+
+func adjacency(unique []triple) map[string][]arc {
+	out:=make(map[string][]arc)
+	for _,t:=range unique {
+		out[t.from]=append(out[t.from],arc{t.to,t.role,largegraph.Forward})
+		out[t.to]=append(out[t.to],arc{t.from,t.role,largegraph.Reverse})
+	}
+	for from:=range out {
+		neighbors:=out[from]
+		sort.Slice(neighbors,func(i,j int)bool{
+			a,b:=neighbors[i],neighbors[j]
+			if a.role!=b.role {return a.role<b.role}
+			if a.dir!=b.dir {return a.dir<b.dir}
+			return a.to<b.to
+		})
+		out[from]=neighbors
+	}
+	return out
+}
+
+func extend(out map[string][]arc,current string,hops int,
+	visited map[string]bool,steps []largegraph.Step)([]largegraph.Step,string,bool) {
+	if len(steps)==hops {
+		return append([]largegraph.Step(nil),steps...),current,true
+	}
+	for _,a:=range out[current] {
+		if visited[a.to] {continue}
+		visited[a.to]=true
+		steps=append(steps,largegraph.Step{Role:a.role,Direction:a.dir})
+		full,dest,ok:=extend(out,a.to,hops,visited,steps)
+		steps=steps[:len(steps)-1]
+		delete(visited,a.to)
+		if ok{return full,dest,true}
+	}
+	return nil,"",false
+}
+
+func selectPaths(unique []triple,hops int,n int)([]candidate,error) {
+	if hops<2||hops>3||n<1{return nil,errInvariant}
+	out:=adjacency(unique)
+	cands:=make([]candidate,0,n)
+	for _,t:=range unique {
+		if t.from==t.to {continue}
+		visited:=map[string]bool{t.from:true,t.to:true}
+		head:=[]largegraph.Step{{Role:t.role,Direction:largegraph.Forward}}
+		steps,terminal,ok:=extend(out,t.to,hops,visited,head)
+		if !ok {continue}
+		cands=append(cands,candidate{root:t.from,terminal:terminal,steps:steps})
+		if len(cands)==n{return cands,nil}
+	}
+	return nil,errInvariant
+}
+
+func mappedRoles(rows []triple)(map[string]string,error) {
+	unique:=make(map[string]bool)
+	for _,t:=range rows {unique[t.role]=true}
+	roles:=make([]string,0,len(unique))
+	for r:=range unique{roles=append(roles,r)}
+	sort.Strings(roles)
+	if len(roles)!=9 {return nil,errInvariant}
+	mapped:=make(map[string]string)
+	for i,r:=range roles {
+		name:=fmt.Sprintf("F115Role%02d",i+1)
+		if unique[name] {return nil,errInvariant}
+		mapped[r]=name
+	}
+	return mapped,nil
+}
+
+func compileVariants(raw [][]byte,roles map[string]string)(
+	*largegraph.Index,*largegraph.Index,error) {
+	reverse:=make([]byte,0,largegraph.MaxSourceBytes)
+	mapped:=make([]byte,0,largegraph.MaxSourceBytes)
+	for i:=len(raw)-1;i>=0;i-- {
+		reverse=append(reverse,raw[i]...)
+		reverse=append(reverse,'\n')
+	}
+	for _,line:=range raw {
+		p:=bytes.Split(line,[]byte{'|'})
+		if len(p)!=3{return nil,nil,errInvariant}
+		role,ok:=roles[string(p[1])]
+		if !ok{return nil,nil,errInvariant}
+		mapped=append(mapped,p[0]...)
+		mapped=append(mapped,'|')
+		mapped=append(mapped,role...)
+		mapped=append(mapped,'|')
+		mapped=append(mapped,p[2]...)
+		mapped=append(mapped,'\n')
+	}
+	a,err:=largegraph.Compile(reverse)
+	if err!=nil{return nil,nil,err}
+	b,err:=largegraph.Compile(mapped)
+	if err!=nil{return nil,nil,err}
+	return a,b,nil
+}
+
+func invert(s largegraph.Direction)largegraph.Direction {
+	if s==largegraph.Forward{return largegraph.Reverse}
+	return largegraph.Forward
+}
+func inverseSteps(steps []largegraph.Step)[]largegraph.Step {
+	inverse:=make([]largegraph.Step,0,len(steps))
+	for i:=len(steps)-1;i>=0;i--{
+		inverse=append(inverse,largegraph.Step{Role:steps[i].Role,Direction:invert(steps[i].Direction)})
+	}
+	return inverse
+}
+func containsSorted(whole []string,value string)bool {
+	i:=sort.SearchStrings(whole,value)
+	return i<len(whole)&&whole[i]==value
+}
+func sameOutcome(a,b largegraph.Resolution,e1,e2 error)bool {
+	if e1!=nil||e2!=nil {return errors.Is(e1,largegraph.ErrBudget)&&errors.Is(e2,largegraph.ErrBudget)}
+	return reflect.DeepEqual(a.Targets,b.Targets) && a.Steps==b.Steps &&
+		a.Candidates==b.Candidates&&a.UniqueTarget==b.UniqueTarget
+}
+func evaluate(paths []candidate,base,ordered,renamed *largegraph.Index,roles map[string]string)(counts,error) {
+	c:=counts{Selected:len(paths)}
+	for _,q:=range paths {
+		original,e1:=base.Resolve(q.root,q.steps)
+		reordered,e2:=ordered.Resolve(q.root,q.steps)
+		mapped:=make([]largegraph.Step,len(q.steps))
+		for i,s:=range q.steps{mapped[i]=largegraph.Step{Role:roles[s.Role],Direction:s.Direction}}
+		transformed,e3:=renamed.Resolve(q.root,mapped)
+		if !sameOutcome(original,reordered,e1,e2) || !sameOutcome(original,transformed,e1,e3) {
+			return counts{},errInvariant
+		}
+		c.ReversedRowOrderEquivalent++
+		c.BijectiveRoleNamesEquivalent++
+		if errors.Is(e1,largegraph.ErrBudget) {
+			c.ForwardBudgetRefused++
+		} else if e1==nil && containsSorted(original.Targets,q.terminal) {
+			c.ForwardComplete++
+		} else {
+			return counts{},errInvariant
+		}
+		opposite,err:=base.Resolve(q.terminal,inverseSteps(q.steps))
+		if errors.Is(err,largegraph.ErrBudget) {c.ReverseBudgetRefused++} else
+		if err==nil && containsSorted(opposite.Targets,q.root) {c.ReverseWitnessPresent++} else {
+			return counts{},errInvariant
+		}
+	}
+	return c,nil
+}
+
+func audit(raw []byte)(report,error) {
+	var zero report
+	if !sourceBytesQualified(raw) {return zero,errInvariant}
+	index,err:=largegraph.Compile(raw)
+	if err!=nil{return zero,err}
+	stats:=index.Statistics()
+	if stats.SourceRows!=134741 ||stats.DistinctTriples!=133582||
+		stats.DuplicateRows!=1159||stats.SelfRelations!=11||
+		stats.DistinctEntities!=43234||stats.DistinctRoles!=9||
+		stats.SearchableArcs!=267164{return zero,errInvariant}
+	unique,sourceRows,err:=splitSource(raw)
+	if err!=nil{return zero,err}
+	roles,err:=mappedRoles(unique)
+	if err!=nil{return zero,err}
+	ordered,renamed,err:=compileVariants(sourceRows,roles)
+	if err!=nil{return zero,err}
+	if ordered.Statistics()!=stats||renamed.Statistics()!=stats{return zero,errInvariant}
+	two,err:=selectPaths(unique,2,frozenCount)
+	if err!=nil{return zero,err}
+	three,err:=selectPaths(unique,3,frozenCount)
+	if err!=nil{return zero,err}
+	a,err:=evaluate(two,index,ordered,renamed,roles)
+	if err!=nil{return zero,err}
+	b,err:=evaluate(three,index,ordered,renamed,roles)
+	if err!=nil{return zero,err}
+	return report{
+		Schema:"forge.optimizer.f115o.authenticated-metaqa-graph-structural-transfer.v1",
+		Status:"PUBLIC_AUTHENTIC_METAQA_GRAPH_STRUCTURAL_INVARIANTS_ONLY",
+		SourceRepository:upstreamRepo,SourceCommit:upstreamGit,
+		OriginalGraphBlob:originalBlob,OriginalSourceSHA256:originalSHA,
+		OriginalWholeGraph:stats,TwoHop:a,ThreeHop:b,
+		AllGraphSourceRowsUsed:true,RelabelingBijectionOnly:true,
+	},nil
+}
+
+func main(){
+	path:=flag.String("source-raw-kb","","Full pinned upstream source knowledge graph")
+	output:=flag.String("output","","New aggregate evidence destination")
+	flag.Parse()
+	if *path==""||*output==""||len(flag.Args())!=0{fmt.Fprintln(os.Stderr,"F115O_SOURCE_AND_NEW_OUTPUT_REQUIRED");os.Exit(2)}
+	info,err:=os.Lstat(*path)
+	if err!=nil||!info.Mode().IsRegular()||info.Size()>largegraph.MaxSourceBytes{
+		fmt.Fprintln(os.Stderr,"F115O_SOURCE_NOT_REGULAR_OR_OVER_BUDGET");os.Exit(1)
+	}
+	raw,err:=os.ReadFile(*path)
+	if err!=nil{fmt.Fprintln(os.Stderr,"F115O_SOURCE_READ_FAILED");os.Exit(1)}
+	data,err:=audit(raw)
+	if err!=nil{fmt.Fprintln(os.Stderr,"F115O_SOURCE_OR_COMPOSITION_BLOCKED",err);os.Exit(1)}
+	jsonBytes,err:=json.MarshalIndent(data,"","  ")
+	if err!=nil{panic(err)}
+	f,err:=os.OpenFile(*output,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
+	if err!=nil{fmt.Fprintln(os.Stderr,"F115O_OUTPUT_EXISTS");os.Exit(1)}
+	defer f.Close()
+	if _,err:=f.Write(append(jsonBytes,'\n'));err!=nil{panic(err)}
+	fmt.Println("F115O_PUBLIC_AUTHENTIC_METAQA_SOURCE_FULL_GRAPH_AND_INVARIANTS_PASS")
+	fmt.Println("F115O_NO_FREEBASE_SOURCE_QA_ANSWERS_MODEL_LEARNING_OR_SCIENTIFIC_ACCEPTANCE")
+}
