@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import f98o_public_corpus_audit as f98
@@ -174,6 +175,17 @@ def git_blob(raw: bytes) -> str:
     return hashlib.sha1(b'blob ' + str(len(raw)).encode('ascii') + b'\x00' + raw).hexdigest()
 
 
+def immutable_git_object(root: Path, path: str) -> bytes:
+    """Read exact pinned Git object bytes, never OS-normalized worktree text."""
+    cp = subprocess.run(
+        ['git', '-C', str(root), 'show', 'HEAD:' + path],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=False, timeout=30,
+    )
+    require(cp.returncode == 0, 'IMMUTABLE_GIT_OBJECT_UNAVAILABLE')
+    return cp.stdout
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--upstream', type=Path, required=True)
@@ -184,11 +196,11 @@ def main() -> None:
     require(audit['real_git_object_readback_performed'] is True, 'NO_AUTHENTIC_SOURCE')
     contents = []
     for (_, relative, expected_blob, _), source in zip(f98.FILES, audit['source_files'], strict=True):
-        raw = args.upstream.joinpath(*relative.split('/')).read_bytes()
-        require(len(raw) <= 7_000_000 and git_blob(raw) == expected_blob,
-                'WORKTREE_DIFFERS_FROM_PINNED_GIT_BLOB')
-        require(hashlib.sha256(raw).hexdigest() == source['source_bytes_sha256'],
-                'F98O_SOURCE_AUDIT_DRIFT')
+        raw = immutable_git_object(args.upstream, relative)
+        require(0 < len(raw) <= 7_000_000 and git_blob(raw) == expected_blob,
+                'AUTHENTIC_GIT_OBJECT_BYTES_DRIFT')
+        require(source['source_git_blob_sha1'] == expected_blob,
+                'F98O_SOURCE_TREE_IDENTITY_DRIFT')
         contents.append(raw.decode('utf-8').splitlines())
     output = assess(contents[0], contents[1], contents[2],
                     denominator2=14872, denominator3=14274)
@@ -198,8 +210,8 @@ def main() -> None:
     output['source_files'] = [{
         'kind': row['kind'], 'path': row['path'],
         'source_git_blob_sha1': row['source_git_blob_sha1'],
-        'source_bytes_sha256': row['source_bytes_sha256'],
-    } for row in audit['source_files']]
+        'source_bytes_sha256': hashlib.sha256(raw).hexdigest(),
+    } for row, raw in zip(audit['source_files'], [immutable_git_object(args.upstream, r[1]) for r in f98.FILES], strict=True)]
     args.output.write_text(json.dumps(output, sort_keys=True, indent=2) + '\n',
                            encoding='utf-8')
     print('F99O_AUTHENTIC_PUBLIC_QA_ROWS=29146')
