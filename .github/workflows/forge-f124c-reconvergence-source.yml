@@ -1,0 +1,44 @@
+name: F124-C causal composition TRAIN source admission
+on:
+  push:
+    branches: [research/f124c-compact-causal-composition-20261017]
+    paths:
+      - 'nativeevidence/f124c_*.py'
+      - 'nativeevidence/test_f124c_*.py'
+      - 'reference/research-intake/f124c-compact-causal-composition-freeze.json'
+      - '.github/workflows/forge-f124c-reconvergence-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f124c-train-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  train-source-admission:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run adversarial F124-C TRAIN-only admissions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124c_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_TRAIN_SOURCE_NOT_QUALIFIED' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_ISOLATION_FAIL_CLOSED' }
+          Write-Output "F124C_SOURCE_HEAD=${{ github.sha }}"
+          Write-Output 'F124C_MODEL_IMPLEMENTED=false'
+          Write-Output 'F124C_PROTECTED_CONFIRM_GENERATED=false'
+          Write-Output 'F124C_ORIGINAL_SCIENTIFIC_FIRST_USE=false'
+          Write-Output 'F124C_ACCEPTANCE=false'
