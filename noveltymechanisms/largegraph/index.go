@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"sort"
+	"unicode/utf8"
 )
 
 const (
@@ -64,7 +65,7 @@ type Index struct {
 
 func validField(s string) bool {
 	return len(s) > 0 && len(s) <= MaxFieldBytes &&
-		!bytes.ContainsAny([]byte(s), "\x00\r\n")
+		utf8.ValidString(s) && !bytes.ContainsAny([]byte(s), "\x00\r\n|")
 }
 
 // Compile consumes a complete byte-bounded source file, not selected rows.
