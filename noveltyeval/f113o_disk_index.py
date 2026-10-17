@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from contextlib import closing
 import re
 import sqlite3
 import stat
@@ -188,7 +189,7 @@ def resolve_fixture(db_path:Path,source_sha256:str,index_sha256:str,
          and 1<=max_frontier<=MAX_FRONTIER,"FRONTIER_HARD_CAP")
     uri="file:"+quote(str(db_path.resolve()),safe="/:")+"?mode=ro"
     try:
-        with sqlite3.connect(uri,uri=True,timeout=2) as conn:
+        with closing(sqlite3.connect(uri,uri=True,timeout=2)) as conn:
             conn.execute("PRAGMA query_only=ON")
             conn.execute("PRAGMA busy_timeout=2000")
             meta=dict(conn.execute("SELECT key,value FROM meta").fetchall())
