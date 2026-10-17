@@ -88,3 +88,91 @@ jobs:
           path: ${{ runner.temp }}/f125r-source-only/
           if-no-files-found: error
           retention-days: 30
+
+  headroom-source-only:
+    needs: frozen-source
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify frozen public fixed control and unchanged TRAIN cases
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_TRAIN_SOURCE_OR_MODEL_TESTS_FAILED' }
+      - name: Generate exact-head advisory and headroom audit without model fitting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f125r-train-headroom'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $advisory=Join-Path $folder 'advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_ADVISORY_GENERATOR_FAILED' }
+          $source=Get-Content -LiteralPath $advisory -Raw | ConvertFrom-Json
+          if ($source.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $source.source_commit_sha -cne $env:GITHUB_SHA -or
+              $source.lanes.Count -ne 2 -or
+              $source.model_invocations -ne 0 -or $source.codex_invocations -ne 0 -or
+              $source.network_calls -ne 0 -or $source.new_scientific_originals -ne 0 -or
+              $source.scientific_first_use_authorized -or $source.policy_promotion_authorized -or
+              $source.accepted_ref_mutations -ne 0) { throw 'F125R_ADVISORY_PROVENANCE_DENIED' }
+          $out=Join-Path $folder 'f125r-train-headroom.json'
+          & $py -B nativeevidence/f125r_train_headroom.py --advisory $advisory --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_SOURCE_HEADROOM_AUDIT_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f125r.public-train-source-headroom.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.freeze_git_blob -cne '0a2030f17123b7e096c42e730f3a536f014275bd' -or
+              $r.lanes.Count -ne 2 -or $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.scientific_first_use -or $r.reserved_confirm_generated -or
+              $r.trained_weights_created -or -not $r.no_seed_or_threshold_retuning -or
+              $r.originals_dispatched -ne 0) { throw 'F125R_UNEARNED_HEADROOM_OR_AUTHORITY' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.train_pairs -ne 64 -or
+                $lane.exact_public_symbolic_ceiling.paired_correct -ne 64 -or
+                $lane.minimum_frozen_headroom -ne 0.08) {
+              throw 'F125R_HEADROOM_REVIEW_INCOMPLETE'
+            }
+          }
+          # An unfavorable, authentic source-eligibility result is valid evidence;
+          # NEVER abort just to choose more favorable TRAIN cases.
+          foreach ($name in @('advisory.json','f125r-train-headroom.json')) {
+            $p=Join-Path $folder $name
+            $digest=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($p+'.sha256'),
+              ($digest+'  '+$name+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          }
+          Write-Host "F125R_SOURCE_ELIGIBILITY=$($r.disposition)"
+          Write-Host "F125R_FROZEN_SOURCE_SHA=$env:GITHUB_SHA"
+          Write-Host 'F125R_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-train-source-headroom-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-train-headroom/
+          retention-days: 90
+          if-no-files-found: error
