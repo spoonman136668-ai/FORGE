@@ -1,0 +1,216 @@
+{
+  "schema": "forge.research.f128r.learned-bit-order-early-reject-prereg.v1",
+  "stage": "SOURCE_ONLY_FROZEN_BEFORE_NEW_MODEL_OR_COHORT",
+  "identity": {
+    "parent_f127r_commit": "0937af979095bfd680f517b2a3fd304455f2138c",
+    "parent_pr": 455,
+    "parent_exact_head_ci_run": 39065115084,
+    "parent_freeze_git_blob": "0fde790b95384aaf19e9725ea5a82e7819407c3d",
+    "parent_status": "ENGINEERING_PASS_SCIENTIFIC_DEVELOPMENT_NEGATIVE",
+    "this_lane": "F128-R learned verifier efficiency, not F128 autonomy or parallel research",
+    "parent_source_unmodified": true
+  },
+  "negative_retention": {
+    "F127R_Wingless_TRAIN_CHECK_paired": [
+      18,
+      32
+    ],
+    "F127R_Yggdrasil_TRAIN_CHECK_paired": [
+      15,
+      32
+    ],
+    "F127R_Wingless_TRAIN_CHECK_rank": [
+      32,
+      32
+    ],
+    "F127R_Yggdrasil_TRAIN_CHECK_rank": [
+      32,
+      32
+    ],
+    "F127R_eligible_exact_paired_both_lanes": [
+      32,
+      32
+    ],
+    "F127R_Wingless_saved_cost_ratio_to_indexed_exact": 9.288,
+    "F127R_Yggdrasil_saved_cost_ratio_to_indexed_exact": 9.197,
+    "F127R_cost_superiority": false,
+    "F126R_paired_Wingless": [
+      6,
+      64
+    ],
+    "F126R_paired_Yggdrasil": [
+      18,
+      64
+    ],
+    "F125R_paired_Wingless": [
+      0,
+      64
+    ],
+    "F125R_paired_Yggdrasil": [
+      0,
+      64
+    ],
+    "all_original_negative_evidence_retained": true
+  },
+  "hypothesis": {
+    "name": "Label-blind, learned early-rejection bit-order as a verified public-token relational filter",
+    "mechanistic_change": "Stop fitting global graph probabilities. Learn an ordering of the sixteen raw-bit coordinates that tends to reject false junctions early, while retaining exact 16-bit verification and indexed graph reachability. The output remains the exact public relational truth value.",
+    "falsifiable_prediction": "Learning early-rejection order from entirely separate public FIT cases reduces test-time token-comparison work and wall time on unseen public TRAIN_CHECK graph structures versus the already-indexed exact solver while preserving exact per-instance labels; this may fail because native sequence equality is already fast.",
+    "trainable_statistics": 16,
+    "training": "Single-pass label-blind mismatch histogram over each public query-role-adjacent source/destination junction of FIT graphs, including all graph cases. Count the fraction of candidate junctions with unequal bits at each coordinate, sort descending mismatch counts, ties ascending numeric bit index. No gradient, labels, oracle edges, validation-driven threshold, or model restarts.",
+    "frozen_initializer": "Stable bit order 0..15; learned sort by decreasing mismatches with original index tie break.",
+    "frozen_inference": "Single public graph only: index outgoing edges by (from,role); traverse every query-compatible state without pruning; at each junction check raw source/destination bits in learned order, reject when first different, accept only after all 16 agree. No approximation, hard beam, stochasticity, or paired partner at inference.",
+    "boundaries": {
+      "bit_length": 16,
+      "training_passes": 1,
+      "maximum_active_states": 256,
+      "maximum_candidate_expansions": 512,
+      "maximum_public_paths": 16,
+      "model_parameter_storage": 16,
+      "fail_closed_on_excess": true
+    },
+    "no_calibration_or_threshold": true,
+    "no_original_weights_reused": true,
+    "oracle_path_never_model_input": true,
+    "ablation": "Fixed natural-bit-order early rejection, fixed reversed-order early rejection and optimized native whole-token equality all see identical public graphs. All remain eligible controls."
+  },
+  "source": {
+    "family": "F128R-INDEPENDENT-PUBLIC-TOKEN-VERIFIER-V1",
+    "salt_namespace": "F128R/PUBLIC/NEW-GRAPH-SALT/20261017",
+    "lanes": {
+      "Wingless": {
+        "FIT": [
+          220100,
+          220115
+        ],
+        "TRAIN_CHECK": [
+          220116,
+          220131
+        ],
+        "CONFIRM": [
+          220200,
+          220263
+        ]
+      },
+      "Yggdrasil": {
+        "FIT": [
+          230100,
+          230115
+        ],
+        "TRAIN_CHECK": [
+          230116,
+          230131
+        ],
+        "CONFIRM": [
+          230200,
+          230263
+        ]
+      }
+    },
+    "candidate_indices": [
+      2,
+      3
+    ],
+    "authenticated_proposals_per_lane": 2,
+    "fit_pairs_per_vector": 16,
+    "train_check_pairs_per_vector": 16,
+    "protected_confirmation_seeds_per_lane": 64,
+    "public_raw_bit_length": 16,
+    "fit_depths": [
+      3,
+      5
+    ],
+    "train_check_depths": [
+      3,
+      5
+    ],
+    "protected_confirm_depths": [
+      6,
+      8
+    ],
+    "fit_public_paths": [
+      6,
+      12
+    ],
+    "train_check_public_paths": [
+      6,
+      12
+    ],
+    "protected_confirm_public_paths": [
+      8,
+      16
+    ],
+    "counterfactual_balance": "Each positive and negative graph must have identical public query, role-compatible topology and raw token marginals; exact public-label solver used exclusively for baseline, source admission and evidence review.",
+    "training_labels_unavailable_to_policy": true,
+    "train_check_and_protected_CONFIRM_unopened_during_fit": true,
+    "protected_CONFIRM_generated": false,
+    "no_seed_reselection_after_scoring": true
+  },
+  "controls": {
+    "mandatory_eligible_exact": "Already-indexed optimized public graph solver, using native 16-bit vector equality, on exactly the same graph source and host. Do not compare only with an intentionally slow full-scan implementation.",
+    "frozen_controls": [
+      "CTRL_OPTIMIZED_INDEXED_EXACT_VECTOR_EQUALITY",
+      "CTRL_FIXED_NATURAL_0_TO_15",
+      "CTRL_FIXED_REVERSE_15_TO_0",
+      "CTRL_LABEL_BLIND_UNIFORM_BIT_ORDER",
+      "F128R_FIT_ONLY_LEARNED_EARLY_REJECT"
+    ],
+    "accuracy": "Every TRAIN_CHECK graph must match the native optimized exact solver's prediction (positive and negative; report full 32 matched pairs per lane). Exact reference remains eligible. No unexplained exceptions or subgroup omissions.",
+    "cost": {
+      "warmup_complete_passes": 5,
+      "measured_interleaved_complete_passes": 30,
+      "alternating_order": true,
+      "same_python_version_and_runner": true,
+      "cost_events": [
+        "index_builds",
+        "edge_visits",
+        "candidate_expansions",
+        "bit_accesses",
+        "bit_mismatch_checks",
+        "state_allocations",
+        "peak_states",
+        "raw_input_conversion",
+        "sort_comparisons"
+      ],
+      "cross_algorithm_common_event_definition_frozen_before_first_fit": true,
+      "maximum_bit_comparison_ratio_to_full_16_reference": 0.75,
+      "maximum_median_walltime_ratio_to_optimized_exact": 0.75,
+      "both_metrics_required_in_both_lanes": true,
+      "native_vector_comparison_is_eligible_even_if_it_outperforms_learned": true,
+      "no_hardware_equivalence_from_heterogeneous_counters": true
+    },
+    "failure_states": [
+      "NEGATIVE_UNCHANGED_VERIFICATION_COST",
+      "NEGATIVE_BIT_WORK",
+      "NEGATIVE_WALLTIME",
+      "NEGATIVE_CROSS_STRUCTURE_TRANSFER",
+      "OVER_BUDGET",
+      "BLOCKED_UNAUTHENTIC_SOURCE",
+      "FAIL_INVARIANT",
+      "UNINFORMATIVE"
+    ],
+    "no_false_success_from_beating_slow_baseline": true,
+    "no_train_check_based_algorithm_retuning": true,
+    "protected_confirmation_requires_separate_first_use": true
+  },
+  "scope": {
+    "current": "Preimplementation scientific preregistration and cross-platform GitHub source-admission tests only; zero F128-R graphs generated, no policy fitted, no protected first use.",
+    "next": "Implement the fresh public FIT/TRAIN_CHECK source family, one-pass 16-bit priority learner and complete optimized-indexed comparator; verify frozen cost schedule and full regressions before evaluating development results.",
+    "freeze_unmodified_after_model_design": true,
+    "scientific_originals_executed": 0,
+    "protected_CONFIRM_read": false,
+    "scientific_first_use": false,
+    "scientific_acceptance": false,
+    "optimizer_promotion": false,
+    "accepted_ref_mutations": 0,
+    "merge": false,
+    "codex_calls": 0,
+    "paid_inference_calls": 0,
+    "new_scheduler": false,
+    "ckb_plane_dependency": false,
+    "cloudflare_writes": 0,
+    "mind_palace_writes": 0,
+    "wingless_repository_writes": 0,
+    "yggdrasil_repository_writes": 0
+  }
+}

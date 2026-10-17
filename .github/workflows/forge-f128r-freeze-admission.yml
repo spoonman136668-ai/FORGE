@@ -1,0 +1,89 @@
+name: F128-R learned bit-order preimplementation freeze
+
+# Source-only; no model fits, public source cases, protected CONFIRM,
+# scientific first-use, promotion, paid inference, or new controllers.
+on:
+  push:
+    branches: [research/f128r-learned-early-reject-indexed-freeze-20261017]
+    paths:
+      - 'reference/research-intake/f128r-early-rejection-order-freeze.json'
+      - 'nativeevidence/f128r_freeze_admission.py'
+      - 'nativeevidence/test_f128r_freeze_admission.py'
+      - '.github/workflows/forge-f128r-freeze-admission.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f128r-freeze-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  immutable-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact HEAD, qualified parent and frozen source checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F128R_EXACT_HEAD_DRIFT'
+          }
+          & git cat-file -e '0937af979095bfd680f517b2a3fd304455f2138c^{commit}'
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_F127R_PARENT_NOT_RETRIEVABLE' }
+          & git merge-base --is-ancestor 0937af979095bfd680f517b2a3fd304455f2138c $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_PARENT_ANCESTRY_REJECTED' }
+      - name: Test frozen scientific criteria and negative retention
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f128r_freeze_admission.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_SOURCE_FROZEN_TEST_FAILURE' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f128r-frozen-source'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $receipt=Join-Path $folder 'f128r-source-admission.json'
+          & $python -B nativeevidence/f128r_freeze_admission.py --source-sha $env:GITHUB_SHA --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_SOURCE_ADMISSION_QUARANTINED' }
+          $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($report.schema -cne 'forge.research.f128r.source-only-admission.v1' -or
+              $report.source_sha -cne $env:GITHUB_SHA -or
+              $report.freeze_git_blob -cne 'fb769675deb29235f96cefad50a87ab208d97950' -or
+              $report.qualified_parent_sha -cne '0937af979095bfd680f517b2a3fd304455f2138c' -or
+              $report.parent_freeze_git_blob -cne '0fde790b95384aaf19e9725ea5a82e7819407c3d' -or
+              $report.fit_cases_generated -ne 0 -or
+              $report.train_check_cases_generated -ne 0 -or
+              $report.protected_confirm_generated -ne 0 -or
+              $report.learned_bit_order_fitted -or
+              $report.scientific_originals_executed -ne 0 -or
+              $report.scientific_first_use -or $report.scientific_acceptance -or
+              $report.optimizer_promotion -or
+              $report.accepted_ref_mutations -ne 0 -or
+              $report.codex_calls -ne 0 -or
+              $report.paid_model_calls -ne 0 -or
+              $report.new_scheduler) {
+            throw 'F128R_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          $sha=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($receipt+'.sha256'),
+             ($sha+'  f128r-source-admission.json'+[Environment]::NewLine),
+             [Text.UTF8Encoding]::new($false))
+          Write-Host "F128R_EXACT_HEAD_SOURCE_ADMISSION_SHA256=$sha"
+          Write-Host 'F128R_OPTIMIZED_INDEXED_EXACT_RETAINS_ELIGIBILITY=true'
+          Write-Host 'F128R_PROTECTED_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f128r-source-freeze-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f128r-frozen-source/
+          if-no-files-found: error
+          retention-days: 90
