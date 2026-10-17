@@ -1,0 +1,150 @@
+name: F124-O frozen softkey multi-route development
+on:
+  push:
+    branches: [research/f124o-pareto-softkey-trace-20261017]
+    paths: ['reference/research-intake/f124o-*', 'nativeevidence/f124o_*.py', 'nativeevidence/test_f124o_*.py', '.github/workflows/forge-f124o-softkey-development.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124o-\${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: \${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen candidate, parent controls and isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124o_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_FOCUSED_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124n_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_PARENT_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_ISOLATION_FAIL' }
+
+  authentic-fit-and-dev:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 36
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently validate source-run success and provider artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($p in @(
+            @{id='39072196463';head='ce0dd0a5f6c14c6d977668ea62acf4968c4f0957';artifact='12115766348';digest='sha256:8af7b93348ed78db7f60d5a0b0492882ba937f60f43c07783737aee22d7c2038'},
+            @{id='39077413007';head='59cef2e3e877d8b76e7ac971acca69e5d1ed172b';artifact='12117846283';digest='sha256:0de48a2ccbee869d56ebca226fd142bc171c2d84756f4a7d09b91bd1734e883b'}
+          )) {
+            $run=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.head -or $run.conclusion -cne 'success' -or $run.event -cne 'push') {
+              throw 'F124O_RUN_SOURCE_REJECTED'
+            }
+            $list=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0) { throw 'F124O_ARTIFACT_LIST' }
+            $match=@($list.artifacts | Where-Object { "$($_.id)" -ceq $p.artifact })
+            if ($match.Count -ne 1 -or $match[0].digest -cne $p.digest -or $match[0].expired) {
+              throw 'F124O_ARTIFACT_SOURCE_REJECTED'
+            }
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39072196463
+          github-token: \${{ github.token }}
+          name: f124m-source-qualified-dual-lane-optimizer-advisory
+          path: source-f124m
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39077413007
+          github-token: \${{ github.token }}
+          name: f124n-source-disjoint-development-59cef2e3e877d8b76e7ac971acca69e5d1ed172b
+          path: source-f124n
+      - name: Preselected mechanism, FIT-only training and DEV comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $m='source-f124m/f124m-authentic-dual-lane-optimizer-advisory.json'
+          $n='source-f124n/f124n-novel-structure-development-evidence.json'
+          if ((Get-FileHash $m -Algorithm SHA256).Hash.ToLowerInvariant() -cne '1991bab2333b2045e244f9afd851b8c95fb08f8be29c10e88822b6bd982d28e0') { throw 'F124O_M_DIGEST' }
+          if ((Get-FileHash $n -Algorithm SHA256).Hash.ToLowerInvariant() -cne '1c03362fcfa44dea72208867cf374b0c196b8bb3c79e6e430ffdb6685ee12739') { throw 'F124O_N_DIGEST' }
+          $out=Join-Path $env:RUNNER_TEMP 'f124o-softkey-development.json'
+          & python3 -B nativeevidence/f124o_softkey_trace.py --f124m-report $m --f124n-report $n --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124O_DEVELOPMENT_FAILED' }
+          $r=Get-Content $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124o.softkey-trace-train-and-dev.v1' -or
+              $r.freeze_git_blob -cne '80dc5a0bb84d13de741eb3e6b1c7499ed8d635b6' -or
+              $r.lanes.Count -ne 2 -or $r.original_protected_inputs -ne 0 -or
+              $r.scientific_acceptances -ne 0 -or $r.optimizer_promotions -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or $r.original_first_use -or
+              $r.codex_calls -ne 0 -or $r.paid_model_api_calls -ne 0) { throw 'F124O_FALSE_AUTHORITY' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.fit.pairs -ne 48 -or $lane.dev.pairs -ne 48 -or
+                $lane.dev.depth.'7'.pairs -ne 16 -or $lane.dev.depth.'8'.pairs -ne 16 -or
+                $lane.dev.depth.'9'.pairs -ne 16 -or $lane.resource_matched) { throw 'F124O_DENOMINATOR' }
+            Write-Output "F124O_DEV=$($lane.lane):candidate=$($lane.dev.paired_correct)/48:fixed=$($lane.prior_source_selection.prior_fixed)/48"
+          }
+          $hash=(Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$hash+'  f124o-softkey-development.json'+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124O_RECEIPT_SHA256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124o-source-qualified-development-\${{ github.sha }}
+          path: |
+            \${{ runner.temp }}/f124o-softkey-development.json
+            \${{ runner.temp }}/f124o-softkey-development.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  final-regression:
+    needs: authentic-fit-and-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One exact-head full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124O_EXACT_HEAD=$GITHUB_SHA"
+          echo "F124O_SCIENCE_PROMOTION=false"
