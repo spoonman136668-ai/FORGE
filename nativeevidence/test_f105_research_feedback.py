@@ -67,6 +67,17 @@ class F105EvidenceFeedback(unittest.TestCase):
     def setUpClass(cls):
         cls.cfg,cls.digest=f105.freeze()
 
+    def setUp(self):
+        # Test-only fake SHA is isolated from the real hosted source identity.
+        self.previous_sha=os.environ.get("GITHUB_SHA")
+        os.environ["GITHUB_SHA"]=SHA
+
+    def tearDown(self):
+        if self.previous_sha is None:
+            os.environ.pop("GITHUB_SHA",None)
+        else:
+            os.environ["GITHUB_SHA"]=self.previous_sha
+
     def test_exact_frozen_policy_and_original_source_blobs(self):
         self.assertEqual(self.cfg["parent_f104_exact_head_sha"],f105.PARENT)
         self.assertEqual(self.cfg["decision_policy"]["policy_id"],
