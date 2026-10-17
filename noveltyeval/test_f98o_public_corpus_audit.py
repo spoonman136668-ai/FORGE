@@ -43,7 +43,7 @@ class F98OSourceContract(unittest.TestCase):
             "bad head":lambda f,b:None,
             "truncated qa":lambda f,b:f.__setitem__("qa2",f["qa2"][:-32]),
             "missing archive":lambda f,b:f.pop("qa3"),
-            "wrong blob":lambda f,b:b.__setitem__("kb","f"*40),
+            "wrong blob":lambda f,b:b.__setitem__("kg","f"*40),
             "empty knowledge base":lambda f,b:f.__setitem__("kg",b""),
             "malformed triple":lambda f,b:f.__setitem__("kg",b"a|b\n"),
             "missing topic brackets":lambda f,b:f.__setitem__("qa3",b"Where is it?\tname\n"*14274),
