@@ -586,6 +586,89 @@ jobs:
             "$newHash  f125-authenticated-selection.json"+[Environment]::NewLine,
             [System.Text.UTF8Encoding]::new($false))
           Write-Host ('F125_PRIOR_MODE='+$x.prior_source_mode)
+      - name: F126 authentic original learned negatives select next autonomy falsification challenge
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f126_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F126_ORIGINAL_NEGATIVE_ADVERSARIAL_TESTS_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'forge-f126-authentic-originals'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $args2=@('--source-ref',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--event',$env:GITHUB_EVENT_NAME,
+            '--output',(Join-Path $root 'f126-original-negative-selected-agenda.json'))
+          foreach ($source in @(@{tag='f116'; id=39026232824;
+               linux='forge-f116o-learned-role-composition-ubuntu-latest';
+               windows='forge-f116o-learned-role-composition-windows-latest';
+               filename='f116o-learned-role-composition'},
+             @{tag='f117'; id=39027222998;
+               linux='forge-f117o-authentic-latent-junction-ubuntu-latest';
+               windows='forge-f117o-authentic-latent-junction-windows-latest';
+               filename='f117o-latent-junction-evidence'})) {
+            $prefix=Join-Path $root $source.tag
+            New-Item -ItemType Directory -Path $prefix -Force | Out-Null
+            $runRaw=(& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+              "/actions/runs/"+$source.id))
+            if ($LASTEXITCODE -ne 0) { throw 'F126_REAL_ORIGINAL_GITHUB_RUN_UNREADABLE' }
+            $artRaw=(& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+              "/actions/runs/"+$source.id+"/artifacts?per_page=100"))
+            if ($LASTEXITCODE -ne 0) { throw 'F126_ORIGINAL_ARTIFACT_INDEX_UNREADABLE' }
+            $runFile=Join-Path $prefix 'run.json'
+            $artFile=Join-Path $prefix 'artifacts.json'
+            [System.IO.File]::WriteAllText($runFile,($runRaw -join "`n")+[Environment]::NewLine,
+              [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText($artFile,($artRaw -join "`n")+[Environment]::NewLine,
+              [System.Text.UTF8Encoding]::new($false))
+            $linux=Join-Path $prefix 'ubuntu'
+            $win=Join-Path $prefix 'windows'
+            New-Item -ItemType Directory -Path $linux,$win -Force | Out-Null
+            & gh run download $source.id --repo $env:GITHUB_REPOSITORY -n $source.linux -D $linux
+            if ($LASTEXITCODE -ne 0) { throw 'F126_SOURCE_ORIGINAL_UBUNTU_UNAVAILABLE' }
+            & gh run download $source.id --repo $env:GITHUB_REPOSITORY -n $source.windows -D $win
+            if ($LASTEXITCODE -ne 0) { throw 'F126_SOURCE_ORIGINAL_WINDOWS_UNAVAILABLE' }
+            $args2+=@('--'+$source.tag+'-run-json',$runFile,
+              '--'+$source.tag+'-artifacts-json',$artFile,
+              '--'+$source.tag+'-ubuntu-state',(Join-Path $linux ($source.filename+'.json')),
+              '--'+$source.tag+'-ubuntu-receipt',(Join-Path $linux ($source.filename+'.sha256')),
+              '--'+$source.tag+'-windows-state',(Join-Path $win ($source.filename+'.json')),
+              '--'+$source.tag+'-windows-receipt',(Join-Path $win ($source.filename+'.sha256')))
+          }
+          & $python -B nativeevidence/f126_original_negative_agenda.py @args2
+          if ($LASTEXITCODE -ne 0) { throw 'F126_REAL_ORIGINAL_EVIDENCE_QUARANTINED' }
+          $file=Join-Path $root 'f126-original-negative-selected-agenda.json'
+          $proof=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.autonomy.f126.original-negative-driven-development-agenda.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$proof.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $proof.original_source_records.Count -ne 2 -or
+              $proof.original_source_negative_findings_preserved -ne 2 -or
+              $proof.heldout_development_probe.cases -ne 32 -or
+              $proof.heldout_development_probe.exact_oracle_paired_correct -ne 32 -or
+              $proof.source_driven_autonomous_selection.mechanism_problem -notin @(
+                'SHARED_NODE_BINDING','ROLE_MARGINAL_SHORTCUT') -or
+              $proof.new_accepted_scientific_originals -ne 0 -or
+              $proof.real_scientific_first_use -or
+              $proof.new_learned_mechanism_implemented -or
+              $proof.independent_scientific_generalization_proven -or
+              $proof.optimizer_promotions -ne 0 -or
+              $proof.accepted_ref_mutations -ne 0 -or $proof.Codex_calls -ne 0 -or
+              $proof.paid_model_calls -ne 0 -or $proof.new_scheduler -or
+              $proof.ckb_plane_contact -or $proof.cloudflare_writes -ne 0 -or
+              $proof.mind_palace_writes -ne 0) {
+            throw 'F126_SOURCE_AUTHORITY_OR_PROBE_INVALID'
+          }
+          Write-Host ('F126_REAL_NEGATIVE_SELECTED '+
+            $proof.source_driven_autonomous_selection.source_experiment+
+            ' focus='+$proof.source_driven_autonomous_selection.mechanism_problem+
+            ' stronger_baseline_gap_ppm='+$proof.source_driven_autonomous_selection.priority_gap_millionths+
+            ' heldout_pairs='+$proof.heldout_development_probe.cases)
+          $digest=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f126-original-negative-selected-agenda.sha256'),
+            "$digest  f126-original-negative-selected-agenda.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -730,5 +813,14 @@ jobs:
           path: |
             ${{ runner.temp }}/forge-f125-authentic-dev/f125-authenticated-selection.json
             ${{ runner.temp }}/forge-f125-authentic-dev/f125-authenticated-selection.sha256
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f126-original-negative-agenda-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f126-authentic-originals/f126-original-negative-selected-agenda.json
+            ${{ runner.temp }}/forge-f126-authentic-originals/f126-original-negative-selected-agenda.sha256
           retention-days: 30
           if-no-files-found: error
