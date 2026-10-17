@@ -1,0 +1,150 @@
+name: Mind-Palace UQ20 authentic post-merge chat-source preflight
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ20-AUTHORITATIVE-SOURCE-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq20-source-one-shot
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify an authentic bounded browser-chat operator direction on promoted main
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ20_WRONG_RUNNER_REPOSITORY'}
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ20_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='10220f4f4ff28ed49b3f8b6b64029fcb20b3cee4'
+          $sourceHead='becba8e8d81c4884e9e534c7241cedd67572ff4d'
+          $sourceBlob='3bbb92ba9b6a154726ded6710dc9a4f26e785b47'
+          $sourceBranch='intake/chat-20261017-pr58-authorization-uq20'
+          $sourcePath='pilots/chat-history/2026-10-17-pr58-authorization.extraction.json'
+          $sourceRef='chat:2026-10-17-mind-palace-pr58-explicit-merge-authorization'
+          $sourceVersion='visible-selected-operator-direction-20261017-r1'
+          $candidateId='decision/mind-palace-pr58-explicit-merge-authorization-20261017'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-uq20-'+$env:GITHUB_RUN_ID)
+          $utf8=New-Object Text.UTF8Encoding($false)
+          function CheckRef([string]$name,[string]$sha){
+            $r=@(& git.exe ls-remote --exit-code $remote $name)
+            if($LASTEXITCODE -ne 0 -or $r.Count -ne 1 -or ([string]$r[0] -split '\s+')[0] -cne $sha){throw ('UQ20_REMOTE_REF_DRIFT_'+$name)}
+          }
+          function ToJson([string]$path,$obj){
+            [IO.File]::WriteAllText($path,((ConvertTo-Json -InputObject $obj -Depth 24)+[Environment]::NewLine),$utf8)
+          }
+          function RunJson([string]$code,[string]$file,[string[]]$args){
+            $raw=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $file @args 2>&1|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw ('UQ20_'+$code+'_FAILED')}
+            try{return ($raw | ConvertFrom-Json -ErrorAction Stop)}catch{throw ('UQ20_'+$code+'_NOT_JSON')}
+          }
+          if(Test-Path $root){throw 'UQ20_SCRATCH_ALREADY_EXISTS'}
+          try {
+            CheckRef 'refs/heads/main' $main
+            CheckRef ('refs/heads/'+$sourceBranch) $sourceHead
+            & git.exe clone --quiet --single-branch --branch main $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ20_PRIVATE_MAIN_CLONE_FAILED'}
+            Push-Location $root
+            try{
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $main){throw 'UQ20_MAIN_SHA_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ20_INITIAL_CHECKOUT_DIRTY'}
+              $protected=@(
+                '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+                '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+                '.ice/remote-index.ndjson','.ice/chat-delta-state.json'
+              )
+              $before=@{}
+              foreach($p in $protected){$before[$p]=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+              & git.exe fetch --quiet --no-tags origin ('refs/heads/'+$sourceBranch)
+              if($LASTEXITCODE -ne 0 -or (& git.exe rev-parse FETCH_HEAD|Out-String).Trim() -cne $sourceHead){throw 'UQ20_SOURCE_HEAD_NOT_FROZEN'}
+              $spec=$sourceHead+':'+$sourcePath
+              if((& git.exe rev-parse $spec|Out-String).Trim() -cne $sourceBlob){throw 'UQ20_SOURCE_BLOB_DRIFT'}
+              $runtime=Join-Path $root '.mind-runtime'
+              New-Item -ItemType Directory -Path $runtime -Force|Out-Null
+              $extract=Join-Path $runtime 'source.json'
+              $body=(& git.exe show $spec|Out-String)
+              if($LASTEXITCODE -ne 0){throw 'UQ20_SOURCE_READ_FAILED'}
+              [IO.File]::WriteAllText($extract,$body,$utf8)
+              $d=Get-Content -LiteralPath $extract -Raw|ConvertFrom-Json
+              if([string]$d.schema -cne 'mind-palace.chat-extraction.v1' -or
+                 [string]$d.conversation.ref -cne $sourceRef -or
+                 [string]$d.conversation.version -cne $sourceVersion -or
+                 $null -ne $d.conversation.content_sha256 -or
+                 @($d.turns).Count -ne 1 -or [string]$d.turns[0].role -cne 'operator' -or
+                 @($d.candidates).Count -ne 1 -or
+                 [string]$d.candidates[0].claim_class -cne 'operator_decision' -or
+                 [bool]$d.candidates[0].details.full_chat_history_coverage -or
+                 [bool]$d.candidates[0].details.background_chat_history_collection_proven){
+                throw 'UQ20_BOUNDED_SOURCE_MISMATCH'
+              }
+              if(@($d.corroborating_sources).Count -ne 1 -or
+                 [string]$d.corroborating_sources[0].version -cne $main -or
+                 [string]$d.corroborating_sources[0].authority -cne 'authoritative'){
+                throw 'UQ20_GITHUB_CORROBORATION_MISMATCH'
+              }
+              Write-Host 'UQ20_NEW_REAL_OPERATOR_SOURCE_PROVENANCE=PASS'
+              $v=RunJson 'CHAT_VALIDATE' '.\tools\chat-collect.ps1' @('validate','-InputPath',$extract)
+              if(-not [bool]$v.valid -or [int]$v.candidates -ne 1 -or [int]$v.forced_archive -ne 0){
+                throw 'UQ20_NEW_CHAT_SOURCE_VALIDATION_FAILED'
+              }
+              $batchPath=Join-Path $runtime 'batch.json'
+              $batch=RunJson 'CHAT_BUILD' '.\tools\chat-collect.ps1' @('build','-InputPath',$extract,'-OutputPath',$batchPath)
+              if([string]$batch.schema -cne 'mind-palace.collector-batch.v1' -or @($batch.candidates).Count -ne 1 -or
+                 @($batch.sources|Where-Object{[string]$_.role -ceq 'primary'}).Count -ne 1 -or
+                 ([string]$batch.candidates[0].kind+'/'+[string]$batch.candidates[0].key) -cne $candidateId){
+                 throw 'UQ20_CANONICAL_BATCH_MISMATCH'
+              }
+              $inventory=Join-Path $runtime 'inventory.json'
+              ToJson $inventory (@{schema='mind-palace.source-inventory.v1';version=1;generated_at='2026-10-17T09:25:45Z';
+                 sources=@(@{scope='chat-history';type='chat';ref=$sourceRef;version=$sourceVersion;
+                 content_sha256=$null;authority='historical';label='single explicit operator PR58 authorization'})})
+              $plan=RunJson 'PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inventory,'-Scope','chat-history')
+              if([string]$plan.status -cne 'ready' -or [int]$plan.unseen -ne 1 -or
+                 [int]$plan.process -ne 1 -or [int]$plan.review -ne 0 -or [int]$plan.batch_count -ne 1){
+                throw 'UQ20_SOURCE_LEDGER_RECONCILIATION_NOT_ONE_UNSEEN'
+              }
+              Write-Host 'UQ20_PRODUCTION_LEDGER_ONE_UNSEEN_SOURCE=PASS'
+              $map=Join-Path $runtime 'map.json'
+              ToJson $map (@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@(@{
+                 batch_id=[string]$plan.batches[0].batch_id;collector_batch_path=$batchPath})})
+              $dry=RunJson 'DRY_RUN' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inventory,'-CollectorMapPath',$map,'-Scope','chat-history')
+              if(-not [bool]$dry.durable_state_unchanged){throw 'UQ20_DRY_RUN_CHANGED_DURABLE_STATE'}
+              Write-Host ('UQ20_CLASSIFY_STATUS='+[string]$dry.status)
+              Write-Host ('UQ20_NEW_COUNT='+[int]$dry.counts.new)
+              Write-Host ('UQ20_MERGE_COUNT='+[int]$dry.counts.merge)
+              Write-Host ('UQ20_REVIEW_COUNT='+[int]$dry.counts.review)
+              Write-Host ('UQ20_SUPERSEDE_COUNT='+[int]$dry.counts.supersede)
+              if([int]$dry.candidate_count -ne 1 -or [int]$dry.counts.review -ne 0 -or
+                 [int]$dry.counts.supersede -ne 0 -or [int]$dry.counts.new -ne 1 -or
+                 [int]$dry.counts.merge -ne 0 -or -not [bool]$dry.ready_for_apply){
+                throw 'UQ20_NEW_SOURCE_NOT_UNAMBIGUOUS_ONE_NEW'
+              }
+              Write-Host 'UQ20_EXACT_ONE_NEW_SOURCE_AND_RECORD_DRYRUN=PASS'
+              foreach($p in $protected){
+                if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $before[$p]){
+                  throw ('UQ20_PRODUCTION_SURFACE_CHANGED_'+$p)
+                }
+              }
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ20_POST_DRY_RUN_GIT_DIRTY'}
+              CheckRef 'refs/heads/main' $main
+              CheckRef ('refs/heads/'+$sourceBranch) $sourceHead
+              Write-Host 'UQ20_SEVEN_DURABLE_SURFACES_AND_REFS_UNCHANGED=PASS'
+              Write-Host 'UQ20_RECORDS_APPLIED=0'
+              Write-Host 'UQ20_REMOTE_COMMITS=0'
+              Write-Host 'UQ20_CODEX_CALLS=0'
+              Write-Host 'UQ20_AUTHENTIC_SOURCE_PRECHECK=PASS'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
