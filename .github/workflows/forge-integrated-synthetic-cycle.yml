@@ -458,141 +458,7 @@ jobs:
           }
           foreach ($candidate in $d.selected_successors) {
             if ($candidate.proposed_status -cne 'UNTESTED_DEVELOPMENT_DESIGN_NOT_DISPATCH_ELIGIBLE' -or
-                $candidate.evidence_report_sha256 -notmatch '^[0-9a-f]{64}
-        id: f98_external_observer
-        continue-on-error: true
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $root = Join-Path $env:RUNNER_TEMP 'forge-f98-evidence'
-          New-Item -ItemType Directory -Path $root -Force | Out-Null
-          $python = if ($IsWindows) { 'python' } else { 'python3' }
-          foreach ($lane in @(
-            @{Name='wingless'; Repo='Wingless'; Run='38646170288'},
-            @{Name='yggdrasil'; Repo='Yggdrasil'; Run='38646109265'}
-          )) {
-            $prefix = Join-Path $root $lane.Name
-            & gh api ("repos/spoonman136668-ai/"+$lane.Repo+"/actions/runs/"+$lane.Run) |
-              Out-File -FilePath ($prefix+'-run.json') -Encoding utf8
-            if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_UPSTREAM_RUN_UNAVAILABLE' }
-            & gh api ("repos/spoonman136668-ai/"+$lane.Repo+"/actions/runs/"+$lane.Run+"/artifacts") |
-              Out-File -FilePath ($prefix+'-artifacts.json') -Encoding utf8
-            if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_UPSTREAM_ARCHIVE_UNAVAILABLE' }
-          }
-          $out = Join-Path $root 'f98-real-source-shadow.json'
-          $sourceArgs = @($env:GITHUB_SHA,
-            (Join-Path $root 'wingless-run.json'), (Join-Path $root 'wingless-artifacts.json'),
-            (Join-Path $root 'yggdrasil-run.json'), (Join-Path $root 'yggdrasil-artifacts.json'))
-          & $python -B nativeevidence/f98_historical_shadow.py @sourceArgs |
-            Out-File -FilePath $out -Encoding utf8
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_REAL_GITHUB_SOURCE_CUSTODY_FAILED' }
-          $report = Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
-          if ($report.schema -cne 'forge.autonomy.f98.real-historical-metadata-shadow.v1' -or
-              $report.forge_source_sha -cne $env:GITHUB_SHA -or
-              $report.genuinely_observed_lanes -ne 2 -or
-              $report.historical_reviewed_records.Count -ne 2 -or
-              $report.new_trainable_genenv_records -ne 0 -or
-              $report.model_calls -ne 0 -or $report.codex_calls -ne 0 -or
-              $report.new_scientific_originals_executed -ne 0 -or
-              $report.experiment_worker_dispatched -or
-              $report.sealed_original_first_use_authorized -or
-              $report.optimizer_promotion_authorized -or
-              $report.accepted_reference_mutations -ne 0 -or
-              $report.ckb_plane_accessed) {
-            throw 'FORGE_F98_UNEARNED_SCIENCE_OR_MODEL_EXECUTION_CLAIM'
-          }
-          foreach ($lane in $report.historical_reviewed_records) {
-            if (-not $lane.github_run_metadata_verified -or
-                -not $lane.artifact_metadata_zip_digest_verified -or
-                $lane.actual_zip_bytes_downloaded_and_rehashed -or
-                $lane.contained_row_data_reaudited_now -or
-                $lane.authenticated_train_only_feature_vectors_available -or
-                $lane.genenv_train_history_admitted -or
-                $lane.original_science_accepted) {
-              throw 'FORGE_F98_ARCHIVE_SOURCE_METADATA_MISREPRESENTED'
-            }
-          }
-          # F99 is part of the OPTIONAL, quarantinable historical observer:
-          # authentic ZIP bytes are rehashed and rows reaggregated, never
-          # treated as a live scientific original or GenEnv policy training.
-          $f99Path = Join-Path $root 'f99-historical-development-negatives.json'
-          & $python -B nativeevidence/f99_real_archive.py --download-readonly --source-ref $env:GITHUB_SHA |
-            Out-File -FilePath $f99Path -Encoding utf8
-          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F99_PINNED_ARCHIVE_BYTES_FAILED' }
-          $f99 = Get-Content -LiteralPath $f99Path -Raw | ConvertFrom-Json
-          if ($f99.schema -cne 'forge.autonomy.f99.row-reaggregated-train-only-shadow.v1' -or
-              $f99.forge_source_sha -cne $env:GITHUB_SHA -or
-              $f99.cohorts.Count -ne 2 -or
-              $f99.cohorts[0].lane -cne 'Wingless' -or
-              $f99.cohorts[1].lane -cne 'Yggdrasil' -or
-              $f99.archived_negative_development_records -ne 2 -or
-              $f99.training_only_observations_observed -ne 2 -or
-              $f99.genenv_training_activated -or
-              $f99.independent_originals_accepted -ne 0 -or
-              $f99.protected_first_use_authorized -or
-              $f99.new_originals_dispatched -ne 0 -or
-              $f99.accepted_ref_mutations -ne 0 -or
-              $f99.codex_calls -ne 0 -or $f99.model_calls -ne 0 -or
-              $f99.paid_api_calls -ne 0) {
-            throw 'FORGE_F99_ACTUAL_DEV_EVIDENCE_FALSE_SCIENCE_CLAIM'
-          }
-          foreach ($entry in $f99.cohorts) {
-            if (-not $entry.actual_archive_bytes_rehashed -or
-                -not $entry.contained_json_rows_reaggregated -or
-                -not $entry.historical_development_negative_only -or
-                $entry.independently_accepted_scientific_original -or
-                $entry.genenv_training_activated -or
-                $entry.independently_reaggregated_learned_correct_pairs -ne 0 -or
-                $entry.independently_reaggregated_coded_control_pairs -ne
-                  $entry.observed_historical_development_pairs) {
-              throw 'FORGE_F99_ROW_LEVEL_EVIDENCE_UNVERIFIED'
-            }
-          }
-          Write-Host 'FORGE_F99_AUTHENTIC_ZIP_AND_ROW_LEVEL_NEGATIVES=PASS'
-          Write-Host 'FORGE_F99_TRAIN_ONLY_HISTORICAL_OBSERVATIONS=2'
-          Write-Host 'FORGE_F99_PROSPECTIVE_SCIENCE_AND_OPTIMIZER_ACTIVATION=ZERO'
-          Get-ChildItem $root -File | Where-Object { $_.Name -ne 'source-sha256.txt' } | ForEach-Object {
-            $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$digest  $($_.Name)"
-          } | Out-File -FilePath (Join-Path $root 'source-sha256.txt') -Encoding utf8
-          Write-Host 'FORGE_REAL_HISTORICAL_SOURCE_METADATA_TWO_LANES=PASS'
-          Write-Host 'AUTHENTIC_TRAINABLE_MODEL_FEATURE_RECORDS=ZERO'
-          Write-Host 'SCIENTIFIC_ORIGINAL_FIRSTUSE_AND_POLICY_TRAINING=DENIED'
-      - name: Quarantine unavailable external provenance without corrupting synthetic core
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $status = '${{ steps.f98_external_observer.outcome }}'
-          if ($status -ne 'success') {
-            $root = Join-Path $env:RUNNER_TEMP 'forge-f98-evidence'
-            if (Test-Path -LiteralPath $root) {
-              Remove-Item -LiteralPath $root -Recurse -Force
-            }
-            Write-Host '::warning title=FORGE external historical provenance::F98_ARCHIVE_EVIDENCE_NOT_QUALIFIED_NO_ADMISSION'
-            Write-Host 'F98_TRAINABLE_RECORDS_AND_SCIENTIFIC_PERMITS=ZERO'
-          }
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: forge-safe-cycle-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/forge-cycle-proof.json
-            ${{ runner.temp }}/forge-model-free-advisory.json
-            ${{ runner.temp }}/forge-model-free-advisory.sha256
-            ${{ runner.temp }}/forge-f98-evidence/
-            ${{ runner.temp }}/forge-f100-development/
-            ${{ runner.temp }}/forge-f101-development/
-            ${{ runner.temp }}/forge-f102-development/
-            ${{ runner.temp }}/forge-f103-development/
-            ${{ runner.temp }}/forge-f104-development/
-            ${{ runner.temp }}/forge-f105-development/
-            ${{ runner.temp }}/forge-synthetic-processes
-          retention-days: 30
-          if-no-files-found: error
-) {
+                $candidate.evidence_report_sha256 -notmatch '^[0-9a-f]{64}$') {
               throw 'FORGE_F105_UNAUTHORIZED_ACTION'
             }
           }
@@ -733,6 +599,7 @@ jobs:
             ${{ runner.temp }}/forge-f102-development/
             ${{ runner.temp }}/forge-f103-development/
             ${{ runner.temp }}/forge-f104-development/
+            ${{ runner.temp }}/forge-f105-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
