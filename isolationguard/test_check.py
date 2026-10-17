@@ -81,6 +81,9 @@ class Isolation(unittest.TestCase):
             "cmd/forge-ckb-s14-reconcile/main.go":
                 "const FORGE_CKB_S14_RECONCILE_COMMAND_RETIRED = true\\n"
                 "func run(_ context.Context, _ []string, _ io.Writer, _ string) error {return errRetired}\\n",
+            "cmd/forge-cutover-audit/main.go":
+                "const FORGE_CKB_CUTOVER_AUDIT_COMMAND_RETIRED = true\\n"
+                "func run(_ []string, _ io.Writer, _ uint64) error {return errRetired}\\n",
             ".github/workflows/safe.yml": "on: [pull_request]\\njobs: {}\\n",
         }
         for path, data in fixed.items():
@@ -196,6 +199,46 @@ class Isolation(unittest.TestCase):
             with self.assertRaisesRegex(f.GateError,
                                         "MISSING_RETIRED_RECONCILIATION_SENTINEL"):
                 f.verify_policy_files(root)
+
+
+    def test_legacy_cutover_command_cannot_read_private_controller(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            f.verify_policy_files(root)
+            cli = root / "cmd/forge-cutover-audit/main.go"
+            cli.write_text(
+                "const FORGE_CKB_CUTOVER_AUDIT_COMMAND_RETIRED = true\\n"
+                "func run(_ []string, _ io.Writer, _ uint64) error {\\n"
+                "  _ = ckbhistory.New(os.Getenv(\\\"GH_TOKEN\\\"))\\n"
+                "  return errRetired\\n}\\n", encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError,
+                                        "LEGACY_CUTOVER_COMMAND_NOT_FAIL_CLOSED"):
+                f.verify_policy_files(root)
+
+    def test_legacy_cutover_command_cannot_read_local_ledger(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            cli = root / "cmd/forge-cutover-audit/main.go"
+            cli.write_text(
+                "const FORGE_CKB_CUTOVER_AUDIT_COMMAND_RETIRED = true\\n"
+                "func run(_ []string, _ io.Writer, _ uint64) error {\\n"
+                "  _ = os.ReadFile(\\\"/private/ckb-state\\\")\\n"
+                "  return errRetired\\n}\\n", encoding="utf-8")
+            with self.assertRaisesRegex(f.GateError,
+                                        "LEGACY_CUTOVER_COMMAND_NOT_FAIL_CLOSED"):
+                f.verify_policy_files(root)
+
+    def test_legacy_cutover_retirement_must_remain_present(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            self._qualified_fixture(root)
+            (root / "cmd/forge-cutover-audit/main.go").unlink()
+            with self.assertRaisesRegex(f.GateError,
+                                        "MISSING_RETIRED_CUTOVER_SENTINEL"):
+                f.verify_policy_files(root)
+
 
 
 if __name__ == "__main__":
