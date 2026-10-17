@@ -9,6 +9,8 @@ on:
       - 'reference/research-intake/f126r-binding-evidence-prereg-freeze.json'
       - 'nativeevidence/f126r_freeze_admission.py'
       - 'nativeevidence/test_f126r_freeze_admission.py'
+      - 'nativeevidence/f126r_*.py'
+      - 'nativeevidence/test_f126r_*.py'
       - '.github/workflows/forge-f126r-freeze-admission.yml'
 permissions:
   contents: read
@@ -74,3 +76,180 @@ jobs:
           path: ${{ runner.temp }}/f126r-source-only/
           if-no-files-found: error
           retention-days: 30
+
+
+  frozen-train-and-comparators:
+    needs: source-freeze
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify public source, learner, strong comparator and negative guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f126r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_PUBLIC_AFFECTED_TEST_FAILURE' }
+      - name: Generate original source-verified TRAIN and replay unchanged frozen comparators
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'f126r-train-controls'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $advisory=Join-Path $root 'advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_SOURCE_GENERATOR_FAILED' }
+          $src=Get-Content -LiteralPath $advisory -Raw | ConvertFrom-Json
+          if ($src.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $src.source_commit_sha -cne $env:GITHUB_SHA -or
+              $src.lanes.Count -ne 2 -or
+              $src.model_invocations -ne 0 -or
+              $src.codex_invocations -ne 0 -or
+              $src.network_calls -ne 0 -or
+              $src.new_scientific_originals -ne 0 -or
+              $src.scientific_first_use_authorized -or
+              $src.policy_promotion_authorized -or
+              $src.accepted_ref_mutations -ne 0) {
+            throw 'F126R_INVALID_GENERATOR_AUTHORITY'
+          }
+          $out=Join-Path $root 'f126r-public-train-comparators.json'
+          & python3 -B nativeevidence/f126r_train_qualification.py --advisory $advisory --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_ORIGINAL_TRAIN_QUALIFICATION_FAILED' }
+          $receipt=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($receipt.schema -cne 'forge.research.f126r.public-train-and-all-frozen-controls.v1' -or
+              $receipt.source_sha -cne $env:GITHUB_SHA -or
+              $receipt.freeze_git_blob -cne '7d6cf0469db557c0fced95d25e6fe55b8e34c136' -or
+              $receipt.phase -cne 'PUBLIC_SYNTHETIC_TRAIN_ONLY' -or
+              $receipt.lanes.Count -ne 2 -or
+              $receipt.lanes[0].lane -cne 'Wingless' -or
+              $receipt.lanes[1].lane -cne 'Yggdrasil' -or
+              -not $receipt.eligible_exact_symbolic_is_not_excluded -or
+              $receipt.scientific_acceptance -or $receipt.scientific_first_use -or
+              $receipt.optimizer_promotion -or $receipt.protected_confirmation_read -or
+              $receipt.accepted_refs_mutated -ne 0 -or
+              $receipt.codex_calls -ne 0 -or $receipt.paid_model_calls -ne 0 -or
+              $receipt.originals_dispatched -ne 0 -or $receipt.new_scheduler) {
+            throw 'F126R_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $receipt.lanes) {
+            if ($lane.train_pairs -ne 64 -or
+                $lane.frozen_epochs -ne 100 -or
+                $lane.learned_parameters -ne 20 -or
+                $lane.scores.CTRL_EXACT_PUBLIC_SYMBOLIC_ELIGIBLE.paired_correct -ne 64 -or
+                $lane.scores.CTRL_F124R_SPARSE2_FRESH.status -cne 'BLOCKED_FROZEN_INTERFACE_DEPTH_5' -or
+                $lane.scores.CTRL_F124R_SPARSE2_FRESH.full_cohort_score_available -or
+                $lane.homogeneous_cost_equivalence_established -or
+                $lane.scientific_success -or
+                $lane.protected_confirmation_read -or
+                -not $lane.full_cohort_including_failures) {
+              throw 'F126R_COMPARATOR_OR_INTEGRITY_CLAIM_INCOMPLETE'
+            }
+          }
+          foreach ($name in @('advisory.json','f126r-public-train-comparators.json')) {
+            $path=Join-Path $root $name
+            $digest=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($path+'.sha256'),
+              ($digest+'  '+$name+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          }
+          Write-Host "F126R_ORIGINAL_TRAIN_HEAD=$env:GITHUB_SHA"
+          Write-Host 'F126R_EXACT_PUBLIC_SYMBOLIC_ELIGIBLE=true'
+          Write-Host 'F126R_CONFIRM_UNTOUCHED=true'
+          Write-Host 'F126R_SCIENTIFIC_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f126r-train-and-frozen-controls-${{ github.sha }}
+          path: ${{ runner.temp }}/f126r-train-controls/
+          if-no-files-found: error
+          retention-days: 90
+
+  f126r-exact-head-regression:
+    needs: frozen-train-and-comparators
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source, affected interfaces, isolation and parent regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F126R_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_ISOLATION_UNIT_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_SOURCE_ISOLATION_FAILED' }
+          foreach ($pattern in @('test_f123_*.py','test_f124r_*.py','test_f125r_*.py','test_f126r_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F126R_AFFECTED_INTERFACE_FAILED_$pattern" }
+          }
+      - name: Full Go, Linux race, vet and executable build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_FULL_GO_TEST_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F126R_FULL_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_FULL_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_FULL_GO_BUILD_FAILED' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f126r-full-regression'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $details=[ordered]@{
+            schema='forge.research.f126r.exact-head-regression.v1'
+            source_sha=$env:GITHUB_SHA
+            platform=$env:RUNNER_OS
+            full_go_test=$true
+            linux_race_tested=($env:RUNNER_OS -eq 'Linux')
+            go_vet=$true
+            full_go_build=$true
+            protected_confirmation_read=$false
+            scientific_first_use=$false
+            scientific_acceptance=$false
+            optimizer_promotion=$false
+          } | ConvertTo-Json -Depth 4
+          [IO.File]::WriteAllText((Join-Path $folder 'regression.json'),
+              ($details+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          Write-Host 'F126R_EXACT_HEAD_FULL_REGRESSION_PASS=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f126r-full-regression-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f126r-full-regression/
+          retention-days: 90
+          if-no-files-found: error
