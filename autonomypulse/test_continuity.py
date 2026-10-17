@@ -66,7 +66,7 @@ class ContinuityTests(unittest.TestCase):
         a = FakeAPI()
         runs = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
         runs[:] = [run(1, event="workflow_dispatch"), run(0)]
-        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
+        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_IDENTITY_UNVERIFIED"):
             c.report(a, NOW, CURRENT)
 
     def test_latest_scheduled_failure_is_preserved_not_qualified(self):
@@ -177,7 +177,7 @@ class ContinuityTests(unittest.TestCase):
     def test_stale_or_skipped_schedule_denied(self):
         a = FakeAPI()
         a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["created_at"] = "2026-10-17T05:19:01Z"
-        with self.assertRaisesRegex(c.EvidenceError, "SCHEDULE_CADENCE_OR_FRESHNESS"):
+        with self.assertRaisesRegex(c.EvidenceError, "SCHEDULE_CLOCK_UNVERIFIED"):
             c.report(a, datetime(2026, 10, 17, 6, 0, tzinfo=timezone.utc), CURRENT)
 
     def test_foreign_workflow_or_disabled_workflow_never_accepted(self):
