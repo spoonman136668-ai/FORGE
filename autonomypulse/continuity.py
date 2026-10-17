@@ -178,6 +178,18 @@ def qualify(api, now, current_sha, current_run_id=None):
                 "observations": []}
     selected = sorted(relevant,
                       key=lambda r: utc(r.get("created_at")), reverse=True)[:2]
+    # Failed earlier observations must be reported as failed BEFORE
+    # irregular scheduling is assessed. A delayed GitHub schedule may bring
+    # two runs less than three hours apart; this cannot change the negative
+    # into an unacknowledgeable cadence error and recreate a failure loop.
+    # A genuine cadence violation for two successful runs stays blocked.
+    for recent in selected:
+        require(recent.get("status") == "completed" and
+                recent.get("conclusion") == "success" and
+                recent.get("run_attempt") == 1 and
+                recent.get("event") == "schedule" and
+                recent.get("head_branch") == "main",
+                "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED")
     interval = (utc(selected[0]["created_at"]) -
                 utc(selected[1]["created_at"])).total_seconds()
     age = (now - utc(selected[0]["updated_at"])).total_seconds()
