@@ -469,6 +469,68 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F105_SOURCE_BOUND_RESEARCH_FEEDBACK=PASS'
           Write-Host 'FORGE_F105_SCIENTIFIC_EXECUTION_AND_GPT_INFERENCE=ZERO'
+      - name: F106 execute fresh bounded public challenges from current-run selected directions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f106_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F106_FRESH_PUBLIC_CHALLENGE_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f106-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $report=Join-Path $outdir 'f106-automatic-new-public-challenge.json'
+          & $python -B nativeevidence/f106_automatic_challenge.py --source-ref $env:GITHUB_SHA --evidence-root $env:RUNNER_TEMP |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F106_CURRENT_RUN_CHALLENGE_EXECUTION_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f106.public-new-condition-automatic-research-feedback.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.evidence_class -cne 'NEW_BOUNDED_PUBLIC_DEVELOPMENT_CHALLENGE_NOT_SCIENTIFIC_FIRST_USE' -or
+              $d.new_public_challenge_pairs -ne 96 -or
+              $d.distinct_parent_model_lanes -ne 2 -or
+              -not $d.run_scoped_selection_verified -or
+              -not $d.real_cpu_model_training -or
+              $d.lanes.Count -ne 2 -or
+              $d.feedback_next_directions.Count -ne 2 -or
+              $d.lanes[0].lane -cne 'Wingless' -or
+              $d.lanes[1].lane -cne 'Yggdrasil' -or
+              $d.new_protected_originals -ne 0 -or
+              $d.original_science_accepted -ne 0 -or
+              $d.protected_first_use_authorized -or
+              $d.independent_scientific_generalization_claimed -or
+              $d.trained_policy_promoted -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_invocations -ne 0 -or
+              $d.external_paid_model_calls -ne 0 -or
+              $d.work_tasks -ne 0 -or
+              $d.ckb_plane_accessed -or
+              $d.new_schedulers -ne 0 -or
+              $d.native_research_workers_dispatched -ne 0) {
+            throw 'FORGE_F106_UNEARNED_PROTECTED_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $d.lanes) {
+            if ($lane.new_assessment_pairs -ne 48 -or
+                $lane.prior_parent_training_only_pairs -ne 96 -or
+                $lane.parent_training_steps -ne 100 -or
+                $lane.comparator_training_steps -ne 100 -or
+                $lane.coded_oracle_control_accuracy -ne 1 -or
+                $lane.successor_authority -cne 'UNTESTED_PROPOSAL_ONLY_NO_DISPATCH_OR_PROMOTION' -or
+                $lane.learned_paired_accuracy -lt 0 -or $lane.learned_paired_accuracy -gt 1 -or
+                $lane.blind_paired_accuracy -lt 0 -or $lane.blind_paired_accuracy -gt 1 -or
+                $lane.outcome -notin @('PUBLIC_TRANSFER_SCREEN_POSITIVE_NOT_SCIENCE','PUBLIC_TRANSFER_SCREEN_NEGATIVE_PRESERVED')) {
+              throw 'FORGE_F106_MISSING_OR_INVALID_PUBLIC_CHALLENGE_EVIDENCE'
+            }
+          }
+          foreach ($future in $d.feedback_next_directions) {
+            if ($future.dispatch_allowed) { throw 'FORGE_F106_UNAUTHORIZED_SUCCESSOR_DISPATCH' }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f106-automatic-new-public-challenge.sha256'),
+            "$digest  f106-automatic-new-public-challenge.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F106_AUTOMATIC_PUBLIC_NEW_CONDITION_AND_FEEDBACK=PASS'
+          Write-Host 'FORGE_F106_PROTECTED_ORIGINALS_AND_INFERENCE=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -600,6 +662,7 @@ jobs:
             ${{ runner.temp }}/forge-f103-development/
             ${{ runner.temp }}/forge-f104-development/
             ${{ runner.temp }}/forge-f105-development/
+            ${{ runner.temp }}/forge-f106-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
