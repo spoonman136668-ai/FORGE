@@ -33,7 +33,7 @@ def chain_band(v):
     if n<=512:return "length_129_512"
     return "length_513_plus"
 
-def build(rows):
+def build(rows, expected_parses=37306):
     check(isinstance(rows,list) and 0<len(rows)<=25000,"ORIGINAL_ROWS")
     seen=set()
     lex={}
@@ -77,7 +77,7 @@ def build(rows):
                     check(len(lex)<=MAX_ENTRIES,"SOURCE_LEXICON_BUDGET")
                 lex[alias].add(mid)
     check(len(seen)==len(rows),"COMPLETE_TRAIN_ROW_IDS")
-    check(counts["original_parse_entries"]==37306,"COMPLETE_ORIGINAL_PARSE_POPULATION")
+    check(counts["original_parse_entries"]==expected_parses,"COMPLETE_ORIGINAL_PARSE_POPULATION")
     stats={
         "original_train_rows":len(rows),
         "unique_question_ids":len(seen),
@@ -95,10 +95,10 @@ def build(rows):
         },
     }
     check(stats["valid_opaque_mid_parse_entries"]+
-          stats["invalid_opaque_mid_parse_entries"]==37306,"SOURCE_MID_DENOMINATOR")
+          stats["invalid_opaque_mid_parse_entries"]==expected_parses,"SOURCE_MID_DENOMINATOR")
     check(stats["unique_mentions"]+stats["ambiguous_mentions"]==len(lex),
           "LEXICON_COLLISION_DENOMINATOR")
-    check(sum(stats["opaque_chain_length_bands"].values())==37306,
+    check(sum(stats["opaque_chain_length_bands"].values())==expected_parses,
           "ORIGINAL_CHAIN_SOURCE_COUNT")
     return {k:frozenset(v) for k,v in lex.items()},stats,questions
 
