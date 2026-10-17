@@ -1,0 +1,148 @@
+name: F124-F frozen query-conditioned causal source
+on:
+  push:
+    branches: [research/f124f-query-conditioned-causal-retrieval-20261017]
+    paths:
+      - 'reference/research-intake/f124f-query-conditioned-retrieval-freeze.json'
+      - 'nativeevidence/f124f_*.py'
+      - 'nativeevidence/test_f124f_*.py'
+      - '.github/workflows/forge-f124f-source.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124f-scientific-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-train-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen public graph TRAIN source admission and anti-leakage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124f_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124F_TRAIN_SOURCE_UNQUALIFIED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124F_SOURCE_ISOLATION_FAIL' }
+          Write-Output "F124F_SOURCE_SHA=${{ github.sha }}"
+          Write-Output 'F124F_CONFIRM_UNTOUCHED=true'
+          Write-Output 'F124F_ACCEPTANCE=false'
+  train-authenticated-learned-models:
+    needs: source-train-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: authenticated-f123-train
+      - name: Train A and B against frozen candidate vectors without CONFIRM access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124f-train-only-retrieval-evidence.json'
+          $args=@('--f123-dir','authenticated-f123-train','--source-sha',$env:GITHUB_SHA,
+                  '--run-id',$env:GITHUB_RUN_ID,'--output',$out)
+          & python3 -B nativeevidence/f124f_train_receipt.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124F_SOURCE_PINNED_TRAIN_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124f.train-only-query-conditioned-custody.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.freeze_git_blob -cne '256e5a1c1a9dd1a31372e6abc0d20f6a42f89214' -or
+              $r.graph_git_blob -cne '1961628bdc9df47975f8c9ccd44370329ed02ae5' -or
+              $r.model_git_blob -cne '30b50f9500a7905378b53613280658b1b95c9a29' -or
+              $r.original_candidate_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.phase -cne 'TRAIN_ONLY' -or $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.confirmation_examples_generated -ne 0 -or $r.scientific_first_use -or
+              $r.scientific_acceptances -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.Codex_calls -ne 0 -or
+              $r.paid_API_calls -ne 0 -or $r.ckb_plane_contact -or $r.mind_palace_writes -ne 0 -or
+              $r.cloudflare_writes -ne 0 -or $r.new_scheduler -or
+              $r.equal_resource_superiority_established) {
+            throw 'F124F_FALSE_EVIDENCE_OR_UNAUTHORIZED_SCIENCE'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.selected_train_arm -cnotin @('A','B') -or
+                $lane.fixed_raw_match.pairs -ne 48 -or
+                $lane.learned_arms.A.paired_examples -ne 48 -or
+                $lane.learned_arms.B.paired_examples -ne 48 -or
+                $lane.learned_arms.A.training_epochs -ne 100 -or
+                $lane.learned_arms.B.training_epochs -ne 100 -or
+                $lane.learned_arms.A.parameters -ne 19 -or
+                $lane.learned_arms.B.parameters -ne 20 -or
+                $lane.learned_arms.A.update_l2 -le 0 -or
+                $lane.learned_arms.B.update_l2 -le 0 -or
+                $lane.learned_arms.A.confirmation_examples -ne 0 -or
+                $lane.learned_arms.B.confirmation_examples -ne 0) {
+              throw 'F124F_FROZEN_MODEL_QUALIFICATION_DRIFT'
+            }
+            Write-Output "F124F_TRAIN=$($lane.lane): A=$($lane.learned_arms.A.train_paired_correct)/48 B=$($lane.learned_arms.B.train_paired_correct)/48 fixed=$($lane.fixed_raw_match.paired_correct)/48 selected=$($lane.selected_train_arm)"
+            Write-Output "F124F_DEPTH=$($lane.lane):4hop_A=$($lane.learned_arms.A.depth_strata.'4'.correct)/$($lane.learned_arms.A.depth_strata.'4'.pairs) 5hop_A=$($lane.learned_arms.A.depth_strata.'5'.correct)/$($lane.learned_arms.A.depth_strata.'5'.pairs)"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124f-train-only-retrieval-evidence.sha256'),
+            "$digest  f124f-train-only-retrieval-evidence.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124F_TRAIN_RECEIPT_SHA256=$digest"
+          Write-Output 'F124F_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124f-frozen-train-query-retrieval
+          path: |
+            ${{ runner.temp }}/f124f-train-only-retrieval-evidence.json
+            ${{ runner.temp }}/f124f-train-only-retrieval-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90
+  final-exact-head-regression:
+    needs: train-authenticated-learned-models
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full source-qualified Go regression race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124F_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124F_INDEPENDENT_FIRST_USE=false'
