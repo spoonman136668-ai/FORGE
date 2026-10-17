@@ -477,6 +477,115 @@ jobs:
             "$stateHash  state.json"+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
           Write-Host ('F124_CONTINUITY='+$proof.continuity)
           Write-Host 'F124_TWO_LANE_FEEDBACK_DIRECTED_CHALLENGE_EVOLUTION=SOURCE_ONLY'
+      - name: F125 authenticated prior GitHub feedback to autonomous new GenEnv agenda
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f125_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125_ADVERSARIAL_AUTHENTICITY_FAILURE' }
+          $root=Join-Path $env:RUNNER_TEMP 'forge-f125-authentic-dev'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $priorID=[int64]39038465506
+          if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            $index=& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+              "/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&event=schedule&per_page=40") | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F125_AUTHENTIC_SCHEDULE_QUERY_FAILED' }
+            $priorID=0
+            foreach ($old in @($index.workflow_runs | Sort-Object id -Descending)) {
+              if ([int64]$old.id -ge [int64]$env:GITHUB_RUN_ID -or
+                  $old.head_branch -cne 'main' -or
+                  $old.event -cne 'schedule' -or
+                  $old.run_attempt -ne 1 -or
+                  $old.conclusion -cne 'success') { continue }
+              $listing=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$old.id+
+                "/artifacts?per_page=100") | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { throw 'F125_PRIOR_ARTIFACT_INDEX_FAILED' }
+              $names=@($listing.artifacts | Where-Object {
+                -not $_.expired -and $_.name -like 'forge-f124-autonomy-*' } |
+                ForEach-Object { $_.name })
+              if ($names -contains 'forge-f124-autonomy-ubuntu-latest' -and
+                  $names -contains 'forge-f124-autonomy-windows-latest') {
+                $priorID=[int64]$old.id
+                break
+              }
+            }
+            if ($priorID -eq 0) { throw 'F125_NO_AUTHENTIC_PRIOR_SCHEDULED_F124_RUN' }
+          }
+          if ($priorID -ge [int64]$env:GITHUB_RUN_ID) {
+            throw 'F125_PREVIOUS_RUN_NOT_EARLIER'
+          }
+          $runRaw=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$priorID)
+          if ($LASTEXITCODE -ne 0) { throw 'F125_HISTORICAL_GITHUB_RUN_UNREADABLE' }
+          $artsRaw=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$priorID+"/artifacts?per_page=100")
+          if ($LASTEXITCODE -ne 0) { throw 'F125_HISTORICAL_ARTIFACT_INDEX_UNREADABLE' }
+          $runFile=Join-Path $root 'github-run.json'
+          $artsFile=Join-Path $root 'github-artifacts.json'
+          [System.IO.File]::WriteAllText($runFile,($runRaw -join "`n")+"\n",
+            [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText($artsFile,($artsRaw -join "`n")+"\n",
+            [System.Text.UTF8Encoding]::new($false))
+          $linux=Join-Path $root 'prior-ubuntu'
+          $windows=Join-Path $root 'prior-windows'
+          New-Item -ItemType Directory -Path $linux,$windows -Force | Out-Null
+          & gh run download $priorID --repo $env:GITHUB_REPOSITORY -n 'forge-f124-autonomy-ubuntu-latest' -D $linux
+          if ($LASTEXITCODE -ne 0) { throw 'F125_LINUX_SOURCE_DOWNLOAD_FAILED' }
+          & gh run download $priorID --repo $env:GITHUB_REPOSITORY -n 'forge-f124-autonomy-windows-latest' -D $windows
+          if ($LASTEXITCODE -ne 0) { throw 'F125_WINDOWS_SOURCE_DOWNLOAD_FAILED' }
+          $advisory=Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.json'
+          $receipt=Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.sha256'
+          $sum=(Get-FileHash -LiteralPath $advisory -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ((Get-Content -LiteralPath $receipt -Raw).Trim() -cne "$sum  forge-model-free-advisory.json") {
+            throw 'F125_CURRENT_NATIVE_GENERATOR_SOURCE_UNVERIFIED'
+          }
+          $report=Join-Path $root 'f125-authenticated-selection.json'
+          $cmd=@('--advisory',$advisory,
+            '--run-json',$runFile,'--artifacts-json',$artsFile,
+            '--ubuntu-state',(Join-Path $linux 'state.json'),
+            '--ubuntu-receipt',(Join-Path $linux 'state.sha256'),
+            '--windows-state',(Join-Path $windows 'state.json'),
+            '--windows-receipt',(Join-Path $windows 'state.sha256'),
+            '--source-ref',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--event',$env:GITHUB_EVENT_NAME,'--output',$report)
+          & $python -B nativeevidence/f125_authentic_feedback.py @cmd
+          if ($LASTEXITCODE -ne 0) { throw 'F125_AUTHENTIC_NEGATIVES_NOT_QUALIFIED' }
+          $x=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.autonomy.f125.authenticated-development-feedback-selection.v1' -or
+              $x.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$x.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $x.lanes.Count -ne 2 -or
+              -not $x.authenticated_prior_development_outcomes_consumed -or
+              $x.two_independent_scientific_originals_accepted -or
+              $x.actual_confirmed_development_pairs -ne 32 -or
+              $x.new_autonomous_mechanism_discovered -or
+              $x.scientific_first_use_authorized -or
+              $x.scientific_originals_dispatched -ne 0 -or
+              $x.optimizer_promotions -ne 0 -or
+              $x.accepted_ref_mutations -ne 0 -or $x.Codex_calls -ne 0 -or
+              $x.paid_model_calls -ne 0 -or $x.new_scheduler -or
+              $x.cloudflare_writes -ne 0 -or $x.ckb_plane_contact -or
+              $x.mind_palace_writes -ne 0) { throw 'F125_FALSE_AUTONOMOUS_SCIENCE_CLAIM' }
+          foreach ($lane in $x.lanes) {
+            if ($lane.negative_observations_preserved -lt 0 -or
+                $lane.positive_observations_preserved -lt 0 -or
+                $lane.source_derived_proposals.Count -lt 1 -or
+                $lane.train_only_winner_sha256.Length -ne 64 -or
+                $lane.confirmation.pairs -ne 16 -or
+                $lane.scientifically_validated_model_mechanism) {
+              throw 'F125_SOURCE_DERIVED_NEGATIVE_OR_CONTROL_MISSING'
+            }
+            Write-Host ('F125_PRIOR_AUTHENTIC_DEV '+$lane.lane+
+              ' focus='+$lane.chosen_from_prior_development_outcome+
+              ' alternatives='+$lane.source_derived_proposals.Count+
+              ' confirmation_gap='+$lane.confirmation.discrimination)
+          }
+          $newHash=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f125-authenticated-selection.sha256'),
+            "$newHash  f125-authenticated-selection.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host ('F125_PRIOR_MODE='+$x.prior_source_mode)
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -612,5 +721,14 @@ jobs:
           path: |
             ${{ runner.temp }}/forge-f124-autonomy/state.json
             ${{ runner.temp }}/forge-f124-autonomy/state.sha256
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f125-authentic-selection-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f125-authentic-dev/f125-authenticated-selection.json
+            ${{ runner.temp }}/forge-f125-authentic-dev/f125-authenticated-selection.sha256
           retention-days: 30
           if-no-files-found: error
