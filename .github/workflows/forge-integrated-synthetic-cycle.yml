@@ -369,6 +369,55 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F103_LEARNED_VARIABLE_BINDING_PUBLIC_DEV=PASS'
           Write-Host 'FORGE_F103_PROTECTED_FIRST_USE_AND_PAID_INFERENCE=ZERO'
+      - name: Train and qualify F104 Wingless learned one-observation selector
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f104_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F104_OBSERVATION_SELECTOR_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f104-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $out=Join-Path $outdir 'f104-wingless-observation-public-dev.json'
+          & $python -B nativeevidence/f104_wingless_public_observations.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F104_LEARNED_PUBLIC_DEV_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f104.wingless-public-dev-learned-observation-selector.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.lane -cne 'Wingless' -or $d.candidate_id -cne 'W100-C2' -or
+              $d.training_pairs -ne 96 -or $d.public_assessment_pairs -ne 48 -or
+              $d.total_development_pairs -ne 144 -or $d.trainable_parameters -ne 18 -or
+              $d.learned_training_updates -ne 100 -or
+              $d.blind_control_training_updates -ne 100 -or
+              $d.observation_budget_per_prediction -ne 1 -or
+              -not $d.historical_W_F10_negative_0_of_96_preserved -or
+              -not $d.coded_oracle_separate_control_only -or
+              $d.protected_first_use_authorized -or $d.scientific_originals_executed -ne 0 -or
+              $d.independently_accepted_science -ne 0 -or
+              $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or $d.codex_calls -ne 0 -or
+              $d.paid_model_api_calls -ne 0 -or $d.chatgpt_work_tasks -ne 0 -or
+              $d.ckb_plane_accessed) {
+            throw 'FORGE_F104_PROVENANCE_OR_SCIENCE_AUTHORITY_DRIFT'
+          }
+          $scores=$d.public_assessment_paired_accuracy
+          if ($scores.learned_query_gated_selector -lt 0.75 -or
+              ($scores.learned_query_gated_selector - $scores.size_matched_query_blind_selector) -lt 0.15 -or
+              $d.worst_depth_accuracy -lt 0.60 -or
+              $d.query_dependent_selection_fraction -lt 0.50 -or
+              $scores.always_yes_shortcut -ne 0 -or
+              $scores.coded_requested_depth_oracle -ne 1 -or
+              -not $d.public_development_screen_passed) {
+            throw 'FORGE_F104_FROZEN_DEV_SCREEN_FAILED_RETAIN_NEGATIVE'
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f104-wingless-observation-public-dev.sha256'),
+            "$digest  f104-wingless-observation-public-dev.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F104_WINGLESS_LEARNED_OBSERVATION_SELECTION=PASS'
+          Write-Host 'F104_PROTECTED_FIRST_USE_AND_GPT_INFERENCE=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -498,6 +547,7 @@ jobs:
             ${{ runner.temp }}/forge-f101-development/
             ${{ runner.temp }}/forge-f102-development/
             ${{ runner.temp }}/forge-f103-development/
+            ${{ runner.temp }}/forge-f104-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
