@@ -33,7 +33,9 @@ def blob(module):
 
 def evidence():
     protocol=fixture.frozen()
-    need(blob(fixture)==GENERATOR_BLOB,"FIXTURE_GENERATOR_GIT_BLOB_DRIFT")
+    source_blob=blob(fixture)
+    need(source_blob==GENERATOR_BLOB,
+         "FIXTURE_GENERATOR_GIT_BLOB_DRIFT_"+source_blob)
     need(blob(original_model)==ORIGINAL_MODEL_BLOB,"ORIGINAL_MODEL_GIT_BLOB_DRIFT")
     need(blob(original_source)==ORIGINAL_SOURCE_BLOB,"ORIGINAL_SOURCE_GIT_BLOB_DRIFT")
     preflight=fixture.first_use_preflight()
