@@ -178,7 +178,7 @@ def previous_state(previous,meta,current_run_id):
                  for x in rounds), "PREVIOUS_RUN_RESULT_MISSING")
     return validate_history(previous.get("history")),previous["generation"],sha(previous),"VERIFIED_PREVIOUS_F124_SCHEDULE"
 
-def choose(options,history,lane):
+def choose(options,history,lane,exclude=()):
     # Decisions use previously *observed* confirmation rewards and current
     # TRAIN-only calibration, not current-round confirmation data.
     def key(option):
@@ -194,7 +194,9 @@ def choose(options,history,lane):
                 -option["screen"]["discrimination"],
                 -option["screen"]["structural_diversity"],
                 DIRECTIONS.index(d))
-    return min(options,key=key)
+    eligible=[o for o in options if o["direction"] not in exclude]
+    need(bool(eligible),"NO_ELIGIBLE_UNREPEATED_DIRECTION")
+    return min(eligible,key=key)
 
 def evolve(history,lane,direction,score):
     need(0<=score<=16,"OUTCOME_NOT_FINITE_OR_BOUNDED")
@@ -222,7 +224,8 @@ def execute(advisory,source,run_id,event,previous=None,meta=None):
     for round_index in (0,1):
         for lane in LANES:
             pool=calibration(candidates[lane],lane,round_index)
-            selected=choose(pool,history,lane)
+            executed_this_run={r["direction"] for r in results if r["lane"]==lane}
+            selected=choose(pool,history,lane,exclude=executed_this_run)
             # Current round confirmation is only opened AFTER the direction
             # has been selected by prior feedback + training calibration.
             confirm=run_cases(selected["vector"],lane,round_index,"CONFIRM")
