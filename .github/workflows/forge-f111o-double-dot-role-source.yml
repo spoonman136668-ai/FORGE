@@ -1,0 +1,126 @@
+name: FORGE F111-O original TRAIN double-dot source role diagnostic
+on:
+  push:
+    branches: [engineering/f111o-freebase-double-dot-role-hypothesis-20261017-r1]
+    paths:
+      - 'noveltyeval/f111o_*'
+      - 'noveltyeval/test_f111o_*'
+      - 'docs/F111O-*'
+      - '.github/workflows/forge-f111o-double-dot-role-source.yml'
+permissions:
+  contents: read
+jobs:
+  frozen-original-train-only-role-hypothesis:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: kelvin-jiang/FreebaseQA
+          ref: d16aae5149aaa25e43ff2a7bd00a06f280ca19b9
+          path: original-freebaseqa-train
+          sparse-checkout: |
+            README.md
+            LICENSE
+            FreebaseQA-train.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact original Git source, unchanged F110 ancestor and reserved DEV EVAL
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C original-freebaseqa-train rev-parse HEAD)" = 'd16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          test "$(git -C original-freebaseqa-train rev-parse HEAD:FreebaseQA-train.json)" = '24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          test "$(git -C original-freebaseqa-train rev-parse HEAD:FreebaseQA-dev.json)" = '2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          test "$(git -C original-freebaseqa-train rev-parse HEAD:FreebaseQA-eval.json)" = 'd7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          test ! -e original-freebaseqa-train/FreebaseQA-dev.json
+          test ! -e original-freebaseqa-train/FreebaseQA-eval.json
+          echo 'F111O_EVAL_AND_DEV_FILE_BYTES_UNREAD'
+      - name: Preregistered syntactic source grammar and missing graph controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f111o_two_role_lexical_hypothesis.py' -v
+      - name: Whole original TRAIN exact baseline and double-dot lexical diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f111o_two_role_lexical_hypothesis.py --upstream original-freebaseqa-train --out f111o-source-two-role-hypothesis.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f111o-source-two-role-hypothesis.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f111o.original-train-double-dot-two-role-hypothesis.v1'
+          assert x['status']=='PUBLIC_FREEBASE_TRAIN_DOUBLE_DOT_TWO_ROLE_LEXICAL_DIAGNOSTIC'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['original_train_blob']=='24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          assert x['original_train_bytes']==23888089
+          assert x['dev_blob_metadata_only']=='2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          assert x['eval_blob_metadata_only']=='d7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          c=x['training_chain_census']
+          assert c['original_train_rows']==c['original_unique_question_ids']==20358
+          assert c['original_parse_entries']==37306
+          assert c['f109_original_single_accepted']==25498
+          assert c['f110_original_interior_double_dot']==11807
+          assert c['f109_original_other_rejected']==1
+          assert sum(c['exclusive_two_role_hypothesis_outcomes'].values())==11807
+          assert set(c['exclusive_two_role_hypothesis_outcomes'])=={
+            'candidate_two_roles_lexically_admitted',
+            'multiple_double_dot_delimiters','left_predicate_invalid',
+            'right_predicate_invalid','both_predicates_invalid',
+            'unsupported_other_source_label'}
+          for key in ('role_direction_known','two_hop_graph_semantics_qualified',
+                      'answer_values_accessed','source_relation_strings_published'):
+            assert c[key] is False,key
+          assert c['two_roles_are_source_labels_not_predictions'] is True
+          assert x['source_graph_admission_status']=='FREEBASE_GRAPH_SOURCE_NOT_QUALIFIED'
+          assert x['original_json_source_annotation_objects_decoded'] is True
+          for key in ('answers_interpreted_or_compared','dev_eval_qa_content_read',
+                      'per_question_or_role_value_published',
+                      'question_to_role_predictor_qualified',
+                      'independent_scientific_firstuse','accepted_science',
+                      'accepted_ref_mutation','dream_pareto_promotion',
+                      'thetaevolve_accepted_training','scientific_dispatch'):
+            assert x[key] is False,key
+          assert x['original_freebase_graph_queries']==x['real_qa_scores']==0
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F111O_EXHAUSTIVE_SOURCE_ONLY_DOUBLE_DOT_COUNTS='+json.dumps(c['exclusive_two_role_hypothesis_outcomes'],sort_keys=True))
+          print('F111O_TWO_HOP_SEMANTICS_AND_GRAPH_STILL_UNQUALIFIED')
+          PY
+          sha256sum f111o-source-two-role-hypothesis.json > f111o-source-two-role-hypothesis.sha256
+          sha256sum -c f111o-source-two-role-hypothesis.sha256
+      - name: Mandatory full exact-head FORGE Go tests vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F111O_SCIENCE_CODEX_CKB_CLOUDFLARE_ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f111o-original-train-source-${{ matrix.os }}
+          path: |
+            f111o-source-two-role-hypothesis.json
+            f111o-source-two-role-hypothesis.sha256
+          retention-days: 45
+          if-no-files-found: error
