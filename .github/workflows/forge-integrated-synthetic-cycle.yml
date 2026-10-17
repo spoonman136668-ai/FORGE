@@ -152,7 +152,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $python = if ($IsWindows) { 'python' } else { 'python3' }
-          & $python -B -m unittest discover -s nativeevidence -p 'test_f98_*.py' -v
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_F98_EVIDENCE_ADVERSARIAL_TESTS_FAILED' }
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
@@ -231,6 +231,73 @@ jobs:
             Write-Host '::warning title=FORGE external historical provenance::F98_ARCHIVE_EVIDENCE_NOT_QUALIFIED_NO_ADMISSION'
             Write-Host 'F98_TRAINABLE_RECORDS_AND_SCIENTIFIC_PERMITS=ZERO'
           }
+      - name: Reaudit optional real historical development ZIP rows and bind model-free advisories
+        id: f99_real_development
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'forge-f99-evidence'
+          $raw = Join-Path $env:RUNNER_TEMP 'forge-f99-archive-input'
+          New-Item -ItemType Directory -Path $root,$raw -Force | Out-Null
+          $curl = if ($IsWindows) { 'curl.exe' } else { 'curl' }
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          $cohorts = @(
+            @{Lane='Wingless'; Id='11932322023'; Name='w-f10.zip'},
+            @{Lane='Yggdrasil'; Id='11932008018'; Name='y-f9.zip'}
+          )
+          foreach ($cohort in $cohorts) {
+            $url = 'https://api.github.com/repos/spoonman136668-ai/' + $cohort.Lane +
+              '/actions/artifacts/' + $cohort.Id + '/zip'
+            $destination = Join-Path $raw $cohort.Name
+            & $curl '-fLsS' '--retry' '1' '-H' ('Authorization: Bearer ' + $env:GH_TOKEN) '-H' 'Accept: application/vnd.github+json' '-o' $destination $url
+            if ($LASTEXITCODE -ne 0) { throw 'F99_ARCHIVED_SOURCE_DOWNLOAD_NOT_QUALIFIED' }
+          }
+          $sourceReport = Join-Path $root 'f99-authentic-development.json'
+          $args = @('--source-sha',$env:GITHUB_SHA,
+            '--wingless-zip',(Join-Path $raw 'w-f10.zip'),
+            '--yggdrasil-zip',(Join-Path $raw 'y-f9.zip'))
+          & $python -B nativeevidence/f99_archive_extract.py @args |
+            Out-File -FilePath $sourceReport -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F99_REAL_ZIP_AND_ROW_REAUDIT_BLOCKED' }
+          $joined = Join-Path $root 'f99-model-free-development-bridge.json'
+          $bridgeArgs = @($sourceReport, (Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.json'))
+          & $python -B nativeevidence/f99_candidate_bridge.py @bridgeArgs |
+            Out-File -FilePath $joined -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F99_REAL_TO_SYNTHETIC_BRIDGE_BLOCKED' }
+          $result = Get-Content -LiteralPath $joined -Raw | ConvertFrom-Json
+          if ($result.schema -cne 'forge.autonomy.f99.source-joined-development-constraint-advisory.v1' -or
+              $result.forge_source_sha -cne $env:GITHUB_SHA -or
+              $result.two_lane_source_bound_advisory.Count -ne 2 -or
+              $result.actual_training_history_qualified -or $result.causal_policy_gain_qualified -or
+              $result.scientific_original_firstuse_authorized -or
+              $result.model_invocations -ne 0 -or $result.codex_invocations -ne 0 -or
+              $result.accepted_reference_mutations -ne 0) {
+            throw 'F99_NEW_RESEARCH_OR_TRAINING_AUTHORITY_UNEARNED'
+          }
+          Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Name -ne 'f99-sha256-manifest.txt' } | ForEach-Object {
+            $digest=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$digest  $($_.Name)"
+          } | Out-File -FilePath (Join-Path $root 'f99-sha256-manifest.txt') -Encoding utf8
+          Remove-Item -LiteralPath $raw -Recurse -Force
+          Write-Host 'F99_REAL_DEV_ZIP_BYTES_AND_PAIRED_ROW_REAUDIT=PASS'
+          Write-Host 'F99_REAL_DEVELOPMENT_CONSTRAINTS_LINKED_TO_SYNTHETIC_PROPOSALS=TRUE'
+          Write-Host 'F99_TRAINABLE_GENENV_RECORDS=ZERO'
+      - name: Quarantine missing historical ZIP bytes separately from core research acceptance
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ('${{ steps.f99_real_development.outcome }}' -ne 'success') {
+            $root = Join-Path $env:RUNNER_TEMP 'forge-f99-evidence'
+            $raw = Join-Path $env:RUNNER_TEMP 'forge-f99-archive-input'
+            foreach ($path in @($root,$raw)) {
+              if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+            }
+            Write-Host '::warning title=F99 real row custody::F99_REAL_DEV_EVIDENCE_QUARANTINED_NO_TRAINING_OR_FIRSTUSE'
+          }
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -240,6 +307,7 @@ jobs:
             ${{ runner.temp }}/forge-model-free-advisory.json
             ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-f98-evidence/
+            ${{ runner.temp }}/forge-f99-evidence/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
