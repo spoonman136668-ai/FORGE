@@ -1,0 +1,139 @@
+name: FORGE F102-O source-pinned training question inventory
+on:
+  push:
+    branches: [engineering/f102o-train-only-language-families-20261016-r1]
+    paths:
+      - 'noveltyeval/f102o_*'
+      - 'noveltyeval/test_f102o_*'
+      - 'noveltymechanisms/devroles/**'
+      - 'cmd/forge-f102o-*'
+      - 'docs/F102O-*'
+      - '.github/workflows/forge-f102o-training-only-language.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f102o-training-only-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  authenticated-original-train-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source head and immutable train Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/2-hop/qa_train.txt)" = 'd2ce0a9f3670769f4239baa4eb6bf7bdc91d9468'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/3-hop/qa_train.txt)" = '77409d56af8d1fde7a4bec23cf5e1df1e0a08e59'
+      - name: Train-only source boundary and answer-blind adverse checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f102o_*.py' -v
+      - name: Train-only full-cohort deterministic mask inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f102o_training_only_inventory.py --upstream public-metaqa --output f102o-training-inventory.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f102o-training-inventory.json',encoding='utf-8'))
+          assert x['status']=='PUBLIC_TRAIN_ONLY_LANGUAGE_FAMILY_INVENTORY'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert len(x['cohorts'])==2
+          assert [c['hops'] for c in x['cohorts']]==[2,3]
+          assert sum(c['rows'] for c in x['cohorts'])==x['full_training_denominator']
+          for c in x['cohorts']:
+            assert c['rows']==c['valid_bracket_question_rows']+c['malformed_or_unsupported_topic_structure']
+            assert len(c['top_40_question_only_families'])<=40
+            assert all(z['masked_grammar'].count('[]')==1 for z in c['top_40_question_only_families'])
+          for flag in ('test_cohorts_read','answer_values_used','per_question_or_topic_published',
+            'answer_accuracy_computed','independent_scientific_firstuse','accepted_science',
+            'dream_pareto_promotion','thetaevolve_accepted_training','accepted_ref_mutation'):
+            assert x[flag] is False
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          PY
+          sha256sum f102o-training-inventory.json > f102o-training-inventory.sha256
+          sha256sum -c f102o-training-inventory.sha256
+      - name: Frozen 46 train-only typed-role parser and F101 preservation
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/devroles ./cmd/forge-f102o-grammar-count
+      - name: Exact original 233176 TRAIN questions expanded fixed-role coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f102o_training_only_grammar_coverage.py --upstream public-metaqa --output f102o-training-coverage.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f102o-training-coverage.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f102o.train-only-grammar-coverage.v1'
+          assert x['status']=='PUBLIC_TRAIN_ONLY_EXPANDED_GRAMMAR_COVERAGE'
+          assert x['whole_original_train_population']==233176
+          assert x['additional_train_grammars']==46 and x['preserved_f101_fixed_grammars']==8
+          for c,hops,total in zip(x['cohorts'],(2,3),(118980,114196)):
+            assert c['hops']==hops and c['population']==total
+            y=c['counts']
+            assert y['questions']==total
+            assert y['matched']+y['abstained']==total
+            assert sum(y['reasons'].values())==y['abstained']
+            assert y['answers_read']==y['model_calls']==0
+            assert y['question_only_data_flow'] is True
+            assert y['scientific_dispatch'] is False
+            assert y['accepted_ref_mutation'] is False
+          for f in ('test_corpus_read','answers_forwarded','question_answers_compared',
+                    'predictions_made','qa_accuracy_computed','independent_scientific_firstuse',
+                    'accepted_science','dream_pareto_promotion',
+                    'thetaevolve_accepted_training','accepted_ref_mutation'):
+            assert x[f] is False,f
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F102O_TRAIN_ONLY_COMPLETE_COHORT=PASS')
+          PY
+          sha256sum f102o-training-coverage.json > f102o-training-coverage.sha256
+          sha256sum -c f102o-training-coverage.sha256
+      - name: One required exact-head full Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F102O_SCIENTIFIC_ACCEPTED_REFS_AND_MODEL_CALLS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f102o-train-only-inventory-${{ matrix.os }}
+          path: |
+            f102o-training-inventory.json
+            f102o-training-inventory.sha256
+            f102o-training-coverage.json
+            f102o-training-coverage.sha256
+          retention-days: 45
+          if-no-files-found: error
