@@ -118,31 +118,52 @@ jobs:
       contents: read
       actions: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - uses: actions/download-artifact@v4
         with:
           pattern: f123-train-frozen-*
           path: frozen-training
-      - name: Require exact Ubuntu and Windows training artifact parity
+      - name: Audit exact OS receipts and bounded numeric parity
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $a='frozen-training/f123-train-frozen-ubuntu-latest'
-          $b='frozen-training/f123-train-frozen-windows-latest'
-          foreach ($dir in @($a,$b)) {
-            $receipt=Join-Path $dir 'f123-train-weights.json'
-            $seal=Join-Path $dir 'f123-train-weights.sha256'
-            if (-not (Test-Path -LiteralPath $receipt) -or
-                -not (Test-Path -LiteralPath $seal)) { throw 'F123_MISSING_TRAIN_RECEIPT' }
-            $h=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ((Get-Content -LiteralPath $seal -Raw).Trim() -cne "$h  f123-train-weights.json") {
-              throw 'F123_TRAIN_SHA256_MISMATCH'
-            }
+          $root='frozen-training'
+          $report=Join-Path $root 'f123-cross-os-parity.json'
+          $args=@('--ubuntu',(Join-Path $root 'f123-train-frozen-ubuntu-latest'),'--windows',(Join-Path $root 'f123-train-frozen-windows-latest'),'--output',$report)
+          & python3 -B nativeevidence/f123_cross_os_custody.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F123_CROSS_PLATFORM_TRAIN_CUSTODY_FAILED' }
+          $p=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f123.cross-os-train-receipt-parity.v1' -or
+              $p.source_sha -cne $env:GITHUB_SHA -or
+              $p.confirmation_inputs_generated -ne 0 -or
+              $p.scientific_first_use_authorized -or
+              $p.canonical_inference_os -cne 'ubuntu-latest' -or
+              -not $p.score_and_selection_exact_identity -or
+              -not $p.nonfloat_provenance_exact_identity -or
+              $p.cross_os_weight_max_absolute_difference -gt 1e-12) {
+            throw 'F123_CROSS_PLATFORM_CUSTODY_CONTRACT_FAILED'
           }
-          $ha=(Get-FileHash -LiteralPath (Join-Path $a 'f123-train-weights.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-          $hb=(Get-FileHash -LiteralPath (Join-Path $b 'f123-train-weights.json') -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($ha -cne $hb) { throw 'F123_CROSS_PLATFORM_TRAIN_DRIFT' }
-          Write-Output "F123_TRAIN_CUSTODY_SHA256=$ha"
+          $h=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f123-cross-os-parity.sha256'),
+            "$h  f123-cross-os-parity.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F123_REFERENCE_TRAIN_SHA256=$($p.ubuntu_train_receipt_sha256)"
+          Write-Output "F123_WINDOWS_TRAIN_SHA256=$($p.windows_train_receipt_sha256)"
+          Write-Output "F123_MAX_OS_WEIGHT_DIFFERENCE=$($p.cross_os_weight_max_absolute_difference)"
           Write-Output 'F123_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f123-cross-os-train-custody
+          path: |
+            frozen-training/f123-cross-os-parity.json
+            frozen-training/f123-cross-os-parity.sha256
+          if-no-files-found: error
+          retention-days: 30
 
   final-system-regression:
     needs: frozen-training-parity
