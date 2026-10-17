@@ -87,7 +87,7 @@ class TestAutonomyPulse(unittest.TestCase):
         for mutate in (
             lambda obj:obj.__setitem__("enabled",False),
             lambda obj:obj.__setitem__("authority","source-and-worker-owner"),
-            lambda obj:obj.__setitem__("ckb_plane_role","research-controller"),
+            lambda obj:obj.__setitem__("north_star_sha256","bad-sha"),
             lambda obj:obj.__setitem__("mode","live-first-use-dispatch")
         ):
             a=API();repo=m.LANES[1][1]
@@ -102,6 +102,42 @@ class TestAutonomyPulse(unittest.TestCase):
                              "QUARANTINED_UNVERIFIED_NO_REPLAY")
             self.assertFalse(r["both_lanes_operationally_verified"])
             self.assertEqual(r["originals_dispatched"],0)
+
+    def test_legacy_other_project_role_labels_never_gate_forge_autonomy(self):
+        # Real research sources may still retain a historical unrelated role
+        # label. FORGE must not consume it as an authority or permission grant.
+        for index in (0,1):
+            a=API()
+            repo=m.LANES[index][1]
+            current=("a" if index==0 else "c")*40
+            active=("b" if index==0 else "d")*40
+            config=(repo,"/contents/.research-autonomy/config.json?ref="+current)
+            state=(repo,"/contents/.research-autonomy/state.json?ref="+active)
+            for key in (config,state):
+                doc=json.loads(base64.b64decode(a.items[key]["content"]))
+                doc["ckb_plane_role"]="historical-unrelated-value"
+                a.items[key]=content(doc)
+            out=m.scan(a,NOW)
+            self.assertTrue(out["both_lanes_operationally_verified"])
+            self.assertFalse(out["ckb_plane_accessed"])
+            self.assertFalse(out["scientific_firstuse_authorized"])
+            self.assertEqual(out["originals_dispatched"],0)
+            self.assertFalse(out["optimizer_policy_updated"])
+
+    def test_legacy_role_field_absence_does_not_require_external_infrastructure(self):
+        a=API()
+        for idx in (0,1):
+            repo=m.LANES[idx][1]
+            for commit,path in ((("a" if idx==0 else "c")*40,"config"),
+                                (("b" if idx==0 else "d")*40,"state")):
+                k=(repo,"/contents/.research-autonomy/"+path+".json?ref="+commit)
+                d=json.loads(base64.b64decode(a.items[k]["content"]))
+                d.pop("ckb_plane_role",None)
+                a.items[k]=content(d)
+        out=m.scan(a,NOW)
+        self.assertTrue(out["both_lanes_operationally_verified"])
+        self.assertFalse(out["ckb_plane_accessed"])
+        self.assertFalse(out["scientific_firstuse_authorized"])
 
     def test_stale_source_or_forged_success_run_is_quarantined(self):
         variants=[
