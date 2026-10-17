@@ -956,9 +956,19 @@ jobs:
             throw 'FORGE_F113_SOURCE_INDEPENDENCE_OR_COMPARATOR_PARITY_FAILURE'
           }
           foreach ($block in $w.blocks) {
-            if ($block.query_source_contingency.PSObject.Properties.Count -ne 16 -or
-                $block.correct_pairs_by_arm.full_public_edit_distance_one_read -ne 48) {
-              throw 'FORGE_F113_UNBALANCED_QUERY_SOURCE_OR_BROKEN_STRONG_CONTROL'
+            if ($block.correct_pairs_by_arm.full_public_edit_distance_one_read -ne 48) {
+              throw 'FORGE_F113_BROKEN_STRONG_PUBLIC_EDIT_CONTROL'
+            }
+            # Explicitly validate every preregistered cell. Do not rely on
+            # PSCustomObject's platform-sensitive .Properties.Count adaptation.
+            foreach ($query in 0..3) {
+              foreach ($tag in 0..3) {
+                $key=('{0}:{1}' -f $query, $tag)
+                $property=$block.query_source_contingency.PSObject.Properties[$key]
+                if ($null -eq $property -or $property.Value -ne 3) {
+                  throw 'FORGE_F113_UNBALANCED_QUERY_SOURCE_CONTINGENCY'
+                }
+              }
             }
           }
           $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
