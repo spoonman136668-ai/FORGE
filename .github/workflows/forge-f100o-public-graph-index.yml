@@ -1,0 +1,112 @@
+name: FORGE F100-O source-pinned full public KG index qualification
+on:
+  push:
+    branches: [engineering/f100o-bounded-full-kg-index-20261016-r1]
+    paths:
+      - 'noveltymechanisms/largegraph/**'
+      - 'cmd/forge-f100o-graph-audit/**'
+      - 'docs/F100O-PUBLIC-METAQA-TYPED-INDEX-FROZEN-CONTRACT.md'
+      - '.github/workflows/forge-f100o-public-graph-index.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f100o-public-graph-index-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-only-full-graph-index:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify pinned FORGE and real external Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          python - <<'PY'
+          import hashlib,pathlib,subprocess
+          raw=subprocess.check_output(['git','-C','public-metaqa','show','HEAD:metaqa/original/kb.txt'])
+          assert len(raw) <= 7_000_000 and len(raw)>0
+          assert hashlib.sha256(raw).hexdigest()=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          prefix=b'blob '+str(len(raw)).encode()+b'\x00'
+          assert hashlib.sha1(prefix+raw).hexdigest()=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          pathlib.Path('f100o-pinned-kb.txt').write_bytes(raw)
+          PY
+      - name: Bounded positive and adversarial Go index tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/largegraph ./cmd/forge-f100o-graph-audit
+      - name: Audit entire authentic public MetaQA KB with NO QA answers
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-f100o-graph-audit --pinned-raw-kb f100o-pinned-kb.txt --output f100o-public-index.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f100o-public-index.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f100o.public-external-large-graph-index.v1'
+          assert x['source_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['source_identity_pinned'] is True
+          s=x['whole_graph']
+          assert s['source_rows']==134741
+          assert s['distinct_triples']==133582
+          assert s['duplicate_rows']==1159
+          assert s['self_relations']==11
+          assert s['distinct_entities']==43234
+          assert s['searchable_directional_arcs']==2*s['distinct_triples']
+          assert x['typed_roles_caller_supplied_only'] is True
+          assert x['public_development_only'] is True
+          for flag in ('natural_language_adapter_exists','f95_question_accuracy_computed',
+           'independent_scientific_firstuse','scientific_acceptance',
+           'dream_pareto_promotion','thetaevolve_accepted_training',
+           'science_dispatch_authorized','accepted_ref_mutation'):
+            assert x[flag] is False,flag
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          PY
+          sha256sum f100o-public-index.json > f100o-public-index.sha256
+          sha256sum -c f100o-public-index.sha256
+      - name: One required final full Go regression and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F100O_PUBLIC_DEV_MODEL_CALLS=ZERO'
+          echo 'F100O_PROTECTED_SCIENCE_ORIGINALS=ZERO'
+          echo 'F100O_CKB_CLOUDFLARE_CODEX_WRITES=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f100o-public-kb-index-${{ matrix.os }}
+          path: |
+            f100o-public-index.json
+            f100o-public-index.sha256
+          retention-days: 45
+          if-no-files-found: error
