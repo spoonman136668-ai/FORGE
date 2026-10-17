@@ -9,6 +9,8 @@ on:
     paths:
       - 'nativeevidence/**'
       - 'cmd/forge-model-free-loop/**'
+      - 'nativeevidence/f118_*.py'
+      - 'reference/research-intake/f118-autonomous-feedback-freeze.json'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
   schedule:
     - cron: '19 */6 * * *'
@@ -21,6 +23,7 @@ on:
       - 'genenv/**'
       - 'optimizerstages/**'
       - 'nativeevidence/**'
+      - 'reference/research-intake/f118-autonomous-feedback-freeze.json'
       - 'evoportfolio/**'
       - 'classification/**'
       - 'subprocesssupervisor/**'
@@ -29,6 +32,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: forge-integrated-synthetic-${{ github.ref }}
@@ -54,6 +58,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Verify frozen policy and full two-lane source
         shell: pwsh
         run: |
@@ -147,6 +154,86 @@ jobs:
           Write-Host 'FORGE_MODEL_FREE_FROZEN_TWO_LANE_ADVISORY=PASS'
           Write-Host 'MODEL_EXECUTION_AND_NEW_ORIGINAL_SCIENCE=ZERO'
           Write-Host 'PROPOSALS_ARE_SYNTHETIC_AND_UNTESTED=TRUE'
+      - name: F118 autonomy-first bounded decision and evidence feedback
+        shell: pwsh
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f118_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F118_FEEDBACK_TESTS_FAILED' }
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-f118-autonomy'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $arguments=@('--advisory',(Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.json'),
+            '--source-ref',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--event',$env:GITHUB_EVENT_NAME,'--output',(Join-Path $dir 'state.json'))
+          if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            $index=& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+              "/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&event=schedule&per_page=40") | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F118_SCHEDULE_GITHUB_READ_FAILED' }
+            foreach ($prior in @($index.workflow_runs | Sort-Object id -Descending)) {
+              if ([int64]$prior.id -ge [int64]$env:GITHUB_RUN_ID -or
+                  $prior.conclusion -cne 'success' -or $prior.run_attempt -ne 1 -or
+                  $prior.event -cne 'schedule' -or $prior.head_branch -cne 'main') { continue }
+              $list=& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+                 "/actions/runs/"+$prior.id+"/artifacts?per_page=100") | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { throw 'F118_PREVIOUS_ARTIFACT_DISCOVERY_FAILED' }
+              $matches=@($list.artifacts | Where-Object {
+                $_.name -ceq 'forge-f118-feedback-ubuntu-latest' -and -not $_.expired
+              })
+              if ($matches.Count -eq 0) { continue }
+              if ($matches.Count -ne 1) { throw 'F118_PREVIOUS_DUPLICATE_RECEIPT' }
+              $previousDir=Join-Path $dir 'previous'
+              New-Item -ItemType Directory -Force -Path $previousDir | Out-Null
+              & gh run download $prior.id --repo $env:GITHUB_REPOSITORY -n 'forge-f118-feedback-ubuntu-latest' -D $previousDir
+              if ($LASTEXITCODE -ne 0) { throw 'F118_PREVIOUS_DOWNLOAD_FAILED' }
+              $previous=Join-Path $previousDir 'state.json'
+              $receipt=Join-Path $previousDir 'state.sha256'
+              if (-not (Test-Path $previous) -or -not (Test-Path $receipt)) { throw 'F118_PREVIOUS_INCOMPLETE' }
+              $actual=(Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ((Get-Content -LiteralPath $receipt -Raw).Trim() -cne "$actual  state.json") {
+                throw 'F118_PREVIOUS_CHECKSUM_FAIL'
+              }
+              $meta=Join-Path $dir 'github-run-metadata.json'
+              [System.IO.File]::WriteAllText($meta,($prior | ConvertTo-Json -Depth 15 -Compress),
+                [System.Text.UTF8Encoding]::new($false))
+              $arguments+=@('--previous',$previous,'--previous-meta',$meta)
+              break
+            }
+          }
+          & $python -B nativeevidence/f118_autonomy_feedback.py @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'F118_MODEL_FREE_ACTION_EXECUTION_FAILED' }
+          $state=Join-Path $dir 'state.json'
+          $d=Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f118.model-free-development-feedback.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$d.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $d.evaluations.Count -ne 2 -or
+              $d.evaluations[0].lane -cne 'Wingless' -or
+              $d.evaluations[1].lane -cne 'Yggdrasil' -or
+              -not $d.model_free_selection_and_execution_performed -or
+              -not $d.feedback_available_to_next_run -or
+              $d.qualified_unattended_repetitions -or
+              $d.science_screen_performed -or
+              $d.new_scientific_originals -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.codex_calls -ne 0 -or $d.paid_model_calls -ne 0 -or
+              $d.ckb_plane_contact -or $d.cloudflare_writes -ne 0 -or
+              $d.new_schedulers -ne 0 -or $d.independent_science_accepted) {
+            throw 'F118_FALSE_AUTONOMY_SCIENCE_OR_SOURCE'
+          }
+          foreach ($x in $d.evaluations) {
+            if ($x.outcome -notin @('PASS','FAIL','TIMEOUT') -or
+                $x.this_is_scientific_candidate_validation) { throw 'F118_UNSAFE_OUTCOME' }
+            Write-Host ('F118_AUTO_SELECTED '+$x.lane+' '+$x.engineering_readiness_suite+' '+$x.outcome)
+          }
+          $sha=(Get-FileHash -LiteralPath $state -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $dir 'state.sha256'),
+            "$sha  state.json" + [Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
+          Write-Host ('F118_FEEDBACK='+$d.continuity)
+          Write-Host 'F118_MODEL_FREE_SOURCE_ONLY_NO_SCIENCE_PROMOTION=PASS'
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -241,5 +328,15 @@ jobs:
             ${{ runner.temp }}/forge-model-free-advisory.sha256
             ${{ runner.temp }}/forge-f98-evidence/
             ${{ runner.temp }}/forge-synthetic-processes
+          retention-days: 30
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f118-feedback-\${{ matrix.os }}
+          path: |
+            \${{ runner.temp }}/forge-f118-autonomy/state.json
+            \${{ runner.temp }}/forge-f118-autonomy/state.sha256
           retention-days: 30
           if-no-files-found: error
