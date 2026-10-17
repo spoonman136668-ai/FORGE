@@ -178,9 +178,19 @@ def previous_state(previous,meta,current_run_id):
                  for x in rounds), "PREVIOUS_RUN_RESULT_MISSING")
     return validate_history(previous.get("history")),previous["generation"],sha(previous),"VERIFIED_PREVIOUS_F124_SCHEDULE"
 
-def choose(options,history,lane,exclude=()):
+def choose(options,history,lane,exclude=(),recent=None):
     # Decisions use previously *observed* confirmation rewards and current
     # TRAIN-only calibration, not current-round confirmation data.
+    preferred=None
+    if recent is not None:
+        direction, observed=recent
+        need(direction in DIRECTIONS and type(observed) is int
+             and 0<=observed<=16, "NONOBSERVED_SUCCESSOR_SIGNAL")
+        # A failed discrimination and a successful discrimination lead to
+        # DIFFERENT successors from the same history; this is an observed
+        # feedback-driven choice, not an automatic fixed rotation.
+        step=1 if observed>0 else 2
+        preferred=DIRECTIONS[(DIRECTIONS.index(direction)+step)%3]
     def key(option):
         d=option["direction"]
         row=history.get(f"{lane}:{d}")
@@ -190,7 +200,8 @@ def choose(options,history,lane,exclude=()):
         # Unexplored first; if exhausted, prioritize lowest measured
         # discrimination (open falsification question) and observed negatives.
         # Calibration breaks ties exclusively on training-only graphs.
-        return (count, reward*100//max(1,count), -negative,
+        return (count, int(preferred is not None and d != preferred),
+                reward*100//max(1,count), -negative,
                 -option["screen"]["discrimination"],
                 -option["screen"]["structural_diversity"],
                 DIRECTIONS.index(d))
@@ -224,8 +235,10 @@ def execute(advisory,source,run_id,event,previous=None,meta=None):
     for round_index in (0,1):
         for lane in LANES:
             pool=calibration(candidates[lane],lane,round_index)
-            executed_this_run={r["direction"] for r in results if r["lane"]==lane}
-            selected=choose(pool,history,lane,exclude=executed_this_run)
+            prior_actions=[r for r in results if r["lane"]==lane]
+            executed_this_run={r["direction"] for r in prior_actions}
+            recent=(prior_actions[-1]["direction"], prior_actions[-1]["feedback_discrimination"]) if prior_actions else None
+            selected=choose(pool,history,lane,exclude=executed_this_run,recent=recent)
             # Current round confirmation is only opened AFTER the direction
             # has been selected by prior feedback + training calibration.
             confirm=run_cases(selected["vector"],lane,round_index,"CONFIRM")
