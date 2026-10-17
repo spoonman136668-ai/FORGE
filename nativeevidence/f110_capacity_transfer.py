@@ -92,7 +92,7 @@ def frozen():
          ws["minimum_metadata_offset_tamper_accuracy_drop"]==0.20 and
          ws["no_parameter_efficiency_claim_if_64_vs_18"] is True and
          outcome["Yggdrasil"]["report_all_144_new_pairs"] is True and
-         outcome["Yggdrasil"]["strict_superiority_needs_pooled_net_gain_at_least_18"]==18 and
+         outcome["Yggdrasil"]["strict_superiority_needs_pooled_net_gain_at_least_18"] is True and
          outcome["no_test_failure_for_negative_scientific_outcome"] is True and
          outcome["no_hindsight_model_reselection"] is True and
          outcome["no_retraining_after_diagnostic"] is True,
@@ -338,8 +338,9 @@ def ygg_eval(cfg):
              not x["arms"]["soft_slot_parent_20"] for x in rows)
     losses=sum(x["arms"]["soft_slot_parent_20"] and
                not x["arms"]["strict_slot_candidate_20"] for x in rows)
-    passed=(wins-losses>=cfg["frozen_outcomes"]["Yggdrasil"][
-              "strict_superiority_needs_pooled_net_gain_at_least_18"] and
+    passed=(wins-losses>=18 and  # Exactly the threshold named in the frozen true assertion.
+            cfg["frozen_outcomes"]["Yggdrasil"][
+              "strict_superiority_needs_pooled_net_gain_at_least_18"] is True and
             min(b["paired_correct"]["strict_slot_candidate_20"]/48
                 for b in blocks)>=0.6)
     return dict(lane="Yggdrasil",training_steps_each=100,
