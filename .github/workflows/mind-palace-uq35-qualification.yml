@@ -31,7 +31,7 @@ jobs:
           $expectedMain = '90e1cc742dff20b5f53b38fd7102b9c00e4474ad'
           $expectedHead = '6c02a8f1dccc94e07cc32f337858eb2e6eef7ea9'
           $sourceBranch = 'uq34/accepted-replay-safety-regression'
-          $root = Join-Path $env:RUNNER_TEMP ('mind-palace-uq35-' + $env:GITHUB_RUN_ID + '-' + [Guid]::NewGuid().ToString('N'))
+          $root = Join-Path $env:RUNNER_TEMP ('mp35-' + $env:GITHUB_RUN_ID)
           $logDir = Join-Path $env:RUNNER_TEMP ('mind-palace-uq35-logs-' + $env:GITHUB_RUN_ID + '-' + [Guid]::NewGuid().ToString('N'))
           $ps5NativeModules = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
           if (-not (Test-Path -LiteralPath $ps5NativeModules -PathType Container)) { throw 'UQ35_WINDOWS_POWERSHELL_NATIVE_MODULES_MISSING' }
@@ -85,6 +85,7 @@ jobs:
             Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) ('TEST_CHANGED_TRACKED_SOURCE_' + $name)
             Write-Host ('UQ35_' + $name + '=PASS')
           }
+          if ($root.Length -gt 70) { throw ('UQ35_SHORT_ROOT_LENGTH_EXCEEDED:' + $root.Length) }
           if (Test-Path -LiteralPath $root) {throw 'UQ35_SCRATCH_EXISTS'}
           if (Test-Path -LiteralPath $logDir) {throw 'UQ35_LOGS_ALREADY_EXIST'}
           New-Item -ItemType Directory -Path $logDir | Out-Null
