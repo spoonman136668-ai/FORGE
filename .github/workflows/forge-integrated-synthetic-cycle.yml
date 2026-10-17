@@ -842,6 +842,66 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F111_NONADDITIVE_TRANSFER_STRONG_CONTROLS=PUBLIC_EVIDENCE_RETAINED'
           Write-Host 'FORGE_F111_PROTECTED_SCIENCE_AND_PAID_MODEL=ZERO'
+      - name: F112 assess learned character relations and adversarial variable-binding paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f112_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F112_RELATION_LEARNING_ADVERSARIAL_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f112-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $report=Join-Path $outdir 'f112-learned-relations-branch-collisions.json'
+          & $python -B nativeevidence/f112_learned_relations.py --source-ref $env:GITHUB_SHA --evidence-root $env:RUNNER_TEMP |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F112_NEW_CHALLENGE_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f112.learned-character-relation-and-branch-collision-public.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.evidence_class -cne 'FROZEN_PUBLIC_DEVELOPMENT_DIAGNOSTIC_NO_INDEPENDENT_SCIENCE' -or
+              $d.new_diagnostic_pairs_per_lane -ne 144 -or
+              $d.lanes.Count -ne 2 -or
+              $d.lanes[0].lane -cne 'Wingless' -or
+              $d.lanes[1].lane -cne 'Yggdrasil' -or
+              -not $d.intact_prior_negative_evidence -or
+              -not $d.all_288_paired_records_preserved -or
+              $d.independent_scientific_originals -ne 0 -or
+              $d.science_accepted -ne 0 -or
+              $d.protected_first_use_authorized -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.native_science_dispatches -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.paid_model_api_calls -ne 0 -or
+              $d.work_tasks -ne 0 -or
+              $d.ckb_plane_contact -or
+              $d.cloudflare_writes -ne 0 -or
+              $d.new_schedulers -ne 0) {
+            throw 'FORGE_F112_FALSE_SCIENCE_OR_INCOMPLETE_REPORT'
+          }
+          foreach ($lane in $d.lanes) {
+            if ($lane.blocks.Count -ne 3) { throw 'FORGE_F112_MISSING_DIAGNOSTIC_BLOCK' }
+            foreach ($block in $lane.blocks) {
+              if ($block.paired_cases -ne 48 -or
+                  $block.individual_cases.Count -ne 48) {
+                throw 'FORGE_F112_LOST_COUNTERFACTUAL_EVIDENCE'
+              }
+            }
+          }
+          $w=$d.lanes[0]
+          if ($w.model_parameters -gt 32 -or
+              $w.learned_training_updates -ne 100 -or
+              -not $w.candidate_is_engineered_feature_metric_not_unrestricted_representation_learning -or
+              $w.exact_public_lookup_paired_correct -ne 144) {
+            throw 'FORGE_F112_INCORRECT_LEARNED_RELATION_OR_STRONG_CONTROL'
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f112-learned-relations-branch-collisions.sha256'),
+            "$digest  f112-learned-relations-branch-collisions.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F112_FROZEN_RELATIONAL_PUBLIC_RESULT=RETAIN_POSITIVE_OR_NEGATIVE'
+          Write-Host 'FORGE_F112_INDEPENDENT_SCIENCE_AND_PAID_INFERENCE=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -979,6 +1039,7 @@ jobs:
             ${{ runner.temp }}/forge-f109-development/
             ${{ runner.temp }}/forge-f110-development/
             ${{ runner.temp }}/forge-f111-development/
+            ${{ runner.temp }}/forge-f112-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
