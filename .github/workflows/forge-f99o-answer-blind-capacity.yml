@@ -1,0 +1,101 @@
+name: FORGE F99-O answer-blind public MetaQA capacity qualification
+on:
+  push:
+    branches: [engineering/f99o-answer-blind-metaqa-capacity-20261016-r1]
+    paths:
+      - 'noveltyeval/f99o_*'
+      - 'noveltyeval/test_f99o_*'
+      - 'docs/F99O-ANSWER-BLIND-METAQA-COMPATIBILITY-CONTRACT.md'
+      - '.github/workflows/forge-f99o-answer-blind-capacity.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f99o-answer-blind-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  read-only-authenticated-public-compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify source checkout and pinned external Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/2-hop/qa_test.txt)" = 'c60e27a75140cfc2792469181caca05b79b017ad'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/3-hop/qa_test.txt)" = '09756f302c4100897c64144e7af8c73763cee4a2'
+      - name: Adversarial answer blindness and complete source capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f99o_*.py' -v
+          python -B noveltyeval/f99o_answer_blind_capacity.py --upstream public-metaqa --output f99o-capacity.json
+          python - f99o-capacity.json <<'PY'
+          import json,sys
+          a=json.load(open(sys.argv[1],encoding='utf-8'))
+          assert a['schema']=='forge.optimizer.f99o.answer-blind-public-schema-capacity.v1'
+          assert a['source_git_objects_authentic'] is True
+          assert a['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert a['two_hop']['complete_population']==14872
+          assert a['three_hop']['complete_population']==14274
+          for group in ('two_hop','three_hop'):
+            x=a[group]
+            assert x['complete_population']==sum(x[k] for k in (
+              'fully_bounded_without_role_query','complete_envelope_exceeds_128_arcs','topic_root_missing'))
+            assert x['never_truncated_or_cherry_picked'] is True
+          for k in ('f95_actual_question_to_roles_adapter_exists',
+              'all_external_test_items_runnable_and_scored','f95_accuracy_computed',
+              'independent_scientific_firstuse','scientific_acceptance',
+              'dream_pareto_promotion','thetaevolve_accepted_training',
+              'science_dispatch_authorized','accepted_ref_mutation'):
+            assert a[k] is False,k
+          assert a['model_calls']==a['codex_calls']==a['cloudflare_writes']==0
+          print('F99O_PUBLIC_DEVELOPMENT_ONLY=TRUE')
+          PY
+          sha256sum f99o-capacity.json > f99o-capacity.sha256
+          sha256sum -c f99o-capacity.sha256
+      - name: Required final full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F99O_SCIENTIFIC_ORIGINALS=ZERO'
+          echo 'F99O_CKB_AND_CLOUDFLARE_ACCESS=ZERO'
+          echo 'F99O_CODEX_AND_PAID_INFERENCE_CALLS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f99o-public-schema-capacity-${{ matrix.os }}
+          path: |
+            f99o-capacity.json
+            f99o-capacity.sha256
+          retention-days: 45
+          if-no-files-found: error
