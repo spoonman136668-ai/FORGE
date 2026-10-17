@@ -1,0 +1,146 @@
+name: F124-K sealed 7-9-hop fixture source and first-use readiness
+on:
+  push:
+    branches: [research/f124k-confirm-fixture-20261017]
+    paths:
+      - 'reference/research-intake/f124k-extended-confirm-source-freeze.json'
+      - 'nativeevidence/f124k_*.py'
+      - 'nativeevidence/test_f124k_*.py'
+      - '.github/workflows/forge-f124k-fixture-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f124k-protected-fixture-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  nonreserved-source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exhaustive two-lane fixture and fail-closed source test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124k_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124K_NONRESERVED_FIXTURE_SOURCE_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124K_INDEPENDENT_SOURCE_ISOLATION_FAILED' }
+          Write-Output 'F124K_RESERVED_CONFIRM_GENERATED=0'
+          Write-Output 'F124K_FIRST_USE_AUTHENTICATED=false'
+          Write-Output "F124K_SOURCE_HEAD=${{ github.sha }}"
+  authenticate-fixture-source-only:
+    needs: nonreserved-source-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compute 7-9-hop fixture-only source receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124k-fixture-only-qualification.json'
+          & python3 -B nativeevidence/f124k_fixture_custody.py --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124K_FIXTURE_REPORT_QUARANTINED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124k.fixture-only-long-depth-source-qualification.v1' -or
+              $r.frozen_protocol_git_blob -cne '8065de6263f45cea465ec0bda622d985c5488ef8' -or
+              $r.fixture_generator_git_blob -cne 'b7c665e20c0fcff6655dba969a7e3de2c525ffab' -or
+              $r.original_model_git_blob -cne '599d7a87f0812f3a7d2c8680861b6360d3640bc0' -or
+              $r.original_source_git_blob -cne '3feab91460f29ec169e1904479a134bb04691937' -or
+              $r.source_basis -cne 'QUALIFICATION_FIXTURE_ONLY' -or
+              $r.first_use_preflight.protection -cne 'BLOCKED_PENDING_INDEPENDENT_FIRST_USE_AND_MODEL_INTERFACE' -or
+              $r.first_use_preflight.original_f124h_model_accepts_7_to_9_hops -or
+              $r.first_use_preflight.independent_first_use_receipt_verified -or
+              $r.actual_protected_source_enabled -or
+              $r.original_model_weights_loaded -or
+              $r.original_model_predictions_computed -or
+              $r.protected_first_use_authorized -or
+              $r.protected_source_born -or
+              $r.reserved_examples_built -ne 0 -or
+              $r.independent_original_scientific_first_use -or
+              $r.scientific_acceptances -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or
+              $r.Codex_calls -ne 0 -or $r.paid_API_calls -ne 0 -or
+              $r.new_scheduler -or $r.controller_contact -or
+              $r.mind_palace_writes -ne 0 -or $r.cloudflare_writes -ne 0 -or
+              $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil') {
+            throw 'F124K_INDEPENDENT_FIRST_USE_OR_FIXTURE_CUSTODY_DRIFT'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.fixture_pair_count -ne 48 -or
+                $lane.public_depth_distribution.'7' -ne 16 -or
+                $lane.public_depth_distribution.'8' -ne 16 -or
+                $lane.public_depth_distribution.'9' -ne 16 -or
+                $lane.minimum_role_only_structural_routes -lt 5 -or
+                $lane.true_positive_paths_each -ne 1 -or
+                $lane.true_negative_paths_each -ne 0 -or
+                $lane.source_vector_count -ne 2 -or
+                $lane.original_model_scored -or
+                $lane.protected_examples_generated -ne 0) {
+              throw 'F124K_FIXTURE_OR_CAUSAL_PATH_INCOMPLETE'
+            }
+            Write-Output "F124K_FIXTURE=$($lane.lane):48/48 admission depth7=16 depth8=16 depth9=16 minimum_public_role_routes=$($lane.minimum_role_only_structural_routes)"
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124k-fixture-only-qualification.sha256'),
+            "$hash  f124k-fixture-only-qualification.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124K_FIXTURE_RECEIPT_SHA256=$hash"
+          Write-Output 'F124K_CONFIRMATION=BLOCKED_PRESERVED_UNOPENED'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124k-fixture-source-readiness-only
+          path: |
+            ${{ runner.temp }}/f124k-fixture-only-qualification.json
+            ${{ runner.temp }}/f124k-fixture-only-qualification.sha256
+          retention-days: 90
+          if-no-files-found: error
+  final-exact-head-regression:
+    needs: authenticate-fixture-source-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full source-pinned Go regression, race, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124K_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo "F124K_ORIGINAL_FIRST_USE=false"
