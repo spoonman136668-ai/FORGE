@@ -1,0 +1,42 @@
+name: F124-F frozen query-conditioned causal source
+on:
+  push:
+    branches: [research/f124f-query-conditioned-causal-retrieval-20261017]
+    paths:
+      - 'reference/research-intake/f124f-query-conditioned-retrieval-freeze.json'
+      - 'nativeevidence/f124f_*.py'
+      - 'nativeevidence/test_f124f_*.py'
+      - '.github/workflows/forge-f124f-source.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f124f-scientific-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-train-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen public graph TRAIN source admission and anti-leakage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124f_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124F_TRAIN_SOURCE_UNQUALIFIED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124F_SOURCE_ISOLATION_FAIL' }
+          Write-Output "F124F_SOURCE_SHA=${{ github.sha }}"
+          Write-Output 'F124F_CONFIRM_UNTOUCHED=true'
+          Write-Output 'F124F_ACCEPTANCE=false'
