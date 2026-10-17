@@ -171,3 +171,166 @@ jobs:
           path: ${{ runner.temp }}/f124r-sparse-train-only/
           if-no-files-found: error
           retention-days: 90
+
+
+  f124r-control-resource-audit:
+    needs: train-only-sparse2
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124r-sparse-train-only-ubuntu-latest-${{ github.sha }}
+          path: saved-f124r-train
+      - name: Verify original TRAIN receipts, replay dense controls and audit pruning
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $folder='saved-f124r-train'
+          $report=Join-Path $folder 'f124r-train-controls.json'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f124r_train_controls.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_CONTROL_SOURCE_TEST_FAILED' }
+          & python3 -B nativeevidence/f124r_train_controls.py --advisory (Join-Path $folder 'f124r-advisory.json') --train-report (Join-Path $folder 'f124r-sparse-train-only.json') --source-ref $env:GITHUB_SHA --output $report
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_SOURCE_ONLY_CONTROL_QUARANTINED' }
+          $r=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f124r.train-controls-resource-pruning.v1' -or
+              $r.source_commit_sha -cne $env:GITHUB_SHA -or
+              $r.f124r_freeze_git_blob -cne '891c950e1d25eea90fbe5191abf8e9c1ab4eac7f' -or
+              $r.lanes.Count -ne 2 -or $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.protected_confirmation_read -or $r.scientific_acceptance -or
+              $r.optimizer_promotion -or $r.scientific_first_use -or
+              -not $r.negative_findings_retained -or
+              $r.equal_runtime_or_true_cost_parity_established) {
+            throw 'F124R_CONTROL_AUDIT_UNEARNED_SCIENCE'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.train_pairs -ne 64 -or
+                $lane.trace_rows.Count -ne 128 -or
+                $lane.positive_train_graphs -ne 64 -or
+                $lane.costs_are_mixed_primitive_event_proxies_not_runtime -ne $true -or
+                $lane.measured_equal_compute_cost_established -or
+                $lane.control_paired_scores.CTRL_EXACT_SYMBOLIC_CEILING.paired_correct -ne 64 -or
+                $lane.control_paired_scores.CTRL_F123_DENSE_B.pairs -ne 64 -or
+                $lane.train_trace_sha256 -notmatch '^[0-9a-f]{64}$') {
+              throw 'F124R_TRAIN_DIAGNOSTIC_INCOMPLETE'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($report+'.sha256'),
+            ($digest+'  f124r-train-controls.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F124R_CONTROL_AUDIT_SHA256=$digest"
+          Write-Host 'F124R_CONFIRM_READ=false'
+          Write-Host 'F124R_TRUE_COST_PARITY_NOT_ESTABLISHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124r-train-control-prune-audit-${{ github.sha }}
+          path: |
+            saved-f124r-train/f124r-train-controls.json
+            saved-f124r-train/f124r-train-controls.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  f124r-exact-head-regression:
+    needs: f124r-control-resource-audit
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact head and isolated source interfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124R_HEAD_IDENTITY_MISMATCH' }
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_ISOLATION_TEST_FAILURE' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_SOURCE_ISOLATION_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f12[012]_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_FROZEN_PARENT_INTERFACE_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_PARENT_F123_INTERFACE_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_AFFECTED_INTERFACE_FAILED' }
+      - name: Full Go regression, Linux race, vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_GO_TEST_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F124R_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_GO_VET_FAILED' }
+      - name: Build after regression and hash exact-head artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_FULL_BUILD_FAILED' }
+          $ext=if ($IsWindows) { '.exe' } else { '' }
+          $exe=Join-Path $env:RUNNER_TEMP ('f124r-synthetic-worker'+$ext)
+          go build -o $exe ./cmd/forge-sandbox-worker
+          if ($LASTEXITCODE -ne 0) { throw 'F124R_WORKER_BUILD_FAILED' }
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -notmatch '^[0-9a-f]{64}$') { throw 'F124R_BAD_WORKER_HASH' }
+          $receipt=[ordered]${{
+            schema='forge.autonomy.f124r.full-development-regression.v1'
+            source_sha=$env:GITHUB_SHA
+            platform=$env:RUNNER_OS
+            workflow_run_id=$env:GITHUB_RUN_ID
+            synthetic_worker_sha256=$hash
+            full_go_regression=$true
+            affected_interfaces=$true
+            go_vet_build=$true
+            linux_race_executed=($env:RUNNER_OS -eq 'Linux')
+            protected_confirmation_read=$false
+            scientific_first_use=$false
+            scientific_acceptance=$false
+            optimizer_promotion=$false
+            accepted_ref_mutations=0
+          }|ConvertTo-Json -Depth 4
+          $folder=Join-Path $env:RUNNER_TEMP 'f124r-full-regression'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          [IO.File]::WriteAllText((Join-Path $folder 'receipt.json'),
+              ($receipt+[Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          Write-Host "F124R_WORKER_SHA256=$hash"
+          Write-Host 'F124R_SCIENTIFIC_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124r-full-public-regression-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124r-full-regression/receipt.json
+          if-no-files-found: error
+          retention-days: 90
