@@ -1,0 +1,142 @@
+name: Mind-Palace browser-only bounded intake bridge
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-inbox/current-request.json'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-browser-source-preflight
+  cancel-in-progress: false
+jobs:
+  source-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact event request only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run model-free selected source on pinned code
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ26_BRIDGE_RUNNER_MISMATCH'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $requestPath=Join-Path $env:GITHUB_WORKSPACE '.github/mind-palace-inbox/current-request.json'
+          if(-not (Test-Path -LiteralPath $requestPath -PathType Leaf)){throw 'UQ26_REQUEST_MISSING'}
+          $request=Get-Content -LiteralPath $requestPath -Raw|ConvertFrom-Json
+          if([string]$request.schema -cne 'mind-palace.browser-intake-request.v1' -or
+             [string]$request.repository -cne 'spoonman136668-ai/Mind-Palace' -or
+             [string]$request.mode -cnotin @('inspect','prepare') -or
+             [string]$request.request_id -notmatch '^[a-z0-9][a-z0-9._-]{8,90}$' -or
+             [string]$request.source_branch -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{8,180}$' -or
+             [string]$request.source_branch -match '\.\.|//|/$' -or
+             [string]$request.source_path -notmatch '^pilots/chat-history/[A-Za-z0-9._/-]{5,190}\.extraction\.json$' -or
+             [string]$request.source_path -match '\.\.|//|/$' -or
+             [string]$request.source_ref -notmatch '^chat:[a-z0-9][a-z0-9._:-]{8,180}$' -or
+             [string]$request.source_commit -notmatch '^[a-f0-9]{40}$' -or
+             [string]$request.source_blob -notmatch '^[a-f0-9]{40}$' -or
+             [string]$request.expected_main -notmatch '^[a-f0-9]{40}$'){
+             throw 'UQ26_UNTRUSTED_REQUEST_SHAPE'
+          }
+          # Executable code identity is fixed here, NEVER provided by request data.
+          $toolHead='fe3aabbd326159a1c7cd13606ad254cf6dec45cf'
+          $toolBranch='engineering/browser-chat-one-command-preflight-uq24-20261017'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-browser-bridge-'+$env:GITHUB_RUN_ID)
+          $utf8=New-Object Text.UTF8Encoding($false)
+          function Pin([string]$ref,[string]$sha){
+             $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+             if($LASTEXITCODE -ne 0 -or @($rows).Count -ne 1 -or
+                ([string]$rows[0] -split '\s+')[0] -cne $sha){throw ('UQ26_GIT_REF_DRIFT_'+$ref)}
+          }
+          function RunJson([string]$tool,[string[]]$arguments){
+            $raw=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $tool @arguments 2>&1|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw 'UQ26_MODEL_FREE_INTAKE_REJECTED'}
+            try {return ($raw|ConvertFrom-Json -ErrorAction Stop)}
+            catch{throw 'UQ26_INTAKE_RETURNED_NONJSON'}
+          }
+          if(Test-Path -LiteralPath $root){throw 'UQ26_OLD_RUNNER_SCRATCH'}
+          try {
+            Pin 'refs/heads/main' ([string]$request.expected_main)
+            Pin ('refs/heads/'+$request.source_branch) ([string]$request.source_commit)
+            Pin ('refs/heads/'+$toolBranch) $toolHead
+            & git.exe clone --quiet --single-branch --branch $toolBranch $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ26_PRIVATE_CLONE_FAILED'}
+            Push-Location $root
+            try {
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $toolHead){throw 'UQ26_EXECUTABLE_HEAD_MISMATCH'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ26_DIRTY_CHECKOUT'}
+              & git.exe fetch --quiet --no-tags origin ('refs/heads/'+[string]$request.source_branch)
+              if($LASTEXITCODE -ne 0 -or (& git.exe rev-parse FETCH_HEAD|Out-String).Trim() -cne [string]$request.source_commit){
+                throw 'UQ26_SOURCE_BRANCH_MOVED'
+              }
+              $spec=([string]$request.source_commit)+':'+([string]$request.source_path)
+              $type=(& git.exe cat-file -t $spec|Out-String).Trim()
+              $blob=(& git.exe rev-parse $spec|Out-String).Trim()
+              $lengthText=(& git.exe cat-file -s $spec|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $type -cne 'blob' -or $blob -cne [string]$request.source_blob){
+                throw 'UQ26_SOURCE_BLOB_IDENTITY_MISMATCH'
+              }
+              $length=[int]$lengthText
+              if($length -le 40 -or $length -gt 65536){throw 'UQ26_SOURCE_SIZE_OUT_OF_BOUNDS'}
+              $runtime=Join-Path $root '.mind-runtime/bridge'
+              New-Item -ItemType Directory -Path $runtime -Force|Out-Null
+              $inputFile=Join-Path $runtime 'input.extraction.json'
+              $sourceBody=(& git.exe show $spec|Out-String)
+              if($LASTEXITCODE -ne 0){throw 'UQ26_SOURCE_READ_FAILED'}
+              [IO.File]::WriteAllText($inputFile,$sourceBody,$utf8)
+              $source=Get-Content -LiteralPath $inputFile -Raw|ConvertFrom-Json
+              if([string]$source.schema -cne 'mind-palace.chat-extraction.v1' -or
+                 [string]$source.conversation.ref -cne [string]$request.source_ref -or
+                 [string]$source.conversation.version -ceq '' -or
+                 @($source.turns).Count -gt 24 -or @($source.candidates).Count -gt 24){
+                throw 'UQ26_SELECTED_SOURCE_PROVENANCE_INVALID'
+              }
+              $before=@{}
+              foreach($path in @('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+                '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json')){
+                $before[$path]=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+              $argsList=@([string]$request.mode,'-InputPath',$inputFile)
+              $result=RunJson '.\tools\browser-chat-intake.ps1' $argsList
+              if([string]$result.schema -cne 'mind-palace.browser-chat-intake-result.v1' -or
+                 [string]$result.source_ref -cne [string]$request.source_ref -or
+                 -not [bool]$result.durable_state_unchanged -or
+                 [int]$result.records_applied -ne 0 -or [int]$result.git_commits -ne 0){
+                throw 'UQ26_BROWSER_INTAKE_RESULT_CONTRACT_FAILED'
+              }
+              foreach($path in $before.Keys){
+                if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $before[$path]){
+                  throw ('UQ26_DURABLE_HASH_MUTATED_'+$path)
+                }
+              }
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ26_CLONE_DIRTY_AFTER_PREVIEW'}
+              Pin 'refs/heads/main' ([string]$request.expected_main)
+              Pin ('refs/heads/'+$request.source_branch) ([string]$request.source_commit)
+              Write-Host ('UQ26_REQUEST_ID='+[string]$request.request_id)
+              Write-Host ('UQ26_RESULT_STATUS='+[string]$result.status)
+              Write-Host ('UQ26_READY_FOR_APPLY='+[bool]$result.ready_for_apply)
+              Write-Host ('UQ26_CANDIDATES='+[int]$result.candidate_count)
+              Write-Host ('UQ26_NEW='+[int]$result.counts.new)
+              Write-Host ('UQ26_REVIEW='+[int]$result.counts.review)
+              Write-Host ('UQ26_SOURCE_ID='+[string]$result.source_id)
+              Write-Host 'UQ26_WORKSTATION_NOT_REQUIRED=PASS'
+              Write-Host 'UQ26_DURABLE_WRITES=0'
+              Write-Host 'UQ26_GIT_PUSHES=0'
+              Write-Host 'UQ26_CODEX_CALLS=0'
+              Write-Host 'UQ26_BROWSER_ONLY_REQUEST_BRIDGE=PASS'
+            }finally {Pop-Location}
+          }finally{
+            if(Test-Path $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
