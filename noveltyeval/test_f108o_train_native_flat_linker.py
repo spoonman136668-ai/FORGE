@@ -25,7 +25,7 @@ class NativeFlatTrainTests(unittest.TestCase):
         self.assertEqual(stats["original_parse_entries"],2)
         self.assertEqual(stats["valid_opaque_mid_parse_entries"],2)
         self.assertEqual(stats["total_mentions"],2)
-        self.assertEqual(stats["opaque_inferential_chain_length_bands"]["length_001_032"],2)
+        self.assertEqual(stats["opaque_chain_length_bands"]["length_001_032"],2)
         self.assertEqual(link("who directed Film A",lex),"lexical_anchor_resolved")
         self.assertEqual(link("who worked on Film B",lex),"lexical_anchor_resolved")
         self.assertEqual(len(qs),2)
