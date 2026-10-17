@@ -119,8 +119,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer f.Close()
-	if _, err := f.Write(append(payload, '
-')); err != nil {
+	if _, err := f.Write(append(payload, '\n')); err != nil {
 		fmt.Fprintln(os.Stderr, "FORGE_F100O_OUTPUT_WRITE_FAILED")
 		os.Exit(1)
 	}
