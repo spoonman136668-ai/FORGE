@@ -1,0 +1,123 @@
+name: F124-C immutable TRAIN failure diagnosis
+on:
+  push:
+    branches: [research/f124c-train-failure-diagnostics-20261017]
+    paths:
+      - 'nativeevidence/f124c_training_failure_audit.py'
+      - 'nativeevidence/test_f124c_training_failure_audit.py'
+      - '.github/workflows/forge-f124c-train-diagnostics.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124c-train-negative-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-training-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39048397836
+          github-token: ${{ github.token }}
+          name: f124c-actual-train-learned-weights
+          path: f124c-original-training
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: f123-original-training
+      - name: Qualify frozen TRAIN-only diagnostic methods
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f124c_training_failure_audit.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_TRAIN_DIAGNOSTIC_TEST_FAILURE' }
+          & python3 -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_DIAGNOSTIC_ISOLATION_FAILURE' }
+      - name: Run causal deletion and slot-collapse replay against original fixed weights
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124c-frozen-training-failure-diagnostic.json'
+          $args=@('--f124-report','f124c-original-training/f124c-train-only-weight-evidence.json',
+            '--f123-ubuntu-dir','f123-original-training','--output',$out)
+          & python3 -B nativeevidence/f124c_training_failure_audit.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_TRAIN_NEGATIVE_REPLAY_QUARANTINED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124c.posthoc-failure-diagnostic.v1' -or
+              $r.f124_source_commit -cne 'ba24e1a7f16023d472d29124caf6524ca9499538' -or
+              $r.f124_immutable_train_receipt_sha256 -cne '7de031ddfa5dd96df0d55581deca3b98c88a6f3090012ad037d1b8be7b9d1fd3' -or
+              $r.f123_immutable_train_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.trained_models_retrained -or $r.thresholds_changed -or $r.selection_changed -or
+              $r.confirm_inputs_generated -ne 0 -or $r.first_use_authorized -or
+              $r.originals_dispatched -ne 0 -or $r.scientific_accepted -or
+              $r.optimizer_promotions -ne 0 -or $r.budget_matched_controls_proven -or
+              -not $r.posthoc_threshold_may_not_be_used_for_acceptance -or
+              $r.lanes.Count -ne 2) {
+            throw 'F124C_FALSE_CUSTODY_OR_SCIENTIFIC_CLAIM'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.frozen_model_selection -cne 'A' -or $lane.arms.A.paired_correct -ne 0 -or
+                $lane.arms.B.paired_correct -ne 0 -or $lane.arms.A.pairs -ne 48 -or
+                $lane.arms.B.pairs -ne 48 -or $lane.arms.A.cases.Count -ne 48 -or
+                $lane.arms.B.cases.Count -ne 48) {
+              throw 'F124C_ORIGINAL_NEGATIVE_EVIDENCE_DRIFT'
+            }
+            Write-Output "F124C_DIAG=$($lane.lane):A_rank=$($lane.arms.A.positive_ranks_above_negative)/48 B_rank=$($lane.arms.B.positive_ranks_above_negative)/48 A_causal=$($lane.arms.A.causal_join_highest_impact)/48 B_causal=$($lane.arms.B.causal_join_highest_impact)/48 fixed=$($lane.arms.A.fixed_control_paired_correct)/48"
+            Write-Output "F124C_COLLAPSE=$($lane.lane):AB_delta=$($lane.a_b_prediction_mean_abs_difference) B_slot_minor_ratio=$($lane.arms.B.mean_minor_slot_ratio)"
+            Write-Output "F124C_CALIBRATION=$($lane.lane):A_optimistic_train_upper=$($lane.arms.A.posthoc_threshold_upper_bound.oracle_train_paired_correct)/48 B_optimistic_train_upper=$($lane.arms.B.posthoc_threshold_upper_bound.oracle_train_paired_correct)/48"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124c-frozen-training-failure-diagnostic.sha256'),
+            "$digest  f124c-frozen-training-failure-diagnostic.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124C_TRAIN_NEGATIVE_DIAGNOSTIC_SHA256=$digest"
+          Write-Output 'F124C_PROTECTED_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124c-immutable-training-diagnostic
+          path: |
+            ${{ runner.temp }}/f124c-frozen-training-failure-diagnostic.json
+            ${{ runner.temp }}/f124c-frozen-training-failure-diagnostic.sha256
+          if-no-files-found: error
+          retention-days: 90
+  final-system-regression:
+    needs: frozen-training-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact-head whole-repository tests race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124C_DIAG_SOURCE_SHA=$GITHUB_SHA"
+          echo 'F124C_SCIENTIFIC_ACCEPTANCE=false'
