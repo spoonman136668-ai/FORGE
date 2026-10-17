@@ -66,12 +66,13 @@ class F129Admission(unittest.TestCase):
             self.assertEqual(report["admissions"][key]["prior_run_id"],39080000002)
         self.assertEqual(report["admissions"]["F128"]["prior_run_id"],39080000001)
 
-    def test_dev_pr_allows_existing_pr_only_sources_but_never_claims_schedule(self):
+    def test_closed_historical_pr_source_is_not_rehabilitated_on_new_pr(self):
         state=m.admit(RUN,SOURCE,"pull_request",{"runs":[]})
-        self.assertTrue(state["development_pr_evidence_mode"])
+        self.assertFalse(state["development_pr_evidence_mode"])
+        self.assertTrue(state["non_scheduled_source_bootstrap"])
         self.assertFalse(state["genuine_scheduled_source"])
         self.assertFalse(state["first_schedule_bootstrap"])
-        self.assertTrue(all(x["admitted"] for x in state["admissions"].values()))
+        self.assertTrue(all(not x["admitted"] for x in state["admissions"].values()))
         self.assertTrue(all(x["prior_run_id"] is None for x in state["admissions"].values()))
         self.assertFalse(state["two_genuine_scheduled_main_runs_proven"])
 
@@ -95,11 +96,13 @@ class F129Admission(unittest.TestCase):
             with self.assertRaisesRegex(m.Blocked,"NONSCHEDULED_PRIOR_HISTORY"):
                 m.admit(RUN,SOURCE,event,{"runs":[item(stages=("F125",))]})
 
-    def test_pr_mode_remains_distinct_and_does_not_claim_postmerge_bootstrap(self):
-        report=m.admit(RUN,SOURCE,"pull_request",{"runs":[]})
-        self.assertTrue(report["development_pr_evidence_mode"])
-        self.assertFalse(report["non_scheduled_source_bootstrap"])
-        self.assertTrue(all(row["admitted"] for row in report["admissions"].values()))
+    def test_non_schedule_baseline_only_prevents_stale_fixture_replay(self):
+        for event in ("pull_request","push","workflow_dispatch"):
+            report=m.admit(RUN,SOURCE,event,{"runs":[]})
+            self.assertFalse(report["development_pr_evidence_mode"])
+            self.assertTrue(report["non_scheduled_source_bootstrap"])
+            self.assertTrue(all(not row["admitted"]
+                                for row in report["admissions"].values()))
 
     def test_partial_artifact_pair_quarantines_even_when_older_run_valid(self):
         new=item(39080000002,("F125",))
