@@ -72,6 +72,16 @@ class RawTransferQualification(unittest.TestCase):
         self.assertNotEqual(p, n)
         self.assertEqual(len(m.model_a(m.initialize("A"), p)[1]), 17)
 
+    def test_edge_order_and_offpath_order_do_not_leak_answer(self):
+        case = m.graph(94101, VEC, "Wingless", "CONFIRM")
+        order_a = m.raw_junctions(case, case["positive"])
+        order_b = m.raw_junctions(case, list(reversed(case["positive"])))
+        self.assertEqual(order_a, order_b)
+        negative = m.raw_junctions(case, case["negative"])
+        reversed_negative = m.raw_junctions(case, list(reversed(case["negative"])))
+        self.assertEqual(negative, reversed_negative)
+        self.assertNotEqual(order_a, negative)
+
     def test_collision_fail_closed(self):
         c = m.graph(94000, VEC, "Wingless", "TRAIN")
         with mock.patch.object(m, "token_bits", return_value=(0,) * 16):
