@@ -1,0 +1,227 @@
+name: Mind-Palace UQ14 full-stack one-source ingest-to-retrieval qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ14-FULLSTACK-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq14-isolated-checkpoint
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Apply exactly one canonical preference within a disposable clone only
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ14_WRONG_HOST_REPO'}
+          if($env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013'){throw 'UQ14_WRONG_HOST_BRANCH'}
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ14_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN,Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $head='10220f4f4ff28ed49b3f8b6b64029fcb20b3cee4'
+          $base='f9f5e0555e1acbe57a36142155e490d21220ca14'
+          $prHead='d6a3d7d5c661bcb49d92ed6303a22f7941b0e05a'
+          $blob='d3b1d73c7c7551e01c053fda58a0eaeae5d3d613'
+          $sourcePath='pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json'
+          $sourceRef='chat:2026-10-15-mind-palace-web-client-ingestion'
+          $altRef='chat:2026-10-15-web-client-mind-palace-ingestion-direction'
+          $candidateId='preference/mind-palace-webclient-ingestion-no-desktop-app-20261015'
+          $altKey='mind-palace-ingestion-web-client-no-desktop-app-20261015'
+          $sourceId='source/2e97a7fa0fef92efc77e91555be1ba84ab26f727ec6152cda486ee453bc6a4f6'
+          $branch='qualification/chat-alias-direct-ingest-hardening-uq12-20261017'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-uq14-'+$env:GITHUB_RUN_ID)
+          $utf8=New-Object Text.UTF8Encoding($false)
+          function Write-JsonFile([string]$path,$v){
+            [IO.File]::WriteAllText($path,((ConvertTo-Json -InputObject $v -Depth 24)+[Environment]::NewLine),$utf8)
+          }
+          function Invoke-Json([string]$tag,[string]$tool,[string[]]$arguments){
+            $result=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $tool @arguments 2>&1|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw ('UQ14_'+$tag+'_FAILED')}
+            try{return ($result|ConvertFrom-Json -ErrorAction Stop)}catch{throw ('UQ14_'+$tag+'_INVALID_JSON')}
+          }
+          function Assert-RemoteRef([string]$ref,[string]$expected){
+            $out=@(& git.exe ls-remote --exit-code $remote $ref)
+            if($LASTEXITCODE -ne 0 -or @($out).Count -ne 1 -or
+               ([string]$out[0] -split '\s+')[0] -cne $expected){throw ('UQ14_REMOTE_REF_DRIFT_'+$ref)}
+          }
+          if(Test-Path -LiteralPath $root){throw 'UQ14_EXISTING_SCRATCH'}
+          try {
+            Assert-RemoteRef 'refs/heads/qualification/chat-source-alias-guard-uq04-20261016' '0152bb4b3f546f462aff3523f3005c6c885cd9b1'
+            Assert-RemoteRef 'refs/heads/qualification/chat-inventory-alias-preflight-uq09-20261017' '5f702aa1d9038c42a28490264dd6d52260d8de00'
+            Assert-RemoteRef 'refs/heads/qualification/chat-source-ref-type-guard-uq10-20261017' '9ac4e9542e47868b2e585700dc27f4bdc7284850'
+            Assert-RemoteRef ('refs/heads/'+$branch) $head
+            Assert-RemoteRef 'refs/heads/main' $base
+            Assert-RemoteRef 'refs/heads/engineering/mind-palace-browser-only-intake-20261015' $prHead
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ14_PRIVATE_CLONE_FAILED'}
+            Push-Location $root
+            try {
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $head){throw 'UQ14_CLONE_HEAD_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ14_INITIAL_DIRTY_CHECKOUT'}
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'tests/Test-ChatSourceAliases.ps1' | Out-Null
+              if($LASTEXITCODE -ne 0){throw 'UQ14_ALIAS_GUARD_FOCUSED_TEST_FAILED'}
+              & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File 'tests/Test-SourceReconcile.ps1' | Out-Null
+              if($LASTEXITCODE -ne 0){throw 'UQ14_INVENTORY_GUARD_FOCUSED_TEST_FAILED'}
+              Write-Host 'UQ14_FULL_STACK_SOURCE_GUARDS=PASS'
+
+              $recordsBefore=@(Get-Content -LiteralPath '.ice/records.json' -Raw|ConvertFrom-Json)
+              $ledgerBefore=Get-Content -LiteralPath '.ice/source-ledger.json' -Raw|ConvertFrom-Json
+              $archBefore=Get-Content -LiteralPath 'archive/index.json' -Raw|ConvertFrom-Json
+              $baselineIds=@($recordsBefore|ForEach-Object{[string]$_.id})
+              $initialHashes=@{}
+              foreach($path in @('.ice/records.json','.ice/source-ledger.json','archive/index.json')){
+                $initialHashes[$path]=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+              if(@($recordsBefore|Where-Object{[string]$_.id -ceq $candidateId}).Count -ne 0){throw 'UQ14_CANONICAL_ALREADY_PRESENT'}
+              if(@($ledgerBefore.entries|Where-Object{[string]$_.source_ref -ceq $sourceRef -or [string]$_.source_ref -ceq $altRef}).Count -ne 0){throw 'UQ14_SOURCE_ALREADY_PRESENT'}
+              & git.exe fetch --quiet --no-tags origin refs/pull/50/head
+              if($LASTEXITCODE -ne 0 -or (& git.exe rev-parse FETCH_HEAD|Out-String).Trim() -cne $prHead){throw 'UQ14_PR50_HEAD_DRIFT'}
+              $spec=$prHead+':'+$sourcePath
+              if((& git.exe rev-parse $spec|Out-String).Trim() -cne $blob){throw 'UQ14_SOURCE_BLOB_DRIFT'}
+              $runtime=Join-Path $root '.mind-runtime'
+              New-Item -ItemType Directory -Path $runtime -Force|Out-Null
+              $extractPath=Join-Path $runtime 'source.json'
+              $sourceText=& git.exe show $spec|Out-String
+              if($LASTEXITCODE -ne 0){throw 'UQ14_SOURCE_READ_FAILED'}
+              [IO.File]::WriteAllText($extractPath,$sourceText,$utf8)
+              $source=Get-Content -LiteralPath $extractPath -Raw|ConvertFrom-Json
+              if([string]$source.conversation.ref -cne $sourceRef -or
+                 [string]$source.conversation.version -cne 'visible-selected-operator-turns-20261015-r1' -or
+                 $null -ne $source.conversation.content_sha256 -or
+                 @($source.turns).Count -ne 1 -or [string]$source.turns[0].role -cne 'operator' -or
+                 @($source.candidates).Count -ne 1 -or
+                 [string]$source.candidates[0].claim_class -cne 'preference' -or
+                 [bool]$source.candidates[0].details.account_history_coverage_complete){throw 'UQ14_PARTIAL_SOURCE_PROVENANCE_INVALID'}
+              $validated=Invoke-Json 'SOURCE_VALIDATE' '.\tools\chat-collect.ps1' @('validate','-InputPath',$extractPath)
+              if(-not [bool]$validated.valid -or [int]$validated.candidates -ne 1 -or [int]$validated.forced_archive -ne 0){throw 'UQ14_SOURCE_INVALID'}
+              $batchPath=Join-Path $runtime 'batch.json'
+              $batch=Invoke-Json 'BUILD' '.\tools\chat-collect.ps1' @('build','-InputPath',$extractPath,'-OutputPath',$batchPath)
+              if([string]$batch.schema -cne 'mind-palace.collector-batch.v1' -or @($batch.sources).Count -ne 1 -or
+                 @($batch.candidates).Count -ne 1 -or [string]$batch.sources[0].ref -cne $sourceRef -or
+                 ([string]$batch.candidates[0].kind+'/'+[string]$batch.candidates[0].key) -cne $candidateId){throw 'UQ14_BATCH_DRIFT'}
+              $alias=Invoke-Json 'ALIAS_CHECK' '.\tools\chat-source-alias-guard.ps1' @('-BatchPath',$batchPath)
+              if(-not [bool]$alias.valid -or [int]$alias.canonical_candidates -ne 1 -or
+                 [int]$alias.alternate_candidates_admitted -ne 0){throw 'UQ14_CANONICAL_ALIAS_GUARD_FAILED'}
+              $altBatch=($batch|ConvertTo-Json -Depth 24|ConvertFrom-Json)
+              $altBatch.sources[0].ref=$altRef
+              $altBatch.candidates[0].key=$altKey
+              $altBatch.candidates[0].source_refs[0].ref=$altRef
+              $altPath=Join-Path $runtime 'negative-test-alternate.json'
+              Write-JsonFile $altPath $altBatch
+              $blocked=$false
+              try {& .\tools\chat-source-alias-guard.ps1 -BatchPath $altPath|Out-Null}
+              catch{if($_.Exception.Message -notmatch 'CHAT_SOURCE_ALIAS_BLOCKED'){throw};$blocked=$true}
+              if(-not $blocked){throw 'UQ14_ALTERNATE_NOT_BLOCKED'}
+              Write-Host 'UQ14_CANONICAL_AND_ALTERNATE_GUARD=PASS'
+              $inventoryPath=Join-Path $runtime 'inventory.json'
+              Write-JsonFile $inventoryPath (@{schema='mind-palace.source-inventory.v1';version=1;generated_at='2026-10-17T00:00:00Z';
+                sources=@(@{scope='chat-history';type='chat';ref=$sourceRef;
+                  version='visible-selected-operator-turns-20261015-r1';content_sha256=$null;
+                  authority='historical';label='Selected operator decision only; account coverage not attested'})})
+              $plan=Invoke-Json 'PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inventoryPath,'-Scope','chat-history')
+              if([string]$plan.status -cne 'ready' -or [int]$plan.unseen -ne 1 -or
+                 [int]$plan.process -ne 1 -or [int]$plan.review -ne 0 -or [int]$plan.batch_count -ne 1){throw 'UQ14_PLAN_NOT_EXACTLY_ONE_UNSEEN'}
+              if([string]$plan.batches[0].sources[0].source_id -cne $sourceId){throw 'UQ14_EXPECTED_SOURCE_FINGERPRINT_MISMATCH'}
+              $mapPath=Join-Path $runtime 'map.json'
+              Write-JsonFile $mapPath (@{schema='mind-palace.backfill-collector-map.v1';version=1;
+                batches=@(@{batch_id=[string]$plan.batches[0].batch_id;collector_batch_path=$batchPath})})
+              $dry=Invoke-Json 'CLASSIFY' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inventoryPath,'-CollectorMapPath',$mapPath,'-Scope','chat-history')
+              if([string]$dry.status -cne 'ready' -or -not [bool]$dry.ready_for_apply -or
+                 [int]$dry.counts.new -ne 1 -or [int]$dry.counts.review -ne 0 -or
+                 [int]$dry.counts.supersede -ne 0 -or [int]$dry.counts.merge -ne 0 -or
+                 [int]$dry.candidate_count -ne 1 -or -not [bool]$dry.durable_state_unchanged){throw 'UQ14_PRECHECK_NOT_ONE_NEW'}
+              $noConfirmBlocked=$false
+              try{& .\tools\backfill-apply.ps1 -InventoryPath $inventoryPath -CollectorMapPath $mapPath -Scope chat-history|Out-Null}
+              catch{if($_.Exception.Message -notmatch 'requires explicit -ConfirmApply'){throw};$noConfirmBlocked=$true}
+              if(-not $noConfirmBlocked){throw 'UQ14_MISSING_CONFIRMATION_WAS_ADMITTED'}
+              Write-Host 'UQ14_NO_CONFIRMATION_FAILS_CLOSED=PASS'
+              $apply=Invoke-Json 'ISOLATED_APPLY' '.\tools\backfill-apply.ps1' @('-InventoryPath',$inventoryPath,'-CollectorMapPath',$mapPath,'-Scope','chat-history','-ConfirmApply')
+              if([string]$apply.schema -cne 'mind-palace.backfill-apply-result.v1' -or
+                 [string]$apply.status -cne 'applied' -or -not [bool]$apply.applied -or
+                 [int]$apply.counts.new -ne 1 -or [int]$apply.counts.review -ne 0 -or
+                 [int]$apply.counts.supersede -ne 0 -or [int]$apply.ledger_entries_added -ne 1 -or
+                 -not [bool]$apply.parity -or -not [bool]$apply.backfill_complete){throw 'UQ14_ISOLATED_APPLY_RESULT_MISMATCH'}
+              $recordsAfter=@(Get-Content -LiteralPath '.ice/records.json' -Raw|ConvertFrom-Json)
+              $ledgerAfter=Get-Content -LiteralPath '.ice/source-ledger.json' -Raw|ConvertFrom-Json
+              $archiveAfter=Get-Content -LiteralPath 'archive/index.json' -Raw|ConvertFrom-Json
+              if($recordsAfter.Count -ne ($recordsBefore.Count+1) -or
+                 @($recordsAfter|Where-Object{[string]$_.id -ceq $candidateId}).Count -ne 1 -or
+                 @($recordsAfter|Where-Object{[string]$_.id -eq ('preference/'+$altKey)}).Count -ne 0){throw 'UQ14_EXACTLY_ONE_CANONICAL_RECORD_FAILED'}
+              $addedIds=@($recordsAfter|ForEach-Object{[string]$_.id}|Where-Object{$baselineIds -cnotcontains $_})
+              if($addedIds.Count -ne 1 -or [string]$addedIds[0] -cne $candidateId){throw 'UQ14_UNEXPECTED_RECORD_ADDITION'}
+              $canonical=@($recordsAfter|Where-Object{[string]$_.id -ceq $candidateId})[0]
+              if([string]$canonical.status -cne 'observed' -or
+                 @($canonical.source_refs|Where-Object{[string]$_.ref -ceq $sourceRef}).Count -ne 1 -or
+                 @($canonical.source_refs|Where-Object{[string]$_.ref -ceq $altRef}).Count -ne 0){throw 'UQ14_RECORD_PROVENANCE_MISMATCH'}
+              if(@($ledgerAfter.entries).Count -ne (@($ledgerBefore.entries).Count+1) -or
+                 @($ledgerAfter.entries|Where-Object{[string]$_.id -ceq $sourceId}).Count -ne 1 -or
+                 @($ledgerAfter.entries|Where-Object{[string]$_.source_ref -ceq $altRef}).Count -ne 0){throw 'UQ14_SINGLE_LEDGER_ENTRY_FAILED'}
+              if(@($archiveAfter.entries).Count -ne @($archBefore.entries).Count){throw 'UQ14_UNEXPECTED_ARCHIVE_CHANGE'}
+              Write-Host 'UQ14_DISPOSABLE_CHECKPOINT_ONE_RECORD_ONE_LEDGER=PASS'
+
+              # Verify user-facing memory retrieval in the same disposable clone.
+              # No model/API call and no telemetry writes; this is deterministic retrieval.
+              $query='Mind-Palace ChatGPT web client browser-only ingestion without installing desktop app'
+              $pack=Invoke-Json 'RETRIEVAL_PACK' '.\tools\context-pack.ps1' @('-Text',$query,'-Project','Mind-Palace','-MaxRecords','35','-MaxBytes','65536')
+              if([string]$pack.schema -cne 'mind-palace.context-pack.v1' -or
+                 @($pack.records|Where-Object{[string]$_.id -ceq $candidateId}).Count -ne 1 -or
+                 @($pack.records|Where-Object{[string]$_.id -ceq ('preference/'+$altKey)}).Count -ne 0){
+                 throw 'UQ14_SHADOW_CONTEXT_PACK_DID_NOT_RETRIEVE_ONE_CANONICAL_RECORD'
+              }
+              Write-Host 'UQ14_CONTEXT_PACK_CANONICAL_RETRIEVAL=PASS'
+              $tiered=Invoke-Json 'TIERED_RETRIEVAL' '.\tools\context-pack-tiered.ps1' @('-Text',$query,
+                '-Project','Mind-Palace','-CandidateLimit','35','-PrimaryMaxRecords','10',
+                '-PrimaryRelativeScoreFloor','0.1','-PrimaryTokenBudget','4096',
+                '-MaxBytes','65536','-NoTelemetryLedger')
+              if([string]$tiered.schema -cne 'mind-palace.context-pack-tiered.v2' -or
+                 @($tiered.default_ids) -cnotcontains $candidateId -or
+                 @($tiered.default_ids) -ccontains ('preference/'+$altKey) -or
+                 [string]$tiered.retrieval_receipt.records_sha256 -cne
+                   (Get-FileHash -LiteralPath '.ice/records.json' -Algorithm SHA256).Hash.ToLowerInvariant() -or
+                 [string]$tiered.model_context -notmatch '(?i)desktop app'){
+                 throw 'UQ14_TIERED_MODEL_CONTEXT_MISSING_CANONICAL_PREFERENCE'
+              }
+              Write-Host 'UQ14_TIERED_DEFAULT_CONTEXT_AND_RECEIPT=PASS'
+              $indexRows=@(Get-Content -LiteralPath '.ice/remote-index.ndjson'|
+                Where-Object{-not [string]::IsNullOrWhiteSpace($_)}|ForEach-Object{$_|ConvertFrom-Json})
+              if(@($indexRows|Where-Object{[string]$_.id -ceq $candidateId}).Count -ne 1 -or
+                 @($indexRows|Where-Object{[string]$_.id -ceq ('preference/'+$altKey)}).Count -ne 0){
+                 throw 'UQ14_REMOTE_SNAPSHOT_DID_NOT_INDEX_CANONICAL_PREFERENCE'
+              }
+              Write-Host 'UQ14_REMOTE_INDEX_CANONICAL_ONE_RECORD=PASS'
+              $emptyMap=Join-Path $runtime 'empty-map.json'
+              Write-JsonFile $emptyMap (@{schema='mind-palace.backfill-collector-map.v1';version=1;batches=@()})
+              $parity=Invoke-Json 'REPLAY' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inventoryPath,'-CollectorMapPath',$emptyMap,'-Scope','chat-history')
+              if([string]$parity.status -cne 'parity' -or [bool]$parity.ready_for_apply -or
+                 [int]$parity.candidate_count -ne 0 -or -not [bool]$parity.durable_state_unchanged){throw 'UQ14_POST_APPLY_REPLAY_NOT_IDEMPOTENT'}
+              Write-Host 'UQ14_EXACT_SOURCE_REPLAY_PARITY=PASS'
+              $changed=@(& git.exe diff --name-only)
+              if($LASTEXITCODE -ne 0){throw 'UQ14_GIT_DIFF_FAILED'}
+              $allowed=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json',
+                '.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/project-state-capsules.json',
+                '.ice/project-dependency-graph.json')
+              foreach($c in $changed){if($allowed -cnotcontains [string]$c){throw 'UQ14_ISOLATED_DIFF_OUTSIDE_DURABLE_SCOPE'}}
+              if($changed -cnotcontains '.ice/records.json' -or $changed -cnotcontains '.ice/source-ledger.json'){throw 'UQ14_MISSING_EXPECTED_DIFF'}
+              Assert-RemoteRef ('refs/heads/'+$branch) $head
+              Assert-RemoteRef 'refs/heads/main' $base
+              Assert-RemoteRef 'refs/heads/engineering/mind-palace-browser-only-intake-20261015' $prHead
+              Write-Host 'UQ14_EXTERNAL_REFS_AND_PRODUCTION_MAIN_UNCHANGED=PASS'
+              Write-Host 'UQ14_FULL_HISTORY_COMPLETENESS=NOT_CLAIMED'
+              Write-Host 'UQ14_REMOTE_GIT_COMMITS=0'
+              Write-Host 'UQ14_CODEX_INVOCATIONS=0'
+              Write-Host 'UQ14_FULL_STACK_BROWSER_PREF_INGEST_TO_RETRIEVAL=PASS'
+              Write-Host 'UQ14_DISPOSABLE_CHECKPOINT_QUALIFICATION=PASS'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+          }
