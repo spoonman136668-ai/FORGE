@@ -1,0 +1,128 @@
+name: Mind-Palace UQ37 exact-head replay qualification
+on:
+  push:
+    branches: [qualification/mind-palace-uq37-guarded-intake-20261017]
+    paths:
+      - '.github/workflows/mind-palace-uq37-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq37-exact-head
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Validate pinned Mind-Palace source without memory writes or Codex
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ37_FORGE_QUALIFY_RUNNER_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $expectedMain = '9581737063864f94fb6920cb5bd6a94b5c83b908'
+          $expectedHead = '2963690041ae095a952da341aa759b3712669940'
+          $sourceBranch = 'engineering/uq37-guarded-unattended-intake'
+          $root = Join-Path $env:RUNNER_TEMP ('mp35-' + $env:GITHUB_RUN_ID)
+          $logDir = Join-Path $env:RUNNER_TEMP ('mind-palace-uq37-logs-' + $env:GITHUB_RUN_ID + '-' + [Guid]::NewGuid().ToString('N'))
+          $ps5NativeModules = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if (-not (Test-Path -LiteralPath $ps5NativeModules -PathType Container)) { throw 'UQ37_WINDOWS_POWERSHELL_NATIVE_MODULES_MISSING' }
+          $env:PSModulePath = $ps5NativeModules + [IO.Path]::PathSeparator + $env:PSModulePath
+          $exe = (Get-Command powershell.exe -ErrorAction Stop).Source
+          Write-Host ('UQ37_WINDOWS_CHILD_EXE=' + $exe)
+          $childVersion = (& $exe -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()' | Out-String).Trim()
+          Write-Host ('UQ37_WINDOWS_CHILD_VERSION=' + $childVersion)
+          $hashTool = (& $exe -NoProfile -NonInteractive -Command 'Get-Command Get-FileHash -ErrorAction Stop | Select-Object -ExpandProperty Name' | Out-String).Trim()
+          if ($hashTool -cne 'Get-FileHash') { throw ('UQ37_PS51_HASH_MODULE_UNAVAILABLE: ' + $hashTool) }
+          Write-Host 'UQ37_PS51_CRYPTO_MODULE=PASS'
+          $protected = @(
+            '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+            '.ice/remote-bootstrap.json', '.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson', '.ice/chat-delta-state.json',
+            '.ice/project-state-capsules.json', '.ice/project-dependency-graph.json'
+          )
+          function Assert([bool]$condition, [string]$reason) {
+            if (-not $condition) {throw ('UQ37_STOP_' + $reason)}
+          }
+          function Pin([string]$ref, [string]$sha) {
+            $lines = @(& git.exe ls-remote --exit-code $remote $ref)
+            Assert ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1) ('REF_UNAVAILABLE_' + $ref)
+            Assert (([string]$lines[0] -split '\s+')[0] -ceq $sha) ('SOURCE_REF_DRIFT_' + $ref)
+          }
+          function GetHash([string]$path) {
+            return (Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function RunTest([string]$relative, [string]$name, [string[]]$required) {
+            $stdout = Join-Path $logDir ($name + '.stdout.log')
+            $stderr = Join-Path $logDir ($name + '.stderr.log')
+            $target = Join-Path $root $relative
+            Assert (Test-Path -LiteralPath $target -PathType Leaf) ('MISSING_TEST_' + $name)
+            $argsForChild = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $target + '"'))
+            $proc = Start-Process -FilePath $exe -ArgumentList $argsForChild -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $out = [IO.File]::ReadAllText($stdout)
+            $err = [IO.File]::ReadAllText($stderr)
+            if ($proc.ExitCode -ne 0) {
+              Write-Host ('UQ37_FAILED_TEST=' + $name + ' EXIT=' + $proc.ExitCode)
+              Write-Host ('UQ37_STDOUT_TAIL=' + $out.Substring([Math]::Max(0, $out.Length - 5000)))
+              Write-Host ('UQ37_STDERR_TAIL=' + $err.Substring([Math]::Max(0, $err.Length - 2500)))
+              throw ('UQ37_TEST_EXIT_FAILURE_' + $name)
+            }
+            foreach ($marker in $required) {
+              Assert ($out.Contains($marker)) ('MISSING_SUCCESS_MARKER_' + $name + '_' + $marker)
+              Write-Host $marker
+            }
+            foreach ($path in $protected) {
+              Assert ((GetHash $path) -ceq $before[$path]) ('TEST_CHANGED_DURABLE_' + $name + '_' + $path)
+            }
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) ('TEST_CHANGED_TRACKED_SOURCE_' + $name)
+            Write-Host ('UQ37_' + $name + '=PASS')
+          }
+          if ($root.Length -gt 70) { throw ('UQ37_SHORT_ROOT_LENGTH_EXCEEDED:' + $root.Length) }
+          if (Test-Path -LiteralPath $root) {throw 'UQ37_SCRATCH_EXISTS'}
+          if (Test-Path -LiteralPath $logDir) {throw 'UQ37_LOGS_ALREADY_EXIST'}
+          New-Item -ItemType Directory -Path $logDir | Out-Null
+          try {
+            Pin 'refs/heads/main' $expectedMain
+            Pin ('refs/heads/' + $sourceBranch) $expectedHead
+            & git.exe clone --quiet --single-branch --branch $sourceBranch $remote $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $expectedHead) 'CHECKOUT_SHA_MISMATCH'
+            Assert ((& git.exe -C $root branch --show-current | Out-String).Trim() -ceq $sourceBranch) 'CHECKOUT_BRANCH_MISMATCH'
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'INITIAL_CHECKOUT_DIRTY'
+            Write-Host 'UQ37_FORGE_EXACT_PRIVATE_PR_HEAD=PASS'
+            $source = Join-Path $root 'pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json'
+            Assert ((& git.exe -C $root hash-object -- $source | Out-String).Trim() -ceq 'd3b1d73c7c7551e01c053fda58a0eaeae5d3d613') 'SELECTED_SOURCE_BLOB_DRIFT'
+            $before = @{}
+            foreach ($path in $protected) { $before[$path] = GetHash $path }
+            RunTest 'tests/Test-UQ37GuardedQueue.ps1' 'FOCUSED_GUARDED_QUEUE' @(
+              'UQ37_DEFAULT_DENY_IDLE=PASS',
+              'UQ37_KNOWN_SOURCE_REPLAY_ZERO_WRITE=PASS',
+              'UQ37_BLOB_PATH_BUDGET_AND_WRITE_POLICY_NEGATIVES=PASS',
+              'UQ37_NINE_DURABLE_SURFACES_UNCHANGED=PASS',
+              'UQ37_GUARDED_QUEUE_REGRESSION=PASS'
+            )
+            RunTest 'tests/Test-All.ps1' 'FULL_REGRESSION' @(
+              'UQ37_GUARDED_QUEUE_REGRESSION=PASS',
+              'Mind-Palace regression suite passed'
+            )
+            Pin 'refs/heads/main' $expectedMain
+            Pin ('refs/heads/' + $sourceBranch) $expectedHead
+            foreach ($path in $protected) { Assert ((GetHash $path) -ceq $before[$path]) ('FINAL_DURABLE_DRIFT_' + $path) }
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'FINAL_WORKTREE_DIRTY'
+            Write-Host 'UQ37_NINE_DURABLE_HASHES_AND_PRIVATE_REFS_UNCHANGED=PASS'
+            Write-Host 'UQ37_GIT_COMMITS=0'
+            Write-Host 'UQ37_MEMORY_RECORDS_APPLIED=0'
+            Write-Host 'UQ37_CODEX_INVOCATIONS=0'
+            Write-Host 'UQ37_FORGE_WINDOWS_QUALIFICATION=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $root) {Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+            if (Test-Path -LiteralPath $logDir) {Remove-Item -LiteralPath $logDir -Recurse -Force -ErrorAction SilentlyContinue}
+          }
