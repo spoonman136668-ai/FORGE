@@ -252,6 +252,9 @@ def main():
     with dest.open("xb") as f:f.write(data)
     print("F124Q_DEVELOPMENT_SHA256="+hashlib.sha256(data).hexdigest())
     for row in result["lanes"]:
+        if row["training_status"]=="FIT_GATE_BLOCKED":
+            print("F124Q_DEV_NOT_SCORED:"+row["lane"]+":"+row["training_gate_negative"])
+            continue
         d=row["dev"]["arms"]
         print("F124Q_DEV:"+row["lane"]+":learned="+
               str(d["new_fit_only_learned"]["paired"])+
