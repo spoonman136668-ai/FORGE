@@ -1,0 +1,133 @@
+name: F127-R frozen-weight cost and full regression
+on:
+  push:
+    branches: [research/f127r-evidence-calibration-first-freeze-20261017]
+    paths:
+      - 'nativeevidence/f127r_saved_weight_cost.py'
+      - 'nativeevidence/test_f127r_saved_weight_cost.py'
+      - '.github/workflows/forge-f127r-cost-and-regression.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f127r-cost-regression-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  cost-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f127r-fit-check-6ff85a82acca1fb0f57495c277fd5ed764670c9e
+          run-id: 39063245489
+          github-token: ${{ github.token }}
+          path: saved-evidence
+      - name: Reuse original sealed weights, measure indexed reference
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=Get-Content -LiteralPath 'saved-evidence/comparison.json' -Raw | ConvertFrom-Json
+          if ($source.source_sha -cne '6ff85a82acca1fb0f57495c277fd5ed764670c9e' -or
+              $source.protected_CONFIRM_read -or
+              $source.lanes.Count -ne 2) { throw 'F127R_ARCHIVED_SOURCE_DRIFT' }
+          $hash=(Get-FileHash -LiteralPath 'saved-evidence/comparison.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne '7e784f77a78aa0e7def04fcb8024b69a9ec392e6a13a720924dbe78d40528a45') {
+            throw 'F127R_SAVED_EVIDENCE_SHA256_MISMATCH'
+          }
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f127r_saved_weight_cost.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_COST_REFERENCE_TEST_FAILURE' }
+          $dir=Join-Path $env:RUNNER_TEMP 'f127r-cost'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $output=Join-Path $dir 'f127r-saved-weight-cost.json'
+          python3 -B nativeevidence/f127r_saved_weight_cost.py --report saved-evidence/comparison.json --advisory saved-evidence/advisory.json --output $output
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_SAVED_WEIGHT_COST_FAILED' }
+          $result=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+          if ($result.schema -cne 'forge.research.f127r.saved-weight-cost-audit.v1' -or
+              $result.source_sha -cne '6ff85a82acca1fb0f57495c277fd5ed764670c9e' -or
+              $result.lanes.Count -ne 2 -or $result.weights_updated -or
+              $result.protected_CONFIRM_read -or $result.scientific_first_use -or
+              $result.scientific_acceptance -or $result.optimizer_promotion -or
+              $result.cost_superiority_established) {
+            throw 'F127R_COST_CLAIM_OR_AUTHORITY_OVERREACH'
+          }
+          foreach ($lane in $result.lanes) {
+            if ($lane.graphs -ne 64 -or $lane.warm_passes -ne 5 -or
+                $lane.interleaved_passes -ne 30 -or
+                -not $lane.alternating_order -or
+                $lane.common_event_tariff_precommitted -or
+                $lane.resource_superiority_qualified) {
+              throw 'F127R_COST_EVIDENCE_INCOMPLETE'
+            }
+          }
+          $receipt=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($output+'.sha256'),
+            ($receipt+'  f127r-saved-weight-cost.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F127R_COST_AUDIT_SHA256=$receipt"
+          Write-Host 'F127R_NO_SCIENTIFIC_COST_SUCCESS=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f127r-indexed-public-cost-${{ github.sha }}
+          path: ${{ runner.temp }}/f127r-cost/
+          retention-days: 90
+          if-no-files-found: error
+  full-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source, inherited Python interfaces and isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F127R_REGRESSION_HEAD_DRIFT'
+          }
+          & $python -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_ISOLATION_UNIT_FAIL' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_ISOLATION_CONTRACT_FAIL' }
+          foreach ($pattern in @('test_f125r_*.py','test_f126r_*.py','test_f127r_*.py')) {
+            & $python -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F127R_AFFECTED_PYTHON_FAIL_$pattern" }
+          }
+      - name: All Go tests, Linux race, vet, build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_FULL_GO_TEST_FAIL' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F127R_GO_RACE_FAIL' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_GO_VET_FAIL' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_GO_BUILD_FAIL' }
+          Write-Host 'F127R_EXACT_HEAD_FULL_REGRESSION=PASS'
