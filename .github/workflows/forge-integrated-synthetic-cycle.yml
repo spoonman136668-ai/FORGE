@@ -758,6 +758,97 @@ jobs:
           $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
           [System.IO.File]::WriteAllText((Join-Path $root 'f127-program-synthesis.sha256'),
             "$digest  f127-program-synthesis.json"+[Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
+      - name: F128 counterexample-directed operator discovery from authentic F127 mechanism
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f128_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F128_COUNTEREXAMPLE_ADVERSARIAL_TESTS_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'forge-f128-expansion'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $prior=[int64]39043407682
+          if ($env:GITHUB_EVENT_NAME -eq 'schedule') {
+            $index=& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+              "/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&event=schedule&per_page=40") | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F128_NO_AUTHENTIC_SCHEDULED_INDEX' }
+            $prior=0
+            foreach ($entry in @($index.workflow_runs | Sort-Object id -Descending)) {
+              if ([int64]$entry.id -ge [int64]$env:GITHUB_RUN_ID -or
+                  $entry.event -cne 'schedule' -or $entry.head_branch -cne 'main' -or
+                  $entry.run_attempt -ne 1 -or $entry.conclusion -cne 'success') { continue }
+              $art=& gh api ("repos/"+$env:GITHUB_REPOSITORY+
+                "/actions/runs/"+$entry.id+"/artifacts?per_page=100") | ConvertFrom-Json
+              if ($LASTEXITCODE -ne 0) { throw 'F128_PREVIOUS_ARTIFACT_DISCOVERY_UNTRUSTED' }
+              $names=@($art.artifacts | Where-Object {-not $_.expired} | ForEach-Object { $_.name })
+              if ($names -contains 'forge-f127-synthesized-program-ubuntu-latest' -and
+                  $names -contains 'forge-f127-synthesized-program-windows-latest') {
+                $prior=[int64]$entry.id
+                break
+              }
+            }
+            if ($prior -eq 0) { throw 'F128_NO_PRIOR_REAL_SCHEDULED_F127' }
+          }
+          if ($prior -ge [int64]$env:GITHUB_RUN_ID) { throw 'F128_SOURCE_REPLAY_BLOCKED' }
+          $runRaw=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$prior)
+          if ($LASTEXITCODE -ne 0) { throw 'F128_PRIOR_REAL_GITHUB_RUN_UNAVAILABLE' }
+          $artRaw=& gh api ("repos/"+$env:GITHUB_REPOSITORY+"/actions/runs/"+$prior+"/artifacts?per_page=100")
+          if ($LASTEXITCODE -ne 0) { throw 'F128_PRIOR_GITHUB_ARTIFACT_INDEX_UNAVAILABLE' }
+          $runFile=Join-Path $root 'prior-run.json'
+          $artFile=Join-Path $root 'prior-artifacts.json'
+          [System.IO.File]::WriteAllText($runFile,($runRaw -join [Environment]::NewLine)+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          [System.IO.File]::WriteAllText($artFile,($artRaw -join [Environment]::NewLine)+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          $linux=Join-Path $root 'linux'
+          $windows=Join-Path $root 'windows'
+          New-Item -ItemType Directory -Path $linux,$windows -Force | Out-Null
+          & gh run download $prior --repo $env:GITHUB_REPOSITORY -n 'forge-f127-synthesized-program-ubuntu-latest' -D $linux
+          if ($LASTEXITCODE -ne 0) { throw 'F128_PRIOR_UBUNTU_UNAVAILABLE' }
+          & gh run download $prior --repo $env:GITHUB_REPOSITORY -n 'forge-f127-synthesized-program-windows-latest' -D $windows
+          if ($LASTEXITCODE -ne 0) { throw 'F128_PRIOR_WINDOWS_UNAVAILABLE' }
+          $output=Join-Path $root 'f128-operator-expansion.json'
+          $args2=@('--run-json',$runFile,'--artifacts-json',$artFile,
+            '--ubuntu-report',(Join-Path $linux 'f127-program-synthesis.json'),
+            '--ubuntu-receipt',(Join-Path $linux 'f127-program-synthesis.sha256'),
+            '--windows-report',(Join-Path $windows 'f127-program-synthesis.json'),
+            '--windows-receipt',(Join-Path $windows 'f127-program-synthesis.sha256'),
+            '--source-ref',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--event',$env:GITHUB_EVENT_NAME,'--output',$output)
+          & $py -B nativeevidence/f128_counterexample_refinement.py @args2
+          if ($LASTEXITCODE -ne 0) { throw 'F128_AUTHENTIC_FAILURE_OR_GRAMMAR_QUARANTINED' }
+          $e=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+          if ($e.schema -cne 'forge.autonomy.f128.counterexample-expanded-mechanism-development.v1' -or
+              $e.source_sha -cne $env:GITHUB_SHA -or [int64]$e.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $e.prior_linear_program_train_paired_correct -ne 0 -or
+              -not $e.counterexamples_required_before_expansion -or
+              $e.candidate_count -lt 1 -or $e.candidate_count -gt 128 -or
+              $e.selected_train.paired_correct -ne 16 -or
+              $e.heldout_generator_a.pairs -ne 40 -or $e.heldout_generator_a.paired_correct -ne 40 -or
+              $e.heldout_generator_b.pairs -ne 40 -or $e.heldout_generator_b.paired_correct -ne 40 -or
+              $e.exact_conjunctive_oracle.A -ne 40 -or $e.exact_conjunctive_oracle.B -ne 40 -or
+              -not $e.development_refinement_passed -or
+              $e.unbounded_scientific_invention_proven -or
+              $e.independent_scientific_validation_proven -or
+              $e.two_genuine_unattended_scheduled_cycles_proven -or
+              $e.scientific_originals_dispatched -ne 0 -or $e.scientific_first_use_authorized -or
+              $e.accepted_ref_mutations -ne 0 -or $e.optimizer_promotions -ne 0 -or
+              $e.Codex_calls -ne 0 -or $e.paid_model_calls -ne 0 -or
+              $e.new_schedulers -ne 0 -or $e.ckb_plane_contact -or
+              $e.cloudflare_writes -ne 0 -or $e.mind_palace_writes -ne 0) {
+            throw 'F128_OPERATOR_EVIDENCE_OR_AUTHORITY_INVALID'
+          }
+          Write-Host ('F128_GENERATED_OPERATOR '+$e.selected_ast_sha256+
+            ' candidates='+$e.candidate_count+
+            ' train='+$e.selected_train.paired_correct+'/16'+
+            ' A='+$e.heldout_generator_a.paired_correct+'/40'+
+            ' B='+$e.heldout_generator_b.paired_correct+'/40')
+          $sum=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $root 'f128-operator-expansion.sha256'),
+            "$sum  f128-operator-expansion.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -923,6 +1014,16 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f128-refinement-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f128-expansion/f128-operator-expansion.json
+            ${{ runner.temp }}/forge-f128-expansion/f128-operator-expansion.sha256
+          retention-days: 30
+          if-no-files-found: error
+
   f127-cross-os-byte-proof:
     needs: two-lane-synthetic
     runs-on: ubuntu-latest
@@ -957,4 +1058,43 @@ jobs:
               reports.append(raw)
           assert reports[0]==reports[1],"F127_DIFFERENT_GENERATED_MECHANISMS_ACROSS_OS"
           print("F127_CROSS_OS_IDENTICAL",hashlib.sha256(reports[0]).hexdigest())
+          PY
+
+  f128-cross-platform-mechanism-proof:
+    needs: two-lane-synthetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-f128-refinement-*
+          path: f128-proof
+          merge-multiple: false
+      - name: Independently verify Ubuntu and Windows generated operators
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          reports=[]
+          for os in ("ubuntu-latest","windows-latest"):
+              root=Path("f128-proof")/("forge-f128-refinement-"+os)
+              raw=(root/"f128-operator-expansion.json").read_bytes()
+              receipt=(root/"f128-operator-expansion.sha256").read_text().strip()
+              h=hashlib.sha256(raw).hexdigest()
+              assert receipt==h+"  f128-operator-expansion.json",("F128_BAD_SOURCE_RECEIPT",os)
+              data=json.loads(raw)
+              assert data["schema"]=="forge.autonomy.f128.counterexample-expanded-mechanism-development.v1"
+              assert data["candidate_count"]>0 and data["candidate_count"]<=128
+              assert data["prior_linear_program_train_paired_correct"]==0
+              assert data["heldout_generator_a"]["paired_correct"]==40
+              assert data["heldout_generator_b"]["paired_correct"]==40
+              assert data["scientific_originals_dispatched"]==0
+              reports.append(raw)
+          assert reports[0]==reports[1],"F128_OS_OPERATOR_OR_EVIDENCE_DRIFT"
+          print("F128_BYTE_IDENTICAL",hashlib.sha256(reports[0]).hexdigest())
           PY
