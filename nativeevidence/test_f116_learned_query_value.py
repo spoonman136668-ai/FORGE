@@ -103,6 +103,25 @@ class F116Contracts(unittest.TestCase):
             if baseline:self.assertTrue(m.buy_if_positive((.875,reliability),0))
         self.assertFalse(m.buy_if_positive((0.0,1.0),.05))
 
+    def test_decision_attribution_and_counterfactual_ablations_are_observable(self):
+        model=m.LearnedChannelValue().fit(self.train)
+        for ch in range(4):
+            for price in m.COSTS:
+                t=m.inspect_query_decision(model,ch,price)
+                self.assertEqual(t["channel"],ch)
+                self.assertEqual(t["quoted_cost"],price)
+                self.assertEqual(t["query"],
+                    m.buy_if_positive(model.rates(ch),price))
+                self.assertEqual(t["ablation_replace_usable_with_half"],
+                    m.buy_if_positive((.5,model.rates(ch)[1]),price))
+                self.assertEqual(t["ablation_replace_correctness_with_half"],
+                    m.buy_if_positive((model.rates(ch)[0],.5),price))
+                self.assertEqual(t["intervention_increase_cost_by_0_25"],
+                    m.buy_if_positive(model.rates(ch),price+.25))
+                self.assertFalse(t["intervention_increase_cost_by_0_25"]
+                                 and not t["query"])
+                self.assertIn("TRAIN_ONLY",t["source"])
+
     def test_no_query_never_pays_always_query_always_pays(self):
         for g in self.guards[:1]:
             self.assertEqual(m.assess(g,m.no_query)["queries"],0)
@@ -123,6 +142,7 @@ class F116Contracts(unittest.TestCase):
         self.assertEqual(result["trained_steps"],100)
         self.assertEqual(result["learned_trainable_params"],8)
         self.assertEqual(len(result["guard_blocks"]),4)
+        self.assertEqual(len(result["policy_trace_by_channel_cost"]),16)
         self.assertFalse(result["scientific_first_use_authorized"])
         self.assertFalse(result["independently_accepted_science"])
         self.assertFalse(result["optimizer_promotion_authorized"])
