@@ -1,0 +1,121 @@
+name: Mind-Palace UQ35 exact-head replay qualification
+on:
+  push:
+    branches: [qualification/mind-palace-uq35-exact-replay-20261017]
+    paths:
+      - '.github/workflows/mind-palace-uq35-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq35-exact-head
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Validate pinned Mind-Palace source without memory writes or Codex
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ35_FORGE_QUALIFY_RUNNER_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $expectedMain = '90e1cc742dff20b5f53b38fd7102b9c00e4474ad'
+          $expectedHead = '77d2a4ecc06bd2401c16b42dc3b756fd2dd27bc5'
+          $sourceBranch = 'uq34/accepted-replay-safety-regression'
+          $root = Join-Path $env:RUNNER_TEMP ('mind-palace-uq35-' + $env:GITHUB_RUN_ID + '-' + [Guid]::NewGuid().ToString('N'))
+          $logDir = Join-Path $env:RUNNER_TEMP ('mind-palace-uq35-logs-' + $env:GITHUB_RUN_ID + '-' + [Guid]::NewGuid().ToString('N'))
+          $exe = (Get-Command powershell.exe -ErrorAction Stop).Source
+          $protected = @(
+            '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+            '.ice/remote-bootstrap.json', '.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson', '.ice/chat-delta-state.json',
+            '.ice/project-state-capsules.json', '.ice/project-dependency-graph.json'
+          )
+          function Assert([bool]$condition, [string]$reason) {
+            if (-not $condition) {throw ('UQ35_STOP_' + $reason)}
+          }
+          function Pin([string]$ref, [string]$sha) {
+            $lines = @(& git.exe ls-remote --exit-code $remote $ref)
+            Assert ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1) ('REF_UNAVAILABLE_' + $ref)
+            Assert (([string]$lines[0] -split '\s+')[0] -ceq $sha) ('SOURCE_REF_DRIFT_' + $ref)
+          }
+          function GetHash([string]$path) {
+            return (Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function RunTest([string]$relative, [string]$name, [string[]]$required) {
+            $stdout = Join-Path $logDir ($name + '.stdout.log')
+            $stderr = Join-Path $logDir ($name + '.stderr.log')
+            $target = Join-Path $root $relative
+            Assert (Test-Path -LiteralPath $target -PathType Leaf) ('MISSING_TEST_' + $name)
+            $argsForChild = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $target + '"'))
+            $proc = Start-Process -FilePath $exe -ArgumentList $argsForChild -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $out = [IO.File]::ReadAllText($stdout)
+            $err = [IO.File]::ReadAllText($stderr)
+            if ($proc.ExitCode -ne 0) {
+              Write-Host ('UQ35_FAILED_TEST=' + $name + ' EXIT=' + $proc.ExitCode)
+              Write-Host ('UQ35_STDOUT_TAIL=' + $out.Substring([Math]::Max(0, $out.Length - 5000)))
+              Write-Host ('UQ35_STDERR_TAIL=' + $err.Substring([Math]::Max(0, $err.Length - 2500)))
+              throw ('UQ35_TEST_EXIT_FAILURE_' + $name)
+            }
+            foreach ($marker in $required) {
+              Assert ($out.Contains($marker)) ('MISSING_SUCCESS_MARKER_' + $name + '_' + $marker)
+              Write-Host $marker
+            }
+            foreach ($path in $protected) {
+              Assert ((GetHash $path) -ceq $before[$path]) ('TEST_CHANGED_DURABLE_' + $name + '_' + $path)
+            }
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) ('TEST_CHANGED_TRACKED_SOURCE_' + $name)
+            Write-Host ('UQ35_' + $name + '=PASS')
+          }
+          if (Test-Path -LiteralPath $root) {throw 'UQ35_SCRATCH_EXISTS'}
+          if (Test-Path -LiteralPath $logDir) {throw 'UQ35_LOGS_ALREADY_EXIST'}
+          New-Item -ItemType Directory -Path $logDir | Out-Null
+          try {
+            Pin 'refs/heads/main' $expectedMain
+            Pin ('refs/heads/' + $sourceBranch) $expectedHead
+            & git.exe clone --quiet --single-branch --branch $sourceBranch $remote $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $expectedHead) 'CHECKOUT_SHA_MISMATCH'
+            Assert ((& git.exe -C $root branch --show-current | Out-String).Trim() -ceq $sourceBranch) 'CHECKOUT_BRANCH_MISMATCH'
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'INITIAL_CHECKOUT_DIRTY'
+            Write-Host 'UQ35_FORGE_EXACT_PRIVATE_PR_HEAD=PASS'
+            $source = Join-Path $root 'pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json'
+            Assert ((& git.exe -C $root hash-object -- $source | Out-String).Trim() -ceq 'd3b1d73c7c7551e01c053fda58a0eaeae5d3d613') 'SELECTED_SOURCE_BLOB_DRIFT'
+            $before = @{}
+            foreach ($path in $protected) { $before[$path] = GetHash $path }
+            RunTest 'tests/Test-UQ34CheckpointReplay.ps1' 'FOCUSED_REPLAY' @(
+              'UQ34_ACCEPTED_SOURCE_INSPECT_REPLAY_SKIP=PASS',
+              'UQ34_ACCEPTED_SOURCE_PREPARE_REPLAY_SKIP=PASS',
+              'UQ34_NINE_DURABLE_SURFACES_UNCHANGED=PASS',
+              'UQ34_CHECKPOINT_REPLAY_REGRESSION=PASS'
+            )
+            RunTest 'tests/Test-BrowserChatIntake.ps1' 'FOCUSED_BROWSER_INTAKE' @(
+              'UQ24_KNOWN_PRODUCTION_SOURCE_ZERO_WORK=PASS',
+              'UQ24_SEVEN_DURABLE_SURFACES_UNCHANGED=PASS'
+            )
+            RunTest 'tests/Test-All.ps1' 'FULL_REGRESSION' @(
+              'UQ34_CHECKPOINT_REPLAY_REGRESSION=PASS',
+              'Mind-Palace regression suite passed'
+            )
+            Pin 'refs/heads/main' $expectedMain
+            Pin ('refs/heads/' + $sourceBranch) $expectedHead
+            foreach ($path in $protected) { Assert ((GetHash $path) -ceq $before[$path]) ('FINAL_DURABLE_DRIFT_' + $path) }
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'FINAL_WORKTREE_DIRTY'
+            Write-Host 'UQ35_NINE_DURABLE_HASHES_AND_PRIVATE_REFS_UNCHANGED=PASS'
+            Write-Host 'UQ35_GIT_COMMITS=0'
+            Write-Host 'UQ35_MEMORY_RECORDS_APPLIED=0'
+            Write-Host 'UQ35_CODEX_INVOCATIONS=0'
+            Write-Host 'UQ35_FORGE_WINDOWS_QUALIFICATION=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $root) {Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+            if (Test-Path -LiteralPath $logDir) {Remove-Item -LiteralPath $logDir -Recurse -Force -ErrorAction SilentlyContinue}
+          }
