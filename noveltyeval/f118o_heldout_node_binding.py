@@ -207,7 +207,7 @@ def analyze(triples):
     measured={section:{method:metrics(rows,predict)
                        for method,predict in methods.items()}
               for section,rows in examples.items() if section in ("dev","test")}
-    require(all(x["n"]==2*len(selected[section])
+    need(all(x["n"]==2*len(selected[section])
                 for section in measured for x in measured[section].values()),
             "TERMINAL_DENOMINATOR")
     test=measured["test"]
