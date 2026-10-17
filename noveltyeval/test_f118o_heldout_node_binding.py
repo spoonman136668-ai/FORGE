@@ -13,11 +13,12 @@ class UnseenNodeBindingFixtures(unittest.TestCase):
         incoming,outgoing,source_set,eligible=f.source_edges(triples)
         self.assertIn("B",eligible)
         self.assertIn("D",eligible)
-        self.assertEqual(incoming["B"],("A","role.one","B"))
-        self.assertEqual(outgoing["B"],("B","role.two","C"))
-        self.assertEqual(outgoing["D"],("D","role.two","E"))
-        self.assertNotEqual(incoming["B"][2],outgoing["D"][0])
-        self.assertIn(outgoing["D"],source_set)
+        self.assertEqual(incoming["B"][:4],("A","role.one","F","B"))
+        self.assertEqual(outgoing["B"][:4],("B","role.two","F","C"))
+        self.assertEqual(outgoing["D"][:4],("D","role.two","F","E"))
+        self.assertNotEqual(incoming["B"][3],outgoing["D"][0])
+        self.assertIn(outgoing["D"][4],source_set)
+        self.assertNotEqual(incoming["B"][4],outgoing["B"][4])
 
     def test_frozen_sha_splits_unseen_and_negative_same_nibble(self):
         # Synthetic names only; authentic source denominator is enforced in audit.
