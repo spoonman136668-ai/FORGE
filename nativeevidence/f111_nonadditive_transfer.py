@@ -134,6 +134,8 @@ class WingCase:
     ids_by_tag:tuple
     encoding:str
     block:str
+    public_source_codes_by_tag:tuple
+    public_requested_source_code:str
 
 def new_wing_case(seed,block):
     rng=random.Random((seed<<9)+block*101+111)
@@ -160,8 +162,22 @@ def new_wing_case(seed,block):
     need(sum(a!=b for a,b in zip(
          original.positive_values,original.negative_values))==1 and
          sorted(ids)==list(range(4)), "INVALID_WING_REPRESENTATION")
+    # Three *actual* distinct public source-identifier encodings, not just
+    # names for the same offset mapping. Codes are complete public metadata.
+    nonce=rng.randrange(100000,999999)
+    if block==0:
+        semantic_codes=tuple("source-id-"+str(k) for k in range(4))
+    elif block==1:
+        semantic_codes=tuple("alias/"+str(nonce)+"/"+str(k*17+3) for k in range(4))
+    else:
+        semantic_codes=tuple("token-"+("x"*(k+1))+"-"+format(nonce+k,"x")
+                             for k in range(4))
+    source_codes=tuple(semantic_codes[k] for k in ids)
+    requested=semantic_codes[query]
+    need(len(set(source_codes))==4 and requested in source_codes,
+         "PUBLIC_SOURCE_CODE_COLLISION")
     return WingCase(wrapped,tuple(ids),("permutation","alias_table","variable_code")[block],
-                    ("W-R1","W-R2","W-R3")[block])
+                    ("W-R1","W-R2","W-R3")[block],source_codes,requested)
 
 def wing_groups():
     groups=[]
@@ -174,7 +190,9 @@ def wing_groups():
 
 def tag_lookup(c,values):
     # Computes matching tag using PUBLIC source-ID table; reads ONE value.
-    tag=c.ids_by_tag.index(c.public.base.query_depth)
+    # Source-ID equality uses the FULL public identifier, not the sign
+    # label or a hidden modular offset. The codes differ in all 3 cohorts.
+    tag=c.public_source_codes_by_tag.index(c.public_requested_source_code)
     position=c.public.base.observation_depths.index(tag)
     return values[position]>0
 
