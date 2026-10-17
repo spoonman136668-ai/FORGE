@@ -1,0 +1,133 @@
+name: F124-QG frozen FIT gradient sensitivity diagnostic
+on:
+  push:
+    branches: [research/f124qg-frozen-fit-gradient-diagnostic-20261017]
+    paths:
+      - 'reference/research-intake/f124qg-fit-gradient-freeze.json'
+      - 'nativeevidence/f124qg_*.py'
+      - 'nativeevidence/test_f124qg_*.py'
+      - '.github/workflows/forge-f124qg-fit-gradient-diagnostic.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124qg-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Audit immutable FIT source and frozen Yggdrasil gradient diagnosis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124QG_EXACT_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124qg_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124QG_SOURCE_VALIDATION_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124q_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124QG_ORIGINAL_SOURCE_REGRESSION_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124QG_ISOLATION_FAILED' }
+          Write-Output 'F124QG_NO_PROTECTED_OR_DEV_FIRST_USE=true'
+  original-fit-sensitivity:
+    needs: frozen-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-f124o
+      - name: Measure exact frozen Q FIT SPSA loss sensitivities without any DEV
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt='original-f124o/f124o-independent-two-learned-development.json'
+          if ((Get-FileHash $receipt -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              '025c97abc8eb69079d7d7d0f59bfdb81235b9ad83e230f32b542d2cfbdb5d') {
+            throw 'F124QG_ORIGINAL_WEIGHT_CUSTODY'
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124qg-fit-only-spsa-loss-sensitivity.json'
+          & python3 -B nativeevidence/f124qg_fit_sensitivity.py --f124o-receipt $receipt --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124QG_FROZEN_FIT_GRADIENT_DIAG' }
+          $r=Get-Content $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124qg.frozen-fit-spsa-zero-gradient-diagnostic.v1' -or
+              $r.frozen_diagnostic_git_blob -cne '495565b44b20a6a8e0b8b0ab9566612f61d2b0f6' -or
+              $r.lanes.Count -ne 2 -or -not $r.development_only -or
+              $r.original_Q_model_modified -or $r.dev_cases_generated -ne 0 -or
+              $r.scientific_acceptances -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.first_use -or
+              $r.paid_model_calls -ne 0 -or $r.codex_calls -ne 0 -or
+              $r.resource_matched_science) { throw 'F124QG_FALSE_AUTHORITY' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil') -or
+                $lane.source_phase -cne 'FIT_ONLY' -or
+                $lane.pairs -ne 48 -or $lane.spsa_steps -ne 72 -or
+                $lane.zero_loss_difference_steps + $lane.nonzero_loss_difference_steps -ne 72 -or
+                $lane.dev_examples_scored -ne 0 -or $lane.protected_examples_scored -ne 0) {
+              throw 'F124QG_FAILED_STEP_CENSUS'
+            }
+            Write-Output "F124QG_DIAG=$($lane.lane):zero=$($lane.zero_loss_difference_steps)/72 update_l2=$($lane.update_l2) verdict=$($lane.outcome)"
+          }
+          $digest=(Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$digest+'  f124qg-fit-only-spsa-loss-sensitivity.json'+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124QG_RECEIPT_SHA256=$digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124qg-source-qualified-fit-diagnostic-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124qg-fit-only-spsa-loss-sensitivity.json
+            ${{ runner.temp }}/f124qg-fit-only-spsa-loss-sensitivity.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+  final-regression:
+    needs: original-fit-sensitivity
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full exact-head regression and source isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124QG_EXACT_HEAD=$GITHUB_SHA"
+          echo "F124QG_NO_SCIENTIFIC_ACCEPTANCE=true"
