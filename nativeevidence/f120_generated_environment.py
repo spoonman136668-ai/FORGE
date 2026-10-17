@@ -40,8 +40,8 @@ def frozen():
     raw=FREEZE.read_bytes().replace(b"\r\n",b"\n")
     require(blob(raw)==FREEZE_BLOB,"PREREGISTRATION_MODIFIED")
     p=json.loads(raw)
-    require(p["schema"]=="forge.autonomy.f120.frozen-generated-environment-controlled-development.v1" if False else
-            p["schema"]=="forge.autonomy.f120.frozen-generated-environment-controlled-development.v1",
+    require(p["schema"]==
+            "forge.autonomy.f120.frozen-generated-environment-controlled-development.v1",
             "FROZEN_SCHEMA_INVALID")
     require(p["parent_exact_main_head"]==
             "07e9e0903064226f7903c83b12a3bce631ae17bb"
@@ -52,7 +52,13 @@ def frozen():
             and p["cohorts"]["training_paired_graphs_per_candidate"]==24
             and p["cohorts"]["confirmation_paired_graphs_per_candidate"]==48
             and p["selection"]["train_only"] is True
-            and p["selection"]["failures"] is not None if False else True,
+            and p["cohorts"]["training_seeds_by_lane"]==
+                 {"Wingless":[88000,88023],"Yggdrasil":[89000,89023]}
+            and p["cohorts"]["confirmation_seeds_by_lane"]==
+                 {"Wingless":[88100,88147],"Yggdrasil":[89100,89147]}
+            and p["resources"]["max_candidates_per_lane"]==2
+            and p["resources"]["max_train_graph_pairs_per_lane"]==48
+            and p["resources"]["max_confirmation_graph_pairs_per_lane"]==96,
             "FROZEN_CORES_DRIFT")
     require(all(p["safety"].values()) and
             p["selection"]["tie_break"]==
