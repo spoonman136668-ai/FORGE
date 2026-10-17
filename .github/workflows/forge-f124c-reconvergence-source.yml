@@ -9,6 +9,7 @@ on:
       - '.github/workflows/forge-f124c-reconvergence-source.yml'
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: f124c-train-source-${{ github.ref }}
   cancel-in-progress: false
@@ -38,7 +39,123 @@ jobs:
           & $python -B isolationguard/check.py
           if ($LASTEXITCODE -ne 0) { throw 'F124C_ISOLATION_FAIL_CLOSED' }
           Write-Output "F124C_SOURCE_HEAD=${{ github.sha }}"
-          Write-Output 'F124C_MODEL_IMPLEMENTED=false'
+          Write-Output 'F124C_MODEL_IMPLEMENTED=true_TRAIN_ONLY'
           Write-Output 'F124C_PROTECTED_CONFIRM_GENERATED=false'
           Write-Output 'F124C_ORIGINAL_SCIENTIFIC_FIRST_USE=false'
           Write-Output 'F124C_ACCEPTANCE=false'
+
+  train-node-state-models:
+    needs: train-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: f123-qualified-train
+      - name: Actually train one-slot and two-slot node-state learners, both lanes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124c-train-only-weight-evidence.json'
+          $args=@('--f123-ubuntu-dir','f123-qualified-train',
+            '--source-sha',$env:GITHUB_SHA,'--run-id',$env:GITHUB_RUN_ID,
+            '--output',$out)
+          & python3 -B nativeevidence/f124c_train_custody.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_ACTUAL_TRAINING_OR_SOURCE_CUSTODY_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124c.train-only-learned-node-state-custody.v1' -or
+              $r.qualifying_source_sha -cne $env:GITHUB_SHA -or
+              $r.f123_reference_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.graph_git_blob -cne 'dbdae03849da6a161f9f3199a5716f55817224bc' -or
+              $r.node_model_git_blob -cne '76653b7877cbdc092f12a96e4140a38b381bbddf' -or
+              $r.lanes.Count -ne 2 -or $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.phase -cne 'TRAIN_ONLY' -or $r.confirmation_examples_generated -ne 0 -or
+              $r.scientific_first_use -or $r.scientific_acceptances -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.independent_scientific_originals -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or -not $r.protected_confirm_untouched -or
+              -not $r.resource_equivalence_not_established) {
+            throw 'F124C_TRAIN_EVIDENCE_UNAUTHORIZED_OR_INCOMPLETE'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.selected_arm -cnotin @('A','B') -or $lane.arms.A.epochs -ne 100 -or
+                $lane.arms.B.epochs -ne 100 -or
+                $lane.arms.A.train_pairs -ne 48 -or $lane.arms.B.train_pairs -ne 48 -or
+                $lane.arms.A.parameters -ne 132 -or $lane.arms.B.parameters -ne 141 -or
+                $lane.arms.A.movement -le 0 -or $lane.arms.B.movement -le 0 -or
+                $lane.arms.A.confirmation_examples_generated -ne 0 -or
+                $lane.arms.B.confirmation_examples_generated -ne 0) {
+              throw 'F124C_LEARNED_PARAMETERS_NOT_CERTIFIED'
+            }
+            Write-Output "F124C_TRAIN=$($lane.lane):A=$($lane.arms.A.train_pairs_correct)/48 B=$($lane.arms.B.train_pairs_correct)/48 selected=$($lane.selected_arm)"
+          }
+          $h=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124c-train-only-weight-evidence.sha256'),
+            "$h  f124c-train-only-weight-evidence.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124C_TRAIN_WEIGHT_RECEIPT_SHA256=$h"
+          Write-Output 'F124C_RESERVED_CONFIRM_EXECUTED=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124c-actual-train-learned-weights
+          path: |
+            ${{ runner.temp }}/f124c-train-only-weight-evidence.json
+            ${{ runner.temp }}/f124c-train-only-weight-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90
+  final-integration:
+    needs: train-node-state-models
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact-head source and whole-project Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_FINAL_ISOLATION_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124c_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_FINAL_SOURCE_TEST_FAILED' }
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_FINAL_GO_TEST_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F124C_FINAL_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_FINAL_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F124C_FINAL_GO_BUILD_FAILED' }
+          Write-Output "F124C_EXACT_HEAD=${{ github.sha }}"
+          Write-Output 'F124C_SCIENTIFIC_ADMISSION=false'
