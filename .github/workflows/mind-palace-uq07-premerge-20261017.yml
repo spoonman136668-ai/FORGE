@@ -1,0 +1,101 @@
+name: Mind-Palace UQ07 exact-head premerge rehearsal
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ07-PREMERGE-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq07-premerge-frozen-source
+  cancel-in-progress: false
+jobs:
+  rehearse:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Check exact merge tree in disposable checkout; never push
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ07_WRONG_RUNNER'}
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ07_WRONG_REPO'}
+          if($env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013'){throw 'UQ07_WRONG_HOST_BRANCH'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $expectedMain='f9f5e0555e1acbe57a36142155e490d21220ca14'
+          $expectedHead='0152bb4b3f546f462aff3523f3005c6c885cd9b1'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='qualification/chat-source-alias-guard-uq04-20261016'
+          $root=Join-Path $env:RUNNER_TEMP ('mind-palace-uq07-'+$env:GITHUB_RUN_ID)
+          $expectedFiles=@(
+            'policies/chat-source-aliases.json',
+            'tests/Test-All.ps1',
+            'tests/Test-BackfillApply.ps1',
+            'tests/Test-BackfillSupersede.ps1',
+            'tests/Test-ChatSourceAliases.ps1',
+            'tests/Test-RepoSourceDiscovery.ps1',
+            'tests/Test-RepoSourceResolution.ps1',
+            'tests/Test-StrictCollectionShapes.ps1',
+            'tests/Test-UpdateCycle.ps1',
+            'tools/backfill-apply.ps1',
+            'tools/backfill-supersede.ps1',
+            'tools/chat-delta-ingest.ps1',
+            'tools/chat-source-alias-guard.ps1',
+            'tools/collect.ps1',
+            'tools/ingest.ps1'
+          )
+          function Assert-RemoteRef([string]$ref,[string]$expected){
+            $entries=@(& git.exe ls-remote --exit-code $remote $ref)
+            if($LASTEXITCODE -ne 0 -or $entries.Count -ne 1 -or
+               ([string]$entries[0] -split '\s+')[0] -cne $expected){throw ('UQ07_UNAPPROVED_REF_DRIFT_'+$ref)}
+          }
+          if(Test-Path -LiteralPath $root){throw 'UQ07_EXISTING_WORKTREE'}
+          try{
+            Assert-RemoteRef refs/heads/main $expectedMain
+            Assert-RemoteRef ('refs/heads/'+$branch) $expectedHead
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ07_CLONE_FAILED'}
+            Push-Location $root
+            try{
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $expectedHead){throw 'UQ07_HEAD_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ07_DIRTY_INITIAL_CLONE'}
+              & git.exe fetch --quiet --no-tags origin refs/heads/main
+              if($LASTEXITCODE -ne 0 -or (& git.exe rev-parse FETCH_HEAD|Out-String).Trim() -cne $expectedMain){throw 'UQ07_MAIN_FETCH_MISMATCH'}
+              & git.exe merge-base --is-ancestor $expectedMain $expectedHead
+              if($LASTEXITCODE -ne 0){throw 'UQ07_PR_NOT_DESCENDED_FROM_MAIN'}
+              $diff=@(& git.exe diff --name-only $expectedMain $expectedHead)
+              if($LASTEXITCODE -ne 0){throw 'UQ07_FILE_DIFF_FAILED'}
+              $unexpected=@($diff|Where-Object{$expectedFiles -cnotcontains [string]$_})
+              $missing=@($expectedFiles|Where-Object{$diff -cnotcontains $_})
+              if($unexpected.Count -gt 0 -or $missing.Count -gt 0){throw 'UQ07_UNREVIEWED_FILES_IN_DIFF'}
+              foreach($file in $diff){
+                if($file -like '.ice/*' -or $file -like 'archive/*'){throw 'UQ07_UNAUTHORIZED_DURABLE_FILE_DIFF'}
+              }
+              Write-Host 'UQ07_EXACT_REVIEWED_FILE_SET=PASS'
+              & git.exe switch --quiet --detach $expectedMain
+              if($LASTEXITCODE -ne 0){throw 'UQ07_CANNOT_SWITCH_MAIN'}
+              & git.exe merge --no-commit --no-ff $expectedHead
+              if($LASTEXITCODE -ne 0){throw 'UQ07_MERGE_CONFLICT'}
+              $mergeTree=(& git.exe write-tree|Out-String).Trim()
+              $prTree=(& git.exe rev-parse ($expectedHead+'^{tree}')|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $mergeTree -cne $prTree){throw 'UQ07_REHEARSED_TREE_NOT_EQUAL_PR_HEAD'}
+              Write-Host 'UQ07_MERGE_NO_CONFLICTS=PASS'
+              Write-Host 'UQ07_MERGE_TREE_PARITY=PASS'
+              & git.exe merge --abort
+              if($LASTEXITCODE -ne 0){throw 'UQ07_MERGE_ABORT_FAILED'}
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $expectedMain){throw 'UQ07_POST_ABORT_HEAD_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ07_POST_ABORT_UNCLEAN'}
+              Assert-RemoteRef refs/heads/main $expectedMain
+              Assert-RemoteRef ('refs/heads/'+$branch) $expectedHead
+              Write-Host 'UQ07_MAIN_AND_PR_REFS_UNCHANGED=PASS'
+              Write-Host 'UQ07_REMOTE_COMMITS=0'
+              Write-Host 'UQ07_CODEX_INVOCATIONS=0'
+              Write-Host 'UQ07_PRODUCTION_PROMOTION=NOT_AUTHORIZED'
+              Write-Host 'UQ07_DISPOSABLE_PREMERGE_QUALIFICATION=PASS'
+            }finally{Pop-Location}
+          }finally{if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue}}
