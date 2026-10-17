@@ -113,7 +113,7 @@ class F125Qualification(unittest.TestCase):
         p,meta,art,data,receipt=fixture()
         for bad in (data+b"\n",data.replace(b"ROLE_ALIAS_SHORTCUT",b"ROLE_ALIAZ_SHORTCUT")):
             with self.assertRaisesRegex(m.Quarantined,"CROSS_OS_RECORDS"):
-                m.read_evidence(meta,art,data,receipt,bad,receipt,NEW,"pull_request",p)
+                bad_receipt=(m.sha_bytes(bad)+"  state.json\\n").encode()\n                m.read_evidence(meta,art,data,receipt,bad,bad_receipt,NEW,"pull_request",p)
         with self.assertRaisesRegex(m.Quarantined,"RECEIPT"):
             m.read_evidence(meta,art,data,b"0"*64,data,receipt,NEW,"pull_request",p)
 
