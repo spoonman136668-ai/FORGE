@@ -1,0 +1,179 @@
+name: F124-Q fresh source independent learned causal binding
+on:
+  push:
+    branches: [research/f124q-fresh-causal-binding-20261017]
+    paths:
+      - 'reference/research-intake/f124q-fresh-causal-binding-freeze.json'
+      - 'nativeevidence/f124q_*.py'
+      - 'nativeevidence/test_f124q_*.py'
+      - '.github/workflows/forge-f124q-fresh-causal-binding.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124q-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  frozen-source-two-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact-head preregistered new source, bounded independent models and no-oracle controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124Q_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124q_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Q_FOCUSED_SOURCE_OR_ARCHITECTURE_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124p_ablations.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Q_PARENT_ABLATION_REGRESSION' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124Q_FORGE_ISOLATION_FAILURE' }
+          Write-Output 'F124Q_PROTECTED_SCIENCE=false'
+          Write-Output 'F124Q_NO_CKB_PLANE_DEPENDENCY=true'
+
+  authentic-two-lane-fit-and-dev:
+    needs: frozen-source-two-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: authentic-original-f124o
+      - name: Train independent fresh FIT-only delta models and verify source-disjoint DEV against retained controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $prior='authentic-original-f124o/f124o-independent-two-learned-development.json'
+          $priorSHA=(Get-FileHash -LiteralPath $prior -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($priorSHA -cne '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d') {
+            throw 'F124Q_ORIGINAL_TRAINED_BASE_WEIGHT_SHA_MISMATCH'
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124q-new-salted-independent-development.json'
+          & python3 -B nativeevidence/f124q_training_evidence.py --f124o-receipt $prior --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124Q_NEW_FIT_TRAIN_OR_DEV_EVIDENCE_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124q.fresh-two-native-causal-binding-development.v1' -or
+              $r.frozen_preimplementation_git_blob -cne '82e2b26f8454231ac88af5a9169850cf997c0c71' -or
+              $r.authenticated_parent_receipt_sha256 -cne $priorSHA -or
+              $r.qualified_parent_head -cne '497ef36d0a2d17c6ff474db97ba554a2f55536a4' -or
+              $r.lanes.Count -ne 2 -or $r.source_born_accepted_original -or
+              $r.protected_source_generated -ne 0 -or $r.protected_first_use -or
+              $r.scientific_acceptances -ne 0 -or $r.accepted_refs_changed -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.paid_api_calls -ne 0 -or
+              $r.codex_calls -ne 0 -or $r.cross_lane_parameter_sharing -or
+              $r.matched_compute_superiority_proven -or
+              $r.training_gate_negatives -ne 1 -or
+              $r.two_lane_scientific_training_qualified) {
+            throw 'F124Q_FALSE_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil')) {
+              throw 'F124Q_UNKNOWN_LANE'
+            }
+            if ($lane.lane -ceq 'Yggdrasil') {
+              if ($lane.training_status -cne 'FIT_GATE_BLOCKED' -or
+                  $lane.training_gate_negative -cne 'F124Q_LEARNER_GENUINE_FIT_ONLY_LEARNER_UPDATE' -or
+                  $lane.dev_scored -or $null -ne $lane.training -or
+                  $null -ne $lane.fit -or $null -ne $lane.dev -or
+                  $lane.development_verdict -cne 'FIT_ONLY_LEARNING_NOT_QUALIFIED__DEV_PREDICTIONS_NOT_GENERATED') {
+                throw 'F124Q_YGGDRASIL_FIT_NEGATIVE_MUST_NOT_BE_PROMOTED'
+              }
+              Write-Output 'F124Q_YGGDRASIL_FIT_CLASSIFICATION=NEGATIVE_NO_QUALIFIED_UPDATE'
+              Write-Output 'F124Q_YGGDRASIL_DEV_PREDICTIONS_GENERATED=0'
+              continue
+            }
+            if ($lane.training_status -cne 'GENUINE_FIT_PASS' -or
+                -not $lane.dev_scored -or $lane.training.training_steps -ne 72 -or
+                $lane.training.epochs -ne 12 -or
+                $lane.training.fit_pairs -ne 48 -or
+                $lane.training.weight_update_l2 -le 0 -or
+                $lane.training.dev_access_during_training -ne 0 -or
+                $lane.training.protected_access_during_training -ne 0) {
+              throw 'F124Q_WINGLESS_FIT_TRAIN_MISSING'
+            }
+            foreach ($cohort in @($lane.fit,$lane.dev)) {
+              if ($cohort.pairs -ne 48 -or $cohort.exact_symbolic_paired -ne 48 -or
+                  $cohort.role_only_paired -ne 0 -or
+                  @($cohort.arms.PSObject.Properties).Count -ne 4) {
+                throw 'F124Q_SOURCE_OR_DENOMINATOR_DRIFT'
+              }
+              foreach ($item in $cohort.arms.PSObject.Properties) {
+                $arm=$item.Value
+                if ($arm.pairs -ne 48 -or $arm.case_sha256.Count -ne 48 -or
+                    $arm.depth.'7'.pairs -ne 16 -or $arm.depth.'8'.pairs -ne 16 -or
+                    $arm.depth.'9'.pairs -ne 16 -or $arm.execution_errors -ne 0 -or
+                    $arm.max_retained -gt 9 -or $arm.max_active -gt 192) {
+                  throw 'F124Q_WINGLESS_DEV_OR_CAPACITY_DRIFT'
+                }
+              }
+            }
+            Write-Output "F124Q_DEV_Wingless:new=$($lane.dev.arms.new_fit_only_learned.paired)/48 original=$($lane.dev.arms.original_F124O.paired)/48 previous_ablation=$($lane.dev.arms.prior_frozen_ablation.paired)/48 strong_fixed=$($lane.dev.arms.strong_fixed.paired)/48"
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            $sha+'  f124q-new-salted-independent-development.json'+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+          Write-Output "F124Q_AUTHENTIC_DEVELOPMENT_EVIDENCE_SHA256=$sha"
+          Write-Output 'F124Q_NO_PROTECTED_FIRSTUSE=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124q-fresh-two-lane-binding-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124q-new-salted-independent-development.json
+            ${{ runner.temp }}/f124q-new-salted-independent-development.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  one-full-regression:
+    needs: authentic-two-lane-fit-and-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete Go regression, race, vet, build and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124Q_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124Q_SCIENTIFIC_ACCEPTANCES=0'
