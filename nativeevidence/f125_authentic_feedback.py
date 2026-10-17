@@ -61,7 +61,9 @@ def strict_json(raw):
     try:
         data=json.loads(raw.decode("utf-8"),object_pairs_hook=pairs,
                         parse_constant=lambda _:require(False,"NONFINITE_JSON"))
-    except Quarantined:\n        raise\n    except (ValueError,UnicodeError) as e:
+    except Quarantined:
+        raise
+    except (ValueError,UnicodeError) as e:
         raise Quarantined("F125_EVIDENCE_JSON_INVALID") from e
     require(type(data) is dict,"EVIDENCE_NOT_AN_OBJECT")
     return data
