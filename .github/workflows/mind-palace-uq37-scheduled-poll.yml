@@ -30,6 +30,10 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $privateRepo = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
           $expectedToolBlob = 'efee36f895d9163f68cd88b372b27897557a1e6f'
+          $expectedToolsTree = '7dfa7dd700c04bb11204434b76805ac6ae66d904'
+          $expectedSchemasTree = '3a88cdabbe11d4cd8f95a074860f08845b1cce4a'
+          $expectedAliasPolicyBlob = 'a216e65d57061d57d07dc17fce45b9905234444e'
+          $expectedManifestBlob = '37e0f5ffe301519e2ce7d564367cbfe9312017c1'
           $root = Join-Path $env:RUNNER_TEMP ('mp37-poll-' + $env:GITHUB_RUN_ID)
           $stdout = Join-Path $env:RUNNER_TEMP ('mp37-poll-' + $env:GITHUB_RUN_ID + '.out')
           $stderr = Join-Path $env:RUNNER_TEMP ('mp37-poll-' + $env:GITHUB_RUN_ID + '.err')
@@ -58,6 +62,10 @@ jobs:
             $tool = Join-Path $root 'tools/guarded-unattended-intake.ps1'
             $queue = Join-Path $root 'policies/guarded-chat-source-queue.json'
             Assert ((& git.exe -C $root hash-object -- $tool | Out-String).Trim() -ceq $expectedToolBlob) 'ENGINE_SOURCE_DRIFT_NOT_APPROVED'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools' | Out-String).Trim() -ceq $expectedToolsTree) 'TOOLS_DEPENDENCY_TREE_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:schemas' | Out-String).Trim() -ceq $expectedSchemasTree) 'SCHEMA_DEPENDENCY_TREE_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:policies/chat-source-aliases.json' | Out-String).Trim() -ceq $expectedAliasPolicyBlob) 'SOURCE_ALIAS_POLICY_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:.ice/manifest.json' | Out-String).Trim() -ceq $expectedManifestBlob) 'MANIFEST_POLICY_DRIFT'
             Assert (Test-Path -LiteralPath $queue -PathType Leaf) 'QUEUE_UNAVAILABLE'
             $stateBefore = @{}
             foreach($path in $guard){$stateBefore[$path]=Sha256 (Join-Path $root $path)}
