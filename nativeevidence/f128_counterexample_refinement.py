@@ -132,7 +132,7 @@ def read_previous(run,artifacts,linux,linux_receipt,windows,windows_receipt,
                           "FROZEN_BASELINE_SHA_DRIFT")
     selection=report.get("synthesized_problem")
     need(type(selection) is dict
-         and selection.get("source_experiment")==prior["expected_prior_original_problem"].replace("SHARED_NODE_BINDING","F117-O") 
+         and selection.get("source_experiment")=="F117-O"
          and selection.get("mechanism_problem")=="SHARED_NODE_BINDING",
          "PREVIOUS_ORIGINAL_NEGATIVE_NOT_ADMITTED")
     return {"prior_run_id":old,"prior_sha256":prior_hash,"prior_ast":ast,
