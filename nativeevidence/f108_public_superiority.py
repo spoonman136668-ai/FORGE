@@ -202,7 +202,7 @@ def ygg_cases():
                 if (p.edges[i][0] != 0 and lhs==rhs and lhs==15):
                     newroles[i]=p.query_roles[(i+family)%4]
         # Deterministically remap only nodes; no oracle fed to candidate.
-        p=replace(p,roles=tuple(newroles))
+        p=replace(p,block=family,roles=tuple(newroles))
         need(sum(a!=b for one,two in zip(p.positive_variables,p.negative_variables)
                  for a,b in zip(one,two))==1 and
              ybind.coded_exact_binding_oracle(p,p.positive_variables) and
