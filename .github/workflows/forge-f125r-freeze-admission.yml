@@ -8,6 +8,8 @@ on:
       - 'reference/research-intake/f125r-path-preserving-composition-freeze.json'
       - 'nativeevidence/f125r_freeze_admission.py'
       - 'nativeevidence/test_f125r_freeze_admission.py'
+      - 'nativeevidence/f125r_*.py'
+      - 'nativeevidence/test_f125r_*.py'
       - '.github/workflows/forge-f125r-freeze-admission.yml'
 permissions:
   contents: read
@@ -41,6 +43,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'F125R_PARENT_MISSING' }
           & git merge-base --is-ancestor 6fbfff31ed4795bfe1a0880fd0d941cc200936f8 $env:GITHUB_SHA
           if ($LASTEXITCODE -ne 0) { throw 'F125R_PARENT_NOT_ANCESTOR' }
+      - name: Qualify new TRAIN source family and 20-parameter path-preserving mechanism
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_train_environment.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_NEW_SOURCE_TESTS_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_path_model.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_NEW_LEARNED_MECHANISM_TESTS_FAILED' }
+          Write-Host 'F125R_TRAIN_ONLY_SOURCE_AND_MODEL_SMOKE_PASS=true'
       - name: Freeze validation and adversarial tamper tests
         shell: pwsh
         run: |
