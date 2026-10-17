@@ -1,0 +1,84 @@
+name: F127-R frozen calibration preregistration
+
+# SOURCE ONLY: no FIT, TRAIN_CHECK, protected CONFIRM, model inference,
+# independent scientific first-use, accepted-ref promotion or new executor.
+on:
+  push:
+    branches: [research/f127r-evidence-calibration-first-freeze-20261017]
+    paths:
+      - 'reference/research-intake/f127r-absolute-binding-calibration-freeze.json'
+      - 'nativeevidence/f127r_freeze_admission.py'
+      - 'nativeevidence/test_f127r_freeze_admission.py'
+      - '.github/workflows/forge-f127r-freeze-admission.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f127r-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  immutable-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact source head and parent negative lineage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F127R_SOURCE_SHA_DRIFT'
+          }
+          & git cat-file -e 'a5eee2ed8c284ddcd4a9242ee0885bc77d2185af^{commit}'
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_PARENT_ABSENT' }
+          & git merge-base --is-ancestor a5eee2ed8c284ddcd4a9242ee0885bc77d2185af $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_WRONG_PARENT_ANCESTRY' }
+      - name: Source tamper tests and no-science receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f127r_freeze_admission.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_FROZEN_TAMPER_TESTS_DENIED' }
+          $root=Join-Path $env:RUNNER_TEMP 'f127r-frozen-source'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $receipt=Join-Path $root 'f127r-source-admission.json'
+          & $python -B nativeevidence/f127r_freeze_admission.py --source-sha $env:GITHUB_SHA --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F127R_SOURCE_ADMISSION_DENIED' }
+          $report=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($report.schema -cne 'forge.research.f127r.source-only-custody.v1' -or
+              $report.source_sha -cne $env:GITHUB_SHA -or
+              $report.f127r_freeze_blob -cne '0fde790b95384aaf19e9725ea5a82e7819407c3d' -or
+              $report.parent_sha -cne 'a5eee2ed8c284ddcd4a9242ee0885bc77d2185af' -or
+              $report.public_fit_cases_generated -ne 0 -or
+              $report.train_check_cases_generated -ne 0 -or
+              $report.protected_confirm_cases_generated -ne 0 -or
+              $report.trained_weights_created -or
+              $report.scientific_first_use -or
+              $report.scientific_acceptance -or
+              $report.optimizer_promotion -or
+              $report.accepted_ref_mutations -ne 0 -or
+              $report.codex_or_paid_model_calls -ne 0) {
+            throw 'F127R_UNEARNED_FIRST_USE_OR_FIT'
+          }
+          $sha=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($receipt+'.sha256'),
+            ($sha+'  f127r-source-admission.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F127R_SOURCE_RECEIPT_SHA256=$sha"
+          Write-Host 'F127R_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f127r-frozen-source-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f127r-frozen-source/
+          retention-days: 30
+          if-no-files-found: error
