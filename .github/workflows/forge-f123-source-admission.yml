@@ -46,3 +46,63 @@ jobs:
           Write-Output 'F123_CONFIRM_EXECUTED=false'
           Write-Output 'F123_LEARNED_MODEL_QUALIFIED=false'
           Write-Output 'F123_SCIENTIFIC_FIRST_USE=false'
+
+  final-system-regression:
+    needs: synthetic-source-only
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact-head isolation and affected research interfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ISOLATION_TEST_FAILED' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F123_ISOLATION_POLICY_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f12[012]_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_AFFECTED_RESEARCH_INTERFACE_FAILED' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_BOUNDARY_TEST_FAILED' }
+      - name: One final exact-head complete Go regression and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_GO_REGRESSION_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_GO_VET_FAILED' }
+      - name: Build only after regression and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F123_FINAL_BUILD_FAILED' }
+          Write-Output "F123_EXACT_HEAD=${{ github.sha }}"
+          Write-Output 'F123_TRAIN_ONLY_QUALIFICATION=true'
+          Write-Output 'F123_CONFIRM_READ=false'
+          Write-Output 'F123_SCIENTIFIC_ACCEPTED=false'
