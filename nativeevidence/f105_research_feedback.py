@@ -31,7 +31,7 @@ EXPECT={
             "booleans":["independently_accepted_scientific_gain","protected_first_use_authorized",
                         "fresh_scientific_original_executed","optimizer_promotion_authorized"],
             "zero":["accepted_ref_mutations","codex_calls","external_model_api_calls","chatgpt_work_tasks"],
-            "control_shortcut":"always_yes_shortcut"},
+            "control_shortcut":"always_yes_shortcut","all_arms":("learned_depth_conditioned","size_matched_depth_blind","depth_permuted_ablation","always_yes_shortcut","coded_exact_depth_oracle")},
     "F102":{"lane":"Yggdrasil","candidate":"Y100-C1","trainable":18,"trainable_field":"trainable_parameters",
             "pairs":"total_public_development_pairs","training":"training_pairs",
             "assess":"public_development_assessment_pairs","updates":"learned_training_updates",
@@ -40,7 +40,7 @@ EXPECT={
             "booleans":["first_use_authorized","optimizer_promotion_authorized","ckb_plane_accessed"],
             "zero":["scientific_originals_executed","independent_scientific_results_accepted",
                     "accepted_ref_mutations","codex_invocations","external_model_api_calls",
-                    "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut"},
+                    "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut","all_arms":("learned_typed_role_composer","size_matched_role_blind","query_role_permuted_ablation","always_yes_shortcut","coded_typed_role_oracle")},
     "F103":{"lane":"Yggdrasil","candidate":"Y100-C2","trainable":20,"trainable_field":"trainable_parameters",
             "pairs":"total_development_pairs","training":"training_pairs",
             "assess":"assessment_pairs","updates":"learned_training_updates",
@@ -49,7 +49,7 @@ EXPECT={
             "booleans":["first_use_authorized","optimizer_promotion_authorized","ckb_plane_accessed"],
             "zero":["scientific_originals_executed","independent_scientific_results_accepted",
                     "accepted_ref_mutations","codex_invocations","paid_api_calls",
-                    "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut"},
+                    "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut","all_arms":("learned_variable_slot_binder","size_matched_role_aware_variable_blind","independent_slot_disruption_ablation","always_yes_shortcut","coded_exact_binding_oracle")},
     "F104":{"lane":"Wingless","candidate":"W100-C2","trainable":18,"trainable_field":"trainable_parameters",
             "pairs":"total_development_pairs","training":"training_pairs",
             "assess":"public_assessment_pairs","updates":"learned_training_updates",
@@ -59,7 +59,7 @@ EXPECT={
                         "ckb_plane_accessed"],
             "zero":["scientific_originals_executed","independently_accepted_science",
                     "accepted_ref_mutations","codex_calls","paid_model_api_calls",
-                    "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut"}
+                    "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut","all_arms":("learned_query_gated_selector","size_matched_query_blind_selector","query_permuted_ablation","fixed_first_observation_shortcut","always_yes_shortcut","coded_requested_depth_oracle")}
 }
 class Quarantined(ValueError):pass
 def require(condition,reason):
@@ -182,8 +182,7 @@ def read_evidence(source_sha,evidence_root,cfg):
                 "EVIDENCE_SUBSTITUTION_"+key)
         scores=data.get(meta["score_key"])
         require(type(scores) is dict and
-                set(scores)>= {meta["primary"],meta["blind"],meta["oracle"],
-                               requirements["control_shortcut"]},
+                set(scores)==set(requirements["all_arms"]),
                 "FULL_POPULATION_MISSING_"+key)
         for name,value in scores.items():fraction(value,name)
         require(scores[meta["oracle"]]==1.0 and
