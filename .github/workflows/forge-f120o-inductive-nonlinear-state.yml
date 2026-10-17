@@ -1,0 +1,141 @@
+name: FORGE F120-O node-disjoint induced graph nonlinear state learning
+on:
+  push:
+    branches: [engineering/f120o-inductive-nonlinear-state-20261017-r1]
+    paths:
+      - 'noveltyeval/f120o_*'
+      - 'noveltyeval/test_f120o_*'
+      - 'docs/F120O-*'
+      - '.github/workflows/forge-f120o-inductive-nonlinear-state.yml'
+permissions:
+  contents: read
+jobs:
+  original-metaqa-disjoint-subgraph-transfer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: metaqa-original-graph-only
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source head, original graph object, no QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C metaqa-original-graph-only rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C metaqa-original-graph-only rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C metaqa-original-graph-only show HEAD:metaqa/original/kb.txt > f120o-original-full-kb.bin
+          digest="$(sha256sum f120o-original-full-kb.bin | cut -d' ' -f1)"
+          test "$digest" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "metaqa-original-graph-only/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "metaqa-original-graph-only/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "metaqa-original-graph-only/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F120O_ONLY_COMPLETE_SOURCE_KB_NO_QA_ORIGINAL'
+      - name: Frozen synthetic nonlinear state and source split controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f120o_induced_nonlinear_state.py' -v
+      - name: Complete original MetaQA node-disjoint nonlinear state evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f120o_induced_nonlinear_state.py --source-raw f120o-original-full-kb.bin --out f120o-source-disjoint-state-evidence.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f120o-source-disjoint-state-evidence.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f120o.induced-graph-nonlinear-state.v1'
+          assert x['status']=='PUBLIC_METAQA_INDUCED_NODE_DISJOINT_NONLINEAR_STATE_LEARNING_ENGINEERING_ONLY'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['source_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['source_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['original_graph_rows']==134741
+          assert x['original_distinct_source_triples']==133582
+          assert x['source_signed_role_types']==18
+          graph=x['induced_disjoint_source_graph_census']
+          assert graph['full_original_distinct_nodes']==43234
+          assert sum(graph['node_partition_nominal_counts'].values())==43234
+          assert sum(graph['admitted_source_unique_nonself_triples'].values())+graph['original_cross_partition_triples_excluded']+graph['original_self_loops_excluded']==133582
+          assert graph['nonoverlapping_source_nodes_and_edges'] is True
+          assert x['source_partitions_share_no_nodes_or_physical_edges'] is True
+          assert x['train_roots']==64 and x['dev_roots']==24 and x['terminal_roots']==48
+          assert x['inference_messages_follow_real_source_middle_nodes'] is True
+          assert x['nonlinear_middle_node_update_trained'] is True
+          assert x['graph_adjacency_and_middle_equality_are_provided'] is True
+          t=x['training']
+          assert t['training_epochs']==120 and t['trainable_parameters']==110
+          assert t['train_logloss_final']<t['train_logloss_initial']
+          assert t['parameter_l2_movement']>0
+          assert len(t['parameter_sha256'])==64
+          assert x['linear_f119_same_train_partition_control']['training_epochs']==120
+          for family,num in [('development_inspection_only',24),('terminal_heldout',48)]:
+            obs=x[family]
+            assert set(obs)=={
+              'learned_nonlinear_intermediate_state','constant_first_candidate',
+              'untyped_connected_path_count','same_nonlinear_architecture_untrained',
+              'trained_f119_linear_gate_same_split',
+              'privileged_exact_symbolic_twohop'}
+            for metric in obs.values():
+              assert metric['n']==num
+              assert metric['tp']+metric['tn']+metric['fp']+metric['fn']==num
+            assert obs['privileged_exact_symbolic_twohop']['balanced_accuracy']==1.0
+          assert x['gain_disposition'] in ('LEARNED_NONLINEAR_INDUCED_GRAPH_GAIN_DEMONSTRATED',
+                                            'LEARNED_NONLINEAR_INDUCED_GRAPH_GAIN_NOT_DEMONSTRATED')
+          for k in ('original_metaqa_qa_source_read','original_metaqa_question_answers_scored',
+                    'original_freebaseqa_graph_qualified',
+                    'independent_unseen_task_family_science_proven',
+                    'learned_graph_connectivity_proven','independent_scientific_firstuse',
+                    'accepted_science','accepted_ref_mutation','dream_pareto_promotion',
+                    'thetaevolve_accepted_training','scientific_dispatch'):
+            assert x[k] is False,k
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F120O_INDUCED_ORIGINAL_SOURCE_NODE_SPLITS='+json.dumps(graph,sort_keys=True))
+          print('F120O_TERMINAL_SUBGRAPH_TRANSFER='+json.dumps(x['terminal_heldout'],sort_keys=True))
+          print('F120O_EXPLORATORY_GAIN='+x['gain_disposition'])
+          PY
+          sha256sum f120o-source-disjoint-state-evidence.json > f120o-source-disjoint-state-evidence.sha256
+          sha256sum -c f120o-source-disjoint-state-evidence.sha256
+      - name: One full exact-head FORGE Go test vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F120O_ZERO_CODEX_MODEL_CKB_CLOUDFLARE_ACCEPTED_SCIENCE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f120o-node-disjoint-nonlinear-state-${{ matrix.os }}
+          path: |
+            f120o-source-disjoint-state-evidence.json
+            f120o-source-disjoint-state-evidence.sha256
+          retention-days: 45
+          if-no-files-found: error
