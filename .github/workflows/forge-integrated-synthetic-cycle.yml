@@ -234,6 +234,84 @@ jobs:
             "$sha  state.json" + [Environment]::NewLine,[System.Text.UTF8Encoding]::new($false))
           Write-Host ('F118_FEEDBACK='+$d.continuity)
           Write-Host 'F118_MODEL_FREE_SOURCE_ONLY_NO_SCIENCE_PROMOTION=PASS'
+      - name: F119 second real autonomy cycle consuming current F118 feedback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f119_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F119_AUTONOMOUS_FEEDBACK_TESTS_FAILED' }
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-f119-autonomy'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $f118Dir=Join-Path $env:RUNNER_TEMP 'forge-f118-autonomy'
+          $first=Join-Path $f118Dir 'state.json'
+          $firstReceipt=Join-Path $f118Dir 'state.sha256'
+          if (-not (Test-Path -LiteralPath $first) -or -not (Test-Path -LiteralPath $firstReceipt)) {
+            throw 'F119_FIRST_ACTUAL_ACTION_REPORT_MISSING'
+          }
+          $initialHash=(Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ((Get-Content -LiteralPath $firstReceipt -Raw).Trim() -cne "$initialHash  state.json") {
+            throw 'F119_FIRST_ACTUAL_ACTION_RECEIPT_DRIFT'
+          }
+          $immutableFirst=Join-Path $dir 'first-state.json'
+          Copy-Item -LiteralPath $first -Destination $immutableFirst
+          $audit=Join-Path $dir 'second-round-audit.json'
+          $carried=Join-Path $dir 'next-schedule-state.json'
+          $args2=@('--advisory',(Join-Path $env:RUNNER_TEMP 'forge-model-free-advisory.json'),
+              '--first',$immutableFirst,'--source-ref',$env:GITHUB_SHA,
+              '--run-id',$env:GITHUB_RUN_ID,'--event',$env:GITHUB_EVENT_NAME,
+              '--audit-out',$audit,'--next-state-out',$carried)
+          & $python -B nativeevidence/f119_second_round.py @args2
+          if ($LASTEXITCODE -ne 0) { throw 'F119_SECOND_ACTUAL_ACTION_PAIR_FAILED' }
+          $result=Get-Content -LiteralPath $audit -Raw | ConvertFrom-Json
+          $updated=Get-Content -LiteralPath $carried -Raw | ConvertFrom-Json
+          if ($result.schema -cne 'forge.autonomy.f119.actual-two-round-development-feedback.v1' -or
+              $result.source_sha -cne $env:GITHUB_SHA -or
+              [int64]$result.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $result.event -cne $env:GITHUB_EVENT_NAME -or
+              $result.first_round.Count -ne 2 -or $result.second_round.Count -ne 2 -or
+              $result.first_round[0].lane -cne 'Wingless' -or
+              $result.first_round[1].lane -cne 'Yggdrasil' -or
+              $result.second_round[0].lane -cne 'Wingless' -or
+              $result.second_round[1].lane -cne 'Yggdrasil' -or
+              $result.total_real_package_checks_this_run -ne 4 -or
+              $result.model_free_autonomous_feedback_decisions -ne 4 -or
+              -not $result.feedback_retained_for_next_scheduled_run -or
+              $result.two_distinct_GitHub_scheduled_runs_observed -or
+              $result.research_hypothesis_fitness_established -or
+              $result.unrestricted_learning_established -or
+              $result.original_science_executed -ne 0 -or
+              $result.accepted_refs_mutated -ne 0 -or
+              $result.optimizer_promotions -ne 0 -or
+              $result.Codex_calls -ne 0 -or $result.paid_model_calls -ne 0 -or
+              $result.new_schedulers -ne 0 -or $result.ckb_plane_contact -or
+              $result.cloudflare_writes -ne 0 -or $result.Mind_Palace_writes -ne 0 -or
+              $updated.schema -cne 'forge.autonomy.f118.model-free-development-feedback.v1' -or
+              $updated.source_sha -cne $env:GITHUB_SHA -or
+              $updated.evaluations.Count -ne 2 -or
+              $updated.qualified_unattended_repetitions -or
+              $updated.new_scientific_originals -ne 0 -or
+              $updated.accepted_ref_mutations -ne 0) {
+            throw 'F119_FALSE_WITHIN_RUN_LOOP_OR_UNEARNED_SCIENCE'
+          }
+          # Reuse the original F118 scheduled archive name and source-bound
+          # schema so its next real scheduled run reads ALL FOUR actions.
+          [System.IO.File]::WriteAllBytes($first,[System.IO.File]::ReadAllBytes($carried))
+          $finalHash=(Get-FileHash -LiteralPath $first -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText($firstReceipt,
+            "$finalHash  state.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          foreach ($entry in $result.second_round) {
+            Write-Host ('F119_REAL_SECOND_ACTION '+$entry.lane+
+              ' index='+$entry.proposal_position+' suite='+$entry.engineering_readiness_suite+
+              ' outcome='+$entry.outcome+' reason='+$entry.selection_reason)
+          }
+          $sha=(Get-FileHash -LiteralPath $audit -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $dir 'second-round-audit.sha256'),
+            "$sha  second-round-audit.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'F119_FOUR_ACTUAL_BOUNDED_DEVELOPMENT_CHECKS=PASS'
+          Write-Host 'F119_NEW_SCIENTIFIC_ORIGINALS_AND_OPTIMIZER_PROMOTIONS=ZERO'
       - name: Validate native historical-source identity and science-denial tests
         shell: pwsh
         run: |
@@ -338,5 +416,17 @@ jobs:
           path: |
             ${{ runner.temp }}/forge-f118-autonomy/state.json
             ${{ runner.temp }}/forge-f118-autonomy/state.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f119-second-round-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f119-autonomy/first-state.json
+            ${{ runner.temp }}/forge-f119-autonomy/second-round-audit.json
+            ${{ runner.temp }}/forge-f119-autonomy/second-round-audit.sha256
+            ${{ runner.temp }}/forge-f119-autonomy/next-schedule-state.json
           retention-days: 30
           if-no-files-found: error
