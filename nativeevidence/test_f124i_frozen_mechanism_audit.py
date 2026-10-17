@@ -64,7 +64,7 @@ class FrozenF124IQualification(unittest.TestCase):
             self.assertLessEqual(work["peak_key_records"],128)
             self.assertLessEqual(work["peak_messages"],128)
             _,reference=receipt.fixed_comparator(pos)
-            self.assertGreater(reference["raw_bit_comparisons"],0)
+            self.assertGreater(reference["bit_comparisons"],0)
             self.assertIsInstance(y,float)
 
     def test_edge_order_invariance_no_private_model_features(self):
