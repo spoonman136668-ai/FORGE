@@ -1,0 +1,173 @@
+name: FORGE source-qualified development completion succession
+
+# Event-driven, one-shot gate for the existing development workflow.
+# This workflow has NO cron. The integrated workflow's existing schedule
+# is its ten-minute fallback. It never dispatches scientific originals.
+on:
+  workflow_run:
+    workflows:
+      - FORGE integrated two-lane safe research-cycle acceptance
+    types: [completed]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'nativeevidence/f136_succession.py'
+      - 'nativeevidence/test_f136_succession.py'
+      - 'reference/research-intake/f136-development-succession-freeze.json'
+      - '.github/workflows/forge-development-succession.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-f136-development-successor-controller
+  cancel-in-progress: false
+
+jobs:
+  pr-guard-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check bounded source-only successor rules
+        run: python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+
+  source-gated-successor:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      (github.event.workflow_run.event == 'schedule' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate frozen source, bounded decision rules and no-science denials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+          echo 'F136_CONTROLLER_PROVENANCE_TESTS=PASS'
+      - name: Reconcile genuine successful main run and bounded historical source
+        if: github.event_name == 'workflow_run'
+        id: gate
+        shell: bash
+        env:
+          PARENT_RUN: ${{ github.event.workflow_run.id }}
+          PAUSE: ${{ vars.FORGE_DEV_AUTONOMY_PAUSE }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/forge-f136-succession"
+          mkdir -p "$root"
+          # Obtain authoritative GitHub data independently of webhook fields.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN" > "$root/prior.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_RUN/artifacts?per_page=100" > "$root/artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha' > "$root/main.sha"
+          # Collect up to 300 newest integrated runs. The Python evaluator
+          # stops if the oldest observed run has not crossed UTC midnight.
+          for page in 1 2 3; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&per_page=100&page=$page" > "$root/page-$page.json"
+          done
+          python3 - "$root" <<'PY'
+          import json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          pages=[json.loads((root/f"page-{n}.json").read_text()) for n in (1,2,3)]
+          rows=[r for p in pages for r in p["workflow_runs"]]
+          assert len(rows)==len({r["id"] for r in rows}),"F136_GITHUB_PAGINATION_DUPLICATE"
+          assert rows and len(rows)<=300,"F136_GITHUB_HISTORY_BOUNDS"
+          (root/"recent.json").write_text(json.dumps(
+              {"total_count":pages[0]["total_count"],"workflow_runs":rows},
+              sort_keys=True,separators=(",",":")))
+          PY
+          stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          main_sha="$(tr -d '\r\n' < "$root/main.sha")"
+          # A workflow_run executes on default-branch code, not the source
+          # workflow head. Reject any checkout drifting from authenticated
+          # protected main while this one-shot controller was queued.
+          test "$(git rev-parse HEAD)" = "$main_sha"
+          paused=false
+          if [[ "$PAUSE" == 'true' ]]; then paused=true; fi
+          # Preflight decision does not require zipped payload readback. We
+          # open the six source archives only if the cheap gate is eligible.
+          cat > "$root/preflight.py" <<'PY'
+          import sys,json
+          from pathlib import Path
+          from datetime import datetime
+          sys.path.insert(0,"nativeevidence")
+          import f136_succession as g
+          d=Path(sys.argv[1])
+          out=g.decision(
+              g.strict((d/"prior.json").read_bytes()),
+              g.strict((d/"artifacts.json").read_bytes()),
+              g.strict((d/"recent.json").read_bytes()),
+              (d/"main.sha").read_text().strip(),
+              g.stamp(sys.argv[2]),
+              paused=(sys.argv[3]=="true"))
+          (d/"preflight.json").write_text(json.dumps(out,sort_keys=True))
+          print("F136_PREFLIGHT_DISPATCH="+str(out["dispatch"]))
+          PY
+          python3 "$root/preflight.py" "$root" "$stamp" "$paused"
+          eligible="$(jq -r '.dispatch' "$root/preflight.json")"
+          if [[ "$eligible" != "true" ]]; then
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+            jq -r '.reasons[]' "$root/preflight.json" | sed 's/^/F136_DECLINED_/'
+            exit 0
+          fi
+          for prefix in forge-f124-autonomy- forge-f126-original-negative-agenda- forge-f129-admission-; do
+            for os in ubuntu-latest windows-latest; do
+              name="$prefix$os"
+              mkdir -p "$root/$name"
+              gh run download "$PARENT_RUN" --repo "$GITHUB_REPOSITORY" -n "$name" -D "$root/$name"
+            done
+          done
+          python3 -B nativeevidence/f136_succession.py \
+            --trigger "$root/prior.json" \
+            --artifacts-index "$root/artifacts.json" \
+            --recent "$root/recent.json" \
+            --main-sha "$main_sha" \
+            --now "$stamp" --paused "$paused" \
+            --report-dir "$root" \
+            --output "$root/f136-decision.json"
+          test "$(jq -r '.dispatch' "$root/f136-decision.json")" = "true"
+          echo "dispatch=true" >> "$GITHUB_OUTPUT"
+          echo "parent=$PARENT_RUN" >> "$GITHUB_OUTPUT"
+          echo "sha=$main_sha" >> "$GITHUB_OUTPUT"
+          echo 'F136_AUTHENTIC_SIX_ARCHIVES_AND_DAILY_BUDGET_PASS'
+      - name: Dispatch exactly one existing source-only development successor
+        if: github.event_name == 'workflow_run' && steps.gate.outputs.dispatch == 'true'
+        shell: bash
+        env:
+          PARENT_RUN: ${{ steps.gate.outputs.parent }}
+          EXPECTED_SHA: ${{ steps.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" = "$EXPECTED_SHA"
+          # GitHub GITHUB_TOKEN allows workflow_dispatch. No PAT, no paid API,
+          # no code write, and no new scheduler or scientific first-use.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/dispatches" \
+            -f ref=main -f 'inputs[origin]=f136-completion' \
+            -f "inputs[parent_run_id]=$PARENT_RUN" \
+            -f "inputs[parent_source_sha]=$EXPECTED_SHA"
+          echo 'F136_ONE_DEVELOPMENT_SUCCESSOR_DISPATCHED=TRUE'
+          echo 'F136_SCIENCE_ORIGINALS_AND_OPTIMIZER_PROMOTIONS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: always() && github.event_name == 'workflow_run'
+        with:
+          name: forge-f136-completion-decision-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/forge-f136-succession/preflight.json
+            ${{ runner.temp }}/forge-f136-succession/f136-decision.json
+          if-no-files-found: warn
+          retention-days: 14
