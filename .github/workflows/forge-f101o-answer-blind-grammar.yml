@@ -1,0 +1,112 @@
+name: FORGE F101-O frozen public question-only language-role grammar qualification
+on:
+  push:
+    branches: [engineering/f101o-answer-blind-public-grammar-20261016-r1]
+    paths:
+      - 'noveltymechanisms/langroles/**'
+      - 'cmd/forge-f101o-grammar-count/**'
+      - 'noveltyeval/f101o_*'
+      - 'noveltyeval/test_f101o_*'
+      - 'docs/F101O-ANSWER-BLIND-FROZEN-LANGUAGE-ROLES.md'
+      - '.github/workflows/forge-f101o-answer-blind-grammar.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f101o-frozen-public-grammar-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  public-question-only-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Authenticate exact FORGE head and independently authored immutable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/2-hop/qa_test.txt)" = 'c60e27a75140cfc2792469181caca05b79b017ad'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/3-hop/qa_test.txt)" = '09756f302c4100897c64144e7af8c73763cee4a2'
+      - name: Frozen eight-template Go parser and answer-leakage adverse tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/langroles ./cmd/forge-f101o-grammar-count
+          python -B -m unittest discover -s noveltyeval -p 'test_f101o_*.py' -v
+      - name: Full 29146-public-question corpus coverage and abstention only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f101o_public_grammar_coverage.py --upstream public-metaqa --output f101o-public-coverage.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f101o-public-coverage.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f101o.public-answer-blind-complete-question-coverage.v1'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['frozen_grammar_count']==8
+          assert x['entire_public_qa_population']==29146
+          assert len(x['cohorts'])==2
+          for c,expected,hop in zip(x['cohorts'],(14872,14274),(2,3)):
+            assert c['hops']==hop
+            assert c['original_rows']==expected
+            a=c['aggregate']
+            assert a['questions']==expected
+            assert a['matched']+a['abstained']==expected
+            assert sum(a['reasons'].values())==a['abstained']
+            assert a['question_only_data_flow'] is True
+            assert a['answers_read']==a['model_calls']==0
+            assert a['scientific_dispatch'] is False
+          for key in ('answer_values_supplied_to_parser','answer_field_compared',
+            'per_question_data_published','actual_qa_accuracy_computed',
+            'independent_blinded_scientific_firstuse','scientific_acceptance',
+            'dream_pareto_promotion','thetaevolve_accepted_training',
+            'science_dispatch_authorized','accepted_ref_mutation'):
+            assert x[key] is False,key
+          assert x['codex_calls']==x['paid_model_calls']==x['cloudflare_writes']==0
+          print('F101O_ONLY_PUBLIC_FIXED_GRAMMAR_COVERAGE=TRUE')
+          print('F101O_NO_PREDICTIONS_NO_QA_ACCURACY=TRUE')
+          PY
+          sha256sum f101o-public-coverage.json > f101o-public-coverage.sha256
+          sha256sum -c f101o-public-coverage.sha256
+      - name: One required final system-level full regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F101O_CKB_CLOUDFLARE_CODEX_MODEL_CALLS=ZERO'
+          echo 'F101O_ACCEPTED_REFS_AND_SCIENTIFIC_FIRSTUSE=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f101o-public-grammar-${{ matrix.os }}
+          path: |
+            f101o-public-coverage.json
+            f101o-public-coverage.sha256
+          retention-days: 45
+          if-no-files-found: error
