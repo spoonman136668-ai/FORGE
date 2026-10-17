@@ -1,0 +1,158 @@
+name: FORGE F118-O authentic MetaQA heldout node binding
+on:
+  push:
+    branches: [engineering/f118o-explicit-binding-heldout-20261017-r1]
+    paths:
+      - 'noveltyeval/f118o_*'
+      - 'noveltyeval/test_f118o_*'
+      - 'docs/F118O-*'
+      - '.github/workflows/forge-f118o-source-node-binding.yml'
+permissions:
+  contents: read
+jobs:
+  actual-source-heldout-node-join-learning:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: original-metaqa-kb
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Pin original Git object bytes without worktree newline transformation or QA files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C original-metaqa-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C original-metaqa-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C original-metaqa-kb show HEAD:metaqa/original/kb.txt > f118o-original-kb-source.bin
+          digest="$(sha256sum f118o-original-kb-source.bin | cut -d' ' -f1)"
+          test "$digest" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F118O_ONLY_ORIGINAL_AUTHENTIC_SOURCE_GRAPH_NO_QA_SOURCE'
+      - name: Source-edge identity binding and actual gradient adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f118o_heldout_node_binding.py' -v
+      - name: Entire original MetaQA graph and preregistered disjoint unseen source node evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f118o_heldout_node_binding.py --source-raw f118o-original-kb-source.bin --out f118o-authentic-node-join-learning.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f118o-authentic-node-join-learning.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f118o.original-metaqa-node-disjoint-binding.v1'
+          assert x['status']=='PUBLIC_METAQA_HELDOUT_NODE_IDENTITY_COMPARATOR_ENGINEERING_ONLY'
+          assert x['evaluation_stage']=='F118O_SECOND_STAGE_BIDIRECTIONAL_DEVELOPMENT_DIAGNOSTIC'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['source_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['source_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['original_source_rows']==134741
+          assert x['original_unique_triples']==133582
+          assert x['full_source_roles']==9
+          b=x['binding_comparator']
+          assert b['node_disjoint_train_middle_ids']==512
+          assert b['node_disjoint_dev_middle_ids']==128
+          assert b['node_disjoint_terminal_middle_ids']==256
+          assert b['train_edge_pair_examples']==1024
+          assert b['dev_edge_pair_examples']==256
+          assert b['terminal_edge_pair_examples']==512
+          assert sum(b['split_eligible_source_middle_nodes'].values())>=896
+          trained=b['training']
+          assert trained['training_epochs']==160 and trained['learned_parameters']==9
+          assert trained['training_samples']==1024
+          assert trained['training_logloss_final']<trained['training_logloss_initial']
+          assert trained['learned_parameter_movement_l2']>0
+          assert len(trained['learned_parameter_sha256'])==64
+          for key in ('authentic_original_source_triple_provenance_verified',
+                      'negative_edges_are_real_but_middle_entities_differ',
+                      'train_dev_test_candidate_middle_ids_disjoint',
+                      'negative_hash_prefix_nibble_matched',
+                      'no_eight_byte_hash_collision_in_selected_negatives',
+                      'explicit_original_forward_reverse_arcs_used',
+                      'original_physical_edge_reuse_in_positive_denied',
+                      'original_forward_only_cohort_underpopulated',
+                      'exact_symbolic_node_equality_is_perfect_by_construction',
+                      'hash_equality_features_encode_label_not_graph_semantics'):
+            assert b[key] is True,key
+          for split,n in [('dev_inspection_only',256),('terminal_heldout',512)]:
+            d=b[split]
+            assert set(d)=={
+              'learned_hash_byte_comparator',
+              'train_majority',
+              'first_hash_nibble_equal',
+              'fixed_eight_hash_bytes_equal',
+              'exact_symbolic_node_identity_oracle'}
+            for measured in d.values():
+              assert measured['n']==n
+              assert measured['positive']==n//2 and measured['negative']==n//2
+              assert measured['tp']+measured['tn']+measured['fp']+measured['fn']==n
+            assert d['exact_symbolic_node_identity_oracle']['balanced_accuracy']==1.0
+          assert b['engineering_exploratory_disposition'] in (
+            'LEARNED_HASH_EQUALITY_TRANSFER_DEMONSTRATED',
+            'LEARNED_HASH_EQUALITY_TRANSFER_NOT_DEMONSTRATED')
+          for key in ('learned_query_traversal_qualified',
+                      'genuine_model_variable_binding_qualified',
+                      'developer_or_test_optimizes_model'):
+            assert b[key] is False,key
+          for key in ('original_metaqa_qa_questions_read',
+                      'original_metaqa_answers_scored',
+                      'original_freebaseqa_graph_qualified',
+                      'learned_general_graph_reasoning',
+                      'independent_scientific_firstuse','accepted_science',
+                      'accepted_ref_mutation','dream_pareto_promotion',
+                      'thetaevolve_accepted_training','science_dispatch'):
+            assert x[key] is False,key
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F118O_HELDOUT_METRICS='+json.dumps(b['terminal_heldout'],sort_keys=True))
+          print('F118O_EQUATABLE_HASH_NOT_ACTUAL_GRAPH_REASONING='+b['engineering_exploratory_disposition'])
+          PY
+          sha256sum f118o-authentic-node-join-learning.json > f118o-authentic-node-join-learning.sha256
+          sha256sum -c f118o-authentic-node-join-learning.sha256
+      - name: Complete exact-head FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F118O_NO_SCIENCE_PROMOTION_CKB_CLOUDFLARE_CODEX_PAID_INFERENCE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f118o-authentic-node-binding-${{ matrix.os }}
+          path: |
+            f118o-authentic-node-join-learning.json
+            f118o-authentic-node-join-learning.sha256
+          retention-days: 45
+          if-no-files-found: error
