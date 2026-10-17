@@ -169,16 +169,26 @@ def score_phase(lane,phase,base,delta,fixed):
 def run(authenticated_prior_path):
     spec=validate_freeze()
     prior=original_weights(authenticated_prior_path)
-    # Public comparators preserve original bytecode; only graph shape validator
-    # rebound to F124-N public validator. All actual graphs from guarded Q source.
     fixed=original_adapter.clone_single_validator(
         original_control.fixed_comparator,"graph")
     trained={}
-    # Critical anti-leak order: train both separately before any Q DEV build.
+    quarantined={}
+    # Keep original preregistered 72-step train untouched. A genuinely stalled
+    # learner cannot be substituted with a hand-adjusted delta or scored as trained.
     for lane in ("Wingless","Yggdrasil"):
         print("F124Q_FIT_ATTEMPT="+lane,flush=True)
-        trained[lane]=learner.train(lane,prior[lane])
-        print("F124Q_FIT_PASS="+lane+":UPDATE_L2="+str(trained[lane]["weight_update_l2"]),flush=True)
+        try:
+            trained[lane]=learner.train(lane,prior[lane])
+            print("F124Q_FIT_PASS="+lane+":UPDATE_L2="+
+                  str(trained[lane]["weight_update_l2"]),flush=True)
+        except source.Quarantined as exc:
+            # Fail closed on all unexpected problems. Exactly this original
+            # no-update/nonfinite gate may be preserved as a developmental
+            # TRAIN negative. No alternative hyperparameters or DEV tuning.
+            if str(exc)!="F124Q_LEARNER_GENUINE_FIT_ONLY_LEARNER_UPDATE":
+                raise
+            quarantined[lane]=str(exc)
+            print("F124Q_FIT_NEGATIVE="+lane+":"+str(exc),flush=True)
     out={"schema":SCHEMA,
          "source_protocol_git_blob":source.PROTOCOL_BLOB,
          "frozen_preimplementation_git_blob":FREEZE_BLOB,
@@ -190,23 +200,43 @@ def run(authenticated_prior_path):
          "scientific_acceptances":0,"accepted_refs_changed":0,
          "optimizer_promotions":0,"paid_api_calls":0,"codex_calls":0,
          "cross_lane_parameter_sharing":False,
-         "matched_compute_superiority_proven":False,"lanes":[]}
+         "matched_compute_superiority_proven":False,
+         "two_lane_scientific_training_qualified":False,
+         "training_gate_negatives":len(quarantined),
+         "lanes":[]}
     for lane in ("Wingless","Yggdrasil"):
+        if lane in quarantined:
+            out["lanes"].append({
+                "lane":lane,"training_status":"FIT_GATE_BLOCKED",
+                "training_gate_negative":quarantined[lane],
+                "new_trainable_mechanism":spec["mechanisms"][lane]["model"],
+                "training":None,"fit":None,"dev":None,
+                "dev_scored":False,
+                "development_verdict":"FIT_ONLY_LEARNING_NOT_QUALIFIED__DEV_PREDICTIONS_NOT_GENERATED"})
+            continue
         fit=score_phase(lane,"FIT",prior[lane],trained[lane]["delta"],fixed)
         dev=score_phase(lane,"DEV",prior[lane],trained[lane]["delta"],fixed)
         out["lanes"].append({
-            "lane":lane,
+            "lane":lane,"training_status":"GENUINE_FIT_PASS",
             "new_trainable_mechanism":spec["mechanisms"][lane]["model"],
             "training":trained[lane],"fit":fit,"dev":dev,
+            "dev_scored":True,
             "development_verdict":"LEARNED_ABOVE_STRONG_FIXED_IN_FRESH_DEV_ONLY"
             if dev["arms"]["new_fit_only_learned"]["paired"]>
                dev["arms"]["strong_fixed"]["paired"]
             else "LEARNED_NOT_ABOVE_STRONG_FIXED_IN_FRESH_DEV"})
     need(len(out["lanes"])==2 and
-         trained["Wingless"]["delta_sha256"]!=
-         trained["Yggdrasil"]["delta_sha256"] and
-         all(x["training"]["dev_access_during_training"]==0
-             for x in out["lanes"]),"LANE_ISOLATION_AND_NO_DEV_TRAIN")
+         all(row["training_status"] in ("GENUINE_FIT_PASS","FIT_GATE_BLOCKED")
+             for row in out["lanes"]) and
+         all(row["training"] is None or
+             row["training"]["dev_access_during_training"]==0
+             for row in out["lanes"]) and
+         not all(row["training_status"]=="FIT_GATE_BLOCKED" for row in out["lanes"]),
+         "LANE_ISOLATION_OR_MISSING_DEVELOPMENT_EVIDENCE")
+    # Explicitly distinguish engineering evidence preservation from a claimed
+    # two-lane learned outcome: Yggdrasil's original frozen update guard stayed
+    # effective, and no modified learner is silently promoted.
+    out["two_lane_scientific_training_qualified"] = not bool(quarantined)
     return out
 
 
