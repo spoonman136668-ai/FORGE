@@ -48,7 +48,7 @@ class F118FeedbackTests(unittest.TestCase):
 
     def test_freeze_and_no_sci_authority(self):
         cfg,h=m.frozen()
-        self.assertEqual(m.gitblob(m.FROZEN.read_bytes()),m.FROZEN_BLOB)
+        self.assertEqual(m.gitblob(m.FROZEN.read_bytes().replace(b"\r\n",b"\n")),m.FROZEN_BLOB)
         self.assertEqual(len(h),64)
         self.assertEqual(cfg["qualification"]["cycles_per_run"],2)
         self.assertTrue(all(cfg["forbidden"].values()))
