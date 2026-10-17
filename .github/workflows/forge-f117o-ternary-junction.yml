@@ -1,0 +1,143 @@
+name: FORGE F117-O original graph latent-junction learner and binding check
+on:
+  push:
+    branches: [engineering/f117o-learned-junction-binding-20261017-r1]
+    paths:
+      - 'noveltyeval/f117o_*'
+      - 'noveltyeval/test_f117o_*'
+      - 'docs/F117O-*'
+      - '.github/workflows/forge-f117o-ternary-junction.yml'
+permissions:
+  contents: read
+jobs:
+  authentic-original-graph-ternary-junction-learning:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: original-metaqa-kb
+          sparse-checkout: |
+            metaqa/original/kb.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact branch and original immutable source without QA materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C original-metaqa-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C original-metaqa-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          git -C original-metaqa-kb show HEAD:metaqa/original/kb.txt > f117o-original-source-git-blob.bin
+          sha="$(sha256sum f117o-original-source-git-blob.bin | cut -d' ' -f1)"
+          test "$sha" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          for cohort in 1-hop 2-hop 3-hop; do
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_train.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_dev.txt"
+            test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_test.txt"
+          done
+          echo 'F117O_ORIGINAL_AUTHENTIC_KB_ONLY_NO_QA_TRAIN_DEV_TEST'
+      - name: Disconnected witness counterexample and true learner gradients
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f117o_ternary_junction.py' -v
+      - name: Frozen trainable intermediate ternary compatibility and actual graph challenge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f117o_ternary_junction.py --source-raw f117o-original-source-git-blob.bin --out f117o-latent-junction-evidence.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f117o-latent-junction-evidence.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f117o.public-metaqa-ternary-latent-junction.v1'
+          assert x['status']=='PUBLIC_METAQA_LATENT_JUNCTION_TERNARY_LEARNER_ENGINEERING_ONLY'
+          assert x['source_repository']=='tiantiangao7/kalm-qa'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['original_graph_git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['original_graph_sha256']=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          assert x['original_source_rows']==134741
+          assert x['original_unique_triples']==133582
+          assert x['exact_oracle_true_2step_role_pairs']==198
+          assert x['exact_oracle_true_3step_role_triples']==1312
+          l=x['learning']
+          assert l['source_3hop_role_type_population']==5832
+          assert l['train']+l['development_inspection_only']+l['terminal_test']==5832
+          assert l['train_positive']+l['train_negative']==l['train']
+          assert l['training']['training_epochs']==240
+          assert l['training']['trainable_parameters']==271
+          assert l['training']['parameter_movement_l2']>0
+          assert l['training']['train_logloss_after']<l['training']['train_logloss_before']
+          assert l['pair_control_training_only']['training_epochs']==200
+          assert 0<l['binding_challenge_n']<=256
+          assert l['binding_challenge_source_pair_pool']>=l['binding_challenge_n']
+          assert 0<=l['binding_challenge_exact_join_negative']<=l['binding_challenge_n']
+          for family in ('terminal_holdout','binding_challenge_heldout'):
+            assert set(l[family])=={
+              'learned_ternary','train_majority',
+              'train_only_positional_marginal','f116_train_only_pairwise_min'}
+            for model in l[family].values():
+              assert model['n']==(l['terminal_test'] if family=='terminal_holdout'
+                                   else l['binding_challenge_n'])
+              assert model['positive']+model['negative']==model['n']
+              assert model['tp']+model['tn']+model['fp']+model['fn']==model['n']
+          assert l['gain_disposition'] in (
+            'LEARNED_JUNCTION_TRANSFER_GAIN_DEMONSTRATED',
+            'LEARNED_JUNCTION_TRANSFER_GAIN_NOT_DEMONSTRATED')
+          assert l['train_only_updates'] is True
+          assert l['dev_test_labels_in_training'] is False
+          assert l['learned_latent_junction_not_entity_variable_binding'] is True
+          assert l['graph_witness_oracle_separate_from_model_features'] is True
+          for key in ('gold_metaqa_question_answers_accessed',
+                      'original_freebaseqa_graph_qualified',
+                      'independent_new_task_family_generalization_proven',
+                      'actual_entity_variable_binding_learned',
+                      'independent_scientific_firstuse','accepted_science',
+                      'accepted_ref_mutation','dream_pareto_promotion',
+                      'thetaevolve_accepted_training','scientific_dispatch'):
+            assert x[key] is False,key
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F117O_TRUE_3HOP_TERMINAL='+json.dumps(l['terminal_holdout'],sort_keys=True))
+          print('F117O_ACTUAL_NODE_BINDING_CHALLENGE='+json.dumps(l['binding_challenge_heldout'],sort_keys=True))
+          print('F117O_PAIRWISE_COMPATIBLE_BUT_UNBOUND='+str(l['binding_challenge_exact_join_negative']))
+          print('F117O_FROZEN_GAIN_DISPOSITION='+l['gain_disposition'])
+          PY
+          sha256sum f117o-latent-junction-evidence.json > f117o-latent-junction-evidence.sha256
+          sha256sum -c f117o-latent-junction-evidence.sha256
+      - name: Complete exact-head FORGE Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F117O_REAL_LEARNING_NOT_SCIENCE_CKB_CLOUDFLARE_PAID_CODEX_ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f117o-authentic-latent-junction-${{ matrix.os }}
+          path: |
+            f117o-latent-junction-evidence.json
+            f117o-latent-junction-evidence.sha256
+          retention-days: 45
+          if-no-files-found: error
