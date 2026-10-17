@@ -37,47 +37,12 @@ jobs:
             $log=Join-Path $env:RUNNER_TEMP ('mp-uq04-'+$name+'-'+$env:GITHUB_RUN_ID+'.log')
             & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $path *> $log
             if($LASTEXITCODE -ne 0){
-              $runNames=@(Get-Content -LiteralPath $log | Where-Object { $_ -match '^RUN Test-[A-Za-z0-9_-]+[.]ps1
-            Write-Host ('UQ04_'+$name+'=PASS')
-          }
-          try{
-            $pre=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$ref))
-            if($LASTEXITCODE -ne 0 -or @($pre).Count -ne 1){throw 'UQ04_REMOTE_REF_UNAVAILABLE'}
-            if(([string]$pre[0] -split '\s+')[0] -cne $expected){throw 'UQ04_UNAPPROVED_HEAD_DRIFT'}
-            & git.exe clone --quiet --single-branch --branch $ref $remote $root
-            if($LASTEXITCODE -ne 0){throw 'UQ04_CLONE_FAILED'}
-            Push-Location $root
-            try{
-              if((& git.exe rev-parse HEAD | Out-String).Trim() -cne $expected){throw 'UQ04_CLONE_HEAD_DRIFT'}
-              if((& git.exe status --porcelain=v1 | Out-String).Trim()){throw 'UQ04_DIRTY_INITIAL_CLONE'}
-              $before=@{}
-              foreach($f in $surfaces){$before[$f]=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()}
-              Test-File 'FOCUSED_ALIAS' '.\tests\Test-ChatSourceAliases.ps1'
-              Test-File 'FOCUSED_COLLECTOR' '.\tests\Test-CollectorBatch.ps1'
-              Test-File 'FULL_REGRESSION' '.\tests\Test-All.ps1'
-              foreach($f in $surfaces){
-                $after=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
-                if($after -cne $before[$f]){throw ('UQ04_DURABLE_HASH_CHANGED_'+$f)}
-              }
-              if((& git.exe status --porcelain=v1 | Out-String).Trim()){throw 'UQ04_DIRTY_FINAL_CLONE'}
-              $post=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$ref))
-              if($LASTEXITCODE -ne 0 -or @($post).Count -ne 1 -or ([string]$post[0] -split '\s+')[0] -cne $expected){throw 'UQ04_FINAL_BRANCH_DRIFT'}
-              $main=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
-              if($LASTEXITCODE -ne 0 -or @($main).Count -ne 1 -or ([string]$main[0] -split '\s+')[0] -cne $base){throw 'UQ04_MAIN_BRANCH_DRIFT'}
-              Write-Host 'UQ04_SOURCE_ALIAS_GUARD=PASS'
-              Write-Host 'UQ04_DURABLE_HASH_PARITY=PASS'
-              Write-Host 'UQ04_SOURCE_AND_MAIN_REFS_UNCHANGED=PASS'
-              Write-Host 'UQ04_INGESTION_APPLIED=0'
-              Write-Host 'UQ04_CODEX_INVOCATIONS=0'
-              Write-Host 'UQ04_PRIVATE_WINDOWS_QUALIFICATION=PASS'
-            }finally{Pop-Location}
-          }finally{if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue}}
- })
-              if($runNames.Count -gt 0){Write-Host ('UQ04_LAST_STARTED_TEST='+$runNames[-1])}
-              $errLines=@(Get-Content -LiteralPath $log | Where-Object { $_ -match '^(Exception|At .+:[0-9]+|.*(mismatch|missing|failed|throw|unexpected)[^\\r\\n]{0,140})' } | Select-Object -Last 6)
-              foreach($line in $errLines){
+              $testNames=@(Get-Content -LiteralPath $log | Select-String '^RUN Test-' | Select-Object -Last 1)
+              if($testNames.Count -gt 0){Write-Host ('UQ04_LAST_TEST='+$testNames[0].Line)}
+              $diagnostics=@(Get-Content -LiteralPath $log -Tail 9)
+              foreach($line in $diagnostics){
                 $safe=($line -replace '(?i)(gh[pousr]_[a-z0-9]{15,}|sk-[a-z0-9_-]{15,})','[REDACTED]')
-                Write-Host ('UQ04_TEST_DIAGNOSTIC='+$safe)
+                Write-Host ('UQ04_FAILURE_DETAIL='+$safe)
               }
               throw ('UQ04_TEST_FAILED_'+$name+'_EXIT_'+$LASTEXITCODE)
             }
