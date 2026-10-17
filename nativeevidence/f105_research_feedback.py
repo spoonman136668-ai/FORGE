@@ -23,7 +23,7 @@ PARENT="7b774d705a11395fe2e804f192f0597e7df2e5b2"
 SHA_RE=re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE=re.compile(r"^[0-9a-f]{64}$")
 EXPECT={
-    "F101":{"lane":"Wingless","candidate":"W100-C1","trainable":4,
+    "F101":{"lane":"Wingless","candidate":"W100-C1","trainable":4,"trainable_field":"trainable_parameter_count",
             "pairs":"development_pair_count","training":"training_pair_count",
             "assess":"public_dev_assessment_pairs","updates":"training_updates",
             "blind_updates":"control_training_updates",
@@ -32,7 +32,7 @@ EXPECT={
                         "fresh_scientific_original_executed","optimizer_promotion_authorized"],
             "zero":["accepted_ref_mutations","codex_calls","external_model_api_calls","chatgpt_work_tasks"],
             "control_shortcut":"always_yes_shortcut"},
-    "F102":{"lane":"Yggdrasil","candidate":"Y100-C1","trainable":18,
+    "F102":{"lane":"Yggdrasil","candidate":"Y100-C1","trainable":18,"trainable_field":"trainable_parameters",
             "pairs":"total_public_development_pairs","training":"training_pairs",
             "assess":"public_development_assessment_pairs","updates":"learned_training_updates",
             "blind_updates":"blind_control_training_updates",
@@ -41,7 +41,7 @@ EXPECT={
             "zero":["scientific_originals_executed","independent_scientific_results_accepted",
                     "accepted_ref_mutations","codex_invocations","external_model_api_calls",
                     "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut"},
-    "F103":{"lane":"Yggdrasil","candidate":"Y100-C2","trainable":20,
+    "F103":{"lane":"Yggdrasil","candidate":"Y100-C2","trainable":20,"trainable_field":"trainable_parameters",
             "pairs":"total_development_pairs","training":"training_pairs",
             "assess":"assessment_pairs","updates":"learned_training_updates",
             "blind_updates":"variable_blind_training_updates",
@@ -50,7 +50,7 @@ EXPECT={
             "zero":["scientific_originals_executed","independent_scientific_results_accepted",
                     "accepted_ref_mutations","codex_invocations","paid_api_calls",
                     "chatgpt_work_tasks"],"control_shortcut":"always_yes_shortcut"},
-    "F104":{"lane":"Wingless","candidate":"W100-C2","trainable":18,
+    "F104":{"lane":"Wingless","candidate":"W100-C2","trainable":18,"trainable_field":"trainable_parameters",
             "pairs":"total_development_pairs","training":"training_pairs",
             "assess":"public_assessment_pairs","updates":"learned_training_updates",
             "blind_updates":"blind_control_training_updates",
@@ -163,7 +163,7 @@ def read_evidence(source_sha,evidence_root,cfg):
         requirements=EXPECT[key]
         require(all(type(data.get(z)) is int and data[z]==n for z,n in (
                   (requirements["pairs"],144),(requirements["training"],96),
-                  (requirements["assess"],48),(requirements["trainable"],requirements["trainable"]),
+                  (requirements["assess"],48),(requirements["trainable_field"],requirements["trainable"]),
                   (requirements["updates"],100),(requirements["blind_updates"],100))),
                 "TRAINING_AND_COHORT_BUDGET_DRIFT_"+key)
         require(data.get(requirements["negative"]) is True and
