@@ -106,11 +106,11 @@ class F124Autonomy(unittest.TestCase):
             m.execute(advisory(),SOURCE,102,"schedule",bad,meta)
 
     def test_advisory_source_mismatch_and_disallowed_promotion(self):
-        with self.assertRaises((m.f118.Quarantined,m.f120.Invalid)):
+        with self.assertRaises((m.Quarantined,m.f118.Quarantined,m.f120.Invalid)):
             m.execute(advisory(),"b"*40,101,"pull_request")
         bad=copy.deepcopy(advisory())
         bad["accepted_ref_mutations"]=1
-        with self.assertRaises((m.f118.Quarantined,m.f120.Invalid)):
+        with self.assertRaises((m.Quarantined,m.f118.Quarantined,m.f120.Invalid)):
             m.execute(bad,SOURCE,101,"pull_request")
 
 if __name__=="__main__":
