@@ -193,6 +193,10 @@ def train_lane(lane, vectors):
                                 "train_score": x["train_score"]}
                            for arm, x in learned.items()},
             "train_selected_arm": selected,
+            "train_candidate_vectors": [list(v) for v in vectors],
+            "f122_training_foundation_weights": list(f122weights),
+            "trained_weights": {arm: list(learned[arm]["weights"])
+                                for arm in ("A", "B")},
             "confirmation_inputs_generated": 0,
             "originals_dispatched": 0,
             "scientific_acceptances": 0,
