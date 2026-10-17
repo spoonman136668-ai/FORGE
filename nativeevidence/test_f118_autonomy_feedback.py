@@ -38,6 +38,14 @@ def prior_meta(state):
             "conclusion":"success","run_attempt":1}
 
 class F118FeedbackTests(unittest.TestCase):
+    def setUp(self):
+        self._prior_sha=os.environ.get("GITHUB_SHA")
+        os.environ["GITHUB_SHA"]=SRC
+
+    def tearDown(self):
+        if self._prior_sha is None:os.environ.pop("GITHUB_SHA",None)
+        else:os.environ["GITHUB_SHA"]=self._prior_sha
+
     def test_freeze_and_no_sci_authority(self):
         cfg,h=m.frozen()
         self.assertEqual(m.gitblob(m.FROZEN.read_bytes()),m.FROZEN_BLOB)
