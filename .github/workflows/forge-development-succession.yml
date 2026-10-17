@@ -24,17 +24,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  pr-guard-tests:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check bounded source-only successor rules
+        run: python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+
   source-gated-successor:
-    # A PR only tests the pure controller; no permissions to dispatch.
     if: >-
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event != 'pull_request')
+      github.event_name == 'workflow_run' &&
+      (github.event.workflow_run.event == 'schedule' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     permissions:
       contents: read
-      actions: ${{ github.event_name == 'workflow_run' && 'write' || 'read' }}
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
