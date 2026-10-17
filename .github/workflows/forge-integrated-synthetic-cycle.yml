@@ -1182,3 +1182,81 @@ jobs:
           assert reports[0]==reports[1],"F128_OS_OPERATOR_OR_EVIDENCE_DRIFT"
           print("F128_BYTE_IDENTICAL",hashlib.sha256(reports[0]).hexdigest())
           PY
+
+  f129-durable-cross-run-proof:
+    needs: two-lane-synthetic
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-f129-admission-*
+          path: f129-admission-proof
+          merge-multiple: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-f124-autonomy-*
+          path: f129-f124-proof
+          merge-multiple: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-f126-original-negative-agenda-*
+          path: f129-f126-proof
+          merge-multiple: false
+      - name: Confirm both scheduled-stage gate decisions and durable F124/F126 receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          def read_pair(base,prefix,name,receipt):
+              values=[]
+              for os in ("ubuntu-latest","windows-latest"):
+                  folder=Path(base)/(prefix+os)
+                  raw=(folder/name).read_bytes()
+                  expected=(folder/receipt).read_text(encoding="utf-8").strip()
+                  actual=hashlib.sha256(raw).hexdigest()
+                  assert expected==actual+"  "+name,("F129_BAD_RECEIPT",base,os)
+                  values.append(raw)
+              assert values[0]==values[1],("F129_DIVERGENT_HOST_RECORDS",base)
+              return json.loads(values[0])
+          gate=read_pair("f129-admission-proof","forge-f129-admission-",
+                         "f129-admission.json","f129-admission.sha256")
+          f124=read_pair("f129-f124-proof","forge-f124-autonomy-",
+                         "state.json","state.sha256")
+          f126=read_pair("f129-f126-proof","forge-f126-original-negative-agenda-",
+                         "f126-original-negative-selected-agenda.json",
+                         "f126-original-negative-selected-agenda.sha256")
+          assert gate["schema"]=="forge.autonomy.f129.staged-scheduled-bootstrap-development.v1"
+          assert gate["run_id"]==f124["run_id"]==f126["run_id"]
+          assert gate["source_sha"]==f124["source_sha"]==f126["source_sha"]
+          assert f124["scientific_originals"]==0
+          assert f126["new_accepted_scientific_originals"]==0
+          assert f126["accepted_ref_mutations"]==0
+          assert not gate["two_genuine_scheduled_main_runs_proven"]
+          if gate["event"]=="schedule":
+              assert f124["event"]=="schedule" and f126["event"]=="schedule"
+              if gate["admissions"]["F125"]["admitted"]:
+                  assert f124["continuity"]=="VERIFIED_PREVIOUS_F124_SCHEDULE"
+                  assert f124["generation"]>=2 and f124["prior_record_sha256"]
+              else:
+                  assert f124["continuity"]=="BOOTSTRAP_NO_PREVIOUS_F124_SCHEDULE"
+                  assert f124["generation"]==1
+          else:
+              assert gate["development_pr_evidence_mode"]
+              assert not gate["genuine_scheduled_source"]
+          for stage in ("F125","F127","F128"):
+              entry=gate["admissions"][stage]
+              assert isinstance(entry["admitted"],bool)
+              if gate["event"]=="schedule" and entry["admitted"]:
+                  assert isinstance(entry["prior_run_id"],int)
+                  assert entry["prior_run_id"]<gate["run_id"]
+              if not entry["admitted"]:
+                  assert entry["prior_run_id"] is None
+          print("F129_SOURCE_PRESERVING_SCHEDULE_ADMISSION_PASS",
+                hashlib.sha256(json.dumps(gate,sort_keys=True,separators=(",",":")).encode()).hexdigest())
+          PY
