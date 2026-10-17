@@ -1,0 +1,116 @@
+name: FORGE F116 public learned query value
+on:
+  push:
+    branches: [research/f116-learned-query-value-20261017-r1]
+    paths:
+      - '.github/workflows/forge-f116-public-learned-query-value.yml'
+      - 'nativeevidence/f116_learned_query_value.py'
+      - 'nativeevidence/test_f116_learned_query_value.py'
+      - 'reference/research-intake/f116-learned-query-value-freeze.json'
+permissions:
+  contents: read
+jobs:
+  frozen-public-cpu:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify source-pinned F115 and precode F116 ancestry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'F116_WRONG_LITERAL_HEAD' }
+          git merge-base --is-ancestor '58ecee22271771e0eba5d137c93e29282d42b126' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F116_F115_PARENT_NOT_ANCESTOR' }
+          git merge-base --is-ancestor 'fad7b4de6d3864e4f3b9ee30915daddd99acb532' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F116_FIRST_PREREG_NOT_ANCESTOR' }
+          if ((git hash-object 'reference/research-intake/f116-learned-query-value-freeze.json') -cne 'ff1b7b7cf4ba5a37948c832e1ba4378897f4be5e') { throw 'F116_PREREG_DRIFT' }
+          if ((git hash-object 'nativeevidence/f115_bounded_active_clarification.py') -cne '1d16a2164abbd6740dfa4ff1b5651e21e9745037') { throw 'F116_F115_CODE_DRIFT' }
+          $actual=@(git diff --name-only 'fad7b4de6d3864e4f3b9ee30915daddd99acb532' HEAD | Where-Object { $_ -ne '' })
+          $allowed=@(
+            'nativeevidence/f116_learned_query_value.py',
+            'nativeevidence/test_f116_learned_query_value.py',
+            '.github/workflows/forge-f116-public-learned-query-value.yml'
+          )
+          if (@(Compare-Object $actual $allowed).Count -ne 0) { throw 'F116_UNAUTHORIZED_SOURCE_CHANGE' }
+      - name: Run frozen F116 adversarial source-only qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f116_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F116_LEARNED_QUERY_TEST_FAILED' }
+      - name: Run four source-disjoint guard blocks and archive negatives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-f116'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $report=Join-Path $dir 'f116-learned-query-value.json'
+          python -B nativeevidence/f116_learned_query_value.py --source-ref $env:GITHUB_SHA |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F116_FROZEN_EVALUATION_FAILED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f116.train-only-query-value-public-development.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.train_count -ne 1024 -or
+              $d.guard_count -ne 3072 -or
+              $d.trained_steps -ne 100 -or
+              $d.learned_trainable_params -ne 8 -or
+              $d.guard_blocks.Count -ne 4 -or
+              $d.policy_trace_by_channel_cost.Count -ne 16 -or
+              $d.scientific_first_use_authorized -or
+              $d.independently_accepted_science -or
+              $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.model_API_calls -ne 0 -or
+              $d.external_controller_accessed -or
+              $d.MindPalace_written) { throw 'F116_FALSE_QUALIFICATION_OR_PRIVILEGE' }
+          foreach ($block in $d.guard_blocks) {
+            if ($block.count -ne 768 -or
+                $block.policies.learned_train_only_eight_logits.rows.Count -ne 768 -or
+                $block.policies.empirical_beta_train_only.rows.Count -ne 768 -or
+                $block.policies.always_query.rows.Count -ne 768) {
+              throw 'F116_MISSING_NEGATIVE_OR_SOURCE_RECORDS'
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $dir 'f116-learned-query-value.sha256'),
+            "$sha  f116-learned-query-value.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+      - name: Existing FORGE full Go regression and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F116_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F116_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F116_GO_BUILD_FAILED' }
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f116-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f116/f116-learned-query-value.json
+            ${{ runner.temp }}/forge-f116/f116-learned-query-value.sha256
+          if-no-files-found: error
+          retention-days: 14
