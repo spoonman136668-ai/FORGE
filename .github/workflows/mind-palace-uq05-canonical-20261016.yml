@@ -1,0 +1,155 @@
+name: Mind-Palace UQ05 canonical browser-source classification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ05-CANONICAL-20261016.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mp-uq05-20261016-readonly
+  cancel-in-progress: false
+jobs:
+  classify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Verify canonical source and read-only live classifier on pinned protected branch
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ05_WRONG_HOST_REPO'}
+          if($env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013'){throw 'UQ05_WRONG_HOST_BRANCH'}
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ05_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN,Env:GITHUB_ACTIONS -ErrorAction SilentlyContinue
+          $head='0152bb4b3f546f462aff3523f3005c6c885cd9b1'
+          $base='f9f5e0555e1acbe57a36142155e490d21220ca14'
+          $prHead='d6a3d7d5c661bcb49d92ed6303a22f7941b0e05a'
+          $blob='d3b1d73c7c7551e01c053fda58a0eaeae5d3d613'
+          $sourcePath='pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json'
+          $sourceRef='chat:2026-10-15-mind-palace-web-client-ingestion'
+          $sourceVersion='visible-selected-operator-turns-20261015-r1'
+          $candidateId='preference/mind-palace-webclient-ingestion-no-desktop-app-20261015'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='qualification/chat-source-alias-guard-uq04-20261016'
+          $root=Join-Path $env:RUNNER_TEMP ('mp-uq05-'+$env:GITHUB_RUN_ID)
+          $surfaces=@('.ice/records.json','.ice/source-ledger.json','.ice/chat-delta-state.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','archive/index.json')
+          function Invoke-JsonFile([string]$tag,[string]$tool,[string[]]$arguments){
+            $raw=(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $tool @arguments 2>&1|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw ('UQ05_'+$tag+'_EXIT_'+$LASTEXITCODE)}
+            try{return ($raw|ConvertFrom-Json -ErrorAction Stop)}catch{throw ('UQ05_'+$tag+'_NOT_JSON')}
+          }
+          function Write-JsonFile([string]$file,$value){
+            [IO.File]::WriteAllText($file,((ConvertTo-Json -InputObject $value -Depth 20)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+          }
+          if(Test-Path -LiteralPath $root){throw 'UQ05_SCRATCH_EXISTS'}
+          try {
+            $initial=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            if($LASTEXITCODE -ne 0 -or @($initial).Count -ne 1 -or ([string]$initial[0] -split '\s+')[0] -cne $head){throw 'UQ05_HEAD_DRIFT'}
+            $initialMain=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            if($LASTEXITCODE -ne 0 -or @($initialMain).Count -ne 1 -or ([string]$initialMain[0] -split '\s+')[0] -cne $base){throw 'UQ05_BASE_DRIFT'}
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ05_PRIVATE_CLONE_FAILED'}
+            Push-Location $root
+            try {
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $head){throw 'UQ05_CLONE_HEAD_DRIFT'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ05_DIRTY_INITIAL_CLONE'}
+              $hashes=@{}
+              foreach($file in $surfaces){$hashes[$file]=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()}
+              & git.exe fetch --quiet --no-tags origin refs/pull/50/head
+              if($LASTEXITCODE -ne 0){throw 'UQ05_PR50_FETCH_FAILED'}
+              if((& git.exe rev-parse FETCH_HEAD|Out-String).Trim() -cne $prHead){throw 'UQ05_PR50_HEAD_DRIFT'}
+              $spec=$prHead+':'+$sourcePath
+              $actualBlob=(& git.exe rev-parse $spec|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $actualBlob -cne $blob){throw 'UQ05_CANONICAL_BLOB_DRIFT'}
+              $runtime=Join-Path $root '.mind-runtime'
+              New-Item -ItemType Directory -Path $runtime -Force|Out-Null
+              $extract=Join-Path $runtime 'uq05-canonical-extraction.json'
+              $text=& git.exe show $spec|Out-String
+              if($LASTEXITCODE -ne 0){throw 'UQ05_READ_CANONICAL_FAILED'}
+              [IO.File]::WriteAllText($extract,$text,(New-Object Text.UTF8Encoding($false)))
+              $src=Get-Content -LiteralPath $extract -Raw|ConvertFrom-Json
+              if([string]$src.schema -cne 'mind-palace.chat-extraction.v1' -or
+                 [string]$src.conversation.ref -cne $sourceRef -or
+                 [string]$src.conversation.version -cne $sourceVersion -or
+                 $null -ne $src.conversation.content_sha256 -or
+                 @($src.turns).Count -ne 1 -or [string]$src.turns[0].role -cne 'operator' -or
+                 @($src.candidates).Count -ne 1 -or
+                 [string]$src.candidates[0].claim_class -cne 'preference' -or
+                 [bool]$src.candidates[0].reverified -or
+                 [bool]$src.candidates[0].details.account_history_coverage_complete){throw 'UQ05_PROVENANCE_OR_PARTIAL_SCOPE_INVALID'}
+              if(([string]$src.candidates[0].kind+'/'+[string]$src.candidates[0].key) -cne $candidateId){throw 'UQ05_CANONICAL_CANDIDATE_DRIFT'}
+              $valid=Invoke-JsonFile 'SOURCE_VALIDATE' '.\tools\chat-collect.ps1' @('validate','-InputPath',$extract)
+              if([string]$valid.schema -cne 'mind-palace.chat-collector-validation.v1' -or -not [bool]$valid.valid -or
+                 [int]$valid.turns -ne 1 -or [int]$valid.candidates -ne 1 -or [int]$valid.forced_archive -ne 0){throw 'UQ05_SOURCE_VALIDATION_REJECTED'}
+              $batchPath=Join-Path $runtime 'uq05-batch.json'
+              $batch=Invoke-JsonFile 'SOURCE_BUILD' '.\tools\chat-collect.ps1' @('build','-InputPath',$extract,'-OutputPath',$batchPath)
+              if([string]$batch.schema -cne 'mind-palace.collector-batch.v1' -or
+                 @($batch.sources).Count -ne 1 -or @($batch.candidates).Count -ne 1 -or
+                 [string]$batch.sources[0].ref -cne $sourceRef -or
+                 [string]$batch.sources[0].role -cne 'primary' -or
+                 [string]$batch.sources[0].version -cne $sourceVersion -or
+                 [string]$batch.candidates[0].disposition_hint -cne 'auto'){throw 'UQ05_COLLECTOR_BUILD_SCOPE_DRIFT'}
+              $alias=(& .\tools\chat-source-alias-guard.ps1 -BatchPath $batchPath|Out-String).Trim()|ConvertFrom-Json
+              if(-not [bool]$alias.valid -or [int]$alias.canonical_candidates -ne 1 -or
+                 [int]$alias.alternate_candidates_admitted -ne 0){throw 'UQ05_ALIAS_GUARD_BLOCKED_CANONICAL'}
+              Write-Host 'UQ05_CANONICAL_SOURCE_PROVENANCE=PASS'
+              Write-Host 'UQ05_ALIAS_GUARD=PASS'
+              $inventoryPath=Join-Path $runtime 'uq05-inventory.json'
+              $inventory=@{
+                schema='mind-palace.source-inventory.v1';version=1;generated_at='2026-10-17T00:00:00Z';
+                sources=@(@{
+                  scope='chat-history';type=[string]$batch.sources[0].type;
+                  ref=[string]$batch.sources[0].ref;version=[string]$batch.sources[0].version;
+                  content_sha256=$null;authority=[string]$batch.sources[0].authority;
+                  label='Bounded selected October 15 operator preference; no account coverage'
+                })
+              }
+              Write-JsonFile $inventoryPath $inventory
+              $plan=Invoke-JsonFile 'SOURCE_PLAN' '.\tools\backfill-plan.ps1' @('plan','-InventoryPath',$inventoryPath,'-Scope','chat-history')
+              if([string]$plan.schema -cne 'mind-palace.backfill-plan.v1' -or
+                 [string]$plan.status -cne 'ready' -or [int]$plan.unseen -ne 1 -or
+                 [int]$plan.process -ne 1 -or [int]$plan.review -ne 0 -or
+                 [int]$plan.batch_count -ne 1 -or @($plan.batches).Count -ne 1){throw 'UQ05_PLAN_NOT_EXACTLY_ONE_UNSEEN_SOURCE'}
+              $mapPath=Join-Path $runtime 'uq05-map.json'
+              $map=@{schema='mind-palace.backfill-collector-map.v1';version=1;
+                     batches=@(@{batch_id=[string]$plan.batches[0].batch_id;collector_batch_path=$batchPath})}
+              Write-JsonFile $mapPath $map
+              $cycle=Invoke-JsonFile 'READONLY_CLASSIFY' '.\tools\backfill-cycle.ps1' @('dry-run','-InventoryPath',$inventoryPath,'-CollectorMapPath',$mapPath,'-Scope','chat-history')
+              if([string]$cycle.schema -cne 'mind-palace.backfill-cycle-result.v1' -or
+                 [string]$cycle.status -cne 'ready' -or -not [bool]$cycle.ready_for_apply -or
+                 [int]$cycle.planned_source_count -ne 1 -or [int]$cycle.candidate_count -ne 1 -or
+                 [int]$cycle.counts.new -ne 1 -or [int]$cycle.counts.review -ne 0 -or
+                 [int]$cycle.counts.supersede -ne 0 -or [int]$cycle.counts.merge -ne 0 -or
+                 [int]$cycle.counts.archive -ne 0 -or [int]$cycle.counts.ignore -ne 0 -or
+                 -not [bool]$cycle.durable_state_unchanged){throw 'UQ05_CLASSIFICATION_NOT_ONE_NEW_NONREVIEW'}
+              $decision=@(@($cycle.batches)[0].results)
+              if($decision.Count -ne 1 -or [string]$decision[0].candidate_id -cne $candidateId -or
+                 [string]$decision[0].action -cne 'new'){throw 'UQ05_CLASSIFIER_DISPOSITION_MISMATCH'}
+              Write-Host 'UQ05_CANONICAL_CLASSIFICATION=NEW_1_REVIEW_0_SUPERSEDE_0'
+              foreach($file in $surfaces){
+                if((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $hashes[$file]){
+                  throw ('UQ05_DURABLE_HASH_DRIFT_'+$file)
+                }
+              }
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ05_DIRTY_FINAL_CLONE'}
+              $post=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+              $postMain=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+              if($LASTEXITCODE -ne 0 -or @($post).Count -ne 1 -or @($postMain).Count -ne 1 -or
+                 ([string]$post[0] -split '\s+')[0] -cne $head -or
+                 ([string]$postMain[0] -split '\s+')[0] -cne $base){throw 'UQ05_FINAL_REF_DRIFT'}
+              Write-Host 'UQ05_DURABLE_HASH_PARITY=PASS'
+              Write-Host 'UQ05_MAIN_AND_CODE_HEAD_UNCHANGED=PASS'
+              Write-Host 'UQ05_FULL_ACCOUNT_COVERAGE=NOT_CLAIMED'
+              Write-Host 'UQ05_DURABLE_RECORDS_APPLIED=0'
+              Write-Host 'UQ05_CODEX_INVOCATIONS=0'
+              Write-Host 'UQ05_READONLY_CANONICAL_SOURCE_QUALIFICATION=PASS'
+            } finally {Pop-Location}
+          } finally {
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Force -Recurse -ErrorAction SilentlyContinue}
+          }
