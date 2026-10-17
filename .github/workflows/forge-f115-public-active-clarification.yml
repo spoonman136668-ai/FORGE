@@ -1,0 +1,149 @@
+name: FORGE F115 costed public relational clarification
+on:
+  push:
+    branches:
+      - research/f115-bounded-active-clarification-20261017-r1
+    paths:
+      - '.github/workflows/forge-f115-public-active-clarification.yml'
+      - 'nativeevidence/f115_bounded_active_clarification.py'
+      - 'nativeevidence/test_f115_bounded_active_clarification.py'
+      - 'reference/research-intake/f115-bounded-active-clarification-freeze.json'
+permissions:
+  contents: read
+jobs:
+  frozen-evaluation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check exact F114 parent and separate frozen prereg before code
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='8a2be937cad270b89cedd9672772aca345f1cbb5'
+          $precode='79a7e8ada591d5f0aa42d73091f54cf14ba1bcfe'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'F115_HEAD_CHANGED' }
+          git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F115_F114_PARENT_CHANGED' }
+          git merge-base --is-ancestor $precode HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F115_PRECODE_FREEZE_NOT_ANCESTOR' }
+          $got=@(git diff --name-only $parent HEAD | Where-Object { $_ -ne '' })
+          $wanted=@(
+            '.github/workflows/forge-f115-public-active-clarification.yml',
+            'nativeevidence/f115_bounded_active_clarification.py',
+            'nativeevidence/test_f115_bounded_active_clarification.py',
+            'reference/research-intake/f115-bounded-active-clarification-freeze.json'
+          )
+          if (@(Compare-Object $got $wanted).Count -ne 0) { throw 'F115_SCOPE_DRIFT' }
+          if ((git hash-object 'reference/research-intake/f115-bounded-active-clarification-freeze.json') -cne '05b0848e03d41a6d341b0009a4262c2d02f19790') { throw 'F115_PREREG_DRIFT' }
+          if ((git hash-object 'nativeevidence/f114_partial_relation_abstention.py') -cne '3d3c47748b8f146419e688f49067b06466749319') { throw 'F115_F114_MODEL_DRIFT' }
+          if ((git hash-object 'reference/research-intake/f114-partial-relation-abstention-freeze.json') -cne 'c2a4587aae1e1a0f05089d2c9e01fbfdc3f90002') { throw 'F115_F114_PREREG_DRIFT' }
+      - name: Adversarial source and paid-lookup contract tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f115_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F115_ONE_QUERY_TESTS_FAILED' }
+      - name: Evaluate four independently frozen source worlds and all controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'f115-evidence'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $out=Join-Path $dir 'f115-query-decision-report.json'
+          python -B nativeevidence/f115_bounded_active_clarification.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F115_SOURCE_EVALUATION_FAILED' }
+          $p=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($p.schema -cne 'forge.autonomy.f115.bounded-one-query-relational-clarification-public.v1' -or
+              $p.source_sha -cne $env:GITHUB_SHA -or
+              $p.parent_F114_head -cne '8a2be937cad270b89cedd9672772aca345f1cbb5' -or
+              $p.new_public_pairs -ne 192 -or
+              $p.outcome_by_cohort.Count -ne 4 -or
+              $p.identical_prior_public_twin_pairs -ne 48 -or
+              -not $p.public_selective_information_screen_passed -or
+              $p.learned_or_general_scientific_superiority -or
+              $p.original_scientific_first_use -or
+              $p.independently_scientifically_accepted -or
+              $p.accepted_ref_mutations -ne 0 -or
+              $p.optimizer_promotions -ne 0 -or
+              $p.native_original_dispatches -ne 0 -or
+              $p.codex_calls -ne 0 -or
+              $p.paid_inference_calls -ne 0 -or
+              $p.CKB_contacted -or $p.MindPalace_written) {
+              throw 'F115_SCIENCE_OR_EVIDENCE_BOUNDARY_DRIFT'
+          }
+          $c=$p.totals_by_arm.conditional_one_query
+          $n=$p.totals_by_arm.no_query_certificate
+          $a=$p.totals_by_arm.always_query
+          $f=$p.totals_by_arm.forced_public_role_tie
+          if ($c.correct -ne 144 -or $c.wrong -ne 0 -or
+              $c.abstained -ne 48 -or $c.queries -ne 96 -or
+              $c.utility -ne 115.2 -or $n.utility -ne 86.4 -or
+              $a.utility -ne 91.2 -or $f.utility -ne -48.0) {
+              throw 'F115_COSTED_CONTROL_OR_NEGATIVE_CHANGED'
+          }
+          $names=@('W115-U','W115-R','W115-S','W115-N')
+          for ($i=0;$i -lt 4;$i++) {
+            $x=$p.outcome_by_cohort[$i]
+            if ($x.cohort -cne $names[$i] -or $x.pairs -ne 48) {
+              throw 'F115_COHORT_IDENTITY_DRIFT'
+            }
+            foreach ($key in @('conditional_one_query','no_query_certificate',
+                                'always_query','forced_public_role_tie','always_abstain')) {
+              if ($x.policies.$key.total -ne 48 -or
+                  $x.policies.$key.rows.Count -ne 48) { throw 'F115_CASES_MISSING' }
+            }
+            Write-Host ('F115_COHORT='+$x.cohort+' QUERIES='+$x.policies.conditional_one_query.queries+
+                        ' CORRECT='+$x.policies.conditional_one_query.correct+
+                        ' ABSTAIN='+$x.policies.conditional_one_query.abstained)
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $dir 'f115-query-decision-report.sha256'),
+            ("$sha  f115-query-decision-report.json"+[Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'F115_PAID_CLARIFICATION_PUBLIC_DEV_ONLY=PASS'
+      - name: Full FORGE Go regression vet build no Codex
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F115_FULL_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F115_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F115_GO_BUILD_FAILED' }
+      - name: Ensure no source mutation and no new authority
+        shell: pwsh
+        run: |
+          if (@(git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F115_GIT_SOURCE_MUTATION'
+          }
+          Write-Host 'F115_NO_PROTECTED_FIRSTUSE_OR_LEARNED_CLAIM=TRUE'
+          Write-Host 'F115_NO_CODEX_CKB_OR_EXTERNAL_SCHEDULER=TRUE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f115-bounded-clarification-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f115-evidence/f115-query-decision-report.json
+            ${{ runner.temp }}/f115-evidence/f115-query-decision-report.sha256
+          retention-days: 90
