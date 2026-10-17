@@ -18,7 +18,7 @@ class Controls(unittest.TestCase):
         self.assertEqual(m.git_blob(m.dense.__file__),m.F123_BLOB)
         self.assertEqual(m.git_blob(m.preserving.__file__),m.F125R_BLOB)
     def test_incompatible_sparse_interface_is_not_silently_extended(self):
-        p,n=env.build(160102,[1,2,3],"Wingless")
+        p,n=env.build(160100,[1,2,3],"Wingless")
         self.assertEqual(len(p["roles"]),5)
         with self.assertRaises(Exception):
             m.sparse2.forward(p,m.sparse2.init())
