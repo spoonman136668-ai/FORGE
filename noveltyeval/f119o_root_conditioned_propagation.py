@@ -260,10 +260,10 @@ def audit(raw):
     competitors=[v for key,v in hold.items() if
                  key not in ("learned_query_conditioned_role_gate",
                              "symbolic_exact_typed_graph_traversal")]
-    gain=learned["both_classes_present"] and all(
+    gain=(learned["both_classes_present"] and all(
         v["balanced_accuracy"] is not None for v in competitors) and
         learned["balanced_accuracy"]>=max(
-            v["balanced_accuracy"] for v in competitors)+0.05
+            v["balanced_accuracy"] for v in competitors)+0.05)
     return {
         "schema":SCHEMA,"status":STATUS,
         "source_repository":"tiantiangao7/kalm-qa",
