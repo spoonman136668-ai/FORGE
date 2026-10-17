@@ -114,6 +114,8 @@ def inspect(root: pathlib.Path, *,
             raw_files: dict[str, bytes] | None = None,
             git_blobs: dict[str, str] | None = None) -> dict:
     # injected file/blob values are test-only: authenticated CI uses actual git.
+    test_input_injected = (actual_git_head is not None or
+                           raw_files is not None or git_blobs is not None)
     if actual_git_head is None:
         actual_git_head = git(root, "rev-parse", "HEAD")
     require(actual_git_head == UPSTREAM_HEAD, "SOURCE_COMMIT_DRIFT")
@@ -148,7 +150,9 @@ def inspect(root: pathlib.Path, *,
     return {
         "schema": SCHEMA,
         "source_repository": UPSTREAM_REPO, "source_commit": UPSTREAM_HEAD,
-        "source_is_separate_preexisting_public_repository": True,
+        "source_repository_identity_pinned": True,
+        "real_git_object_readback_performed": not test_input_injected,
+        "independent_science_custody_verified": False,
         "source_origin_predates_f95_code": True,
         "full_public_source_file_count": 3,
         "source_files": source_items,
@@ -182,6 +186,8 @@ def main() -> None:
     args = parser.parse_args()
     require(not args.output.exists(), "REFUSE_OVERWRITE")
     output = inspect(args.upstream)
+    require(output["real_git_object_readback_performed"],
+            "TEST_ONLY_SOURCE_INJECTION_FORBIDDEN")
     args.output.write_text(json.dumps(output, sort_keys=True, indent=2) + "\n",
                            encoding="utf-8")
     print("F98O_PUBLIC_DATA_SOURCE_AUTHENTIC=TRUE")
