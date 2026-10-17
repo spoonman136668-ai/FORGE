@@ -1,0 +1,135 @@
+name: FORGE F104-O public TRAIN non-reflexive shadow qualification
+on:
+  push:
+    branches: [engineering/f104o-root-reflexivity-shadow-20261017-r1]
+    paths:
+      - 'noveltymechanisms/nonreflexive/**'
+      - 'cmd/forge-f104o-shadow-audit/**'
+      - 'docs/F104O-FROZEN-NONREFLEXIVE-SHADOW-CONTRACT.md'
+      - '.github/workflows/forge-f104o-nonreflexive-shadow.yml'
+permissions:
+  contents: read
+jobs:
+  frozen-source-shadow-diagnostic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Authenticate exact new head and three immutable original train Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          python - <<'PY'
+          import hashlib,pathlib,subprocess
+          sources=[
+            ('metaqa/original/kb.txt','a43fa7ca5e6894236556f2984764070c4ca5562b',7000000,'f104o-kb-original.txt'),
+            ('metaqa/original/2-hop/qa_train.txt','d2ce0a9f3670769f4239baa4eb6bf7bdc91d9468',30*1024*1024,'f104o-two-train-original.txt'),
+            ('metaqa/original/3-hop/qa_train.txt','77409d56af8d1fde7a4bec23cf5e1df1e0a08e59',30*1024*1024,'f104o-three-train-original.txt'),
+          ]
+          for path,expected,maxsize,output in sources:
+            assert subprocess.check_output(['git','-C','public-metaqa','rev-parse','HEAD:'+path]).decode().strip()==expected
+            raw=subprocess.check_output(['git','-C','public-metaqa','show','HEAD:'+path])
+            assert 0<len(raw)<=maxsize
+            assert hashlib.sha1(b'blob '+str(len(raw)).encode()+bytes([0])+raw).hexdigest()==expected
+            pathlib.Path(output).write_bytes(raw)
+          assert hashlib.sha256(pathlib.Path('f104o-kb-original.txt').read_bytes()).hexdigest()=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          print('F104O_ONLY_PINNED_KB_AND_ORIGINAL_TRAIN_OBJECTS_READ')
+          PY
+      - name: Adversarial answer-blind policy and full-population scorer tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/nonreflexive ./cmd/forge-f104o-shadow-audit
+      - name: Entire 233176 original TRAIN F103 baseline versus F104 shadow
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-f104o-shadow-audit --kb f104o-kb-original.txt --two-hop-train f104o-two-train-original.txt --three-hop-train f104o-three-train-original.txt --out f104o-shadow-evidence.json
+          python - <<'PY'
+          import json
+          p='f104o-shadow-evidence.json'
+          x=json.load(open(p,encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f104o.train-only-nonreflexive-shadow.v1'
+          assert x['status']=='PUBLIC_TRAIN_ONLY_NONREFLEXIVE_SHADOW_DIAGNOSTIC'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['frozen_policy']=='inverse-two-hop-exact-root-only-removal.v1'
+          assert x['whole_training_denominator']==233176
+          assert x['knowledge_graph']['git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['two_hop_training']['git_blob']=='d2ce0a9f3670769f4239baa4eb6bf7bdc91d9468'
+          assert x['three_hop_training']['git_blob']=='77409d56af8d1fde7a4bec23cf5e1df1e0a08e59'
+          parts=('parser_abstained','graph_budget_refused','graph_missing_or_no_targets',
+                 'graph_resolved_exact_set','graph_resolved_partial_overlap','graph_resolved_disjoint')
+          for key,hops,total,exact,partial in [('two_hop',2,118980,1561,20048),('three_hop',3,114196,13937,12505)]:
+            c=x[key]
+            b,s=c['f103o_baseline'],c['f104o_nonreflexive_shadow']
+            assert c['hops']==hops and c['original_rows']==total
+            assert b['source_rows']==s['source_rows']==total
+            assert b['graph_resolved_exact_set']==exact
+            assert b['graph_resolved_partial_overlap']==partial
+            for z in (b,s):
+              assert sum(z[k] for k in parts)==total
+              assert z['parsed']+z['parser_abstained']==total
+              resolved=sum(z[k] for k in parts[-3:])
+              assert 0<=z['graph_resolved_ambiguous']<=resolved
+              assert z['gold_answer_members']==b['gold_answer_members']
+            assert c['root_was_present']==c['root_removed']
+            assert c['root_removed']<=c['eligible_inverse_two_hop']
+            assert c['root_only_becomes_empty']<=c['root_removed']
+            assert c['baseline_vs_shadow_disagreement']<=c['root_removed']
+            assert c['new_exact_from_nonexact']+c['unchanged_exact']==s['graph_resolved_exact_set']
+            assert c['lost_exact_from_exact']+c['unchanged_exact']==b['graph_resolved_exact_set']
+            print('F104O_PUBLIC_TRAIN_HOPS_%d_BASELINE_EXACT=%d_SHADOW_EXACT=%d_NEW_EXACT=%d_LOST_EXACT=%d_ROOT_REMOVED=%d'%
+              (hops,b['graph_resolved_exact_set'],s['graph_resolved_exact_set'],
+               c['new_exact_from_nonexact'],c['lost_exact_from_exact'],c['root_removed']))
+          for k in ('public_test_read','answer_input_to_policy','per_row_data_published',
+                    'independent_scientific_firstuse','accepted_science','dream_pareto_promotion',
+                    'thetaevolve_accepted_training','scientific_dispatch','accepted_ref_mutation'):
+            assert x[k] is False,k
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F104O_NON_PROMOTING_F103_REFERENCE_AND_WHOLE_COHORT=PASS')
+          PY
+          sha256sum f104o-shadow-evidence.json > f104o-shadow-evidence.sha256
+          sha256sum -c f104o-shadow-evidence.sha256
+      - name: Mandatory one exact-head full Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F104O_CKB_CODEX_CLOUDFLARE_PAID_MODEL_CALLS=ZERO'
+          echo 'F104O_PROSPECTIVE_ACCEPTED_SCIENTIFIC_FIRSTUSE=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f104o-original-train-shadow-${{ matrix.os }}
+          path: |
+            f104o-shadow-evidence.json
+            f104o-shadow-evidence.sha256
+          retention-days: 45
+          if-no-files-found: error
