@@ -130,7 +130,11 @@ class TernaryJunctionLearner:
         drift=math.sqrt(sum((x-y)**2 for x,y in zip(init,final)))
         require(drift>1e-9 and after<before,
                 "GRADIENT_LEARNING_NOT_VERIFIED")
-        digest=hashlib.sha256(",".join(f"{v:.15g}" for v in final).encode("ascii")).hexdigest()
+        # Quantize the *report-only* fingerprint to 8 decimal places so
+        # IEEE float accumulation/libm rounding differences across OS hosts
+        # do not misidentify scientifically identical learned predictions.
+        # Training, unrounded parameters, scores and decision rule unchanged.
+        digest=hashlib.sha256(",".join(f"{v:.8f}" for v in final).encode("ascii")).hexdigest()
         return {"training_epochs":EPOCHS,"trainable_parameters":len(final),
                 "train_logloss_before":round(before,8),
                 "train_logloss_after":round(after,8),
