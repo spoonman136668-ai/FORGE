@@ -1,5 +1,8 @@
 """Adverse unit tests for F99-O; all fixture rows are synthetic, NOT science."""
 import hashlib
+from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 import f99o_answer_blind_capacity as m
@@ -92,6 +95,29 @@ class CapacityTests(unittest.TestCase):
         expected = hashlib.sha1(b'blob 6\x00' + raw).hexdigest()
         self.assertEqual(m.git_blob(raw), expected)
         self.assertNotEqual(m.git_blob(raw + b'x'), expected)
+
+    def test_exact_128_directed_arc_boundary(self):
+        safe = [f'center|role|leaf{i}' for i in range(64)]
+        over = safe + ['center|role|extra']
+        g, _, _ = m.build_graph(safe)
+        g_over, _, _ = m.build_graph(over)
+        self.assertEqual(m.envelope('center', 2, g), 'bounded')
+        self.assertEqual(m.envelope('center', 2, g_over), 'over_budget')
+
+    def test_immutable_git_object_resists_worktree_crlf_transformation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
+            raw = b'first\nsecond\n'
+            source = root / 'source.txt'
+            source.write_bytes(raw)
+            subprocess.run(['git', '-C', str(root), 'add', 'source.txt'], check=True)
+            subprocess.run(['git', '-C', str(root), '-c', 'user.email=test@example.invalid',
+                            '-c', 'user.name=F99O', 'commit', '-qm', 'freeze'], check=True)
+            self.assertEqual(m.immutable_git_object(root, 'source.txt'), raw)
+            source.write_bytes(b'first\r\nsecond\r\n')
+            self.assertEqual(m.immutable_git_object(root, 'source.txt'), raw)
+            self.assertNotEqual(m.git_blob(source.read_bytes()), m.git_blob(raw))
 
     def test_no_arbitrary_depth_or_budget_relaxation(self):
         g, _, _ = m.build_graph(KB)
