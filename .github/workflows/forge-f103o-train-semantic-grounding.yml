@@ -1,0 +1,133 @@
+name: FORGE F103-O immutable TRAIN-only semantic grounding qualification
+on:
+  push:
+    branches: [engineering/f103o-train-only-semantic-evaluation-20261017-r1]
+    paths:
+      - 'noveltymechanisms/groundingaudit/**'
+      - 'cmd/forge-f103o-train-grounding/**'
+      - 'docs/F103O-TRAIN-ONLY-SEMANTIC-GROUNDING-CONTRACT.md'
+      - '.github/workflows/forge-f103o-train-semantic-grounding.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f103o-original-train-only-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  read-only-train-label-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: tiantiangao7/kalm-qa
+          ref: 826ee617e4da5b087584b0e03c70fe76642c6188
+          path: public-metaqa
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify FORGE exact source and only three original external Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-metaqa rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/2-hop/qa_train.txt)" = 'd2ce0a9f3670769f4239baa4eb6bf7bdc91d9468'
+          test "$(git -C public-metaqa rev-parse HEAD:metaqa/original/3-hop/qa_train.txt)" = '77409d56af8d1fde7a4bec23cf5e1df1e0a08e59'
+          python - <<'PY'
+          import hashlib,pathlib,subprocess
+          specs=[
+            ('metaqa/original/kb.txt','a43fa7ca5e6894236556f2984764070c4ca5562b',7000000,'f103o-raw-kb.txt'),
+            ('metaqa/original/2-hop/qa_train.txt','d2ce0a9f3670769f4239baa4eb6bf7bdc91d9468',30*1024*1024,'f103o-raw-train2.txt'),
+            ('metaqa/original/3-hop/qa_train.txt','77409d56af8d1fde7a4bec23cf5e1df1e0a08e59',30*1024*1024,'f103o-raw-train3.txt'),
+          ]
+          for path,blob,budget,out in specs:
+            raw=subprocess.check_output(['git','-C','public-metaqa','show','HEAD:'+path])
+            assert 0<len(raw)<=budget,'source byte budget'
+            assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\x00'+raw).hexdigest()==blob
+            pathlib.Path(out).write_bytes(raw)
+          assert hashlib.sha256(pathlib.Path('f103o-raw-kb.txt').read_bytes()).hexdigest()=='9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
+          print('F103O_ONLY_KB_AND_ORIGINAL_TRAIN_OBJECTS_AUTHENTICATED')
+          PY
+      - name: Adversarial original-TRAIN answer isolation and whole-frontier tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./noveltymechanisms/groundingaudit ./cmd/forge-f103o-train-grounding
+      - name: Original TRAIN-only all-rows exact-label semantic diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-f103o-train-grounding --kb f103o-raw-kb.txt --two-hop-train f103o-raw-train2.txt --three-hop-train f103o-raw-train3.txt --out f103o-train-grounding.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f103o-train-grounding.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f103o.original-train-semantic-grounding.v1'
+          assert x['status']=='PUBLIC_TRAIN_ONLY_GROUNDING_DIAGNOSTIC'
+          assert x['source_commit']=='826ee617e4da5b087584b0e03c70fe76642c6188'
+          assert x['whole_training_denominator']==233176
+          assert x['knowledge_graph']['git_blob']=='a43fa7ca5e6894236556f2984764070c4ca5562b'
+          assert x['two_hop_train_source']['git_blob']=='d2ce0a9f3670769f4239baa4eb6bf7bdc91d9468'
+          assert x['three_hop_train_source']['git_blob']=='77409d56af8d1fde7a4bec23cf5e1df1e0a08e59'
+          categories=['parser_abstained','graph_budget_refused','graph_missing_or_no_targets',
+                      'graph_resolved_exact_set','graph_resolved_partial_overlap','graph_resolved_disjoint']
+          for cohort,hops,den,expected_parsed in [
+            (x['two_hop_train'],2,118980,21609),
+            (x['three_hop_train'],3,114196,26442),
+          ]:
+            assert cohort['hops']==hops and cohort['source_rows']==den
+            assert cohort['parsed']==expected_parsed
+            assert cohort['parsed']+cohort['parser_abstained']==den
+            assert sum(cohort[k] for k in categories)==den
+            assert cohort['gold_answer_members']>=den
+            resolved=sum(cohort[k] for k in categories[-3:])
+            assert 0<=cohort['graph_resolved_ambiguous']<=resolved
+          for flag in ('test_qa_corpus_read','answers_supplied_to_parser','per_row_inputs_published',
+                       'independent_scientific_firstuse','new_scientific_original',
+                       'accepted_science','dream_pareto_promotion',
+                       'thetaevolve_accepted_training','scientific_dispatch_authorized',
+                       'accepted_ref_mutation'):
+            assert x[flag] is False,flag
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          for cohort in (x['two_hop_train'],x['three_hop_train']):
+            print('F103O_TRAIN_HOPS_%d_ROWS=%d_MATCHED_GRAMMAR=%d_EXACT_SETS=%d_PARTIAL=%d_DISJOINT=%d_BUDGET=%d_EMPTY=%d'%
+              (cohort['hops'],cohort['source_rows'],cohort['parsed'],
+               cohort['graph_resolved_exact_set'],cohort['graph_resolved_partial_overlap'],
+               cohort['graph_resolved_disjoint'],cohort['graph_budget_refused'],
+               cohort['graph_missing_or_no_targets']))
+          PY
+          sha256sum f103o-train-grounding.json > f103o-train-grounding.sha256
+          sha256sum -c f103o-train-grounding.sha256
+      - name: One required full-system Go regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F103O_INDEPENDENT_SCIENCE_AND_CODEX=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f103o-original-train-grounding-${{ matrix.os }}
+          path: |
+            f103o-train-grounding.json
+            f103o-train-grounding.sha256
+          retention-days: 45
+          if-no-files-found: error
