@@ -32,7 +32,7 @@ class FixtureOnly(unittest.TestCase):
             with self.assertRaises(adapter.Quarantined):
                 adapter.fixture_pair(lane,seed,[1,1,2])
         positive,negative=adapter.fixture_pair("Wingless",280000,[1,1,2])
-        self.assertEqual((len(positive["roles"]),len(negative["roles"])),(7,7))
+        self.assertEqual((len(positive["roles"]),len(negative["roles"])),(8,8))
         graph=copy.deepcopy(positive)
         graph["selected_route"]=1
         with self.assertRaises(fixture.Invalid):
