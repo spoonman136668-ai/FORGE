@@ -101,10 +101,11 @@ def lane(api,program,repo,now):
     main_sha=main.get("commit",{}).get("sha")
     need(type(main_sha) is str and HEX40.fullmatch(main_sha),"MAIN_SHA_INVALID")
     cfg=source_file(api,repo,main_sha,".research-autonomy/config.json")
+    # Native FORGE decisions depend on research-only authority and immutable
+    # GitHub source, never a deprecated other-project governance label.
     need(cfg.get("schema")=="research.autonomy.v2" and
          cfg.get("program")==program and cfg.get("enabled") is True and
          cfg.get("authority")=="research-only" and
-         cfg.get("ckb_plane_role")=="governance-only" and
          cfg.get("mode")=="repo-local-self-chain" and
          type(cfg.get("north_star_sha256")) is str and
          HEX64.fullmatch(cfg["north_star_sha256"]),
@@ -122,7 +123,7 @@ def lane(api,program,repo,now):
          and state.get("active_branch")==branch
          and state.get("north_star_sha256")==cfg["north_star_sha256"]
          and state.get("authority")=="research-only"
-         and state.get("ckb_plane_role")=="governance-only"
+
          and type(state.get("experiment")) is str
          and 0<len(state["experiment"])<=200
          and type(state.get("classification")) is str
