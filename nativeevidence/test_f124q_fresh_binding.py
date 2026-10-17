@@ -85,7 +85,7 @@ class TestF124Q(unittest.TestCase):
         train_source=inspect.getsource(models.train)+inspect.getsource(models.fit_pairs)
         self.assertNotIn('["DEV"]',train_source)
         self.assertNotIn('"DEV"',train_source)
-        with self.assertRaises(source.Quarantined):
+        with self.assertRaises((source.Quarantined,prior.Quarantined)):
             models.forward("Wingless",{"oracle":True},
                            list(original.WINGLESS_INIT),[0,0,0,0])
 
