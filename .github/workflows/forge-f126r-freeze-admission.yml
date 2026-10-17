@@ -1,0 +1,76 @@
+name: F126-R contrastive binding preregistration admission
+
+# Immutable source-only preregistration. Do not sample TRAIN or CONFIRM,
+# dispatch originals, call Codex, train a model, or authorize science.
+on:
+  push:
+    branches: [research/f126r-binding-evidence-calibration-freeze-20261017]
+    paths:
+      - 'reference/research-intake/f126r-binding-evidence-prereg-freeze.json'
+      - 'nativeevidence/f126r_freeze_admission.py'
+      - 'nativeevidence/test_f126r_freeze_admission.py'
+      - '.github/workflows/forge-f126r-freeze-admission.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f126r-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-freeze:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fail closed on exact source or parent drift
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F126R_SOURCE_HEAD_DRIFT' }
+          & git cat-file -e '762a9ab4f531d4f94b5fe2b06ac732d8d0de1600^{commit}'
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_PARENT_NOT_RETRIEVABLE' }
+          & git merge-base --is-ancestor 762a9ab4f531d4f94b5fe2b06ac732d8d0de1600 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_PARENT_NOT_ANCESTOR' }
+      - name: Validate immutable science criteria and no authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f126r_freeze_admission.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_PREIMPLEMENTATION_TESTS_FAILED' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f126r-source-only'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $receipt=Join-Path $folder 'f126r-source-freeze.json'
+          & $py -B nativeevidence/f126r_freeze_admission.py --source-sha $env:GITHUB_SHA --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F126R_PREIMPLEMENTATION_QUARANTINED' }
+          $r=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f126r.source-only-freeze-admission.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.freeze_git_blob -cne '7d6cf0469db557c0fced95d25e6fe55b8e34c136' -or
+              $r.parent_commit_sha -cne '762a9ab4f531d4f94b5fe2b06ac732d8d0de1600' -or
+              $r.train_cases_generated -ne 0 -or $r.confirmation_cases_generated -ne 0 -or
+              $r.learned_weights_created -or $r.scientific_first_use -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.accepted_ref_mutation -or $r.new_controller -or
+              $r.codex_or_paid_model_calls -ne 0) { throw 'F126R_UNEARNED_SCIENCE' }
+          $digest=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($receipt+'.sha256'),
+              ($digest+'  f126r-source-freeze.json'+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          Write-Host "F126R_SOURCE_ONLY_RECEIPT_SHA256=$digest"
+          Write-Host 'F126R_NO_PROTECTED_CONFIRM=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f126r-preregistered-source-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f126r-source-only/
+          if-no-files-found: error
+          retention-days: 30
