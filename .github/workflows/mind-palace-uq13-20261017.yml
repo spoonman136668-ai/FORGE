@@ -1,0 +1,129 @@
+name: Mind-Palace UQ13 consolidated stack release rehearsal
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/mind-palace-catchup/UQ13-COMBINED-20261017.txt'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq13-readonly
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Rehearse four-PR stack on production main without committing
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ13_WRONG_RUNNER'}
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'UQ13_WRONG_REPO'}
+          if($env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013'){throw 'UQ13_WRONG_INFRA_BRANCH'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $base='f9f5e0555e1acbe57a36142155e490d21220ca14'
+          $p54='0152bb4b3f546f462aff3523f3005c6c885cd9b1'
+          $p55='5f702aa1d9038c42a28490264dd6d52260d8de00'
+          $p56='9ac4e9542e47868b2e585700dc27f4bdc7284850'
+          $p57='10220f4f4ff28ed49b3f8b6b64029fcb20b3cee4'
+          $stack=@(
+            [pscustomobject]@{branch='qualification/chat-source-alias-guard-uq04-20261016';sha=$p54},
+            [pscustomobject]@{branch='qualification/chat-inventory-alias-preflight-uq09-20261017';sha=$p55},
+            [pscustomobject]@{branch='qualification/chat-source-ref-type-guard-uq10-20261017';sha=$p56},
+            [pscustomobject]@{branch='qualification/chat-alias-direct-ingest-hardening-uq12-20261017';sha=$p57}
+          )
+          $allowed=@(
+            'policies/chat-source-aliases.json',
+            'tests/Test-All.ps1',
+            'tests/Test-BackfillApply.ps1',
+            'tests/Test-BackfillSupersede.ps1',
+            'tests/Test-ChatSourceAliases.ps1',
+            'tests/Test-RepoSourceDiscovery.ps1',
+            'tests/Test-RepoSourceResolution.ps1',
+            'tests/Test-SourceReconcile.ps1',
+            'tests/Test-StrictCollectionShapes.ps1',
+            'tests/Test-UpdateCycle.ps1',
+            'tools/backfill-apply.ps1',
+            'tools/backfill-supersede.ps1',
+            'tools/chat-delta-ingest.ps1',
+            'tools/chat-source-alias-guard.ps1',
+            'tools/collect.ps1',
+            'tools/ingest.ps1',
+            'tools/source-reconcile.ps1'
+          )
+          $dir=Join-Path $env:RUNNER_TEMP ('mind-palace-uq13-'+$env:GITHUB_RUN_ID)
+          function Assert-Pin([string]$r,[string]$sha){
+            $out=@(& git.exe ls-remote --exit-code $remote $r)
+            if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or ([string]$out[0] -split '\s+')[0] -cne $sha){
+              throw ('UQ13_PIN_DRIFT_'+$r)
+            }
+          }
+          if(Test-Path -LiteralPath $dir){throw 'UQ13_EXISTING_SCRATCH'}
+          try{
+            Assert-Pin 'refs/heads/main' $base
+            foreach($item in $stack){Assert-Pin ('refs/heads/'+$item.branch) $item.sha}
+            & git.exe clone --quiet --single-branch --branch $stack[3].branch $remote $dir
+            if($LASTEXITCODE -ne 0){throw 'UQ13_CLONE_FAILED'}
+            Push-Location $dir
+            try{
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $p57){throw 'UQ13_HEAD_MISMATCH'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ13_UNCLEAN_START'}
+              & git.exe fetch --quiet --no-tags origin $base $p54 $p55 $p56
+              if($LASTEXITCODE -ne 0){throw 'UQ13_SOURCE_FETCH_FAILED'}
+              $chain=@($base,$p54,$p55,$p56,$p57)
+              for($i=0;$i -lt ($chain.Count-1);$i++){
+                & git.exe merge-base --is-ancestor $chain[$i] $chain[$i+1]
+                if($LASTEXITCODE -ne 0){throw ('UQ13_BAD_STACK_ANCESTRY_'+$i)}
+              }
+              Write-Host 'UQ13_EXACT_FOUR_PR_ANCESTRY=PASS'
+              $diff=@(& git.exe diff --name-only $base $p57)
+              if($LASTEXITCODE -ne 0){throw 'UQ13_DIFF_FAILED'}
+              $unexpected=@($diff|Where-Object{$allowed -cnotcontains [string]$_})
+              $missing=@($allowed|Where-Object{$diff -cnotcontains $_})
+              if($unexpected.Count -ne 0 -or $missing.Count -ne 0){
+                throw ('UQ13_UNEXPECTED_DIFF_FILES: unexpected='+($unexpected -join ',')+' missing='+($missing -join ','))
+              }
+              Write-Host 'UQ13_COMPLETE_17_FILE_DIFF_PARITY=PASS'
+              $durable=@(
+                '.ice/records.json','.ice/source-ledger.json','.ice/chat-delta-state.json',
+                '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+                '.ice/remote-index.ndjson','archive/index.json'
+              )
+              $shaBefore=@{}
+              foreach($p in $durable){$shaBefore[$p]=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+              & git.exe switch --quiet --detach $base
+              if($LASTEXITCODE -ne 0){throw 'UQ13_BASE_CHECKOUT_FAILED'}
+              & git.exe merge --no-ff --no-commit $p57
+              if($LASTEXITCODE -ne 0){throw 'UQ13_COMBINED_MERGE_CONFLICT'}
+              $mergeTree=(& git.exe write-tree|Out-String).Trim()
+              $exactTree=(& git.exe rev-parse ($p57+'^{tree}')|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $mergeTree -cne $exactTree){throw 'UQ13_COMBINED_MERGE_TREE_DRIFT'}
+              Write-Host 'UQ13_CONSOLIDATED_MERGE_TREE_EXACT=PASS'
+              & git.exe merge --abort
+              if($LASTEXITCODE -ne 0){throw 'UQ13_MERGE_ABORT_FAILED'}
+              foreach($p in $durable){
+                if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $shaBefore[$p]){
+                  throw ('UQ13_DURABLE_FILE_DRIFT_'+$p)
+                }
+              }
+              if((& git.exe rev-parse HEAD|Out-String).Trim() -cne $base){throw 'UQ13_POST_ABORT_WRONG_HEAD'}
+              if((& git.exe status --porcelain=v1|Out-String).Trim()){throw 'UQ13_POST_ABORT_DIRTY'}
+              Write-Host 'UQ13_ALL_DURABLE_SURFACES_UNCHANGED=PASS'
+              Assert-Pin 'refs/heads/main' $base
+              foreach($item in $stack){Assert-Pin ('refs/heads/'+$item.branch) $item.sha}
+              Write-Host 'UQ13_ALL_REMOTE_REFS_UNCHANGED=PASS'
+              Write-Host 'UQ13_REMOTE_COMMITS=0'
+              Write-Host 'UQ13_CODEX_INVOCATIONS=0'
+              Write-Host 'UQ13_PRODUCTION_MERGE_OR_INGESTION=NOT_AUTHORIZED'
+              Write-Host 'UQ13_COMBINED_RELEASE_REHEARSAL=PASS'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path -LiteralPath $dir){Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue}
+          }
