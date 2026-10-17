@@ -91,11 +91,13 @@ def forward(graph,weights,arm,seed=None):
             else:
                 protos=[w[132+i*WIDTH:132+(i+1)*WIDTH] for i in range(SLOTS)]
                 raw=[dot(key,p) for p in protos]
-                largest=max(x.v for x in raw)
-                exps=[math.exp(max(-40.,min(40.,x.v-largest))) for x in raw]
-                pref=max(exps)/sum(exps)
-                salience=mass*pref
-            ranked.append((salience.v,public_id,mass,key))
+                # Hard bounded-slot competition chooses the strongest learned
+                # address, while confidence remains differentiable end-to-end.
+                strongest=max(range(SLOTS),key=lambda j:(raw[j].v,-j))
+                preference=ad.sig(raw[strongest])
+                costs["sigmoid_evaluations"]+=1
+                salience=mass*preference
+            ranked.append((salience.v,public_id,salience,key))
         ranked.sort(key=lambda x:(-x[0],x[1]))
         if len(ranked)>SLOTS:
             costs["key_capacity_drops"]+=len(ranked)-SLOTS
