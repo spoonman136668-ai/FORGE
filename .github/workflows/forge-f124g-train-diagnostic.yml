@@ -1,0 +1,135 @@
+name: F124-G immutable causal key and depth diagnostic
+on:
+  push:
+    branches: [research/f124g-frozen-causal-retrieval-audit-20261017]
+    paths:
+      - 'nativeevidence/f124g_causal_depth_audit.py'
+      - 'nativeevidence/test_f124g_causal_depth_audit.py'
+      - '.github/workflows/forge-f124g-train-diagnostic.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124g-immutable-science-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-training-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39055198157
+          github-token: ${{ github.token }}
+          name: f124f-frozen-train-query-retrieval
+          path: frozen-f124f
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: frozen-f123
+      - name: Qualify independent scorer and protected split
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f124g_causal_depth_audit.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124G_CAUSAL_DIAGNOSTIC_UNIT_FAILURE' }
+          & python3 -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124G_SOURCE_ISOLATION_FAILURE' }
+      - name: Replay authenticated original weights and causal key trace without retraining
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124g-original-train-causal-depth-evidence.json'
+          $args=@('--f124f-report','frozen-f124f/f124f-train-only-retrieval-evidence.json',
+                  '--f123-ubuntu-dir','frozen-f123','--output',$out)
+          & python3 -B nativeevidence/f124g_causal_depth_audit.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124G_IMMUTABLE_TRAIN_CAUSAL_REPLAY_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124g.immutable-train-causal-depth-audit.v1' -or
+              $r.qualified_parent_head -cne '25e6f7c900ed37f3102b095a866ade467bbaeaf7' -or
+              $r.parent_training_report_sha256 -cne '4cf3bbd2338d62c595288c459fea066db674246964c6a582971f823454162350' -or
+              $r.parent_candidate_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.original_f124f_freeze_blob -cne '256e5a1c1a9dd1a31372e6abc0d20f6a42f89214' -or
+              -not $r.no_weights_retrained_or_changed -or
+              $r.original_model_frozen_decision_threshold -ne 0.5 -or
+              -not $r.posthoc_oracle_threshold_not_scientific -or
+              -not $r.diagnostic_query_ablation_only -or
+              $r.reserved_confirmation_cases_generated -ne 0 -or
+              $r.scientific_first_use_authorized -or $r.original_science_executed -or
+              $r.scientific_acceptances -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or
+              -not $r.resource_matched_superiority_not_established -or
+              $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil') {
+            throw 'F124G_FALSE_SCIENTIFIC_CUSTODY'
+          }
+          foreach ($lane in $r.lanes) {
+            foreach ($arm in @('A','B')) {
+              $x=$lane.arms.$arm
+              if ($x.train_cases.Count -ne 48 -or
+                  $x.depth.'4'.pairs -ne 24 -or $x.depth.'5'.pairs -ne 24 -or
+                  $x.original_frozen_threshold -ne 0.5 -or
+                  -not $x.oracle_train_threshold_descriptive_only.not_eligible_for_acceptance) {
+                throw 'F124G_TRAIN_DEPTH_OR_THRESHOLD_DRIFT'
+              }
+              Write-Output "F124G_TRAIN=$($lane.lane):arm=$arm paired=$($x.original_train_pairs_correct)/48 rank=$($x.original_positive_rank_higher)/48"
+              Write-Output "F124G_CAUSAL=$($lane.lane):arm=$arm survive=$($x.causal_positive_targets_survived)/48 true_delete_gt_distractor=$($x.causal_join_deletion_stronger_than_distractor)/48"
+              Write-Output "F124G_DEPTH=$($lane.lane):arm=$arm 4hop=$($x.depth.'4'.paired_correct)/24 5hop=$($x.depth.'5'.paired_correct)/24"
+              Write-Output "F124G_CALIBRATION=$($lane.lane):arm=$arm forbidden_train_threshold_upper=$($x.oracle_train_threshold_descriptive_only.label_informed_train_oracle_upper_bound_pairs)/48"
+            }
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124g-original-train-causal-depth-evidence.sha256'),
+             "$hash  f124g-original-train-causal-depth-evidence.json"+[Environment]::NewLine,
+             [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124G_IMMUTABLE_DIAGNOSTIC_SHA256=$hash"
+          Write-Output 'F124G_RESERVED_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124g-causal-depth-original-train-audit
+          path: |
+            ${{ runner.temp }}/f124g-original-train-causal-depth-evidence.json
+            ${{ runner.temp }}/f124g-original-train-causal-depth-evidence.sha256
+          if-no-files-found: error
+          retention-days: 90
+  final-exact-head-regression:
+    needs: frozen-training-diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Single final full regression race vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124G_DIAGNOSTIC_HEAD=$GITHUB_SHA"
+          echo "F124G_SCIENTIFIC_ORIGINAL=false"
