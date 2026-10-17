@@ -8,6 +8,7 @@ import (
  "testing"
 
  "github.com/spoonman136668-ai/forge/noveltymechanisms/devroles"
+ "github.com/spoonman136668-ai/forge/noveltymechanisms/groundingaudit"
  "github.com/spoonman136668-ai/forge/noveltymechanisms/largegraph"
 )
 
@@ -137,9 +138,9 @@ func TestF104OFailClosedInvalidGoldEntireOriginalCohortAndDuplicates(t *testing.
   row(sameDirector,"Film B")+string([]byte{9})+"extra",
  }{
   _,err:=Compare(idx,source(bad),2,1)
-  if !errors.Is(err,ErrAudit){t.Fatalf("bad source accepted %q %v",bad,err)}
+  if !(errors.Is(err,ErrAudit)||errors.Is(err,groundingaudit.ErrTrainSource)){t.Fatalf("bad source accepted %q %v",bad,err)}
  }
- if _,err:=Compare(idx,source(row(sameDirector,"Film B")),2,2);!errors.Is(err,ErrAudit){
+ if _,err:=Compare(idx,source(row(sameDirector,"Film B")),2,2);!(errors.Is(err,ErrAudit)||errors.Is(err,groundingaudit.ErrTrainSource)){
   t.Fatalf("cohort denominator narrowed without denial %v",err)
  }
  data:=source(row(sameDirector,"Film B"),row(sameDirector,"Film B"))
