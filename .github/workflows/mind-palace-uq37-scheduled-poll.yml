@@ -94,7 +94,78 @@ jobs:
             Assert (@($allowlist.sources).Count -le 1) 'POLL_SOURCE_LIMIT_EXCEEDED'
             foreach($source in @($allowlist.sources)){
               $path = [string]$source.path
-              Assert ($path -cmatch '^pilots/chat-history/[a-zA-Z0-9._-]+[.]extraction[.]json
+              Assert ($path -cmatch '^pilots/chat-history/[a-zA-Z0-9._-]+[.]extraction[.]json = Join-Path $root 'tools/guarded-unattended-intake.ps1'
+            $queue = Join-Path $root 'policies/guarded-chat-source-queue.json'
+            Assert ((& git.exe -C $root hash-object -- $tool | Out-String).Trim() -ceq $expectedToolBlob) 'ENGINE_SOURCE_DRIFT_NOT_APPROVED'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:tools' | Out-String).Trim() -ceq $expectedToolsTree) 'TOOLS_DEPENDENCY_TREE_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:schemas' | Out-String).Trim() -ceq $expectedSchemasTree) 'SCHEMA_DEPENDENCY_TREE_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:policies/chat-source-aliases.json' | Out-String).Trim() -ceq $expectedAliasPolicyBlob) 'SOURCE_ALIAS_POLICY_DRIFT'
+            Assert ((& git.exe -C $root rev-parse 'HEAD:.ice/manifest.json' | Out-String).Trim() -ceq $expectedManifestBlob) 'MANIFEST_POLICY_DRIFT'
+            Assert (Test-Path -LiteralPath $queue -PathType Leaf) 'QUEUE_UNAVAILABLE'
+            $stateBefore = @{}
+            foreach($path in $guard){$stateBefore[$path]=Sha256 (Join-Path $root $path)}
+            $argsForChild = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+              '-File',('"'+$tool+'"'),'inspect','-QueuePath',('"'+$queue+'"'),'-MaxSources','1')
+            $p=Start-Process -FilePath $psExe -ArgumentList $argsForChild -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            Assert ($p.ExitCode -eq 0) ('SOURCE_INSPECTION_FAILED_EXIT_'+$p.ExitCode)
+            $raw=[IO.File]::ReadAllText($stdout)
+            $result=$raw | ConvertFrom-Json -ErrorAction Stop
+            Assert ([string]$result.schema -ceq 'mind-palace.guarded-chat-source-queue-result.v1') 'RESULT_SCHEMA'
+            Assert ([bool]$result.durable_state_unchanged -and [int]$result.production_memory_writes -eq 0 -and
+              [int]$result.source_ledger_writes -eq 0 -and [int]$result.paid_model_invocations -eq 0 -and
+              -not [bool]$result.automatic_background_discovery -and
+              -not [bool]$result.automatic_production_updates) 'NO_WRITE_BOUNDARY_VIOLATED'
+            Assert ([int]$result.inspected_count -le 1) 'INSPECTION_BUDGET_EXCEEDED'
+            foreach($path in $guard){Assert ((Sha256 (Join-Path $root $path)) -ceq $stateBefore[$path]) ('DURABLE_DRIFT_'+$path)}
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'CHECKOUT_DIRTY'
+            $afterRemote = @(& git.exe ls-remote --exit-code $privateRepo refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $afterRemote.Count -eq 1 -and
+              (([string]$afterRemote[0] -split '\s+')[0]) -ceq $mainHead) 'MAIN_REF_DRIFT'
+            if([int]$result.inspected_count -eq 0){
+              Write-Host 'UQ37_EMPTY_AUTHORIZED_QUEUE=IDLE'
+            } else {
+              $state = [string]$result.items[0].disposition
+              Assert (@('skip_known','ready_for_authorized_preparation') -contains $state) 'UNSUPPORTED_DISPOSITION'
+              Write-Host ('UQ37_BOUNDED_SOURCE_DISPOSITION='+$state)
+            }
+            Write-Host 'UQ37_NINE_PROTECTED_HASHES_AND_MAIN_REF_STABLE=PASS'
+            Write-Host 'UQ37_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ37_CODEX_AND_PAID_INFERENCE=0'
+            Write-Host 'UQ37_SCHEDULED_READONLY_INSPECTION=PASS'
+          } finally {
+            # Removal failures must fail the poll; never retain a private
+            # checkout while reporting success.
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            Assert (-not (Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_CLEANUP_FAILED'
+          }
+      - name: Independently verify private scratch cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scratch = Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-' + $env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){
+            Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'UQ40_PRIVATE_SCRATCH_RETAINED'}
+          Write-Host 'UQ40_PRIVATE_SCRATCH_CLEAN=PASS'
+) 'SOURCE_PATH_NOT_AUTHORIZED'
+              $patterns += '/' + $path
+            }
+            if(@($allowlist.sources).Count -gt 0){
+              & git.exe -C $root sparse-checkout set --no-cone @patterns
+              Assert ($LASTEXITCODE -eq 0) 'PINNED_SOURCE_SPARSE_FAILED'
+            }
+            $tracked = @(& git.exe -C $root ls-files)
+            $allowedPaths = @($needed) + @($allowlist.sources | ForEach-Object { [string]$_.path })
+            foreach($file in $tracked){
+              if($allowedPaths -cnotcontains [string]$file){
+                Assert (-not (Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf)) 'UNRELATED_PRIVATE_BLOB_PRESENT'
+              }
+            }
+            Write-Host 'UQ40_BLOBLESS_EXACT_FILE_SPARSE=PASS'
             $tool = Join-Path $root 'tools/guarded-unattended-intake.ps1'
             $queue = Join-Path $root 'policies/guarded-chat-source-queue.json'
             Assert ((& git.exe -C $root hash-object -- $tool | Out-String).Trim() -ceq $expectedToolBlob) 'ENGINE_SOURCE_DRIFT_NOT_APPROVED'
