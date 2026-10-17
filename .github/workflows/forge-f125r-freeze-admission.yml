@@ -1,0 +1,410 @@
+name: F125-R path-preserving freeze admission
+# Frozen preregistration only: no graph generation, model training,
+# original first use, confirmation access or new executor.
+on:
+  push:
+    branches: [research/f125r-path-preserving-compose-freeze-20261017]
+    paths:
+      - 'reference/research-intake/f125r-path-preserving-composition-freeze.json'
+      - 'nativeevidence/f125r_freeze_admission.py'
+      - 'nativeevidence/test_f125r_freeze_admission.py'
+      - 'nativeevidence/f125r_*.py'
+      - 'nativeevidence/test_f125r_*.py'
+      - '.github/workflows/forge-f125r-freeze-admission.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f125r-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact source head and F124-R ancestry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F125R_HEAD_IDENTITY_DRIFT'
+          }
+          & git cat-file -e '6fbfff31ed4795bfe1a0880fd0d941cc200936f8^{commit}'
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_PARENT_MISSING' }
+          & git merge-base --is-ancestor 6fbfff31ed4795bfe1a0880fd0d941cc200936f8 $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_PARENT_NOT_ANCESTOR' }
+      - name: Qualify new TRAIN source family and 20-parameter path-preserving mechanism
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_train_environment.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_NEW_SOURCE_TESTS_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_path_model.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_NEW_LEARNED_MECHANISM_TESTS_FAILED' }
+          Write-Host 'F125R_TRAIN_ONLY_SOURCE_AND_MODEL_SMOKE_PASS=true'
+      - name: Freeze validation and adversarial tamper tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_freeze_admission.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_TAMPER_TESTS_FAILED' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f125r-source-only'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $receipt=Join-Path $folder 'source-admission.json'
+          & $py -B nativeevidence/f125r_freeze_admission.py --source-sha $env:GITHUB_SHA --output $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_SOURCE_ADMISSION_FAILED' }
+          $r=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f125r.source-admission.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.freeze_git_blob -cne '0a2030f17123b7e096c42e730f3a536f014275bd' -or
+              $r.parent_sha -cne '6fbfff31ed4795bfe1a0880fd0d941cc200936f8' -or
+              $r.graph_cases_generated -ne 0 -or $r.model_trained -or
+              $r.protected_confirmation_read -or $r.scientific_first_use -or
+              $r.scientific_accepted -or $r.optimizer_promoted -or
+              $r.accepted_ref_mutations -ne 0) {
+            throw 'F125R_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          $hash=(Get-FileHash -LiteralPath $receipt -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($receipt+'.sha256'),
+            ($hash+'  source-admission.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F125R_SOURCE_RECEIPT_SHA256=$hash"
+          Write-Host 'F125R_PROTECTED_CONFIRM=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-preregistered-source-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-source-only/
+          if-no-files-found: error
+          retention-days: 30
+
+  headroom-source-only:
+    needs: frozen-source
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify frozen public fixed control and unchanged TRAIN cases
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_TRAIN_SOURCE_OR_MODEL_TESTS_FAILED' }
+      - name: Generate exact-head advisory and headroom audit without model fitting
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $folder=Join-Path $env:RUNNER_TEMP 'f125r-train-headroom'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          $advisory=Join-Path $folder 'advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_ADVISORY_GENERATOR_FAILED' }
+          $source=Get-Content -LiteralPath $advisory -Raw | ConvertFrom-Json
+          if ($source.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $source.source_commit_sha -cne $env:GITHUB_SHA -or
+              $source.lanes.Count -ne 2 -or
+              $source.model_invocations -ne 0 -or $source.codex_invocations -ne 0 -or
+              $source.network_calls -ne 0 -or $source.new_scientific_originals -ne 0 -or
+              $source.scientific_first_use_authorized -or $source.policy_promotion_authorized -or
+              $source.accepted_ref_mutations -ne 0) { throw 'F125R_ADVISORY_PROVENANCE_DENIED' }
+          $out=Join-Path $folder 'f125r-train-headroom.json'
+          & $py -B nativeevidence/f125r_train_headroom.py --advisory $advisory --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_SOURCE_HEADROOM_AUDIT_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f125r.public-train-source-headroom.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.freeze_git_blob -cne '0a2030f17123b7e096c42e730f3a536f014275bd' -or
+              $r.lanes.Count -ne 2 -or $r.lanes[0].lane -cne 'Wingless' -or
+              $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.scientific_first_use -or $r.reserved_confirm_generated -or
+              $r.trained_weights_created -or -not $r.no_seed_or_threshold_retuning -or
+              $r.originals_dispatched -ne 0) { throw 'F125R_UNEARNED_HEADROOM_OR_AUTHORITY' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.train_pairs -ne 64 -or
+                $lane.exact_public_symbolic_ceiling.paired_correct -ne 64 -or
+                $lane.minimum_frozen_headroom -ne 0.08) {
+              throw 'F125R_HEADROOM_REVIEW_INCOMPLETE'
+            }
+          }
+          # An unfavorable, authentic source-eligibility result is valid evidence;
+          # NEVER abort just to choose more favorable TRAIN cases.
+          foreach ($name in @('advisory.json','f125r-train-headroom.json')) {
+            $p=Join-Path $folder $name
+            $digest=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($p+'.sha256'),
+              ($digest+'  '+$name+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          }
+          Write-Host "F125R_SOURCE_ELIGIBILITY=$($r.disposition)"
+          Write-Host "F125R_FROZEN_SOURCE_SHA=$env:GITHUB_SHA"
+          Write-Host 'F125R_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-train-source-headroom-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-train-headroom/
+          retention-days: 90
+          if-no-files-found: error
+
+  path-preserving-train-only:
+    needs: headroom-source-only
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f125r-train-source-headroom-${{ matrix.os }}-${{ github.sha }}
+          path: saved-f125r-headroom
+      - name: Verify authentic frozen TRAIN source admission and learn 100 epochs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_train_qualification.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_LEARNER_INTAKE_DENIAL_TEST_FAILED' }
+          $headroom='saved-f125r-headroom/f125r-train-headroom.json'
+          $advisory='saved-f125r-headroom/advisory.json'
+          $eligible=Get-Content -LiteralPath $headroom -Raw | ConvertFrom-Json
+          $folder=Join-Path $env:RUNNER_TEMP 'f125r-public-train'
+          New-Item -ItemType Directory -Force -Path $folder | Out-Null
+          if (-not $eligible.all_lanes_headroom_eligible) {
+            # This is a VALID scientific-development negative, NOT permission
+            # to change seeds, source vectors or thresholds after observation.
+            [IO.File]::WriteAllText((Join-Path $folder 'uninformative-headroom.txt'),
+               ('F125R_NO_TRAIN_UNINFORMATIVE_HEADROOM source='+$env:GITHUB_SHA),
+               [Text.UTF8Encoding]::new($false))
+            Write-Host 'F125R_NO_TRAIN_UNINFORMATIVE_HEADROOM=true'
+            return
+          }
+          $out=Join-Path $folder 'f125r-public-train-weights.json'
+          & $py -B nativeevidence/f125r_train_qualification.py --advisory $advisory --headroom $headroom --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_TRAIN_SOURCE_INVALID_OR_MODEL_FAILED' }
+          $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($report.schema -cne 'forge.autonomy.f125r.path-preserving-public-train-custody.v1' -or
+              $report.source_sha -cne $env:GITHUB_SHA -or
+              $report.frozen_git_blob -cne '0a2030f17123b7e096c42e730f3a536f014275bd' -or
+              $report.phase -cne 'AUTHENTIC_SOURCE_PUBLIC_TRAIN_ONLY_NOT_SCIENCE' -or
+              $report.lanes.Count -ne 2 -or $report.lanes[0].lane -cne 'Wingless' -or
+              $report.lanes[1].lane -cne 'Yggdrasil' -or
+              $report.protected_confirmation_read -or $report.scientific_first_use -or
+              $report.scientific_acceptance -or $report.optimizer_promotion -or
+              $report.accepted_ref_mutation -or $report.originals_dispatched -ne 0 -or
+              $report.codex_calls -ne 0 -or $report.paid_model_calls -ne 0 -or
+              $report.new_scheduler) { throw 'F125R_UNEARNED_TRAIN_AUTHORITY' }
+          foreach ($lane in $report.lanes) {
+            if ($lane.train_score.pairs -ne 64 -or
+                $lane.frozen_optimizer_epochs -ne 100 -or
+                $lane.learned_parameter_count -ne 20 -or
+                $lane.public_max_state_keys -gt 256 -or
+                $lane.pruned_states_by_design -ne 0 -or
+                $lane.protected_confirmation_samples -ne 0 -or
+                $lane.scientific_accepted -or
+                $lane.matched_compute_ratio_to_f123_dense_established) {
+              throw 'F125R_TRAIN_RESULT_INCOMPLETE_OR_FALSE_SCIENCE'
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+              ($sha+'  f125r-public-train-weights.json'+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          Write-Host "F125R_TRAIN_WEIGHTS_CUSTODY_SHA256=$sha"
+          Write-Host 'F125R_PROTECTED_CONFIRM=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-train-weight-custody-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-public-train/
+          retention-days: 90
+          if-no-files-found: error
+
+
+  f125r-train-diagnostic:
+    needs: path-preserving-train-only
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f125r-train-source-headroom-ubuntu-latest-${{ github.sha }}
+          path: saved-headroom
+      - uses: actions/download-artifact@v4
+        with:
+          name: f125r-train-weight-custody-ubuntu-latest-${{ github.sha }}
+          path: saved-training
+      - name: Replay saved TRAIN weights, causal pairs and null controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python3 -B -m unittest discover -s nativeevidence -p 'test_f125r_train_diagnostics.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_DIAGNOSTIC_TEST_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'f125r-train-diagnostic'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $out=Join-Path $root 'f125r-train-diagnostic.json'
+          & python3 -B nativeevidence/f125r_train_diagnostics.py --advisory saved-headroom/advisory.json --headroom saved-headroom/f125r-train-headroom.json --weights saved-training/f125r-public-train-weights.json --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_DIAGNOSTIC_QUARANTINED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.autonomy.f125r.train-only-calibration-causal-diagnostic.v1' -or
+              $r.source_sha -cne $env:GITHUB_SHA -or
+              $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.protected_confirmation_read -or $r.scientific_first_use -or
+              $r.scientific_acceptance -or $r.optimizer_promotion -or
+              $r.threshold_or_train_weights_changed -or
+              $r.resource_matched_superiority_established -or
+              $r.originals_dispatched -ne 0) { throw 'F125R_FALSE_SCIENTIFIC_AUTHORITY' }
+          foreach ($lane in $r.lanes) {
+            if ($lane.paired_test_records -ne 64 -or
+                $lane.sampled_train_graphs -ne 128 -or
+                $lane.pair_diagnostics.Count -ne 64 -or
+                $lane.null_intervention_prediction_flips -ne 0 -or
+                $lane.unchanged_frozen_threshold -ne 0.5 -or
+                $lane.model_threshold_tuned -or $lane.learned_parameters_updated) {
+              throw 'F125R_INCOMPLETE_FROZEN_TRAIN_DIAGNOSTIC'
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            ($digest+'  f125r-train-diagnostic.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F125R_CAUSAL_DIAGNOSTIC_SHA256=$digest"
+          Write-Host 'F125R_CONFIRM_NOT_ACCESSED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-saved-weights-causal-diagnostic-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-train-diagnostic/
+          retention-days: 90
+          if-no-files-found: error
+
+  f125r-full-system-regression:
+    needs: f125r-train-diagnostic
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source and inherited parent interface regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F125R_UNEXPECTED_SOURCE_SHA' }
+          & $py -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_ISOLATION_TEST_FAILURE' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_ISOLATION_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f123_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_F123_PARENT_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_F124R_PARENT_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f125r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_NEW_AFFECTED_INTERFACE_FAILURE' }
+      - name: Full Go tests, Linux race, vet, and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_GO_TEST_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_GO_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F125R_FULL_BUILD_FAILED' }
+          $dir=Join-Path $env:RUNNER_TEMP 'f125r-development-regression'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $receipt=[ordered]@{
+            schema='forge.autonomy.f125r.full-development-regression.v1'
+            source_sha=$env:GITHUB_SHA
+            platform=$env:RUNNER_OS
+            full_go_regression=$true
+            go_vet_and_build=$true
+            affected_interfaces=$true
+            linux_race_executed=($env:RUNNER_OS -eq 'Linux')
+            protected_confirmation_read=$false
+            scientific_first_use=$false
+            scientific_acceptance=$false
+            optimizer_promotion=$false
+          } | ConvertTo-Json -Depth 4
+          [IO.File]::WriteAllText((Join-Path $dir 'regression.json'),
+             ($receipt+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          Write-Host 'F125R_EXACT_HEAD_REGRESSION=PASS'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f125r-public-full-regression-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f125r-development-regression/regression.json
+          retention-days: 90
+          if-no-files-found: error
