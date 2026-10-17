@@ -152,7 +152,7 @@ func scoreCandidate(lane string,n int,cid,family,cl string) evoportfolio.Candida
 func runLane(j jLane,i iLane)(laneOutput,error){
  var zero laneOutput
  lane:=j.Lane
- if lane!="Wingless"&&lane!="Yggdrasil"{return zero,errIntake}
+ if lane!="Wingless"&&lane!="Yggdrasil"{return zero,fmt.Errorf("%w:invalid_lane",errIntake)}
  // C16 is an *ineligible algorithmic ceiling*, the A and B negatives stay
  // archived. Evoportfolio and Pareto are advisory and use abstract slot units,
  // NEVER claims of matched inference computation.
@@ -182,7 +182,7 @@ func runLane(j jLane,i iLane)(laneOutput,error){
  if err!=nil{return zero,fmt.Errorf("island_pareto:%w",err)}
  if decision.ScientificAccepted||decision.DispatchAuthorized||decision.AcceptedRefMutation||
     pareto.ScientificAccepted||pareto.DispatchAuthorized||pareto.AcceptedRefMutation||
-    pareto.ImprovementScientificallyEstablished||pareto.MutationRuntimeActivated{return zero,errIntake}
+    pareto.ImprovementScientificallyEstablished||pareto.MutationRuntimeActivated{return zero,fmt.Errorf("%w:advisory_authority_drift",errIntake)}
  // Derive real training-only challenge coordinates from original B/A error
  // strata, not made-up positive discoveries. Shape indices are predeclared.
  errvec:=func(a armReport) []int64 {
@@ -199,7 +199,7 @@ func runLane(j jLane,i iLane)(laneOutput,error){
  base:=[]int64{1,1,1}
  // A validation requirement, not a silent repair if a future history changes.
  equal:=func(a,b []int64)bool{for n:=range a{if a[n]!=b[n]{return false}};return true}
- if equal(aVec,bVec)||equal(aVec,base)||equal(bVec,base){return zero,errIntake}
+ if equal(aVec,bVec)||equal(aVec,base)||equal(bVec,base){return zero,fmt.Errorf("%w:real_failure_vectors_not_distinct:%s:%v:%v",errIntake,lane,aVec,bVec)}
  history:=genenv.History{Schema:genenv.HistorySchema,Lane:lane,SourceSHA:originalSource,
   Records:[]genenv.Record{
    {Sequence:1,EvidenceSHA256:i.Arms["A"].Weight,TrainingOnly:true,Classification:"NEGATIVE",Vector:aVec},
