@@ -46,7 +46,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "$(git -C original-metaqa-kb rev-parse HEAD)" = '826ee617e4da5b087584b0e03c70fe76642c6188'
           test "$(git -C original-metaqa-kb rev-parse HEAD:metaqa/original/kb.txt)" = 'a43fa7ca5e6894236556f2984764070c4ca5562b'
-          sha="$(sha256sum original-metaqa-kb/metaqa/original/kb.txt | cut -d' ' -f1)"
+          git -C original-metaqa-kb show HEAD:metaqa/original/kb.txt > f115o-original-git-object.bin
+          sha="$(sha256sum f115o-original-git-object.bin | cut -d' ' -f1)"
           test "$sha" = '9b4d3b3066266075ad1577b4beed68e6e112e76e1a29ed2cb00a2896d2b792af'
           for cohort in 1-hop 2-hop 3-hop; do
             test ! -e "original-metaqa-kb/metaqa/original/$cohort/qa_train.txt"
@@ -63,7 +64,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go run ./cmd/forge-f115o-metaqa-transfer --source-raw-kb original-metaqa-kb/metaqa/original/kb.txt --output f115o-authentic-metaqa-transfer.json
+          go run ./cmd/forge-f115o-metaqa-transfer --source-raw-kb f115o-original-git-object.bin --output f115o-authentic-metaqa-transfer.json
           python - <<'PY'
           import json
           x=json.load(open('f115o-authentic-metaqa-transfer.json',encoding='utf-8'))
