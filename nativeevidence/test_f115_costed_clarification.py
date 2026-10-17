@@ -99,7 +99,8 @@ class F115CostedClarification(unittest.TestCase):
         self.assertEqual(f115.assess(self.cohorts[0],"never")["abstentions"],48)
 
     def test_f114_parent_recomputed_but_claim_not_promoted(self):
-        a=f115.evaluate("a"*40)
+        with mock.patch.dict(os.environ,{"GITHUB_SHA":"a"*40}):
+            a=f115.evaluate("a"*40)
         self.assertEqual(a["public_pairs"],144)
         self.assertEqual(a["identical_public_twins"],72)
         self.assertTrue(a["certificate_parent_reproduced"])
