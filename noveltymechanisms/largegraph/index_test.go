@@ -110,6 +110,18 @@ func TestF100OMalformedAndBinarySourceDeny(t *testing.T) {
 	}
 }
 
+func TestF100OInvalidUTF8AndRoleDelimitersDenied(t *testing.T) {
+	malformed := append([]byte("a|r|"), byte(0xff))
+	malformed = append(malformed, byte(10))
+	if _,err := Compile(malformed); !errors.Is(err,ErrSource) {
+		t.Fatalf("invalid source UTF8 accepted: %v",err)
+	}
+	idx := mustIndex(t, "a|r|b"+string(byte(10)))
+	if _,err := idx.Resolve("a", []Step{{"fake|role",Forward}}); !errors.Is(err,ErrQuery) {
+		t.Fatalf("injected role delimiter accepted: %v",err)
+	}
+}
+
 func TestF100OHardInputCaps(t *testing.T) {
 	tooMany:=strings.Repeat("a|r|b\n",MaxRows+1)
 	if _,err:=Compile([]byte(tooMany));!errors.Is(err,ErrBudget){
