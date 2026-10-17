@@ -1,0 +1,123 @@
+name: FORGE F107-O original FreebaseQA TRAIN-only lexical linker qualification
+on:
+  push:
+    branches: [engineering/f107o-freebase-train-linker-20261017-r1]
+    paths:
+      - 'noveltyeval/f107o_freebase_train_linker.py'
+      - 'noveltyeval/test_f107o_freebase_train_linker.py'
+      - 'docs/F107O-FROZEN-FREEBASE-TRAIN-LEXICAL-LINKER.md'
+      - '.github/workflows/forge-f107o-freebase-train-linker.yml'
+permissions:
+  contents: read
+jobs:
+  original-train-only-entity-linker:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - name: Exact FORGE source checkout without persistence
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Sparse original FreebaseQA README LICENSE TRAIN only; no DEV/EVAL
+        uses: actions/checkout@v4
+        with:
+          repository: kelvin-jiang/FreebaseQA
+          ref: d16aae5149aaa25e43ff2a7bd00a06f280ca19b9
+          path: public-freebaseqa-train
+          sparse-checkout: |
+            README.md
+            LICENSE
+            FreebaseQA-train.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source and reserved DEV/EVAL absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C public-freebaseqa-train rev-parse HEAD)" = 'd16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          test "$(git -C public-freebaseqa-train rev-parse HEAD:FreebaseQA-train.json)" = '24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          test "$(git -C public-freebaseqa-train rev-parse HEAD:FreebaseQA-dev.json)" = '2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          test "$(git -C public-freebaseqa-train rev-parse HEAD:FreebaseQA-eval.json)" = 'd7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          test ! -e public-freebaseqa-train/FreebaseQA-dev.json
+          test ! -e public-freebaseqa-train/FreebaseQA-eval.json
+          echo 'F107O_DEV_EVAL_SPARSE_SOURCE_NEVER_MATERIALIZED=TRUE'
+      - name: Adversarial synthetic ambiguity, answer-isolation and original-object controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f107o_*.py' -v
+      - name: All 20358 original TRAIN rows, frozen lexical development diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f107o_freebase_train_linker.py --upstream public-freebaseqa-train --out f107o-freebase-train-linker.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f107o-freebase-train-linker.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f107o.freebase-original-train-lexical-linker.v1'
+          assert x['status']=='PUBLIC_FREEBASE_TRAIN_ONLY_LEXICAL_LINKER_DIAGNOSTIC'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['train_git_blob']=='24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          assert x['train_original_bytes']==23888089
+          assert x['dev_git_blob_metadata_only']=='2e16ac381efb7b9e362cbf9bd0cee90006244ea8'
+          assert x['eval_git_blob_metadata_only']=='d7d06ae721aedca26a0838d0113cddc1aa6774a8'
+          assert x['source_train_population']==20358
+          assert x['link_status_denominator']==20358
+          assert sum(x['link_status_counts'].values())==20358
+          a=x['train_annotation_lexicon_stats']
+          assert a['original_train_rows']==a['train_row_ids_unique']==20358
+          assert a['lexicon_distinct_normalized_mentions']==a['lexicon_unique_mid_mentions']+a['lexicon_ambiguous_mid_mentions']
+          assert 0<=a['lexicon_distinct_normalized_mentions']<=100000
+          assert isinstance(a['distinct_training_role_strings'],int)
+          assert x['trained_on_public_original_train_labels'] is True
+          for flag in ('train_answer_labels_read_by_adapter','dev_or_eval_question_bytes_read',
+                       'dev_or_eval_qa_scored','per_question_output_published',
+                       'any_mid_mention_or_role_name_published',
+                       'qualified_independent_entity_linking',
+                       'qualified_freebase_role_translation',
+                       'qualified_original_freebase_knowledge_graph',
+                       'independent_scientific_firstuse',
+                       'generalization_qualified','accepted_science','accepted_ref_mutation',
+                       'dream_pareto_promotion','thetaevolve_accepted_training',
+                       'science_dispatch'):
+            assert x[flag] is False,flag
+          assert x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F107O_TRAIN_ONLY_LINK_STATUS_COUNTS='+json.dumps(x['link_status_counts'],sort_keys=True))
+          print('F107O_LEXICON_STATS='+json.dumps(a,sort_keys=True))
+          print('F107O_NO_GOLD_MID_VALIDATION_NO_ROLE_PLANNER_NO_SCIENCE')
+          PY
+          sha256sum f107o-freebase-train-linker.json > f107o-freebase-train-linker.sha256
+          sha256sum -c f107o-freebase-train-linker.sha256
+      - name: Mandatory one exact-head complete Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo 'F107O_NO_CKB_CLOUDFLARE_CODEX_PAID_MODEL_SCORING'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f107o-freebase-train-lexicon-${{ matrix.os }}
+          path: |
+            f107o-freebase-train-linker.json
+            f107o-freebase-train-linker.sha256
+          retention-days: 45
+          if-no-files-found: error
