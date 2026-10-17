@@ -718,6 +718,70 @@ jobs:
             [System.Text.UTF8Encoding]::new($false))
           Write-Host 'FORGE_F109_FROZEN_PUBLIC_MECHANISM_SCREEN=EVIDENCE_RETAINED'
           Write-Host 'FORGE_F109_SCIENCE_AND_EXTERNAL_INFERENCE=ZERO'
+      - name: F110 verify capacity-matched three-block transfer with honest negatives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f110_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F110_CAPACITY_AND_CUSTODY_TESTS_FAILED' }
+          $outdir=Join-Path $env:RUNNER_TEMP 'forge-f110-development'
+          New-Item -ItemType Directory -Path $outdir -Force | Out-Null
+          $report=Join-Path $outdir 'f110-capacity-matched-transfer.json'
+          & $python -B nativeevidence/f110_capacity_transfer.py --source-ref $env:GITHUB_SHA --evidence-root $env:RUNNER_TEMP |
+            Out-File -LiteralPath $report -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_F110_PUBLIC_TRANSFER_QUARANTINED' }
+          $d=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f110.capacity-matched-frozen-three-block-public-transfer.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.evidence_class -cne 'THREE_PUBLIC_FROZEN_TRANSFER_BLOCKS_NOT_INDEPENDENT_SCIENCE' -or
+              $d.frozen_conditions_per_lane -ne 3 -or
+              $d.public_pairs_per_lane -ne 144 -or
+              $d.lanes.Count -ne 2 -or
+              $d.lanes[0].lane -cne 'Wingless' -or
+              $d.lanes[1].lane -cne 'Yggdrasil' -or
+              -not $d.all_f109_positive_and_negative_findings_preserved -or
+              -not $d.all_diagnostic_arm_decisions_preserved -or
+              $d.independently_accepted_science -ne 0 -or
+              $d.protected_first_use_authorized -or
+              $d.original_science_executed -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.optimizer_promotions -ne 0 -or
+              $d.native_scientific_dispatches -ne 0 -or
+              $d.codex_calls -ne 0 -or $d.paid_model_api_calls -ne 0 -or
+              $d.chatgpt_work_tasks -ne 0 -or $d.new_scheduler_created -or
+              $d.ckb_plane_contact -or $d.cloudflare_writes -ne 0 -or
+              -not $d.no_gpt_autonomous_science_claim) {
+            throw 'FORGE_F110_FALSE_QUALIFICATION_OR_AUTHORITY'
+          }
+          foreach ($lane in $d.lanes) {
+            if ($lane.blocks.Count -ne 3 -or
+                $lane.total_assessment_pairs -ne 144 -or
+                $lane.disposition -notin @('BOUNDED_PUBLIC_TRANSFER_ADVANTAGE_NOT_SCIENCE','CAPACITY_MATCHED_TRANSFER_NOT_DEMONSTRATED_RETAIN_ALL_NEGATIVES')) {
+              throw 'FORGE_F110_MISSING_TRANSFER_COHORT_OR_NEGATIVE'
+            }
+            foreach ($block in $lane.blocks) {
+              if ($block.pairs -ne 48 -or $block.all_paired_decisions.Count -ne 48) {
+                throw 'FORGE_F110_MISSING_PAIRED_EVIDENCE'
+              }
+            }
+          }
+          $wing=$d.lanes[0]
+          if ($wing.candidate_parameters -ne 64 -or
+              $wing.matched_control_parameters -ne 64 -or
+              $wing.training_steps_each -ne 100 -or
+              $wing.candidate_observation_reads -ne 1 -or
+              $wing.matched_control_observation_reads -ne 1 -or
+              -not $wing.original_18_parameter_baseline_included) {
+            throw 'FORGE_F110_64_PARAMETER_OR_ONE_OBSERVATION_PARITY_BROKEN'
+          }
+          $hash=(Get-FileHash -LiteralPath $report -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $outdir 'f110-capacity-matched-transfer.sha256'),
+            "$hash  f110-capacity-matched-transfer.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host 'FORGE_F110_SOURCE_BOUND_CAPACITY_MATCHED_TRANSFER=EVIDENCE_RETAINED'
+          Write-Host 'FORGE_F110_PROTECTED_SCIENCE_AND_CODEX=ZERO'
       - name: Read optional historical research archives (separate from core synthetic acceptance)
         id: f98_external_observer
         continue-on-error: true
@@ -853,6 +917,7 @@ jobs:
             ${{ runner.temp }}/forge-f107-development/
             ${{ runner.temp }}/forge-f108-development/
             ${{ runner.temp }}/forge-f109-development/
+            ${{ runner.temp }}/forge-f110-development/
             ${{ runner.temp }}/forge-synthetic-processes
           retention-days: 30
           if-no-files-found: error
