@@ -19,7 +19,7 @@ class F124OTests(unittest.TestCase):
         self.assertNotEqual(m.sha(m.WINGLESS_INIT),m.sha(m.YGGDRASIL_INIT))
         self.assertTrue(p["optimizer"]["fit_only_training"])
         self.assertTrue(p["optimizer"]["no_dev_gradient_or_selection"])
-        self.assertFalse(p["evaluation"]["dev_success_not_assumed"])
+        self.assertTrue(p["evaluation"]["dev_success_not_assumed"])
 
     def test_same_public_graph_different_model_with_reordering(self):
         for lane,seed in (("Wingless",380000),("Yggdrasil",390000)):
