@@ -1,0 +1,183 @@
+name: F129-R packed-token TRAIN and cross-platform qualification
+on:
+  push:
+    branches: [research/f129r-packed-token-join-freeze-20261017]
+    paths:
+      - 'nativeevidence/f129r_train_environment.py'
+      - 'nativeevidence/f129r_packed_token_join.py'
+      - 'nativeevidence/f129r_train_qualification.py'
+      - 'nativeevidence/test_f129r_packed_token_join.py'
+      - '.github/workflows/forge-f129r-train-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f129r-actual-development-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-fit-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fail closed on F129-R immutable source and model invariants
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F129R_EXACT_HEAD_DRIFT'
+          }
+          foreach ($pattern in @('test_f129r_freeze_admission.py','test_f129r_packed_token_join.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F129R_FOCUSED_TEST_FAILED_$pattern" }
+          }
+      - name: Independent FIT plus untouched TRAIN_CHECK indexed and packed cost
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $directory=Join-Path $env:RUNNER_TEMP 'f129r-public-fit-check'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          $advisory=Join-Path $directory 'advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_SOURCE_GENERATOR_FAILED' }
+          $a=Get-Content -LiteralPath $advisory -Raw | ConvertFrom-Json
+          if ($a.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $a.source_commit_sha -cne $env:GITHUB_SHA -or
+              $a.lanes.Count -ne 2 -or
+              $a.model_invocations -ne 0 -or
+              $a.codex_invocations -ne 0 -or
+              $a.network_calls -ne 0 -or
+              $a.new_scientific_originals -ne 0 -or
+              $a.scientific_first_use_authorized -or
+              $a.policy_promotion_authorized -or
+              $a.accepted_ref_mutations -ne 0) {
+            throw 'F129R_SOURCE_PROVENANCE_OR_AUTHORITY_INVALID'
+          }
+          $report=Join-Path $directory 'f129r-public-fit-check.json'
+          & $py -B nativeevidence/f129r_train_qualification.py --advisory $advisory --source-sha $env:GITHUB_SHA --output $report
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_TRAIN_RESULT_QUARANTINED' }
+          $receipt=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($receipt.schema -cne 'forge.research.f129r.public-fit-check-packed-join.v1' -or
+              $receipt.source_sha -cne $env:GITHUB_SHA -or
+              $receipt.frozen_git_blob -cne 'b02106693ea400d705d5b75feede949b39b2ed7a' -or
+              $receipt.lanes.Count -ne 2 -or
+              $receipt.lanes[0].lane -cne 'Wingless' -or
+              $receipt.lanes[1].lane -cne 'Yggdrasil' -or
+              $receipt.scientific_success -or
+              $receipt.independent_scientific_first_use -or
+              $receipt.scientific_acceptance -or
+              $receipt.optimizer_promotion -or
+              $receipt.protected_CONFIRM_read -or
+              $receipt.originals_dispatched -ne 0 -or
+              $receipt.accepted_ref_mutations -ne 0 -or
+              $receipt.codex_calls -ne 0 -or
+              $receipt.paid_model_calls -ne 0 -or
+              $receipt.new_scheduler) {
+            throw 'F129R_UNEARNED_SCIENTIFIC_AUTHORITY'
+          }
+          foreach ($lane in $receipt.lanes) {
+            if ($lane.FIT_pairs -ne 32 -or $lane.TRAIN_CHECK_pairs -ne 32 -or
+                -not $lane.unseen_check_disjoint -or
+                $lane.trained_parameters -ne 0 -or
+                $lane.fit_model_selection -or
+                $lane.TRAIN_CHECK_strong_controls.CTRL_NATIVE_INDEXED_16_ELEMENT_VECTOR_EQUALITY.paired_correct -ne 32 -or
+                $lane.TRAIN_CHECK_strong_controls.F129R_PACKED_TOKEN_HASH_JOIN_NO_LEARNING_NO_SELECTION.paired_correct -ne 32 -or
+                $lane.same_host_resource_benchmark.warmup_passes -ne 5 -or
+                $lane.same_host_resource_benchmark.measured_interleaved_passes -ne 30 -or
+                $lane.same_host_resource_benchmark.graphs_per_pass -ne 64 -or
+                -not $lane.same_host_resource_benchmark.index_and_input_packing_timed -or
+                -not $lane.native_indexed_fast_baseline_included -or
+                $lane.protected_confirmation_read -or
+                $lane.scientific_acceptance) {
+              throw 'F129R_INCOMPLETE_DENOMINATOR_OR_FALSE_COST'
+            }
+          }
+          foreach ($name in @('advisory.json','f129r-public-fit-check.json')) {
+            $path=Join-Path $directory $name
+            $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($path+'.sha256'),
+               ($hash+'  '+$name+[Environment]::NewLine),
+               [Text.UTF8Encoding]::new($false))
+          }
+          Write-Host "F129R_QUALIFIED_SOURCE=$env:GITHUB_SHA"
+          Write-Host 'F129R_NATIVE_INDEXED_ELIGIBLE=true'
+          Write-Host 'F129R_PROTECTED_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f129r-public-development-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f129r-public-fit-check/
+          retention-days: 90
+          if-no-files-found: error
+
+  full-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source, isolation, inherited scientific interfaces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F129R_REGRESSION_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_ISOLATION_TEST_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_ISOLATION_SOURCE_FAILED' }
+          foreach ($pattern in @('test_f125r_*.py','test_f126r_*.py','test_f127r_*.py','test_f128r_*.py','test_f129r_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F129R_AFFECTED_TEST_FAILED_$pattern" }
+          }
+      - name: Full Go regression, Linux race, vet and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_FULL_GO_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F129R_FULL_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_FULL_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_FULL_BUILD_FAILED' }
+          Write-Host 'F129R_FULL_EXACT_HEAD_REGRESSION=PASS'
