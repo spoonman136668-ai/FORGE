@@ -1,0 +1,89 @@
+{
+  "schema": "forge.autonomy.f114.partial-relation-abstention-prereg.v1",
+  "phase": "FROZEN_BEFORE_F114_IMPLEMENTATION_AND_ANY_F114_EVALUATION",
+  "frozen_date": "2026-10-17",
+  "parent": {
+    "f113_head": "88924d2e73d694076a5aa45bcdec3e89b3f41dac",
+    "f113_protocol_blob": "3fa7586aa22326723fa6daf0751658d13a827876",
+    "f113_implementation_blob": "6d190a7410135c1a035d48165912e27d01f74ae0",
+    "f112_model_blob": "838050a30a37961525eba29cab42a32f651c8ca0",
+    "f113_prior": "144/144 F112 previously trained six-feature and untrained fixed-feature each on source-ID full equality; 36/144 depth shortcut; zero learned-only wins; public engineering only",
+    "parallel_f113_note": "PR407 already explores fuzzy edit matching; F114 instead precommits IDENTIFIABILITY + selective abstention on missing/tied information."
+  },
+  "question": "When only one source value may be read, can public-information certificates separate uniquely resolvable retrieval, public-relationally resolvable ties, and provably unresolvable two-source ties without covert future-label use?",
+  "cohorts": [
+    {
+      "name": "W114-U",
+      "seeds": [
+        69600,
+        69647
+      ],
+      "cases": 48,
+      "design": "Unique edit-distance-one nearest source among four; no exact string equality; other IDs distance>=5",
+      "target_tag": "local offset modulo 4"
+    },
+    {
+      "name": "W114-R",
+      "seeds": [
+        69700,
+        69747
+      ],
+      "cases": 48,
+      "design": "Two source IDs equally distance one from missing query ID, public role witness uniquely matches query role for target; other two IDs distance>=5",
+      "target_tag": "local offset modulo 4, rival tag=(target+2)%4"
+    },
+    {
+      "name": "W114-I",
+      "seeds": [
+        69800,
+        69847
+      ],
+      "cases": 48,
+      "design": "24 twins of identical public query/source ID/observation order/role metadata, each twin assigns positive/negative sign flip alternately to one of two equally near role-indistinguishable candidates; other two IDs distance>=5",
+      "target_tag": "for twin id floor(offset/2), target=base tag on even twin and rival=(base+2)%4 on odd twin"
+    }
+  ],
+  "generator": {
+    "max_observation_sources": 4,
+    "source_id_ascii_length": 12,
+    "nonce": "Seeded from within-cohort local index, never exposed as model-visible seed; generated names do not repeat or overlap previous F113/F112 public examples.",
+    "nearest_source": "Query is a one-character substitution of a randomly chosen target source ID, exactly one distance-one candidate in U; exactly two distance-one candidates in R/I. Distinct source ID strings all unique.",
+    "ambiguity_creation": "Rival is query with one DIFFERENT character position substituted; no candidate equals query. Other two codes are independently seeded and require edit distance>=5 to query.",
+    "public_query_role": "In R, target role equals query role and rival role differs; in I both near candidate roles equal the query role. Role witness is public information, not a withheld answer or revealed target ID.",
+    "query_depth": "Balanced across tags and cohort positions; all 16 query-depth x tag cells occur at least twice in resolvable cohorts; depth never used by certificate.",
+    "counterfactual": "Positive and negative observation tuples differ by exactly ONE sign at hidden target; source code/roles/order/query identical; candidate must choose source BEFORE reading one sign. I twins share identical PUBLIC information but differ hidden target.",
+    "no_weak_source_position_leak": "Only public source strings, public role labels, query role, and observation order available to candidate policy; no seed, cohort tag, target tag, twin index, positive/negative sign, future source or true answer.",
+    "cost_cap": "Each predictor may choose one source then read that source's sign OR abstain; no reading multiple evidence values at inference, no hidden training/evaluation label.",
+    "case_classes_known_to_evaluator_not_selector": "The case class is not a predictor argument; diagnostics retain it only after decisions."
+  },
+  "policies": {
+    "certificate": "Compute public Levenshtein distance from query string to each source. Reject if no minimum<=1. If unique minimum, select it; if multiple minimum<=1, retain only candidates whose public role equals query role; select if exactly one; otherwise ABSTAIN. Do not access any sign/answer before choice.",
+    "forced_string": "Same public minimum-distance, fixed lowest tag on tie; never abstain. Identical single evidence-value read.",
+    "forced_relation": "Same role-tie-breaking when unique, otherwise fixed lowest tag; never abstain. Identical public information and one evidence-value read.",
+    "learned_F112": "Previously trained F112 six-weight engineered-feature metric on its original 96 public TRAIN and 100 updates, no F114 fitting; no role input because parent interface does not have it; forced one-read.",
+    "always_abstain": "Coverage zero safety control.",
+    "oracle": "OFFLINE ONLY gold-index comparator/upper bound, prohibited for online policy.",
+    "utility": "Correct one-sign paired retrieval +1, wrong -4, abstain -0.1; report error risk, coverage, utility separately; 4:1 harm ratio is hypothetical and not inferred from public data."
+  },
+  "frozen_thresholds": {
+    "validity": "Each block exactly 48 pairs; U has exactly 1 nearest and no exact match; R/I have exactly 2 nearest and no exact match; all R have unique valid role witness; all I have two indistinguishable matches; 24 I twin pairs have byte-identical public features and complementary gold targets; every block control complete and no target labels revealed.",
+    "certificate": "Coverage U >=44/48, R>=44/48, I exactly 0/48; zero false retrieval among certificate-covered cases; any violation => NEGATIVE. Do not call independent science acceptance.",
+    "impossibility": "For the 24 publicly identical I twins, any deterministic public-only one-read choice gets at most 24/48 paired correct, because target alternates. Test this for fixed forced policy and learned parent where metadata identical, but do not claim upper bound for sign-adaptive or multi-read policies (forbidden).",
+    "risk_comparison": "Record coverage, paired correct, wrong and explicit utility for certificate, forced string, forced relation, parent learned, always abstain. Success is safer selective inference, NOT evidence of learning or independent generalization.",
+    "no_tuning": "No changed cohort, seeds, roles, rankings or thresholds after any F114 result. Preserve every negative and refused case; source-prefix SHA256, all 144 case metrics and two independent OS reports."
+  },
+  "authority": {
+    "public_synthetic_development_only": true,
+    "no_Codex": true,
+    "no_paid_inference": true,
+    "no_CKB_dependency": true,
+    "no_MindPalace_write": true,
+    "no_new_scheduler": true,
+    "no_new_privileged_first_use": true,
+    "no_Wingless_Yggdrasil_repo_write": true,
+    "no_optimizer_promotion": true,
+    "no_protected_sci_acceptance": true,
+    "no_accepted_ref_mutation": true,
+    "no_science_dispatch": true
+  }
+}
