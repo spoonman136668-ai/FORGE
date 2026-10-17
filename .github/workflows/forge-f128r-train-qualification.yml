@@ -1,0 +1,176 @@
+name: F128-R learned exact bit-order TRAIN and full qualification
+on:
+  push:
+    branches: [research/f128r-learned-early-reject-indexed-freeze-20261017]
+    paths:
+      - 'nativeevidence/f128r_train_environment.py'
+      - 'nativeevidence/f128r_bit_order_model.py'
+      - 'nativeevidence/f128r_train_qualification.py'
+      - 'nativeevidence/test_f128r_*.py'
+      - '.github/workflows/forge-f128r-train-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f128r-original-train-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-train-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: F128-R frozen source, causal public FIT, exact verifier tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F128R_HEAD_DRIFT' }
+          foreach ($pattern in @('test_f128r_freeze_admission.py','test_f128r_bit_order_model.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F128R_FOCUSED_TEST_FAILED_$pattern" }
+          }
+      - name: Authenticate advisory and perform source-disjoint FIT and TRAIN_CHECK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $directory=Join-Path $env:RUNNER_TEMP 'f128r-public-fit-check'
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          $advisory=Join-Path $directory 'advisory.json'
+          & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA | Out-File -LiteralPath $advisory -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_AUTHENTIC_ADVISORY_FAILED' }
+          $a=Get-Content -LiteralPath $advisory -Raw | ConvertFrom-Json
+          if ($a.schema -cne 'forge.model-free.two-lane-untested-advisory.v1' -or
+              $a.source_commit_sha -cne $env:GITHUB_SHA -or
+              $a.lanes.Count -ne 2 -or
+              $a.model_invocations -ne 0 -or
+              $a.codex_invocations -ne 0 -or
+              $a.network_calls -ne 0 -or
+              $a.new_scientific_originals -ne 0 -or
+              $a.scientific_first_use_authorized -or
+              $a.policy_promotion_authorized -or
+              $a.accepted_ref_mutations -ne 0) {
+            throw 'F128R_ADVISORY_PROVENANCE_DENIED'
+          }
+          $out=Join-Path $directory 'f128r-public-fit-check.json'
+          & $py -B nativeevidence/f128r_train_qualification.py --advisory $advisory --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_TRAIN_QUARANTINED' }
+          $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($report.schema -cne 'forge.research.f128r.fit-train-check-indexed-exact.v1' -or
+              $report.source_sha -cne $env:GITHUB_SHA -or
+              $report.frozen_git_blob -cne 'fb769675deb29235f96cefad50a87ab208d97950' -or
+              $report.lanes.Count -ne 2 -or
+              $report.lanes[0].lane -cne 'Wingless' -or
+              $report.lanes[1].lane -cne 'Yggdrasil' -or
+              $report.protected_CONFIRM_read -or
+              $report.scientific_first_use -or
+              $report.scientific_acceptance -or
+              $report.optimizer_promotion -or
+              $report.accepted_ref_mutation -or
+              $report.originals_dispatched -ne 0 -or
+              $report.paid_api_calls -ne 0 -or
+              $report.codex_calls -ne 0 -or
+              $report.new_scheduler) { throw 'F128R_UNEARNED_AUTHORITY' }
+          foreach ($lane in $report.lanes) {
+            $native=$lane.all_frozen_control_scores.CTRL_OPTIMIZED_INDEXED_EXACT_VECTOR_EQUALITY
+            $learned=$lane.all_frozen_control_scores.F128R_FIT_ONLY_LEARNED_EARLY_REJECT
+            if ($lane.fit_pairs -ne 32 -or $lane.train_check_pairs -ne 32 -or
+                $lane.fit_public_graphs -ne 64 -or
+                $lane.train_check_public_graphs -ne 64 -or
+                $native.paired_correct -ne 32 -or $learned.paired_correct -ne 32 -or
+                $lane.same_host_timing.warmup_passes -ne 5 -or
+                $lane.same_host_timing.measured_interleaved_passes -ne 30 -or
+                -not $lane.no_source_reselection -or
+                $lane.independent_scientific_acceptance -or
+                $lane.protected_CONFIRM_read) {
+              throw 'F128R_COMPLETE_COHORT_OR_EXACT_CONTROL_FAILURE'
+            }
+          }
+          foreach ($name in @('advisory.json','f128r-public-fit-check.json')) {
+            $file=Join-Path $directory $name
+            $digest=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($file+'.sha256'),
+              ($digest+'  '+$name+[Environment]::NewLine),
+              [Text.UTF8Encoding]::new($false))
+          }
+          Write-Host "F128R_SOURCE_SHA=$env:GITHUB_SHA"
+          Write-Host 'F128R_NATIVE_INDEXED_EXACT_ELIGIBLE=true'
+          Write-Host 'F128R_PROTECTED_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f128r-public-original-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f128r-public-fit-check/
+          retention-days: 90
+          if-no-files-found: error
+
+  full-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Fail closed on affected Python and source isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F128R_REGRESSION_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s isolationguard -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_ISOLATION_TEST_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_ISOLATION_SOURCE_FAILED' }
+          foreach ($pattern in @('test_f125r_*.py','test_f126r_*.py','test_f127r_*.py','test_f128r_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F128R_AFFECTED_TEST_FAILED_$pattern" }
+          }
+      - name: Full Go tests, Linux race, vet, and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_FULL_GO_FAILED' }
+          if (-not $IsWindows) {
+            go test -race -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'F128R_FULL_RACE_FAILED' }
+          }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_FULL_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F128R_FULL_BUILD_FAILED' }
+          Write-Host 'F128R_FULL_EXACT_HEAD_REGRESSION=PASS'
