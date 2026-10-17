@@ -1,0 +1,215 @@
+{
+  "schema": "forge.research.f129r.packed-word-relational-join-prereg.v1",
+  "stage": "PREIMPLEMENTATION_SOURCE_ONLY_NO_EXPERIMENT",
+  "identity": {
+    "parent_pr": 457,
+    "parent_exact_qualified_sha": "7eb97bc83cd739bccc4081b48b367ffb9970f7bc",
+    "parent_qualification_run": 39066228233,
+    "parent_freeze_git_blob": "fb769675deb29235f96cefad50a87ab208d97950",
+    "parent_status": "ENGINEERING_PASS_SCIENTIFIC_DEVELOPMENT_NEGATIVE",
+    "research_lane": "F129-R packed-token exact relational join, NOT F129 autonomy/continuity",
+    "parent_source_unmodified": true
+  },
+  "negative_retention": {
+    "F128R_Wingless_train_check_paired": [
+      32,
+      32
+    ],
+    "F128R_Yggdrasil_train_check_paired": [
+      32,
+      32
+    ],
+    "F128R_Wingless_bit_access_ratio": 0.53077508,
+    "F128R_Yggdrasil_bit_access_ratio": 0.52655291,
+    "F128R_Ubuntu_Wingless_walltime_ratio": 1.044001,
+    "F128R_Ubuntu_Yggdrasil_walltime_ratio": 1.046555,
+    "F128R_Windows_Wingless_walltime_ratio": 1.048165,
+    "F128R_Windows_Yggdrasil_walltime_ratio": 1.044362,
+    "F128R_walltime_success": false,
+    "F127R_Wingless_paired": [
+      18,
+      32
+    ],
+    "F127R_Yggdrasil_paired": [
+      15,
+      32
+    ],
+    "F127R_Wingless_indexed_exact_relative_cost": 9.288,
+    "F127R_Yggdrasil_indexed_exact_relative_cost": 9.197,
+    "F126R_Wingless_paired": [
+      6,
+      64
+    ],
+    "F126R_Yggdrasil_paired": [
+      18,
+      64
+    ],
+    "F125R_Wingless_paired": [
+      0,
+      64
+    ],
+    "F125R_Yggdrasil_paired": [
+      0,
+      64
+    ],
+    "all_original_negatives_retained": true
+  },
+  "hypothesis": {
+    "name": "Deterministic packed-token join for exact multi-hop relational verification",
+    "mechanism": "Encode each public sixteen-bit edge source and destination token once into unsigned uint16-compatible Python integers. Build source-only public transition indices keyed by (from_node, public_role, packed_source_token); enumerate all reachable token-labelled states, looking up the exact packed source match as a hash join instead of repeatedly running a Python bit loop or scanning indexed candidate lists.",
+    "initial_step": "Since start has no preceding token, enumerate all edges indexed solely by (start_node, first_public_role); subsequent roles must use full node-role-token join.",
+    "representation": "Public list of 16 bits packed little-endian, bit 0 at index 0; fail closed on any invalid bit or non-public graph field.",
+    "one_candidate": "PACKED_TOKEN_HASH_JOIN_NO_LEARNING_NO_SELECTION",
+    "learning": "No fitted parameters, training labels, oracle source path, calibration, model selection, random restarts, tuning, or call to paid inference. FIT is source/capacity qualification only.",
+    "comparison_controls": [
+      "CTRL_NATIVE_INDEXED_16_ELEMENT_VECTOR_EQUALITY",
+      "CTRL_PACKED_INTEGER_INDEXED_EQUALITY_WITHOUT_JOIN",
+      "CTRL_NATIVE_BYTES_INDEXED_EQUALITY",
+      "F129R_PACKED_TOKEN_HASH_JOIN_NO_LEARNING_NO_SELECTION"
+    ],
+    "exactness": "Always match the mandatory native indexed full-public-token reference on every positive and negative; never approximate or drop ambiguous, long or overbudget cases from denominators.",
+    "edge_and_query_order_invariant": true,
+    "required_input": [
+      "start",
+      "target",
+      "roles",
+      "edges.from",
+      "edges.to",
+      "edges.role",
+      "edges.src_bits",
+      "edges.dst_bits"
+    ],
+    "limits": {
+      "token_bits": 16,
+      "maximum_active_states": 256,
+      "maximum_candidate_expansions": 512,
+      "maximum_public_paths": 16,
+      "maximum_edges": 128,
+      "fail_closed_on_overbudget": true
+    },
+    "pack_and_index_cost_included": true,
+    "whole_public_graph_inference_only": true
+  },
+  "source": {
+    "family": "F129R-INDEPENDENT-PUBLIC-PACKED-JOIN-V1",
+    "graph_local_namespace": "F129R/PUBLIC/NEW-GRAPH-TOKENS/20261017",
+    "source_vectors_per_lane": 2,
+    "source_candidate_indices": [
+      2,
+      3
+    ],
+    "lanes": {
+      "Wingless": {
+        "FIT": [
+          240100,
+          240115
+        ],
+        "TRAIN_CHECK": [
+          240116,
+          240131
+        ],
+        "CONFIRM": [
+          240200,
+          240263
+        ]
+      },
+      "Yggdrasil": {
+        "FIT": [
+          250100,
+          250115
+        ],
+        "TRAIN_CHECK": [
+          250116,
+          250131
+        ],
+        "CONFIRM": [
+          250200,
+          250263
+        ]
+      }
+    },
+    "fit_pairs_per_vector": 16,
+    "check_pairs_per_vector": 16,
+    "graph_depths_fit_check": [
+      3,
+      5
+    ],
+    "reserved_confirmation_depths": [
+      6,
+      8
+    ],
+    "public_competing_paths_fit_check": [
+      6,
+      12
+    ],
+    "reserved_confirmation_paths": [
+      8,
+      16
+    ],
+    "fit_and_train_check_seed_disjoint": true,
+    "confirm_seeds_not_generatable_by_development_tool": true,
+    "paired_balance": "Same public query, topology, role multiset and raw-token marginals; one exact-valid positive path versus none in its source-salted paired negative; oracle only verifies source label, never runtime inference.",
+    "frozen_full_denominator_paired_cases_per_lane": 32,
+    "immutable_source_candidates_after_generation": true,
+    "protected_confirmation_generated": false
+  },
+  "qualification": {
+    "criterion_accuracy": "All 32 TRAIN_CHECK positive/negative pairs must match indexed native public exact in both lanes; record every graph, depth, and failure, no subgroup suppression.",
+    "benchmark": "On the same Python3.11 version and GitHub Actions runner/host, compare one complete public graph result per algorithm, include bit packing and index build each invocation, warm five complete passes, alternate relative order for thirty measured full passes, report median and p95 wall time. Cross-OS wallclock performance reported separately, never pooled.",
+    "warmup_full_passes": 5,
+    "measured_alternating_full_passes": 30,
+    "maximum_median_walltime_ratio_to_native_indexed": 0.75,
+    "maximum_peak_allocated_memory_ratio_to_native_indexed": 1.25,
+    "memory_measurement": "Use tracemalloc in separate, untimed complete passes for each algorithm; include packing/index allocation and input conversion, report Python traced peak and clarify resident memory not qualified.",
+    "operation_accounting": [
+      "edges_indexed",
+      "edge_visits",
+      "hash_lookup_attempts",
+      "bit_pack_operations",
+      "token_compares",
+      "state_allocations",
+      "peak_states",
+      "public_graph_input_conversion"
+    ],
+    "operation_counters": "Report each named event separately with consistent definitions and no invented equivalent-operation tariff. No claim of event-count superiority without valid common weights.",
+    "controls_all_eligible": true,
+    "mandatory_fast_baseline": "Use real indexed adjacency with native Python 16-element list equality; no intentionally unindexed full scan or synthetic slow oracle.",
+    "no_retuning_from_check": true,
+    "no_win_if_only_slow_comparator_beaten": true,
+    "no_scientific_acceptance_from_development": true,
+    "no_claim_of_prospective_transfer_without_protected_first_use": true,
+    "negative_labels": [
+      "NEGATIVE_RUNTIME",
+      "NEGATIVE_MEMORY",
+      "NEGATIVE_EXACTNESS",
+      "NO_TRANSFER",
+      "OVER_BUDGET",
+      "UNINFORMATIVE",
+      "BLOCKED_SOURCE_IDENTITY"
+    ],
+    "source_and_baseline_same_public_information": true
+  },
+  "current_gate": {
+    "description": "Preregister F129-R mechanism and immutable source/cost criteria before implementation; qualify only source identity on Ubuntu/Windows with adversarial tamper guards and no new generated source or computed results.",
+    "next": "Implement separate public FIT/TRAIN_CHECK generator and packed join plus all strong reference comparators; run exact-head independent Ubuntu/Windows test and full regression, retaining negatives.",
+    "generated_public_fit_cases": 0,
+    "generated_public_train_check_cases": 0,
+    "generated_protected_confirm_cases": 0,
+    "implementation_created": false,
+    "scientific_originals_executed": 0,
+    "protected_confirmation_read": false,
+    "scientific_first_use": false,
+    "scientific_acceptance": false,
+    "optimizer_promotion": false,
+    "accepted_ref_mutations": 0,
+    "merge": false,
+    "codex_calls": 0,
+    "paid_inference_calls": 0,
+    "new_scheduler": false,
+    "ckb_plane_dependency": false,
+    "cloudflare_writes": 0,
+    "mind_palace_writes": 0,
+    "wingless_repo_writes": 0,
+    "yggdrasil_repo_writes": 0
+  }
+}

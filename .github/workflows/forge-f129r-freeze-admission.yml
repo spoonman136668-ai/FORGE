@@ -1,0 +1,86 @@
+name: F129-R packed public token-join preregistration
+
+# SOURCE-ONLY: no FIT, TRAIN_CHECK, protected CONFIRM, model execution,
+# paid API, scientific first-use, original, merge or optimizer promotion.
+on:
+  push:
+    branches: [research/f129r-packed-token-join-freeze-20261017]
+    paths:
+      - 'reference/research-intake/f129r-packed-token-join-freeze.json'
+      - 'nativeevidence/f129r_freeze_admission.py'
+      - 'nativeevidence/test_f129r_freeze_admission.py'
+      - '.github/workflows/forge-f129r-freeze-admission.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f129r-source-only-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact source SHA and qualified negative parent ancestry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F129R_EXACT_SOURCE_DRIFT'
+          }
+          & git cat-file -e '7eb97bc83cd739bccc4081b48b367ffb9970f7bc^{commit}'
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_QUALIFIED_PARENT_UNAVAILABLE' }
+          & git merge-base --is-ancestor 7eb97bc83cd739bccc4081b48b367ffb9970f7bc $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_PARENT_NOT_ANCESTOR' }
+      - name: Frozen hypothesis, strong controls and authorization guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f129r_freeze_admission.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_FROZEN_SOURCE_TEST_FAILED' }
+          $root=Join-Path $env:RUNNER_TEMP 'f129r-source-only'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $out=Join-Path $root 'f129r-source-admission.json'
+          & $py -B nativeevidence/f129r_freeze_admission.py --source-sha $env:GITHUB_SHA --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F129R_SOURCE_ADMISSION_QUARANTINED' }
+          $doc=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($doc.schema -cne 'forge.research.f129r.source-only-custody.v1' -or
+              $doc.source_sha -cne $env:GITHUB_SHA -or
+              $doc.freeze_git_blob -cne 'b02106693ea400d705d5b75feede949b39b2ed7a' -or
+              $doc.qualified_parent_sha -cne '7eb97bc83cd739bccc4081b48b367ffb9970f7bc' -or
+              $doc.qualified_parent_freeze_blob -cne 'fb769675deb29235f96cefad50a87ab208d97950' -or
+              $doc.public_fit_cases_generated -ne 0 -or
+              $doc.train_check_cases_generated -ne 0 -or
+              $doc.protected_confirmation_cases_generated -ne 0 -or
+              $doc.packed_join_implemented -or
+              $doc.scientific_originals_executed -ne 0 -or
+              $doc.scientific_first_use -or $doc.scientific_acceptance -or
+              $doc.optimizer_promotion -or
+              $doc.accepted_ref_mutations -ne 0 -or
+              $doc.codex_calls -ne 0 -or
+              $doc.paid_model_calls -ne 0 -or
+              $doc.new_scheduler) { throw 'F129R_UNAUTHORIZED_SCIENTIFIC_AUTHORITY' }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            ($hash+'  f129r-source-admission.json'+[Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+          Write-Host "F129R_SOURCE_CUSTODY_SHA256=$hash"
+          Write-Host 'F129R_NATIVE_INDEXED_EXACT_RETAINED=true'
+          Write-Host 'F129R_PROTECTED_CONFIRM_UNOPENED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f129r-source-freeze-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f129r-source-only/
+          retention-days: 90
+          if-no-files-found: error
