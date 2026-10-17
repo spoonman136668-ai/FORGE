@@ -43,8 +43,11 @@ def mask_family(q: bytes) -> str | None:
         return None
     try:
         before=q[:i].decode("utf-8","strict")
+        topic=q[i+1:j].decode("utf-8","strict")
         after=q[j+1:].decode("utf-8","strict")
     except UnicodeDecodeError:
+        return None
+    if not topic.strip() or any(ord(c)<32 or ord(c)==127 for c in topic):
         return None
     grammar=(before+"[]"+after).strip()
     if grammar.endswith("?") or grammar.endswith("."):
