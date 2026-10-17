@@ -78,7 +78,7 @@ def verify_fixture_archive(path:Path,manifest:dict)->dict:
     aggregate_size=0
     result={}
     try:
-        with zipfile.ZipFile(path,"r",allowZip64=False) as archive:
+        with zipfile.ZipFile(path,"r") as archive:
             infos=archive.infolist()
             need(len(infos)==len(members) and len(infos)<=MAX_FIXTURE_MEMBERS,
                  "ARCHIVE_MEMBER_COUNT")
