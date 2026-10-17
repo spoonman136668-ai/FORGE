@@ -54,6 +54,24 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(result["science_dispatches"], 0)
         self.assertFalse(result["ckb_plane_accessed"])
 
+    def test_failed_history_stays_failed_despite_delayed_cadence(self):
+        a=FakeAPI()
+        rows=a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        # GitHub's schedule may be delayed, so two distinct real schedules
+        # can fall under the three-hour minimum gap; an old FAILED run is
+        # still a failed run, not a permissible successful observation.
+        rows[0]["conclusion"]="failure"
+        rows[1]["created_at"]="2026-10-16T17:19:01Z"
+        with self.assertRaisesRegex(c.EvidenceError,
+                                    "RECENT_SCHEDULE_UNSUCCESSFUL"):
+            c.report(a,NOW,CURRENT)
+        # Two actual successful runs with the SAME cadence defect remain
+        # quarantined and cannot receive a continuity qualification.
+        rows[0]["conclusion"]="success"
+        with self.assertRaisesRegex(c.EvidenceError,
+                                    "SCHEDULE_CADENCE_OR_FRESHNESS"):
+            c.report(a,NOW,CURRENT)
+
     def test_old_forensic_artifact_never_certifies_healthy_observation(self):
         a = FakeAPI()
         artifact = a.items["/actions/runs/41000000001/artifacts?per_page=100"]["artifacts"][0]
