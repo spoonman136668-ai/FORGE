@@ -87,6 +87,7 @@ def inventory(doc:object,expected_rows:int=EXPECTED_ROWS,
                 distinct["f109_original_other_rejected"].add(relation)
                 continue
             counts["f110_original_interior_double_dot"]+=1
+            distinct["f110_original_interior_double_dot"].add(relation)
             require(".." in relation,"ORIGINAL_REJECTION_SUBTYPE_CHANGED")
             parts,status=parse_two(relation)
             require(status in REASONS,"UNREGISTERED_HYPOTHESIS_OUTCOME")
