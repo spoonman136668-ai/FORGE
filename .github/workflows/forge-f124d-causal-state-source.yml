@@ -1,0 +1,150 @@
+name: F124-D frozen mass-conserving scientific source qualification
+on:
+  push:
+    branches: [research/f124d-mass-conserving-competition-20261017]
+    paths:
+      - 'reference/research-intake/f124d-mass-conserving-competition-freeze.json'
+      - 'nativeevidence/f124d_*.py'
+      - 'nativeevidence/test_f124d_*.py'
+      - '.github/workflows/forge-f124d-causal-state-source.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124d-science-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frozen-train-only-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source identity, adversarial graph, paired negative and split qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest discover -s nativeevidence -p 'test_f124d_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124D_FROZEN_SOURCE_FAILED' }
+          & $python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124D_SOURCE_ISOLATION_FAILED' }
+          Write-Output "F124D_SOURCE_COMMIT=${{ github.sha }}"
+          Write-Output 'F124D_CONFIRM_GENERATED=false'
+          Write-Output 'F124D_SCIENTIFIC_FIRST_USE=false'
+          Write-Output 'F124D_SCIENTIFIC_ACCEPTANCE=false'
+  train-source-pinned-competitive-models:
+    needs: frozen-train-only-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39043680353
+          github-token: ${{ github.token }}
+          name: f123-train-frozen-ubuntu-latest
+          path: f123-authenticated-vectors
+      - name: Run frozen 100-epoch TRAIN learning and fixed control, both scientific lanes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124d-train-weights-and-control.json'
+          $args=@('--f123-reference-dir','f123-authenticated-vectors',
+                  '--current-source-sha',$env:GITHUB_SHA,
+                  '--run-id',$env:GITHUB_RUN_ID,'--output',$out)
+          & python3 -B nativeevidence/f124d_train_receipt.py @args
+          if ($LASTEXITCODE -ne 0) { throw 'F124D_TRAIN_SOURCE_PIN_OR_PARAMETER_UPDATE_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124d.train-only-competitive-state-evidence.v1' -or
+              $r.current_source_sha -cne $env:GITHUB_SHA -or
+              [int64]$r.run_id -ne [int64]$env:GITHUB_RUN_ID -or
+              $r.phase -cne 'TRAIN_ONLY' -or
+              $r.freeze_git_blob -cne '83dd63eb42e41c5583570d055b806b24f4ece5a6' -or
+              $r.authenticated_vector_receipt_sha256 -cne '12da879272212b899c6b942004ff38dc21ffa6bb20e7a81eac21d691746b474d' -or
+              $r.graph_source_git_blob -cne 'd3023d94c891a70bfa1d027d2b87d26275903e58' -or
+              $r.model_source_git_blob -cne '04677202c75e29a29c75bc3a9e71688aecfaa12d' -or
+              $r.lanes.Count -ne 2 -or
+              $r.lanes[0].lane -cne 'Wingless' -or $r.lanes[1].lane -cne 'Yggdrasil' -or
+              $r.confirmation_cases_generated -ne 0 -or $r.independent_scientific_first_use -or
+              $r.scientific_acceptances -ne 0 -or $r.accepted_ref_mutations -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.Codex_calls -ne 0 -or
+              $r.paid_API_calls -ne 0 -or $r.new_scheduler -or $r.ckb_plane_contact -or
+              $r.cloudflare_writes -ne 0 -or $r.mind_palace_writes -ne 0 -or
+              $r.resource_matched_superiority_established) {
+            throw 'F124D_INVALID_TRAIN_RECEIPT_OR_FALSE_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.selected_train_arm -cnotin @('A','B') -or
+                $lane.control_fixed_12of16.pairs -ne 48 -or
+                $lane.arms.A.train_pairs -ne 48 -or $lane.arms.B.train_pairs -ne 48 -or
+                $lane.arms.A.training_epochs -ne 100 -or $lane.arms.B.training_epochs -ne 100 -or
+                $lane.arms.A.parameters -ne 148 -or $lane.arms.B.parameters -ne 149 -or
+                $lane.arms.A.updates_l2 -le 0 -or $lane.arms.B.updates_l2 -le 0 -or
+                $lane.arms.A.max_mass_conservation_excess -gt 1e-9 -or
+                $lane.arms.B.max_mass_conservation_excess -gt 1e-9 -or
+                $lane.arms.A.confirm_generated -ne 0 -or $lane.arms.B.confirm_generated -ne 0) {
+              throw 'F124D_UNQUALIFIED_TRAINED_CAUSAL_MECHANISM'
+            }
+            Write-Output "F124D_TRAIN=$($lane.lane):A=$($lane.arms.A.train_paired_correct)/48 B=$($lane.arms.B.train_paired_correct)/48 fixed=$($lane.control_fixed_12of16.paired_correct)/48 selected=$($lane.selected_train_arm)"
+            Write-Output "F124D_SLOT_MASS=$($lane.lane):A_minor=$($lane.arms.A.mean_minor_slot_ratio) B_minor=$($lane.arms.B.mean_minor_slot_ratio)"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'f124d-train-weights-and-control.sha256'),
+            "$digest  f124d-train-weights-and-control.json"+[Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Output "F124D_IMMUTABLE_TRAIN_SHA256=$digest"
+          Write-Output 'F124D_CONFIRM_UNTOUCHED=true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124d-frozen-train-scientific-development
+          path: |
+            ${{ runner.temp }}/f124d-train-weights-and-control.json
+            ${{ runner.temp }}/f124d-train-weights-and-control.sha256
+          retention-days: 90
+          if-no-files-found: error
+  exact-head-integration:
+    needs: train-source-pinned-competitive-models
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Final unaffected Go regression, race, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124D_SOURCE_BOUND_HEAD=$GITHUB_SHA"
+          echo "F124D_TRAIN_MODEL_EVALUATED=true"
+          echo "F124D_ORIGINAL_SCIENCE_UNRUN=true"
