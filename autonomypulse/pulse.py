@@ -58,8 +58,12 @@ class GitHub:
         self.calls=0
     def get(self,repo,route):
         need(repo in dict((r,l) for l,r in LANES),"FOREIGN_REPOSITORY")
+        # Exactly two SHA-1 object IDs separated by the GitHub compare
+        # operator are safe. Do not generally allow ".." path segments.
+        compare=(type(route) is str and re.fullmatch(
+            r"/compare/[0-9a-f]{40}\.\.\.[0-9a-f]{40}",route) is not None)
         need(type(route) is str and len(route)<500 and route.startswith("/")
-             and not route.startswith("//") and ".." not in route and
+             and not route.startswith("//") and (".." not in route or compare) and
              "#" not in route and "://" not in route,"UNSAFE_API_ROUTE")
         self.calls+=1
         need(self.calls<=40,"REQUEST_BUDGET_EXCEEDED")
