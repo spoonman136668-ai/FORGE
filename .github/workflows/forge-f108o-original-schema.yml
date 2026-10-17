@@ -92,6 +92,51 @@ jobs:
           PY
           sha256sum f108o-train-shape.json > f108o-train-shape.sha256
           sha256sum -c f108o-train-shape.sha256
+      - name: Frozen after Stage A dual-OS source schema - flat TRAIN accessor tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s noveltyeval -p 'test_f108o_train_native_flat_linker.py' -v
+      - name: Original 20358 TRAIN only, 37306 flat parses - bounded revised lexical linker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B noveltyeval/f108o_train_native_flat_linker.py --upstream source-freebaseqa-train --out f108o-native-flat-linker.json
+          python - <<'PY'
+          import json
+          x=json.load(open('f108o-native-flat-linker.json',encoding='utf-8'))
+          assert x['schema']=='forge.optimizer.f108o.flat-train-lexical-linker.v1'
+          assert x['status']=='PUBLIC_FREEBASE_TRAIN_NATIVE_FLAT_SCHEMA_LINKER_DIAGNOSTIC'
+          assert x['source_commit']=='d16aae5149aaa25e43ff2a7bd00a06f280ca19b9'
+          assert x['train_git_blob']=='24dc4b13a9c4a0ad734732db094c124d086b7d67'
+          assert x['train_original_bytes']==23888089
+          s=x['source_stats']
+          assert s['original_train_rows']==s['unique_question_ids']==20358
+          assert s['original_parse_entries']==37306
+          assert s['valid_opaque_mid_parse_entries']+s['invalid_opaque_mid_parse_entries']==37306
+          assert s['unique_mentions']+s['ambiguous_mentions']==s['total_mentions']
+          assert 0<=s['total_mentions']<=100000
+          assert sum(s['opaque_chain_length_bands'].values())==37306
+          assert x['question_only_population']==20358
+          assert sum(x['question_only_link_status_counts'].values())==20358
+          assert x['source_native_opaque_mid'] is True
+          assert x['inferential_chain_is_opaque_string'] is True
+          for name in ('answers_used_for_linking','answers_read_or_compared',
+                       'dev_or_eval_qa_read','source_values_published',
+                       'f107_frozen_parser_modified',
+                       'independent_linker_accuracy_qualified',
+                       'freebase_graph_qualified','role_translator_qualified',
+                       'independent_scientific_firstuse','accepted_science',
+                       'accepted_ref_mutation','dream_pareto_promotion',
+                       'thetaevolve_accepted_training','science_dispatch'):
+            assert x[name] is False,name
+          assert x['real_qa_scored']==x['model_calls']==x['codex_calls']==x['cloudflare_writes']==0
+          print('F108O_TRAIN_ONLY_LINKING='+json.dumps(x['question_only_link_status_counts'],sort_keys=True))
+          print('F108O_SCHEMA_NATIVE_TRAIN_STATS='+json.dumps(s,sort_keys=True))
+          print('F108O_NO_GOLD_SCORING_NO_DEV_OR_EVAL_BYTES_NO_SCIENTIFIC_FIRSTUSE')
+          PY
+          sha256sum f108o-native-flat-linker.json > f108o-native-flat-linker.sha256
+          sha256sum -c f108o-native-flat-linker.sha256
       - name: Mandatory complete exact-head Go regression vet build
         shell: bash
         run: |
@@ -107,5 +152,7 @@ jobs:
           path: |
             f108o-train-shape.json
             f108o-train-shape.sha256
+            f108o-native-flat-linker.json
+            f108o-native-flat-linker.sha256
           retention-days: 45
           if-no-files-found: error
