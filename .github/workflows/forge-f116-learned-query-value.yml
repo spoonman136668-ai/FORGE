@@ -1,0 +1,150 @@
+name: FORGE F116 source-disjoint learned query-value falsification
+on:
+  push:
+    branches:
+      - research/f116-learned-query-value-20261017-r1
+    paths:
+      - '.github/workflows/forge-f116-learned-query-value.yml'
+      - 'nativeevidence/f116_learned_query_value.py'
+      - 'nativeevidence/test_f116_learned_query_value.py'
+      - 'reference/research-intake/f116-learned-query-value-freeze.json'
+permissions:
+  contents: read
+jobs:
+  disjoint-public-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Authenticate immutable parent and precode F116 freeze
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='58ecee22271771e0eba5d137c93e29282d42b126'
+          $precode='fad7b4de6d3864e4f3b9ee30915daddd99acb532'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'F116_GIT_HEAD_CHANGED' }
+          git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F116_PARENT_ANCESTRY_INVALID' }
+          git merge-base --is-ancestor $precode HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F116_FROZEN_BEFORE_CODE_PROOF_MISSING' }
+          $got=@(git diff --name-only $parent HEAD | Where-Object { $_ -ne '' })
+          $expected=@(
+            '.github/workflows/forge-f116-learned-query-value.yml',
+            'nativeevidence/f116_learned_query_value.py',
+            'nativeevidence/test_f116_learned_query_value.py',
+            'reference/research-intake/f116-learned-query-value-freeze.json'
+          )
+          if (@(Compare-Object $got $expected).Count -ne 0) { throw 'F116_SOURCE_SCOPE_DRIFT' }
+          if ((git hash-object 'reference/research-intake/f116-learned-query-value-freeze.json') -cne 'ff1b7b7cf4ba5a37948c832e1ba4378897f4be5e') { throw 'F116_FROZEN_PREREG_DRIFT' }
+          if ((git hash-object 'nativeevidence/f115_bounded_active_clarification.py') -cne '1d16a2164abbd6740dfa4ff1b5651e21e9745037') { throw 'F116_PARENT_ALGORITHM_DRIFT' }
+          if ((git hash-object 'reference/research-intake/f115-bounded-active-clarification-freeze.json') -cne '05b0848e03d41a6d341b0009a4262c2d02f19790') { throw 'F116_PARENT_PREREG_DRIFT' }
+      - name: Adversarial disjoint source, paid-sensor, attribution and control contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f116_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F116_CONTRACT_TESTS_FAILED' }
+      - name: Execute frozen TRAIN-only fitting and four untouched GUARD groups
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'f116-research-report'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          $out=Join-Path $dir 'f116-public-learning-report.json'
+          python -B nativeevidence/f116_learned_query_value.py --source-ref $env:GITHUB_SHA |
+            Out-File -FilePath $out -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F116_RESEARCH_EXECUTION_FAILED' }
+          $d=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f116.train-only-noisy-sensor-value-public.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.parent_F115_head -cne '58ecee22271771e0eba5d137c93e29282d42b126' -or
+              $d.train_count -ne 1024 -or $d.guard_count -ne 3072 -or
+              $d.trained_steps -ne 100 -or $d.learned_trainable_params -ne 8 -or
+              $d.guard_blocks.Count -ne 4 -or
+              $d.policy_trace_by_channel_cost.Count -ne 16 -or
+              $d.learned_rates_by_nominal_channel.Count -ne 4 -or
+              -not $d.train_guard_source_IDs_disjoint -or
+              -not $d.no_guard_retraining -or
+              $d.scientific_first_use_authorized -or
+              $d.independently_accepted_science -or
+              $d.optimizer_promotion_authorized -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.real_scientific_originals -ne 0 -or
+              $d.codex_calls -ne 0 -or
+              $d.model_API_calls -ne 0 -or
+              $d.external_controller_accessed -or $d.MindPalace_written) {
+            throw 'F116_SOURCE_OR_SCIENCE_AUTHORITY_FALSE'
+          }
+          $arms=@('learned_train_only_eight_logits','empirical_beta_train_only',
+                  'no_query_abstain','always_query','cheap_query_fixed',
+                  'high_channel_fixed','unavailable_true_simulator_rate_oracle')
+          foreach ($b in $d.guard_blocks) {
+            if ($b.count -ne 768) { throw 'F116_GUARD_COUNT_MISSING' }
+            foreach ($arm in $arms) {
+              $v=$b.policies.$arm
+              if ($v.count -ne 768 -or $v.rows.Count -ne 768 -or
+                  ($v.correct+$v.wrong+$v.abstained) -ne 768 -or
+                  $v.queries -gt 768) { throw 'F116_MISSING_OR_FABRICATED_CASE' }
+            }
+          }
+          # Ensure real misleading-sensor failures survive evidence archival.
+          if ($d.totals_by_arm.always_query.wrong -le 0) {
+            throw 'F116_MISLEADING_PUBLIC_SENSOR_NEGATIVES_MISSING'
+          }
+          # NEGATIVE science is a successful evaluation. Never require positive
+          # learned utility or incremental advantage for a passing CI.
+          $a=$d.totals_by_arm.learned_train_only_eight_logits
+          $b=$d.totals_by_arm.empirical_beta_train_only
+          Write-Host ('F116_TRAIN_ONLY_LEARNED_UTILITY='+$a.utility+' ERRORS='+$a.wrong)
+          Write-Host ('F116_EQUAL_TRAIN_BETA_UTILITY='+$b.utility+' ERRORS='+$b.wrong)
+          Write-Host ('F116_BOUNDED_FEASIBILITY='+$d.bounded_learned_feasibility_passed)
+          Write-Host ('F116_INCREMENTAL_LEARNED_GAIN='+$d.incremental_learning_over_equal_information_Beta_control_passed)
+          Write-Host ('F116_DISPOSITION='+$d.disposition)
+          Write-Host ('F116_INCREMENTAL_DISPOSITION='+$d.incremental_disposition)
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $dir 'f116-public-learning-report.sha256'),
+            ("$sha  f116-public-learning-report.json"+[Environment]::NewLine),
+            [System.Text.UTF8Encoding]::new($false))
+      - name: Full FORGE Go test, vet and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F116_FULL_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F116_FULL_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F116_FULL_GO_BUILD_FAILED' }
+      - name: Assert source identity unchanged with no authority mutation
+        shell: pwsh
+        run: |
+          if (@(git status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F116_MUTATED_SOURCE_CHECKOUT'
+          }
+          Write-Host 'F116_PUBLIC_SYNTHETIC_NO_FIRSTUSE_CODEX_CKB=TRUE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f116-learned-public-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f116-research-report/f116-public-learning-report.json
+            ${{ runner.temp }}/f116-research-report/f116-public-learning-report.sha256
+          retention-days: 90

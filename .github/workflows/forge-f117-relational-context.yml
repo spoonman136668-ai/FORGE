@@ -1,0 +1,121 @@
+name: FORGE F117 relational-context source-only transfer
+on:
+  push:
+    branches: [research/f117-relational-context-transfer-20261017]
+    paths:
+      - '.github/workflows/forge-f117-relational-context.yml'
+      - 'nativeevidence/f117_relational_context.py'
+      - 'nativeevidence/test_f117_relational_context.py'
+      - 'reference/research-intake/f117-relational-context-freeze.json'
+permissions:
+  contents: read
+jobs:
+  public-transfer:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact source and preimplementation preregistration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'F117_SOURCE_HEAD_MISMATCH' }
+          git merge-base --is-ancestor 'f0c22051203880155e1340dbbcdde4ec7803605a' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F117_F116_ANCESTRY_BROKEN' }
+          git merge-base --is-ancestor 'fe02848b1b969902783268b6aba0f3ca131fcadd' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F117_PREREG_NOT_PRIOR_TO_CODE' }
+          if ((git hash-object 'reference/research-intake/f117-relational-context-freeze.json') -cne '15f41c6c3b487416fad9e391aa070fbe4f372fa0') {
+            throw 'F117_FROZEN_RULESET_DRIFT'
+          }
+          if ((git hash-object 'nativeevidence/f116_learned_query_value.py') -cne 'b324a7478f3d0cae53fc192e31473b8159b6f3aa') {
+            throw 'F117_PARENT_SOURCE_DRIFT'
+          }
+          $actual=@(git diff --name-only 'fe02848b1b969902783268b6aba0f3ca131fcadd' HEAD | Where-Object { $_ -ne '' })
+          $expected=@('.github/workflows/forge-f117-relational-context.yml',
+                      'nativeevidence/f117_relational_context.py',
+                      'nativeevidence/test_f117_relational_context.py')
+          if (@(Compare-Object $actual $expected).Count -ne 0) { throw 'F117_UNAUTHORIZED_SOURCE_FILES' }
+      - name: Run ten adversarial role-context and no-oracle checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f117_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F117_PUBLIC_ADVERSARIAL_TESTS_FAILED' }
+      - name: Run original frozen public GUARD transfer and archive failures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dir=Join-Path $env:RUNNER_TEMP 'forge-f117-public'
+          New-Item -Path $dir -ItemType Directory -Force | Out-Null
+          $file=Join-Path $dir 'f117-relational-context.json'
+          python -B nativeevidence/f117_relational_context.py --source-ref $env:GITHUB_SHA |
+            Out-File -LiteralPath $file -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'F117_PUBLIC_TRANSFER_EXECUTION_FAILED' }
+          $d=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.autonomy.f117.relational-context-reliability-public-development.v1' -or
+              $d.source_sha -cne $env:GITHUB_SHA -or
+              $d.train_cases -ne 1024 -or $d.guard_cases -ne 2048 -or
+              $d.guard_blocks.Count -ne 4 -or
+              $d.learned_trainable_parameters -ne 10 -or
+              $d.training_updates -ne 100 -or
+              -not $d.all_source_disjoint_guard_records_preserved -or
+              -not $d.engineeered_role_equality_feature_not_unrestricted_learning -or
+              $d.independent_originals -ne 0 -or
+              $d.scientific_first_use_authorized -or
+              $d.scientific_acceptance -ne 0 -or
+              $d.accepted_ref_mutations -ne 0 -or
+              $d.optimizer_promotions -ne 0 -or $d.codex_calls -ne 0 -or
+              $d.paid_model_calls -ne 0 -or $d.extra_schedulers -ne 0 -or
+              $d.ckb_plane_contact -or $d.cloudflare_writes -ne 0 -or
+              $d.mind_palace_writes -ne 0) { throw 'F117_FALSE_SOURCE_OR_SCIENCE_QUALIFICATION' }
+          foreach ($block in $d.guard_blocks) {
+            if ($block.cases -ne 512 -or
+                $block.arms.learned_relational_logistic10.records.Count -ne 512 -or
+                $block.arms.same_train_context_beta.records.Count -ne 512 -or
+                $block.arms.always_query.records.Count -ne 512) {
+              throw 'F117_INCOMPLETE_GUARD_NEGATIVE_EVIDENCE'
+            }
+          }
+          $hash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $dir 'f117-relational-context.sha256'),
+            "$hash  f117-relational-context.json" + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+          Write-Host ('F117_PUBLIC_INCREMENTAL='+$d.learned_incremental_context_Beta_superiority_passed)
+          Write-Host ('F117_PUBLIC_DISPOSITION='+$d.disposition)
+      - name: Full FORGE Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F117_GO_TEST_FAILED' }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F117_GO_VET_FAILED' }
+          go build ./...
+          if ($LASTEXITCODE -ne 0) { throw 'F117_GO_BUILD_FAILED' }
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f117-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f117-public/f117-relational-context.json
+            ${{ runner.temp }}/forge-f117-public/f117-relational-context.sha256
+          if-no-files-found: error
+          retention-days: 14
