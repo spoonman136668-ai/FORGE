@@ -91,10 +91,12 @@ jobs:
           PY
           head -n 1 "$RUNNER_TEMP/forge-native-pulse/stdout.txt" > "$RUNNER_TEMP/forge-native-pulse/health.json"
           (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum health.json > health.sha256 && sha256sum -c health.sha256)
-      # PR merges are NOT scheduled original observations. Test source in
-      # PR; enforce genuine scheduled continuity on main after merge.
+      # PR, push and manual runs are never scheduled continuity evidence.
+      # Only schedule runs inspect the separate historical schedule ledger.
+      # An earlier genuine failure remains explicitly nonqualified recovery,
+      # not a success or reason to block all later authentic observations.
       - name: Verify authentic completed scheduled observation continuity (read-only)
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'schedule'
         shell: bash
         run: |
           set -euo pipefail
@@ -111,6 +113,7 @@ jobs:
           assert result["schema"]=="forge.autonomy.native-schedule-continuity.v1"
           assert result["status"] in (
               "PENDING_TWO_COMPLETED_SCHEDULED_RUNS",
+              "RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY",
               "QUALIFIED_TWO_COMPLETED_SCHEDULED_OBSERVATIONS")
           assert lines[1]=="FORGE_NATIVE_CONTINUITY="+result["status"]+"\n"
           assert result["scientific_first_use_authorized"] is False
@@ -123,8 +126,16 @@ jobs:
               assert len(result["observations"])==2
               print("FORGE_NATIVE_UNATTENDED_CONTINUITY=EVIDENCE_QUALIFIED_ONLY")
           else:
-              assert result["status"]=="PENDING_TWO_COMPLETED_SCHEDULED_RUNS"
-              print("::notice title=FORGE continuity::Await two authentic completed scheduled observer runs")
+              assert result["status"] in ("PENDING_TWO_COMPLETED_SCHEDULED_RUNS",
+                                          "RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY")
+              assert not result["observations"]
+              if result["status"]=="RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY":
+                  assert result["recent_unsuccessful_observations"]
+                  assert all(x["conclusion"] in ("failure","cancelled","timed_out")
+                             for x in result["recent_unsuccessful_observations"])
+                  print("::warning title=FORGE continuity::Prior scheduled failures retained; new completed scheduled pairs still required")
+              else:
+                  print("::notice title=FORGE continuity::Await two authentic completed scheduled observer runs")
           PY
           head -n 1 "$RUNNER_TEMP/forge-native-pulse/continuity.stdout" > "$RUNNER_TEMP/forge-native-pulse/continuity.json"
           (cd "$RUNNER_TEMP/forge-native-pulse" && sha256sum continuity.json > continuity.sha256 && sha256sum -c continuity.sha256)

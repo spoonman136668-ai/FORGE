@@ -155,6 +155,39 @@ def qualify(api, now, current_sha, current_run_id=None):
                 "observations": []}
     selected = sorted(relevant,
                       key=lambda r: utc(r.get("created_at")), reverse=True)[:2]
+    # A prior failed, cancelled or timed-out *genuine* scheduled observation
+    # must remain negative evidence. It must NOT permanently prevent new
+    # healthy scheduled attempts from becoming completed positive evidence.
+    # Recovery is pending, not qualified: no prior failed observation can be
+    # silently skipped to manufacture a two-success pair.
+    unsuccessful = []
+    for row in selected:
+        require(type(row.get("id")) is int and row["id"]>0 and
+                row.get("workflow_id")==workflow_id and
+                row.get("event")=="schedule" and
+                row.get("head_branch")=="main" and
+                isinstance(row.get("head_sha"),str) and
+                SHA40.fullmatch(row["head_sha"]) is not None and
+                row.get("run_attempt")==1,
+                "RECENT_SCHEDULE_IDENTITY_UNVERIFIED")
+        start,stop=utc(row.get("created_at")),utc(row.get("updated_at"))
+        require(start<=stop<=now,"SCHEDULE_CLOCK_UNVERIFIED")
+        require(row.get("status")=="completed",
+                "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED")
+        conclusion=row.get("conclusion")
+        require(conclusion in ("success","failure","cancelled","timed_out"),
+                "RECENT_SCHEDULE_CONCLUSION_UNVERIFIED")
+        if conclusion!="success":
+            unsuccessful.append({"run_id":row["id"],
+                                 "head_sha":row["head_sha"],
+                                 "conclusion":conclusion})
+    if unsuccessful:
+        return {"status":"RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY",
+                "scheduled_runs_found":len(relevant),
+                "qualified":False,
+                "current_scheduled_run_excluded":current_excluded,
+                "recent_unsuccessful_observations":unsuccessful,
+                "observations":[]}
     interval = (utc(selected[0]["created_at"]) -
                 utc(selected[1]["created_at"])).total_seconds()
     age = (now - utc(selected[0]["updated_at"])).total_seconds()

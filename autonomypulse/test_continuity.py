@@ -66,13 +66,77 @@ class ContinuityTests(unittest.TestCase):
         a = FakeAPI()
         runs = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
         runs[:] = [run(1, event="workflow_dispatch"), run(0)]
-        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
+        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_IDENTITY_UNVERIFIED"):
             c.report(a, NOW, CURRENT)
 
-    def test_latest_scheduled_failure_is_not_skipped(self):
+    def test_latest_scheduled_failure_is_preserved_not_qualified(self):
         a = FakeAPI()
-        a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["conclusion"] = "failure"
-        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
+        rows = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        rows[0]["conclusion"] = "failure"
+        result = c.report(a, NOW, CURRENT)
+        self.assertEqual(result["status"],
+                         "RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY")
+        self.assertFalse(result["qualified"])
+        self.assertEqual(result["recent_unsuccessful_observations"], [{
+            "run_id": 41000000001, "head_sha": PREVIOUS[1],
+            "conclusion": "failure"}])
+        self.assertEqual(result["observations"], [])
+        self.assertFalse(result["scientific_first_use_authorized"])
+        self.assertEqual(result["science_dispatches"], 0)
+
+    def test_cancelled_timedout_failures_remain_negative_and_nonadmitted(self):
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            a = FakeAPI()
+            row = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]
+            row["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion):
+                result = c.report(a, NOW, CURRENT)
+                self.assertFalse(result["qualified"])
+                self.assertEqual(result["recent_unsuccessful_observations"][0]["conclusion"],
+                                 conclusion)
+                self.assertEqual(result["status"], "RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY")
+                self.assertFalse(result["scientific_first_use_authorized"])
+
+    def test_new_two_successes_establish_real_continuity_after_old_failure(self):
+        a = FakeAPI()
+        history = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        older_failed = run(0)
+        older_failed["id"] = 41000000010
+        older_failed["conclusion"] = "failure"
+        older_failed["created_at"] = "2026-10-16T07:19:01Z"
+        older_failed["updated_at"] = "2026-10-16T07:19:31Z"
+        history.append(older_failed)
+        result = c.report(a, NOW, CURRENT)
+        self.assertTrue(result["qualified"])
+        self.assertEqual([v["run_id"] for v in result["observations"]],
+                         [41000000000, 41000000001])
+        self.assertFalse(result["scientific_first_use_authorized"])
+        self.assertEqual(result["science_dispatches"], 0)
+
+    def test_failure_still_blocks_when_only_one_new_success_has_completed(self):
+        a = FakeAPI()
+        history = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        history[1]["conclusion"] = "failure"
+        report = c.report(a, NOW, CURRENT)
+        self.assertFalse(report["qualified"])
+        self.assertEqual(report["status"],
+                         "RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY")
+        self.assertEqual(report["recent_unsuccessful_observations"][0]["run_id"],
+                         history[1]["id"])
+
+    def test_noncompleted_other_schedule_is_not_a_recovery_receipt(self):
+        a = FakeAPI()
+        rows = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        rows[0]["status"] = "in_progress"
+        rows[0]["conclusion"] = None
+        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL_OR_UNVERIFIED"):
+            c.report(a, NOW, CURRENT)
+
+    def test_unknown_finished_conclusion_cannot_claim_recovery(self):
+        a = FakeAPI()
+        rows = a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"]
+        rows[0]["conclusion"] = "neutral_unknown"
+        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_CONCLUSION_UNVERIFIED"):
             c.report(a, NOW, CURRENT)
 
     def test_rerun_is_not_proof_of_first_attempt_continuity(self):
@@ -113,7 +177,7 @@ class ContinuityTests(unittest.TestCase):
     def test_stale_or_skipped_schedule_denied(self):
         a = FakeAPI()
         a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"][0]["created_at"] = "2026-10-17T05:19:01Z"
-        with self.assertRaisesRegex(c.EvidenceError, "SCHEDULE_CADENCE_OR_FRESHNESS"):
+        with self.assertRaisesRegex(c.EvidenceError, "SCHEDULE_CLOCK_UNVERIFIED"):
             c.report(a, datetime(2026, 10, 17, 6, 0, tzinfo=timezone.utc), CURRENT)
 
     def test_foreign_workflow_or_disabled_workflow_never_accepted(self):
@@ -197,8 +261,14 @@ class ContinuityTests(unittest.TestCase):
         bad["conclusion"] = "failure"
         a.items["/actions/workflows/198001/runs?event=schedule&per_page=25"]["workflow_runs"] = [
             own, bad, run(0)]
-        with self.assertRaisesRegex(c.EvidenceError, "RECENT_SCHEDULE_UNSUCCESSFUL"):
-            c.report(a, NOW, CURRENT, current_run_id=own["id"])
+        result = c.report(a, NOW, CURRENT, current_run_id=own["id"])
+        self.assertFalse(result["qualified"])
+        self.assertTrue(result["current_scheduled_run_excluded"])
+        self.assertEqual(result["status"],
+                         "RECOVERING_PRIOR_SCHEDULE_FAILURE_NO_CONTINUITY")
+        self.assertEqual([x["run_id"] for x in result["recent_unsuccessful_observations"]],
+                         [bad["id"]])
+        self.assertEqual(result["observations"], [])
 
     def test_invalid_current_run_id_denied(self):
         for invalid in (True, "41000000002", 0, -1):
