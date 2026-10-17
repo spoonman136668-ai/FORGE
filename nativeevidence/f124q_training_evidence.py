@@ -176,7 +176,9 @@ def run(authenticated_prior_path):
     trained={}
     # Critical anti-leak order: train both separately before any Q DEV build.
     for lane in ("Wingless","Yggdrasil"):
+        print("F124Q_FIT_ATTEMPT="+lane,flush=True)
         trained[lane]=learner.train(lane,prior[lane])
+        print("F124Q_FIT_PASS="+lane+":UPDATE_L2="+str(trained[lane]["weight_update_l2"]),flush=True)
     out={"schema":SCHEMA,
          "source_protocol_git_blob":source.PROTOCOL_BLOB,
          "frozen_preimplementation_git_blob":FREEZE_BLOB,
