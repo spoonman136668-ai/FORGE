@@ -1,0 +1,26 @@
+# F108-O Stage B — exact observed FreebaseQA TRAIN parse accessor freeze
+
+**Prerequisite Stage A**: GitHub Actions run `39017424479` exact head `4f4840a27596039bb1972ad3367cd54bbe69f321` **success Ubuntu+Windows**, readback of both original SHA256-manifested artifacts, JSON SHA256 `918c4c1f8ab886c672892c402543e70af6397487b33c099ede4b37d4c3331582`, exact source `kelvin-jiang/FreebaseQA` commit `d16aae5149aaa25e43ff2a7bd00a06f280ca19b9`, TRAIN Git blob `24dc4b13a9c4a0ad734732db094c124d086b7d67`. Both independently verified evidence files show exactly **20,358** original question rows, **37,306** original parse objects, and eight source field/path type pairs. This is a second, separate preimplementation freeze committed **before changing or writing any F108 runtime semantic extractor**.
+
+## Authoritatively verified original source schema (field names and types only)
+- `Questions[].Parses` is `array`, 20,358 observed.
+- `Questions[].Parses[]` is `object`, 37,306 observed.
+- `Questions[].Parses[].Parse-Id` `string`; exactly 37,306.
+- `Questions[].Parses[].PotentialTopicEntityMention` `string`; exactly 37,306.
+- `Questions[].Parses[].TopicEntityName` `string`; exactly 37,306.
+- `Questions[].Parses[].TopicEntityMid` `string`; exactly 37,306.
+- `Questions[].Parses[].InferentialChain` **string** (not a list); exactly 37,306.
+- `Questions[].Parses[].Answers` subtree **never opened**, counted 37,306 skipped.
+No nested object schema for Freebase topic or chain exists in the original 2019 TRAIN source. F107's MID regex and list-typed chain assumptions were empirically incompatible, hence the honest zero-coverage F107 result. **Never amend F107.**
+
+## Single frozen corrected source-native accessor
+
+- Copy **only** flat TRAIN parse fields `PotentialTopicEntityMention`, `TopicEntityName`, `TopicEntityMid`, and `InferentialChain` (string), at their authenticated exact paths. Ignore/never dereference `Answers` or any answer-like field. No use of `Parse-Id` for prediction. Do not use DEV/EVAL source values or public MetaQA test content.
+- `TopicEntityMid` is a **source-native, opaque, case-sensitive entity ID string**: accept only 1–128 bytes of printable 7-bit ASCII, no whitespace, control code or delimiters `|[]`; **do not require** `/m/...`, `/g/...`, `m....`, any prefix or semantic meaning. Do not normalize IDs, fabricate source ontology links, or claim they are accepted Freebase graph identities. Treat too-long/bad MID as missing annotation; preserve counts.
+- TRAIN alias normalization and collision policy copied frozen F107 rules: variants from those two *flat* mention fields, UTF-8 length 1–128, NFKC, Unicode casefold, whitespace collapsed; maximum ten whitespace tokens; lexicon mention→full **set** of all source opaque IDs. Ambiguity (≥2 IDs) must **abstain**, never preferred label or majority choice. Runtime receives only `RawQuestion` (not gold MID, answers or chain), must return only one of `lexical_anchor_resolved`, `no_lexical_anchor`, `ambiguous_train_lexicon`, `multiple_candidate_anchors`, `invalid_question`, `oversize_question_tokens`. The internal MID may be held locally to support an eventual properly grounded graph but **never appears in evidence, logs or artifacts**. No fuzzy substring, answer-based tie breaker, trie autoexpansion, or dynamic choice.
+- `InferentialChain` is opaque **string**; count total strings, empty/whitespace strings, and original UTF-8 byte-length bands ≤32 / 33–128 / 129–512 / ≥513; do **not** split into roles based on invented delimiter, print string or map to typed relation. This fixes source parsing structure only, not language-to-role selection. No F104 policy or real graph calls.
+- Count all **20,358** original TRAIN question IDs, all **37,306** TRAIN parse objects, valid/invalid MID, nonempty mention entries, unique and ambiguous lexical entries, all runtime status counts including abstentions, and all opaque inferential-chain length cohorts. Per-question data, labels and source entities never published. Retain original original-binary Git SHA1 and SHA256. The TRAIN output is not scored against gold MID or gold answers.
+- Tests: synthetic original flat schema, opaque source IDs with differing canonical format, duplicates/ambiguous MID collision, answer-column mutations, no answer subtree use, unchanged F107 negative, correct input question-only boundary, NFKC/Unicode, multiple MID abstain, 10/11-gram limit, 128-token bound, exact duplicate IDs and complete original denominator; no protected output.
+- Existing source-only Ubuntu/Windows GitHub Actions, original read-only TRAIN sparse checkout, DEV/EVAL absent from worktree, original exact Git blob bytes, synthetic tests, full 20,358 TRAIN audit, one complete Go regression/vet/build per OS, SHA256 manifests and independently compared evidence. Preserve predecessor Stage A output; no re-tuning after F108 B readback.
+
+**Disposition:** `PUBLIC_FREEBASE_TRAIN_NATIVE_FLAT_SCHEMA_LINKER_DIAGNOSTIC`. In-sample original annotated TRAIN only, no source-independent accuracy, qualified entity link validity on untouched data, linked Freebase graph, complete role translation, scientific first-use, accepted optimizer result, Dream/Pareto, ThetaEvolve, accepted refs, Codex, CKB-plane coupling, Cloudflare writes or paid GPT inference. Keep DRAFT and unmerged.
