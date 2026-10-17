@@ -47,18 +47,30 @@ def sort_key(node:str):
     return fingerprint(node),node.encode("utf-8","strict")
 
 def source_edges(triples):
-    # Only physical original source graph provenance; not features for model.
-    incoming={}
-    outgoing={}
-    source_set=set(triples)
+    # Second-stage EXPLICITLY DIRECTED and source-authentic arcs. An arc
+    # carries its complete original physical triple for independent validation.
+    # Prevent trivial backtracking over the same original physical fact.
+    incoming_all=defaultdict(list)
+    outgoing_all=defaultdict(list)
+    physical=set(triples)
     for a,r,b in triples:
         if a==b:continue
-        if b not in incoming or (a,r,b)<incoming[b]:
-            incoming[b]=(a,r,b)
-        if a not in outgoing or (a,r,b)<outgoing[a]:
-            outgoing[a]=(a,r,b)
-    eligible=sorted(incoming.keys() & outgoing.keys(),key=sort_key)
-    return incoming,outgoing,source_set,eligible
+        fact=(a,r,b)
+        arcs=((a,r,"F",b,fact),(b,r,"R",a,fact))
+        for arc in arcs:
+            outgoing_all[arc[0]].append(arc)
+            incoming_all[arc[3]].append(arc)
+    incoming={}
+    outgoing={}
+    for middle in incoming_all.keys() & outgoing_all.keys():
+        source_in=min(incoming_all[middle])
+        source_out=next((a for a in sorted(outgoing_all[middle])
+                         if a[4]!=source_in[4]),None)
+        if source_out is None:continue
+        incoming[middle]=source_in
+        outgoing[middle]=source_out
+    eligible=sorted(incoming.keys(),key=sort_key)
+    return incoming,outgoing,physical,eligible
 
 def frozen_candidates(eligible):
     buckets={k:[] for k in ("train","dev","test")}
@@ -110,10 +122,13 @@ def make_examples(triples):
             before=incoming[mid]
             positive_after=outgoing[mid]
             negative_after=outgoing[other]
-            need(before in source_set and positive_after in source_set and
-                 negative_after in source_set,"SOURCE_EDGE_PROVENANCE_NOT_VERIFIED")
-            need(before[2]==positive_after[0] and
-                 before[2]!=negative_after[0],"SOURCE_JOIN_LABEL_CONTRADICTION")
+            need(before[4] in source_set and positive_after[4] in source_set and
+                 negative_after[4] in source_set,
+                 "SOURCE_PHYSICAL_ORIGINAL_TRIPLES_NOT_VERIFIED")
+            need(before[3]==positive_after[0] and
+                 before[3]!=negative_after[0] and
+                 before[4]!=positive_after[4],
+                 "SOURCE_JOIN_LABEL_OR_ORIGINAL_EDGE_REUSE")
             need((fingerprint(mid)[0]>>4)==(fingerprint(other)[0]>>4),
                  "HARD_NEGATIVE_PREFIX_NIBBLE_DRIFT")
             need(fingerprint(mid)[:D]!=fingerprint(other)[:D],
@@ -215,6 +230,9 @@ def analyze(triples):
         "terminal_edge_pair_examples":provenance["test"],
         "authentic_original_source_triple_provenance_verified":True,
         "negative_edges_are_real_but_middle_entities_differ":True,
+        "explicit_original_forward_reverse_arcs_used":True,
+        "original_physical_edge_reuse_in_positive_denied":True,
+        "original_forward_only_cohort_underpopulated":True,
         "train_dev_test_candidate_middle_ids_disjoint":True,
         "negative_hash_prefix_nibble_matched":True,
         "no_eight_byte_hash_collision_in_selected_negatives":True,
@@ -237,6 +255,7 @@ def audit(raw):
     result=analyze(triples)
     return {
         "schema":SCHEMA,"status":STATUS,
+        "evaluation_stage":"F118O_SECOND_STAGE_BIDIRECTIONAL_DEVELOPMENT_DIAGNOSTIC",
         "source_repository":"tiantiangao7/kalm-qa",
         "source_commit":original.UPSTREAM,
         "source_git_blob":original.BLOB,
