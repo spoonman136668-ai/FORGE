@@ -1,0 +1,145 @@
+name: UQ47 Mind-Palace isolated Windows qualification
+
+on:
+  push:
+    branches:
+      - qualification/mind-palace-uq47-1d0537fd
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uq47-mind-palace-exact-1d0537fd
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: '1'
+    steps:
+      - name: Qualify pinned private source without production writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ47_WRONG_RUNNER_OR_REPOSITORY'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch = 'engineering/uq47-snapshot-caller-compat'
+          $expected = '1d0537fdb99b607d94728c885e05ac072c11fb4e'
+          $base = '663b3ad557ab308317d0358b0349048ca254fefa'
+          $ref = 'refs/heads/' + $branch
+          $heads = @(git.exe ls-remote --exit-code $remote $ref)
+          if ($LASTEXITCODE -ne 0 -or $heads.Count -ne 1 -or ([string]$heads[0] -split '\s+')[0] -cne $expected) {
+            throw 'UQ47_SOURCE_REF_DRIFT'
+          }
+          $scratch = Join-Path (Join-Path $env:RUNNER_TEMP 'mp-uq47-isolated') ('run-' + $env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'repo'
+          if (Test-Path -LiteralPath $scratch) { throw 'UQ47_SCRATCH_ALREADY_EXISTS' }
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            git.exe clone --quiet --single-branch --branch $branch $remote $root
+            if ($LASTEXITCODE -ne 0 -or ((git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $expected) {
+              throw 'UQ47_CLONE_IDENTITY_DRIFT'
+            }
+            if ((git.exe -C $root merge-base $base HEAD | Out-String).Trim() -cne $base) {
+              throw 'UQ47_PARENT_NOT_ANCESTOR'
+            }
+            $expectedFiles = @(
+              'tests/Test-BackfillApply.ps1',
+              'tests/Test-BackfillSupersede.ps1',
+              'tests/Test-UpdateCheckpoint.ps1',
+              'tools/backfill-apply.ps1',
+              'tools/backfill-supersede.ps1',
+              'tools/update-checkpoint.ps1'
+            )
+            $changed = @(git.exe -C $root diff --name-only $base HEAD | Sort-Object)
+            if ($LASTEXITCODE -ne 0 -or (($changed -join '|') -cne ((@($expectedFiles | Sort-Object)) -join '|'))) {
+              throw 'UQ47_UNEXPECTED_CHANGE_SCOPE'
+            }
+            $protected = @(
+              '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+              '.ice/chat-delta-state.json', '.ice/remote-bootstrap.json',
+              '.ice/remote-catalog.json', '.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json', '.ice/project-dependency-graph.json'
+            )
+            $before = @{}
+            foreach ($file in $protected) {
+              $current = (git.exe -C $root rev-parse ('HEAD:' + $file) | Out-String).Trim()
+              $original = (git.exe -C $root rev-parse ($base + ':' + $file) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $current -cne $original) { throw ('UQ47_PROTECTED_BLOB_DRIFT_' + $file) }
+              $before[$file] = (Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+            }
+            if (@(git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+              throw 'UQ47_SOURCE_DIRTY_BEFORE_TESTS'
+            }
+            Write-Host 'UQ47_EXACT_SOURCE_SCOPE_AND_NINE_PROTECTED_BLOBS=PASS'
+            $major = @(& pwsh.exe -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.Major')
+            if ($LASTEXITCODE -ne 0 -or $major.Count -ne 1 -or [string]$major[0] -cne '7') {
+              throw 'UQ47_POWERSHELL7_UNAVAILABLE'
+            }
+            $ps5 = @(& powershell.exe -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.Major')
+            if ($LASTEXITCODE -ne 0 -or $ps5.Count -ne 1 -or [string]$ps5[0] -cne '5') {
+              throw 'UQ47_WINDOWS_POWERSHELL5_UNAVAILABLE'
+            }
+            Write-Host 'UQ47_PS5_AND_PS7_HOSTS=PASS'
+            $focused = @(
+              'Test-ChatDeltaCycle.ps1',
+              'Test-UpdateCheckpoint.ps1',
+              'Test-BackfillApply.ps1',
+              'Test-BackfillSupersede.ps1'
+            )
+            foreach ($name in $focused) {
+              $test = Join-Path (Join-Path $root 'tests') $name
+              $stdout = Join-Path $scratch ($name + '.stdout')
+              $stderr = Join-Path $scratch ($name + '.stderr')
+              $p = Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile', '-NonInteractive', '-File', ('"' + $test + '"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              if ($p.ExitCode -ne 0) {
+                $err = [IO.File]::ReadAllText($stderr)
+                $tail = $err.Substring([Math]::Max(0, $err.Length - 900))
+                Write-Host ('UQ47_FOCUSED_FAIL ' + $name + ' exit=' + $p.ExitCode + ' stderr_tail=' + $tail)
+                throw ('UQ47_FOCUSED_REGRESSION_FAILED_' + $name)
+              }
+              Write-Host ('UQ47_FOCUSED_PASS_' + $name)
+            }
+            $full = Join-Path (Join-Path $root 'tests') 'Test-All.ps1'
+            $stdout = Join-Path $scratch 'full.stdout'
+            $stderr = Join-Path $scratch 'full.stderr'
+            $p = Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile', '-NonInteractive', '-File', ('"' + $full + '"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $out = [IO.File]::ReadAllText($stdout)
+            $started = @([regex]::Matches($out, '(?m)^RUN .+$'))
+            if ($p.ExitCode -ne 0 -or $out -notmatch 'Mind-Palace regression suite passed' -or $started.Count -ne 64) {
+              $err = [IO.File]::ReadAllText($stderr)
+              $tail = $err.Substring([Math]::Max(0, $err.Length - 900))
+              $last = if ($started.Count -gt 0) { $started[-1].Value } else { 'none' }
+              Write-Host ('UQ47_FULL_REGRESSION_STOP exit=' + $p.ExitCode + ' tests_started=' + $started.Count + ' last=' + $last + ' stderr_tail=' + $tail)
+              throw 'UQ47_FULL_REGRESSION_FAILED'
+            }
+            Write-Host ('UQ47_FULL_REGRESSION=PASS tests_started=' + $started.Count)
+            foreach ($file in $protected) {
+              $after = (Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if ($after -cne $before[$file]) { throw ('UQ47_PROTECTED_STATE_CHANGED_' + $file) }
+            }
+            if (@(git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+              throw 'UQ47_SOURCE_DIRTY_AFTER_TESTS'
+            }
+            if (((git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $expected) {
+              throw 'UQ47_SOURCE_MOVED'
+            }
+            Write-Host 'UQ47_NINE_PROTECTED_HASHES_AND_CLEAN_TREE=PASS'
+            Write-Host 'UQ47_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ47_NO_MERGE_OR_CODEX=PASS'
+          }
+          finally {
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+            if (Test-Path -LiteralPath $scratch) { throw 'UQ47_SCRATCH_CLEANUP_FAILED' }
+            Write-Host 'UQ47_ISOLATED_SCRATCH_CLEAN=PASS'
+          }
