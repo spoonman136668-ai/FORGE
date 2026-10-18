@@ -15,11 +15,17 @@ import f124w_hop_trace_indexed as witness
 FREEZE=Path(__file__).resolve().parents[1]/"reference/research-intake/f124aw-frozen-original-ygg-first-dev.json"
 FREEZE_BLOB="e86cbf31e179bb4a1d4ceeee039c3d017ba27789"
 AV_SOURCE_BLOB="07c311e7b0443e21db39a200199a33cc0747046e"
-AV_MODEL_BLOB="0364e6a00c2bc3ffcda0e91ab2fe292e6bd5"
+AV_MODEL_BLOB="0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5"  # correction recorded in append-only source-identity erratum
 SOURCE_RANGE=av.COHORTS["Yggdrasil"]["DEV"]
 def need(ok,why):av.need(ok,"AW_DEV_"+why)
 def frozen():
     av.frozen()
+    err=Path(__file__).resolve().parents[1]/"reference/research-intake/f124aw-original-model-identity-erratum.json"
+    note=json.loads(err.read_text(encoding="utf-8"))
+    need(note["schema"]=="forge.research.f124aw.source-identity-erratum-before-first-use.v1"
+         and note["actual_qualified_AV_model_blob"]==AV_MODEL_BLOB
+         and note["DEV_cases_constructed"]==0,
+         "SOURCE_IDENTITY_ERRATUM_STILL_BOUND")
     need(witness.blob(FREEZE)==FREEZE_BLOB and
          witness.blob(av.__file__)==AV_SOURCE_BLOB,
          "ORIGINAL_FREEZE_AND_AV_SOURCE")
