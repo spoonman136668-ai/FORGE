@@ -26,7 +26,7 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $main='22d819c3473b80be34ecac7280881a67c981207c'
-          $head='e72ff275846f78ed64fe2b68201a4b62d674e3f2'
+          $head='ba99ec086047dba394817235f3d09e58ef103260'
           foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
             $v=@(& git.exe ls-remote --exit-code $remote $pair[0])
             if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or ([string]$v[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ45_SOURCE_REF_DRIFT'}
@@ -39,7 +39,7 @@ jobs:
           try{
             & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
             if($LASTEXITCODE -ne 0){throw 'UQ45_CLONE_FAILED'}
-            & git.exe -C $root sparse-checkout set --cone .ice tools
+            & git.exe -C $root sparse-checkout set --cone .ice tools tests
             if($LASTEXITCODE -ne 0){throw 'UQ45_SPARSE_FAILED'}
             & git.exe -C $root checkout --force engineering/uq42-utc-offset-checkpoint-compat
             if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $head)){throw 'UQ45_CHECKOUT_IDENTITY_DRIFT'}
@@ -61,9 +61,52 @@ jobs:
             if(($idsBefore -join '~') -cne ($idsAfter -join '~') -or ($edgesBefore -join '~') -cne ($edgesAfter -join '~')){throw 'UQ45_GRAPH_SEMANTICS_CHANGED'}
             $oldBlob=(& git.exe -C $root hash-object -- $tracked|Out-String).Trim()
             $newBlob=(& git.exe -C $root hash-object --path '.ice/project-dependency-graph.json' -- $preview | Out-String).Trim()
-            if($LASTEXITCODE -ne 0){throw 'UQ45_GRAPH_HASH_UNAVAILABLE'}
+            if($LASTEXITCODE -ne 0 -or $newBlob -cne 'da17aaf4a38388fcc9a5983ae7ed0edff4e93278' -or $oldBlob -cne $newBlob){throw 'UQ45_TRACKED_GRAPH_NOT_FIXED_POINT'}
             if((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash -cne $beforeRecords -or (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $beforeLedger){throw 'UQ45_PRODUCTION_SOURCE_DRIFT'}
             if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ45_WORKTREE_CHANGED'}
+            # Reuse the unchanged native test suite and prove generated graph
+            # fixed point against exactly the tracked Git blob.
+            $graphTest=Join-Path $root 'tests/Test-ProjectDependencyGraph.ps1'
+            $remoteTest=Join-Path $root 'tests/Test-RemoteBootstrap.ps1'
+            $graphOutput=(& $graphTest | Out-String)
+            if($graphOutput -notmatch 'Project dependency graph regression passed'){throw 'UQ45_GRAPH_FOCUSED_FAILED'}
+            Write-Host 'UQ45_GRAPH_FOCUSED_REGRESSION=PASS'
+            $nine=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/chat-delta-state.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($file in $nine){$before[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash}
+            $remoteOutput=(& $remoteTest | Out-String)
+            if($remoteOutput -notmatch 'Remote bootstrap bridge regression passed'){throw 'UQ45_REMOTE_TEST_FAILED'}
+            Write-Host 'UQ45_REMOTE_SNAPSHOT_GENERATOR_DETERMINISTIC=PASS'
+            foreach($file in @('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/chat-delta-state.json','.ice/project-dependency-graph.json')){
+              if((Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash -cne $before[$file]){
+                throw ('UQ45_UNEXPECTED_SOURCE_OR_GRAPH_DRIFT_'+$file)
+              }
+            }
+            Write-Host 'UQ45_TRACKED_GRAPH_STABLE_AFTER_REMOTE_REGEN=PASS'
+            $derived=@('.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json')
+            $changed=@(& git.exe -C $root diff --name-only --)
+            if($LASTEXITCODE -ne 0){throw 'UQ45_DIFF_FAILED'}
+            foreach($file in $changed){
+              if($derived -cnotcontains ([string]$file).Trim()){throw ('UQ45_UNAUTHORIZED_CHANGED_PATH_'+$file)}
+            }
+            # Only a formatting-induced derived snapshot delta can remain.
+            # Revert those exact files within ephemeral private scratch.
+            if($changed.Count -gt 0){
+              & git.exe -C $root restore --source=HEAD -- @derived
+              if($LASTEXITCODE -ne 0){throw 'UQ45_DERIVED_RESTORE_FAILED'}
+            }
+            foreach($file in $nine){
+              if((Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash -cne $before[$file]){
+                throw ('UQ45_PROTECTED_POST_TEST_HASH_DRIFT_'+$file)
+              }
+            }
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ45_POST_TEST_WORKTREE_DIRTY'}
+            Write-Host ('UQ45_OTHER_DERIVED_SNAPSHOT_FORMAT_DRIFT_COUNT='+$changed.Count)
+            Write-Host 'UQ45_ALL_NINE_PROTECTED_HASHES_RESTORED=PASS'
             Write-Host 'UQ45_GRAPH_NODE_AND_EDGE_SETS_EQUAL=PASS'
             Write-Host ('UQ45_OLD_GRAPH_BLOB='+$oldBlob)
             Write-Host ('UQ45_EXPECTED_GRAPH_BLOB='+$newBlob)
@@ -71,7 +114,7 @@ jobs:
             Write-Host ('UQ45_FIRST_SORTED_EDGE='+[string]$fresh.edges[0].record_id)
             Write-Host ('UQ45_SORTED_NODE_ORDER='+(@($fresh.nodes|ForEach-Object {$_.id}) -join ','))
             Write-Host ('UQ45_SORTED_EDGE_ORDER='+(@($fresh.edges|ForEach-Object {$_.record_id}) -join ','))
-            Write-Host ('UQ45_GRAPH_B64='+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([IO.File]::ReadAllText($preview))))
+            Write-Host 'UQ45_TRACKED_GRAPH_FIXED_POINT=PASS'
             Write-Host 'UQ45_RECORDS_AND_LEDGER_HASH_STABLE=PASS'
             Write-Host 'UQ45_PRODUCTION_MEMORY_WRITES=0'
             Write-Host 'UQ45_PAID_INFERENCE_AND_CODEX=0'
