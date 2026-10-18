@@ -57,7 +57,7 @@ def frozen():
          and p["phase"]=="PREIMPLEMENTATION"
          and p["parent_head"]=="ac2f08071101ef92e466ee85e0c1ba798ce2be99"
          and p["parent_run"]==39092921418
-         and p["source"]["salt"]==SALTS["YggdrasilStress"]
+         and p["source"]["salt"]==SALTS["YggdrasilStress"].rstrip("/")
          and p["source"]["FIT"]==[2090000,2090023]
          and p["source"]["DEV"]==[2090100,2090123]
          and p["design"]["state"]==[7,9]
