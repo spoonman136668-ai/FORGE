@@ -85,6 +85,14 @@ jobs:
             Assert ((& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim() -ceq 'main') 'BRANCH_NOT_MAIN'
             & git.exe -C $root fetch --quiet --no-tags --depth 1 origin $expectedPr
             Assert ($LASTEXITCODE -eq 0) 'PINNED_PR_FETCH'
+            $runtime=Join-Path $root '.mind-runtime'
+            New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+            $batch=Join-Path $runtime 'uq42-selected-project.batch.json'
+            $spec=$expectedPr+':'+$batchRel
+            $git=Start-Process -FilePath (Get-Command git.exe).Source -ArgumentList @('-C',('"'+$root+'"'),'show',$spec) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $batch -RedirectStandardError $stderr
+            Assert ($git.ExitCode -eq 0) 'EXACT_BATCH_EXTRACTION'
+            $blob=(& git.exe -C $root hash-object $batch | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $blob -ceq $expectedBlob) 'BATCH_BLOB_MISMATCH'
             # Existing accepted checkpoint verifier requires exact HEAD == origin/main.
             # Model the proposed compatibility merge only in an isolated local bare origin;
             # never write to protected Mind-Palace main.
@@ -98,14 +106,6 @@ jobs:
             & git.exe -C $root update-ref refs/remotes/origin/main $expectedFix
             Assert ($LASTEXITCODE -eq 0) 'LOCAL_MAIN_REF'
             Write-Host 'UQ42_PINNED_UTC_FIX_WITH_ISOLATED_ORIGIN=PASS'
-            $runtime=Join-Path $root '.mind-runtime'
-            New-Item -ItemType Directory -Force -Path $runtime | Out-Null
-            $batch=Join-Path $runtime 'uq42-selected-project.batch.json'
-            $spec=$expectedPr+':'+$batchRel
-            $git=Start-Process -FilePath (Get-Command git.exe).Source -ArgumentList @('-C',('"'+$root+'"'),'show',$spec) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $batch -RedirectStandardError $stderr
-            Assert ($git.ExitCode -eq 0) 'EXACT_BATCH_EXTRACTION'
-            $blob=(& git.exe -C $root hash-object $batch | Out-String).Trim()
-            Assert ($LASTEXITCODE -eq 0 -and $blob -ceq $expectedBlob) 'BATCH_BLOB_MISMATCH'
             Write-Host 'UQ42_PR65_BLOB_AND_PRODUCTION_PIN=PASS'
             $before=@{}
             foreach($f in $protected){$before[$f]=FileSha $f}
