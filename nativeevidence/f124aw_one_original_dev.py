@@ -50,7 +50,7 @@ def frozen():
     need(blobs.blob(FREEZE)==FREEZE_BLOB and
          blobs.blob(SELECTION_RECEIPT)==SELECTION_BLOB and
          blobs.blob(source.__file__)=="07c311e7b0443e21db39a200199a33cc0747046e" and
-         blobs.blob(learner.__file__)=="0364e6a00c2bc3ffcda0e91ab2fe292e6bd5",
+         blobs.blob(learner.__file__)=="0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5",
          "ORIGINAL_AV_SOURCE_AND_FROZEN_SELECTION_BLOBS")
     d=json.loads(FREEZE.read_text(encoding="utf-8"))
     sel=json.loads(SELECTION_RECEIPT.read_text(encoding="utf-8"))
