@@ -1,0 +1,78 @@
+name: F124-AR frozen source-only focus and immutable AO-AQ custody
+on:
+  push:
+    branches: [research/f124ar-meta-relational-and-calibrated-packed-causality-20261018]
+    paths:
+      - '.github/workflows/forge-f124ar-source-focused.yml'
+      - 'nativeevidence/f124ar_train_source.py'
+      - 'nativeevidence/test_f124ar_frozen_source.py'
+      - 'reference/research-intake/f124ar-frozen-meta-relational-and-packed-causality.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ar-source-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focus:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify unique original freeze and exact qualified parent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AR_CURRENT_SOURCE_SHA_DRIFT' }
+          $spec='reference/research-intake/f124ar-frozen-meta-relational-and-packed-causality.json'
+          if ((git hash-object $spec).Trim() -cne '235b8094e8c61222ffea409f2f58fd083eb00c08' -or
+              (git log -1 --format=%H -- $spec).Trim() -cne '7920dc40e487016774182597dcc534112da47a7d') {
+            throw 'F124AR_PREREGISTRATION_NOT_FIRST'
+          }
+          if ((git rev-parse 'cb2d4ff16e8054e790a0f1dfb4e558b97ebcb3a1:nativeevidence/f124aq_train_source.py').Trim() -cne '7899ce9c63f040823fec73657154e5245feb7899') {
+            throw 'F124AR_QUALIFIED_SOURCE_IDENTITY_DRIFT'
+          }
+          $py = if ($IsWindows) { 'python' } else { 'python3' }
+          foreach ($pattern in @('test_f124ar_*.py','test_f124aq_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124AR_FOCUSED_FAILED:$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AR_PROJECT_ISOLATION_FAILED' }
+          Write-Output 'F124AR_FOCUSED=PASS'
+          Write-Output 'F124AR_NEW_TRAIN_EVALUATED=false'
+          Write-Output 'F124AR_DEV_CONSUMED=false'
+          Write-Output 'F124AR_SCIENCE_ACCEPTED=false'
+  qualified-parent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Authenticate exact original F124-AQ qualification and scientific negative
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $run=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39125383562' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne 'cb2d4ff16e8054e790a0f1dfb4e558b97ebcb3a1' -or
+              $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or $run.event -cne 'push') {
+            throw 'F124AR_PARENT_FINAL_REGRESSION_NOT_QUALIFIED'
+          }
+          $a=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39125383562/artifacts' | ConvertFrom-Json
+          $found=@($a.artifacts | Where-Object { $_.id -eq 12136071540 })
+          if ($LASTEXITCODE -ne 0 -or $found.Count -ne 1 -or $found[0].expired -or
+              $found[0].digest -cne 'sha256:c45afc2719dc217184b754ef1a7eabb76d256713ee71d5d680be45dfcb45362a') {
+            throw 'F124AR_PARENT_SCIENTIFIC_RECEIPT_DRIFT'
+          }
+          Write-Output 'F124AR_QUALIFIED_PARENT_RECEIPT=PASS'
+          Write-Output 'F124AR_PROTECTED_FIRST_USE=false'
