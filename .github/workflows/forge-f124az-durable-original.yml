@@ -1,0 +1,75 @@
+name: F124-AZ append-only original scientific raw evidence archival
+on:
+  push:
+    branches: [research/f124az-public-evidence-joint-inverse-20261018]
+    paths: ['.github/workflows/forge-f124az-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124az-single-original-append-only-receipt
+  cancel-in-progress: false
+jobs:
+  original-archive:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39149317137
+          github-token: ${{ github.token }}
+          name: f124az-original-public-joint-eight-arm-fit-screen-534f171619c1b8d12a38c062ce11fccce02e54f7
+          path: original
+      - name: Authenticate provider first-use and append original bytes ONLY to feature branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = 'research/f124az-public-evidence-joint-inverse-20261018'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39149317137" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '534f171619c1b8d12a38c062ce11fccce02e54f7 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39149317137/artifacts" --jq '.artifacts[] | select(.id==12143834319 and .expired==false) | .digest')" = 'sha256:89d6d9c61dca4990eefa5e062404826795e9a7d41400d0cd3974e65ac76fb707'
+          echo '2c1499fac1db182efdd2e981995ad8ca94cad76b8a30921c43100beab94a72fa  original/f124az-original-fit-screen.json' | sha256sum --check --strict
+          dest='reference/research-intake/originals/f124az-original-public-joint-eight-arm-fit-screen.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124AZ_APPEND_ONLY_ORIGINAL_ALREADY_EXISTS
+            exit 1
+          fi
+          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha')
+          test "$remote_sha" = "$GITHUB_SHA" || { echo 'F124AZ_FEATURE_BRANCH_DRIFT_STOP'; exit 1; }
+          python3 -B - <<'PY'
+          import json
+          d=json.load(open('original/f124az-original-fit-screen.json'))
+          assert d['schema']=='forge.research.f124az.original-joint-inverse-equal48-first-TRAIN.v1'
+          assert d['source_freeze_blob']=='9aaaef5c9b724be4afd0d7fa4783285139290540'
+          assert d['FIT_selected_before_held_SCREEN'] is None
+          assert d['SCREEN_strict_frozen_joint_success'] is False
+          assert d['Ygg_DEV_generated']==d['Wingless_DEV_generated']==0
+          assert d['Ygg_DEV_consumed'] is False and d['Wingless_DEV_consumed'] is False
+          assert len(d['FIT_models'])==len(d['SCREEN_models'])==8
+          print('F124AZ_FULL_ORIGINAL_SOURCE_NEGATIVE_AUTHENTICATED=PASS')
+          PY
+          # A 102 KB original exceeds OS argument-size limits when passed as -f.
+          # Pipe immutable encoded bytes through a temporary JSON request body.
+          python3 -B - <<'PY'
+          import base64,json,os
+          original=open("original/f124az-original-fit-screen.json","rb").read()
+          request={
+              "message":"F124-AZ append original unmodified authenticated 6-arm TRAIN FIT SCREEN case evidence",
+              "content":base64.b64encode(original).decode("ascii"),
+              "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124az-original-append-request.json","w",encoding="utf-8") as f:
+              json.dump(request,f,separators=(",",":"))
+          print("F124AZ_ORIGINAL_RAW_REQUEST_READY=PASS")
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" \
+            --input /tmp/f124az-original-append-request.json \
+            --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124AZ_ORIGINAL_RAW_LONGTERM_REPOSITORY_ARCHIVED=PASS
+          echo F124AZ_NO_SCIENTIFIC_PROMOTION=true
