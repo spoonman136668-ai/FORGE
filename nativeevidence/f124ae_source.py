@@ -269,6 +269,29 @@ def transfer_pair(seed,vector,phase,family):
     need(family in FAMILIES and seed in COHORTS["AE_"+family][phase],
          "FAMILY_AND_SEED_IDENTITY")
     pos,neg=stress_pair(seed,vector,phase,lane="AE_"+family)
+    # Extend independently born 7–9 hop originals by three public exact
+    # terminal links BEFORE family-specific transformations. Both paired
+    # graphs receive bit-identical topology, roles, and token fields.
+    old_target=pos["target"]
+    salt=SALTS["AE_"+family]+str(seed)+"/"+phase+"/"+str(tuple(vector))
+    for graph in (pos,neg):
+        graph["roles"]=list(graph["roles"])
+        incoming=[e for e in graph["edges"] if e["to"]==old_target
+                  and e["role"]==graph["roles"][-1]]
+        need(len(incoming)>=1,"ORIGINAL_TERMINAL_EDGE_MISSING")
+        carried=list(incoming[0]["dst_bits"])
+        current=old_target
+        for hop in range(3):
+            dst=hashlib.sha256((salt+"/long-dst-"+str(hop)).encode()).hexdigest()[:22]
+            role=hashlib.sha256((salt+"/long-role-"+str(hop)).encode()).hexdigest()[:22]
+            next_bits=[int(hop==i%3)^v for i,v in enumerate(carried)]
+            graph["edges"].append({"from":current,"to":dst,"role":role,
+                "src_bits":list(carried),"dst_bits":next_bits})
+            graph["roles"].append(role)
+            current=dst
+            carried=next_bits
+        graph["target"]=current
+    paired_admit(pos,neg)
     route=original_true_edges(pos)
     if family=="rekey":
         for graph in (pos,neg):
