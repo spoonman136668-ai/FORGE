@@ -1,0 +1,192 @@
+name: UQ60 Mind-Palace exact seven checkpoint promotion
+
+on:
+  push:
+    branches:
+      - qualification/uq60-mind-palace-checkpoint-promotion
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Commit exact seven custody bytes to review branch
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ60_WRONG_WORKER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\Mind-Palace'
+          $headExpected='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $expected=@{
+            '.ice/project-dependency-graph.json'='54c631f7b206d2059377c8f66a0e1e64cddfb12c62523ec2b72e9684f72e12c9'
+            '.ice/project-state-capsules.json'='e3c6c652a4e03670e681598756fcd51b61d25f22255c7189e1cd9e3c2fb6d2fe'
+            '.ice/records.json'='0457e920e71d08a750d80d53ddd392e6b3d7f56716fd00767d343eb021241db4'
+            '.ice/remote-bootstrap.json'='7dd16ab679d2283aa84ac4a7dbb90fa106b7e39d40382fda0a982e86a87b7d7e'
+            '.ice/remote-catalog.json'='327df2a5b78ed08c03720f3ec44432be213b3326892f0a8a9f38fc7f153f8759'
+            '.ice/remote-index.ndjson'='06f19d12d382c3f06dc628d31cad89b45be28943259234b5071ce4ec7b5ce535'
+            '.ice/source-ledger.json'='441db3a2979936592a502071dfcc0f6e027be96c0ecf2169141668f72c90aa02'
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $root '.git'))) {
+            throw 'UQ60_PERSISTENT_WORKTREE_UNAVAILABLE'
+          }
+          . (Join-Path $root 'tools/repo-source-authority.ps1')
+          $lease=Enter-RepoSourceAuthority -RepoRoot $root
+          try {
+            Assert-RepoSourceAuthority -Lease $lease
+            $local=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $branch=(& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $branch -cne 'main' -or $local -cne $headExpected) {
+              throw 'UQ60_WORKTREE_HEAD_DRIFT'
+            }
+            $origin=(& git.exe -C $root remote get-url origin | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $origin -notmatch 'spoonman136668-ai/Mind-Palace') {
+              throw 'UQ60_REMOTE_REPOSITORY_MISMATCH'
+            }
+            $remote=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+                ([string]$remote[0] -split '\s+')[0] -cne $headExpected) {
+              throw 'UQ60_REMOTE_MAIN_MOVED'
+            }
+            Write-Host 'UQ60_LOCAL_AND_REMOTE_MAIN_IDENTITY=PASS'
+            $status=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $status.Count -ne 7) {
+              throw 'UQ60_CHANGED_PATH_COUNT_MISMATCH'
+            }
+            $paths=@()
+            foreach ($item in $status) {
+              if ($item.Length -lt 4 -or $item.Substring(0,2) -cne ' M') {
+                throw 'UQ60_STAGED_OR_UNAUTHORIZED_CHANGE'
+              }
+              $p=$item.Substring(3).Replace('\','/')
+              if (-not $expected.ContainsKey($p)) {
+                throw ('UQ60_UNKNOWN_CHANGED_PATH '+$p)
+              }
+              $actual=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($actual -cne $expected[$p]) { throw ('UQ60_CUSTODY_HASH_DRIFT '+$p) }
+              $paths += $p
+            }
+            if (($paths | Sort-Object) -join '|' -cne (@($expected.Keys | Sort-Object) -join '|')) {
+              throw 'UQ60_SEVEN_PATH_IDENTITY_DRIFT'
+            }
+            Write-Host 'UQ60_ALL_SEVEN_PENDING_FILE_SHA256_IDENTITIES_MATCH_RECEIPT=PASS'
+            $staged=@(& git.exe -C $root diff --cached --name-only)
+            if ($LASTEXITCODE -ne 0 -or @($staged | Where-Object { $_ }).Count -ne 0) {
+              throw 'UQ60_GIT_INDEX_PRESTAGED'
+            }
+            $oldRecords=(& git.exe -C $root show 'HEAD:.ice/records.json' | Out-String).Trim() | ConvertFrom-Json
+            $newRecords=[IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json
+            $oldLedger=(& git.exe -C $root show 'HEAD:.ice/source-ledger.json' | Out-String).Trim() | ConvertFrom-Json
+            $newLedger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            if (@($oldRecords).Count -ne 260 -or @($newRecords).Count -ne 263 -or
+                @($oldLedger.entries).Count -ne 101 -or @($newLedger.entries).Count -ne 104) {
+              throw 'UQ60_DURABLE_MEMORY_COUNT_DRIFT'
+            }
+            $policy=[IO.File]::ReadAllText((Join-Path $root 'policies/repo-source-admission.json')) | ConvertFrom-Json
+            if (-not $policy.enabled -or $policy.bulk_repo_ingestion -or $policy.background_ingestion) {
+              throw 'UQ60_POLICY_ADMISSION_CHANGED'
+            }
+            foreach ($id in @($policy.expected_ids)) {
+              $matches=@($newRecords | Where-Object { $_.id -ceq $id })
+              if ($matches.Count -ne 1 -or [string]$matches[0].status -cne 'observed') {
+                throw 'UQ60_ADMITTED_RECORD_INVALID'
+              }
+            }
+            Write-Host 'UQ60_ORIGINAL_260_PLUS_THREE_RECORDS_AND_101_PLUS_THREE_LEDGER=PASS'
+            if (@(Get-ChildItem -LiteralPath (Join-Path $root '.mind-runtime') -Directory -Filter 'uq51-repo-transaction-*').Count -ne 0) {
+              throw 'UQ60_STRANDED_TRANSACTION_CUSTODY'
+            }
+            if ((& (Join-Path $root 'tools/mind.ps1') validate | Out-String) -notmatch 'Mind-Palace validation passed') {
+              throw 'UQ60_MEMORY_VALIDATION_FAILED'
+            }
+            $ledgerResult=((& (Join-Path $root 'tools/source-ledger.ps1') validate -BatchPath (Join-Path $root ([string]$policy.batch_path)) | Out-String).Trim() | ConvertFrom-Json)
+            if (-not [bool]$ledgerResult.valid) { throw 'UQ60_LEDGER_VALIDATION_FAILED' }
+            Write-Host 'UQ60_MEMORY_LEDGER_AND_STRANDED_CUSTODY_VALIDATION=PASS'
+            # This is read-only: no git add, commit, push or checkpoint.
+            $preview=[ordered]@{}
+            foreach ($p in @($expected.Keys | Sort-Object)) {
+              $blob=(& git.exe -C $root hash-object ("--path=" + $p) -- (Join-Path $root $p) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $blob.Length -ne 40) {
+                throw ('UQ60_BLOB_PREVIEW_INVALID '+$p)
+              }
+              $preview[$p]=$blob
+            }
+            $stagedAfter=@(& git.exe -C $root diff --cached --name-only)
+            if ($LASTEXITCODE -ne 0 -or @($stagedAfter | Where-Object { $_ }).Count -ne 0) {
+              throw 'UQ60_PREFLIGHT_CHANGED_INDEX'
+            }
+            Assert-RepoSourceAuthority -Lease $lease
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq60-readonly-checkpoint-preview.v1'
+              source_main_sha=$headExpected
+              seven_local_content_sha256=$expected
+              git_blobs_readonly=$preview
+              staged_files=0
+              commit_performed=$false
+              push_performed=$false
+            }) -Depth 10 | Write-Host
+            Write-Host 'UQ60_SEVEN_GIT_BLOBS_PREVIEWED_WITHOUT_STAGING=PASS'
+            Write-Host 'UQ60_NO_CHECKPOINT_COMMIT_NO_PUSH_NO_CODEX=PASS'
+
+            $candidate='qualification/uq60-seven-record-checkpoint-20261018'
+            $present=@(& git.exe ls-remote --exit-code $origin ('refs/heads/' + $candidate))
+            if ($LASTEXITCODE -eq 0 -or $present.Count -ne 0) {
+              throw 'UQ60_CANDIDATE_BRANCH_ALREADY_EXISTS'
+            }
+            $pushUrl=(& git.exe -C $root remote get-url --push origin | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $pushUrl -cne $origin) {
+              throw 'UQ60_PUSH_URL_DIFFERENT_FROM_VERIFIED_ORIGIN'
+            }
+            $orderedPaths=@($expected.Keys | Sort-Object)
+            & git.exe -C $root switch -c $candidate
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_NEW_REVIEW_BRANCH_FAILED' }
+            & git.exe -C $root add -- @orderedPaths
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_EXACT_SEVEN_ADD_FAILED' }
+            $stagedNames=@(& git.exe -C $root diff --cached --name-only)
+            if ($LASTEXITCODE -ne 0 -or ($stagedNames -join '|') -cne ($orderedPaths -join '|')) {
+              throw 'UQ60_STAGED_FILE_SCOPE_CHANGED'
+            }
+            foreach($p in $orderedPaths) {
+              $blob=(& git.exe -C $root rev-parse (':' + $p) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $blob -cne $preview[$p]) {
+                throw ('UQ60_STAGED_BLOB_CHANGED '+$p)
+              }
+              $fileHash=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($fileHash -cne $expected[$p]) { throw ('UQ60_LOCAL_SHA256_CHANGED '+$p) }
+            }
+            Assert-RepoSourceAuthority -Lease $lease
+            Write-Host 'UQ60_EXACT_SEVEN_STAGED_BLOBS_VERIFIED=PASS'
+            & git.exe -C $root -c 'user.name=Mind-Palace Checkpoint' -c 'user.email=checkpoint@users.noreply.github.com' -c 'commit.gpgsign=false' commit -m 'checkpoint: three qualified project observations (UQ-60)'
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_LOCAL_GIT_COMMIT_FAILED' }
+            $checkpoint=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $parent=(& git.exe -C $root rev-parse 'HEAD^' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $parent -cne $headExpected) { throw 'UQ60_PARENT_SHA_MISMATCH' }
+            $committed=@(& git.exe -C $root diff-tree --no-commit-id --name-only -r HEAD)
+            if ($LASTEXITCODE -ne 0 -or ($committed -join '|') -cne ($orderedPaths -join '|')) {
+              throw 'UQ60_COMMIT_SCOPE_CHANGED'
+            }
+            Write-Host ('UQ60_LOCAL_CHECKPOINT_COMMIT=' + $checkpoint)
+            Write-Host 'UQ60_LOCAL_SEVEN_FILE_COMMIT=PASS'
+            & git.exe -C $root push origin ('HEAD:refs/heads/' + $candidate)
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_PUSH_BLOCKED_LOCAL_COMMIT_PRESERVED' }
+            $branchRemote=@(& git.exe ls-remote --exit-code $origin ('refs/heads/' + $candidate))
+            $remoteMain=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $branchRemote.Count -ne 1 -or
+                ([string]$branchRemote[0] -split '\s+')[0] -cne $checkpoint -or
+                $remoteMain.Count -ne 1 -or
+                ([string]$remoteMain[0] -split '\s+')[0] -cne $headExpected) {
+              throw 'UQ60_POST_PUSH_IDENTITY_MISMATCH'
+            }
+            Write-Host 'UQ60_REVIEW_BRANCH_PUSHED_AND_MAIN_UNCHANGED=PASS'
+            Write-Host ('UQ60_CHECKPOINT_HEAD=' + $checkpoint)
+
+          } finally {
+            Exit-RepoSourceAuthority -Lease $lease
+          }
