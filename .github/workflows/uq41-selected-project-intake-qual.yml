@@ -1,0 +1,116 @@
+name: UQ41 authenticated project-source ingestion qualification
+on:
+  push:
+    branches: [qualification/mind-palace-uq41-repo-delta-20261017]
+    paths:
+      - '.github/workflows/uq41-selected-project-intake-qual.yml'
+permissions:
+  contents: read
+concurrency:
+  group: uq41-source-intake-oneoff
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify three pinned commits and classify selected data without writes
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'UQ41_RUNNER_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $expectedMain = '22d819c3473b80be34ecac7280881a67c981207c'
+          $expectedPr = '6debd15278da2ec69ceb616cbc1c6d688a647dc7'
+          $branchName = 'ingestion/2026-10-17-authenticated-project-delta'
+          $root = Join-Path $env:RUNNER_TEMP ('uq41-'+$env:GITHUB_RUN_ID)
+          $out = Join-Path $env:RUNNER_TEMP ('uq41-'+$env:GITHUB_RUN_ID+'.stdout')
+          $err = Join-Path $env:RUNNER_TEMP ('uq41-'+$env:GITHUB_RUN_ID+'.stderr')
+          function Assert([bool]$ok,[string]$tag){
+            if(-not $ok){throw ('UQ41_STOP_'+$tag)}
+          }
+          function GetSha([string]$path){
+            return (Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function RefHead([string]$ref){
+            $result=@(& git.exe ls-remote --exit-code $remote $ref)
+            Assert ($LASTEXITCODE -eq 0 -and $result.Count -eq 1) ('UNAVAILABLE_'+$ref)
+            return (([string]$result[0] -split '\s+')[0])
+          }
+          function Child([string]$cmd){
+            if(Test-Path $out){Remove-Item $out -Force}
+            if(Test-Path $err){Remove-Item $err -Force}
+            $psExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+            $tool = Join-Path $root 'tools/collect.ps1'
+            $batch = Join-Path $root 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+            $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$tool+'"'),$cmd,'-InputPath',('"'+$batch+'"'))
+            $proc=Start-Process -FilePath $psExe -ArgumentList $arguments -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if($proc.ExitCode -ne 0){
+              $errorText=[IO.File]::ReadAllText($err)
+              Write-Host ('UQ41_FAILED_ACTION='+$cmd+' EXIT='+$proc.ExitCode+' STDERR_TAIL='+$errorText.Substring([Math]::Max(0,$errorText.Length-1000)))
+              throw ('UQ41_CHILD_'+$cmd+'_FAILED')
+            }
+            $raw=[IO.File]::ReadAllText($out)
+            return ($raw | ConvertFrom-Json -ErrorAction Stop)
+          }
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          if((Test-Path $root) -or (Test-Path $out) -or (Test-Path $err)){throw 'UQ41_SCRATCH_EXISTS'}
+          try{
+            Assert ((RefHead 'refs/heads/main') -ceq $expectedMain) 'PRODUCTION_BASE_DRIFT'
+            Assert ((RefHead ('refs/heads/'+$branchName)) -ceq $expectedPr) 'PR_HEAD_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branchName $remote $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_CHECKOUT'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $expectedPr) 'EXACT_COMMIT'
+            $batchPath=Join-Path $root 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+            $batch=[IO.File]::ReadAllText($batchPath) | ConvertFrom-Json
+            Assert ([string]$batch.schema -ceq 'mind-palace.collector-batch.v1') 'SCHEMA'
+            Assert ([string]$batch.collector.source_kind -ceq 'repo') 'SOURCE_KIND'
+            Assert (@($batch.sources).Count -eq 3 -and @($batch.candidates).Count -eq 3) 'SOURCE_COUNT'
+            $expected=@(
+              'e3f73d1827a17d9d8be88db50a8620e781f1d82a',
+              'b87899b50d2c1558e26d74a1921623786fde1282',
+              '47e85282171dd9b264c7c03ac310adeaf2c07362'
+            )
+            foreach($source in @($batch.sources)){
+              Assert ($expected -ccontains [string]$source.version) 'SOURCE_SHA'
+              Assert ([string]$source.ref -clike ('*'+[string]$source.version)) 'SOURCE_REF'
+            }
+            $before=@{}
+            foreach($path in $protected){$before[$path]=GetSha $path}
+            $valid=Child 'validate'
+            Assert ([string]$valid.schema -ceq 'mind-palace.collector-result.v1') 'VALIDATE_WRAPPER_SCHEMA'
+            Assert ([int]$valid.candidate_count -eq 3 -and [int]$valid.primary_source_count -eq 3) 'VALIDATE_COUNT'
+            Assert ([bool]$valid.result.valid) 'VALIDATE_REJECTED'
+            Write-Host 'UQ41_AUTHENTIC_COMMIT_BATCH_VALIDATION=PASS'
+            $classified=Child 'classify'
+            Assert ([string]$classified.schema -ceq 'mind-palace.collector-result.v1') 'CLASSIFY_SCHEMA'
+            Assert ([int]$classified.candidate_count -eq 3) 'CLASSIFY_COUNT'
+            $counts=$classified.result.counts
+            Assert ([int]$counts.new -eq 3) 'NEW_COUNT_NOT_THREE'
+            Assert ([int]$counts.review -eq 0 -and [int]$counts.merge -eq 0 -and
+              [int]$counts.supersede -eq 0 -and [int]$counts.archive -eq 0 -and [int]$counts.ignore -eq 0) 'UNEXPECTED_DISPOSITION'
+            Write-Host 'UQ41_CLASSIFICATION_NEW_3_REVIEW_0=PASS'
+            foreach($path in $protected){Assert ((GetSha $path) -ceq $before[$path]) ('PROTECTED_DRIFT_'+$path)}
+            Assert (@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -eq 0) 'GIT_CHANGED'
+            Assert ((RefHead 'refs/heads/main') -ceq $expectedMain) 'FINAL_MAIN_DRIFT'
+            Assert ((RefHead ('refs/heads/'+$branchName)) -ceq $expectedPr) 'FINAL_PR_DRIFT'
+            Write-Host 'UQ41_PROTECTED_NINE_FILES_UNCHANGED=PASS'
+            Write-Host 'UQ41_MEMORIES_COMMITTED=0'
+            Write-Host 'UQ41_CODEX_OR_PAID_INFERENCE=0'
+            Write-Host 'UQ41_SOURCE_COHORT_QUALIFICATION=PASS'
+          }finally{
+            if(Test-Path $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $out){Remove-Item -LiteralPath $out -Force -ErrorAction Stop}
+            if(Test-Path $err){Remove-Item -LiteralPath $err -Force -ErrorAction Stop}
+            Assert ((-not (Test-Path $root)) -and (-not (Test-Path $out)) -and (-not (Test-Path $err))) 'CLEANUP_FAILED'
+          }
