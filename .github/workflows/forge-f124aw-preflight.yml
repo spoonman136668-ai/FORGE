@@ -1,0 +1,66 @@
+name: F124-AW frozen Ygg selected original first DEV zero-consumption preflight
+on:
+  push:
+    branches: [research/f124aw-frozen-active-inverse-first-dev-20261018]
+    paths:
+      - '.github/workflows/forge-f124aw-preflight.yml'
+      - 'nativeevidence/f124aw_one_original_dev.py'
+      - 'nativeevidence/test_f124aw_nonconsuming_first_dev_preflight.py'
+      - 'reference/research-intake/f124aw-frozen-original-ygg-first-dev.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124aw-immutable-first-use-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Non-consuming exact-head fixed selection and source parity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {throw 'F124AW_UNFROZEN_HEAD'}
+          $freeze='reference/research-intake/f124aw-frozen-original-ygg-first-dev.json'
+          if ((git hash-object $freeze).Trim() -cne 'e86cbf31e179bb4a1d4ceeee039c3d017ba27789' -or
+              (git log -1 --format=%H -- $freeze).Trim() -cne '1415ad0cba12b9f89c626b0786fdca3544e975b6' -or
+              (git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_informative_inverse.py').Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd5'){
+            throw 'F124AW_SOURCE_IDENTITY_NOT_SEALED'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124aw_*.py' -v
+          if ($LASTEXITCODE -ne 0){throw 'F124AW_INDEPENDENT_FOCUSED_FAILED'}
+          & $py -B nativeevidence/f124aw_one_original_dev.py --mode preflight
+          if ($LASTEXITCODE -ne 0){throw 'F124AW_FIRST_USE_PRECHECK_FAILED'}
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0){throw 'F124AW_CROSS_PROJECT_ISOLATION_FAILED'}
+          Write-Output 'F124AW_FROZEN_WINDOWS_LINUX_PREFLIGHT=PASS'
+          Write-Output 'F124AW_NEW_DEV_CONSUMED=false'
+  historical-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Original independently qualified AV, selection raw and artifact provider digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39141947437 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4 completed success'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39141593876 --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = 'b6f48b01ecc5dfea159e275a7becf69b3b3f4c76 completed success push'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39141593876/artifacts --jq '.artifacts[] | select(.id==12141722057 and .expired==false) | .digest')" = 'sha256:05977f984699c359864b622fb9124013ae85536bdadfaedbb063f907c63f4504'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39141766369 --jq '[.status,.conclusion] | join(" ")')" = 'completed success'
+          echo F124AW_ORIGINAL_SELECTION_INDEPENDENT_CUSTODY=PASS
