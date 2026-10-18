@@ -1,0 +1,98 @@
+name: F124-AR one final integration of authenticated TRAIN negatives
+on:
+  push:
+    branches: [research/f124ar-meta-relational-and-calibrated-packed-causality-20261018]
+    paths: ['.github/workflows/forge-f124ar-final-negative-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ar-single-final-regression
+  cancel-in-progress: false
+jobs:
+  one-original-final-regression:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39133441550
+          github-token: ${{ github.token }}
+          name: f124ar-original-train-d261861f31c34152ffe9d7081302f764ac02fb7d
+          path: original-train
+      - name: Authenticate source freeze original TRAIN evidence and no DEV first-use
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AR_FINAL_HEAD_DRIFT' }
+          $freeze='reference/research-intake/f124ar-frozen-meta-relational-and-packed-causality.json'
+          $negative='reference/research-intake/f124ar-qualified-train-negative-no-dev.json'
+          if ((git hash-object $freeze).Trim() -cne '235b8094e8c61222ffea409f2f58fd083eb00c08' -or
+              (git log -1 --format=%H -- $freeze).Trim() -cne '7920dc40e487016774182597dcc534112da47a7d' -or
+              (git hash-object $negative).Trim() -cne '49302aebe47b70e13aad8793480f9bd31d07a633' -or
+              (git log -1 --format=%H -- $negative).Trim() -cne '661d9c793a124cba7229ccb2096a0c268e42d035') {
+            throw 'F124AR_ORIGINAL_SOURCE_OR_NEGATIVE_RECEIPT_DRIFT'
+          }
+          $run=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39133441550' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne 'd261861f31c34152ffe9d7081302f764ac02fb7d' -or
+              $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+              $run.event -cne 'push') { throw 'F124AR_TRAIN_PROVIDER_RUN_NOT_ORIGINAL' }
+          $art=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39133441550/artifacts' | ConvertFrom-Json
+          $found=@($art.artifacts | Where-Object { $_.id -eq 12138622197 })
+          if ($LASTEXITCODE -ne 0 -or $found.Count -ne 1 -or $found[0].expired -or
+              $found[0].digest -cne 'sha256:af5ad2a392481dbb7819bb28a0524b308330c2065b98ed20688de35a6516e0a7') {
+            throw 'F124AR_ORIGINAL_TRAIN_ARTIFACT_DRIFT'
+          }
+          $raw='original-train/f124ar-original-fresh-train.json'
+          if ((Get-FileHash -LiteralPath $raw -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              '8e8a062ed46af068cf490044f9f5f548d78cc31655ca7fe2061f4ad8ddfd0446') {
+            throw 'F124AR_ORIGINAL_RAW_SHA256_DRIFT'
+          }
+          $n=Get-Content -Raw -LiteralPath $negative | ConvertFrom-Json
+          $r=Get-Content -Raw -LiteralPath $raw | ConvertFrom-Json
+          if ($n.status -cne 'TRAIN_SCREEN_NEGATIVE_DEV_UNCONSUMED' -or
+              $r.selected.Yggdrasil.paired -ne 0 -or $r.selected.Yggdrasil.FP -ne 0 -or
+              $r.selected.Yggdrasil.FN -ne 48 -or
+              $r.selected.Wingless.mode -cne 'original_gamma0' -or
+              $r.selected.Wingless.paired -ne 42 -or $r.selected.Wingless.FP -ne 5 -or
+              $r.selected.Wingless.FN -ne 1 -or
+              $r.eligible_to_consider_DEV.Yggdrasil -or
+              $r.eligible_to_consider_DEV.Wingless -or
+              $r.DEV_cases_generated -ne 0 -or $r.DEV_consumed -or
+              $n.original_train.original_json_sha256 -cne '8e8a062ed46af068cf490044f9f5f548d78cc31655ca7fe2061f4ad8ddfd0446' -or
+              $n.authority.optimizer_promotion -or $n.authority.production_activation -or
+              $n.resource_interpretation.source_normalization_outside_timed_inference -or
+              $r.optimizer_promotion -or $r.production_activation) {
+            throw 'F124AR_NEGATIVE_RETAINED_OR_NO_DEV_INVARIANTS'
+          }
+          Write-Output 'F124AR_AUTHENTIC_DUAL_LANE_NEGATIVE=PASS'
+          Write-Output 'F124AR_DEV_GENERATED=0'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one full Go regression and project isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124AR_ONE_FINAL_FULL_REGRESSION=PASS
+          echo F124AR_DEV_CONSUMED=false
+          echo F124AR_SCIENCE_ACCEPTED=false
