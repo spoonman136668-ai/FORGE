@@ -1,0 +1,186 @@
+name: F124-Z independent public causal-diversity and exact memory-failure stages
+on:
+  push:
+    branches: [research/f124z-diversity-and-runtime-memory-20261017]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124z-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-source-two-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact head, independent freeze, old model replay and source isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124Z_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124z_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Z_SOURCE_OR_CAUSAL_TEST_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124Z_ORIGINAL_FORGE_ISOLATION_FAIL' }
+          Write-Output 'F124Z_PROTECTED_FIRST_USE=false'
+
+  wingless-exact-failure-stage:
+    needs: focused-source-two-platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: 28 to 20 MiB exact OS stage markers and original model outputs, no OOM inference from stderr
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124z-wing-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124z_wingless_stages.py --bench --original-o o/f124o-independent-two-learned-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124Z_WING_STAGE_DIAG_FAILED' }
+          $v=Get-Content $out -Raw | ConvertFrom-Json
+          if ($v.schema -cne 'forge.research.f124z.wingless-failure-stage-development.v1' -or
+              $v.freeze_blob -cne '7f9406cbd86a18343f62e0ddd2b7602c4951aa5c' -or
+              $v.results.Count -ne 30 -or
+              $v.protected_first_use -or $v.science_accepted -or
+              -not $v.resource_blocked_is_not_inference_OOM) { throw 'F124Z_WING_RECEIPT_FALSE' }
+          foreach ($mib in @(28,26,24,22,20)) {
+            $v2=@($v.results | Where-Object { $_.cap_mib -eq $mib })
+            if ($v2.Count -ne 6) { throw 'F124Z_CAP_DENOMINATOR_MISSING' }
+            $ok=@($v2 | Where-Object { $_.completed }).Count
+            Write-Output "F124ZW_${{ matrix.os }}_CAP_$($mib)MiB=$ok/6"
+          }
+          Write-Output "F124Z_WING_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124z-wingless-stages-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124z-wing-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+
+  yggdrasil-public-node-diversity:
+    needs: focused-source-two-platforms
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Genuine new FIT and DEV 16-cell competition, exact old O/U logits, independent oracle-only path evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124z_node_diversity.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124z-diversity.json"
+          python3 -c 'import json,sys; z=json.load(open(sys.argv[1])); assert z["schema"]=="forge.research.f124z.public-node-diversity-16-cell-development.v1" and z["freeze_blob"]=="7f9406cbd86a18343f62e0ddd2b7602c4951aa5c" and z["original_7_9_hex_replay_passed"] and z["persistent_record_slots"]==16 and all(v["pairs"]==48 and v["persistent_cell_slots"]==16 for row in z["DEV"].values() for v in row.values()) and not z["protected_first_use"] and not z["science_accepted"]' "$RUNNER_TEMP/f124z-diversity.json"
+          sha256sum "$RUNNER_TEMP/f124z-diversity.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124z-new-16-cell-diversity-${{ github.sha }}
+          path: ${{ runner.temp }}/f124z-diversity.json
+          retention-days: 90
+          if-no-files-found: error
+
+  final-one-full-regression:
+    needs: [wingless-exact-failure-stage, yggdrasil-public-node-diversity]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one full Go test, race, vet, build and isolation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124Z_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124Z_PROTECTED_FIRST_USE=false'
