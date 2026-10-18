@@ -109,6 +109,76 @@ class F136(unittest.TestCase):
         self.assertFalse(d["dispatch"])
         self.assertIn("DAILY_START_CAP",d["reasons"])
 
+    def test_one_shot_post_slot_recheck_and_cannot_retry_other_denials(self):
+        # The frozen rule still denies the pre-slot attempt.
+        near=NOW.replace(minute=15,second=30)
+        first=m.decision(trigger(),artifacts(),recent(),SHA,near)
+        self.assertEqual(first["reasons"],["FALLBACK_SLOT_IMMINENT"])
+        self.assertFalse(first["dispatch"])
+        seconds=m.single_recheck_delay_seconds(first,near)
+        self.assertEqual(seconds,210)
+        self.assertLessEqual(seconds,240)
+        refreshed=near+dt.timedelta(seconds=seconds)
+        self.assertEqual(refreshed.strftime("%H:%M:%S"),"18:19:00")
+        # Missing event: no scheduled or manual run in the fresh bounded API
+        # history, so the exact same full F136 decision becomes eligible.
+        after=m.decision(trigger(),artifacts(),recent(),SHA,refreshed)
+        self.assertTrue(after["dispatch"])
+        self.assertEqual(m.single_recheck_delay_seconds(after,refreshed),0)
+        # A late scheduled run observed before the second decision blocks.
+        for event,status,conclusion,reason in (
+                ("schedule","in_progress",None,"ACTIVE_OR_PENDING_INTEGRATED_RUN"),
+                ("schedule","completed","success","NOT_LATEST_QUALIFIED_COMPLETION"),
+                ("workflow_dispatch","queued",None,"ACTIVE_OR_PENDING_INTEGRATED_RUN"),
+                ("workflow_dispatch","completed","success","NOT_LATEST_QUALIFIED_COMPLETION")):
+            rows=recent()
+            rows["workflow_runs"].insert(0,{
+                "id":RID+2,"status":status,"conclusion":conclusion,
+                "event":event,"head_branch":"main","head_sha":SHA,
+                "created_at":"2026-10-17T18:17:30Z"})
+            result=m.decision(trigger(),artifacts(),rows,SHA,refreshed)
+            self.assertFalse(result["dispatch"])
+            self.assertIn(reason,result["reasons"])
+            self.assertEqual(m.single_recheck_delay_seconds(result,refreshed),0)
+        # Pause, incomplete source and budget are not timer-retryable.
+        self.assertEqual(m.single_recheck_delay_seconds(
+            m.decision(trigger(),artifacts(),recent(),SHA,near,paused=True),near),0)
+        self.assertEqual(m.single_recheck_delay_seconds(
+            {"schema":first["schema"],"dispatch":False,
+             "reasons":["FALLBACK_SLOT_IMMINENT","DAILY_START_CAP"]},near),0)
+        with self.assertRaises(m.Invalid):
+            m.single_recheck_delay_seconds({"schema":"untrusted",
+                                            "reasons":["FALLBACK_SLOT_IMMINENT"]},near)
+
+    def test_utc_day_rollover_does_not_inherit_previous_daily_budget(self):
+        t=trigger()
+        t.update({"created_at":"2026-10-17T23:58:00Z",
+                  "run_started_at":"2026-10-17T23:58:10Z",
+                  "updated_at":"2026-10-18T00:04:00Z"})
+        first_day=dt.datetime(2026,10,18,0,5,30,tzinfo=dt.timezone.utc)
+        history=recent()
+        history["workflow_runs"][0]["created_at"]=t["created_at"]
+        history["workflow_runs"][-1]["created_at"]="2026-10-17T23:44:00Z"
+        first=m.decision(t,artifacts(),history,SHA,first_day)
+        self.assertEqual(first["utc_day"],"2026-10-18")
+        self.assertEqual(first["daily_main_development_starts"],0)
+        delay=m.single_recheck_delay_seconds(first,first_day)
+        self.assertEqual(delay,210)
+        refreshed=m.decision(t,artifacts(),history,SHA,
+                             first_day+dt.timedelta(seconds=delay))
+        self.assertTrue(refreshed["dispatch"])
+        self.assertEqual(refreshed["daily_main_development_starts"],0)
+
+    def test_one_shot_recheck_workflow_retains_no_rerun_and_cron_guards(self):
+        text=(Path(__file__).resolve().parents[1]/
+              ".github/workflows/forge-development-succession.yml").read_text()
+        self.assertIn("F136_POST_SLOT_RECHECK_ONCE",text)
+        self.assertIn("GITHUB_RUN_ATTEMPT",text)
+        self.assertIn("single_recheck_delay_seconds",text)
+        self.assertIn("F136_PREFLIGHT_DISPATCH",text)
+        self.assertIn("repos/$GITHUB_REPOSITORY/branches/main",text)
+        self.assertIn("forge-integrated-synthetic-cycle.yml/runs?branch=main",text)
+
     def test_lost_or_replayed_artifact_and_metadata_rejected(self):
         for mutation in ("missing","expired","wrong-run","wrong-sha","duplicate"):
             index=artifacts()
