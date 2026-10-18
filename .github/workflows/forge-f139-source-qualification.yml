@@ -1,10 +1,12 @@
-name: FORGE F139 unified controller source qualification
-# Qualification only. Does not run the controller or dispatch a worker.
+name: FORGE F139 native Windows controller qualification
+# PR-only source tests. No scheduled controller or GitHub workflow handoffs.
 on:
   pull_request:
     branches: [main]
     paths:
       - 'f139/**'
+      - 'scripts/Install-FORGE-F139.ps1'
+      - 'scripts/Run-FORGE-F139.ps1'
       - '.github/workflows/forge-f139-development-worker.yml'
       - '.github/workflows/forge-f139-source-qualification.yml'
       - 'docs/F139-UNIFIED-FORGE-CONTROLLER.md'
@@ -20,26 +22,35 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Cross-platform no-replay, source identity, dispatch ticket and D1 tests
+      - name: Native SQLite persistence, automatic two-ticket succession and crash safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s f139 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F139_NATIVE_REGRESSION_FAILED' }
+          python -B -m compileall -q f139
+          if ($LASTEXITCODE -ne 0) { throw 'F139_SYNTAX_FAILED' }
+          Write-Host 'F139_LOCAL_SQLITE_AND_RESTART_PROOF=PASS'
+          Write-Host 'F139_CLOUDFLARE_CONTROLLER=ABSENT'
+          Write-Host 'F139_SCIENTIFIC_ORIGINALS=ZERO'
+      - name: Check native Windows task installation is safe by default
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          node --test f139/test_core.mjs
-          if ($LASTEXITCODE -ne 0) { throw 'F139_CONTROLLER_TESTS_FAILED' }
-          python -B -m unittest discover -s f139 -p 'test_*.py' -v
-          if ($LASTEXITCODE -ne 0) { throw 'F139_WORKER_D1_TESTS_FAILED' }
-          Write-Host 'F139_UNIFIED_CONTROLLER_SOURCE=PASS'
-          Write-Host 'F139_CLOUDFLARE_DEPLOYMENT=OFF'
-          Write-Host 'F139_WORKER_DISPATCHES=ZERO'
-          Write-Host 'F139_SCIENTIFIC_ORIGINALS=ZERO'
+          foreach ($file in @('scripts/Install-FORGE-F139.ps1','scripts/Run-FORGE-F139.ps1')) {
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) { throw "F139_POWERSHELL_PARSE_FAILED:$file" }
+          }
+          & ./scripts/Install-FORGE-F139.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'F139_INERT_INSTALL_CHECK_FAILED' }
+          Write-Host 'F139_WINDOWS_TASK_INSTALL_DEFAULT_INERT=PASS'
