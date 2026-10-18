@@ -39,13 +39,12 @@ jobs:
           if(Test-Path $base){throw 'UQ42_PREEXISTING_PRIVATE_SCRATCH'}
           New-Item -ItemType Directory -Force -Path $base | Out-Null
           $root=Join-Path $base 'repo'
-          & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+          # The accepted checkpoint regression internally clones its source
+          # tree; a partial or sparse parent checkout omits fixture Git objects.
+          # Use full private source ONLY in this isolated, fail-closed-cleaned
+          # qualification scratch. Production polling stays blobless/sparse.
+          & git.exe clone --quiet --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
           if($LASTEXITCODE -ne 0){throw 'UQ42_PRIVATE_CLONE_FAILED'}
-          if(((& git.exe -C $root config --get remote.origin.partialclonefilter)|Out-String).Trim() -cne 'blob:none'){throw 'UQ42_BLOBLESS_FILTER_MISSING'}
-          & git.exe -C $root sparse-checkout set --cone .ice tools tests schemas policies archive pilots docs
-          if($LASTEXITCODE -ne 0){throw 'UQ42_SPARSE_SELECT_FAILED'}
-          & git.exe -C $root checkout --quiet --force engineering/uq42-utc-offset-checkpoint-compat
-          if($LASTEXITCODE -ne 0){throw 'UQ42_SPARSE_CHECKOUT_FAILED'}
           if(((& git.exe -C $root rev-parse HEAD)|Out-String).Trim() -cne $pr){throw 'UQ42_PINNED_PR_SHA_DRIFT'}
           $paths=@{
             'tools/update-checkpoint.ps1'='76ae6839e144f883613b769b26ca3692480cf8d2';
