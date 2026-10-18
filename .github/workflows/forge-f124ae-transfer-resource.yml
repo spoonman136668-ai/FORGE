@@ -1,0 +1,186 @@
+name: F124-AE independently frozen transfer and real cost
+on:
+  push:
+    branches: [research/f124ae-independent-transfer-resource-20261018]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: f124ae-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Source admission, original bytecode control, 16-cell limit and isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ae_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AE_SOURCE_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AE_ISOLATION_FAIL' }
+  transfer:
+    needs: focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Original O/U and immutable combined coefficients vs frozen fixed and exact controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ae_transfer_evidence.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124ae-transfer.json"
+          python3 - "$RUNNER_TEMP/f124ae-transfer.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d["schema"]=="forge.research.f124ae.four-family-blind-transfer.v1"
+          assert d["freeze_blob"]=="e2132d019d3cd9573250751fa466a60ad63d43ce"
+          assert d["parameters_locked_from_f124ad"]=={"gamma":0.1,"penalty":1.0}
+          assert d["DEV_never_selected"] and not d["protected_first_use"] and not d["independent_science_accepted"]
+          for phase in ("FIT","DEV"):
+              for family in ("rekey","rewire","near_break","late_break"):
+                  x=d[phase][family]
+                  assert x["strong_fixed_12of16"]["pairs"]==48
+                  assert x["exact_16of16_public_verifier_reference"]["pairs"]==48
+                  for arm in ("O_original","O_combined","U_original","U_combined"):
+                      z=x["models"][arm]
+                      assert z["pairs"]==48 and len(z["cases"])==48
+                      assert all(y["pairs"]==16 for y in z["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ae-transfer.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ae-four-family-transfer-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ae-transfer.json
+          retention-days: 90
+          if-no-files-found: error
+  physical:
+    needs: focused
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Three-repetition measured per-process peak RSS heap CPU wall matched inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124ae-physical-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124ae_physical_cost.py --bench --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AE_REAL_COST_FAIL' }
+          $x=Get-Content $out -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.research.f124ae.cross-platform-matched-physical-cost.v1' -or
+              $x.freeze_blob -cne 'e2132d019d3cd9573250751fa466a60ad63d43ce' -or
+              $x.raw.Count -ne 24 -or $x.protected_first_use -or $x.science_accepted) { throw 'F124AE_COST_RECEIPT_FAIL' }
+          foreach ($fam in @('rekey','near_break')) {
+            foreach ($arm in @('O_original','O_combined','U_original','U_combined')) {
+              $z=$x.results.$fam.$arm
+              if ($z.repetitions -ne 3 -or $z.median_process_peak_RSS_bytes -le 0 -or $z.median_cpu_ns -le 0) { throw 'F124AE_INCOMPLETE_RESOURCE' }
+              Write-Output "F124AE_COST_${{ matrix.os }}_$($fam)_$($arm):RSS=$($z.median_process_peak_RSS_bytes):CPU=$($z.median_cpu_ns):wall=$($z.median_wall_ns)"
+            }
+          }
+          Write-Output "F124AE_COST_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ae-physical-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ae-physical-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+  final-one-regression:
+    needs: [transfer, physical]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env: {GOMAXPROCS: '2', GOFLAGS: '-p=2', GOMEMLIMIT: '1536MiB'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Full Go test race vet build and original FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AE_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124AE_PROTECTED_FIRST_USE=false'
