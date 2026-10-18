@@ -33,7 +33,7 @@ O_SHA="025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d"
 S_SHA="fb28a06ca4e0bfde9b4053734d61f2e3d1e760a8a3dda29e834780abe2339f25"
 U_SHA="5634fa8b1acb02abf0640a558d268dccb751ace43093efd518f265ed44a56a49"
 ARMS=("S_packed","T_full_index","U_microindex","O_learned","fixed_12of16")
-SCHEMA="forge.research.f124y.wingless-multi-cap.v1"
+SCHEMA="forge.research.f124y.wingless-actual-memory-boundary.v1"
 
 
 def need(ok,code):
