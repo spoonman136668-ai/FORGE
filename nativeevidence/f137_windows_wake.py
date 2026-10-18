@@ -44,8 +44,7 @@ def decision(wake, integrated, wake_runs, main_sha, pinned_sha, nonce, now,
            wake.get("triggering_actor",{}).get("login")==OWNER,
            "F137_WAKE_PROVIDER_IDENTITY_INVALID")
     created=f.stamp(wake.get("created_at"))
-    f.need(now-dt.timedelta(minutes=2)<=now and
-           created<=now+dt.timedelta(minutes=2) and
+    f.need(created<=now+dt.timedelta(minutes=2) and
            now-created<=MAX_WAKE_AGE, "F137_WAKE_STALE_OR_FUTURE")
 
     f.need(type(integrated) is dict and
