@@ -1,0 +1,65 @@
+name: F124-BB pre-use public disagreement original-source qualification
+on:
+  push:
+    branches: [research/f124bb-public-disagreement-veto-20261018]
+    paths:
+      - '.github/workflows/forge-f124bb-focused.yml'
+      - 'nativeevidence/f124bb_train_source.py'
+      - 'nativeevidence/f124bb_disagreement_confidence.py'
+      - 'nativeevidence/f124bb_fit_screen.py'
+      - 'nativeevidence/test_f124bb_disagreement_preflight.py'
+      - 'reference/research-intake/f124bb-frozen-public-disagreement-veto.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bb-prescience-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-and-model:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cryptographically qualified frozen source and synthetic public-only disagreement
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BB_HEAD_DRIFT'}
+          $f='reference/research-intake/f124bb-frozen-public-disagreement-veto.json'
+          if ((git hash-object $f).Trim() -cne '56e77ac974b4c4673d9d1ba5e012357719165711' -or
+              (git log -1 --format=%H -- $f).Trim() -cne 'e0bc101fe36a8c590668dd57165e4aa39d12b04f' -or
+              (git rev-parse '8796537b6d1ebcd0f8e5a9e2aecf93a06b094d93:nativeevidence/f124ba_train_source.py').Trim() -cne 'c605aca61d551889afdbdece173fa5f0fcdb5402'){
+            throw 'F124BB_ORIGINAL_PREIMPLEMENTATION_SOURCE_CHANGED'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124bb_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BB_DISAGREEMENT_PRELIMINARY_NOT_QUALIFIED'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BB_REPOSITORY_ISOLATION_FAILURE'}
+          Write-Output 'F124BB_NEW_SOURCE_AND_PUBLIC_DISAGREEMENT=PASS'
+          Write-Output 'F124BB_NEW_TRAIN_UNUSED=true'
+          Write-Output 'F124BB_NEW_DEV_UNUSED=true'
+  previous-source-custody:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Independently recheck qualified original BA full regression and first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39162018875 --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '8796537b6d1ebcd0f8e5a9e2aecf93a06b094d93 completed success push'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39161174504 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'aac5bbd1b1d40713a55cbece8da1cff00a57cf5a completed success'
+          echo F124BB_BA_ORIGINAL_CUSTODY=PASS
