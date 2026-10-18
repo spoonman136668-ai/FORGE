@@ -35,7 +35,7 @@ class FrozenIntermediateOperator(unittest.TestCase):
 
     def test_model_39_trainable_global_weights_and_original_cells(self):
         m=L.seeded()
-        self.assertEqual(L.count_params(m),39)
+        self.assertEqual(L.count_params(m),38)  # 38 trainable weights plus one FIT-only threshold
         self.assertEqual(len(L.predict_table(m["local"])),4)
         self.assertEqual(L.mask_from_raw([0]*16,[1]*16,{
               (0,0):0.,(0,1):1.,(1,0):1.,(1,1):0.}),65535)
@@ -69,7 +69,7 @@ class FrozenIntermediateOperator(unittest.TestCase):
     def test_intermediate_FIT_path_supervision_from_public_edges_only(self):
         data,distribution=L.fit_examples()
         self.assertEqual(len(data),288)
-        self.assertEqual(sum(y for _,y in data),144)
+        self.assertEqual(sum(label for _,_,label in data),144)
         self.assertEqual(sum(distribution.values()),288*2*16)
         self.assertTrue(all(v>0 for v in distribution.values()))
         self.assertEqual(L.LOCAL_PARAMS,33)
