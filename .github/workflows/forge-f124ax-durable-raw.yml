@@ -55,11 +55,21 @@ jobs:
           assert len(d['FIT_candidates'])==len(d['SCREEN_candidates'])==6
           print('F124AX_FULL_ORIGINAL_SOURCE_NEGATIVE_AUTHENTICATED=PASS')
           PY
-          encoded=$(base64 -w0 original/f124ax-original-fit-screen.json)
+          # A 102 KB original exceeds OS argument-size limits when passed as -f.
+          # Pipe immutable encoded bytes through a temporary JSON request body.
+          python3 -B - <<'PY'
+          import base64,json,os
+          original=open("original/f124ax-original-fit-screen.json","rb").read()
+          request={
+              "message":"F124-AX append original unmodified authenticated 6-arm TRAIN FIT SCREEN case evidence",
+              "content":base64.b64encode(original).decode("ascii"),
+              "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124ax-original-append-request.json","w",encoding="utf-8") as f:
+              json.dump(request,f,separators=(",",":"))
+          print("F124AX_ORIGINAL_RAW_REQUEST_READY=PASS")
+          PY
           gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" \
-            -f message='F124-AX append original unmodified authenticated 6-arm TRAIN FIT SCREEN case evidence' \
-            -f content="$encoded" \
-            -f branch="$GITHUB_REF_NAME" \
+            --input /tmp/f124ax-original-append-request.json \
             --jq '[.commit.sha,.content.sha] | join(" ")'
           echo F124AX_ORIGINAL_RAW_LONGTERM_REPOSITORY_ARCHIVED=PASS
           echo F124AX_NO_SCIENTIFIC_PROMOTION=true
