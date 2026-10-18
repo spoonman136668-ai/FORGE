@@ -79,7 +79,7 @@ jobs:
           }
           if ((Git @('-C',$root,'rev-parse','--abbrev-ref','HEAD')) -cne 'main' -or
               (Git @('-C',$root,'rev-parse','HEAD')) -cne $original -or
-              (Status $root).Count -ne 0) {
+              @(Status $root).Count -ne 0) {
             throw 'UQ59_LOCAL_WORKTREE_CHANGED_SINCE_INDEPENDENT_PREFLIGHT'
           }
           $origin=Git @('-C',$root,'remote','get-url','origin')
@@ -114,11 +114,11 @@ jobs:
               (@($expectedHistorical | Sort-Object) -join '|')) {
             throw 'UQ59_HISTORICAL_RETRIEVAL_SOURCE_DELTA_DRIFT'
           }
-          if ((Status $root).Count -ne 0) { throw 'UQ59_CHANGED_DURING_PRE_FF' }
+          if (@(Status $root).Count -ne 0) { throw 'UQ59_CHANGED_DURING_PRE_FF' }
           & git.exe -C $root merge --ff-only --no-edit FETCH_HEAD | Out-Null
           if ($LASTEXITCODE -ne 0) { throw 'UQ59_FASTFORWARD_FAILED_NO_RESET' }
           if ((Git @('-C',$root,'rev-parse','HEAD')) -cne $target -or
-              (Status $root).Count -ne 0) { throw 'UQ59_FASTFORWARD_DID_NOT_REACH_CLEAN_EXPECTED_MAIN' }
+              @(Status $root).Count -ne 0) { throw 'UQ59_FASTFORWARD_DID_NOT_REACH_CLEAN_EXPECTED_MAIN' }
           foreach($name in $protected) {
             if ((Git @('-C',$root,'rev-parse',('HEAD:'+$name))) -cne $protectedBlobs[$name]) {
               throw ('UQ59_POST_FF_PROTECTED_SOURCE_BLOB_CHANGED '+$name)
@@ -158,7 +158,7 @@ jobs:
               throw 'UQ59_PLAN_TOUCHED_LIVE_PROTECTED_SOURCE'
             }
           }
-          if ((Status $root).Count -ne 0) { throw 'UQ59_PLAN_CHANGED_GIT_WORKTREE' }
+          if (@(Status $root).Count -ne 0) { throw 'UQ59_PLAN_CHANGED_GIT_WORKTREE' }
           Write-Host 'UQ59_EXACT_SOURCE_THREE_RECORD_PLAN=PASS'
           $applyRaw=(& pwsh.exe -NoProfile -NonInteractive -File $tool apply -ExpectedMainSha $target -ConfirmRepoApply 2>&1 | Out-String).Trim()
           if ($LASTEXITCODE -ne 0) { throw ('UQ59_GUARDED_APPLY_STOP '+$applyRaw) }
