@@ -1,0 +1,287 @@
+name: F124-AE frozen cross-family causal transfer and packed Wingless
+on:
+  push:
+    branches: [research/f124ae-long-transfer-one-state-readout-20261018]
+    paths:
+      - 'reference/research-intake/f124ae-frozen-extended-transfer-and-single-state.json'
+      - 'nativeevidence/f124ae_*.py'
+      - 'nativeevidence/test_f124ae_*.py'
+      - '.github/workflows/forge-f124ae-long-transfer.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ae-frozen-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: New family oracle separated, exact source lineage, original inference untouched
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AE_EXACT_HEAD_DRIFT' }
+          foreach ($pattern in @('test_f124ae_*.py','test_f124ad_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124AE_FROZEN_SOURCE_FAILED_$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AE_CROSS_PROJECT_ISOLATION_FAILED' }
+          Write-Output 'F124AE_PROTECTED_FIRST_USE=false'
+
+  source-verified-independent-development:
+    needs: frozen-source-focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate all seven original provider run/artifact receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sources=@(
+            @{id='39078269441';head='5b52da1e38d5ff5671c582676790daf0462dd18d';artifact='12116979526';digest='sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c'},
+            @{id='39082424955';head='01560f7f4f1aab5737cfd045dffd7faaccfb0608';artifact='12120010101';digest='sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3'},
+            @{id='39083528704';head='6ba96aaaeff083a5e2f54020c70d2a717e431a10';artifact='12119184999';digest='sha256:93cf41e63c5fd458376778fd54f6da9eaa8677b390be763b6b214ca26fa6089a'},
+            @{id='39085219061';head='af17fadc6bb66e30a6f7ebd1a6a629398cc09709';artifact='12119928375';digest='sha256:77774cd7a47d3e1d9357d52e6e82e28fbf7fe6bfc2e1fcaa5c4e94f13c941c0f'},
+            @{id='39085922140';head='4f7fa505737acae4568df755b4804c384b057980';artifact='12120417300';digest='sha256:7d84f022f02ec607c9db09ba854141057c72f0ecb4cc7592ef298e778690f639'},
+            @{id='39086773832';head='f4d8770482cce0d0f282420b45a1bd931cf81bd5';artifact='12121042723';digest='sha256:4efb86146c361e50d1c177faa979382bd9eb7e88fe1d8e5783f3e4e15efb23de'},
+            @{id='39087469247';head='62db833856e523c45c82cf11f3d76bf0f5d7c257';artifact='12121202417';digest='sha256:c1be59e13a674b8b2a1f7846544db81b617d041f26761934df18bca3fcb03036'},
+            @{id='39088963241';head='53bf4555ef3a88dbc126af4ff060aadecc976d9b';artifact='12122111712';digest='sha256:4894889c447de6b334b73602d3157bbb58dd4cd9c2c85ae2e268f3b24d132771'},
+            @{id='39090219587';head='0a17074b9c801d7ddc76f995d9d14bb53c4234c1';artifact='12121389887';digest='sha256:fb481eccb0cbb9664f6c604a47e16b9fa37c6013bc711b1155ccdb7a185c0d83'},
+            @{id='39091857260';head='9942043805a525406c52838cd8cea18fb2949817';artifact='12123142350';digest='sha256:09ce66a2b6c319391bc3b5e573b678e95fe4559159e87c04c4adc591cb4e77bb'},
+            @{id='39093408320';head='6d69e984ee5fb96e01f5067cb5ef9d4754d2a5fb';artifact='12123501687';digest='sha256:b97312495d234404e8503e9d7dde6f7e614e844b8f9d6d226b6d1e95e667ca02'}
+          )
+          foreach ($p in $sources) {
+            $run=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.head -or
+                $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+                $run.event -cne 'push') { throw 'F124AE_ORIGINAL_PROVIDER_RUN_IDENTITY' }
+            $index=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0) { throw 'F124AE_ORIGINAL_ARTIFACT_INDEX' }
+            $found=@($index.artifacts | Where-Object { "$($_.id)" -ceq $p.artifact })
+            if ($found.Count -ne 1 -or $found[0].digest -cne $p.digest -or $found[0].expired) {
+              throw 'F124AE_ORIGINAL_PROVIDER_ARTIFACT'
+            }
+          }
+          Write-Output 'F124AE_SOURCE_AUTHENTICITY=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: historical-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: historical-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39083528704
+          github-token: ${{ github.token }}
+          name: f124u-preregistered-fresh-development-6ba96aaaeff083a5e2f54020c70d2a717e431a10
+          path: historical-u
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39085219061
+          github-token: ${{ github.token }}
+          name: f124w-frozen-hop-trace-and-indexed-fresh-af17fadc6bb66e30a6f7ebd1a6a629398cc09709
+          path: historical-w
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39085922140
+          github-token: ${{ github.token }}
+          name: f124x-fresh-readout-and-runtime-4f7fa505737acae4568df755b4804c384b057980
+          path: historical-x
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39086773832
+          github-token: ${{ github.token }}
+          name: f124y-authentic-budgeted-experiment-f4d8770482cce0d0f282420b45a1bd931cf81bd5
+          path: historical-y
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39087469247
+          github-token: ${{ github.token }}
+          name: f124z-frozen-fresh-development-62db833856e523c45c82cf11f3d76bf0f5d7c257
+          path: historical-z
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39088963241
+          github-token: ${{ github.token }}
+          name: f124aa-immutable-fresh-family-evidence-53bf4555ef3a88dbc126af4ff060aadecc976d9b
+          path: historical-aa
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39090219587
+          github-token: ${{ github.token }}
+          name: f124ab-frozen-soft-hamming-packed-pareto-0a17074b9c801d7ddc76f995d9d14bb53c4234c1
+          path: historical-ab
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39091857260
+          github-token: ${{ github.token }}
+          name: f124ac-frozen-depth-failure-packed-aliases-9942043805a525406c52838cd8cea18fb2949817
+          path: historical-ac
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39093408320
+          github-token: ${{ github.token }}
+          name: f124ad-frozen-readout-fingerprint-6d69e984ee5fb96e01f5067cb5ef9d4754d2a5fb
+          path: historical-ad
+      - name: Eleven authentic ancestors, frozen independent 13-15 transfer and FIT-only one-state readout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sources=@(
+            @{path='historical-o/f124o-independent-two-learned-development.json';sha='025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d'},
+            @{path='historical-t/f124t-fresh-absolute-development.json';sha='a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2'},
+            @{path='historical-u/f124u-fresh-cell-and-readout-development.json';sha='63a2a57973444752d4002bc4718ec63de88a26ed05142627305de3a94fa9fb41'},
+            @{path='historical-w/f124w-fresh-hop-survival-and-checksum.json';sha='122c0f1db5547a1ce2074c73c0b4b4d089c7f00eaf4573327676be3b7b521698'},
+            @{path='historical-x/f124x-new-validation-and-runtime.json';sha='457f7be9312bd30b4ce052aed11edfd929fd02e715aa85ede7b9a58b2be355ba'},
+            @{path='historical-y/f124y-fresh-budget-and-calibration.json';sha='13608eabec0d63103199f48cea0fdc861fe84ee64527007229d4bcf422d05353'},
+            @{path='historical-z/f124z-fresh-sparse-and-public-continuity.json';sha='d6e19c5b9a572eefab5e0927a41abad6d34c3654c80605f7980b6e0908c3e44c'},
+            @{path='historical-aa/f124aa-new-transfer-and-packed.json';sha='fda2f1dbf130062b347e0e46862fe409b5af2c95a98fd3ca97c0e8642ff7d034'},
+            @{path='historical-ab/f124ab-fresh-soft-hamming-and-packed-pareto.json';sha='270202bae8773bd39c33116b0b365716bd23d53f2a92d7395f77d4a7baee67b9'},
+            @{path='historical-ac/f124ac-fresh-depth-failure-and-packed-aliases.json';sha='1ab3f8228e6f361783abf9fd052d28d60462432511653978b8b3ce966d609dc7'},
+            @{path='historical-ad/f124ad-fresh-evidence-anchor-and-fingerprint.json';sha='2a22462f0292f8fe23df3c5bae21bbd2e2a0e9c6e92f21d2f8179cd621c4de3f'}
+          )
+          foreach ($source in $sources) {
+            if ((Get-FileHash -LiteralPath $source.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $source.sha) {
+              throw 'F124AE_AUTHENTIC_ANCESTOR_RAW_SHA_DRIFT'
+            }
+          }
+          $output=Join-Path $env:RUNNER_TEMP 'f124ae-frozen-13-15-and-one-state-readout.json'
+          & python3 -B nativeevidence/f124ae_development_evidence.py --o $sources[0].path --t $sources[1].path --u $sources[2].path --w $sources[3].path --x $sources[4].path --y $sources[5].path --z $sources[6].path --aa $sources[7].path --ab $sources[8].path --ac $sources[9].path --ad $sources[10].path --output $output
+          if ($LASTEXITCODE -ne 0) { throw 'F124AE_ORIGINAL_SCIENCE_OR_FRESH_SOURCE_FAIL_CLOSED' }
+          $r=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124ae.frozen-13-15-transfer-and-one-state-score.v1' -or
+              $r.freeze_git_blob -cne '248666af8425bb786269a61f047f43c494be8a3e' -or
+              $r.original_AD_raw_sha256 -cne '2a22462f0292f8fe23df3c5bae21bbd2e2a0e9c6e92f21d2f8179cd621c4de3f' -or
+              $r.lanes.Count -ne 2 -or -not $r.original_weights_and_inference_unchanged -or
+              -not $r.fresh_fit_before_dev -or -not $r.first_prospective_dev -or
+              $r.protected_first_use -or $r.scientific_acceptance -or
+              $r.optimizer_promotion -or $r.accepted_ref_mutations -ne 0 -or
+              $r.matched_resource_superiority -or $r.wing_fit_grid.Count -ne 7) {
+            throw 'F124AE_FALSE_RECEIPT_OR_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            foreach ($cohort in @($lane.FIT,$lane.DEV)) {
+              if ($cohort.pairs -ne 48 -or
+                  $cohort.posthoc_public_reference.positives -ne 48 -or
+                  $cohort.posthoc_public_reference.reference_valid -ne 48) {
+                throw 'F124AE_FROZEN_SOURCE_REFERENCE_INCOMPLETE'
+              }
+              foreach ($arm in $cohort.controls.PSObject.Properties) {
+                $expected=if ($arm.Name -ceq 'strong_fixed') {24} else {48}
+                if ($arm.Value.pairs -ne $expected -or
+                    $arm.Value.unsupported -ne (48-$expected) -or
+                    $arm.Value.case_sha256.Count -ne $expected -or
+                    $arm.Value.max_retained -gt 9 -or
+                    ($lane.lane -ceq 'Yggdrasil' -and $arm.Value.max_active -gt 7) -or
+                    ($lane.lane -ceq 'Wingless' -and $arm.Name -ceq 'FIT_threshold' -and
+                    ($arm.Value.max_active -gt 64 -or $arm.Value.max_states_per_node -ne 1))) {
+                  throw 'F124AE_STATE_AND_CONTROL_DENOMINATOR'
+                }
+                foreach ($family in $arm.Value.family.PSObject.Properties) {
+                  if (($family.Value.pairs+$family.Value.unsupported) -ne 12) {
+                    throw 'F124AE_NEW_13TO15_DOMAIN_OMISSION'
+                  }
+                }
+              }
+            }
+            if ($lane.lane -ceq 'Wingless') {
+              if ($lane.resource.protected_resource_matched_superiority -or
+                  -not $lane.resource.original_fixed_only_7_to_9_supported -or
+                  @($lane.resource.results.PSObject.Properties).Count -ne 4) {
+                throw 'F124AE_FALSE_COST_PARITY'
+              }
+              foreach ($b in $lane.resource.results.PSObject.Properties) {
+                $n=if ($b.Name -ceq 'strong_fixed') {12} else {24}
+                if ($b.Value.graphs -ne $n -or
+                    $b.Value.timed_repetitions -ne (3*$n) -or
+                    $b.Value.median_ns -le 0 -or
+                    $b.Value.median_peak_bytes -le 0) {
+                  throw 'F124AE_BENCHMARK_INCOMPLETE'
+                }
+              }
+              Write-Output "F124AE_WING_VERIFIED=threshold:$($lane.DEV.controls.FIT_threshold.paired)/48;baseline:$($lane.DEV.controls.original_one_state.paired)/48;bias:$($r.wing_fit_selection.bias)"
+            } else {
+              Write-Output "F124AE_YGG_VERIFIED=AD:$($lane.DEV.controls.AD_anchor10.paired)/48;AB:$($lane.DEV.controls.AB_anchor16.paired)/48;deep:$($lane.DEV.controls.AD_anchor10.family.extended_13_15.paired)/12"
+            }
+          }
+          $hash=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($output+'.sha256'),$hash+'  f124ae-frozen-13-15-and-one-state-readout.json'+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124AE_RAW_SHA256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ae-immutable-long-transfer-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124ae-frozen-13-15-and-one-state-readout.json
+            ${{ runner.temp }}/f124ae-frozen-13-15-and-one-state-readout.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  one-full-regression:
+    needs: source-verified-independent-development
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One exact-head Go full test race vet build and science isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AE_FULL_SOURCE_HEAD=$GITHUB_SHA"
+          echo "F124AE_SCIENCE_ACCEPTED=false"
