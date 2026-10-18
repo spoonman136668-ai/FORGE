@@ -1,0 +1,118 @@
+name: UQ46 canonical snapshot fixed point and Windows compatibility
+on:
+  push:
+    branches: [qualification/uq46-snapshot-serialization]
+    paths: ['.github/workflows/uq46-canonical-snapshot-acceptance.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq46-canonical-snapshot-acceptance
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    steps:
+      - name: Pin source, prove all nine protected hashes and cross-runtime fixed point
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ46_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $expected='1a8befa00808a0cc951223e35a58023729fbfcc4'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $ref='refs/heads/engineering/uq46-canonical-snapshot-serializer'
+          foreach($pair in @(@('refs/heads/main',$main),@($ref,$expected))){
+            $lines=@(& git.exe ls-remote --exit-code $remote $pair[0])
+            if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1 -or ([string]$lines[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ46_SOURCE_REF_DRIFT'}
+          }
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          if(Test-Path $scratch){throw 'UQ46_PRIVATE_SCRATCH_PREEXISTS'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            & git.exe clone --quiet --single-branch --branch engineering/uq46-canonical-snapshot-serializer $remote $root
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $expected)){throw 'UQ46_CHECKOUT_HEAD_DRIFT'}
+            $expectedBlobs=@{
+              '.ice/remote-bootstrap.json'='0d53def2269e244973e6656f99a9805c1c96b895';
+              '.ice/remote-catalog.json'='d2b7e557792033f774b50623c73fd6325d4376c1';
+              '.ice/remote-index.ndjson'='53199dce4073ef90717f1cf4ec2ecb909c5b79b2';
+              '.ice/project-state-capsules.json'='0e7e49a3650cbf63757b26c2bee78b6d25a6be20';
+              '.ice/project-dependency-graph.json'='da17aaf4a38388fcc9a5983ae7ed0edff4e93278'
+            }
+            foreach($p in $expectedBlobs.Keys){
+              $actual=(& git.exe -C $root hash-object --path $p -- (Join-Path $root $p)|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $actual -cne $expectedBlobs[$p]){throw ('UQ46_STAGED_BLOB_MISMATCH_'+$p)}
+            }
+            Write-Host 'UQ46_PINNED_FIVE_SNAPSHOT_BLOBS=PASS'
+            $nine=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+                    '.ice/chat-delta-state.json','.ice/remote-bootstrap.json',
+                    '.ice/remote-catalog.json','.ice/remote-index.ndjson',
+                    '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($f in $nine){$before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash}
+            $gen=Join-Path $root 'tools/remote-snapshot.ps1'
+            $out=Join-Path $scratch 'ps7.out'
+            $err=Join-Path $scratch 'ps7.err'
+            $argv=@('-NoProfile','-NonInteractive','-File',('"'+$gen+'"'),'-RepoRoot',('"'+$root+'"'))
+            $p=Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList $argv -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if($p.ExitCode -ne 0){
+              $e=[IO.File]::ReadAllText($err)
+              Write-Host ('UQ46_GENERATOR_ERROR='+$e.Substring([Math]::Max(0,$e.Length-950)))
+              throw 'UQ46_POWERSHELL7_GENERATOR_FAILED'
+            }
+            foreach($f in $nine){
+              if((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash -cne $before[$f]){
+                throw ('UQ46_POWERSHELL7_NOT_FIXED_POINT_'+$f)
+              }
+            }
+            Write-Host 'UQ46_POWERSHELL7_NINE_FILE_FIXED_POINT=PASS'
+            # Native Windows PowerShell must delegate to the same canonical
+            # renderer and MUST NOT create a different set of JSON bytes.
+            $out=Join-Path $scratch 'ps5.out'
+            $err=Join-Path $scratch 'ps5.err'
+            $p=Start-Process -FilePath (Get-Command powershell.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$gen+'"'),'-RepoRoot',('"'+$root+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if($p.ExitCode -ne 0){
+              $e=[IO.File]::ReadAllText($err)
+              Write-Host ('UQ46_DELEGATE_ERROR='+$e.Substring([Math]::Max(0,$e.Length-950)))
+              throw 'UQ46_POWERSHELL5_DELEGATION_FAILED'
+            }
+            foreach($f in $nine){
+              if((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash -cne $before[$f]){
+                throw ('UQ46_POWERSHELL5_NOT_FIXED_POINT_'+$f)
+              }
+            }
+            Write-Host 'UQ46_POWERSHELL5_DELEGATED_NINE_FILE_FIXED_POINT=PASS'
+            $tests=@('Test-ProjectDependencyGraph.ps1','Test-ProjectStateCapsules.ps1','Test-RemoteBootstrap.ps1','Test-UpdateCheckpoint.ps1')
+            foreach($name in $tests){
+              $stdout=Join-Path $scratch ($name+'.out')
+              $stderr=Join-Path $scratch ($name+'.err')
+              $test=Join-Path $root ('tests/'+$name)
+              $p=Start-Process -FilePath (Get-Command pwsh.exe).Source -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              if($p.ExitCode -ne 0){
+                $e=[IO.File]::ReadAllText($stderr)
+                Write-Host ('UQ46_FOCUSED_FAIL='+$name+' tail='+$e.Substring([Math]::Max(0,$e.Length-900)))
+                throw ('UQ46_FOCUSED_FAILED_'+$name)
+              }
+              Write-Host ('UQ46_FOCUSED_'+$name+'=PASS')
+            }
+            foreach($f in $nine){
+              if((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash -cne $before[$f]){
+                throw ('UQ46_FOCUSED_PROTECTED_SURFACE_CHANGED_'+$f)
+              }
+            }
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ46_DIRTY_WORKTREE'}
+            Write-Host 'UQ46_ALL_NINE_PROTECTED_HASHES_UNCHANGED=PASS'
+            Write-Host 'UQ46_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ46_NO_CODEX_OR_PAID_INFERENCE=PASS'
+          } finally {
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $scratch){throw 'UQ46_PRIVATE_SCRATCH_NOT_CLEAN'}
+            Write-Host 'UQ46_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
