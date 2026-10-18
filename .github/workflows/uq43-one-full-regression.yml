@@ -1,0 +1,89 @@
+name: UQ43 one full Mind-Palace source-pinned regression
+on:
+  push:
+    branches: [qualification/uq43-inventory-utc-baseline-20261018]
+    paths: ['.github/workflows/uq43-one-full-regression.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq43-exact-head-one-full-regression
+  cancel-in-progress: false
+jobs:
+  full:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 38
+    steps:
+      - name: Execute one full suite with exact source identity and private custody
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ43_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $head='b61dfce9046d719f2ebbbd8b270b754667043884'
+          foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
+            $r=@(& git.exe ls-remote --exit-code $remote $pair[0])
+            if($LASTEXITCODE -ne 0 -or $r.Count -ne 1 -or ([string]$r[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ43_SOURCE_IDENTITY_DRIFT'}
+          }
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $out=Join-Path $scratch 'full.stdout'
+          $err=Join-Path $scratch 'full.stderr'
+          if(Test-Path $scratch){throw 'UQ43_PRIVATE_SCRATCH_EXISTS'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            # The accepted tests clone local Git source themselves. This
+            # isolated qualifier therefore requires a full (non-sparse) tree.
+            & git.exe clone --quiet --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ43_PR_CHECKOUT_DRIFT'}
+            $expected=@{
+              'tools/update-checkpoint.ps1'='76ae6839e144f883613b769b26ca3692480cf8d2';
+              'tools/project-dependency-graph.ps1'='639ed34d1ff5e2a872be60d8f400f43eaaf8b3da';
+              'tests/Test-ProjectDependencyGraph.ps1'='74a04c59bcbe43a35d8d30ec7182f166d98a844f';
+              'tools/source-inventory-import.ps1'='aa681e1f1f867b997c6b396fd4307d91c8e928d4';
+              'tests/Test-SourceInventoryImport.ps1'='f07decc0bfff44fd52bdb2c4b6ed24e48b1abc72'
+            }
+            foreach($f in $expected.Keys){
+              $blob=(& git.exe -C $root hash-object (Join-Path $root $f)|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne $expected[$f]){throw 'UQ43_CHANGED_BLOB_DRIFT'}
+            }
+            $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($file in $protected){$before[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash}
+            Write-Host 'UQ43_EXACT_FIVE_SOURCE_BLOBS=PASS'
+            Write-Host 'UQ43_REUSED_FOCUSED_PROOFS=UQ42:39087685620,UQ43:39110134816'
+            $tool=Join-Path $root 'tests/Test-All.ps1'
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            $p=Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$tool+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $clock.Stop()
+            $s=[IO.File]::ReadAllText($out)
+            $tests=@([regex]::Matches($s,'(?m)^RUN .+$'))
+            if($p.ExitCode -ne 0 -or $s -notmatch 'Mind-Palace regression suite passed'){
+              $details=[IO.File]::ReadAllText($err)
+              $tail=$details.Substring([Math]::Max(0,$details.Length-1250))
+              $last=if($tests.Count){$tests[-1].Value}else{'none'}
+              Write-Host ('UQ43_FULL_REGRESSION_STOP exit='+$p.ExitCode+' tests_started='+$tests.Count+' last='+$last+' stderr_tail='+$tail)
+              throw 'UQ43_FULL_REGRESSION_FAILED'
+            }
+            Write-Host ('UQ43_FULL_REGRESSION=PASS tests_started='+$tests.Count+' elapsed_seconds='+[int]$clock.Elapsed.TotalSeconds)
+            foreach($file in $protected){
+              $sha=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if($sha -cne $before[$file]){throw ('UQ43_PROTECTED_STATE_DRIFT_'+$file)}
+            }
+            Write-Host 'UQ43_NINE_PROTECTED_HASHES_STABLE=PASS'
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ43_UNCLEAN_SOURCE_TREE'}
+            if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head){throw 'UQ43_FINAL_HEAD_DRIFT'}
+            Write-Host 'UQ43_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ43_CODEX_AND_PAID_INFERENCE=0'
+          }finally{
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $scratch){throw 'UQ43_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ43_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
