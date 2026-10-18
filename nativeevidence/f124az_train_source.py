@@ -32,7 +32,7 @@ def frozen():
     d=json.loads(FREEZE.read_text(encoding="utf-8"))
     s=d["source"]
     need(d["schema"]=="forge.research.f124az.preimplementation-frozen-joint-public-gated-inverse.v1"
-         and d["status"]=="PREIMPLEMENTATION_FROZEN"
+         and d["status"]=="BEFORE_IMPLEMENTATION_BEFORE_NEW_TRAIN"
          and d["lineage"]["parent_AY_qualified_head"]==PARENT_SHA
          and s["TRAIN"]==[4700000,4700023] and s["DEV"]==[4700100,4700123]
          and s["operators_TRAIN"]==list(OPERATORS["TRAIN"])
