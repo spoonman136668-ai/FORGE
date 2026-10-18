@@ -1,0 +1,169 @@
+name: UQ59 Mind-Palace read-only guarded ingestion preflight
+
+on:
+  push:
+    branches:
+      - qualification/uq59-mind-palace-guarded-ingestion-preflight
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uq59-mind-palace-readonly-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: "1"
+    steps:
+      - name: Exact-source and admission plan with zero production writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ59_UNEXPECTED_RUNNER_OR_REPOSITORY'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $source = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main = 'e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $batchPath = 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          $batchBlob = 'ace25ffdafde95467ae4f8800b0266dfb316ddb9'
+          $policyBlob = '13e7dcaf71956d64631ba13e4f6df0f9ea9f287a'
+          $protected = @(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/chat-delta-state.json','.ice/remote-bootstrap.json',
+            '.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/project-state-capsules.json','.ice/project-dependency-graph.json'
+          )
+          $knownBlobs = @{
+            '.ice/records.json'='db129504ae08cda1fa3533c74f973c5e04b16714'
+            '.ice/source-ledger.json'='df9f5ae34895050969249721c724bfd40e6ac24b'
+            'archive/index.json'='4ce089b79bcc01659435ae67bc5498cf4608928a'
+            '.ice/chat-delta-state.json'='4dc6d258a9fd1e2cb38e5d69b05f5c51de1dd373'
+            '.ice/remote-bootstrap.json'='0d53def2269e244973e6656f99a9805c1c96b895'
+            '.ice/remote-catalog.json'='d2b7e557792033f774b50623c73fd6325d4376c1'
+            '.ice/remote-index.ndjson'='53199dce4073ef90717f1cf4ec2ecb909c5b79b2'
+            '.ice/project-state-capsules.json'='0e7e49a3650cbf63757b26c2bee78b6d25a6be20'
+            '.ice/project-dependency-graph.json'='da17aaf4a38388fcc9a5983ae7ed0edff4e93278'
+          }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mind-palace-uq59-' + $env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'source'
+          if (Test-Path -LiteralPath $scratch) { throw 'UQ59_PREEXISTING_TEMP_CUSTODY' }
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          function Git([string[]]$args) {
+            $text = (& git.exe @args 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw ('UQ59_GIT_ERROR ' + $text) }
+            return $text
+          }
+          function Hash([string]$p) { return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
+          function Child([string]$script, [string[]]$args, [bool]$success) {
+            $out = (& pwsh.exe -NoProfile -NonInteractive -File $script @args 2>&1 | Out-String).Trim()
+            $code = $LASTEXITCODE
+            if ($success -and $code -ne 0) { throw ('UQ59_EXPECTED_SUCCESS_FAILED ' + $out) }
+            if (-not $success -and $code -eq 0) { throw 'UQ59_UNAUTHORIZED_OPERATION_SUCCEEDED' }
+            return $out
+          }
+          try {
+            $remote = @(git.exe ls-remote --exit-code $source refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+                ([string]$remote[0] -split '\s+')[0] -cne $main) {
+              throw 'UQ59_REMOTE_SOURCE_MAIN_CHANGED'
+            }
+            Git @('clone','--quiet','--single-branch','--branch','main',$source,$root) | Out-Null
+            if ((Git @('-C',$root,'rev-parse','HEAD')) -cne $main -or
+                (Git @('-C',$root,'rev-parse',('HEAD:' + $batchPath))) -cne $batchBlob -or
+                (Git @('-C',$root,'rev-parse','HEAD:policies/repo-source-admission.json')) -cne $policyBlob) {
+              throw 'UQ59_FROZEN_MAIN_POLICY_OR_BATCH_CHANGED'
+            }
+            $before=@{}
+            foreach ($name in $protected) {
+              if ((Git @('-C',$root,'rev-parse',('HEAD:' + $name))) -cne $knownBlobs[$name]) {
+                throw ('UQ59_PROTECTED_GIT_BLOB_CHANGED '+$name)
+              }
+              $before[$name] = Hash (Join-Path $root $name)
+            }
+            $policy = [IO.File]::ReadAllText((Join-Path $root 'policies/repo-source-admission.json')) | ConvertFrom-Json
+            $batch = [IO.File]::ReadAllText((Join-Path $root $batchPath)) | ConvertFrom-Json
+            $manifest = [IO.File]::ReadAllText((Join-Path $root '.ice/manifest.json')) | ConvertFrom-Json
+            $bootstrap = [IO.File]::ReadAllText((Join-Path $root '.ice/bootstrap.json')) | ConvertFrom-Json
+            $refs = @($batch.sources | ForEach-Object { [string]$_.ref } | Sort-Object)
+            $expectedRefs = @($policy.source_refs | ForEach-Object { [string]$_ } | Sort-Object)
+            $ids = @($batch.candidates | ForEach-Object { [string]$_.kind + '/' + [string]$_.key } | Sort-Object)
+            $expectedIds = @($policy.expected_ids | ForEach-Object { [string]$_ } | Sort-Object)
+            if (-not [bool]$policy.enabled -or
+                [string]$policy.operator_approval -cne 'separately-authorized-exact-cohort' -or
+                [bool]$policy.bulk_repo_ingestion -or [bool]$policy.background_ingestion -or
+                [bool]$manifest.automatic_background_scanning_enabled -or
+                [bool]$bootstrap.automatic_background_scanning_enabled -or
+                [bool]$bootstrap.automatic_update_enabled -or
+                @($manifest.bulk_ingestion_scopes) -contains 'repo' -or
+                @($batch.sources).Count -ne 3 -or @($batch.candidates).Count -ne 3 -or
+                ($refs -join '|') -cne ($expectedRefs -join '|') -or
+                ($ids -join '|') -cne ($expectedIds -join '|')) {
+              throw 'UQ59_POLICY_OR_THREE_SOURCE_COHORT_DRIFT'
+            }
+            $records = @([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $ledger = [IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            if ($records.Count -ne 260 -or @($ledger.entries).Count -ne 101) {
+              throw 'UQ59_MEMORY_OR_LEDGER_BASELINE_CHANGED'
+            }
+            $existingIds = @($records | ForEach-Object { [string]$_.id })
+            foreach ($id in $expectedIds) {
+              if ($existingIds -ccontains $id) { throw ('UQ59_RECORD_ALREADY_EXISTS '+$id) }
+            }
+            Write-Host 'UQ59_FROZEN_SOURCE_AND_THREE_COHORT_IDS=PASS'
+            Write-Host 'UQ59_ENABLED_EXACT_POLICY_NO_BULK_BACKGROUND=PASS'
+            Write-Host 'UQ59_PROTECTED_NINE_BLOBS_AND_260_101_BASELINE=PASS'
+            $tool = Join-Path $root 'tools/repo-source-transaction.ps1'
+            $denied = Child $tool @('apply','-ExpectedMainSha',$main) $false
+            if ($denied -notmatch 'UQ51_EXPLICIT_REPOSITORY_SOURCE_ADMISSION_REQUIRED') {
+              throw 'UQ59_APPLY_WITHOUT_CONFIRMATION_NOT_DENIED'
+            }
+            $invalid = Child $tool @('plan','-ExpectedMainSha',$main,'-ConfirmRepoApply') $false
+            if ($invalid -notmatch 'UQ51_PLAN_MUST_NOT_REQUEST_COMMIT') {
+              throw 'UQ59_PLAN_WITH_CONFIRMATION_NOT_DENIED'
+            }
+            Write-Host 'UQ59_EXPLICIT_CONFIRMATION_GUARD_ENFORCED=PASS'
+            $planText = Child $tool @('plan','-ExpectedMainSha',$main) $true
+            $plan = $planText | ConvertFrom-Json
+            if ([string]$plan.schema -cne 'mind-palace.repo-source-transaction.v1' -or
+                [string]$plan.command -cne 'plan' -or
+                [string]$plan.status -cne 'ready_for_explicit_apply' -or
+                [string]$plan.source_main_sha -cne $main -or
+                [int]$plan.new_records -ne 3 -or [int]$plan.ledger_entries -ne 3 -or
+                [int]$plan.retired_records -ne 0 -or [int]$plan.production_memory_writes -ne 0 -or
+                [bool]$plan.git_commit_required) {
+              throw 'UQ59_READ_ONLY_PLAN_INVALID'
+            }
+            Write-Host 'UQ59_GUARDED_READ_ONLY_PLAN_THREE_NEW=PASS'
+            foreach ($name in $protected) {
+              if ((Hash (Join-Path $root $name)) -cne $before[$name]) {
+                throw ('UQ59_READ_ONLY_PLAN_TOUCHED_PROTECTED_FILE '+$name)
+              }
+            }
+            $dirty = @(git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
+              throw ('UQ59_SOURCE_NOT_CLEAN ' + ($dirty -join ';'))
+            }
+            $stranded = @(Get-ChildItem -LiteralPath (Join-Path $root '.mind-runtime') -Directory -Filter 'uq51-repo-transaction-*')
+            if ($stranded.Count -ne 0) { throw 'UQ59_STRANDED_TRANSACTION_LEFT_AFTER_PLAN' }
+            $remoteAfter = @(git.exe ls-remote --exit-code $source refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remoteAfter.Count -ne 1 -or
+                ([string]$remoteAfter[0] -split '\s+')[0] -cne $main) {
+              throw 'UQ59_REMOTE_MAIN_CHANGED_DURING_PREFLIGHT'
+            }
+            Write-Host 'UQ59_NINE_PROTECTED_HASHES_CLEAN_TREE_AND_NO_STRANDED_CUSTODY=PASS'
+            Write-Host 'UQ59_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ59_NO_CODEX_NO_PUSH_NO_REAL_CHECKPOINT=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+            if (Test-Path -LiteralPath $scratch) { throw 'UQ59_TEMP_CUSTODY_NOT_CLEAN' }
+            Write-Host 'UQ59_ISOLATED_CLONE_CLEANUP=PASS'
+          }
