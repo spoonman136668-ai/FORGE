@@ -1,0 +1,187 @@
+name: UQ48 isolated source-backed Mind-Palace ingestion qualification
+
+on:
+  push:
+    branches:
+      - qualification/uq48-mind-palace-ingestion-6debd152
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mind-palace-uq48-source-only-6debd152
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: '1'
+    steps:
+      - name: Verify frozen source, classify only, execute isolated Windows regressions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ48_WRONG_RUNNER_OR_REPO'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $mainSha = 'cea23b65c3e0d6a3c886d55eef4799f3328330fa'
+          $prHead = '6debd15278da2ec69ceb616cbc1c6d688a647dc7'
+          $prBranch = 'engineering/uq41-selected-source-ingestion'
+          $pilot = 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          $pilotBlob = 'ace25ffdafde95467ae4f8800b0266dfb316ddb9'
+          $scratch = Join-Path (Join-Path $env:RUNNER_TEMP 'mind-palace-uq48-qualification') ('run-' + $env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'repo'
+          if (Test-Path -LiteralPath $scratch) { throw 'UQ48_SCRATCH_PREEXISTING' }
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $remoteMain = @(git.exe ls-remote --exit-code $remote refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remoteMain.Count -ne 1 -or ([string]$remoteMain[0] -split '\s+')[0] -cne $mainSha) {
+              throw 'UQ48_MAIN_IDENTITY_MOVED'
+            }
+            git.exe clone --quiet --single-branch --branch main $remote $root
+            if ($LASTEXITCODE -ne 0 -or ((git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $mainSha) {
+              throw 'UQ48_MAIN_CLONE_DRIFT'
+            }
+            # Read-only fetch of PR #65's exact head; no branch or production mutation.
+            git.exe -C $root fetch --quiet --no-tags origin $prHead
+            if ($LASTEXITCODE -ne 0 -or ((git.exe -C $root rev-parse FETCH_HEAD | Out-String).Trim()) -cne $prHead) {
+              throw 'UQ48_PR65_PINNED_FETCH_FAILED'
+            }
+            git.exe -C $root switch --quiet -c uq48-isolated-qualification
+            if ($LASTEXITCODE -ne 0) { throw 'UQ48_LOCAL_BRANCH_FAILED' }
+            git.exe -C $root -c user.name='UQ48 Isolated Qualification' -c user.email='uq48-fixture@test.invalid' -c commit.gpgsign=false merge --no-ff --no-edit FETCH_HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'UQ48_SYNTHETIC_INTEGRATION_FAILED' }
+            $parents = @((git.exe -C $root rev-list --parents -n 1 HEAD | Out-String).Trim() -split '\s+')
+            if ($parents.Count -ne 3 -or $parents[1] -cne $mainSha -or $parents[2] -cne $prHead) {
+              throw 'UQ48_SYNTHETIC_PARENT_DRIFT'
+            }
+            $changed = @(git.exe -C $root diff --name-only $mainSha HEAD)
+            if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or [string]$changed[0] -cne $pilot) {
+              throw ('UQ48_UNEXPECTED_CHANGE_SCOPE_' + ($changed -join ';'))
+            }
+            if (((git.exe -C $root rev-parse ('HEAD:' + $pilot) | Out-String).Trim()) -cne $pilotBlob) {
+              throw 'UQ48_BATCH_BLOB_DRIFT'
+            }
+            $protected = @(
+              '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+              '.ice/chat-delta-state.json', '.ice/remote-bootstrap.json',
+              '.ice/remote-catalog.json', '.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json', '.ice/project-dependency-graph.json'
+            )
+            $before = @{}
+            foreach ($file in $protected) {
+              $a = (git.exe -C $root rev-parse ($mainSha + ':' + $file) | Out-String).Trim()
+              $b = (git.exe -C $root rev-parse ('HEAD:' + $file) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $a -cne $b) { throw ('UQ48_PROTECTED_BLOB_DRIFT_' + $file) }
+              $before[$file] = (Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+            }
+            Write-Host 'UQ48_SOURCE_PROVENANCE_SCOPE_AND_NINE_PROTECTED_BLOBS=PASS'
+            $batch = [IO.File]::ReadAllText((Join-Path $root $pilot)) | ConvertFrom-Json
+            $expectedRefs = @(
+              'https://github.com/spoonman136668-ai/FORGE/commit/e3f73d1827a17d9d8be88db50a8620e781f1d82a',
+              'https://github.com/spoonman136668-ai/Wingless/commit/b87899b50d2c1558e26d74a1921623786fde1282',
+              'https://github.com/spoonman136668-ai/Yggdrasil/commit/47e85282171dd9b264c7c03ac310adeaf2c07362'
+            )
+            $expectedIds = @(
+              'project_state/forge-guarded-mind-palace-polling-merged-20261017',
+              'project_state/wingless-codex-free-executor-boundary-20261016',
+              'project_state/yggdrasil-codex-free-executor-boundary-20261016'
+            )
+            $sources = @($batch.sources | ForEach-Object { [string]$_.ref } | Sort-Object)
+            $refsExpected = @($expectedRefs | Sort-Object)
+            $ids = @($batch.candidates | ForEach-Object { ([string]$_.kind + '/' + [string]$_.key) } | Sort-Object)
+            $idsExpected = @($expectedIds | Sort-Object)
+            if ([string]$batch.collector.source_kind -cne 'repo' -or $batch.sources.Count -ne 3 -or $batch.candidates.Count -ne 3 -or
+                ($sources -join '|') -cne ($refsExpected -join '|') -or ($ids -join '|') -cne ($idsExpected -join '|')) {
+              throw 'UQ48_CANDIDATE_ID_OR_SOURCE_PROVENANCE_DRIFT'
+            }
+            foreach ($candidate in @($batch.candidates)) {
+              if ([string]$candidate.disposition_hint -cne 'auto' -or @($candidate.supersedes).Count -ne 0 -or
+                  @($candidate.source_refs).Count -ne 1 -or @($candidate.source_refs)[0].ref -notin $expectedRefs) {
+                throw 'UQ48_UNAUTHORIZED_SUPERSESSION_OR_SOURCE'
+              }
+            }
+            Write-Host 'UQ48_EXACT_THREE_REPO_SOURCES_AND_ZERO_SUPERSESSIONS=PASS'
+            $collector = Join-Path $root 'tools/collect.ps1'
+            $inputFile = Join-Path $root $pilot
+            Push-Location $root
+            try {
+              $validRaw = (& $collector validate -InputPath $inputFile | Out-String).Trim()
+              $valid = $validRaw | ConvertFrom-Json
+              if ($valid.schema -cne 'mind-palace.collector-result.v1' -or $valid.candidate_count -ne 3 -or
+                  $valid.source_count -ne 3 -or $valid.primary_source_count -ne 3 -or -not [bool]$valid.result.valid) {
+                throw 'UQ48_COLLECTOR_VALIDATE_NOT_PASS'
+              }
+              Write-Host 'UQ48_COLLECTOR_VALIDATE=PASS sources=3 candidates=3'
+              $classRaw = (& $collector classify -InputPath $inputFile | Out-String).Trim()
+              $classification = $classRaw | ConvertFrom-Json
+              $rows = @($classification.result.results)
+              $c = $classification.result.counts
+              if ($classification.schema -cne 'mind-palace.collector-result.v1' -or $rows.Count -ne 3 -or
+                  [int]$c.new -ne 3 -or [int]$c.review -ne 0 -or [int]$c.merge -ne 0 -or
+                  [int]$c.supersede -ne 0 -or [int]$c.archive -ne 0 -or [int]$c.ignore -ne 0 -or
+                  [int]$classification.project_discovery.review -ne 0) {
+                $actions = @($rows | ForEach-Object { [string]$_.candidate_id + ':' + [string]$_.action }) -join '|'
+                throw ('UQ48_CLASSIFY_NOT_CLEAN new=' + $c.new + ' review=' + $c.review + ' actions=' + $actions)
+              }
+              foreach ($row in $rows) {
+                if ([string]$row.action -cne 'new' -or [string]$row.candidate_id -notin $expectedIds) {
+                  throw ('UQ48_UNEXPECTED_CLASSIFICATION_' + [string]$row.candidate_id)
+                }
+              }
+              Write-Host 'UQ48_CLASSIFY=PASS new=3 review=0 supersede=0 merge=0'
+            } finally { Pop-Location }
+            $focused = @(
+              'Test-CollectorBatch.ps1', 'Test-IngestClassification.ps1',
+              'Test-RepoSourceDiscovery.ps1', 'Test-SourceLedger.ps1'
+            )
+            foreach ($name in $focused) {
+              $out = Join-Path $scratch ($name + '.out')
+              $err = Join-Path $scratch ($name + '.err')
+              $test = Join-Path (Join-Path $root 'tests') $name
+              $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"' + $test + '"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+              if ($proc.ExitCode -ne 0) {
+                $body = [IO.File]::ReadAllText($err)
+                throw ('UQ48_FOCUSED_FAILED_' + $name + ' ' + $body.Substring([Math]::Max(0,$body.Length-700)))
+              }
+              Write-Host ('UQ48_FOCUSED=PASS ' + $name)
+            }
+            $out = Join-Path $scratch 'full.out'
+            $err = Join-Path $scratch 'full.err'
+            $full = Join-Path (Join-Path $root 'tests') 'Test-All.ps1'
+            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"' + $full + '"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $body = [IO.File]::ReadAllText($out)
+            $count = @([regex]::Matches($body,'(?m)^RUN .+$')).Count
+            if ($proc.ExitCode -ne 0 -or $body -notmatch 'Mind-Palace regression suite passed' -or $count -ne 64) {
+              $errors = [IO.File]::ReadAllText($err)
+              $last = @([regex]::Matches($body,'(?m)^RUN .+$'))
+              $end = if ($last.Count -gt 0) { $last[-1].Value } else { 'none' }
+              throw ('UQ48_FULL_REGRESSION_FAIL tests=' + $count + ' last=' + $end + ' err_tail=' + $errors.Substring([Math]::Max(0,$errors.Length-800)))
+            }
+            Write-Host ('UQ48_FULL_REGRESSION=PASS tests=' + $count)
+            foreach ($file in $protected) {
+              $hash = (Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if ($hash -cne $before[$file]) { throw ('UQ48_PROTECTED_FILES_MODIFIED_' + $file) }
+            }
+            if (((git.exe -C $root rev-list --parents -n1 HEAD | Out-String).Trim() -split '\s+')[2] -cne $prHead) {
+              throw 'UQ48_COMBINED_HEAD_DRIFT'
+            }
+            $dirty = @(git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw ('UQ48_WORKTREE_DIRTY_' + ($dirty -join ';')) }
+            Write-Host 'UQ48_PROTECTED_NINE_HASHES_AND_CLEAN_TREE=PASS'
+            Write-Host 'UQ48_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ48_NO_STAGE_NO_MERGE_NO_CODEX=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+            if (Test-Path -LiteralPath $scratch) { throw 'UQ48_SCRATCH_CLEANUP_FAILED' }
+            Write-Host 'UQ48_SCRATCH_CLEAN=PASS'
+          }
