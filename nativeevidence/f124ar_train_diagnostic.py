@@ -188,7 +188,7 @@ def wing_diagnostic(rows,base,delta):
     total=wtally()
     byfam={f:wtally() for f in source.FAMILIES}
     byop={"affine":wtally(),"feistel":wtally()}
-    bydepth={str(d):wtally() for d in (13,14,15)}
+    bydepth={str(d):wtally() for d in (7,8,9,13,14,15)}
     pairs=[]
     extra_ops=0
     for seed,vec,fam,op,nonce,pos,neg in rows:
@@ -203,7 +203,7 @@ def wing_diagnostic(rows,base,delta):
         pb,nb=(x[0]>=0 for x in original_values)
         pp,np=(x[0]>=0 for x in new_values)
         depth=len(restored_p["roles"])
-        need(depth in (13,14,15),"ORIGINAL_DEPTH")
+        need(depth in (7,8,9,13,14,15),"ORIGINAL_FROZEN_DEPTH")
         is_long=depth>=13
         for dest in (total,byfam[fam],
                      byop["affine" if op.startswith("affine_") else "feistel"],
@@ -223,14 +223,16 @@ def wing_diagnostic(rows,base,delta):
                       "negative_original_score":original_values[1][0],
                       "positive_candidate_score":new_values[0][0],
                       "negative_candidate_score":new_values[1][0],
+                      "baseline_positive_accepted":bool(pb),
+                      "candidate_positive_accepted":bool(pp),
                       "baseline_long_positive_accepted":bool(pb and is_long),
                       "candidate_long_positive_accepted":bool(pp and is_long),
                       "baseline_negative_FP":bool(nb),
                       "candidate_negative_FP":bool(np)})
     # No use of consumed AQ DEV outcomes for tuning/selection here.
     aggregate_baseline_fp=sum(int(row["baseline_negative_FP"]) for row in pairs)
-    aggregate_baseline_fn=sum(int(not row["baseline_long_positive_accepted"]) for row in pairs)
-    baseline_paired=sum(int(row["baseline_long_positive_accepted"] and
+    aggregate_baseline_fn=sum(int(not row["baseline_positive_accepted"]) for row in pairs)
+    baseline_paired=sum(int(row["baseline_positive_accepted"] and
                             not row["baseline_negative_FP"]) for row in pairs)
     robust=(total["FP"]<aggregate_baseline_fp and
             total["paired"]>=baseline_paired and
