@@ -1,0 +1,221 @@
+name: F124-V real memory timing and independent causal cell survival
+on:
+  push:
+    branches: [research/f124v-measured-memory-causal-survival-20261017]
+    paths:
+      - 'reference/research-intake/f124v-*.json'
+      - 'nativeevidence/f124v_*.py'
+      - 'nativeevidence/test_f124v_*.py'
+      - '.github/workflows/forge-f124v-measured-memory-causal-survival.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124v-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  independent-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check independent preimplementation freezes, real OS provider and exact unchanged model
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124V_EXACT_HEAD_SOURCE_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124v_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124V_SOURCE_OR_TRACE_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124u_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124V_PARENT_U_CHANGED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124V_ISOLATION_FAILED' }
+          Write-Output 'F124V_NO_PROTECTED_FIRST_USE=true'
+
+  measured-wingless-same-host:
+    needs: independent-source-focused
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: original-s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: original-u
+      - name: Run all five controls four cold processes each on same exact runner host, capture peak RSS and wall ns
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONHASHSEED='0'
+          $o='original-o/f124o-independent-two-learned-development.json'
+          $s='original-s/f124s-fresh-packed-key-cell-credit-development.json'
+          $u='original-u/f124u-bounded-index-fresh-causal-rank-development.json'
+          $out=Join-Path $env:RUNNER_TEMP "f124v-wing-${{ matrix.os }}.json"
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          & $py -B nativeevidence/f124v_wingless_hardware.py --bench --original-o $o --original-s $s --original-u $u --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124VW_COLD_HARDWARE_BENCH_FAILED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124v.wingless-hardware-measurement.v1' -or
+              $r.repetitions_per_arm -ne 4 -or $r.graphs_each_run -ne 96 -or
+              $r.raw_repetitions.Count -ne 20 -or
+              -not $r.sequential_one_runner_true -or
+              -not $r.fresh_process_each_repetition -or
+              $r.compute_matched_scientific_superiority_proven -or
+              $r.total_memory_equal_proven -or
+              $r.equal_information_capacity_proven -or
+              $r.benchmark_arms.S_packed.prediction_sha256 -cne
+                $r.benchmark_arms.U_microindex.prediction_sha256) {
+            throw 'F124VW_UNGROUNDED_HARDWARE_CUSTODY'
+          }
+          Write-Output "F124VW_${{ matrix.os }}_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124v-wingless-real-memory-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124v-wing-${{ matrix.os }}.json
+            ${{ runner.temp }}/f124v_*.json
+          retention-days: 90
+          if-no-files-found: error
+
+  yggdrasil-cell-causal-loss:
+    needs: independent-source-focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: original-r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: original-s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: original-u
+      - name: Bit-exact original O/R/S/U per-hop causal-prefix and retention/eviction diagnosis, no retraining
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124v-ygg-causal-prefix-survival.json'
+          & python3 -B nativeevidence/f124v_yggdrasil_causal_trace.py --original-o original-o/f124o-independent-two-learned-development.json --original-r original-r/f124r-fresh-calibrated-continuous-development.json --original-s original-s/f124s-fresh-packed-key-cell-credit-development.json --original-u original-u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124VY_BIT_EXACT_CAUSAL_TRACE_QUARANTINED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124v.yggdrasil-causal-survival-observation.v1' -or
+              $r.model_weights_fit_only_unchanged -ne $true -or
+              $r.new_training_steps -ne 0 -or
+              $r.protected_original_first_use -or
+              $r.independent_scientific_confirmation -or
+              $r.scientific_acceptances -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or
+              @($r.dev.PSObject.Properties).Count -ne 4 -or
+              @($r.fit.PSObject.Properties).Count -ne 4) {
+            throw 'F124VY_CAUSAL_TRACE_CUSTODY_DRIFT'
+          }
+          foreach ($arm in $r.dev.PSObject.Properties) {
+            if ($arm.Value.pairs -ne 48 -or $arm.Value.cases.Count -ne 48 -or
+                $arm.Value.per_depth.'7'.pairs -ne 16 -or
+                $arm.Value.per_depth.'8'.pairs -ne 16 -or
+                $arm.Value.per_depth.'9'.pairs -ne 16) {
+              throw 'F124VY_NO_FULL_HOP_DENOMINATOR'
+            }
+          }
+          Write-Output "F124VY_EVIDENCE_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124v-yggdrasil-causal-survival-${{ github.sha }}
+          path: ${{ runner.temp }}/f124v-ygg-causal-prefix-survival.json
+          retention-days: 90
+          if-no-files-found: error
+
+  final-full-regression:
+    needs: [measured-wingless-same-host, yggdrasil-cell-causal-loss]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one full Go test race vet build and FORGE isolation check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124V_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124V_PROTECTED_FIRST_USE=false'
