@@ -1,0 +1,45 @@
+name: FORGE F138 custody source qualification
+
+# Source-only, PR-only. No schedule, dispatch, mutation or scientific authority.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'nativeevidence/f138_custody.py'
+      - 'nativeevidence/test_f138_custody.py'
+      - 'reference/research-intake/f138-custody-20261018-1144.json'
+      - '.github/workflows/forge-f138-custody-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-f138-custody-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify immutable provider witness and fail-closed source custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f138_custody.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F138_CUSTODY_TEST_FAILURE' }
+          python -B nativeevidence/f138_custody.py
+          if ($LASTEXITCODE -ne 0) { throw 'F138_CUSTODY_RECONSTRUCTION_FAILED' }
+          Write-Host 'F138_CUSTODY_SOURCE_BYTES=VERIFIED'
+          Write-Host 'F138_PROTECTED_SCIENCE_EXECUTION=ZERO'
+          Write-Host 'F138_COMPLETE_DURABLE_PROVIDER_SNAPSHOT=NOT_YET_RETAINED'
