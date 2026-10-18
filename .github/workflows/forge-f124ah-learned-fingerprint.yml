@@ -1,0 +1,229 @@
+name: F124-AH fresh trainable scalar fingerprint vs fixed consistency
+on:
+  push:
+    branches: [research/f124ah-trainable-noise-fingerprint-20261018]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: f124ah-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  new-source-two-OS:
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: New disjoint noisy FIT DEV source and 7 plus 9 field/weights authenticity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AH_EXACT_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ah_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AH_SOURCE_OR_TRAINING_BOUNDARY_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AH_ORIGINAL_FORGE_ISOLATION_FAILED' }
+          Write-Output 'F124AH_PROTECTED_FIRST_USE=false'
+  FIT-only-train:
+    needs: new-source-two-OS
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Deterministic genuine FIT-only SGD then choose zero FP threshold before separate DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ah_learned_fingerprint.py --output "$RUNNER_TEMP/f124ah-trained.json"
+          python3 - "$RUNNER_TEMP/f124ah-trained.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.research.f124ah.fit-supervised-scalar-fingerprint.v1"
+          assert x["freeze_blob"]=="5e63d2b8f79e790e0fdd11690845f973a8edef92"
+          assert x["trained"]["epochs"]==100 and x["trained"]["FIT_samples"]==288
+          assert x["trained"]["weight_delta_l2"]>0
+          assert x["trained"]["parameter_count"]==17
+          assert x["additional_persistent_fields"]==0
+          assert x["no_DEV_parameter_selection"]
+          assert not x["protected_first_use"] and not x["science_accepted"]
+          for family in ("adjacent_noise","delayed_noise","reused_role_noise"):
+              for key in ("DEV","untrained_DEV"):
+                  z=x[key][family]
+                  assert z["pairs"]==48 and len(z["cases"])==48
+                  assert all(y["pairs"]==16 for y in z["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ah-trained.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ah-fit-frozen-learned-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ah-trained.json
+          retention-days: 90
+          if-no-files-found: error
+  authentic-comparison:
+    needs: FIT-only-train
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124ah-fit-frozen-learned-${{ github.sha }}
+          path: trained
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Authentic O U FIT receipts vs trained fingerprint untrained and successful fixed controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ah_comparison.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --trained-receipt trained/f124ah-trained.json --output "$RUNNER_TEMP/f124ah-comparison.json"
+          python3 - "$RUNNER_TEMP/f124ah-comparison.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.research.f124ah.authentic-learned-vs-fixed-noise.v1"
+          assert x["freeze_blob"]=="5e63d2b8f79e790e0fdd11690845f973a8edef92"
+          assert x["parameters_fit_only"] and x["original_max_persistent_cells"]==16
+          assert not x["independent_science_accepted"] and not x["protected_first_use"]
+          for phase in ("FIT","DEV"):
+              for family in ("adjacent_noise","delayed_noise","reused_role_noise"):
+                  for arm,z in x[phase][family]["arms"].items():
+                      assert z["pairs"]==48 and len(z["cases"])==48
+                      assert all(d["pairs"]==16 for d in z["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ah-comparison.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ah-authentic-comparison-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ah-comparison.json
+          retention-days: 90
+          if-no-files-found: error
+  real-resource-seven-arms:
+    needs: FIT-only-train
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124ah-fit-frozen-learned-${{ github.sha }}
+          path: trained
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: FIT-frozen codebook, exact 96-source seven-arm three-process peak RSS CPU wall comparisons
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124ah-resources-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124ah_physical.py --bench --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --trained-receipt trained/f124ah-trained.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AH_PHYSICAL_COST_QUARANTINE' }
+          $v=Get-Content $out -Raw | ConvertFrom-Json
+          if ($v.schema -cne 'forge.research.f124ah.cross-platform-seven-arm-real-cost.v1' -or
+              $v.freeze_blob -cne '5e63d2b8f79e790e0fdd11690845f973a8edef92' -or
+              $v.raw.Count -ne 21 -or $v.persistent_cell_upper_bound -ne 16 -or
+              $v.protected_first_use -or $v.science_accepted) { throw 'F124AH_PHYSICAL_IDENTITY_FAIL' }
+          foreach ($arm in @('O_original','O_combined','U_original','U_combined','untrained_fp','trained_fp','fixed_consistency16')) {
+            $s=$v.summary.$arm
+            if ($s.repetitions -ne 3 -or $s.median_wall_ns -le 0 -or
+                $s.median_process_RSS_bytes -le 0 -or $s.median_cpu_ns -le 0) {
+              throw 'F124AH_INCOMPLETE_PROCESS_MEASUREMENT'
+            }
+            Write-Output "F124AH_COST_$($arm):rss=$($s.median_process_RSS_bytes):wall=$($s.median_wall_ns):cpu=$($s.median_cpu_ns):heap=$($s.median_Python_peak_bytes)"
+          }
+          Write-Output "F124AH_RESOURCE_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ah-physical-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ah-resources-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+  one-full-original-regression:
+    needs: [authentic-comparison, real-resource-seven-arms]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env: {GOMAXPROCS: '2', GOFLAGS: '-p=2', GOMEMLIMIT: '1536MiB'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Exactly one original Go test race vet build and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AH_EXACT_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124AH_PROTECTED_FIRST_USE=false'
