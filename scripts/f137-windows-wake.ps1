@@ -71,7 +71,10 @@ try {
         }
     }
 
-    $seconds = (420 - ($now.Minute * 60 + $now.Second) + 600) % 600
+    # PowerShell's % preserves a negative dividend. Normalize to the current
+    # ten-minute interval before computing the next :07/:17/... slot.
+    $secondsIntoInterval = (($now.Minute % 10) * 60) + $now.Second
+    $seconds = (420 - $secondsIntoInterval + 600) % 600
     if ($seconds -le 120) { $reasons.Add('FALLBACK_SLOT_IMMINENT') }
 
     # No config/no credential means monitoring only. Never silently switch
