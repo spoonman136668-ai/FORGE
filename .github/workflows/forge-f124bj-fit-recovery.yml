@@ -1,0 +1,204 @@
+name: F124-BJ post-first-use recovery (FIT-only, no TRAIN replay)
+on:
+  push:
+    branches: [research/f124bj-postfirstuse-fit-recovery-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bj-no-train-replay-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  provider-firstuse-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exactly bounded post-first-use source delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 26d3fa51f629584ad01fc1dfa7be8ffae524e938 HEAD
+          mapfile -t changed < <(git diff --name-only 26d3fa51f629584ad01fc1dfa7be8ffae524e938 HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = .github/workflows/forge-f124bj-fit-recovery.yml
+          test "${changed[1]}" = research/north-star-transfer/f124bj_train_measure.py
+          git diff --unified=0 26d3fa51f629584ad01fc1dfa7be8ffae524e938 -- research/north-star-transfer/f124bj_train_measure.py > "$RUNNER_TEMP/repair.diff"
+          python3 -B - "$RUNNER_TEMP/repair.diff" <<'PY'
+          import sys
+          d=open(sys.argv[1]).read()
+          adds=[line for line in d.splitlines() if line.startswith('+') and not line.startswith('+++')]
+          deletes=[line for line in d.splitlines() if line.startswith('-') and not line.startswith('---')]
+          assert adds == ['+    import resource'],(adds,deletes)
+          assert deletes == [],(adds,deletes)
+          print('F124BJ_POSTFIRSTUSE_FIX_ONE_IMPORT=PASS')
+          PY
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124bj_before_firstuse.py -v
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124bi_readiness.py -v
+          python3 -B isolationguard/check.py
+      - name: Authenticate original GitHub first-use job and its failure separation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bj-recovery"
+          mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39177381354" > "$root/original-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/117822869967" > "$root/original-firstuse-job.json"
+          python3 -B - "$root" <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path(sys.argv[1])
+          run=json.loads((p/'original-run.json').read_text())
+          job=json.loads((p/'original-firstuse-job.json').read_text())
+          assert run['head_sha']=='26d3fa51f629584ad01fc1dfa7be8ffae524e938'
+          assert run['status']=='completed' and run['conclusion']=='failure'
+          assert job['run_id']==39177381354 and job['conclusion']=='failure'
+          steps={s['name']:s['conclusion'] for s in job['steps']}
+          assert steps['Use exactly 192 new public TRAIN sources once and measure actual metatraining']=='success'
+          assert steps['Compare identical negative public task pairs with frozen prior and AZ control']=='failure'
+          witness={
+            'schema':'mass.f124bj.original-train-run-observation-and-recovery.v1',
+            'original_head':run['head_sha'],'provider_run_id':39177381354,
+            'original_firstuse_job_id':117822869967,
+            'TRAIN_source_generation_and_original_training_step':'success',
+            'downstream_fit_comparison_step':'failure',
+            'original_stdout_train_CPU_ns':601013140,
+            'original_stdout_train_peak_RSS_bytes':20140032,
+            'original_stdout_training_forward_evals':500736,
+            'original_stdout_receipt_sha256':'aa16e07d04a8702fd840395df52017b508cc3bf7f920e8bea261077b22f6cd3c',
+            'original_failure_trace_prior_hex':'5a00cd00',
+            'original_receipt_contents_not_published':True,
+            'registered_TRAIN_status':'CONSUMED_192_DO_NOT_RETRAIN',
+            'original_training_custody_complete':False,
+            'holdout_U_R_consumed':False,
+            'scientific_acceptance':False}
+          (p/'original-firstuse-observation.json').write_text(
+              json.dumps(witness,indent=2,sort_keys=True)+'\n')
+          print('F124BJ_ORIGINAL_PROVIDER_TRAIN_FIRST_USE=PASS')
+          print('F124BJ_ORIGINAL_RECEIPT_NOT_DURABLY_PUBLISHED=true')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bj-original-consumed-run-provider-witness-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bj-recovery/
+          retention-days: 90
+          if-no-files-found: error
+  negative-fixture-fit-recovery:
+    needs: provider-firstuse-evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Recover only negative-fixture prior and baseline FIT resource accounting
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124bj-recovery"
+          mkdir -p "$root"
+          python3 -B - "$root/negative-fit-only.json" <<'PY'
+          import hashlib,json,subprocess,sys,pathlib
+          dst=pathlib.Path(sys.argv[1])
+          models={}
+          for fixture in ('U','R'):
+              arms={}
+              for arm in ('prior_kernel','AZ'):
+                  p=subprocess.run(
+                    [sys.executable,'-B',
+                     'research/north-star-transfer/f124bj_train_measure.py',
+                     '--mode','FIT','--arm',arm,'--tag',fixture,
+                     '--prior-hex','5a00cd00'],
+                    capture_output=True,text=True,timeout=180)
+                  if p.returncode:
+                      raise RuntimeError('BJ_NEGATIVE_FIT_'+arm+'_'+fixture+':'+p.stderr[-4000:])
+                  r=json.loads(p.stdout)
+                  assert r['public_n']==48 and r['scientific_source'] is False
+                  assert r['complete_native_graph_CPU_ns'] is None
+                  assert r['complete_cognition_state_memory'] is None
+                  assert r['resource_parity'] is False
+                  assert r['child_CPU_ns']>0 and r['child_peak_process_RSS_bytes']>0
+                  arms[arm]=r
+              assert arms['AZ']['public_sha256']==arms['prior_kernel']['public_sha256']
+              models[fixture]=arms
+          out={
+              'schema':'mass.f124bj.no-train-replay-negative-fitting.v1',
+              'source_head':'26d3fa51f629584ad01fc1dfa7be8ffae524e938',
+              'original_training_first_use_192_already_consumed':True,
+              'original_prior_from_failure_trace':'5a00cd00',
+              'training_repeated':False,
+              'same_public_negative_fixture_FIT':models,
+              'measured_original_train_CPU_ns':601013140,
+              'amortized_original_train_CPU_ns_per_128_ceil':(601013140+127)//128,
+              'complete_native_graph_CPU_ns':None,
+              'complete_cognition_memory':None,
+              'whole_task_resource_parity_qualified':False,
+              'external_source_scientific_admission':False,
+              'U_R_cases_generated':0,
+              'optimizer_promotion':False
+          }
+          dst.write_text(json.dumps(out,sort_keys=True,indent=2)+'\n')
+          print('F124BJ_NO_TRAIN_REPLAY=PASS')
+          print('F124BJ_NEGATIVE_FIT_RESOURCE_RECOVERY=PASS')
+          print('F124BJ_SCIENTIFIC_ADMISSION=false')
+          PY
+          sha256sum "$root/negative-fit-only.json" > "$root/negative-fit.sha256"
+          (cd "$root" && sha256sum --check negative-fit.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bj-negative-fit-recovered-no-training-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bj-recovery/
+          retention-days: 90
+          if-no-files-found: error
+  full-final-regression:
+    needs: [provider-firstuse-evidence,negative-fixture-fit-recovery]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete regression, vet and build on immutable recovered source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bj-recovery"
+          sha256sum research/north-star-transfer/f124bj_train_measure.py \
+            .github/workflows/forge-f124bj-fit-recovery.yml \
+            > "$RUNNER_TEMP/f124bj-recovery/source-sha256.txt"
+          printf 'EXACT_HEAD=%s\nORIGINAL_TRAIN_CONSUMED_ONCE=true\nTRAIN_REPLAY=false\nFULL_NATIVE_RESOURCE_PARITY=false\nORIGINAL_FIRSTUSE_RECEIPT_NOT_PUBLISHED=true\nU_R_HOLDOUT_CONSUMED=false\nSCIENCE_ACCEPTANCE=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bj-recovery/disposition.txt"
+          echo F124BJ_RECOVERY_FINAL_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bj-no-train-replay-integration-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bj-recovery/
+          retention-days: 90
+          if-no-files-found: error

@@ -137,6 +137,7 @@ def task_fit(arm, tag, prior_hex):
     need(arm in ("AZ", "prior_kernel") and tag in ("U", "R"),
          "FIT_SCOPE_DENIED")
     need(sys.platform == "linux", "LINUX_PROCESS_RESOURCES")
+    import resource
     need(file_blob(NATIVE / "f124az_joint_public_inverse.py") == AZ_BLOB
          and file_blob(HERE / "20261018-mass-learned-kernel.py") == KERNEL_BLOB,
          "MODEL_SOURCE_DRIFT")
