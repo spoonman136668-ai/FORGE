@@ -1,0 +1,49 @@
+name: F124-BF source-frozen graded public margin nonconsuming preflight
+on:
+  push:
+    branches: [research/f124bf-public-causal-margin-20261018]
+    paths:
+      - '.github/workflows/forge-f124bf-focused.yml'
+      - 'nativeevidence/f124bf_*.py'
+      - 'nativeevidence/test_f124bf_*.py'
+      - 'reference/research-intake/f124bf-frozen-contextual-counterfactual.json'
+permissions:
+  contents: read
+concurrency:
+  group: f124bf-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-before-first-use:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify freeze-before-code source identities and public-only synthetic four-hard test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){ throw 'F124BF_SOURCE_HEAD_DRIFT' }
+          $p='reference/research-intake/f124bf-frozen-contextual-counterfactual.json'
+          if((git hash-object $p).Trim() -cne '09dda1c17b340326baa05ded6fb097ea06c5e0af'){ throw 'F124BF_FREEZE_GIT_BLOB_DRIFT' }
+          if((git log -1 --format=%H -- $p).Trim() -cne '36e6802e6fd7a97d228bb3613fe24b4c46e019c6'){throw 'F124BF_FREEZE_NOT_PREIMPLEMENTATION'}
+          git merge-base --is-ancestor 36e6802e6fd7a97d228bb3613fe24b4c46e019c6 HEAD
+          if($LASTEXITCODE -ne 0){ throw 'F124BF_FREEZE_NOT_ANCESTOR' }
+          if((git hash-object nativeevidence/f124be_source_only.py).Trim() -cne 'c5280505df158e26d4e674fd4ea1383dc3cedb51'){throw 'F124BF_PARENT_SOURCE_DRIFT'}
+          if((git hash-object nativeevidence/f124az_joint_public_inverse.py).Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'F124BF_ORIGINAL_JOINT_CHANGED'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124bf_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BF_FOCUSED_NONCONSUMING_FAIL'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BF_REPO_ISOLATION_FAIL'}
+          Write-Output 'F124BF_FROZEN_WINDOWS_LINUX_FOCUSED=PASS'
+          Write-Output 'F124BF_REAL_FIT_SCREEN_DEV_UNOPENED=true'
