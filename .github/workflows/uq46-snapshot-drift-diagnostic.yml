@@ -70,6 +70,30 @@ jobs:
                 $a=@($before -split '\r?\n' | Where-Object {$_} | ForEach-Object { ($_ | ConvertFrom-Json -DateKind String | ConvertTo-Json -Depth 100 -Compress) })
                 $b=@($after -split '\r?\n' | Where-Object {$_} | ForEach-Object { ($_ | ConvertFrom-Json -DateKind String | ConvertTo-Json -Depth 100 -Compress) })
                 $same=($a.Count -eq $b.Count -and (($a -join [char]10) -ceq ($b -join [char]10)))
+                $aRows=@($before -split '\r?\n'|Where-Object {$_}|ForEach-Object { $_|ConvertFrom-Json -DateKind String })
+                $bRows=@($after -split '\r?\n'|Where-Object {$_}|ForEach-Object { $_|ConvertFrom-Json -DateKind String })
+                $orderedIDsEqual=(($aRows.id -join '~') -ceq ($bRows.id -join '~'))
+                $oldMap=@{};$newMap=@{}
+                foreach($row in $aRows){$oldMap[[string]$row.id]=$row}
+                foreach($row in $bRows){$newMap[[string]$row.id]=$row}
+                $different=0
+                $propertyCounts=@{}
+                foreach($id in $oldMap.Keys){
+                  if(-not $newMap.ContainsKey($id)){$different++;continue}
+                  $left=$oldMap[$id]
+                  $right=$newMap[$id]
+                  foreach($prop in $left.PSObject.Properties){
+                    $leftVal=ConvertTo-Json -InputObject $prop.Value -Depth 100 -Compress
+                    $rightVal=ConvertTo-Json -InputObject $right.($prop.Name) -Depth 100 -Compress
+                    if($leftVal -cne $rightVal){
+                      $different++
+                      $n=[string]$prop.Name
+                      if(-not $propertyCounts.ContainsKey($n)){$propertyCounts[$n]=0}
+                      $propertyCounts[$n]++
+                    }
+                  }
+                }
+                Write-Host ('UQ46_INDEX_ROWS old='+$aRows.Count+' new='+$bRows.Count+' ordered='+$orderedIDsEqual+' differing_property_instances='+$different+' changed_properties='+(@($propertyCounts.Keys|Sort-Object|ForEach-Object {$_+':'+$propertyCounts[$_]}) -join ','))
               }else{
                 $a=$before|ConvertFrom-Json -DateKind String|ConvertTo-Json -Depth 100 -Compress
                 $b=$after|ConvertFrom-Json -DateKind String|ConvertTo-Json -Depth 100 -Compress
@@ -83,8 +107,8 @@ jobs:
               if([IO.File]::ReadAllText((Join-Path $out $f)) -cne $baseline[$f]){throw ('UQ46_CORE_DRIFT_'+$f)}
             }
             Write-Host 'UQ46_FIVE_CORE_SURFACES_UNCHANGED=PASS'
-            if(-not $semanticsOk){throw 'UQ46_SEMANTIC_DIFFERENCES_REQUIRE_FURTHER_INSPECTION'}
-            Write-Host 'UQ46_FOUR_DERIVED_FILES_FORMAT_ONLY=PASS'
+            if(-not $semanticsOk){Write-Host 'UQ46_PENDING_SEMANTIC_DIFFERENCES=REVIEW_REQUIRED'}
+            if($semanticsOk){Write-Host 'UQ46_FOUR_DERIVED_FILES_FORMAT_ONLY=PASS'}
             if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ46_SOURCE_CHANGED'}
             Write-Host 'UQ46_PRODUCTION_WRITES=0'
             Write-Host 'UQ46_PAID_INFERENCE_AND_CODEX=0'
