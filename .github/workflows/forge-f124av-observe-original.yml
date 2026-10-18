@@ -1,0 +1,69 @@
+name: F124-AV original FIT-SCREEN source-backed observer
+on:
+  push:
+    branches: [research/f124av-active-public-inverse-and-handoff-coherence-20261018]
+    paths: ['.github/workflows/forge-f124av-observe-original.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  inspect-original-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate original scientific source and immutable original artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141593876" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")' | grep -Fx 'b6f48b01ecc5dfea159e275a7becf69b3b3f4c76 completed success push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141593876/artifacts" --jq '.artifacts[] | select(.id==12141722057 and .expired==false) | .digest' | grep -Fx 'sha256:05977f984699c359864b622fb9124013ae85536bdadfaedbb063f907c63f4504'
+          echo 'F124AV_ORIGINAL_RAW_ARTIFACT_AUTHENTIC=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39141593876
+          github-token: ${{ github.token }}
+          name: f124av-original-fit-screen-b6f48b01ecc5dfea159e275a7becf69b3b3f4c76
+          path: evidence
+      - name: Read original FIT and held SCREEN without model execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'f7cbfc844e64510a172a4144bd90a56a37ec6f76b805e5b39cb2bf953e40641d  evidence/f124av-original-fit-screen.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json
+          p=json.load(open("evidence/f124av-original-fit-screen.json"))
+          assert p["schema"]=="forge.research.f124av.fresh-public-query-inverse-handoff-train.v1"
+          assert p["preimplementation_freeze_blob"]=="d27f98324c348ce3a8b113df9caa0f9be74b286f"
+          assert p["FIT_cases_per_lane"]==p["SCREEN_cases_per_lane"]==24
+          assert p["both_new_DEV_generated"]==0 and p["both_new_DEV_consumed"] is False
+          for lane in ("Yggdrasil","Wingless"):
+              x=p[lane]
+              print("F124AV_"+lane+"_FROZEN_FIT_SELECTED="+json.dumps(x["FIT_selection"],sort_keys=True))
+              print("F124AV_"+lane+"_SCREEN_ELIGIBLE="+json.dumps(x["SCREEN_eligible"]))
+              if lane=="Yggdrasil":
+                  scores=x["TRAIN_FIT"]["candidates"]
+                  c=x["TRAIN_FIT"]["original_controls"]
+                  for entry in scores:
+                      d=entry["results"]
+                      print("F124AV_YGG_FIT_CONFIG="+json.dumps({"config":entry["config"],"paired":d["paired"],"FP":d["FP"],"FN":d["FN"]},sort_keys=True))
+                  for phase in ("TRAIN_FIT","TRAIN_SCREEN"):
+                      z=x[phase]
+                      for name,row in z["original_controls"].items():
+                          print("F124AV_YGG_"+phase+"_CONTROL_"+name+"="+json.dumps({k:row[k] for k in ("paired","FP","FN")},sort_keys=True))
+                      for entry in z["candidates"]:
+                          d=entry["results"]
+                          print("F124AV_YGG_"+phase+"_SELECTED="+json.dumps({"config":entry["config"],"paired":d["paired"],"FP":d["FP"],"FN":d["FN"],"queries":d["public_queries"]},sort_keys=True))
+              else:
+                  for phase in ("TRAIN_FIT","TRAIN_SCREEN"):
+                      z=x[phase]
+                      c=z["original_gamma0"]
+                      print("F124AV_WING_"+phase+"_CONTROL="+json.dumps({k:c[k] for k in ("paired","FP","FN")},sort_keys=True))
+                  for entry in x["TRAIN_FIT"]["candidate_grid"]:
+                      d=entry["results"]
+                      print("F124AV_WING_FIT_CONFIG="+json.dumps({"config":entry["config"],"paired":d["paired"],"FP":d["FP"],"FN":d["FN"],"eligible":entry["eligible"]},sort_keys=True))
+          print("F124AV_ORIGINAL_SCREEN_CUSTODY=PASS")
+          print("F124AV_BOTH_NEW_DEV_UNCONSUMED=true")
+          PY
