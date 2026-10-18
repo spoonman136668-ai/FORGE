@@ -1,0 +1,64 @@
+name: UQ43 baseline inventory source identity reproduction
+on:
+  push:
+    branches: [qualification/uq43-inventory-utc-baseline-20261018]
+    paths: ['.github/workflows/uq43-baseline-inventory-repro.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq43-inventory-baseline-repro
+  cancel-in-progress: false
+jobs:
+  baseline:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - name: Reproduce unchanged production main date mismatch (expected negative)
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ43_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $refs=@(& git.exe ls-remote --exit-code $remote 'refs/heads/main')
+          if($LASTEXITCODE -ne 0 -or $refs.Count -ne 1 -or ([string]$refs[0] -split '\s+')[0] -cne $main){throw 'UQ43_MAIN_IDENTITY_DRIFT'}
+          $base=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $base 'repo'
+          if(Test-Path $base){throw 'UQ43_SCRATCH_EXISTS'}
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+          try {
+            & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch main $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ43_CLONE_FAILED'}
+            $needed=@('tools/source-inventory-import.ps1','tools/source-reconcile.ps1','tests/Test-SourceInventoryImport.ps1','.ice/source-ledger.json','.ice/records.json','archive/index.json')
+            & git.exe -C $root sparse-checkout set --no-cone @($needed|ForEach-Object{'/'+$_})
+            if($LASTEXITCODE -ne 0){throw 'UQ43_SPARSE_FAILED'}
+            & git.exe -C $root checkout --force main
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $main)){throw 'UQ43_SOURCE_DRIFT'}
+            $path=Join-Path $root 'tests/Test-SourceInventoryImport.ps1'
+            $out=Join-Path $base 'test.out'
+            $err=Join-Path $base 'test.err'
+            $exe=(Get-Command pwsh.exe -ErrorAction Stop).Source
+            $p=Start-Process -FilePath $exe -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$path+'"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $stderr=[IO.File]::ReadAllText($err)
+            if($p.ExitCode -eq 0){ throw 'UQ43_BASELINE_UNEXPECTED_PASS' }
+            if($stderr -notmatch 'new file_id fallback version mismatch'){throw ('UQ43_DIFFERENT_BASELINE_FAILURE: '+$stderr.Substring([Math]::Max(0,$stderr.Length-700)))}
+            Write-Host 'UQ43_UNCHANGED_MAIN_REPRODUCED_VERSION_MISMATCH=PASS'
+            # Confirm the mechanism in the original input, without changing memory files.
+            $item=('{"modified_at_utc":"2026-09-06T00:00:00Z"}'|ConvertFrom-Json).modified_at_utc
+            Write-Host ('UQ43_PS7_JSON_DATE_TYPE='+$item.GetType().FullName)
+            $actual=([string]$item).Trim()
+            if($actual -ceq '2026-09-06T00:00:00Z'){throw 'UQ43_DATE_CAST_UNEXPECTED_CANONICAL'}
+            Write-Host 'UQ43_NON_CANONICAL_DATETIME_STRING_CAST=PASS'
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ43_MAIN_WORKTREE_CHANGED'}
+            Write-Host 'UQ43_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ43_CODEX_AND_PAID_INFERENCE=0'
+          } finally {
+            if(Test-Path $base){Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $base){throw 'UQ43_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ43_SCRATCH_CLEAN=PASS'
+          }
