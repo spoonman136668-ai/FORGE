@@ -1,0 +1,66 @@
+name: F124-AX frozen equal-budget new-source and nonlinear focused qualification
+on:
+  push:
+    branches: [research/f124ax-equal-query-and-nonlinear-transfer-20261018]
+    paths:
+      - '.github/workflows/forge-f124ax-focused.yml'
+      - 'nativeevidence/f124ax_train_source.py'
+      - 'nativeevidence/f124ax_nonlinear_public_inverse.py'
+      - 'nativeevidence/f124ax_fit_screen.py'
+      - 'nativeevidence/test_f124ax_pretrain_models.py'
+      - 'reference/research-intake/f124ax-frozen-equal-public-nonlinear-transfer.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ax-source-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  models:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original frozen source and independent synthetic model verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124AX_HEAD_DRIFT'}
+          $path='reference/research-intake/f124ax-frozen-equal-public-nonlinear-transfer.json'
+          if ((git hash-object $path).Trim() -cne '4caedd6b8478da897aed53e6992ff75b6c33e783' -or
+              (git log -1 --format=%H -- $path).Trim() -cne '9b598cdde3299a9384dbfa3cd5087edf466186fb' -or
+              (git rev-parse 'a0173ff8ab3093dbb24d1b517c416c03502570e1:nativeevidence/f124av_train_source.py').Trim() -cne '07c311e7b0443e21db39a200199a33cc0747046e'){
+            throw 'F124AX_PREIMPLEMENTATION_SOURCE_IDENTITY_INVALID'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ax_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124AX_FOCUSED_MODEL_FAILED'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124AX_ISOLATION_FAILED'}
+          Write-Output 'F124AX_FROZEN_MODEL=PASS'
+          Write-Output 'F124AX_PROSPECTIVE_TRAIN_CONSUMED=false'
+          Write-Output 'F124AX_DEV_CONSUMED=false'
+  custody:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Authenticate original exact AW first DEV, immutable negative controls and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39145084951 --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = 'a0173ff8ab3093dbb24d1b517c416c03502570e1 completed success push'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39145084951/artifacts --jq '.artifacts[] | select(.id==12143136964 and .expired==false) | .digest')" = 'sha256:ae5dca777cfb0d9a260400da52329f3052b6217e88f693ff204723983fe600cc'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39141947437 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4 completed success'
+          echo F124AX_SOURCE_ORIGINAL_WITNESSES=PASS
