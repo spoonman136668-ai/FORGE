@@ -1,0 +1,42 @@
+name: T1 OPT transferable-cognition nonconsuming qualification
+on:
+  push:
+    branches: [research/north-star-transfer-optimizer-20261018]
+    paths: ['.github/workflows/north-star-t1-optimizer.yml','research/north-star-transfer/20261018-optimizer-precode.json','research/north-star-transfer/20261018-optimizer-learned-kernel.py']
+permissions:
+  contents: read
+concurrency:
+  group: t1-optimizer-public-only-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  exact-source-synthetic-kernel:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify immutable source, execute pure learned kernel only, seal scientific cohorts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T1_OPT_EXACT_HEAD_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-precode.json').Trim() -cne '6e67357da7ddb0433071fce4cec4c6ba20d1970c'){throw 'T1_OPT_FROZEN_PROTOCOL_DRIFT'}
+          if((git hash-object 'optimizerbridge/bridge.go').Trim() -cne '04e275423fc44d86b31d2fa210ae8e285bf52faa'){throw 'T1_OPT_PREVIOUS_LEARNER_DRIFT'}
+          if((git hash-object 'optimizerbridge/selection_audit.go').Trim() -cne '48810d9935b0cfd119991b22300cbaa783bd9adb'){throw 'T1_OPT_INDEPENDENT_BASELINE_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-optimizer-learned-kernel.py'
+          if($LASTEXITCODE -ne 0){throw 'T1_OPT_PUBLIC_KERNEL_FOCUSED_FAIL'}
+          Write-Output 'T1_OPT_SOURCE_BOUND_FOCUSED=PASS'
+          Write-Output 'T1_OPT_NEW_TRAIN_SCREEN_UNSEEN_REPLICA_CONSUMED=false'
+          Write-Output 'T1_OPT_EQUAL_TOTAL_COST_NOT_YET_QUALIFIED=true'
+          Write-Output 'T1_OPT_SCIENTIFIC_ACCEPTANCE=false'
+          Write-Output 'T1_OPT_PRODUCTION_AND_OPTIMIZER_PROMOTION=false'
