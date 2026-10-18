@@ -1,0 +1,65 @@
+name: F124-BC independently frozen public XOR closure proof (non-consuming)
+on:
+  push:
+    branches: [research/f124bc-public-xor-closure-20261018]
+    paths:
+      - '.github/workflows/forge-f124bc-focused.yml'
+      - 'nativeevidence/f124bc_train_source.py'
+      - 'nativeevidence/f124bc_public_closure.py'
+      - 'nativeevidence/f124bc_fit_screen.py'
+      - 'nativeevidence/test_f124bc_frozen_closure_preflight.py'
+      - 'reference/research-intake/f124bc-frozen-public-xor-closure.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bc-nonconsuming-source-qualification-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original first-frozen identity, source-independent algebraic witness tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BC_HEAD_CHANGED'}
+          $f='reference/research-intake/f124bc-frozen-public-xor-closure.json'
+          if ((git hash-object $f).Trim() -cne '54722a665859b92d4d46b23133469012511db6e2' -or
+              (git log -1 --format=%H -- $f).Trim() -cne 'a7f6ccea8d6e06cfe61af278818fb8097de5e745' -or
+              (git rev-parse '646cdfe80f13aa3ba8adae7ce816c35a99805cf8:nativeevidence/f124bb_train_source.py').Trim() -cne '58295514f5483910cce32d06036f1e5691b4207b'){
+            throw 'F124BC_ORIGINAL_SOURCE_FREEZE_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124bc_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BC_PUBLIC_RELATION_FOCUSED_FAILED'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BC_ISOLATION_FAILED'}
+          Write-Output 'F124BC_FOCUSED_XOR_CLOSURE=PASS'
+          Write-Output 'F124BC_NEW_TRAIN_UNUSED=true'
+          Write-Output 'F124BC_DEV_CONSUMED=false'
+  historic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Reauthenticate original BB qualified regression and original prospective model provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39163748452 --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '646cdfe80f13aa3ba8adae7ce816c35a99805cf8 completed success push'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39163058506 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '5f1779f7b248993a50e1fd6b073827323b084f24 completed success'
+          echo F124BC_ORIGINAL_BB_PARENT_CUSTODY=PASS
