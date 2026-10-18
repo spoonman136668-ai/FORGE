@@ -38,6 +38,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: F137 read-only GitHub workflow activation and delivery probe
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          workflow='repos/spoonman136668-ai/FORGE/actions/workflows/forge-live-research-observer.yml'
+          echo 'F137_WORKFLOW_STATE_BEGIN'
+          gh api "$workflow" --jq '{id,name,path,state,created_at,updated_at}'
+          echo 'F137_OBSERVER_RUN_HISTORY_BEGIN'
+          gh api "$workflow/runs?per_page=100" --jq '{total_count,latest:(.workflow_runs[0:25] | map({id,event,created_at,updated_at,status,conclusion,head_sha,path}))}'
+          echo 'F137_READONLY_PROBE=COMPLETE'
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
