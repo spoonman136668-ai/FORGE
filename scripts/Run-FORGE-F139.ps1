@@ -32,9 +32,12 @@ try {
   $previousPreference = $ErrorActionPreference
   try {
     $ErrorActionPreference = 'Continue'
+    # Append each native output record independently. A continuously open Out-File
+    # pipe can lock the log against the host acceptance observer on Windows.
     & $PythonExe -B -m f139.local_controller --db $Database loop --seconds $PollSeconds 2>&1 |
-      ForEach-Object -ErrorAction Stop { "$(Get-Date -Format o) $_" } |
-      Out-File -LiteralPath $log -Append -Encoding utf8 -ErrorAction Stop
+      ForEach-Object -ErrorAction Stop {
+        Add-Content -LiteralPath $log -Value ("$(Get-Date -Format o) " + [string]$_) -Encoding UTF8 -ErrorAction Stop
+      }
     $pythonExit = $LASTEXITCODE
   } finally {
     $ErrorActionPreference = $previousPreference

@@ -114,6 +114,12 @@ jobs:
             $child.Refresh()
             if (-not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction Stop }
             $child.WaitForExit()
+            # PowerShell termination does not always terminate its Python child.
+            # Fence cleanup to this test's exact isolated SQLite path only.
+            $owned = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+              Where-Object { $null -ne $_.CommandLine -and $_.CommandLine.Contains($db) -and
+                $_.CommandLine.Contains('f139.local_controller') })
+            foreach ($process in $owned) { Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction Stop }
             Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue
           }
       - name: Check native Windows task installation is safe by default
