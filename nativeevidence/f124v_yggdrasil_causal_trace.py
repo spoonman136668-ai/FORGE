@@ -220,7 +220,8 @@ def trace_model(arm,g,weights,positive_prefix=None):
     if arm=="R":
         mean=R_sum/max(1,R_n)-.5
         target=(R_target_sum/max(1,R_target_n)-.5) if R_target_n else -.5
-        logit+=2.*weights["R"][0]*mean+2.*weights["R"][1]*target
+        logit=logit+2.*weights["R"][0]*mean
+        logit=logit+2.*weights["R"][1]*target
     ref,_=original_forward(arm,g,weights)
     need(logit.hex()==ref.hex(),"FORENSIC_REPLAY_MUST_BE_BIT_IDENTICAL_"+arm)
     return {"prediction":bool(O.sigmoid(logit)>=.5),
