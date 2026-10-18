@@ -4,6 +4,21 @@ name: FORGE source-qualified development completion succession
 # This workflow has NO cron. The integrated workflow's existing schedule
 # is its ten-minute fallback. It never dispatches scientific originals.
 on:
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: 'Explicit development-only Windows recovery wake'
+        type: choice
+        options: [f137-windows-wake]
+        required: true
+      source_sha:
+        description: 'Protected main SHA observed by Windows wake'
+        type: string
+        required: true
+      wake_nonce:
+        description: 'Fresh local non-secret correlation nonce, 32 lowercase hex'
+        type: string
+        required: true
   workflow_run:
     workflows:
       - FORGE integrated two-lane safe research-cycle acceptance
@@ -15,6 +30,8 @@ on:
       - 'nativeevidence/f136_succession.py'
       - 'nativeevidence/test_f136_succession.py'
       - 'nativeevidence/test_f137_observer_bootstrap.py'
+      - 'nativeevidence/f137_windows_wake.py'
+      - 'nativeevidence/test_f137_windows_wake.py'
       - 'reference/research-intake/f136-development-succession-freeze.json'
       - '.github/workflows/forge-development-succession.yml'
 
@@ -327,5 +344,103 @@ jobs:
         with:
           name: forge-f137-scheduled-recovery-${{ github.run_id }}
           path: ${{ runner.temp }}/forge-f137-scheduled-recovery/decision.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  # Windows Task Scheduler only supplies wake requests; this existing controller
+  # owns ALL state decisions, source verification and restricted dispatch.
+  # This cannot be accepted as genuine GitHub cron or scientific first-use.
+  source-gated-windows-bootstrap:
+    if: github.event_name == 'workflow_dispatch' && inputs.origin == 'f137-windows-wake'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WAKE_NONCE: ${{ inputs.wake_nonce }}
+      PINNED_SHA: ${{ inputs.source_sha }}
+      PAUSE: ${{ vars.FORGE_DEV_AUTONOMY_PAUSE }}
+      ENABLED: ${{ vars.FORGE_F137_WINDOWS_WAKE_ENABLED }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify fail-closed F136 and Windows wake protocol
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f137_*.py' -v
+          echo 'F137_WINDOWS_WAKE_SOURCE_GUARD=PASS'
+      - name: Reconcile independent provider source, budget, other wake and integrated runs
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          root="$RUNNER_TEMP/forge-f137-windows"
+          mkdir -p "$root"
+          check_state() {
+            gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha' > "$root/main.sha"
+            test "$(git rev-parse HEAD)" = "$(tr -d '\r\n' < "$root/main.sha")"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$root/wake.json"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-development-succession.yml/runs?branch=main&event=workflow_dispatch&per_page=100" > "$root/wake-history.json"
+            for page in 1 2 3; do
+              gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&per_page=100&page=$page" > "$root/page-$page.json"
+            done
+          }
+          evaluate() {
+            stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            paused=false; enabled=false
+            if [[ "$PAUSE" == 'true' ]]; then paused=true; fi
+            if [[ "$ENABLED" == 'true' ]]; then enabled=true; fi
+            python3 -B nativeevidence/f137_windows_wake.py \
+              --root "$root" --now "$stamp" \
+              --pinned-sha "$PINNED_SHA" --nonce "$WAKE_NONCE" \
+              --paused "$paused" --enabled "$enabled" \
+              --output "$root/decision.json"
+          }
+          check_state
+          evaluate
+          if [[ "$(jq -r '.dispatch' "$root/decision.json")" != 'true' ]]; then
+            echo 'dispatch=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # An independent read before POST narrows the duplicate window;
+          # it is not a claim of global atomic reservation.
+          check_state
+          evaluate
+          if [[ "$(jq -r '.dispatch' "$root/decision.json")" != 'true' ]]; then
+            echo 'dispatch=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'dispatch=true' >> "$GITHUB_OUTPUT"
+          echo "sha=$(tr -d '\r\n' < "$root/main.sha")" >> "$GITHUB_OUTPUT"
+          echo 'F137_WINDOWS_WAKE_ELIGIBLE_FOR_ONE_DEVELOPMENT_CYCLE=TRUE'
+      - name: Dispatch one existing synthetic two-lane development cycle
+        if: steps.gate.outputs.dispatch == 'true'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.gate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" = "$EXPECTED_SHA"
+          test "$ENABLED" = "true"
+          test "$PAUSE" != "true"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/dispatches" \
+            -f ref=main -f 'inputs[origin]=f137-windows-recovery' \
+            -f "inputs[parent_run_id]=$GITHUB_RUN_ID" \
+            -f "inputs[parent_source_sha]=$EXPECTED_SHA"
+          echo 'F137_WINDOWS_ONE_DEVELOPMENT_BOOTSTRAP_DISPATCHED=TRUE'
+          echo 'F137_GENUINE_GITHUB_SCHEDULE_OR_FIRST_USE_PROVEN=FALSE'
+          echo 'F137_PROTECTED_SCIENCE_AND_CKB_PLANE_MUTATIONS=ZERO'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f137-windows-decision-${{ github.run_id }}
+          path: ${{ runner.temp }}/forge-f137-windows/decision.json
           if-no-files-found: warn
           retention-days: 14
