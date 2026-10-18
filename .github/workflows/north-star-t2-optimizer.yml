@@ -1,0 +1,44 @@
+name: T2 optimizer genuine transfer readiness (nonconsuming)
+on:
+  push:
+    branches: [research/north-star-transfer-optimizer-20261018]
+    paths: ['.github/workflows/north-star-t2-optimizer.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t2-optimizer-nonconsuming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  independent-source-and-native-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact prereg source and run only synthetic readiness fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T2_EXACT_BRANCH_HEAD_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-t2-source-freeze.json').Trim() -cne '66b3c7c0ce1bd782605fbc136535546ecee5ea42'){throw 'T2_FROZEN_BIRTH_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-optimizer-t2-source-freeze.json').Trim() -cne 'efa9d0dd4989d98d3ebc441d3c65a9b6f6f247fe'){throw 'T2_PROTOCOL_NOT_FROZEN_BEFORE_SOURCE'}
+          git merge-base --is-ancestor 'efa9d0dd4989d98d3ebc441d3c65a9b6f6f247fe' HEAD
+          if($LASTEXITCODE -ne 0){throw 'T2_FROZEN_COMMIT_NOT_ANCESTOR'}
+          if((git hash-object 'optimizerbridge/bridge.go').Trim() -cne '04e275423fc44d86b31d2fa210ae8e285bf52faa'){throw 'T2_PREVIOUS_CONTROL_DRIFT'}
+
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-optimizer-t2-readiness.py'
+          if($LASTEXITCODE -ne 0){throw 'T2_OPTIMIZER_READINESS_FAIL'}
+          Write-Output 'T2_OPTIMIZER_SOURCE_AND_NATIVE_READINESS=PASS'
+          Write-Output 'T2_OPTIMIZER_PROTECTED_COHORTS_CONSUMED=0'
+          Write-Output 'T2_OPTIMIZER_SCIENCE_PROTECTED_ADMISSION=false'
+          Write-Output 'T2_OPTIMIZER_FULL_RESOURCE_PARITY_NOT_ASSUMED=true'
