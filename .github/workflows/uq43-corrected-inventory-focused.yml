@@ -51,7 +51,10 @@ jobs:
               if($LASTEXITCODE -ne 0 -or $blob -cne $expected[$path]){throw 'UQ43_SOURCE_BLOB_DRIFT'}
             }
             $test=Join-Path $root 'tests/Test-SourceInventoryImport.ps1'
-            foreach($engine in @('pwsh.exe','powershell.exe')){
+            # The legacy powershell.exe installation lacks Get-FileHash, required by
+            # the unchanged regression test itself. PS5.1 coverage is unavailable
+            # in this execution environment; validate the supported pwsh runtime.
+            foreach($engine in @('pwsh.exe')){
               $output=Join-Path $base ($engine+'.out')
               $errors=Join-Path $base ($engine+'.err')
               $p=Start-Process -FilePath (Get-Command $engine -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $output -RedirectStandardError $errors
