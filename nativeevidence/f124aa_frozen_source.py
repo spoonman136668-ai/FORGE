@@ -172,12 +172,13 @@ def build(lane,seed,vector,phase):
     else:
         path=positive_route(p)
         selected=path[5]
+        original_source_bits=list(selected["src_bits"])
         bit=rng.randrange(16)
         for g in (p,n):
             found=[e for e in g["edges"] if e["from"]==selected["from"]
                    and e["to"]==selected["to"] and e["role"]==selected["role"]]
             need(len(found)==1 and
-                 found[0]["src_bits"]==selected["src_bits"],
+                 found[0]["src_bits"]==original_source_bits,
                  "SYMMETRIC_RELAXED_KEY")
             found[0]["src_bits"][bit]^=1
     relax=family=="one_bit_relaxed_keys"
