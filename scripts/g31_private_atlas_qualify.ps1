@@ -42,9 +42,16 @@ try {
         throw 'PRIVATE_BRANCH_NOT_ACCESSIBLE_OR_HEAD_CHANGED'
       }
       $remoteMain = @(& git.exe ls-remote --exit-code $url 'refs/heads/main')
-      if ($LASTEXITCODE -ne 0 -or $remoteMain.Count -ne 1 -or
-          (([string]$remoteMain[0] -split '\s+')[0]) -cne [string]$c.base) {
-        throw 'PROTECTED_MAIN_MOVED'
+      if ($LASTEXITCODE -ne 0 -or $remoteMain.Count -ne 1) {
+        throw 'MAIN_REF_UNAVAILABLE'
+      }
+      $mainHead = (([string]$remoteMain[0] -split '\s+')[0])
+      if ($mainHead -cne [string]$c.base) {
+        # A concurrent protected-main advancement must not invalidate an
+        # immutable historical-source inventory. It also does not authorize
+        # promotion as an index of the new main.
+        & git.exe ls-remote --exit-code $url ('refs/heads/' + $c.branch) | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw 'PR_HEAD_UNAVAILABLE' }
       }
       # Blobless and single-file sparse checkout: do not materialize any
       # memory record, operational state database, broker config or science data.
@@ -65,6 +72,13 @@ try {
       if ($LASTEXITCODE -ne 0) { throw 'PINNED_CHECKOUT_FAILED' }
       $head = (& git.exe -C $path rev-parse HEAD | Out-String).Trim()
       if ($head -cne [string]$c.head) { throw 'PINNED_HEAD_IDENTITY_MISMATCH' }
+      if ($mainHead -cne [string]$c.base) {
+        & git.exe -C $path fetch --quiet --no-tags --filter=blob:none --depth 16 origin refs/heads/main
+        if ($LASTEXITCODE -ne 0) { throw 'ADVANCED_MAIN_FETCH_FAILED' }
+        & git.exe -C $path merge-base --is-ancestor ([string]$c.base) 'FETCH_HEAD'
+        if ($LASTEXITCODE -ne 0) { throw 'ADVANCED_MAIN_NOT_DESCENDANT_OF_SOURCE' }
+        Write-Host ('G31_' + $id.ToUpperInvariant() + '_FROZEN_SOURCE_MAIN_ADVANCED=PASS')
+      }
       $tracked = @(& git.exe -C $path ls-files)
       $present = @($tracked | Where-Object { Test-Path -LiteralPath (Join-Path $path $_) -PathType Leaf })
       if (@($present).Count -ne 4 -or
