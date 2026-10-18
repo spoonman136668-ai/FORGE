@@ -63,7 +63,8 @@ def validate_public(g):
 def bit_errors(a,b):
     if a is None:return ()
     return tuple(i for i in range(16) if a[i]!=b[i])
-diff_bits=bit_errors  # compatibility with original unchanged fixed benchmark bytecode\ndef semantic_routes(g,mode="consistency"):
+diff_bits=bit_errors  # compatibility with original unchanged fixed benchmark bytecode
+def semantic_routes(g,mode="consistency"):
     """Source-only full semantic verifier, not exposed to learned model."""
     validate_public(g)
     need(mode in ("consistency","role_only","tolerant","exact"),"MODE")
