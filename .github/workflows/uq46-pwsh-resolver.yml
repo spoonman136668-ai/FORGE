@@ -1,0 +1,58 @@
+name: UQ46 resolve native PowerShell 7 subprocess
+on:
+  push:
+    branches: [qualification/uq46-snapshot-serialization]
+    paths: ['.github/workflows/uq46-pwsh-resolver.yml']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Probe paths through PS7 and actual Windows PowerShell subprocess
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ46_WRONG_RUNNER'}
+          $actual=(Get-Process -Id $PID).Path
+          $cmds=@(Get-Command pwsh.exe -All -ErrorAction SilentlyContinue)
+          $cmds=@($cmds | Select-Object -First 3 | ForEach-Object {$_.Source})
+          Write-Host ('UQ46_HOST_PSHOME='+$PSHOME)
+          Write-Host ('UQ46_HOST_PROCESS_FILE='+$actual)
+          Write-Host ('UQ46_COMMAND_SOURCES='+($cmds -join '|'))
+          $probe=Join-Path $env:RUNNER_TEMP ('uq46-hostprobe-'+$env:GITHUB_RUN_ID+'.ps1')
+          try {
+            $script=@'
+          $ErrorActionPreference='Stop'
+          $c=Get-Command pwsh.exe -CommandType Application -ErrorAction SilentlyContinue
+          Write-Host ('UQ46_PS5_RESOLVED_ALIAS='+[string]$c.Source)
+          Write-Host ('UQ46_PS5_ALIAS_EXISTS='+(Test-Path -LiteralPath ([string]$c.Source) -PathType Leaf))
+          foreach($candidate in @('C:\Program Files\PowerShell\7\pwsh.exe', 'C:\Program Files\WindowsApps', 'C:\Program Files (x86)\PowerShell\7\pwsh.exe')){
+            Write-Host ('UQ46_PS5_CANDIDATE_EXISTS '+$candidate+'='+(Test-Path -LiteralPath $candidate))
+          }
+          $path=$env:UQ46_CANONICAL_HOST
+          Write-Host ('UQ46_PS5_EXPLICIT_PATH_EXISTS='+(Test-Path -LiteralPath $path -PathType Leaf))
+          try {
+            $v=& $path -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.Major'
+            Write-Host ('UQ46_PS5_EXPLICIT_EXEC='+($LASTEXITCODE -eq 0 -and $v -eq '7'))
+          } catch {
+            Write-Host ('UQ46_PS5_EXPLICIT_EXEC_ERROR='+$_.Exception.GetType().Name)
+          }
+          try {
+            $v=& 'pwsh.exe' -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.Major'
+            Write-Host ('UQ46_PS5_ALIAS_EXEC='+($LASTEXITCODE -eq 0 -and $v -eq '7'))
+          } catch {
+            Write-Host ('UQ46_PS5_ALIAS_EXEC_ERROR='+$_.Exception.GetType().Name)
+          }
+          '@
+            [IO.File]::WriteAllText($probe,$script,[Text.UTF8Encoding]::new($false))
+            $env:UQ46_CANONICAL_HOST=$actual
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $probe
+            if($LASTEXITCODE -ne 0){throw 'UQ46_PS5_HOST_PROBE_FAILED'}
+          }finally{
+            Remove-Item Env:UQ46_CANONICAL_HOST -ErrorAction SilentlyContinue
+            if(Test-Path $probe){Remove-Item $probe -Force}
+          }
+          Write-Host 'UQ46_HOST_PROBE_SCRATCH_CLEAN=PASS'
