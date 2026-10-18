@@ -165,7 +165,10 @@ def packed_frontier(graph,base,delta,slots):
                     following[edge["to"]].append((priority,value,dst))
         states={}
         for node,items in following.items():
-            items.sort(key=lambda x:(-x[0],-x[1],unpack(x[2])))
+            # AA one-state breaks ties by packed integer; Z three-state by
+            # decoded float channels. Preserve each frozen control exactly.
+            items.sort(key=lambda x:(-x[0],-x[1],
+                                     x[2] if slots==1 else unpack(x[2])))
             states[node]=[(value,packed) for _,value,packed in items[:slots]]
         work["max_active"]=max(work["max_active"],
                                sum(len(v) for v in states.values()))
