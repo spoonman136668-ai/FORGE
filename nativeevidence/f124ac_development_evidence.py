@@ -164,7 +164,9 @@ def score(lane,phase,base,delta):
                 originalZ,oldr,baselineZ,originalWork=aa.ygg_continuity(
                     g,base,delta)
                 need(baselineZ==raw
-                     and all(work[k]==originalWork[k] for k in originalWork),
+                     and all(work[k]==originalWork[k] for k in control_work)
+                     and work["hamming_bit_comparisons"]==
+                         originalWork["continuity_raw_bit_comparisons"],
                      "ORIGINAL_Z_COST_AND_T_RANK_PRESERVED")
                 predictions[label]={
                     "soft_AB":(score_soft,work),
