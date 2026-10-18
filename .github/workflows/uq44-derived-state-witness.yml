@@ -1,0 +1,89 @@
+name: UQ44 derived retrieval state regression witness
+on:
+  push:
+    branches: [qualification/uq44-derived-state-regression-witness]
+    paths: ['.github/workflows/uq44-derived-state-witness.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq44-derived-state-witness
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Qualify generated-vs-protected state boundary and restoration
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ44_RUNNER_IDENTITY_MISMATCH'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $head='bcce44efc2b7f7c89e25679cecc2d46424a4aaf0'
+          foreach($ref in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
+            $check=@(& git.exe ls-remote --exit-code $remote $ref[0])
+            if($LASTEXITCODE -ne 0 -or $check.Count -ne 1 -or ([string]$check[0] -split '\s+')[0] -cne $ref[1]){throw 'UQ44_SOURCE_DRIFT'}
+          }
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          if(Test-Path -LiteralPath $scratch){throw 'UQ44_SCRATCH_ALREADY_EXISTS'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            & git.exe clone --quiet --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ44_CLONE_OR_HEAD_FAILED'}
+            $core=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/chat-delta-state.json')
+            $derived=@('.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $nine=@($core+$derived)
+            $original=@{}
+            foreach($p in $nine){$original[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash}
+            $out=Join-Path $scratch 'test.stdout'
+            $err=Join-Path $scratch 'test.stderr'
+            $test=Join-Path $root 'tests/Test-RemoteBootstrap.ps1'
+            $p=Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $stdout=[IO.File]::ReadAllText($out)
+            if($p.ExitCode -ne 0 -or $stdout -notmatch 'Remote bootstrap bridge regression passed'){
+              $e=[IO.File]::ReadAllText($err)
+              Write-Host ('UQ44_REMOTE_BOOTSTRAP_STOP exit='+$p.ExitCode+' stderr_tail='+$e.Substring([Math]::Max(0,$e.Length-1150)))
+              throw 'UQ44_FOCUSED_GENERATOR_FAILED'
+            }
+            Write-Host 'UQ44_REMOTE_BOOTSTRAP_DETERMINISTIC=PASS'
+            foreach($file in $core){
+              $sha=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if($sha -cne $original[$file]){throw ('UQ44_CORE_PROTECTED_DRIFT_'+$file)}
+            }
+            Write-Host 'UQ44_CORE_RECORDS_LEDGER_ARCHIVE_CHAT_UNCHANGED=PASS'
+            $changed=@(& git.exe -C $root diff --name-only --)
+            if($LASTEXITCODE -ne 0){throw 'UQ44_GIT_DIFF_FAILED'}
+            $changed=@($changed | ForEach-Object {([string]$_).Replace('\','/').Trim()} | Where-Object { $_ })
+            foreach($file in $changed){if($derived -cnotcontains $file){throw ('UQ44_UNAUTHORIZED_GENERATOR_DELTA_'+$file)}}
+            if($changed.Count -eq 0){throw 'UQ44_EXPECTED_REGEN_DELTA_MISSING'}
+            Write-Host ('UQ44_ONLY_DERIVED_FILES_REGENERATED=PASS count='+$changed.Count)
+            foreach($file in $derived){
+              $path=Join-Path $root $file
+              if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw ('UQ44_DERIVED_MISSING_'+$file)}
+            }
+            # Restore only the exact known derived files in disposable scratch;
+            # never suppress unexpected state differences or write production.
+            & git.exe -C $root restore --source=HEAD -- @derived
+            if($LASTEXITCODE -ne 0){throw 'UQ44_RESTORE_DERIVED_FAILED'}
+            foreach($file in $nine){
+              $sha=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if($sha -cne $original[$file]){throw ('UQ44_POST_RESTORE_HASH_DRIFT_'+$file)}
+            }
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ44_UNCLEAN_AFTER_RESTORE'}
+            if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head){throw 'UQ44_HEAD_CHANGED'}
+            Write-Host 'UQ44_ALL_NINE_PROTECTED_HASHES_RESTORED=PASS'
+            Write-Host 'UQ44_DISPOSABLE_CHECKOUT_CLEAN=PASS'
+            Write-Host 'UQ44_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ44_PAID_INFERENCE_AND_CODEX=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){throw 'UQ44_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ44_SCRATCH_CLEAN=PASS'
+          }
