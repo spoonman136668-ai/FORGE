@@ -1,0 +1,290 @@
+name: UQ60 guarded durable-memory checkpoint READ-ONLY preflight
+
+on:
+  push:
+    branches:
+      - qualification/uq60-mind-palace-checkpoint-readiness
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify exact seven pending bytes and checkpoint promotion safety without staging or committing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ60_AUDIT_WRONG_RUNNER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\Mind-Palace'
+          $expected='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $allowed=@(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json'
+          )
+          $policyPath=Join-Path $root 'policies/repo-source-admission.json'
+          $batchPath=Join-Path $root 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          if (-not [IO.Directory]::Exists([IO.Path]::Combine($root,'.git'))) {
+            throw 'UQ60_AUDIT_PERSISTENT_CHECKOUT_UNAVAILABLE'
+          }
+          . (Join-Path $root 'tools/repo-source-authority.ps1')
+          $lease=Enter-RepoSourceAuthority -RepoRoot $root
+          try {
+            Assert-RepoSourceAuthority -Lease $lease
+            $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $branch=(& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -cne $expected -or $branch -cne 'main') {
+              throw 'UQ60_AUDIT_MAIN_COMMIT_CHANGED'
+            }
+            $origin=(& git.exe -C $root remote get-url origin | Out-String).Trim()
+            $remote=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+                ([string]$remote[0] -split '\s+')[0] -cne $expected) {
+              throw 'UQ60_AUDIT_REMOTE_MAIN_MOVED_OR_PUSH_OCCURRED'
+            }
+            $policy=[IO.File]::ReadAllText($policyPath) | ConvertFrom-Json
+            if (-not [bool]$policy.enabled -or
+                [string]$policy.operator_approval -cne 'separately-authorized-exact-cohort' -or
+                [bool]$policy.bulk_repo_ingestion -or [bool]$policy.background_ingestion) {
+              throw 'UQ60_AUDIT_POLICY_DRIFT'
+            }
+            $newRecords=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $newLedger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            $origRecordText=(& git.exe -C $root show 'HEAD:.ice/records.json' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_AUDIT_ORIGINAL_RECORDS_UNAVAILABLE' }
+            $origLedgerText=(& git.exe -C $root show 'HEAD:.ice/source-ledger.json' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_AUDIT_ORIGINAL_LEDGER_UNAVAILABLE' }
+            $origRecords=@($origRecordText | ConvertFrom-Json)
+            $origLedger=$origLedgerText | ConvertFrom-Json
+            if ($origRecords.Count -ne 260 -or
+                @($origLedger.entries).Count -ne 101 -or
+                $newRecords.Count -ne 263 -or
+                @($newLedger.entries).Count -ne 104) {
+              throw 'UQ60_AUDIT_RECORD_OR_LEDGER_COUNTS_NOT_EXACT'
+            }
+            $oldById=@{}
+            foreach($r in $origRecords) {
+              $id=[string]$r.id
+              if ($oldById.ContainsKey($id)) { throw 'UQ60_AUDIT_DUPLICATE_OLD_RECORD_ID' }
+              $oldById[$id]=(ConvertTo-Json -InputObject $r -Compress -Depth 32)
+            }
+            $recordsById=@{}
+            foreach($r in $newRecords) {
+              $id=[string]$r.id
+              if ($recordsById.ContainsKey($id)) { throw 'UQ60_AUDIT_DUPLICATE_NEW_RECORD_ID' }
+              $recordsById[$id]=$r
+            }
+            foreach($id in $oldById.Keys) {
+              if (-not $recordsById.ContainsKey($id) -or
+                  (ConvertTo-Json -InputObject $recordsById[$id] -Compress -Depth 32) -cne $oldById[$id]) {
+                throw 'UQ60_AUDIT_PREEXISTING_RECORD_MODIFIED'
+              }
+            }
+            $extraRecordIds=@($recordsById.Keys | Where-Object { -not $oldById.ContainsKey($_) } | Sort-Object)
+            $approvedRecordIds=@($policy.expected_ids | ForEach-Object { [string]$_ } | Sort-Object)
+            if (($extraRecordIds -join '|') -cne ($approvedRecordIds -join '|')) {
+              throw 'UQ60_AUDIT_UNAUTHORIZED_RECORD_ADDITION'
+            }
+            foreach($id in $extraRecordIds) {
+              if ([string]$recordsById[$id].status -cne 'observed' -or
+                  @($recordsById[$id].supersedes).Count -ne 0) {
+                throw 'UQ60_AUDIT_NEW_RECORD_NOT_OBSERVED'
+              }
+            }
+            Write-Host 'UQ60_ALL_ORIGINAL_260_RECORDS_SEMANTIC_IDENTITIES_UNCHANGED=PASS'
+            Write-Host 'UQ60_EXACT_THREE_NEW_OBSERVED_RECORDS=PASS'
+
+            # The source-ledger writer maintains entries sorted by stable ID;
+            # qualifying by array index would incorrectly reject insertion.
+            # Require exact canonical JSON parity for each old stable ID.
+            $oldLedgerById=@{}
+            foreach($e in @($origLedger.entries)) {
+              $id=[string]$e.id
+              if ([string]::IsNullOrWhiteSpace($id) -or $oldLedgerById.ContainsKey($id)) {
+                throw 'UQ60_AUDIT_DUPLICATE_OLD_LEDGER_ID'
+              }
+              $oldLedgerById[$id]=(ConvertTo-Json -InputObject $e -Compress -Depth 32)
+            }
+            $newLedgerById=@{}
+            foreach($e in @($newLedger.entries)) {
+              $id=[string]$e.id
+              if ([string]::IsNullOrWhiteSpace($id) -or $newLedgerById.ContainsKey($id)) {
+                throw 'UQ60_AUDIT_DUPLICATE_NEW_LEDGER_ID'
+              }
+              $newLedgerById[$id]=$e
+            }
+            foreach($id in $oldLedgerById.Keys) {
+              if (-not $newLedgerById.ContainsKey($id) -or
+                  (ConvertTo-Json -InputObject $newLedgerById[$id] -Compress -Depth 32) -cne
+                  $oldLedgerById[$id]) {
+                throw 'UQ60_AUDIT_OLD_LEDGER_ENTRY_CHANGED'
+              }
+            }
+            $extraLedgerIds=@($newLedgerById.Keys | Where-Object { -not $oldLedgerById.ContainsKey($_) } | Sort-Object)
+            if ($extraLedgerIds.Count -ne 3) { throw 'UQ60_AUDIT_NEW_LEDGER_ID_COUNT_NOT_THREE' }
+            $observedRefs=@($extraLedgerIds | ForEach-Object { [string]$newLedgerById[$_].source_ref } | Sort-Object)
+            $approvedRefs=@($policy.source_refs | ForEach-Object { [string]$_ } | Sort-Object)
+            if (($observedRefs -join '|') -cne ($approvedRefs -join '|')) {
+              throw 'UQ60_AUDIT_UNEXPECTED_NEW_LEDGER_SOURCE_REF'
+            }
+            Write-Host 'UQ60_ALL_ORIGINAL_101_LEDGER_IDS_AND_PAYLOADS_UNCHANGED=PASS'
+            Write-Host 'UQ60_EXACT_THREE_APPROVED_NEW_LEDGER_ENTRIES=PASS'
+
+            $status=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_AUDIT_STATUS_UNAVAILABLE' }
+            $changed=@()
+            foreach($line in $status) {
+              if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+              if ($line.Length -lt 4 -or $line.Substring(0,2) -cne ' M') {
+                throw 'UQ60_AUDIT_STAGED_OR_UNKNOWN_FILE_MODIFICATION'
+              }
+              $path=$line.Substring(3).Replace('\','/')
+              if ($allowed -cnotcontains $path) { throw 'UQ60_AUDIT_CHANGED_FILE_OUT_OF_SCOPE' }
+              $changed += $path
+            }
+            if ($changed -cnotcontains '.ice/records.json' -or
+                $changed -cnotcontains '.ice/source-ledger.json') {
+              throw 'UQ60_AUDIT_APPLIED_STATE_NOT_VISIBLE_AS_UNCOMMITTED'
+            }
+            $forbidden=@('archive/index.json','.ice/chat-delta-state.json')
+            $diff=@(& git.exe -C $root diff --name-only HEAD -- @forbidden)
+            if ($LASTEXITCODE -ne 0 -or @($diff | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
+              throw 'UQ60_AUDIT_ARCHIVE_OR_CURSOR_CHANGED'
+            }
+            $stranded=Join-Path $root '.mind-runtime'
+            if ([IO.Directory]::Exists($stranded) -and
+                @(Get-ChildItem -LiteralPath $stranded -Directory -Filter 'uq51-repo-transaction-*').Count -ne 0) {
+              throw 'UQ60_AUDIT_STRANDED_COPY_TRANSACTION'
+            }
+            Assert-RepoSourceAuthority -Lease $lease
+            $memory=(& (Join-Path $root 'tools/mind.ps1') validate | Out-String).Trim()
+            if ($memory -notmatch 'Mind-Palace validation passed') {
+              throw 'UQ60_AUDIT_MEMORY_VALIDATE_FAILED'
+            }
+            $ledgerValidation=((& (Join-Path $root 'tools/source-ledger.ps1') validate -BatchPath $batchPath | Out-String).Trim() | ConvertFrom-Json)
+            if (-not [bool]$ledgerValidation.valid) { throw 'UQ60_AUDIT_LEDGER_VALIDATE_FAILED' }
+            $sealedHashes=[ordered]@{}
+            foreach($f in @($changed | Sort-Object)) {
+              $sealedHashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            # Exact byte custody from independently qualified UQ-59 receipt.
+            # Any changed or missing local file is fail-closed; never regenerate.
+            $approvedSha256=@{
+              '.ice/project-dependency-graph.json'='54c631f7b206d2059377c8f66a0e1e64cddfb12c62523ec2b72e9684f72e12c9'
+              '.ice/project-state-capsules.json'='e3c6c652a4e03670e681598756fcd51b61d25f22255c7189e1cd9e3c2fb6d2fe'
+              '.ice/records.json'='0457e920e71d08a750d80d53ddd392e6b3d7f56716fd00767d343eb021241db4'
+              '.ice/remote-bootstrap.json'='7dd16ab679d2283aa84ac4a7dbb90fa106b7e39d40382fda0a982e86a87b7d7e'
+              '.ice/remote-catalog.json'='327df2a5b78ed08c03720f3ec44432be213b3326892f0a8a9f38fc7f153f8759'
+              '.ice/remote-index.ndjson'='06f19d12d382c3f06dc628d31cad89b45be28943259234b5071ce4ec7b5ce535'
+              '.ice/source-ledger.json'='441db3a2979936592a502071dfcc0f6e027be96c0ecf2169141668f72c90aa02'
+            }
+            if ($changed.Count -ne 7 -or ($changed -join '|') -cne ((@($approvedSha256.Keys | Sort-Object)) -join '|')) {
+              throw 'UQ60_PENDING_WORKTREE_SEVEN_PATHS_NOT_EXACT'
+            }
+            foreach($file in @($approvedSha256.Keys)) {
+              $got=[string]$sealedHashes[$file]
+              if ($got -cne [string]$approvedSha256[$file]) {
+                throw ('UQ60_SEALED_BYTES_DRIFT '+$file+' '+$got)
+              }
+            }
+            Write-Host 'UQ60_EXACT_SEVEN_PENDING_SHA256_IDENTITIES_MATCH_UQ59_RECEIPT=PASS'
+            $preStage=@(& git.exe -C $root diff --cached --name-only)
+            if ($LASTEXITCODE -ne 0 -or @($preStage | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
+              throw 'UQ60_PENDING_STATE_ALREADY_STAGED'
+            }
+            $blobPreview=[ordered]@{}
+            foreach($file in @($approvedSha256.Keys | Sort-Object)) {
+              $physical=Join-Path $root $file
+              $blob=(& git.exe -C $root hash-object ("--path=" + $file) -- $physical | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $blob -cnotmatch '^[a-f0-9]{40}
+              source_main_sha=$head
+              modified_tracked_count=@($changed).Count
+              local_sha256_by_path=$sealedHashes
+              git_memory_checkpoint_committed=$false
+            }) -Depth 10 | Write-Host
+            Write-Host 'UQ60_LOCAL_POSTAPPLY_CONTENT_SHA256_SEALED=PASS'
+            Write-Host 'UQ60_PERSISTENT_CHECKOUT_MEMORY_AND_LEDGER_VALIDATION=PASS'
+            Write-Host 'UQ60_GIT_COMMIT_AND_MEMORY_PUSH_NOT_PERFORMED=PASS'
+            Write-Host 'UQ60_ARCHIVE_CURSOR_UNCHANGED_NO_STRANDED_CUSTODY=PASS'
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq60-postapply-custody-audit.v1'
+              status='local_three_observations_applied_without_git_promotion'
+              authorized_main_sha=$head
+              original_records=260
+              newly_accepted_observations=3
+              total_records=263
+              original_ledger_entries_unchanged=101
+              new_ledger_entries=3
+              total_ledger_entries=104
+              changed_tracked_paths=@($changed | Sort-Object)
+              no_git_commit=$true
+              no_git_push=$true
+              no_external_source_writer=$true
+              checkpoint_promotion_not_performed=$true
+            }) -Depth 8 | Write-Host
+          } finally {
+            Exit-RepoSourceAuthority -Lease $lease
+          }
+) {
+                throw ('UQ60_READ_ONLY_GIT_BLOB_PREVIEW_FAILED '+$file)
+              }
+              $blobPreview[$file]=$blob
+            }
+            Assert-RepoSourceAuthority -Lease $lease
+            # Read-only hash-object; do NOT run git add/commit/push or invoke
+            # mind checkpoint. Authorization only covered qualifying this state.
+            $postStage=@(& git.exe -C $root diff --cached --name-only)
+            if ($LASTEXITCODE -ne 0 -or @($postStage | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
+              throw 'UQ60_PREFLIGHT_ALTERED_INDEX'
+            }
+            Write-Host 'UQ60_GIT_INDEX_UNSTAGED_AND_COMMIT_PUSH_NOT_PERFORMED=PASS'
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq60-exact-local-candidate-checkpoint.v1'
+              source_main_sha=$head
+              seven_paths_content_sha256=$sealedHashes
+              seven_git_blobs_readonly=$blobPreview
+              currently_staged_count=0
+              dry_run_only=$true
+              git_commit_authorized=$false
+              git_push_authorized=$false
+            }) -Depth 12 | Write-Host
+            Write-Host 'UQ60_SEVEN_GIT_BLOB_IDENTITIES_PREVIEWED_READ_ONLY=PASS'
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq60-live-local-state-hashes.v1'
+              source_main_sha=$head
+              modified_tracked_count=@($changed).Count
+              local_sha256_by_path=$sealedHashes
+              git_memory_checkpoint_committed=$false
+            }) -Depth 10 | Write-Host
+            Write-Host 'UQ60_LOCAL_POSTAPPLY_CONTENT_SHA256_SEALED=PASS'
+            Write-Host 'UQ60_PERSISTENT_CHECKOUT_MEMORY_AND_LEDGER_VALIDATION=PASS'
+            Write-Host 'UQ60_GIT_COMMIT_AND_MEMORY_PUSH_NOT_PERFORMED=PASS'
+            Write-Host 'UQ60_ARCHIVE_CURSOR_UNCHANGED_NO_STRANDED_CUSTODY=PASS'
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq60-postapply-custody-audit.v1'
+              status='local_three_observations_applied_without_git_promotion'
+              authorized_main_sha=$head
+              original_records=260
+              newly_accepted_observations=3
+              total_records=263
+              original_ledger_entries_unchanged=101
+              new_ledger_entries=3
+              total_ledger_entries=104
+              changed_tracked_paths=@($changed | Sort-Object)
+              no_git_commit=$true
+              no_git_push=$true
+              no_external_source_writer=$true
+              checkpoint_promotion_not_performed=$true
+            }) -Depth 8 | Write-Host
+          } finally {
+            Exit-RepoSourceAuthority -Lease $lease
+          }
