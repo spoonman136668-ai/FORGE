@@ -25,7 +25,7 @@ jobs:
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ46_WRONG_RUNNER'}
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
-          $expected='1d4cc14541944b950195caf47d0e7826b2005a4c'
+          $expected='ce8d3b37c2cc01338aeb8e3ffe520600369b234f'
           $main='22d819c3473b80be34ecac7280881a67c981207c'
           $ref='refs/heads/engineering/uq46-canonical-snapshot-serializer'
           foreach($pair in @(@('refs/heads/main',$main),@($ref,$expected))){
@@ -50,7 +50,7 @@ jobs:
               $actual=(& git.exe -C $root hash-object --path $p -- (Join-Path $root $p)|Out-String).Trim()
               if($LASTEXITCODE -ne 0 -or $actual -cne $expectedBlobs[$p]){throw ('UQ46_STAGED_BLOB_MISMATCH_'+$p)}
             }
-            Write-Host 'UQ46_PINNED_FIVE_SNAPSHOT_BLOBS=PASS'
+            Write-Host 'UQ46_PINNED_FIVE_SNAPSHOT_BLOBS_AND_CHAT_DELTA_HANDOFF=PASS'
             $nine=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
                     '.ice/chat-delta-state.json','.ice/remote-bootstrap.json',
                     '.ice/remote-catalog.json','.ice/remote-index.ndjson',
@@ -88,7 +88,12 @@ jobs:
               }
             }
             Write-Host 'UQ46_POWERSHELL5_NO_WRITE_FAIL_CLOSED=PASS'
-            $tests=@('Test-ProjectDependencyGraph.ps1','Test-ProjectStateCapsules.ps1','Test-RemoteBootstrap.ps1','Test-UpdateCheckpoint.ps1')
+            # Verify canonical handoff within the authentic Windows PowerShell 5
+            # chat-delta cycle; its checkpoint and push target is a synthetic
+            # local test origin, not Mind-Palace production.
+            $deltaBlob=(& git.exe -C $root hash-object (Join-Path $root 'tools/chat-delta-cycle.ps1') | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $deltaBlob -cne '9a1c364cfd95283e4d4c7dc5de4256be7fba1ec8'){throw 'UQ46_DELTA_CYCLE_BLOB_DRIFT'}
+            $tests=@('Test-ChatDeltaCycle.ps1','Test-ProjectDependencyGraph.ps1','Test-ProjectStateCapsules.ps1','Test-RemoteBootstrap.ps1','Test-UpdateCheckpoint.ps1')
             foreach($name in $tests){
               $stdout=Join-Path $scratch ($name+'.out')
               $stderr=Join-Path $scratch ($name+'.err')
