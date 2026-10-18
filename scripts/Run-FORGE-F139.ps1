@@ -25,9 +25,21 @@ try {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
   if ($env:F139_WORKER_HMAC_KEY.Length -lt 32) { throw 'F139_SECRET_TOO_SHORT' }
   Set-Location -LiteralPath $RepositoryRoot
-  & $PythonExe -B -m f139.local_controller --db $Database loop --seconds $PollSeconds 2>&1 |
-    ForEach-Object { "$(Get-Date -Format o) $_" } | Out-File -LiteralPath $log -Append -Encoding utf8
-  if ($LASTEXITCODE -ne 0) { throw 'F139_CONTROLLER_EXITED' }
+  # Windows PowerShell 5.1 wraps a native process's stderr as a non-terminating
+  # NativeCommandError. In strict Stop mode a deliberately disabled controller
+  # would kill this launcher before the expected safety marker was logged.
+  # Relax ONLY native stderr promotion, not logging or child exit checks.
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & $PythonExe -B -m f139.local_controller --db $Database loop --seconds $PollSeconds 2>&1 |
+      ForEach-Object -ErrorAction Stop { "$(Get-Date -Format o) $_" } |
+      Out-File -LiteralPath $log -Append -Encoding utf8 -ErrorAction Stop
+    $pythonExit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
+  if ($pythonExit -ne 0) { throw 'F139_CONTROLLER_EXITED' }
 } finally {
   Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
   Set-Location -LiteralPath $oldDir
