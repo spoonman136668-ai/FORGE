@@ -43,9 +43,17 @@ def attest():
     learn=import_file("t2_mass_kernel",KERNEL)
     import f124az_joint_public_inverse as old
     p,private=src.fixture(-931)
-    same=p["observations"]
-    need(len(same)==48 and same[:40]==p["FIT"] and same[40:]==p["CHECK"],
+    same_int=p["observations"]
+    need(len(same_int)==48 and same_int[:40]==p["FIT"] and same_int[40:]==p["CHECK"],
          "UNMODIFIED_40_FIT_8_CHECK")
+    # Original AZ expects 16-element bit arrays, not compact int16.
+    # Lossless input representation conversion, with zero new observations.
+    same=[{"input_bits":[(row["input_bits"]>>i)&1 for i in range(16)],
+           "output_bits":[(row["output_bits"]>>i)&1 for i in range(16)]}
+          for row in same_int]
+    need(all(sum(bit<<i for i,bit in enumerate(same[j]["input_bits"]))
+                 ==same_int[j]["input_bits"] for j in range(48)),
+         "PUBLIC_INFORMATION_LOSSLESS")
     fitpairs=[(row["input_bits"],row["output_bits"]) for row in p["FIT"]]
     chk=[(row["input_bits"],row["output_bits"]) for row in p["CHECK"]]
     (new,learn_meta),newcost=measure(lambda:learn.fit_public(fitpairs,chk))
