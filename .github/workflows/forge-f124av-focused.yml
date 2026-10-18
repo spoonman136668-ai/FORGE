@@ -1,0 +1,76 @@
+name: F124-AV frozen source and one-packet focused
+on:
+  push:
+    branches: [research/f124av-active-public-inverse-and-handoff-coherence-20261018]
+    paths:
+      - '.github/workflows/forge-f124av-focused.yml'
+      - 'nativeevidence/f124av_*.py'
+      - 'nativeevidence/test_f124av_*.py'
+      - 'reference/research-intake/f124av-frozen-informative-queries-and-handoff.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124av-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-model-Windows-Linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Preregistered source and original 7+9 and 12bit retained limits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AV_HEAD_IDENTITY_DRIFT' }
+          $f='reference/research-intake/f124av-frozen-informative-queries-and-handoff.json'
+          if((git hash-object $f).Trim() -cne 'd27f98324c348ce3a8b113df9caa0f9be74b286f' -or
+             (git log -1 --format=%H -- $f).Trim() -cne 'df8299bf27486166c953274c0036bc21a63d5e21' -or
+             (git rev-parse 'c5cdb9ba55772b4b69a2534dd48cfc8b7abe20b2:nativeevidence/f124au_train_source.py').Trim() -cne '42ea7ec65bdad1f66bf5a923425bfe13733425d3') {
+            throw 'F124AV_PREIMPLEMENTATION_BIRTH_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124av_*.py' -v
+          if($LASTEXITCODE -ne 0) { throw 'F124AV_FOCUSED_FAIL' }
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0) { throw 'F124AV_RESEARCH_ISOLATION_FAIL' }
+          Write-Output 'F124AV_WINDOWS_LINUX_FOCUSED=PASS'
+          Write-Output 'F124AV_DEV_GENERATED=false'
+  authenticate-AU:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Reauthenticate true AU raw FIT-SCREEN negative and full regression
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($x in @(
+            @{run=39140097345;head='ec8a61f41fce6b4f29d8ae30a4ec52fafbde95af'},
+            @{run=39140323665;head='c5cdb9ba55772b4b69a2534dd48cfc8b7abe20b2'}
+          )){
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($x.run)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.head_sha -cne $x.head -or
+               $r.conclusion -cne 'success' -or $r.status -cne 'completed'){
+              throw 'F124AV_PARENT_RUN_IDENTITY_DRIFT'
+            }
+          }
+          $a=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/39140097345/artifacts" | ConvertFrom-Json
+          $hit=@($a.artifacts | Where-Object { $_.id -eq 12141317064 })
+          if($LASTEXITCODE -ne 0 -or $hit.Count -ne 1 -or $hit[0].expired -or
+             $hit[0].digest -cne 'sha256:2cdf58028af0dc90f04587347fa0932a2102917aafb7a58e11e3fc002235ffea'){
+            throw 'F124AV_PARENT_COMPLETE_RAW_ARTIFACT_DRIFT'
+          }
+          Write-Output 'F124AV_ORIGINAL_NEGATIVE_CUSTODY=PASS'
