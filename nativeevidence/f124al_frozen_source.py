@@ -34,12 +34,12 @@ def frozen():
     need(p["schema"]=="forge.research.f124al.frozen-noisy-outofclass-relations-and-packed-fp.v1"
          and p["state"]=="PREIMPLEMENTATION_FROZEN"
          and p["lineage"]["parent_exact_head"]=="d0d4d4d0ebc3cf4d5ad645bf8cb267fb2c3c7d21"
-         and p["sources"]["Wingless"]==
+         and p["source"]["Wingless"]==
              {x:[v.start,v.stop-1] for x,v in COHORTS["Wingless"].items()}
-         and p["sources"]["Yggdrasil"]==
+         and p["source"]["Yggdrasil"]==
              {x:[v.start,v.stop-1] for x,v in COHORTS["Yggdrasil"].items()}
-         and p["sources"]["TRAIN_operators"]==list(OPERATORS["TRAIN"])
-         and p["sources"]["DEV_operators"]==list(OPERATORS["DEV"])
+         and p["source"]["TRAIN_operators"]==list(OPERATORS["TRAIN"])
+         and p["source"]["DEV_operators"]==list(OPERATORS["DEV"])
          and p["Yggdrasil"]["grid_support"]==list(SUPPORT)
          and p["Wingless"]["grid_cap"]==list(CAP)
          and all(v is False for v in p["authority"].values()),
@@ -85,11 +85,19 @@ def build(lane,seed,vector,phase):
     need(lane in COHORTS and phase in ("TRAIN","DEV")
          and type(seed) is int and seed in COHORTS[lane][phase]
          and tuple(vector) in VECTORS,"NEW_SOURCE_ONLY")
+    # Original AK/AJ source contract has TRAIN/HOLDOUT field names.
+    # Adapt ONLY the fresh cohort names and operator catalogue, not
+    # admissibility or frozen original parent source.
+    adapted={ln:{"TRAIN":v["TRAIN"],"HOLDOUT":v["DEV"]}
+             for ln,v in COHORTS.items()}
+    operations={"TRAIN":OPERATORS["TRAIN"],"HOLDOUT":OPERATORS["DEV"]}
     env=dict(prior.build.__globals__)
-    env.update(COHORTS=COHORTS,OPERATORS=OPERATORS,relation=relation,plain=plain)
+    env.update(COHORTS=adapted,OPERATORS=operations,
+               relation=relation,plain=plain)
     original=types.FunctionType(prior.build.__code__,env,
                                 prior.build.__name__,prior.build.__defaults__)
-    family,op,tag,pos,neg,selected=original(lane,seed,vector,phase)
+    family,op,tag,pos,neg,selected=original(
+        lane,seed,vector,"TRAIN" if phase=="TRAIN" else "HOLDOUT")
     need(family==FAMILIES[(seed-COHORTS[lane][phase].start)%4],
          "ORIGINAL_CAUSAL_STRUCTURE_COHORT")
     # Independent support corruption is EXACTLY symmetric across paired
