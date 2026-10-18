@@ -1,0 +1,93 @@
+name: F124-AX final one full regression of durably archived original negative
+on:
+  push:
+    branches: [research/f124ax-equal-query-and-nonlinear-transfer-20261018]
+    paths: ['.github/workflows/forge-f124ax-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ax-one-complete-regression-only
+  cancel-in-progress: false
+jobs:
+  one-complete:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - name: Prove first source, original provider raw and durable complete negative
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124ax-frozen-equal-public-nonlinear-transfer.json
+          note=reference/research-intake/f124ax-original-equal-budget-train-negative.json
+          raw=reference/research-intake/originals/f124ax-original-six-arm-fit-screen.json
+          test "$(git hash-object "$freeze")" = '4caedd6b8478da897aed53e6992ff75b6c33e783'
+          test "$(git log -1 --format=%H -- "$freeze")" = '9b598cdde3299a9384dbfa3cd5087edf466186fb'
+          test "$(git hash-object "$note")" = 'ffd0350a46b886f8591c0bf6533e7f7ae880cfe0'
+          test "$(git log -1 --format=%H -- "$note")" = '32cf26794530a29027a863a194cd8327afafba32'
+          test "$(git hash-object "$raw")" = '0bc4b0f31b7ce3d5eadd8a158a95c5ba14b70c95'
+          test "$(git log -1 --format=%H -- "$raw")" = '4ee7a214e104a1706d386c084278edbb981d2e28'
+          echo 'b30d4ad989976755ffdc8edcbac468bcca786d7a55c7e816f3e8ecf50a7423f6  reference/research-intake/originals/f124ax-original-six-arm-fit-screen.json' | sha256sum --check --strict
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39146260214" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = 'e458f3dae0a63212a009065c308265be9e3d7fd4 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39146260214/artifacts" --jq '.artifacts[] | select(.id==12143686885 and .expired==false) | .digest')" = 'sha256:56e6cd57d797bf160d0a28a919cc92b8eb42ae6f53ec9b075823fd84e0f5c749'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39146612241" --jq '[.status,.conclusion] | join(" ")')" = 'completed success'
+          python3 -B - <<'PY'
+          import json,hashlib
+          raw=open('reference/research-intake/originals/f124ax-original-six-arm-fit-screen.json','rb').read()
+          src=json.loads(raw)
+          note=json.load(open('reference/research-intake/f124ax-original-equal-budget-train-negative.json'))
+          assert hashlib.sha256(raw).hexdigest()==note['lineage']['original_json_sha256']
+          assert note['status']=='ORIGINAL_TRAIN_NEGATIVE_NONLINEAR_TRANSFER_DEV_UNCONSUMED'
+          assert src['schema']=='forge.research.f124ax.original-equal-budget-nonlinear-train-fit-screen.v1'
+          assert src['source_freeze_blob']==note['lineage']['original_frozen_source_git_blob']
+          assert src['FIT_selected_nonlinear'] is None and not src['SCREEN_selective_nonlinear_transfer']
+          assert src['SCREEN_equal_48_query_balanced_strictly_better_random']
+          assert src['FIT_case_count']==src['SCREEN_case_count']==24
+          assert len(src['FIT_candidates'])==len(src['SCREEN_candidates'])==6
+          for x in note['results']['candidate_grid']:
+              for stage in ('FIT','SCREEN'):
+                  a=src[stage+'_candidates'][x['mode']]
+                  b=x[stage]
+                  for key in ('pairs','paired','FP','FN','public_queries','model_CPU_ns'):
+                      assert a[key]==b[key],(x['mode'],stage,key,a[key],b[key])
+                  assert a['by_operator']['affine']['paired']==b['affine_paired']
+                  assert a['by_operator']['feistel']['paired']==b['feistel_paired']==0
+              assert x['task_model_bits_lower']==src['FIT_candidates'][x['mode']]['task_model_bits_lower']
+          assert all(x['FP']==0 for x in src['SCREEN_candidates'].values())
+          assert src['Yggdrasil_DEV_generated']==src['Wingless_DEV_generated']==0
+          assert src['Yggdrasil_DEV_consumed'] is False and src['Wingless_DEV_consumed'] is False
+          assert not src['protected_science_acceptance'] and not src['optimizer_promotion']
+          assert all(x is False for x in note['authority'].values())
+          print('F124AX_ORIGINAL_FULL_RAW_DURABLE_SHA_AND_6ARM_NEGATIVE=PASS')
+          print('F124AX_NEW_DEV_CONSUMED=false')
+          PY
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete unchanged Go regression and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124AX_ONE_FINAL_FULL_REGRESSION=PASS
+          echo F124AX_EXACT_QUALIFIED_HEAD=$GITHUB_SHA
+          echo F124AX_SCIENTIFIC_TRANSFER_ADMISSION=false
+          echo F124AX_DEV_FIRST_USE=false
