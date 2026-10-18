@@ -1,0 +1,76 @@
+name: F124-AV single full acceptance with selected evidence
+on:
+  push:
+    branches: [research/f124av-active-public-inverse-and-handoff-coherence-20261018]
+    paths: ['.github/workflows/forge-f124av-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124av-single-final-regression
+  cancel-in-progress: false
+jobs:
+  full-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Authenticate exact preregistration, original result, and positive-screen custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          f=reference/research-intake/f124av-frozen-informative-queries-and-handoff.json
+          packet=reference/research-intake/f124av-authenticated-screen-selected-ygg.json
+          test "$(git hash-object "$f")" = d27f98324c348ce3a8b113df9caa0f9be74b286f
+          test "$(git log -1 --format=%H -- "$f")" = df8299bf27486166c953274c0036bc21a63d5e21
+          test "$(git hash-object "$packet")" = 47d2fdb893307a871458348074b6d97b34d42de5
+          test "$(git log -1 --format=%H -- "$packet")" = 539a56313732de831bfa2769e3eb04b9a6fadfe8
+          test "$(git rev-parse 'c5cdb9ba55772b4b69a2534dd48cfc8b7abe20b2:nativeevidence/f124au_train_source.py')" = 42ea7ec65bdad1f66bf5a923425bfe13733425d3
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141593876" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")' | grep -Fx 'b6f48b01ecc5dfea159e275a7becf69b3b3f4c76 completed success push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141593876/artifacts" --jq '.artifacts[] | select(.id==12141722057 and .expired==false) | .digest' | grep -Fx 'sha256:05977f984699c359864b622fb9124013ae85536bdadfaedbb063f907c63f4504'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141766369" --jq '[.status,.conclusion] | join(" ")' | grep -Fx 'completed success'
+          python3 -B -c 'import json; d=json.load(open("reference/research-intake/f124av-authenticated-screen-selected-ygg.json")); assert d["schema"]=="forge.research.f124av.authentic-selected-train-screen-prospective-dev-eligibility.v1"; assert d["Yggdrasil"]["SCREEN_selected"]=={"paired":9,"FP":0,"FN":15}; assert d["Wingless"]["FIT_selected"] is None and d["frozen_sources"]["all_new_DEV_generated"]==0; assert not d["authority"]["independent_scientific_acceptance"] and not d["authority"]["optimizer_promotion"]'
+          echo 'F124AV_FROZEN_YGG_SCREEN_EVIDENCE_AUTHENTIC=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39141593876
+          github-token: ${{ github.token }}
+          name: f124av-original-fit-screen-b6f48b01ecc5dfea159e275a7becf69b3b3f4c76
+          path: original-AV
+      - name: Verify original raw JSON without scientific replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'f7cbfc844e64510a172a4144bd90a56a37ec6f76b805e5b39cb2bf953e40641d  original-AV/f124av-original-fit-screen.json' | sha256sum --check --strict
+          python3 -B -c 'import json; d=json.load(open("original-AV/f124av-original-fit-screen.json")); y=d["Yggdrasil"]; w=d["Wingless"]; assert d["schema"]=="forge.research.f124av.fresh-public-query-inverse-handoff-train.v1"; assert y["FIT_selection"]=={"query_condition":"balanced_basis48","fit_bit_budget":12,"min_CHECK_correct":96}; assert y["TRAIN_SCREEN"]["candidates"][0]["results"]["paired"]==9 and y["TRAIN_SCREEN"]["candidates"][0]["results"]["FP"]==0 and y["SCREEN_eligible"] is True; assert w["FIT_selection"] is None and w["SCREEN_eligible"] is False; assert d["both_new_DEV_generated"]==0 and d["both_new_DEV_consumed"] is False and not d["optimizer_promotion"]'
+          echo 'F124AV_ORIGINAL_FIRST_FIT_SCREEN_CUSTODY=PASS'
+          echo 'F124AV_ALL_NEW_DEV_UNCONSUMED=true'
+      - name: Exactly one complete system regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AV_ONE_FULL_REGRESSION=PASS"
+          echo "F124AV_QUALIFIED_EXACT_SHA=$GITHUB_SHA"
+          echo 'F124AV_PROTECTED_SCIENCE_ACCEPTED=false'
+          echo 'F124AV_OPTIMIZER_PROMOTION=false'
