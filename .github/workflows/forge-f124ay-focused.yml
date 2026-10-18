@@ -1,0 +1,66 @@
+name: F124-AY frozen structural nonlinear model and source-focused tests
+on:
+  push:
+    branches: [research/f124ay-learned-feistel-composition-20261018]
+    paths:
+      - '.github/workflows/forge-f124ay-focused.yml'
+      - 'nativeevidence/f124ay_train_source.py'
+      - 'nativeevidence/f124ay_learned_composition.py'
+      - 'nativeevidence/f124ay_fit_screen.py'
+      - 'nativeevidence/test_f124ay_frozen_nonlinear_preflight.py'
+      - 'reference/research-intake/f124ay-frozen-feistel-composition-equal48.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ay-prescience-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source-first frozen identity, model capacity, synthetic-only behavior
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124AY_HEAD_CHANGED'}
+          $path='reference/research-intake/f124ay-frozen-feistel-composition-equal48.json'
+          if ((git hash-object $path).Trim() -cne 'ad3d46c32a8fa072b0e0144d23e5be5e9210e36b' -or
+              (git log -1 --format=%H -- $path).Trim() -cne '2981c3477320bc764bdbff615f02f05f29511d61' -or
+              (git rev-parse '501abdededa606698fdc4a396dc19c7d0130ac5d:nativeevidence/f124ax_train_source.py').Trim() -cne 'b8e66f2b5afd975bbd3f854e687ea9f605e3eb59'){
+            throw 'F124AY_FROZEN_SOURCE_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ay_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124AY_SYNTHETIC_PRETRAIN_NOT_QUALIFIED'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124AY_ISOLATION_FAILURE'}
+          Write-Output 'F124AY_FROZEN_NONLINEAR_MODELS=PASS'
+          Write-Output 'F124AY_FIRST_TRAIN_UNCONSUMED=true'
+          Write-Output 'F124AY_NEW_DEV_UNCONSUMED=true'
+  original-parent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Authenticate exact original AX parent, research negative and durable case evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39146728031 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '501abdededa606698fdc4a396dc19c7d0130ac5d completed success'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39146260214 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'e458f3dae0a63212a009065c308265be9e3d7fd4 completed success'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39146260214/artifacts --jq '.artifacts[] | select(.id==12143686885 and .expired==false) | .digest')" = 'sha256:56e6cd57d797bf160d0a28a919cc92b8eb42ae6f53ec9b075823fd84e0f5c749'
+          echo F124AY_ORIGINAL_PARENT_FULL_REGRESSION_AND_RAW=PASS

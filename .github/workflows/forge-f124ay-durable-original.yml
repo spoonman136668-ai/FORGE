@@ -1,0 +1,75 @@
+name: F124-AY append-only original scientific raw evidence archival
+on:
+  push:
+    branches: [research/f124ay-learned-feistel-composition-20261018]
+    paths: ['.github/workflows/forge-f124ay-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124ay-single-original-append-only-receipt
+  cancel-in-progress: false
+jobs:
+  original-archive:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39147909442
+          github-token: ${{ github.token }}
+          name: f124ay-original-structural-six-arm-fit-screen-2d4e27ecb8b59d1ab8c36c6ffffa7f0ebbf75731
+          path: original
+      - name: Authenticate provider first-use and append original bytes ONLY to feature branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = 'research/f124ay-learned-feistel-composition-20261018'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39147909442" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '2d4e27ecb8b59d1ab8c36c6ffffa7f0ebbf75731 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39147909442/artifacts" --jq '.artifacts[] | select(.id==12144565111 and .expired==false) | .digest')" = 'sha256:38a442b07b998e623b980243dc3dc06764ae119778cdf817e2be8054457d940a'
+          echo 'a60f54bf5676e1fa0959837f08b568654fcc0bce5e3fee053778e20aa6a2c869  original/f124ay-original-fit-screen.json' | sha256sum --check --strict
+          dest='reference/research-intake/originals/f124ay-original-structural-six-arm-fit-screen.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124AY_APPEND_ONLY_ORIGINAL_ALREADY_EXISTS
+            exit 1
+          fi
+          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha')
+          test "$remote_sha" = "$GITHUB_SHA" || { echo 'F124AY_FEATURE_BRANCH_DRIFT_STOP'; exit 1; }
+          python3 -B - <<'PY'
+          import json
+          d=json.load(open('original/f124ay-original-fit-screen.json'))
+          assert d['schema']=='forge.research.f124ay.original-equal48-structural-composition-fit-screen.v1'
+          assert d['original_source_freeze_git_blob']=='ad3d46c32a8fa072b0e0144d23e5be5e9210e36b'
+          assert d['FIT_selected_before_held_SCREEN']=='learned_roundkey_basis48'
+          assert d['SCREEN_frozen_nonlinear_success'] is False
+          assert d['Ygg_DEV_generated']==d['Wingless_DEV_generated']==0
+          assert d['Ygg_DEV_consumed'] is False and d['Wingless_DEV_consumed'] is False
+          assert len(d['FIT_models'])==len(d['SCREEN_models'])==6
+          print('F124AY_FULL_ORIGINAL_SOURCE_NEGATIVE_AUTHENTICATED=PASS')
+          PY
+          # A 102 KB original exceeds OS argument-size limits when passed as -f.
+          # Pipe immutable encoded bytes through a temporary JSON request body.
+          python3 -B - <<'PY'
+          import base64,json,os
+          original=open("original/f124ay-original-fit-screen.json","rb").read()
+          request={
+              "message":"F124-AY append original unmodified authenticated 6-arm TRAIN FIT SCREEN case evidence",
+              "content":base64.b64encode(original).decode("ascii"),
+              "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124ay-original-append-request.json","w",encoding="utf-8") as f:
+              json.dump(request,f,separators=(",",":"))
+          print("F124AY_ORIGINAL_RAW_REQUEST_READY=PASS")
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" \
+            --input /tmp/f124ay-original-append-request.json \
+            --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124AY_ORIGINAL_RAW_LONGTERM_REPOSITORY_ARCHIVED=PASS
+          echo F124AY_NO_SCIENTIFIC_PROMOTION=true
