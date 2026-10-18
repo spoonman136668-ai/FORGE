@@ -1,0 +1,148 @@
+name: F124-AL source-frozen multi-operator transfer and physical controls
+on:
+  push:
+    branches: [research/f124al-operator-transfer-20261018]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: f124al-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  new-source-and-controls:
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Original AK code frozen, complete independent FIT DEV three-family cases and all 16-cell controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AL_SOURCE_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124al_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AL_NEW_SOURCE_OR_FIXED_ADMISSION_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AL_ORIGINAL_FORGE_ISOLATION_FAILED' }
+          Write-Output 'F124AL_PROTECTED_FIRST_USE=false'
+  locked-model-new-transfer:
+    needs: new-source-and-controls
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39116272361
+          github-token: ${{ github.token }}
+          name: f124ak-FIT-learned-intermediate-and-binder-6b1e0dc9a9a8e971bdcc042ca54db4d88d8dfe0d
+          path: ak
+      - name: Source-authenticated ORIGINAL FIT-only AK model unchanged on new three-family FIT DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124al_transfer.py --original-ak-receipt ak/f124ak-learned.json --output "$RUNNER_TEMP/f124al-transfer.json"
+          python3 - "$RUNNER_TEMP/f124al-transfer.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.research.f124al.locked-AK-transfer-controls.v1"
+          assert x["freeze_blob"]=="b88c8fbc01bc9cd1cceb6d9523e75cbc47dc2a9a"
+          assert x["original_AK_fitted_weights_unchanged"]
+          assert x["original_AK_python_bytecode_unchanged"]
+          assert x["no_new_FIT_or_DEV_model_training_or_selection"]
+          assert x["original_cells"]==16 and x["AK_global_params"]==39
+          assert not x["protected_first_use"] and not x["independent_science_accepted"]
+          assert x["silent_slot_is_absent_event_NOT_missing_bit_mask"]
+          for phase in ("FIT","DEV"):
+              for fam in ("double_bit","silent_slot","three_events"):
+                  for arm,z in x[phase][fam]["arms"].items():
+                      assert z["pairs"]==48 and len(z["cases"])==48
+                      assert z["blocked"]==0
+                      assert all(d["pairs"]==16 for d in z["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124al-transfer.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124al-locked-AK-transfer-all-cases-${{ github.sha }}
+          path: ${{ runner.temp }}/f124al-transfer.json
+          retention-days: 90
+          if-no-files-found: error
+  actual-physical-resource:
+    needs: new-source-and-controls
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39116272361
+          github-token: ${{ github.token }}
+          name: f124ak-FIT-learned-intermediate-and-binder-6b1e0dc9a9a8e971bdcc042ca54db4d88d8dfe0d
+          path: ak
+      - name: Real full model OS RSS CPU wall Python heap on identical 96 three-event graphs 4 arms x3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124al-cost-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124al_physical.py --bench --original-ak-receipt ak/f124ak-learned.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AL_ORIGINAL_RESOURCE_MEASUREMENT_FAILED' }
+          $d=Get-Content $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.research.f124al.real-total-transfer-cost.v1' -or
+              $d.freeze_blob -cne 'b88c8fbc01bc9cd1cceb6d9523e75cbc47dc2a9a' -or
+              $d.raw.Count -ne 12 -or $d.original_cell_count_maximum -ne 16 -or
+              -not $d.global_parameters_accounted -or -not $d.score_payload_type_accounted -or
+              $d.protected_first_use -or $d.science_accepted) {
+            throw 'F124AL_PHYSICAL_IDENTITY'
+          }
+          foreach ($arm in @('ak_original_frozen','fixed_consistency16','fixed_collisionfree','fixed_generalized_mask')) {
+            $r=$d.summary.$arm
+            if ($r.repetitions -ne 3 -or $r.median_wall_ns -le 0 -or
+                $r.median_cpu_ns -le 0 -or $r.median_RSS_peak_bytes -le 0 -or
+                $r.max_original_cells -gt 16) { throw 'F124AL_BAD_RESOURCE_REPETITION' }
+            Write-Output "F124AL_COST_$($arm):RSS=$($r.median_RSS_peak_bytes):wall_ns=$($r.median_wall_ns):cpu_ns=$($r.median_cpu_ns):heap=$($r.median_Python_heap_peak_bytes)"
+          }
+          Write-Output "F124AL_RESOURCE_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124al-four-arm-physical-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124al-cost-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+  one-original-full-regression:
+    needs: [locked-model-new-transfer, actual-physical-resource]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env: {GOMAXPROCS: '2', GOFLAGS: '-p=2', GOMEMLIMIT: '1536MiB'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Exactly one full original Go tests race vet build and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AL_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124AL_PROTECTED_FIRST_USE=false'
