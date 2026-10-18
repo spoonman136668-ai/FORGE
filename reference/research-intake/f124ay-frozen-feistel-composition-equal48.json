@@ -1,0 +1,174 @@
+{
+  "schema": "forge.research.f124ay.preimplementation-frozen-feistel-composition-and-equal-query-controls.v1",
+  "status": "PREIMPLEMENTATION_FROZEN",
+  "date": "2026-10-18",
+  "lineage": {
+    "qualified_AX_parent": "501abdededa606698fdc4a396dc19c7d0130ac5d",
+    "AX_final_regression": 39146728031,
+    "AX_original_raw_sha256": "b30d4ad989976755ffdc8edcbac468bcca786d7a55c7e816f3e8ecf50a7423f6",
+    "AX_original_git_blob": "0bc4b0f31b7ce3d5eadd8a158a95c5ba14b70c95",
+    "AX_original_frozen_source_blob": "4caedd6b8478da897aed53e6992ff75b6c33e783",
+    "AW_DEV_consumed_and_excluded": true,
+    "AX_TRAIN_consumed_and_excluded": true,
+    "AV_original_learned_affine_blob": "0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5",
+    "AX_source_blob": "b8e66f2b5afd975bbd3f854e687ea9f605e3eb59"
+  },
+  "source": {
+    "lane": "Yggdrasil",
+    "TRAIN": [
+      4600000,
+      4600023
+    ],
+    "DEV": [
+      4600100,
+      4600123
+    ],
+    "operators_TRAIN": [
+      "affine_AX419",
+      "feistel_K419",
+      "affine_AX421",
+      "feistel_K421"
+    ],
+    "operators_DEV": [
+      "affine_AX431",
+      "feistel_K431",
+      "affine_AX433",
+      "feistel_K433"
+    ],
+    "families": [
+      "xor16_permuted",
+      "rotate4_dense_13_15",
+      "xor16_extended_13_15",
+      "rotate4_tolerant"
+    ],
+    "vectors": [
+      [
+        2,
+        1,
+        1
+      ],
+      [
+        1,
+        2,
+        1
+      ]
+    ],
+    "TRAIN_FIT": [
+      4600000,
+      4600011
+    ],
+    "TRAIN_SCREEN": [
+      4600012,
+      4600023
+    ],
+    "pairs_each": 24,
+    "operator_pairs_each": 12,
+    "family_pairs_each": 6,
+    "public_answers_per_task": 48,
+    "original_public": 24,
+    "additional_public": 24,
+    "noisy_original": 3,
+    "noisy_additional": 3,
+    "fit_demos": 40,
+    "check_demos": 8,
+    "query_conditions": [
+      "balanced_basis48",
+      "random48"
+    ],
+    "DEV_constructor_forbidden": true,
+    "operator_oracle_only_evaluator": true,
+    "labels_only_evaluator": true
+  },
+  "models": {
+    "frozen_arms": [
+      [
+        "affine_basis48",
+        "balanced_basis48",
+        "AV_original_affine"
+      ],
+      [
+        "affine_random48",
+        "random48",
+        "AV_original_affine"
+      ],
+      [
+        "learned_roundkey_basis48",
+        "balanced_basis48",
+        "learned_two_round_keyed"
+      ],
+      [
+        "learned_roundkey_random48",
+        "random48",
+        "learned_two_round_keyed"
+      ],
+      [
+        "learned_roundtable_basis48",
+        "balanced_basis48",
+        "learned_public_round_table"
+      ],
+      [
+        "learned_roundtable_random48",
+        "random48",
+        "learned_public_round_table"
+      ]
+    ],
+    "round_key_architecture": {
+      "description": "Task-specific supervised two-round 8+8 composition. From only PUBLIC 40 FIT pairs, evaluate a frozen parametric eight-bit nonlinear round basis F_k(v,r)=((v*k) XOR ((v<<3)&255) XOR (v>>2) XOR ((v*v)&255) XOR ((k+29*r)&255)) &255. Enumerate frozen 256 candidate initial keys in 0..255 and choose minimal total FIT bit mismatch with deterministic numeric tie-breaking. Decode unseen outputs using learned task key, with no source operator name or evaluator key; eight held CHECK public examples for the unchanged >=96/128 confidence gate. Structural form deliberately precommitted and may match the source family's inductive bias; NOT an operator-agnostic learner or proof of universal nonlinear transfer.",
+      "candidate_initial_keys": 256,
+      "rounds": 2,
+      "fit_metric": "total_public_FIT_output_bit_errors",
+      "fit_limit_examples": 40,
+      "parameters_bits": 8,
+      "extra_fit_model_memory_outside_original_cells": true
+    },
+    "round_table_architecture": {
+      "description": "Learn two 8-bit round function lookup tables entirely from PUBLIC 40 FIT input/output pairs: round0 value from xL XOR yL keyed by xR; round1 value from xR XOR yR keyed by yL. Resolve conflicts via modal byte vote, unseen table values use nearest-known 8-bit Hamming support with deterministic numeric tie-break. No keyed generator template in this arm; extra task-specific lookup memory outside original cognitive cells.",
+      "parameters_bits_lower": 4096,
+      "unknown_fallback": "minimum Hamming distance; numerical tie-break"
+    },
+    "affine_controls": "Exact immutable AV original balanced48 and random48; same fresh source, 48 public answers, 40 FIT and 8 CHECK.",
+    "check_min_correct_bits": 96,
+    "fit_false_positive_gate": 0,
+    "source_inference_only_public_values": true,
+    "model_receives_operator_name": false,
+    "model_receives_TRUE_inverse": false,
+    "model_receives_graph_label": false,
+    "original_cognitive_active": 7,
+    "original_retained": 9,
+    "all_learner_weights_outside_16_cells": true
+  },
+  "eligibility": {
+    "FIT_rule": "Freeze rank using only 24 FIT paired TRAIN samples, select at most one nonlinear arm only when >=1 correct Feistel pair, FP0, total paired strictly exceeds best 48-answer affine FIT control. No FIT winner means no DEV eligibility regardless of SCREEN.",
+    "SCREEN_rule": "Independently evaluate all six unchanged models on the held 24 TRAIN-SCREEN samples after FIT-only choice; selected nonlinear must keep FP0, have >=1 Feistel paired correct and strict paired superiority over best same-source equal-budget affine SCREEN control. No SCREEN retuning or alternative re-selection.",
+    "DEV_rule": "Only independently frozen newly eligible config and separate exact-head first-use qualification after all TRAIN gates. No DEV source creation in this gate."
+  },
+  "costs": {
+    "public_calls_each_task": 48,
+    "extra_public_calls": 24,
+    "model_training_CPU_wall_tracemalloc": true,
+    "query_construction_CPU_separate": true,
+    "per_arm_inference_operation_estimate": true,
+    "extra_model_bits_reported": true,
+    "no_attribution_of_single_process_RSS_to_arm": true,
+    "no_hardware_equalized_claim": true,
+    "original_7plus9_unchanged": true,
+    "report_FIT_and_SCREEN_by_affine_Feistel_and_family": true,
+    "full_source_original_JSON_git_archival": true,
+    "final_one_consolidated_go_regression": true
+  },
+  "authority": {
+    "Ygg_DEV_generated": false,
+    "Ygg_DEV_consumed": false,
+    "Wingless_DEV_generated": false,
+    "Wingless_DEV_consumed": false,
+    "protected_first_use": false,
+    "independent_scientific_acceptance": false,
+    "optimizer_promotion": false,
+    "production_activation": false,
+    "accepted_ref_mutation": false,
+    "merge": false,
+    "other_repo_mutation": false,
+    "CKB_plane_dependency": false,
+    "paid_API": false
+  }
+}
