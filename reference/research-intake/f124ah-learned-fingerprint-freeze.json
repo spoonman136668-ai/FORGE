@@ -1,0 +1,174 @@
+{
+  "schema": "forge.research.f124ah.learned-pairwise-fingerprint.v1",
+  "stage": "PREIMPLEMENTATION_FROZEN",
+  "qualified_parent": {
+    "pr": 510,
+    "head": "dad429047450b2b0dffbf61722d9fb9cef106e07",
+    "actions": 39111665880
+  },
+  "source": {
+    "generator": "F124AG semantic paired two-error noise with independently fresh salted FIT and DEV populations; no F124AG samples or pretrained tuning",
+    "families": [
+      {
+        "name": "adjacent_noise",
+        "salt": "forge/F124AH/new-fingerprint/adjacent/v1",
+        "hops": [
+          4,
+          5
+        ]
+      },
+      {
+        "name": "delayed_noise",
+        "salt": "forge/F124AH/new-fingerprint/delayed/v1",
+        "hops": [
+          3,
+          8
+        ]
+      },
+      {
+        "name": "reused_role_noise",
+        "salt": "forge/F124AH/new-fingerprint/roles/v1",
+        "hops": [
+          2,
+          8
+        ]
+      }
+    ],
+    "FIT_seeds": [
+      2990000,
+      2990023
+    ],
+    "DEV_seeds": [
+      2990100,
+      2990123
+    ],
+    "vectors": [
+      [
+        2,
+        1,
+        1
+      ],
+      [
+        1,
+        2,
+        1
+      ]
+    ],
+    "pairs_per_family_phase": 48,
+    "depth_balance": {
+      "10": 16,
+      "11": 16,
+      "12": 16
+    },
+    "semantic_truth": "two one-bit mismatches on public path, same bit index positive, different bit indexes negative",
+    "negative_token_role_topology_histogram_equal": true,
+    "exact_control_accepts_neither": true,
+    "tolerant_control_accepts_both": true
+  },
+  "models": {
+    "historical_original": [
+      "O_original",
+      "O_combined",
+      "U_original",
+      "U_combined"
+    ],
+    "historical_weights_unchanged": true,
+    "historical_combined_coefficients": {
+      "gamma": 0.1,
+      "penalty": 1
+    },
+    "fingerprint": "Trainable 16-position scalar codebook learned from FIT labeled public pairs. First mismatched bit identity encoded by its learned codebook scalar in the EXISTING cell.score; second mismatch retrieves code and classifies by squared distance with FIT-frozen threshold; two hops may be separated by arbitrary intervening exact transitions. Keep existing original node/raw16/score cell payload, seven active and nine retained maximum, no additional persistent state.",
+    "algorithm": "Unconstrained logistic SGD on scalar difference-square for positive same-bit vs negative different-bit, initial per-bit codes seed fixed, train 100 epochs on all FIT pairs in deterministic order; code gradient clipped to +/-1 per update and codes projected [-2,2]; trainable scalar decision threshold FIT-selected from [0.0001,0.001,0.01,0.04,0.09,0.16,0.25,0.49] maximizing FIT pair count with zero FIT false positives, tie smallest threshold; DEV has zero tuning.",
+    "initialized_codebook": "Deterministic xorshift hash signed floats approx [-0.015,0.015], trainable all 16 codes; no secret labels in inference.",
+    "sgd": {
+      "epochs": 100,
+      "learning_rate": 0.075,
+      "l2_weight": 0.0001,
+      "margin_squared": 0.09,
+      "negative_permutations": false,
+      "fixed_salt": "forge/F124AH/SGD-deterministic/v1"
+    },
+    "controls": [
+      "untrained_codebook_fixed_threshold",
+      "trained_codebook_zero-false-positive_FIT_selected",
+      "fixed_consistency16",
+      "fixed_exact16",
+      "fixed_tolerant15",
+      "original O/U combined"
+    ],
+    "train_and_eval_budget": {
+      "max_active": 7,
+      "max_retained": 9,
+      "max_total": 16,
+      "persistent_fields": [
+        "node",
+        "carried_raw16",
+        "score"
+      ],
+      "global_parameter_count": 17,
+      "parameter_RAM_must_be_reported": true,
+      "no_claim_of_matching_total_memory_from_16cell_limit": true
+    },
+    "source_oracle_in_training": "FIT labels allow supervised extraction of the public near-tolerant path for training ONLY; no FIT or DEV source semantic oracle called in inference"
+  },
+  "scientific": {
+    "primary": "Trained compact fingerprint improves exact paired correctness over historically frozen O/U on each fresh DEV family, with zero false-positive negatives; must also report comparison against successful fixed consistency16 and untrained codebook. Equal performance with simpler fixed comparator is NOT learned superiority.",
+    "secondary": [
+      "trained_l2_delta",
+      "FIT_training_loss",
+      "FIT_selected_threshold",
+      "untrained_vs_trained",
+      "positive_false_negative",
+      "negative_false_positive",
+      "raw_case_pred_and_depth",
+      "actual_cell_peak"
+    ],
+    "retain_all_negatives": true,
+    "never_retune_on_DEV": true
+  },
+  "physical": {
+    "platforms": [
+      "ubuntu-latest",
+      "windows-latest"
+    ],
+    "family": "delayed_noise",
+    "cases": 96,
+    "arms": [
+      "O_original",
+      "O_combined",
+      "U_original",
+      "U_combined",
+      "untrained_fp",
+      "trained_fp",
+      "fixed_consistency16"
+    ],
+    "fresh_repetitions": 3,
+    "measure": [
+      "peak_OS_process_RSS",
+      "Python_inference_peak",
+      "wall_ns",
+      "CPU_ns",
+      "raw_bit_comparisons",
+      "public_edge_scans",
+      "parameter_count"
+    ],
+    "same_worker_per_OS": true
+  },
+  "governance": {
+    "protected_first_use": false,
+    "independent_science_accepted": false,
+    "optimizer_promoted": false,
+    "accepted_ref_mutation": false,
+    "production": false,
+    "paid_API_Codex": false,
+    "new_scheduler": false,
+    "CKB_plane_contact": false,
+    "MindPalace_Cloudflare_write": false
+  },
+  "qualification": {
+    "two_OS_focused_and_new_source_tests": true,
+    "old_weights_authenticated": true,
+    "one_full_Go_test_race_vet_build": true,
+    "draft_unmerged": true
+  }
+}
