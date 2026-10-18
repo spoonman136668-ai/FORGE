@@ -188,6 +188,29 @@ def decision(trigger,index,recent,main_sha,now,paused=False):
         "optimizer_promotions":0,"paid_API_calls":0,"Codex_calls":0,
         "scheduled_main_continuity_proven_by_dispatch":False}
 
+
+def single_recheck_delay_seconds(report,now):
+    """One bounded post-slot read; the frozen near-fallback veto remains binding.
+
+    Never defer a failed source, budget, pause, overlap or provenance gate.
+    This only schedules a *single* fresh F136 decision in the existing job;
+    it does not promise that GitHub will deliver a nominal cron event.
+    """
+    need(type(report) is dict and report.get("schema")==
+         "forge.autonomy.f136.development-succession-decision.v1"
+         and type(now) is dt.datetime and now.tzinfo is not None,
+         "POST_SLOT_RECHECK_INPUT_INVALID")
+    if report.get("dispatch") is not False or report.get("reasons")!=[
+            "FALLBACK_SLOT_IMMINENT"]:
+        return 0
+    now=now.astimezone(dt.timezone.utc)
+    until_slot=(7*60-(now.minute*60+now.second))%(10*60)
+    need(until_slot<=120,"POST_SLOT_RECHECK_NOT_NEAR_FALLBACK")
+    # Two minutes after the nominal slot, re-read authoritative run history.
+    # Any newly queued/active/successful run suppresses duplicate dispatch.
+    # At most 240 seconds total; no retry loop or new scheduler.
+    return until_slot+120
+
 def validate_contents(report_dir,expected_source,run_id):
     folder=Path(report_dir)
     results={}
