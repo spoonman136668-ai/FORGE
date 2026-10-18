@@ -48,7 +48,7 @@ class F124ACTests(unittest.TestCase):
                              after["terminal_exact_link_confirmed"])
 
     def test_selection_never_touches_DEV(self):
-        fake={arm:[{"depth":10,"positive_base":-.1,"negative_base":-2.,
+        fake={arm:[{"depth":10+i//16,"positive_base":-.1,"negative_base":-2.,
                     "positive_exact_link":True,"negative_exact_link":False,
                     "case":i,"original_path_lost":False,
                     "positive_terminal_cell_count":1,
