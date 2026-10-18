@@ -1,0 +1,57 @@
+name: T4 optimizer train-only learning and real resource parity
+on:
+  push:
+    branches: [research/north-star-transfer-optimizer-20261018]
+    paths: ['.github/workflows/north-star-t4-optimizer.yml']
+permissions:
+  contents: read
+concurrency:
+  group: northstar-t4-optimizer-nonprotected-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-source-aware-open-diagnostic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check immutable source, T3 controls and complete frozen T4 admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T4_EXACT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-t4-frozen-train-only.json').Trim() -cne '95ebdb1df3dbd4c6e5c40023ccc495f4c0834aa7'){throw 'T4_FREEZE_BLOB_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-optimizer-t4-frozen-train-only.json').Trim() -cne '8cc633e82a845da60f66cb6861c978512c250b36'){throw 'T4_FREEZE_NOT_PRECODE'}
+          git merge-base --is-ancestor '8cc633e82a845da60f66cb6861c978512c250b36' HEAD
+          if($LASTEXITCODE -ne 0){throw 'T4_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-t4-learning.py').Trim() -cne 'c9e214090f0869fd956f50d1c3bf7622aa07e81d'){throw 'T4_TRAINING_SOURCE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-learned-kernel.py').Trim() -cne '3770d4d1714b3478d229509e1468b3d646ade1e2'){throw 'T4_T3_FROZEN_LEARNER_DRIFT'}
+          Write-Output 'T4_OPTIMIZER_EXACT_SOURCE_FREEZE=PASS'
+      - name: Execute disjoint public learning and compare genuine controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-optimizer-t4-learning.py' | Tee-Object -FilePath 't4-optimizer-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T4_OPTIMIZER_LEARNING_EVALUATION_FAIL'}
+          $j=Get-Content 't4-optimizer-original.json' -Raw | ConvertFrom-Json
+          if($j.'scientific_acceptance' -ne $false){throw 'T4_PROTECTED_SCIENCE_UNAUTHORIZED'}
+          if($j.'original_research_protected_sources_consumed' -ne 0 -and $j.'original_research_protected_sources_consumed' -ne $false){throw 'T4_PROTECTED_SOURCE_USED'}
+          Write-Output 'T4_OPTIMIZER_TRAINING_AND_RESOURCE_EVIDENCE=PASS'
+          Write-Output 'T4_OPTIMIZER_INDEPENDENT_PROTECTED_TRANSFER_ACCEPTANCE=false'
+          Write-Output 'T4_OPTIMIZER_AUTOMATIC_PROMOTION=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t4-optimizer-nonprotected-${{ matrix.os }}-${{ github.sha }}
+          path: t4-optimizer-original.json
+          retention-days: 90
+          if-no-files-found: error
