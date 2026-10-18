@@ -74,23 +74,10 @@ jobs:
           $key = Join-Path $scratch 'probe.dpapi.xml'
           $log = Join-Path $scratch 'logs\controller.log'
           $sha = (& git rev-parse HEAD).Trim()
-          if ($sha -notmatch '^[0-9a-f]{40}
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          foreach ($file in @('scripts/Install-FORGE-F139.ps1','scripts/Run-FORGE-F139.ps1')) {
-            $tokens=$null; $errors=$null
-            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file),[ref]$tokens,[ref]$errors) | Out-Null
-            if ($errors.Count -gt 0) { throw "F139_POWERSHELL_PARSE_FAILED:$file" }
-          }
-          & ./scripts/Install-FORGE-F139.ps1
-          if (-not $?) { throw 'F139_INERT_INSTALL_CHECK_FAILED' }
-          Write-Host 'F139_WINDOWS_TASK_INSTALL_DEFAULT_INERT=PASS'
-) { throw 'F139_PROBE_SOURCE_INVALID' }
+          if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'F139_PROBE_SOURCE_INVALID' }
           & python -B -m f139.local_controller --db $db init --source-sha $sha
           if ($LASTEXITCODE -ne 0) { throw 'F139_PROBE_DB_INIT_FAILED' }
-          $secret = ConvertTo-SecureString ('f139-ephemeral-test-only-' + 'x' * 48) -AsPlainText -Force
+          $secret = ConvertTo-SecureString ('f139-ephemeral-test-only-' + ('x' * 48)) -AsPlainText -Force
           $secret | Export-Clixml -LiteralPath $key
           $pythonExe = (Get-Command python -ErrorAction Stop).Source
           $src = (Get-Location).Path
