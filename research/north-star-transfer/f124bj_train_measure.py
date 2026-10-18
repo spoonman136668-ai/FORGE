@@ -14,7 +14,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import resource
 import subprocess
 import sys
 import time
@@ -62,6 +61,7 @@ def source_public(tag):
 
 def meta_train():
     need(sys.platform == "linux", "LINUX_PROCESS_RESOURCES")
+    import resource
     need(file_blob(NATIVE / "f124az_joint_public_inverse.py") == AZ_BLOB
          and file_blob(HERE / "20261018-mass-learned-kernel.py") == KERNEL_BLOB,
          "IMMUTABLE_FROZEN_MODELS")
