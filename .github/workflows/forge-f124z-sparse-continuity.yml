@@ -1,0 +1,232 @@
+name: F124-Z frozen sparse compression and causal key continuity
+on:
+  push:
+    branches: [research/f124z-sparse-compression-causal-continuity-20261017]
+    paths:
+      - 'reference/research-intake/f124z-frozen-sparse-continuity.json'
+      - 'nativeevidence/f124z_*.py'
+      - 'nativeevidence/test_f124z_*.py'
+      - '.github/workflows/forge-f124z-sparse-continuity.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124z-frozen-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  fixed-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen exact-head public source and original-model parity on both platforms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124Z_HEAD_DRIFT' }
+          foreach ($pattern in @('test_f124z_*.py','test_f124y_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124Z_FOCUSED_FAILURE_$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124Z_SOURCE_ISOLATION' }
+          Write-Output 'F124Z_PROTECTED_FIRST_USE=false'
+  original-authentic-new-data:
+    needs: fixed-source-focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original O T U W X Y provider evidence before experiment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $upstream=@(
+            @{id='39078269441';head='5b52da1e38d5ff5671c582676790daf0462dd18d';artifact='12116979526';digest='sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c'},
+            @{id='39082424955';head='01560f7f4f1aab5737cfd045dffd7faaccfb0608';artifact='12120010101';digest='sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3'},
+            @{id='39083528704';head='6ba96aaaeff083a5e2f54020c70d2a717e431a10';artifact='12119184999';digest='sha256:93cf41e63c5fd458376778fd54f6da9eaa8677b390be763b6b214ca26fa6089a'},
+            @{id='39085219061';head='af17fadc6bb66e30a6f7ebd1a6a629398cc09709';artifact='12119928375';digest='sha256:77774cd7a47d3e1d9357d52e6e82e28fbf7fe6bfc2e1fcaa5c4e94f13c941c0f'},
+            @{id='39085922140';head='4f7fa505737acae4568df755b4804c384b057980';artifact='12120417300';digest='sha256:7d84f022f02ec607c9db09ba854141057c72f0ecb4cc7592ef298e778690f639'},
+            @{id='39086773832';head='f4d8770482cce0d0f282420b45a1bd931cf81bd5';artifact='12121042723';digest='sha256:4efb86146c361e50d1c177faa979382bd9eb7e88fe1d8e5783f3e4e15efb23de'}
+          )
+          foreach ($p in $upstream) {
+            $run=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.head -or
+                $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+                $run.event -cne 'push') { throw 'F124Z_UPSTREAM_RUN_CUSTODY' }
+            $list=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0) { throw 'F124Z_PROVIDER_ARTIFACT_INDEX' }
+            $a=@($list.artifacts | Where-Object { "$($_.id)" -ceq $p.artifact })
+            if ($a.Count -ne 1 -or $a[0].digest -cne $p.digest -or $a[0].expired) {
+              throw 'F124Z_UPSTREAM_ORIGINAL_ARTIFACT_DIGEST'
+            }
+          }
+          Write-Output 'F124Z_SOURCE_PROVIDER_CUSTODY=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: upstream-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: upstream-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39083528704
+          github-token: ${{ github.token }}
+          name: f124u-preregistered-fresh-development-6ba96aaaeff083a5e2f54020c70d2a717e431a10
+          path: upstream-u
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39085219061
+          github-token: ${{ github.token }}
+          name: f124w-frozen-hop-trace-and-indexed-fresh-af17fadc6bb66e30a6f7ebd1a6a629398cc09709
+          path: upstream-w
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39085922140
+          github-token: ${{ github.token }}
+          name: f124x-fresh-readout-and-runtime-4f7fa505737acae4568df755b4804c384b057980
+          path: upstream-x
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39086773832
+          github-token: ${{ github.token }}
+          name: f124y-authentic-budgeted-experiment-f4d8770482cce0d0f282420b45a1bd931cf81bd5
+          path: upstream-y
+      - name: Original raw SHA and fresh FIT-only mechanism then development + resource observation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $inputs=@(
+            @{path='upstream-o/f124o-independent-two-learned-development.json';sha='025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d'},
+            @{path='upstream-t/f124t-fresh-absolute-development.json';sha='a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2'},
+            @{path='upstream-u/f124u-fresh-cell-and-readout-development.json';sha='63a2a57973444752d4002bc4718ec63de88a26ed05142627305de3a94fa9fb41'},
+            @{path='upstream-w/f124w-fresh-hop-survival-and-checksum.json';sha='122c0f1db5547a1ce2074c73c0b4b4d089c7f00eaf4573327676be3b7b521698'},
+            @{path='upstream-x/f124x-new-validation-and-runtime.json';sha='457f7be9312bd30b4ce052aed11edfd929fd02e715aa85ede7b9a58b2be355ba'},
+            @{path='upstream-y/f124y-fresh-budget-and-calibration.json';sha='13608eabec0d63103199f48cea0fdc861fe84ee64527007229d4bcf422d05353'}
+          )
+          foreach ($p in $inputs) {
+            if ((Get-FileHash -LiteralPath $p.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $p.sha) {
+              throw 'F124Z_SOURCE_RAW_SHA_DRIFT'
+            }
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124z-fresh-sparse-and-public-continuity.json'
+          & python3 -B nativeevidence/f124z_development_evidence.py --o $inputs[0].path --t $inputs[1].path --u $inputs[2].path --w $inputs[3].path --x $inputs[4].path --y $inputs[5].path --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124Z_NEW_EXPERIMENT_FAILED_CLOSED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124z.authentic-sparse-continuity-new-development.v1' -or
+              $r.frozen_protocol_blob -cne '83e82ec2d7ffdbd2fdea69c4cd6dbe0f94cd8f05' -or
+              $r.lanes.Count -ne 2 -or -not $r.original_models_immutable -or
+              -not $r.new_source_disjoint -or -not $r.new_development_after_fit_selection -or
+              $r.new_training_steps -ne 0 -or $r.protected_cases_generated -ne 0 -or
+              $r.independent_science_acceptance -or $r.optimizer_promotions -ne 0 -or
+              $r.accepted_ref_mutations -ne 0 -or $r.matched_compute_superiority_proven) {
+            throw 'F124Z_FALSE_SCIENCE_OR_SOURCE_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if (-not $lane.memory_capacity_preserved -or
+                $lane.fit.pairs -ne 48 -or $lane.dev.pairs -ne 48 -or
+                $lane.fit.source_exact_paired -ne 48 -or
+                $lane.dev.source_exact_paired -ne 48 -or
+                $lane.fit.role_only_negative_paired -ne 0 -or
+                $lane.dev.role_only_negative_paired -ne 0) { throw 'F124Z_FULL_ORIGINAL_PUBLIC_SOURCE' }
+            foreach ($stage in @($lane.fit,$lane.dev)) {
+              foreach ($prop in $stage.arms.PSObject.Properties) {
+                $a=$prop.Value
+                if ($a.pairs -ne 48 -or $a.case_sha256.Count -ne 48 -or
+                    $a.depth.'7'.pairs -ne 16 -or $a.depth.'8'.pairs -ne 16 -or
+                    $a.depth.'9'.pairs -ne 16 -or $a.max_retained -gt 9 -or
+                    $a.max_extra_cell_counter_slots -gt 16 -or
+                    ($lane.lane -ceq 'Yggdrasil' -and $a.max_active -gt 7)) {
+                  throw 'F124Z_ORIGINAL_CELL_OR_DEPTH_BUDGET'
+                }
+              }
+            }
+            if ($lane.lane -ceq 'Wingless') {
+              $bench=$lane.runtime_memory
+              if ($bench.protected_matched_superiority_claim -or
+                  @($bench.arms.PSObject.Properties).Count -ne 4) {
+                throw 'F124Z_INVALID_RESOURCE_ASSERTION'
+              }
+              foreach ($prop in $bench.arms.PSObject.Properties) {
+                if ($prop.Value.graph_count -ne 24 -or
+                    $prop.Value.repetitions -ne 120 -or
+                    $prop.Value.median_time_ns -le 0 -or
+                    $prop.Value.median_peak_alloc_bytes -le 0) {
+                  throw 'F124Z_BENCHMARK_SAMPLE_COMPLETENESS'
+                }
+              }
+              Write-Output "F124Z_WING_VERIFIED=$($lane.dev.arms.sparse_on_demand.paired)/48;fixed=$($lane.dev.arms.strong_fixed.paired)/48"
+            } else {
+              Write-Output "F124Z_YGG_VERIFIED=$($lane.dev.arms.continuity_penalty.paired)/48;T=$($lane.dev.arms.original_T.paired)/48;fixed=$($lane.dev.arms.strong_fixed.paired)/48"
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$sha+'  f124z-fresh-sparse-and-public-continuity.json'+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124Z_SOURCE_RAW_RECEIPT_SHA256=$sha"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124z-frozen-fresh-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124z-fresh-sparse-and-public-continuity.json
+            ${{ runner.temp }}/f124z-fresh-sparse-and-public-continuity.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+  final-full-regression:
+    needs: original-authentic-new-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete exact-head full Go regression, race, vet, build and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124Z_QUALIFICATION_HEAD=$GITHUB_SHA"
+          echo "F124Z_SCIENTIFIC_ACCEPTANCE=false"
