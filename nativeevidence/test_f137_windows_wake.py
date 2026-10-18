@@ -143,7 +143,9 @@ class WindowsWakeTests(unittest.TestCase):
     def test_imminent_fallback_is_not_overridden(self):
         near=NOW.replace(minute=16,second=0)
         w=wake();w["created_at"]="2026-10-18T03:15:59Z"
-        d=self.decide(wake=w,now=near)
+        z=wakes()
+        z["workflow_runs"][0]["created_at"]=w["created_at"]
+        d=self.decide(wake=w,wake_runs=z,now=near)
         self.assertFalse(d["dispatch"])
         self.assertIn("FALLBACK_SLOT_IMMINENT",d["reasons"])
 
