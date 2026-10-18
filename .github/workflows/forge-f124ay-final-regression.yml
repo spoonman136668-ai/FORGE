@@ -1,0 +1,100 @@
+name: F124-AY one final full regression on preserved original Feistel sensitivity
+on:
+  push:
+    branches: [research/f124ay-learned-feistel-composition-20261018]
+    paths: ['.github/workflows/forge-f124ay-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ay-one-final-go-regression
+  cancel-in-progress: false
+jobs:
+  one-complete:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - name: Authenticate original source, provider, full durable raw and strict held negative
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124ay-frozen-feistel-composition-equal48.json
+          note=reference/research-intake/f124ay-qualified-held-feistel-negative-no-dev.json
+          raw=reference/research-intake/originals/f124ay-original-structural-six-arm-fit-screen.json
+          test "$(git hash-object "$freeze")" = 'ad3d46c32a8fa072b0e0144d23e5be5e9210e36b'
+          test "$(git log -1 --format=%H -- "$freeze")" = '2981c3477320bc764bdbff615f02f05f29511d61'
+          test "$(git hash-object "$note")" = 'bd25fbacaaeaaabdacf1bd1daf21bdfc09d8f114'
+          test "$(git log -1 --format=%H -- "$note")" = '484bbb70ae66eaea5e646d3271c6790f95f82d83'
+          test "$(git hash-object "$raw")" = '0b0c33a3a899b1945bbec41153d62aa90abbbad5'
+          test "$(git log -1 --format=%H -- "$raw")" = '954e7f016f88ef61fcd9a934311668d6d237620b'
+          echo 'a60f54bf5676e1fa0959837f08b568654fcc0bce5e3fee053778e20aa6a2c869  reference/research-intake/originals/f124ay-original-structural-six-arm-fit-screen.json' | sha256sum --check --strict
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39147909442" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '2d4e27ecb8b59d1ab8c36c6ffffa7f0ebbf75731 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39147909442/artifacts" --jq '.artifacts[] | select(.id==12144565111 and .expired==false) | .digest')" = 'sha256:38a442b07b998e623b980243dc3dc06764ae119778cdf817e2be8054457d940a'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39148272458" --jq '[.status,.conclusion] | join(" ")')" = 'completed success'
+          python3 -B - <<'PY'
+          import hashlib,json
+          rp='reference/research-intake/originals/f124ay-original-structural-six-arm-fit-screen.json'
+          raw=open(rp,'rb').read()
+          src=json.loads(raw)
+          d=json.load(open('reference/research-intake/f124ay-qualified-held-feistel-negative-no-dev.json'))
+          assert hashlib.sha256(raw).hexdigest()==d['lineage']['original_raw_SHA256']
+          assert src['schema']=='forge.research.f124ay.original-equal48-structural-composition-fit-screen.v1'
+          assert d['schema']=='forge.research.f124ay.retained-structural-nonlinear-positive-sensitivity-no-DEV.v1'
+          assert d['status']=='FIRST_UNSEEN_FEISTEL_SENSITIVITY_HELD_SCREEN_STRICT_FAILURE'
+          assert src['original_source_freeze_git_blob']==d['lineage']['original_frozen_spec_blob']
+          assert src['FIT_selected_before_held_SCREEN']==d['FIT_selected_before_SCREEN']=='learned_roundkey_basis48'
+          assert src['SCREEN_frozen_nonlinear_success'] is False
+          assert src['FIT_pair_count']==src['SCREEN_pair_count']==24
+          assert len(src['FIT_models'])==len(src['SCREEN_models'])==len(d['models'])==6
+          for arm in d['models']:
+              for stage in ('FIT','SCREEN'):
+                  original=src[stage+'_models'][arm['mode']]
+                  captured=arm[stage]
+                  for field in ('paired','FP','FN'):
+                      assert original[field]==captured[field],(arm['mode'],stage,field)
+                  assert original['by_operator']['feistel']['paired']==captured['Feistel_paired']
+                  assert original['model_CPU_ns']==captured['CPU_ns']
+                  assert original['public_answers']==1152
+              assert src['FIT_models'][arm['mode']]['max_additional_model_bits']==arm['extra_task_model_bits_lower'] or src['SCREEN_models'][arm['mode']]['max_additional_model_bits']==arm['extra_task_model_bits_lower']
+          assert src['FIT_models']['learned_roundkey_basis48']['paired']==12
+          assert src['FIT_models']['learned_roundkey_basis48']['by_operator']['feistel']['paired']==12
+          assert src['SCREEN_models']['learned_roundkey_basis48']['by_operator']['feistel']['paired']==9
+          assert src['SCREEN_models']['learned_roundkey_basis48']['FP']==1
+          assert src['SCREEN_models']['affine_basis48']['paired']==12
+          assert src['Ygg_DEV_generated']==src['Wingless_DEV_generated']==0
+          assert src['Ygg_DEV_consumed'] is False and src['Wingless_DEV_consumed'] is False
+          assert not src['independent_science_acceptance'] and not src['optimizer_promotion']
+          assert all(v is False for v in d['authority'].values())
+          print('F124AY_FULL_ORIGINAL_DURABLE_FEISTEL_EVIDENCE=PASS')
+          print('F124AY_STRICT_SCREEN_FAIL_NO_DEV=PASS')
+          PY
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One final unchanged Go regression race vet build and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124AY_ONE_FINAL_COMPLETE_REGRESSION=PASS
+          echo F124AY_EXACT_QUALIFIED_HEAD=$GITHUB_SHA
+          echo F124AY_NO_DEV_FIRST_USE=true
+          echo F124AY_SCIENCE_ACCEPTED=false
