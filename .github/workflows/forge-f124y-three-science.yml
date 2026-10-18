@@ -1,0 +1,197 @@
+name: F124-Y three independently frozen science developments
+on:
+  push:
+    branches: [research/f124y-value-transfer-equal-cells-memory-frontier-20261017]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124y-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original branch and frozen science, OS kernel cap and full case tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124Y_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124y_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_ORIGINAL_FOCUSED_SCIENCE_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124x_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_PARENT_REGRESSION_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_ISOLATION_FAIL' }
+
+  wingless-memory-boundary:
+    needs: source-qualification
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact original O S U training receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_O' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_S' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_U' }
+      - name: Measure each tighter hard cap and preserve unavailable resource outcomes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $out=Join-Path $env:RUNNER_TEMP 'f124y-wing.json'
+          $env:PYTHONHASHSEED='0'
+          & $py -B nativeevidence/f124y_wing_memory_boundary.py --bench --original-o o/f124o-independent-two-learned-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_HARD_CAP_FRONTIER_FAIL' }
+          $x=Get-Content $out -Raw | ConvertFrom-Json
+          Write-Output "F124Y_RECEIPT_READBACK:schema=$($x.schema):blob=$($x.preimplementation_blob):caps=$(@($x.experiments.PSObject.Properties).Count):science=$($x.science_accepted):optimizer=$($x.optimizer_promoted):protected=$($x.protected_first_use)"
+          if ($x.schema -cne 'forge.research.f124y.wingless-actual-memory-boundary.v1' -or
+              $x.preimplementation_blob -cne '26e41064627b5e968f3144650641b8f37b62a4c3' -or
+              @($x.experiments.PSObject.Properties).Count -ne 5 -or
+              $x.science_accepted -or $x.optimizer_promoted -or $x.protected_first_use) { throw 'F124Y_FALSE_CAP_PROVENANCE' }
+          foreach ($mib in @('36','32','28','24','20')) {
+            $cap=$x.experiments.$mib
+            if ($cap.raw.Count -ne 10 -or $cap.successful_workers + $cap.blocked_workers -ne 10) { throw 'F124Y_MISSING_CAP_DENOMINATOR' }
+            Write-Output "F124Y_${{ matrix.os }}_CAP_$($mib)MiB=$($cap.status):S=$($cap.arms.S_packed.median_ns):T=$($cap.arms.T_full_index.median_ns):U=$($cap.arms.U_microindex.median_ns)"
+          }
+          Write-Output "F124Y_WING_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124y-memory-frontier-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124y-wing.json
+          retention-days: 90
+          if-no-files-found: error
+
+
+  ygg-value-generalization:
+    needs: source-qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Authenticate original independent O R S U fitted model receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_O_MISSING' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_R_MISSING' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_S_MISSING' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_U_MISSING' }
+      - name: Old original signed models, immutable value-credit intervention on independently new DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124y_value_transfer.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124y-value.json"
+          python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); assert a["schema"]=="forge.research.f124y.independent-value-credit-transfer.v1" and a["no_new_FIT_or_DEV_selection"] and all(v["pairs"]==48 for v in a["DEV"].values()) and not a["protected_first_use"]' "$RUNNER_TEMP/f124y-value.json"
+          sha256sum "$RUNNER_TEMP/f124y-value.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124y-ygg-value-transfer-${{ github.sha }}
+          path: ${{ runner.temp }}/f124y-value.json
+          retention-days: 90
+          if-no-files-found: error
+
+  ygg-equal-total-cells:
+    needs: source-qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Authenticate original independent O R S U fitted model receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_O_MISSING' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_R_MISSING' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_S_MISSING' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'AUTHENTIC_U_MISSING' }
+      - name: Reproduce original seven-plus-nine logits and test only alternative 16-cell allocations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124y_equal_cells.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124y-cell.json"
+          python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); assert a["schema"]=="forge.research.f124y.same-16-cells-stress-repartition.v1" and a["fixed_number_of_cells"]==16 and a["original_seven_nine_logit_replay_verified"] and all(v["pairs"]==48 for k in a["DEV"] for v in a["DEV"][k].values()) and not a["protected_first_use"]' "$RUNNER_TEMP/f124y-cell.json"
+          sha256sum "$RUNNER_TEMP/f124y-cell.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124y-ygg-equal-16-cells-${{ github.sha }}
+          path: ${{ runner.temp }}/f124y-cell.json
+          retention-days: 90
+          if-no-files-found: error
+
+  final-full-regression:
+    needs: [wingless-memory-boundary, ygg-value-generalization, ygg-equal-total-cells]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: One full original Go regression, race, vet, build and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124Y_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124Y_PROTECTED_FIRST_USE=false'
