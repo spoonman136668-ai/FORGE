@@ -50,7 +50,9 @@ class F124ACTests(unittest.TestCase):
     def test_selection_never_touches_DEV(self):
         fake={arm:[{"depth":10,"positive_base":-.1,"negative_base":-2.,
                     "positive_exact_link":True,"negative_exact_link":False,
-                    "case":i,"original_path_lost":False} for i in range(48)]
+                    "case":i,"original_path_lost":False,
+                    "positive_terminal_cell_count":1,
+                    "negative_terminal_cell_count":0} for i in range(48)]
               for arm in A.ARMS}
         chosen,_=A.choose_fit(fake)
         for arm in A.ARMS:
