@@ -1,0 +1,192 @@
+name: F124-AF novel sparse automata versus bounded fixed controls
+on:
+  push:
+    branches: [research/f124af-structural-independent-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124af-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-on-two-OS:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: New source born before outcome, complete both historical controls and 7 plus 9 state cap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AF_SOURCE_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124af_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AF_FROZEN_TEST_FAILURE' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AF_ISOLATION_FAILURE' }
+  three-family-FIT-DEV:
+    needs: source-on-two-OS
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Historical O/U fitted weights against executable original H12 and bounded exact16
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124af_fixed_controls.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124af-transfer.json"
+          python3 - "$RUNNER_TEMP/f124af-transfer.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.research.f124af.sparse-automata-evidence.v1"
+          assert x["freeze_blob"]=="c5656fcf328185ec6965cbe7bb2f42c0ea31523d"
+          assert x["frozen_combined_coefficients"]=={"gamma":0.1,"penalty":1.0}
+          assert x["DEV_never_selected"] and not x["protected_first_use"]
+          for phase in ("FIT","DEV"):
+              for family in ("sparse_diamond","role_reuse","terminal_decoy"):
+                  q=x[phase][family]
+                  assert q["matched_strong_H12_comparison_qualified"]
+                  assert q["controls"]["H12"]["blocked"]<=2
+                  assert q["controls"]["bounded_exact16"]["blocked"]==0
+                  assert q["controls"]["bounded_exact16"]["cells_peak_max"]<=16
+                  for arm in ("O_original","O_combined","U_original","U_combined"):
+                      z=q["arms"][arm]
+                      assert z["pairs"]==48 and len(z["cases"])==48
+                      assert all(n["pairs"]==16 for n in z["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124af-transfer.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124af-new-sparse-controls-${{ github.sha }}
+          path: ${{ runner.temp }}/f124af-transfer.json
+          retention-days: 90
+          if-no-files-found: error
+  measured-resource:
+    needs: source-on-two-OS
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Fresh-process same-host actual peak RAM CPU and wall five arms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124af-physical-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124af_physical.py --bench --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AF_PHYSICAL_BUDGET_MEASUREMENT_FAIL' }
+          $v=Get-Content $out -Raw | ConvertFrom-Json
+          if ($v.schema -cne 'forge.research.f124af.structural-resource-trial.v1' -or
+              $v.freeze_blob -cne 'c5656fcf328185ec6965cbe7bb2f42c0ea31523d' -or
+              $v.raw.Count -ne 15 -or $v.same_max_cells -ne 16 -or
+              $v.protected_first_use -or $v.science_accepted) { throw 'F124AF_COST_FALSE_IDENTITY' }
+          foreach ($arm in @('O_original','O_combined','U_original','U_combined','bounded_fixed16')) {
+            $z=$v.results.$arm
+            if ($z.repetitions -ne 3 -or $z.median_process_peak_RSS_bytes -le 0 -or
+                $z.median_wall_ns -le 0 -or $z.median_cpu_ns -le 0) {
+              throw 'F124AF_INCOMPLETE_COST_EVIDENCE'
+            }
+            Write-Output "F124AF_COST_$($arm):rss=$($z.median_process_peak_RSS_bytes):wall_ns=$($z.median_wall_ns):cpu_ns=$($z.median_cpu_ns):heap=$($z.median_Python_alloc_bytes)"
+          }
+          Write-Output "F124AF_PHYSICAL_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124af-physical-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124af-physical-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+  one-full-regression:
+    needs: [three-family-FIT-DEV, measured-resource]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env: {GOMAXPROCS: '2', GOFLAGS: '-p=2', GOMEMLIMIT: '1536MiB'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Complete original Go tests race vet build and independent FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AF_EXACT_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124AF_PROTECTED_FIRST_USE=false'
