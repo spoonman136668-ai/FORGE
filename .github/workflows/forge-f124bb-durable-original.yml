@@ -1,0 +1,86 @@
+name: F124-BB append-only original prospective negative custody
+on:
+  push:
+    branches: [research/f124bb-public-model-consensus-20261018]
+    paths: ['.github/workflows/forge-f124bb-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124bb-original-append-once
+  cancel-in-progress: false
+jobs:
+  verified-original-custody:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39163052536
+          github-token: ${{ github.token }}
+          name: f124bb-original-public-consensus-66b2bbdbf855ef48c7f8763c25a939dea510ec1b
+          path: original
+      - name: Authenticate provider, raw SHA256, source proof and append raw byte-preserving file
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/f124bb-public-model-consensus-20261018
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39163052536" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '66b2bbdbf855ef48c7f8763c25a939dea510ec1b completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39163052536/jobs" --jq '[.jobs[] | select(.name=="one-original-FIT" or .name=="one-complete-final-regression") | .conclusion] | join(" ")')" = 'success success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39163052536/artifacts" --jq '.artifacts[] | select(.id==12149806607 and .expired==false) | .digest')" = 'sha256:68f241cbd23b6fd3a5a65b0e3f1fa05b4a7a286515331033df0c7f0042c7380c'
+          echo '3cfe18b685d3c12222e7d19b7f2dc336ad8bf0794f66d9fbdb2f95abea5ef47f  original/f124bb-original-fit-optional-screen.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json,hashlib
+          path='original/f124bb-original-fit-optional-screen.json'
+          with open(path,'rb') as stream:original=stream.read()
+          assert len(original)==95733
+          d=json.loads(original)
+          assert d["schema"]=="forge.research.f124bb.one-original-fresh-public-consensus.v1"
+          assert d["frozen_blob"]=="7328674f265efe93fa7c76b48ddeefee31ebe990"
+          assert d["FIT_selected"] is None
+          assert d["SCREEN_paired_cases"]==0 and d["SCREEN_models"] is None
+          assert d["SCREEN_unconstructed_due_to_no_FIT_eligible"]
+          assert d["Ygg_DEV_constructed"]==d["Wingless_DEV_constructed"]==0
+          assert len(d["FIT_models"])==8
+          for suffix,paired in (("balanced",18),("random",22)):
+              parent=d["FIT_models"]["joint_"+suffix+"48"]
+              assert parent["FP"]==0 and parent["paired"]==paired and parent["by_operator"]["feistel"]["paired"]==10
+              for eta in ("eta0","eta02"):
+                  name="consensus_"+suffix+"_"+eta
+                  candidate=d["FIT_models"][name]
+                  election=d["FIT_candidate_eligibility"][name]
+                  assert candidate["paired"]==parent["paired"]==paired
+                  assert candidate["FP"]==parent["FP"]==0
+                  assert candidate["verification_vetoes"]==0
+                  assert set(candidate["accepted_positive_case_ids"])==set(parent["accepted_positive_case_ids"])
+                  assert election["all_joint_accepted_positive_ids_retained"] and not election["eligible"]
+          assert not d["science_protected_acceptance"] and not d["optimizer_promotion"]
+          print("F124BB_COMPLETE_ORIGINAL_8_ARM_NEGATIVE_RECONCILED=PASS")
+          PY
+          dest='reference/research-intake/originals/f124bb-original-public-consensus-fit-negative.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124BB_APPEND_DEST_EXISTS_STOP; exit 1
+          fi
+          actual=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          test "$actual" = "$GITHUB_SHA" || { echo F124BB_FEATURE_REF_DRIFT_STOP; exit 1; }
+          python3 - <<'PY'
+          import os,base64,json
+          original=open("original/f124bb-original-fit-optional-screen.json","rb").read()
+          request={"message":"F124-BB append unchanged original FIT no-screen eight-arm negative evidence",
+                   "content":base64.b64encode(original).decode(),
+                   "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124bb-append-original.json","w") as f:json.dump(request,f,separators=(",",":"))
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" --input /tmp/f124bb-append-original.json --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124BB_COMPLETE_ORIGINAL_RAW_REPOSITORY_CUSTODY=PASS
+          echo F124BB_INDEPENDENT_SCIENCE_ADMISSION=false

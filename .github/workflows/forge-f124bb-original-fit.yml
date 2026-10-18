@@ -1,0 +1,137 @@
+name: F124-BB single frozen original FIT and conditional SCREEN
+on:
+  push:
+    branches: [research/f124bb-public-model-consensus-20261018]
+    paths: ['.github/workflows/forge-f124bb-original-fit.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bb-original-first-fit-only
+  cancel-in-progress: false
+jobs:
+  one-original-FIT:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require original frozen source identity and nonconsuming qualification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object reference/research-intake/f124bb-frozen-public-transition-consensus.json)" = 7328674f265efe93fa7c76b48ddeefee31ebe990
+          test "$(git log -1 --format=%H -- reference/research-intake/f124bb-frozen-public-transition-consensus.json)" = 28f712b226864f1c7092d5c9a3c611241a9a025a
+          git merge-base --is-ancestor 28f712b226864f1c7092d5c9a3c611241a9a025a HEAD
+          test "$(git hash-object nativeevidence/f124bb_train_source.py)" = 1547633c2cea224643e43d08bffeb04ed4e56f7d
+          test "$(git hash-object nativeevidence/f124bb_public_consensus.py)" = 4c23ccd902592bde3bfbf7ef436cc26484687b4b
+          test "$(git hash-object nativeevidence/f124bb_fit_screen.py)" = ac6d20c751e5acf4a90cb92012186e68f7e29bfd
+          test "$(git hash-object nativeevidence/test_f124bb_nonconsuming.py)" = 55cc30fade4087ef444068bae9942c4529a3e482
+          test "$(git hash-object nativeevidence/f124az_joint_public_inverse.py)" = 0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39162954645" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '0e5633b1dc40c877d94ac22e80a2f50a16bcd76b completed success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39161714187" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '84c682411cb76f511c0048606c0bbae6a1d2b75a completed success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39145084951/artifacts" --jq '.artifacts[] | select(.id==12142901818 and .expired==false) | .digest')" = 'sha256:0f4fe659e490adad0b539272c9fbbf675b96c8c21e029853aff4677337f4a3a3'
+          prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bb-public-model-consensus-20261018&per_page=100" --jq '[.workflow_runs[] | select(.path==".github/workflows/forge-f124bb-original-fit.yml") | select(.id != (env.GITHUB_RUN_ID | tonumber))] | length')
+          test "$prior" = 0 || { echo F124BB_DUPLICATE_SCIENCE_FORBIDDEN; exit 1; }
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f124bb_*.py' -q
+          python3 -B isolationguard/check.py
+          echo F124BB_PRE_FIT_FREEZE_AUTHENTICATED=PASS
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39145084951
+          github-token: ${{ github.token }}
+          name: f124aw-independent-no-dev-preflight-a0173ff8ab3093dbb24d1b517c416c03502570e1
+          path: authentic-donor
+      - name: Execute exactly one source-new FIT; do not open SCREEN unless prospectively elected
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '9f0de2f57ef293ad7fcbfaf3f6bd0931c1383ad2fb953bdc8b66f973620aa5c2  authentic-donor/f124aw-independent-nonconsuming-preflight.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json,pathlib,os
+          p=json.load(open("authentic-donor/f124aw-independent-nonconsuming-preflight.json"))
+          assert p["schema"]=="forge.research.f124aw.independent-before-first-dev-preflight.v1"
+          assert p["DEV_cases_created"]==p["Wingless_DEV_cases_created"]==0
+          assert p["DEV_consumed"] is False
+          assert len(p["original_donor_Ygg_weights"])==7
+          assert len(p["original_donor_Ygg_delta"])==2
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          (temp/"f124bb-base.json").write_text(json.dumps(p["original_donor_Ygg_weights"]))
+          (temp/"f124bb-delta.json").write_text(json.dumps(p["original_donor_Ygg_delta"]))
+          print("F124BB_FROZEN_HISTORICAL_DONOR=PASS")
+          PY
+          python3 -B nativeevidence/f124bb_fit_screen.py \
+            --base "$RUNNER_TEMP/f124bb-base.json" \
+            --delta "$RUNNER_TEMP/f124bb-delta.json" \
+            --output "$RUNNER_TEMP/f124bb-original-fit-optional-screen.json"
+          python3 - <<'PY'
+          import os,json,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"],"f124bb-original-fit-optional-screen.json")
+          r=json.loads(p.read_bytes())
+          assert r["schema"]=="forge.research.f124bb.one-original-fresh-public-consensus.v1"
+          assert r["FIT_paired_cases"]==24 and len(r["FIT_models"])==8
+          assert all(m["pairs"]==24 and m["public_response_calls"]==1152 for m in r["FIT_models"].values())
+          assert r["Ygg_DEV_constructed"]==r["Wingless_DEV_constructed"]==0
+          assert not r["science_protected_acceptance"] and not r["optimizer_promotion"]
+          if r["FIT_selected"] is None:
+              assert r["SCREEN_paired_cases"]==0 and r["SCREEN_models"] is None
+              assert r["SCREEN_unconstructed_due_to_no_FIT_eligible"]
+              print("F124BB_NEGATIVE_FIT_CONSUMED_SCREEN_NOT_OPENED=PASS")
+          else:
+              assert r["SCREEN_paired_cases"]==24
+              assert r["SCREEN_elected_eligibility"] is not None
+              print("F124BB_ONE_UNCHANGED_HELD_SCREEN=PASS")
+          print("F124BB_DEV_UNUSED=PASS")
+          PY
+          (cd "$RUNNER_TEMP" && sha256sum f124bb-original-fit-optional-screen.json > f124bb-original-fit-optional-screen.json.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bb-original-public-consensus-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124bb-original-fit-optional-screen.json
+            ${{ runner.temp }}/f124bb-original-fit-optional-screen.json.sha256
+          retention-days: 90
+          if-no-files-found: warn
+  one-complete-final-regression:
+    needs: one-original-FIT
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one final Go test race vet build isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124BB_ONE_FINAL_FULL_REGRESSION=PASS"
+          echo "F124BB_EXACT_EXECUTABLE_SOURCE=$GITHUB_SHA"
+          echo F124BB_PROTECTED_SCIENCE_ACCEPTANCE=false
+          echo F124BB_OPTIMIZER_PROMOTION=false
