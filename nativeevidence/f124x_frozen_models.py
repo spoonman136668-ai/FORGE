@@ -42,8 +42,13 @@ def frozen():
          and p["Yggdrasil"]["readout_arms"]==
             ["T_original_depth_minus_one","V_original_depth","V_counterfactual_depth_minus_one"]
          and p["Yggdrasil"]["hard_cell_budget"]=={"active":7,"retained":9}
-         and all(x is False for x in p["control"].values()
-                if isinstance(x,bool))
+         and p["control"]["source_pin_required"] is True
+         and p["control"]["original_model_weights_sha_authenticated"] is True
+         and p["control"]["original_negative_preserved"] is True
+         and all(p["control"][name] is False for name in (
+              "scientific_acceptance","optimizer_promotion","first_use_protected",
+              "matched_compute_superiority","accepted_ref_mutation","merge",
+              "paid_api_or_codex","ckb_plane","other_project_mutations"))
          and w.blob(w.__file__)==W_BLOB,
          "SOURCE_OR_SAFETY_IDENTITY")
     return p
