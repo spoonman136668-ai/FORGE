@@ -1,0 +1,73 @@
+name: UQ59 Read-only persistent Mind-Palace checkout discovery
+
+on:
+  push:
+    branches:
+      - qualification/uq59-persistent-checkout-discovery
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read-only physical production checkout identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ59_DISCOVERY_UNAUTHORIZED_RUNNER'
+          }
+          $expected='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $userRoots = @($env:USERPROFILE, $env:HOME, 'C:\Users\camar') |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+          $candidates=@()
+          foreach($root in $userRoots) {
+            foreach($suffix in @('GolandProjects\Mind-Palace','GolandProjects\mind-palace','Mind-Palace','mind-palace','repos\Mind-Palace','source\Mind-Palace','Projects\Mind-Palace','Documents\Mind-Palace')) {
+              $candidates += Join-Path $root $suffix
+            }
+          }
+          $candidates += @('C:\src\Mind-Palace','C:\Repos\Mind-Palace','D:\Repos\Mind-Palace')
+          $found=@()
+          foreach($path in @($candidates | Select-Object -Unique)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $path '.git'))) { continue }
+            $sha=(& git.exe -C $path rev-parse HEAD 2>&1 | Out-String).Trim()
+            $headCode=$LASTEXITCODE
+            $branch=(& git.exe -C $path rev-parse --abbrev-ref HEAD 2>&1 | Out-String).Trim()
+            $branchCode=$LASTEXITCODE
+            $remote=(& git.exe -C $path remote get-url origin 2>&1 | Out-String).Trim()
+            $remoteCode=$LASTEXITCODE
+            $status=@(& git.exe -C $path status --porcelain=v1 --untracked-files=all 2>&1)
+            $statusCode=$LASTEXITCODE
+            $stranded = 0
+            $runtime = Join-Path $path '.mind-runtime'
+            if (Test-Path -LiteralPath $runtime) {
+              $stranded=@(Get-ChildItem -LiteralPath $runtime -Directory -Filter 'uq51-repo-transaction-*').Count
+            }
+            $validRemote=$remoteCode -eq 0 -and $remote -match '(^|/)spoonman136668-ai/Mind-Palace(\.git)?$'
+            $result=[ordered]@{
+              path=$path
+              head=$sha
+              branch=$branch
+              origin_matches_expected=$validRemote
+              git_identity_usable=($headCode -eq 0 -and $branchCode -eq 0 -and $remoteCode -eq 0)
+              clean_worktree=($statusCode -eq 0 -and $status.Count -eq 0)
+              stranded_transactions=$stranded
+              exactly_expected_main=($sha -ceq $expected -and $branch -ceq 'main')
+            }
+            $found += [pscustomobject]$result
+          }
+          ConvertTo-Json -InputObject ([ordered]@{
+            schema='mind-palace.uq59-readonly-physical-checkout-discovery.v1'
+            runner=$env:RUNNER_NAME
+            target_main=$expected
+            inspected_root_count=@($userRoots).Count
+            matched_checkouts=@($found)
+            production_memory_writes=0
+            did_not_create_checkout=$true
+          }) -Depth 6 | Write-Host
+          Write-Host 'UQ59_DISCOVERY_READ_ONLY=PASS'
