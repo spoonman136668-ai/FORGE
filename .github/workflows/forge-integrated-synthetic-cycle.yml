@@ -84,12 +84,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Capture F138 source-bound development lineage
+        shell: pwsh
+        env:
+          F138_ORIGIN: ${{ inputs.origin }}
+          F138_PARENT_RUN: ${{ inputs.parent_run_id }}
+          F138_PARENT_SOURCE: ${{ inputs.parent_source_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'forge-f138-lineage'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $origin = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { $env:F138_ORIGIN } else { $env:GITHUB_EVENT_NAME }
+          $parentRun = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { [string]$env:F138_PARENT_RUN } else { '' }
+          $parentSource = if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') { [string]$env:F138_PARENT_SOURCE } else { '' }
+          & python -B nativeevidence/f138_lineage.py --repository $env:GITHUB_REPOSITORY --ref $env:GITHUB_REF `
+            --source-sha $env:GITHUB_SHA --run-id $env:GITHUB_RUN_ID `
+            --run-attempt $env:GITHUB_RUN_ATTEMPT --event $env:GITHUB_EVENT_NAME `
+            --origin $origin --parent-run-id $parentRun --parent-source-sha $parentSource `
+            --output-dir $folder
+          if ($LASTEXITCODE -ne 0) { throw 'F138_LINEAGE_WITNESS_FAILED' }
+          Write-Host 'F138_CHILD_INPUT_SOURCE_WITNESSED=PASS'
       - name: Verify frozen policy and full two-lane source
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           go test -count=1 ./cmd/forge-research-cycle ./cmd/forge-model-free-loop ./promptlineage ./genenv ./optimizerstages ./evoportfolio ./classification ./researchstate ./subprocesssupervisor ./syntheticsupervisor ./sandboxworker
           if ($LASTEXITCODE -ne 0) { throw 'FORGE_INTEGRATED_SCIENTIFIC_CONTROLS_FAILED' }
+          & python -B -m unittest discover -s nativeevidence -p 'test_f138_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F138_LINEAGE_REGRESSION_FAILED' }
       - name: Execute separately pinned native synthetic Wingless and Yggdrasil processes
         shell: pwsh
         run: |
@@ -1136,6 +1158,16 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f138-lineage-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/forge-f138-lineage/f138-lineage.json
+            ${{ runner.temp }}/forge-f138-lineage/f138-lineage.sha256
+          retention-days: 90
+          if-no-files-found: error
+
   f127-cross-os-byte-proof:
     needs: two-lane-synthetic
     if: github.event_name == 'schedule' && needs.two-lane-synthetic.outputs.f127_admitted == 'true'
@@ -1236,6 +1268,11 @@ jobs:
           pattern: forge-f126-original-negative-agenda-*
           path: f129-f126-proof
           merge-multiple: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-f138-lineage-*
+          path: f138-lineage-proof
+          merge-multiple: false
       - name: Confirm both scheduled-stage gate decisions and durable F124/F126 receipts
         shell: bash
         run: |
@@ -1258,11 +1295,33 @@ jobs:
                          "f129-admission.json","f129-admission.sha256")
           f124=read_pair("f129-f124-proof","forge-f124-autonomy-",
                          "state.json","state.sha256")
+          f138=read_pair("f138-lineage-proof","forge-f138-lineage-",
+                         "f138-lineage.json","f138-lineage.sha256")
           f126=read_pair("f129-f126-proof","forge-f126-original-negative-agenda-",
                          "f126-original-negative-selected-agenda.json",
                          "f126-original-negative-selected-agenda.sha256")
           assert gate["schema"]=="forge.autonomy.f129.staged-scheduled-bootstrap-development.v1"
           assert gate["run_id"]==f124["run_id"]==f126["run_id"]
+          assert f138["schema"]=="forge.autonomy.f138.development-lineage.v1"
+          assert f138["run_id"]==gate["run_id"] and f138["source_sha"]==gate["source_sha"]
+          assert f138["event"]==gate["event"] and f138["repository"]=="spoonman136668-ai/FORGE"
+          assert f138["run_attempt"]>=1 and f138["development_only"] is True
+          assert f138["scientific_first_use_authorized"] is False
+          assert f138["scientific_originals_dispatched"]==0
+          assert f138["accepted_ref_mutations"]==0 and f138["optimizer_promotions"]==0
+          assert f138["codex_calls"]==0 and f138["paid_model_calls"]==0
+          if gate["event"]=="schedule":
+              assert f138["genuine_integrated_schedule"] is True
+              assert f138["parent_run_id"] is None and f138["origin"]=="schedule"
+          elif gate["event"]=="workflow_dispatch":
+              assert f138["genuine_integrated_schedule"] is False
+              assert f138["origin"] in ("manual","f136-completion","f137-scheduled-recovery","f137-windows-recovery")
+              if f138["origin"]!="manual":
+                  assert f138["parent_run_id"]>0 and f138["parent_source_sha"]==gate["source_sha"]
+          else:
+              assert f138["genuine_integrated_schedule"] is False
+              assert f138["parent_run_id"] is None
+          print("F138_DUAL_OS_LINEAGE_VERIFIED",f138["run_id"],f138["origin"])
           assert gate["source_sha"]==f124["source_sha"]==f126["source_sha"]
           assert f124["scientific_originals"]==0
           assert f126["new_accepted_scientific_originals"]==0
