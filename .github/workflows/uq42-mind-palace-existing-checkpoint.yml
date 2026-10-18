@@ -129,6 +129,11 @@ jobs:
             Assert ($mindValidate -like '*validation passed*') 'MIND_VALIDATE_FAILED'
             $ledgerValidation=JsonChild 'source-ledger' @('validate','-BatchPath',('"'+$batch+'"'))
             Assert ([bool]$ledgerValidation.valid) 'LEDGER_INVALID'
+            $deltaState=[IO.File]::ReadAllText((Join-Path $root '.ice/chat-delta-state.json')) | ConvertFrom-Json
+            $deltaManifest=[IO.File]::ReadAllText((Join-Path $root 'pilots/chat-history/2026-10-05-catchup-delta-manifest.json')) | ConvertFrom-Json
+            $dateState=[DateTimeOffset]::Parse([string]$deltaState.ingest_after_utc).ToUniversalTime()
+            $dateManifest=[DateTimeOffset]::Parse([string]$deltaManifest.window.through).ToUniversalTime()
+            Write-Host ('UQ42_DELTA_STATE='+$dateState.ToString('o')+'; MANIFEST='+$dateManifest.ToString('o')+'; TICKS='+$dateState.Ticks+'/'+$dateManifest.Ticks)
             $checkpointValidated=JsonChild 'update-checkpoint' @('validate')
             Assert ([string]$checkpointValidated.status -eq 'ready' -and
               [bool]$checkpointValidated.ready -and [bool]$checkpointValidated.remote_snapshot_match -and
