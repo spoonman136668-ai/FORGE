@@ -6,7 +6,7 @@ AFTER all source-blind predictions are complete. No parameter selection or
 DEV source creation. Original prior raw evidence authenticated by SHA256.
 """
 from __future__ import annotations
-import argparse,hashlib,json,math,sys,time
+import argparse,hashlib,json,math,sys,time,tracemalloc,gc
 from collections import Counter
 from pathlib import Path
 import f124at_train_source as source
@@ -244,10 +244,32 @@ def run(o,t,an,ao,ap,aq,ar,as_train,as_dev):
     base,delta=evidence_ancestry(o,t,an,ao,ap,aq,ar,as_train,as_dev)
     yr=source.pairs("Yggdrasil","TRAIN")
     wr=source.pairs("Wingless","TRAIN")
+    # Same runner and interpreter, diagnostic physical costs only.
+    cost={}
+    results={}
+    for name,func,rows,weights,offsets in (
+        ("Yggdrasil",ygg,yr,base["Yggdrasil"],delta["Yggdrasil"]),
+        ("Wingless",wing,wr,base["Wingless"],delta["Wingless"])):
+        gc.collect()
+        tracemalloc.start()
+        cpu=time.process_time_ns()
+        wall=time.perf_counter_ns()
+        result=func(rows,weights,offsets)
+        elapsed_wall=time.perf_counter_ns()-wall
+        elapsed_cpu=time.process_time_ns()-cpu
+        _,peak=tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        results[name]=result
+        cost[name]={"measured_aggregate_CPU_ns":elapsed_cpu,
+                    "measured_aggregate_wall_ns":elapsed_wall,
+                    "tracemalloc_python_peak_bytes":peak,
+                    "not_hardware_equalized":True,
+                    "source_generation_not_timed":True}
     return {"schema":SCHEMA,"frozen_source_blob":source.FREEZE_BLOB,
             "qualified_parent_head":"449fc54cecccb6e30eaa13016f9d1828532714ac",
-            "Yggdrasil":ygg(yr,base["Yggdrasil"],delta["Yggdrasil"]),
-            "Wingless":wing(wr,base["Wingless"],delta["Wingless"]),
+            "Yggdrasil":results["Yggdrasil"],
+            "Wingless":results["Wingless"],
+            "same_runner_diagnostic_resources":cost,
             "only_independent_fresh_TRAIN":True,
             "prior_consumed_DEV_read_for_identity_only":True,
             "new_DEV_generated":0,"new_DEV_consumed":False,
