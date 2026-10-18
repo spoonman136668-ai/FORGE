@@ -117,7 +117,10 @@ class WindowsWakeTests(unittest.TestCase):
                  NOW-dt.timedelta(minutes=10+i)).isoformat(),
              "updated_at":(
                  NOW-dt.timedelta(minutes=9+i)).isoformat()})
-        x["workflow_runs"]=rows+[x["workflow_runs"][-1]]
+        oldest=x["workflow_runs"][-1].copy()
+        oldest["created_at"]="2026-10-17T08:00:00Z"
+        oldest["updated_at"]="2026-10-17T08:03:00Z"
+        x["workflow_runs"]=rows+[oldest]
         x["total_count"]=len(x["workflow_runs"])
         d=self.decide(integrated=x)
         self.assertEqual(d["daily_starts"],96)
