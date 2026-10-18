@@ -1,0 +1,111 @@
+name: F124-BC one final exact-source full regression and independent original science receipt
+on:
+  push:
+    branches: [research/f124bc-public-xor-closure-20261018]
+    paths: ['.github/workflows/forge-f124bc-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bc-single-full-regression-on-frozen-original
+  cancel-in-progress: false
+jobs:
+  one-complete:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 45
+          persist-credentials: false
+      - name: Verify exact frozen source and original full public relationship negative before testing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124bc-frozen-public-xor-closure.json
+          original=reference/research-intake/originals/f124bc-original-public-closure-ten-arm-fit-screen.json
+          receipt=reference/research-intake/f124bc-public-closure-retained-negative-no-dev.json
+          test "$(git hash-object "$freeze")" = '54722a665859b92d4d46b23133469012511db6e2'
+          test "$(git log -1 --format=%H -- "$freeze")" = 'a7f6ccea8d6e06cfe61af278818fb8097de5e745'
+          test "$(git hash-object "$original")" = 'e95a6acbb4d6f6399e33528fe1a7bfbe3471582a'
+          test "$(git log -1 --format=%H -- "$original")" = '333704123e5455965800c06559dae239fd1600f9'
+          test "$(git hash-object "$receipt")" = 'ef7f74c0d43cfd4f70f7e3aeb6480809023d2341'
+          test "$(git log -1 --format=%H -- "$receipt")" = 'a3e8d48bceb79aa15a993583c3765810d795f03e'
+          echo '66170e899274d84c00a075f30fb11375532079d87f065a756c3b1289b125dd83  reference/research-intake/originals/f124bc-original-public-closure-ten-arm-fit-screen.json' | sha256sum --check --strict
+          for path in nativeevidence/f124bc_train_source.py nativeevidence/f124bc_public_closure.py nativeevidence/f124bc_fit_screen.py; do
+            test "$(git hash-object "$path")" = "$(git rev-parse "b01bb8f81f7b71882bdfdb4c7f10ca81b1a3e85e:$path")"
+          done
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39165921813" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = 'b01bb8f81f7b71882bdfdb4c7f10ca81b1a3e85e completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39165921813/artifacts" --jq '.artifacts[] | select(.id==12149764717 and .expired==false) | .digest')" = 'sha256:4d46afc39f507f9d3f8e1377a4235210c1a8f59a2eb5a1aae93dec86a50ed112'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39166393782" --jq '[.status,.conclusion] | join(" ")')" = 'completed success'
+          python3 -B - <<'PY'
+          import json,hashlib
+          p='reference/research-intake/originals/f124bc-original-public-closure-ten-arm-fit-screen.json'
+          blob=open(p,'rb').read()
+          data=json.loads(blob)
+          receipt=json.load(open('reference/research-intake/f124bc-public-closure-retained-negative-no-dev.json'))
+          assert receipt['schema']=='forge.research.f124bc.authentic-model-free-public-XOR-closure-negative.v1'
+          assert data['schema']=='forge.research.f124bc.original-model-independent-public-closure-TRAIN.v1'
+          assert len(blob)==receipt['first_source']['original_raw_bytes']==334954
+          assert hashlib.sha256(blob).hexdigest()==receipt['first_source']['original_raw_SHA256']
+          assert data['source_freeze_blob']==receipt['first_source']['freeze_git_blob']
+          assert receipt['first_source']['original_byte_exact_archive_qualified'] is True
+          assert data['FIT_paired_cases']==data['SCREEN_paired_cases']==24
+          assert len(data['FIT_models'])==len(data['SCREEN_models'])==len(receipt['original_science']['models'])==10
+          assert data['FIT_selected_before_held_SCREEN'] is None
+          assert data['SCREEN_strict_frozen_joint_success'] is False
+          assert receipt['original_science']['total_veto_events_across_FIT_and_SCREEN']==0
+          assert data['FIT_control_paired']==10 and data['SCREEN_control_paired']==12
+          for arm in receipt['original_science']['models']:
+            key=arm['name']
+            for stage in ('FIT','SCREEN'):
+              actual=data[stage+'_models'][key]
+              saved=arm[stage]
+              for k in ('paired','FP','FN','public_queries','model_CPU_ns','query_CPU_ns','extra_model_bits_lower'):
+                ak={'public_queries':'public_response_calls','extra_model_bits_lower':'max_extra_model_bits_lower'}.get(k,k)
+                assert actual[ak]==saved[k],(stage,key,k)
+              assert actual['by_operator']['feistel']['paired']==saved['Feistel_paired']
+              assert actual['by_operator']['affine']['paired']==saved['affine_paired']
+              assert len(actual['case_outcomes'])==saved['case_ids']==24
+              assert sum(y.get('public_closure_veto_applied') is True for y in actual['case_outcomes'])==saved['vetoes']==0
+              assert actual['public_response_calls']==1152
+              assert actual['max_active']<=7 and actual['max_retained']<=9
+          for stage in ('FIT','SCREEN'):
+            assert receipt['original_science']['eligibility_by_stage'][stage]==data[stage+'_joint_eligibility']
+            assert not any(v['eligible'] for v in data[stage+'_joint_eligibility'].values())
+          assert data['SCREEN_models']['joint_balanced48']['paired']==24
+          assert data['SCREEN_models']['joint_balanced48']['FP']==0
+          assert data['SCREEN_models']['public_closure_balanced4']['paired']==24
+          assert data['Ygg_DEV_generated']==data['Wingless_DEV_generated']==0
+          assert data['Ygg_DEV_consumed'] is False and data['Wingless_DEV_consumed'] is False
+          assert not data['scientific_protected_acceptance'] and not data['optimizer_promotion']
+          assert all(v is False for v in receipt['authority'].values())
+          print('F124BC_ORIGINAL_COMPLETE_PUBLIC_RELATION_SCIENCE=PASS')
+          print('F124BC_NO_FP_CORRECTION_NO_DEV=true')
+          PY
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one unchanged Go test, race, vet, build and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BC_ONE_FULL_EXACT_HEAD_REGRESSION=PASS
+          echo F124BC_ACCEPTED_HEAD=$GITHUB_SHA
+          echo F124BC_NEW_DEV_UNCONSUMED=true
+          echo F124BC_SCIENCE_PROMOTION=false
