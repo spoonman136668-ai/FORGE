@@ -28,6 +28,8 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $expectedMain='22d819c3473b80be34ecac7280881a67c981207c'
+          $expectedFix='05f303ed711e40ea58163e74fa038fa5ff1a49de'
+          $fixBranch='engineering/uq42-utc-offset-checkpoint-compat'
           $expectedPr='6debd15278da2ec69ceb616cbc1c6d688a647dc7'
           $expectedBlob='ace25ffdafde95467ae4f8800b0266dfb316ddb9'
           $prRef='refs/heads/ingestion/2026-10-17-authenticated-project-delta'
@@ -71,17 +73,31 @@ jobs:
           try {
             Assert ((RemoteHead 'refs/heads/main') -ceq $expectedMain) 'MAIN_DRIFT'
             Assert ((RemoteHead $prRef) -ceq $expectedPr) 'PR_DRIFT'
-            & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch main $remote $root
+            Assert ((RemoteHead ('refs/heads/'+$fixBranch)) -ceq $expectedFix) 'UTC_FIX_HEAD_DRIFT'
+            & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch $fixBranch $remote $root
             Assert ($LASTEXITCODE -eq 0) 'PRIVATE_PARTIAL_CLONE'
             Assert ((& git.exe -C $root config --get remote.origin.partialclonefilter | Out-String).Trim() -ceq 'blob:none') 'FILTER_NOT_SET'
             & git.exe -C $root sparse-checkout set --no-cone '/.ice/**' '/tools/**' '/schemas/**' '/policies/**' '/tests/**' '/archive/**' '/pilots/chat-history/2026-10-05-catchup-delta-manifest.json' '/pilots/chat-history/2026-10-05-catchup.extraction.json'
             Assert ($LASTEXITCODE -eq 0) 'SPARSE_SETUP'
-            & git.exe -C $root checkout --quiet --force main
-            Assert ($LASTEXITCODE -eq 0) 'MAIN_CHECKOUT'
-            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $expectedMain) 'MAIN_SHA_DRIFT'
+            & git.exe -C $root checkout --quiet --force -B main $expectedFix
+            Assert ($LASTEXITCODE -eq 0) 'SIMULATED_MAIN_CHECKOUT'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $expectedFix) 'FIX_SHA_DRIFT'
             Assert ((& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim() -ceq 'main') 'BRANCH_NOT_MAIN'
             & git.exe -C $root fetch --quiet --no-tags --depth 1 origin $expectedPr
             Assert ($LASTEXITCODE -eq 0) 'PINNED_PR_FETCH'
+            # Existing accepted checkpoint verifier requires exact HEAD == origin/main.
+            # Model the proposed compatibility merge only in an isolated local bare origin;
+            # never write to protected Mind-Palace main.
+            $localBare=Join-Path $scratch 'synthetic-checkpoint-origin.git'
+            & git.exe init --quiet --bare $localBare
+            Assert ($LASTEXITCODE -eq 0) 'LOCAL_BARE_INIT'
+            & git.exe -C $root push --quiet $localBare HEAD:refs/heads/main
+            Assert ($LASTEXITCODE -eq 0) 'LOCAL_BARE_SEED'
+            & git.exe -C $root remote set-url origin $localBare
+            Assert ($LASTEXITCODE -eq 0) 'LOCAL_BARE_ORIGIN'
+            & git.exe -C $root update-ref refs/remotes/origin/main $expectedFix
+            Assert ($LASTEXITCODE -eq 0) 'LOCAL_MAIN_REF'
+            Write-Host 'UQ42_PINNED_UTC_FIX_WITH_ISOLATED_ORIGIN=PASS'
             $runtime=Join-Path $root '.mind-runtime'
             New-Item -ItemType Directory -Force -Path $runtime | Out-Null
             $batch=Join-Path $runtime 'uq42-selected-project.batch.json'
@@ -149,6 +165,7 @@ jobs:
             foreach($f in @('.ice/chat-delta-state.json')){Assert ((FileSha $f) -ceq $before[$f]) 'CHAT_DELTA_CHANGED'}
             Assert ((RemoteHead 'refs/heads/main') -ceq $expectedMain) 'FINAL_MAIN_DRIFT'
             Assert ((RemoteHead $prRef) -ceq $expectedPr) 'FINAL_PR_DRIFT'
+            Assert ((RemoteHead ('refs/heads/'+$fixBranch)) -ceq $expectedFix) 'FINAL_FIX_DRIFT'
             Write-Host 'UQ42_RETRIEVAL_QUALITY_AND_UPDATE_CHECKPOINT_VALIDATE=PASS'
             Write-Host 'UQ42_PRODUCTION_MEMORY_WRITES=0'
             Write-Host 'UQ42_PRODUCTION_COMMITS=0'
