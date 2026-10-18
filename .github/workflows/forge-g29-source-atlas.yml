@@ -1,0 +1,50 @@
+name: FORGE G29 Public Source Atlas
+on:
+  pull_request:
+    paths:
+      - 'cmd/forge-code-atlas/**'
+      - '.ice/public-code-atlas.*'
+      - '.github/workflows/forge-g29-source-atlas.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  atlas:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Go AST focused unit qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./cmd/forge-code-atlas
+          go vet ./cmd/forge-code-atlas
+      - name: Verify source-bound atlas and public-only boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-code-atlas --check-if-present
+      - name: Emit exact source index for durable snapshot (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run ./cmd/forge-code-atlas --emit-base64
+      - name: Clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
