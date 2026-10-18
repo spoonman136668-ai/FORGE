@@ -1,0 +1,113 @@
+name: F124-AZ one final full regression on original joint case-level evidence
+on:
+  push:
+    branches: [research/f124az-public-evidence-joint-inverse-20261018]
+    paths: ['.github/workflows/forge-f124az-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124az-original-once-complete-regression
+  cancel-in-progress: false
+jobs:
+  one-complete:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - name: Exact first freeze and full original eight-arm FIT negative versus held-positive witness
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124az-frozen-public-gated-affine-feistel.json
+          receipt=reference/research-intake/f124az-retained-joint-positive-held-negative.json
+          raw=reference/research-intake/originals/f124az-original-public-joint-eight-arm-fit-screen.json
+          test "$(git hash-object "$freeze")" = '9aaaef5c9b724be4afd0d7fa4783285139290540'
+          test "$(git log -1 --format=%H -- "$freeze")" = '71a906e3a0721e23870138577e863f788162e226'
+          test "$(git hash-object "$receipt")" = '7fca86e229506a5478dfa2f542460a361115fabd'
+          test "$(git log -1 --format=%H -- "$receipt")" = '42cefddc8d4ade0d6d4a6603ffcb017b86b32506'
+          test "$(git hash-object "$raw")" = '730e95861a438d4fa5f8f9191bc5290d594b7ea5'
+          test "$(git log -1 --format=%H -- "$raw")" = '4a95da44be695d18adda1eb170a66eb2c7da19de'
+          echo '2c1499fac1db182efdd2e981995ad8ca94cad76b8a30921c43100beab94a72fa  reference/research-intake/originals/f124az-original-public-joint-eight-arm-fit-screen.json' | sha256sum --check --strict
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39149317137" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '534f171619c1b8d12a38c062ce11fccce02e54f7 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39149317137/artifacts" --jq '.artifacts[] | select(.id==12143834319 and .expired==false) | .digest')" = 'sha256:89d6d9c61dca4990eefa5e062404826795e9a7d41400d0cd3974e65ac76fb707'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39149636989" --jq '[.status,.conclusion] | join(" ")')" = 'completed success'
+          python3 -B - <<'PY'
+          import hashlib,json
+          path='reference/research-intake/originals/f124az-original-public-joint-eight-arm-fit-screen.json'
+          raw=open(path,'rb').read()
+          src=json.loads(raw)
+          d=json.load(open('reference/research-intake/f124az-retained-joint-positive-held-negative.json'))
+          assert len(raw)==195983
+          assert hashlib.sha256(raw).hexdigest()==d['provenance']['original_raw_sha256']
+          assert d['provenance']['original_raw_git_blob']=='730e95861a438d4fa5f8f9191bc5290d594b7ea5'
+          assert d['schema']=='forge.research.f124az.authenticated-original-joint-frozen-negative-v1'
+          assert src['schema']=='forge.research.f124az.original-joint-inverse-equal48-first-TRAIN.v1'
+          assert src['source_freeze_blob']=='9aaaef5c9b724be4afd0d7fa4783285139290540'
+          assert src['FIT_paired_cases']==src['SCREEN_paired_cases']==24
+          assert len(src['FIT_models'])==len(src['SCREEN_models'])==len(d['models'])==8
+          assert src['FIT_selected_before_held_SCREEN'] is None
+          assert not src['SCREEN_strict_frozen_joint_success']
+          assert src['SCREEN_did_not_retrain_or_respecify']
+          assert src['Ygg_DEV_generated']==src['Wingless_DEV_generated']==0
+          assert src['Ygg_DEV_consumed'] is False and src['Wingless_DEV_consumed'] is False
+          for arm in d['models']:
+              name=arm['name']
+              for stage in ('FIT','SCREEN'):
+                  actual=src[stage+'_models'][name]
+                  snapshot=arm[stage]
+                  for original,saved in (
+                      ('paired','paired'),('FP','FP'),('FN','FN'),
+                      ('public_response_calls','public_response_calls'),
+                      ('model_CPU_ns','model_CPU_ns'),
+                      ('query_CPU_ns','query_CPU_ns'),
+                      ('peak_Python_bytes','peak_Python_bytes'),
+                      ('max_extra_model_bits_lower','extra_task_model_bits_lower')):
+                      assert actual[original]==snapshot[saved],(name,stage,original)
+                  assert actual['by_operator']['feistel']['paired']==snapshot['Feistel_paired']
+                  assert actual['by_operator']['affine']['paired']==snapshot['affine_paired']
+                  assert actual['router_choices']==snapshot['router_choices']
+                  if 'joint' in name:
+                      assert src[stage+'_joint_eligibility'][name]==arm[stage+'_eligibility']
+          assert all(src['FIT_models'][n]['FP']==1 for n in src['FIT_models'] if 'joint' in n)
+          assert src['SCREEN_models']['public_joint_balanced_margin0']['paired']==23
+          assert src['SCREEN_models']['public_joint_balanced_margin0']['FP']==0
+          assert src['SCREEN_models']['public_joint_balanced_margin0']['by_operator']['feistel']['paired']==11
+          assert src['SCREEN_models']['public_joint_balanced_margin0']['FN']==1
+          assert all(not src['FIT_joint_eligibility'][n]['eligible']
+              for n in src['FIT_joint_eligibility'])
+          assert src['SCREEN_joint_eligibility']['public_joint_balanced_margin0']['eligible']
+          assert all(not v for v in d['authority'].values())
+          print('F124AZ_ORIGINAL_FULL_RAW_EIGHT_ARM_COST_AND_NEGATIVE_CUSTODY=PASS')
+          print('F124AZ_HELD_SCREEN_POSITIVE_BUT_FIT_FAIL_CLOSED=PASS')
+          print('F124AZ_NEW_DEV_GENERATED_OR_CONSUMED=false')
+          PY
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one final full Go regression race vet build and repository isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124AZ_ONE_FINAL_FULL_REGRESSION=PASS
+          echo F124AZ_EXACT_QUALIFIED_HEAD=$GITHUB_SHA
+          echo F124AZ_SCIENCE_NO_DEV_FIRST_USE=true
+          echo F124AZ_MODEL_PROMOTION=false

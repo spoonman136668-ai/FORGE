@@ -1,0 +1,66 @@
+name: F124-AZ frozen joint public-evidence model independent focused qualification
+on:
+  push:
+    branches: [research/f124az-public-evidence-joint-inverse-20261018]
+    paths:
+      - '.github/workflows/forge-f124az-focused.yml'
+      - 'nativeevidence/f124az_train_source.py'
+      - 'nativeevidence/f124az_joint_public_inverse.py'
+      - 'nativeevidence/f124az_fit_screen.py'
+      - 'nativeevidence/test_f124az_public_joint_frozen_preflight.py'
+      - 'reference/research-intake/f124az-frozen-public-gated-affine-feistel.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124az-focused-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Immutable preimplementation source and synthetic joint public learner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124AZ_HEAD_CHANGED'}
+          $f='reference/research-intake/f124az-frozen-public-gated-affine-feistel.json'
+          if ((git hash-object $f).Trim() -cne '9aaaef5c9b724be4afd0d7fa4783285139290540' -or
+              (git log -1 --format=%H -- $f).Trim() -cne '71a906e3a0721e23870138577e863f788162e226' -or
+              (git rev-parse 'a1916139fbc2ce99e180c727ba94b716406aaefe:nativeevidence/f124ay_train_source.py').Trim() -cne '7ef2e017fb652f5f19c3ef54ae584c750a591f56'){
+            throw 'F124AZ_FIRST_USE_SOURCE_FINGERPRINT_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124az_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124AZ_PUBLIC_ONLY_JOINT_FOCUSED_FAILURE'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124AZ_ISOLATION_FAILURE'}
+          Write-Output 'F124AZ_FROZEN_JOINT_FOCUSED=PASS'
+          Write-Output 'F124AZ_NEW_TRAIN_NOT_CONSUMED=true'
+          Write-Output 'F124AZ_DEV_NOT_CONSUMED=true'
+  historical-original:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Authenticate AY complete regression and original source-preserved negative
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39148373796 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'a1916139fbc2ce99e180c727ba94b716406aaefe completed success'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39147909442 --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '2d4e27ecb8b59d1ab8c36c6ffffa7f0ebbf75731 completed success'
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39147909442/artifacts --jq '.artifacts[] | select(.id==12144565111 and .expired==false) | .digest')" = 'sha256:38a442b07b998e623b980243dc3dc06764ae119778cdf817e2be8054457d940a'
+          echo F124AZ_AY_AUTHENTIC_ORIGINAL_CUSTODY=PASS
