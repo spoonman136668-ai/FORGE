@@ -11,6 +11,7 @@ import f124z_source as source
 import f124v_yggdrasil_causal_trace as V
 import f124o_native_learners as O
 need=V.need
+original_forward=V.original_forward
 ARMS=("O","U")
 MODES=("original","diverse")
 SCHEMA="forge.research.f124z.public-node-diversity-16-cell-development.v1"
