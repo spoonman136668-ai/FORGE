@@ -75,7 +75,7 @@ $packet = & gh api "repos/$repo/contents/scripts/f137-windows-wake.ps1?ref=$ref"
   ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'F137_SOURCE_FETCH_FAILED' }
 $source = [Text.Encoding]::UTF8.GetString(
-  [Convert]::FromBase64String(($packet.content -replace '\\s','')))
+  [Convert]::FromBase64String(($packet.content -replace '\s','')))
 $path = Join-Path $root 'wake.ps1'
 if (Test-Path -LiteralPath $path) { throw 'F137_WAKE_ALREADY_STAGED' }
 [IO.File]::WriteAllText($path, $source, [Text.UTF8Encoding]::new($false))
