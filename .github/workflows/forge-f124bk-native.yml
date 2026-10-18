@@ -1,0 +1,151 @@
+name: F124-BK unchanged native graph resource qualification (no U/R first use)
+on:
+  push:
+    branches: [research/f124bk-native-path-resource-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bk-native-engineering-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  exact-head-native-adapter:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin source, identity and run only public synthetic native scorer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BK_EXACT_HEAD' }
+          & git merge-base --is-ancestor a4c2e693969e8283fe782879fa36e722b3fa3cd7 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BK_RECOVERY_PARENT' }
+          $expected=@(
+            '.github/workflows/forge-f124bk-native.yml',
+            'research/north-star-transfer/f124bk-native-freeze.json',
+            'research/north-star-transfer/f124bk_native_graph.py',
+            'research/north-star-transfer/f124bk_measure.py',
+            'research/north-star-transfer/test_f124bk_native.py'
+          )
+          $actual=@(& git diff --name-only a4c2e693969e8283fe782879fa36e722b3fa3cd7 HEAD | Where-Object { $_ })
+          if ((@($actual|Sort-Object) -join '|') -cne (@($expected|Sort-Object) -join '|')) { throw 'BK_OUTSIDE_SCOPE' }
+          $blobs=@{
+            'research/north-star-transfer/f124bk-native-freeze.json'='072bfcc17a055ed98ef78c101a728e0802b1e704'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'research/north-star-transfer/20261018-mass-learned-kernel.py'='bf81ed56cc0daa2c413ad7d9c698969f92befe3d'
+            'research/north-star-transfer/f124bh_u_family.py'='6fe6b5bbece936bb0dfca97c0a8b454918067a19'
+            'research/north-star-transfer/f124bh_r_family.py'='02997a32ffb3fec60073b3b725cfd0aecae4b1f8'
+          }
+          foreach ($p in $blobs.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $blobs[$p]) { throw "BK_ORIGINAL_BLOB_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bk_native.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BK_NATIVE_GRAPH_TESTS' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bj_before_firstuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BK_ORIGINAL_TRAIN_GUARD' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BK_BOUNDARIES' }
+          Write-Output 'F124BK_UNCHANGED_NATIVE_7_9_ADAPTER=PASS'
+          Write-Output 'F124BK_ORIGINAL_TRAIN_REPLAY=false'
+          Write-Output 'F124BK_UNSEEN_U_R_CONSUMED=false'
+  native-os-budget:
+    needs: exact-head-native-adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Three paired full synthetic task CPU/RSS samples per arm per source, with actual scorer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124bk"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124bk_measure.py \
+            --output "$root/native-graph-fulltask-synthetic.json"
+          python3 -B - "$root/native-graph-fulltask-synthetic.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          s=x['summary']
+          assert len(x['raw_samples'])==12
+          assert s['resource_parity_authority'] is False
+          assert s['U_R_authentic_graphs_executed'] is False
+          assert s['separate_original_TRAIN_observation']['original_TRAIN_replayed'] is False
+          assert s['separate_original_TRAIN_observation']['complete_original_raw_firstuse_receipt_archived'] is False
+          for lane in ('U','R'):
+            d=s['arms'][lane]
+            assert d['AZ']['same_graph_sha256']==d['learned']['same_graph_sha256']
+            assert d['AZ']['same_public_sha256']==d['learned']['same_public_sha256']
+            assert all(d['learned']['native_invoked_each'])
+            assert len(d['AZ']['cpu_ns_samples'])==3 and len(d['learned']['rss_bytes_samples'])==3
+          assert s['scientific_admission'] is False
+          print('F124BK_REAL_NATIVE_GRAPH_CPU_RSS=PASS')
+          print('F124BK_SCIENTIFIC_RESOURCE_PARITY=false')
+          PY
+          sha256sum "$root/native-graph-fulltask-synthetic.json" > "$root/resource-sha256.txt"
+          (cd "$root" && sha256sum --check resource-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bk-native-engineering-actual-CPU-RSS-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bk/
+          retention-days: 90
+          if-no-files-found: error
+  one-final-regression:
+    needs: native-os-budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Complete exact-head Go regression, vet and build once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bk"
+          sha256sum research/north-star-transfer/f124bk-native-freeze.json \
+            research/north-star-transfer/f124bk_native_graph.py \
+            research/north-star-transfer/f124bk_measure.py \
+            research/north-star-transfer/test_f124bk_native.py \
+            .github/workflows/forge-f124bk-native.yml \
+            > "$RUNNER_TEMP/f124bk/source-sha256.txt"
+          printf 'HEAD=%s\nNATIVE_GRAPH_SYNTHETIC_ONLY=true\nORIGINAL_TRAIN_REPLAY=false\nORIGINAL_TRAIN_CUSTODY_GAP_REMAINS=true\nPROSPECTIVE_COHORT_USED=false\nFULL_SCIENTIFIC_RESOURCE_PARITY=false\nSCIENTIFIC_ADMISSION=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bk/disposition.txt"
+          echo F124BK_FULL_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bk-full-integration-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bk/
+          retention-days: 90
+          if-no-files-found: error
