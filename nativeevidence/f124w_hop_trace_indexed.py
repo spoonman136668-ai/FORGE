@@ -250,6 +250,9 @@ def ygg_hop_trace(graph,base,delta,mode):
         })
     terminals=[score for node,_,score in active+retained if node==graph["target"]]
     best=max(terminals,default=-2.*depth)
-    logit=4.*(best/max(1,depth)-base[6])
+    # Historical T normalizes by (depth - 1); historical V by depth.
+    # This is observer parity repair, NOT a change to either original model.
+    divisor=max(1,depth-1) if mode=="T_rank_only" else max(1,depth)
+    logit=4.*(best/divisor-base[6])
     need(math.isfinite(logit),"NONFINITE_OBSERVATION")
     return logit,work,trace
