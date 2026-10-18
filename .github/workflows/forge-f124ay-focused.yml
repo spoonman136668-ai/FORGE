@@ -1,0 +1,51 @@
+name: F124-AY independently frozen causal diagnostic preflight
+on:
+  push:
+    branches: [research/f124ay-structural-inverse-failure-20261018]
+    paths:
+      - '.github/workflows/forge-f124ay-focused.yml'
+      - 'nativeevidence/f124ay_*.py'
+      - 'nativeevidence/test_f124ay_*.py'
+      - 'reference/research-intake/f124ay-frozen-diagnostic-contract.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ay-nonconsuming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check preimplementation freeze, source identity and no new source first use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){ throw 'F124AY_HEAD_DRIFT' }
+          $freeze='reference/research-intake/f124ay-frozen-diagnostic-contract.json'
+          if((git hash-object $freeze).Trim() -cne 'e7dedbf082c9852259ff4cc30502f5a8a3e322a3') { throw 'F124AY_FREEZE_BLOB_DRIFT' }
+          if((git log -1 --format=%H -- $freeze).Trim() -cne '3df04df42869c5cf3f58386d3feea628913d1942'){ throw 'F124AY_FREEZE_NOT_PREIMPLEMENTATION' }
+          git merge-base --is-ancestor 3df04df42869c5cf3f58386d3feea628913d1942 HEAD
+          if($LASTEXITCODE -ne 0) { throw 'F124AY_FREEZE_NOT_ANCESTOR' }
+          if((git hash-object nativeevidence/f124ax_sparse_quadratic.py).Trim() -cne 'bcdd91164d9ce73953f666d0fdfae6f8a2f656f0'){throw 'F124AY_FROZEN_AX_MODEL_DRIFT'}
+          if((git hash-object nativeevidence/f124ao_frozen_source.py).Trim() -cne '6c6bd9b685b8ad6b1b3685f95959947c4940f2ff'){throw 'F124AY_ORIGINAL_SOURCE_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ay_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124AY_FOCUSED_FAIL'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124AY_ISOLATION_FAIL'}
+          Write-Output 'F124AY_NONCONSUMING_PREFLIGHT=PASS'
+          Write-Output 'F124AY_TRAIN_FIT_BORN=0'
+          Write-Output 'F124AY_SCREEN_OR_DEV_BORN=0'
