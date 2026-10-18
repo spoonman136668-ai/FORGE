@@ -1,0 +1,256 @@
+name: F124-AB long-chain error attribution and matched resource comparisons
+on:
+  push:
+    branches: [research/f124ab-longscore-physicalcost-observation-20261017]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ab-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-qualified:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Frozen source plus three independent new source identities, long-depth replay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AB_EXACT_SOURCE_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ab_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AB_FROZEN_SOURCE_OR_MODEL_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AB_ISOLATION_VIOLATION' }
+  ygg-long-score:
+    needs: source-qualified
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Score independent new 10–12-hop FIT then DEV, preserve raw logits and target evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ab_ygg_longscore.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124ab-ygg-longscore.json"
+          python3 - "$RUNNER_TEMP/f124ab-ygg-longscore.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          assert r["schema"]=="forge.research.f124ab.long-chain-terminal-evidence.v1"
+          assert r["freeze_blob"]=="c33bdf2dc80ed6d92146dafd5426121e45c81433"
+          assert r["selected_from_FIT_only"] and r["training_steps"]==0
+          assert not r["protected_first_use"] and not r["science_accepted"]
+          for arm in ("O","U"):
+              for mode in ("original","diverse"):
+                  case=r["DEV"][arm][mode]
+                  assert len(case["cases"])==48
+                  assert all(x["pairs"]==16 for x in case["unadjusted"]["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ab-ygg-longscore.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ab-ygg-longscore-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ab-ygg-longscore.json
+          retention-days: 90
+          if-no-files-found: error
+
+  ygg-physical-cost:
+    needs: source-qualified
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Real peak OS process RSS and wall/CPU per original versus new 16-cell mechanism
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124ab-ygg-physical-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124ab_ygg_ram_cost.py --bench --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AB_YGG_RSS_EXPERIMENT_FAILED' }
+          $r=Get-Content $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124ab.ygg-samehost-physical-cost.v1' -or
+              $r.freeze_blob -cne 'c33bdf2dc80ed6d92146dafd5426121e45c81433' -or
+              $r.raw.Count -ne 12 -or -not $r.OS_process_peak_RSS_measured -or
+              $r.protected_first_use -or $r.accepted_science -or
+              $r.physical_RAM_equal_proven) { throw 'F124AB_UNQUALIFIED_PHYSICAL_MEMORY_CLAIM' }
+          foreach ($name in @('O_original','O_diverse','U_original','U_diverse')) {
+            $a=$r.arms.$name
+            if ($a.reps -ne 3 -or $a.median_process_peak_RSS_bytes -le 0 -or
+                $a.median_wall_ns -le 0) { throw 'F124AB_MISSING_RESOURCE_MEASURE' }
+            Write-Output "F124AB_YCOST_$($name):RSS=$($a.median_process_peak_RSS_bytes):WALL=$($a.median_wall_ns):CPU=$($a.median_cpu_ns):HEAP=$($a.median_tracemalloc_peak_bytes)"
+          }
+          Write-Output "F124AB_YCOST_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ab-ygg-physical-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ab-ygg-physical-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+
+  wing-heavy-attribution:
+    needs: source-qualified
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Same-worker factorial isolate tracemalloc and retain-case diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124ab-wing-heavy-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124ab_wing_heavy.py --bench --original-o o/f124o-independent-two-learned-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AB_WING_HEAVY_INSTRUMENT_FAILED' }
+          $r=Get-Content $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124ab.wingless-two-factor-resource-attribution.v1' -or
+              $r.freeze_blob -cne 'c33bdf2dc80ed6d92146dafd5426121e45c81433' -or
+              $r.raw.Count -ne 72 -or
+              -not $r.one_factor_toggle_with_all_else_equal -or
+              $r.science_accepted -or $r.protected_first_use) {
+            throw 'F124AB_WING_FALSE_FACTORIAL'
+          }
+          foreach ($limit in @('24','22','20')) {
+            foreach ($arm in @('S_packed','T_full_index','U_microindex')) {
+              $r0=$r.contrasts.$limit.$arm
+              if (@($r0.PSObject.Properties).Count -ne 4) { throw 'F124AB_MISSING_FACTOR_GROUP' }
+              Write-Output "F124AB_W_$($limit)MiB_$($arm):plain=$($r0.plain.completed)/2:tracer=$($r0.tracemalloc.completed)/2:retain=$($r0.retain_case_diagnostics.completed)/2:combined=$($r0.tracemalloc_plus_retain.completed)/2"
+            }
+          }
+          Write-Output "F124AB_W_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ab-wing-factorial-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ab-wing-heavy-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+
+  final-one-regression:
+    needs: [ygg-long-score, ygg-physical-cost, wing-heavy-attribution]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: One complete Go tests race vet build and original FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AB_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124AB_PROTECTED_FIRST_USE=false'
