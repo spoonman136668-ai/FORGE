@@ -1,0 +1,50 @@
+name: F124-BE frozen public peer-contrast nonconsuming qualification
+on:
+  push:
+    branches: [research/f124be-public-contrast-stability-20261018]
+    paths:
+      - '.github/workflows/forge-f124be-focused.yml'
+      - 'nativeevidence/f124be_*.py'
+      - 'nativeevidence/test_f124be_*.py'
+      - 'reference/research-intake/f124be-frozen-public-nearmiss-contrast.json'
+permissions:
+  contents: read
+concurrency:
+  group: f124be-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-source-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen parent, model blinding and independent public graph tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BE_HEAD_DRIFT'}
+          $f='reference/research-intake/f124be-frozen-public-nearmiss-contrast.json'
+          if((git hash-object $f).Trim() -cne '77faaa6439e5e8b211e9a2fbd90fc5f8c115dfdb'){throw 'F124BE_SOURCE_FREEZE_DRIFT'}
+          if((git log -1 --format=%H -- $f).Trim() -cne 'ec518a52865627a2d7d73690fba6a4914286ca33'){throw 'F124BE_FREEZE_NOT_BEFORE_ENGINEERING'}
+          git merge-base --is-ancestor ec518a52865627a2d7d73690fba6a4914286ca33 HEAD
+          if($LASTEXITCODE -ne 0){throw 'F124BE_SOURCE_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object nativeevidence/f124bd_source_only.py).Trim() -cne '59e3afe54034033d93fad3aa2cfa6205ee6a001a'){throw 'F124BE_PARENT_SOURCE_DRIFT'}
+          if((git hash-object nativeevidence/f124az_joint_public_inverse.py).Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'F124BE_PARENT_JOINT_DRIFT'}
+          if((git hash-object nativeevidence/f124bb_public_consensus.py).Trim() -cne '4c23ccd902592bde3bfbf7ef436cc26484687b4b'){throw 'F124BE_PARENT_DECODER_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124be_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BE_SYNTHETIC_PREFIRST_USE_FAIL'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BE_PROJECT_ISOLATION_FAIL'}
+          Write-Output 'F124BE_WINDOWS_LINUX_FROZEN_NONCONSUMING=PASS'
+          Write-Output 'F124BE_TRAIN_FIT_SCREEN_DEV_CONSUMED=0'

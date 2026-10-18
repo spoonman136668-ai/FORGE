@@ -1,0 +1,108 @@
+name: F124-BE append-only original valid-negative scientific evidence
+on:
+  push:
+    branches: [research/f124be-public-contrast-stability-20261018]
+    paths: ['.github/workflows/forge-f124be-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124be-one-original-evidence-longterm-custody
+  cancel-in-progress: false
+jobs:
+  independent-original-custody:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39169185677
+          github-token: ${{ github.token }}
+          name: f124be-original-public-contrast-bff58a2e059857741c95b8ca03f816ded9a9b44d
+          path: original
+      - name: Verify exact source, original provider, complete byte identity and true negative disposition
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/f124be-public-contrast-stability-20261018
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39169185677" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = 'bff58a2e059857741c95b8ca03f816ded9a9b44d completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39169185677/jobs" --jq '[.jobs[] | select(.name=="original-first-FIT-conditional-SCREEN" or .name=="one-complete-final-regression") | .conclusion] | sort | join(" ")')" = 'success success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39169185677/artifacts" --jq '.artifacts[] | select(.id==12152395522 and .expired==false) | .digest')" = 'sha256:279070a0983c2adad67c287f87c5594d551b174b6f9e3c3838c0cbaac3c82f95'
+          echo 'bf7368c93174a4fca452e0c2202e3f7ef145ad5ff1a93bcfe3ccd9c3326edd9a  original/f124be-original-FIT-optional-SCREEN.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json
+          raw=open("original/f124be-original-FIT-optional-SCREEN.json","rb").read()
+          assert len(raw)==173945
+          d=json.loads(raw)
+          assert d["schema"]=="forge.research.f124be.original-frozen-public-peer-contrast.v1"
+          assert d["source_freeze_blob"]=="77faaa6439e5e8b211e9a2fbd90fc5f8c115dfdb"
+          assert d["FIT_pairs"]==d["FIT_hard_cases"]==24
+          assert d["FIT_selected"] is None
+          assert d["SCREEN_pairs"]==0 and d["SCREEN_models"] is None
+          assert d["SCREEN_not_constructed_due_to_negative_FIT"]
+          assert len(d["FIT_models"])==10 and len(d["FIT_eligibility"])==6
+          assert not any(x["eligible"] for x in d["FIT_eligibility"].values())
+          assert d["DEV_constructed"]==d["Wingless_DEV_constructed"]==0
+          assert not d["protected_science_acceptance"] and not d["optimizer_promotion"]
+          for name,original_FP,hard_FP,positives,feistelpos in (
+            ("joint_balanced48",0,0,21,12),
+            ("joint_random48",0,0,22,12),
+            ("contrast_balanced_unbacked",0,0,15,6),
+            ("contrast_balanced_contradicted",0,0,21,12),
+            ("contrast_balanced_both",0,0,21,12),
+            ("contrast_random_unbacked",0,0,16,6),
+            ("contrast_random_contradicted",0,0,22,12),
+            ("contrast_random_both",0,0,22,12)):
+              m=d["FIT_models"][name]
+              assert m["cases"]==m["hard_cases"]==24
+              assert m["original_FP"]==original_FP
+              assert m["hard_FP"]==hard_FP
+              assert m["positive"]==positives
+              assert m["by_operator"]["feistel"]["positives"]==feistelpos
+          assert d["FIT_source_oracle_probes"]==1400
+          for mode,accepted in (("balanced",21),("random",22)):
+              base=d["FIT_models"]["joint_"+mode+"48"]
+              unsupported=d["FIT_models"]["contrast_"+mode+"_unbacked"]
+              contradicted=d["FIT_models"]["contrast_"+mode+"_contradicted"]
+              both=d["FIT_models"]["contrast_"+mode+"_both"]
+              assert base["hard_FP"]==unsupported["hard_FP"]==contradicted["hard_FP"]==both["hard_FP"]==0
+              assert base["positive"]==accepted and unsupported["positive"]==accepted-6
+              assert unsupported["positive_witness_vetoes"]==6
+              assert len(set(base["accepted_positive_case_ids"])-set(unsupported["accepted_positive_case_ids"]))==6
+              assert set(contradicted["accepted_positive_case_ids"])==set(base["accepted_positive_case_ids"])
+              assert set(both["accepted_positive_case_ids"])==set(base["accepted_positive_case_ids"])
+          assert all(not candidate["eligible"] for candidate in d["FIT_eligibility"].values())
+          assert d["SCREEN_pairs"]==0 and d["SCREEN_models"] is None
+          print("F124BE_COMPLETE_ORIGINAL_CASE_AND_FEISTEL_NEGATIVE=PASS")
+          PY
+          dest='reference/research-intake/originals/f124be-original-public-peer-contrast-FIT-negative.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124BE_APPEND_ONLY_ORIGINAL_ALREADY_EXISTS; exit 1
+          fi
+          remote=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          test "$remote" = "$GITHUB_SHA" || { echo F124BE_EXACT_BRANCH_DRIFT_STOP; exit 1; }
+          python3 - <<'PY'
+          import os,base64,json
+          raw=open("original/f124be-original-FIT-optional-SCREEN.json","rb").read()
+          request={"message":"F124-BE append untouched original 173945-byte public-path FIT scientific negative",
+             "content":base64.b64encode(raw).decode("ascii"),
+             "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124be-append-original-request.json","w") as out:
+              json.dump(request,out,separators=(",",":"))
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" \
+              --input /tmp/f124be-append-original-request.json \
+              --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124BE_COMPLETE_ORIGINAL_RAW_LONGTERM_CUSTODY=PASS
+          echo F124BE_PROTECTED_SCIENTIFIC_ACCEPTANCE=false
+          echo F124BE_SOURCE_DEV_FIRST_USE=false
