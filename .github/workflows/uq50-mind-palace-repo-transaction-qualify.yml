@@ -1,0 +1,242 @@
+name: UQ50 isolated Mind-Palace repository-source transaction and rollback
+
+on:
+  push:
+    branches:
+      - qualification/mind-palace-uq50-synthetic-repo-transaction
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mind-palace-uq50-no-production-writes
+  cancel-in-progress: false
+
+jobs:
+  isolated-transaction:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - name: Qualify isolated repository-source durable transaction and forced rollback
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ50_WRONG_REPO_OR_RUNNER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $sha = '61607786f05f01f59c3c47a9de19dddac49f9499'
+          $source = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $batchRel = 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          $batchBlob = 'ace25ffdafde95467ae4f8800b0266dfb316ddb9'
+          $files = @(
+            '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+            '.ice/remote-bootstrap.json', '.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson', '.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json'
+          )
+          $allProtected = @($files) + @('.ice/chat-delta-state.json')
+          $root = Join-Path $env:RUNNER_TEMP ('mind-palace-uq50-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $root) { throw 'UQ50_SCRATCH_EXISTS' }
+          $baseRepo = Join-Path $root 'baseline'
+          $txn = Join-Path $root 'transaction'
+          $live = Join-Path $root 'synthetic-live'
+          $backups = Join-Path $root 'original-backups'
+          $classificationFile = Join-Path $root 'classification.json'
+          $utf8 = New-Object Text.UTF8Encoding($false)
+          function Fingerprint([string]$p) {
+            return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function Read-Json([string]$p) {
+            return ([IO.File]::ReadAllText($p) | ConvertFrom-Json)
+          }
+          function Assert-ZeroDiff($before, [string]$repopath) {
+            foreach ($file in $allProtected) {
+              if ((Fingerprint (Join-Path $repopath $file)) -cne $before[$file]) {
+                throw ('UQ50_ROLLBACK_HASH_MISMATCH_' + $file)
+              }
+            }
+          }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          try {
+            $remoteShaLine = @(git.exe ls-remote --exit-code $source refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remoteShaLine.Count -ne 1 -or ([string]$remoteShaLine[0] -split '\s+')[0] -cne $sha) {
+              throw 'UQ50_REMOTE_MAIN_CHANGED'
+            }
+            git.exe clone --quiet --single-branch --branch main $source $baseRepo
+            if ($LASTEXITCODE -ne 0 -or ((git.exe -C $baseRepo rev-parse HEAD | Out-String).Trim()) -cne $sha) {
+              throw 'UQ50_SOURCE_CLONE_DRIFT'
+            }
+            foreach ($dest in @($txn,$live)) {
+              git.exe clone --quiet --no-local --single-branch --branch main $baseRepo $dest
+              if ($LASTEXITCODE -ne 0 -or ((git.exe -C $dest rev-parse HEAD | Out-String).Trim()) -cne $sha) {
+                throw 'UQ50_TRANSACTION_CLONE_DRIFT'
+              }
+            }
+            if (((git.exe -C $txn rev-parse ('HEAD:' + $batchRel) | Out-String).Trim()) -cne $batchBlob) {
+              throw 'UQ50_SOURCE_BATCH_IDENTITY_CHANGED'
+            }
+            $before = @{}
+            foreach ($file in $allProtected) {
+              $baseHash = Fingerprint (Join-Path $baseRepo $file)
+              $txHash = Fingerprint (Join-Path $txn $file)
+              $liveHash = Fingerprint (Join-Path $live $file)
+              if ($baseHash -cne $txHash -or $baseHash -cne $liveHash) {
+                throw ('UQ50_BASELINE_MISMATCH_' + $file)
+              }
+              $before[$file] = $baseHash
+            }
+            $originalRecords = @(Read-Json (Join-Path $baseRepo '.ice/records.json'))
+            $originalLedger = @(Read-Json (Join-Path $baseRepo '.ice/source-ledger.json')).entries
+            if ($originalRecords.Count -ne 260 -or @($originalLedger).Count -ne 101) {
+              throw 'UQ50_SOURCE_COUNTS_DRIFT'
+            }
+            Write-Host 'UQ50_FROZEN_IDENTITY_NINE_PROTECTED_BLOBS=PASS'
+            $collect = Join-Path $txn 'tools/collect.ps1'
+            $batch = Join-Path $txn $batchRel
+            $valid = ((& $collect validate -InputPath $batch | Out-String).Trim() | ConvertFrom-Json)
+            if ($valid.schema -cne 'mind-palace.collector-result.v1' -or
+                -not [bool]$valid.result.valid -or [int]$valid.candidate_count -ne 3 -or [int]$valid.source_count -ne 3) {
+              throw 'UQ50_REPO_COLLECTOR_INVALID'
+            }
+            $classRaw = (& $collect classify -InputPath $batch | Out-String).Trim()
+            $cl = $classRaw | ConvertFrom-Json
+            if ($cl.schema -cne 'mind-palace.collector-result.v1' -or
+                [int]$cl.result.counts.new -ne 3 -or [int]$cl.result.counts.review -ne 0 -or
+                [int]$cl.result.counts.supersede -ne 0 -or [int]$cl.result.counts.merge -ne 0 -or
+                [int]$cl.project_discovery.review -ne 0) {
+              throw 'UQ50_REPO_CLASSIFY_DRIFT'
+            }
+            [IO.File]::WriteAllText($classificationFile, $classRaw + [Environment]::NewLine, $utf8)
+            $st = ((& $collect stage -InputPath $batch | Out-String).Trim() | ConvertFrom-Json)
+            if ([int]$st.result.counts.new -ne 3 -or [int]$st.result.counts.review -ne 0 -or
+                @($st.result.results).Count -ne 3) {
+              throw 'UQ50_REPO_STAGE_DRIFT'
+            }
+            $checkpoint = (& (Join-Path $txn 'tools/mind.ps1') checkpoint | Out-String).Trim()
+            if ($checkpoint -notmatch 'promoted=3 duplicates=0 retired=0 durable=263') {
+              throw ('UQ50_CHECKPOINT_UNEXPECTED_' + $checkpoint)
+            }
+            $ledgerResult = ((& (Join-Path $txn 'tools/source-ledger.ps1') record -BatchPath $batch -ClassificationPath $classificationFile | Out-String).Trim() | ConvertFrom-Json)
+            if ([int]$ledgerResult.entries_added -ne 3 -or [int]$ledgerResult.total_entries -ne 104) {
+              throw 'UQ50_LEDGER_RECORD_COUNT_DRIFT'
+            }
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $txn 'tools/remote-snapshot.ps1') -RepoRoot $txn | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'UQ50_CANONICAL_SNAPSHOT_FAILED' }
+            $txnRecords = @(Read-Json (Join-Path $txn '.ice/records.json'))
+            $txLedger = @(Read-Json (Join-Path $txn '.ice/source-ledger.json')).entries
+            if ($txnRecords.Count -ne 263 -or @($txLedger).Count -ne 104) {
+              throw 'UQ50_POST_TRANSACTION_COUNTS_INVALID'
+            }
+            $byId = @{}
+            foreach($row in $txnRecords){$byId[[string]$row.id] = $row}
+            foreach($row in $originalRecords) {
+              $id = [string]$row.id
+              if (-not $byId.ContainsKey($id) -or
+                  ((ConvertTo-Json -InputObject $row -Depth 16 -Compress) -cne
+                   (ConvertTo-Json -InputObject $byId[$id] -Depth 16 -Compress))) {
+                throw ('UQ50_ORIGINAL_RECORD_ALTERED_' + $id)
+              }
+            }
+            $expectedIds = @(
+              'project_state/forge-guarded-mind-palace-polling-merged-20261017',
+              'project_state/wingless-codex-free-executor-boundary-20261016',
+              'project_state/yggdrasil-codex-free-executor-boundary-20261016'
+            )
+            foreach($id in $expectedIds){
+              if (-not $byId.ContainsKey($id) -or [string]$byId[$id].status -cne 'observed' -or
+                  @($byId[$id].supersedes).Count -ne 0) {
+                throw ('UQ50_NEW_RECORD_ID_OR_STATUS_INVALID_' + $id)
+              }
+            }
+            if ((Fingerprint (Join-Path $txn 'archive/index.json')) -cne $before['archive/index.json']) {
+              throw 'UQ50_ARCHIVE_INVARIANT_FAILED'
+            }
+            $txnChanged = @(git.exe -C $txn diff --name-only)
+            $unexpected = @($txnChanged | Where-Object { $files -notcontains [string]$_ })
+            if ($LASTEXITCODE -ne 0 -or $unexpected.Count -ne 0) {
+              throw ('UQ50_TXN_CHANGED_UNAUTHORIZED_SURFACES_' + ($unexpected -join ';'))
+            }
+            $validation = (& (Join-Path $txn 'tools/mind.ps1') validate | Out-String).Trim()
+            if ($validation -notmatch 'Mind-Palace validation passed') { throw 'UQ50_TXN_MIND_VALIDATE_FAILED' }
+            $ledgerValidation = ((& (Join-Path $txn 'tools/source-ledger.ps1') validate | Out-String).Trim() | ConvertFrom-Json)
+            if (-not [bool]$ledgerValidation.valid) { throw 'UQ50_TXN_LEDGER_INVALID' }
+            Write-Host 'UQ50_TXN_STAGE_CHECKPOINT_LEDGER_SNAPSHOTS=PASS records=263 ledger=104'
+            Write-Host 'UQ50_ORIGINAL_260_RECORDS_BYTE_EQUIVALENT_AND_NO_RETIREMENTS=PASS'
+            Assert-ZeroDiff $before $live
+            New-Item -ItemType Directory -Path $backups -Force | Out-Null
+            foreach($file in $files) {
+              $dest = Join-Path $backups $file
+              New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+              Copy-Item -LiteralPath (Join-Path $live $file) -Destination $dest -Force
+            }
+            $failureInjected=$false
+            try{
+              $n=0
+              foreach($file in $files){
+                if ((Fingerprint (Join-Path $live $file)) -cne $before[$file]) { throw 'UQ50_CONCURRENT_STATE_DRIFT' }
+                Copy-Item -LiteralPath (Join-Path $txn $file) -Destination (Join-Path $live $file) -Force
+                $n++
+                if ($n -eq 2) { throw 'UQ50_EXPECTED_INJECTED_COMMIT_FAILURE' }
+              }
+              throw 'UQ50_FAILURE_INJECTION_NOT_TRIGGERED'
+            }catch{
+              if ($_.Exception.Message -cne 'UQ50_EXPECTED_INJECTED_COMMIT_FAILURE') { throw }
+              $failureInjected=$true
+              foreach($file in $files) {
+                Copy-Item -LiteralPath (Join-Path $backups $file) -Destination (Join-Path $live $file) -Force
+              }
+            }
+            if (-not $failureInjected) { throw 'UQ50_ROLLBACK_NOT_EXERCISED' }
+            Assert-ZeroDiff $before $live
+            if (@(git.exe -C $live status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+              throw 'UQ50_ROLLBACK_WORKTREE_NOT_CLEAN'
+            }
+            Write-Host 'UQ50_INJECTED_MID_COMMIT_FAILURE_AND_FULL_ROLLBACK=PASS'
+            Assert-ZeroDiff $before $live
+            foreach($file in $files) {
+              if ((Fingerprint (Join-Path $live $file)) -cne $before[$file]) { throw 'UQ50_PRECOMMIT_CONCURRENT_DRIFT' }
+            }
+            foreach($file in $files) {
+              Copy-Item -LiteralPath (Join-Path $txn $file) -Destination (Join-Path $live $file) -Force
+            }
+            foreach($file in $files) {
+              if ((Fingerprint (Join-Path $live $file)) -cne (Fingerprint (Join-Path $txn $file))) {
+                throw ('UQ50_SUCCESSFUL_SIMULATED_COMMIT_HASH_MISMATCH_' + $file)
+              }
+            }
+            if ((Fingerprint (Join-Path $live '.ice/chat-delta-state.json')) -cne $before['.ice/chat-delta-state.json']) {
+              throw 'UQ50_UNAUTHORIZED_CURSOR_MUTATION'
+            }
+            $lv = (& (Join-Path $live 'tools/mind.ps1') validate | Out-String).Trim()
+            if ($lv -notmatch 'Mind-Palace validation passed') { throw 'UQ50_SYNTHETIC_LIVE_VALIDATION_FAILED' }
+            $ll = ((& (Join-Path $live 'tools/source-ledger.ps1') validate | Out-String).Trim() | ConvertFrom-Json)
+            if (-not [bool]$ll.valid) { throw 'UQ50_SYNTHETIC_LIVE_LEDGER_INVALID' }
+            Write-Host 'UQ50_SYNTHETIC_SUCCESSFUL_COMMIT_AND_POST_VALIDATION=PASS'
+            # Current Git checkpoint admissibility is a separate strict gate.
+            # Its outcomes are recorded without invoking checkpoint commit or push.
+            $ck = (& (Join-Path $live 'tools/update-checkpoint.ps1') validate | Out-String).Trim()
+            $cv = $ck | ConvertFrom-Json
+            if ([string]$cv.schema -cne 'mind-palace.update-checkpoint-result.v1' -or
+                [string]$cv.status -cne 'ready' -or -not [bool]$cv.ready) {
+              throw 'UQ50_SYNTHETIC_CHECKPOINT_NOT_READY'
+            }
+            Write-Host 'UQ50_GIT_CHECKPOINT_READ_ONLY_VALIDATE=PASS'
+            $remoteAfter=@(git.exe ls-remote --exit-code $source refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remoteAfter.Count -ne 1 -or ([string]$remoteAfter[0] -split '\s+')[0] -cne $sha) {
+              throw 'UQ50_REMOTE_MAIN_MOVED'
+            }
+            Assert-ZeroDiff $before $baseRepo
+            Write-Host 'UQ50_REMOTE_SOURCE_AND_BASELINE_UNCHANGED=PASS'
+            Write-Host 'UQ50_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ50_NO_SOURCE_RECLASSIFICATION_NO_CODEX_NO_PUSH=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Force -Recurse }
+            if (Test-Path -LiteralPath $root) { throw 'UQ50_SCRATCH_NOT_CLEAN' }
+            Write-Host 'UQ50_ISOLATED_SCRATCH_CLEAN=PASS'
+          }
