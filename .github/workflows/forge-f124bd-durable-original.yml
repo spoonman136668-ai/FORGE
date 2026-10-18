@@ -1,0 +1,106 @@
+name: F124-BD append-only original valid-negative scientific evidence
+on:
+  push:
+    branches: [research/f124bd-public-path-witness-20261018]
+    paths: ['.github/workflows/forge-f124bd-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124bd-one-original-evidence-longterm-custody
+  cancel-in-progress: false
+jobs:
+  independent-original-custody:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39168028604
+          github-token: ${{ github.token }}
+          name: f124bd-original-public-path-64ca2781fbf3f3bfb993c55c009bc67623e09436
+          path: original
+      - name: Verify exact source, original provider, complete byte identity and true negative disposition
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/f124bd-public-path-witness-20261018
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39168028604" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '64ca2781fbf3f3bfb993c55c009bc67623e09436 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39168028604/jobs" --jq '[.jobs[] | select(.name=="original-first-FIT-conditional-SCREEN" or .name=="one-complete-final-regression") | .conclusion] | sort | join(" ")')" = 'success success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39168028604/artifacts" --jq '.artifacts[] | select(.id==12151780482 and .expired==false) | .digest')" = 'sha256:b4fff2759bab53b84bdb8c6724439dd99fb8a152c60aa505872005f4af9865c0'
+          echo '15a3a2b6824286a52979dc7621255a9ba64ee2ed262bf25bedb9d77418fff790  original/f124bd-original-FIT-optional-SCREEN.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json
+          raw=open("original/f124bd-original-FIT-optional-SCREEN.json","rb").read()
+          assert len(raw)==170680
+          d=json.loads(raw)
+          assert d["schema"]=="forge.research.f124bd.original-source-new-public-path-certificate.v1"
+          assert d["source_freeze_blob"]=="66d5ee8502130c4c45e562b160adc5d61210fd14"
+          assert d["FIT_pairs"]==d["FIT_hard_cases"]==24
+          assert d["FIT_selected"] is None
+          assert d["SCREEN_pairs"]==0 and d["SCREEN_models"] is None
+          assert d["SCREEN_not_constructed_due_to_negative_FIT"]
+          assert len(d["FIT_models"])==10 and len(d["FIT_eligibility"])==6
+          assert not any(x["eligible"] for x in d["FIT_eligibility"].values())
+          assert d["DEV_constructed"]==d["Wingless_DEV_constructed"]==0
+          assert not d["protected_science_acceptance"] and not d["optimizer_promotion"]
+          for name,original_FP,hard_FP,positives,feistelpos in (
+            ("joint_balanced48",0,2,20,11),
+            ("joint_random48",0,3,20,11),
+            ("witness_balanced_exact",0,0,15,6),
+            ("witness_balanced_relaxed",0,1,20,11),
+            ("witness_balanced_adaptive",0,0,15,6),
+            ("witness_random_exact",0,0,15,6),
+            ("witness_random_relaxed",0,2,20,11),
+            ("witness_random_adaptive",0,0,15,6)):
+              m=d["FIT_models"][name]
+              assert m["cases"]==m["hard_cases"]==24
+              assert m["original_FP"]==original_FP
+              assert m["hard_FP"]==hard_FP
+              assert m["positive"]==positives
+              assert m["by_operator"]["feistel"]["positives"]==feistelpos
+          for mode in ("balanced","random"):
+              b=d["FIT_models"]["joint_"+mode+"48"]
+              strict=d["FIT_models"]["witness_"+mode+"_exact"]
+              tolerant=d["FIT_models"]["witness_"+mode+"_relaxed"]
+              assert strict["positive_witness_vetoes"]==5
+              assert strict["hard_FP"]==0
+              assert tolerant["positive_witness_vetoes"]==0
+              assert tolerant["hard_FP"]>0
+              lost=set(b["accepted_positive_case_ids"])-set(strict["accepted_positive_case_ids"])
+              assert len(lost)==5
+              assert lost.issubset(set(b["accepted_Feistel_positive_case_ids"]))
+              assert set(tolerant["accepted_positive_case_ids"])==set(b["accepted_positive_case_ids"])
+          print("F124BD_COMPLETE_ORIGINAL_CASE_AND_FEISTEL_NEGATIVE=PASS")
+          PY
+          dest='reference/research-intake/originals/f124bd-original-public-path-frozen-FIT-negative.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124BD_APPEND_ONLY_ORIGINAL_ALREADY_EXISTS; exit 1
+          fi
+          remote=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          test "$remote" = "$GITHUB_SHA" || { echo F124BD_EXACT_BRANCH_DRIFT_STOP; exit 1; }
+          python3 - <<'PY'
+          import os,base64,json
+          raw=open("original/f124bd-original-FIT-optional-SCREEN.json","rb").read()
+          request={"message":"F124-BD append untouched original 170680-byte public-path FIT scientific negative",
+             "content":base64.b64encode(raw).decode("ascii"),
+             "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124bd-append-original-request.json","w") as out:
+              json.dump(request,out,separators=(",",":"))
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" \
+              --input /tmp/f124bd-append-original-request.json \
+              --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124BD_COMPLETE_ORIGINAL_RAW_LONGTERM_CUSTODY=PASS
+          echo F124BD_PROTECTED_SCIENTIFIC_ACCEPTANCE=false
+          echo F124BD_SOURCE_DEV_FIRST_USE=false
