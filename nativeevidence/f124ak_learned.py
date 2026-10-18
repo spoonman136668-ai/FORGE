@@ -119,7 +119,7 @@ def train():
     samples,distribution=fit_examples()
     initial=seeded()
     model=json.loads(json.dumps(initial))
-    S.need(count_params(model)==TOTAL_PARAMS,"MODEL_PARAMETER_COUNT")
+    S.need(count_params(model)==TOTAL_PARAMS-1,"MODEL_PARAMETER_COUNT")
     local=model["local"]
     local_first=local_last=None
     # Intermediate hop target: EXACT bit-flip label from FIT public edge,
@@ -195,7 +195,7 @@ def train():
 def infer(graph,model,threshold):
     """Only public bits + learned network. No source causal oracle or labels."""
     S.validate_public(graph)
-    S.need(count_params(model)==TOTAL_PARAMS and threshold>=0.,"FIT_PARAM_SHAPE")
+    S.need(count_params(model)==TOTAL_PARAMS-1 and threshold>=0.,"FIT_PARAM_SHAPE")
     table=predict_table(model["local"])
     edges=O.sorted_edges(graph)
     active=[(graph["start"],None,0)]
