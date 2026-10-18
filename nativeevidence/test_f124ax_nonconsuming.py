@@ -69,5 +69,21 @@ class FrozenAXTests(unittest.TestCase):
                              "f124ao_frozen_source" in m for m in modules))
         self.assertFalse(any("f124aw_original_first_dev_source" in m for m in modules))
 
+    def test_frozen_fit_admission_is_strict(self):
+        import f124ax_fit_screen_evidence as evidence
+        sample={n:{"FP":0,"paired":0,"affine_paired":0,"feistel_paired":0,
+                   "sum_cpu_ns":0} for n in evidence.NAMES}
+        sample["AV_LOCKED_ACTIVE48"].update(paired=10,affine_paired=10)
+        sample["AFFINE_RANDOM48"].update(paired=11,affine_paired=11)
+        sample["SPARSE_QUADRATIC_ACTIVE48"].update(
+            paired=11,affine_paired=10,feistel_paired=1)
+        self.assertIsNone(evidence.admissible(sample))  # No total superiority.
+        sample["SPARSE_QUADRATIC_ACTIVE48"].update(
+            paired=12,affine_paired=11,feistel_paired=1,FP=1)
+        self.assertIsNone(evidence.admissible(sample))  # Any FP rejects.
+        sample["SPARSE_QUADRATIC_ACTIVE48"]["FP"]=0
+        self.assertEqual(evidence.admissible(sample),
+                         "SPARSE_QUADRATIC_ACTIVE48")
+
 if __name__=="__main__":
     unittest.main()
