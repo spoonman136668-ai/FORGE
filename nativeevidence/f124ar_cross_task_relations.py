@@ -44,9 +44,9 @@ def decoder(h, output_weights):
 def _init(mode, width):
     # Deterministic initial weights; initialization is not an operator catalog.
     offset = MODES.index(mode) + 1
-    w1 = [[(((i + 3) * (j + 5) * (offset + 2)) % 23) - 11) / 128.0
+    w1 = [[((i + 3) * (j + 5) * (offset + 2) % 23 - 11) / 128.0
            for j in range(16)] for i in range(width)]
-    w2 = [[(((i + 7) * (j + 2) * (offset + 3)) % 29) - 14) / 128.0
+    w2 = [[((i + 7) * (j + 2) * (offset + 3) % 29 - 14) / 128.0
            for j in range(width)] for i in range(16)]
     return w1, w2
 
