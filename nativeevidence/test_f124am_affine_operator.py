@@ -40,7 +40,8 @@ class FrozenAM(unittest.TestCase):
         for seed,vec,fam,op,nonce,p,n in s.pairs("Yggdrasil","TRAIN")[:8]:
             restored,meta=m.normalize(p,24)
             if restored is not None:
-                self.assertEqual(restored,s.plain(p,op,nonce))
+                self.assertEqual(restored,s.plain(p,op,nonce),
+                                 f"F124AM_TRAIN_MAP_DIAG:{op}:{fam}:{meta}")
             self.assertFalse(meta["learner"]["source_operator_known"])
 
     def test_exact_original_one_state_gamma0(self):
