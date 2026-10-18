@@ -1,0 +1,94 @@
+name: F124-Y three independently frozen science developments
+on:
+  push:
+    branches: [research/f124y-value-transfer-equal-cells-memory-frontier-20261017]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124y-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original branch and frozen science, OS kernel cap and full case tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124Y_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124y_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_ORIGINAL_FOCUSED_SCIENCE_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124x_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_PARENT_REGRESSION_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_ISOLATION_FAIL' }
+
+  wingless-memory-boundary:
+    needs: source-qualification
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact original O S U training receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_O' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_S' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'ORIGINAL_U' }
+      - name: Measure each tighter hard cap and preserve unavailable resource outcomes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          $out=Join-Path $env:RUNNER_TEMP 'f124y-wing.json'
+          $env:PYTHONHASHSEED='0'
+          & $py -B nativeevidence/f124y_wing_memory_boundary.py --bench --original-o o/f124o-independent-two-learned-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124Y_HARD_CAP_FRONTIER_FAIL' }
+          $x=Get-Content $out -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.research.f124y.wingless-actual-memory-boundary.v1' -or
+              $x.preimplementation_blob -cne '26e41064627b5e968f3144650641b8f37b62a4c3' -or
+              $x.experiments.PSObject.Properties.Count -ne 5 -or
+              $x.science_accepted -or $x.optimizer_promoted -or $x.protected_first_use) { throw 'F124Y_FALSE_CAP_PROVENANCE' }
+          foreach ($mib in @('36','32','28','24','20')) {
+            $cap=$x.experiments.$mib
+            if ($cap.raw.Count -ne 10 -or $cap.successful_workers + $cap.blocked_workers -ne 10) { throw 'F124Y_MISSING_CAP_DENOMINATOR' }
+            Write-Output "F124Y_${{ matrix.os }}_CAP_$($mib)MiB=$($cap.status):S=$($cap.arms.S_packed.median_ns):T=$($cap.arms.T_full_index.median_ns):U=$($cap.arms.U_microindex.median_ns)"
+          }
+          Write-Output "F124Y_WING_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124y-memory-frontier-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124y-wing.json
+          retention-days: 90
+          if-no-files-found: error
