@@ -1,0 +1,50 @@
+name: F124-BD frozen public path certificate independent preflight
+on:
+  push:
+    branches: [research/f124bd-public-path-witness-20261018]
+    paths:
+      - '.github/workflows/forge-f124bd-focused.yml'
+      - 'nativeevidence/f124bd_*.py'
+      - 'nativeevidence/test_f124bd_*.py'
+      - 'reference/research-intake/f124bd-frozen-public-path-certificate.json'
+permissions:
+  contents: read
+concurrency:
+  group: f124bd-nonconsuming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify source freeze predates model and public-only path witness on both platforms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BD_HEAD_DRIFT'}
+          $freeze='reference/research-intake/f124bd-frozen-public-path-certificate.json'
+          if((git hash-object $freeze).Trim() -cne '66d5ee8502130c4c45e562b160adc5d61210fd14'){throw 'F124BD_ORIGINAL_FREEZE_DRIFT'}
+          if((git log -1 --format=%H -- $freeze).Trim() -cne '3c8b0da32c93efd1654aff120ff72a3b4bb67753'){throw 'F124BD_FREEZE_NOT_BEFORE_CODE'}
+          git merge-base --is-ancestor 3c8b0da32c93efd1654aff120ff72a3b4bb67753 HEAD
+          if($LASTEXITCODE -ne 0){throw 'F124BD_FROZEN_NOT_ANCESTOR'}
+          if((git hash-object nativeevidence/f124bc_hard_negative_source.py).Trim() -cne 'ec669582b884a16865dbb22a2372d6b7a2ba3e5d'){throw 'F124BD_PRIOR_SOURCE_MUTATED'}
+          if((git hash-object nativeevidence/f124az_joint_public_inverse.py).Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'F124BD_PRIOR_ROUTER_MUTATED'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124bd_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BD_NONCONSUMING_TEST_FAILURE'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BD_PROJECT_ISOLATION_FAILURE'}
+          Write-Output 'F124BD_FROZEN_PUBLIC_PATH_WITNESS_PREFLIGHT=PASS'
+          Write-Output 'F124BD_SCIENTIFIC_TRAIN_CONSUMED=0'
+          Write-Output 'F124BD_DEV_BORN=0'
