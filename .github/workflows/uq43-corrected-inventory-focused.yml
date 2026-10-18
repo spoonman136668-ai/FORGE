@@ -1,0 +1,73 @@
+name: UQ43 exact-head inventory UTC focused qualification
+on:
+  push:
+    branches: [qualification/uq43-inventory-utc-baseline-20261018]
+    paths: ['.github/workflows/uq43-corrected-inventory-focused.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq43-corrected-inventory-focused
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify exact PR66 source and UTC inventory focused tests
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ43_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $candidate='b61dfce9046d719f2ebbbd8b270b754667043884'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$candidate))){
+            $refs=@(& git.exe ls-remote --exit-code $remote $pair[0])
+            if($LASTEXITCODE -ne 0 -or $refs.Count -ne 1 -or ([string]$refs[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ43_PINNED_SOURCE_DRIFT'}
+          }
+          $base=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $base 'repo'
+          if(Test-Path -LiteralPath $base){throw 'UQ43_SCRATCH_PREEXISTS'}
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+          try{
+            & git.exe clone --quiet --filter=blob:none --no-checkout --depth 1 --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ43_CLONE_FAILED'}
+            $needed=@('tools/source-inventory-import.ps1','tools/source-reconcile.ps1','tests/Test-SourceInventoryImport.ps1','.ice/source-ledger.json','.ice/records.json','archive/index.json')
+            & git.exe -C $root sparse-checkout set --no-cone @($needed|ForEach-Object{'/'+$_})
+            if($LASTEXITCODE -ne 0){throw 'UQ43_SPARSE_FAILED'}
+            & git.exe -C $root checkout --force engineering/uq42-utc-offset-checkpoint-compat
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $candidate)){throw 'UQ43_CHECKOUT_DRIFT'}
+            $expected=@{
+              'tools/source-inventory-import.ps1'='aa681e1f1f867b997c6b396fd4307d91c8e928d4';
+              'tests/Test-SourceInventoryImport.ps1'='f07decc0bfff44fd52bdb2c4b6ed24e48b1abc72'
+            }
+            foreach($path in $expected.Keys){
+              $blob=(& git.exe -C $root hash-object (Join-Path $root $path)|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne $expected[$path]){throw 'UQ43_SOURCE_BLOB_DRIFT'}
+            }
+            $test=Join-Path $root 'tests/Test-SourceInventoryImport.ps1'
+            foreach($engine in @('pwsh.exe','powershell.exe')){
+              $output=Join-Path $base ($engine+'.out')
+              $errors=Join-Path $base ($engine+'.err')
+              $p=Start-Process -FilePath (Get-Command $engine -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $output -RedirectStandardError $errors
+              $stdout=[IO.File]::ReadAllText($output)
+              if($p.ExitCode -ne 0 -or $stdout -notmatch 'Source inventory import regression passed'){
+                $e=[IO.File]::ReadAllText($errors)
+                Write-Host ('UQ43_FOCUSED_'+$engine+'_FAILED exit='+$p.ExitCode+' stderr_tail='+$e.Substring([Math]::Max(0,$e.Length-900)))
+                throw 'UQ43_IMPORTER_REGRESSION_FAILED'
+              }
+              Write-Host ('UQ43_INVENTORY_UTC_FOCUSED_'+$engine.ToUpperInvariant()+'=PASS')
+            }
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ43_WORKTREE_DRIFT'}
+            Write-Host 'UQ43_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ43_CODEX_AND_PAID_INFERENCE=0'
+          }finally{
+            if(Test-Path $base){Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $base){throw 'UQ43_SCRATCH_RETAINED'}
+            Write-Host 'UQ43_SCRATCH_CLEAN=PASS'
+          }
