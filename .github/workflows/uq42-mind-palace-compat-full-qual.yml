@@ -1,0 +1,121 @@
+name: UQ42 exact-source Mind-Palace compatibility full qualification
+on:
+  push:
+    branches: [qualification/uq42-mind-palace-compat-full-regression]
+    paths: ['.github/workflows/uq42-mind-palace-compat-full-qual.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq42-mind-palace-exact-full-qual
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - name: Establish pinned private PR66 source and bounded scratch
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ42_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $pr='0ce14ef48852f492154c83542e9cb81d55c0056f'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $refs=@{main='refs/heads/main'; pr='refs/heads/engineering/uq42-utc-offset-checkpoint-compat'}
+          foreach($key in @('main','pr')){
+            $lines=@(& git.exe ls-remote --exit-code $remote $refs[$key])
+            if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1){throw 'UQ42_SOURCE_REF_UNAVAILABLE'}
+            $found=([string]$lines[0] -split '\s+')[0]
+            if($found -cne (if($key -eq 'main'){$main}else{$pr})){throw 'UQ42_SOURCE_IDENTITY_DRIFT'}
+          }
+          $base=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          if(Test-Path $base){throw 'UQ42_PREEXISTING_PRIVATE_SCRATCH'}
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+          $root=Join-Path $base 'repo'
+          & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+          if($LASTEXITCODE -ne 0){throw 'UQ42_PRIVATE_CLONE_FAILED'}
+          if(((& git.exe -C $root config --get remote.origin.partialclonefilter)|Out-String).Trim() -cne 'blob:none'){throw 'UQ42_BLOBLESS_FILTER_MISSING'}
+          & git.exe -C $root sparse-checkout set --cone .ice tools tests schemas policies archive pilots docs
+          if($LASTEXITCODE -ne 0){throw 'UQ42_SPARSE_SELECT_FAILED'}
+          & git.exe -C $root checkout --quiet --force engineering/uq42-utc-offset-checkpoint-compat
+          if($LASTEXITCODE -ne 0){throw 'UQ42_SPARSE_CHECKOUT_FAILED'}
+          if(((& git.exe -C $root rev-parse HEAD)|Out-String).Trim() -cne $pr){throw 'UQ42_PINNED_PR_SHA_DRIFT'}
+          $paths=@{
+            'tools/update-checkpoint.ps1'='76ae6839e144f883613b769b26ca3692480cf8d2';
+            'tools/project-dependency-graph.ps1'='639ed34d1ff5e2a872be60d8f400f43eaaf8b3da';
+            'tests/Test-ProjectDependencyGraph.ps1'='74a04c59bcbe43a35d8d30ec7182f166d98a844f'
+          }
+          foreach($p in $paths.Keys){
+            $blob=(& git.exe -C $root hash-object (Join-Path $root $p) | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne $paths[$p]){throw 'UQ42_SOURCE_BLOB_DRIFT'}
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('UQ42_PRIVATE_SCRATCH='+$base)
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('UQ42_REPO_ROOT='+$root)
+          Write-Host 'UQ42_PINNED_PR66_SOURCE_AND_THREE_BLOBS=PASS'
+      - name: Run only checkpoint and dependency-graph focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $root=$env:UQ42_REPO_ROOT
+          if(-not (Test-Path -LiteralPath $root -PathType Container)){throw 'UQ42_PRIVATE_ROOT_MISSING'}
+          $exe=(Get-Command pwsh.exe -ErrorAction Stop).Source
+          foreach($name in @('Test-ProjectDependencyGraph.ps1','Test-UpdateCheckpoint.ps1')){
+            $short=$name.Replace('.ps1','')
+            $out=Join-Path $env:UQ42_PRIVATE_SCRATCH ($short+'.stdout')
+            $err=Join-Path $env:UQ42_PRIVATE_SCRATCH ($short+'.stderr')
+            $test=Join-Path $root ('tests/'+$name)
+            $sw=[Diagnostics.Stopwatch]::StartNew()
+            $p=Start-Process -FilePath $exe -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $sw.Stop()
+            $raw=[IO.File]::ReadAllText($out)
+            if($p.ExitCode -ne 0){
+              $e=[IO.File]::ReadAllText($err)
+              Write-Host ('UQ42_FOCUSED_FAILURE '+$short+' exit='+$p.ExitCode+' stderr_tail='+$e.Substring([Math]::Max(0,$e.Length-750)))
+              throw ('UQ42_FOCUSED_TEST_FAILED '+$short)
+            }
+            if($raw -notmatch '(?m)regression passed'){throw 'UQ42_FOCUSED_PASS_MARKER_MISSING'}
+            Write-Host ('UQ42_FOCUSED_'+$short.ToUpperInvariant()+'=PASS elapsed_seconds='+[int]$sw.Elapsed.TotalSeconds)
+          }
+          Write-Host 'UQ42_FOCUSED_COMPATIBILITY_TESTS=PASS'
+      - name: Exactly one full Mind-Palace regression on identical PR66 tree
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $root=$env:UQ42_REPO_ROOT
+          $out=Join-Path $env:UQ42_PRIVATE_SCRATCH 'full.stdout'
+          $err=Join-Path $env:UQ42_PRIVATE_SCRATCH 'full.stderr'
+          $tool=Join-Path $root 'tests/Test-All.ps1'
+          $sw=[Diagnostics.Stopwatch]::StartNew()
+          $p=Start-Process -FilePath (Get-Command pwsh.exe).Source -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$tool+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          $sw.Stop()
+          $text=[IO.File]::ReadAllText($out)
+          if($p.ExitCode -ne 0 -or $text -notmatch 'Mind-Palace regression suite passed'){
+            $e=[IO.File]::ReadAllText($err)
+            $tail=$e.Substring([Math]::Max(0,$e.Length-1050))
+            $runs=@([regex]::Matches($text,'(?m)^RUN .+$'))
+            Write-Host ('UQ42_FULL_REGRESSION_STOP exit='+$p.ExitCode+' tests_started='+$runs.Count+' last_started='+$(if($runs.Count){$runs[-1].Value}else{'none'})+' stderr_tail='+$tail)
+            throw 'UQ42_FULL_REGRESSION_FAILED'
+          }
+          $changes=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+          if($LASTEXITCODE -ne 0 -or $changes.Count -ne 0){throw 'UQ42_PRIVATE_SOURCE_CHANGED_DURING_TEST'}
+          if(((& git.exe -C $root rev-parse HEAD)|Out-String).Trim() -cne '0ce14ef48852f492154c83542e9cb81d55c0056f'){throw 'UQ42_SOURCE_DRIFT_AFTER_TEST'}
+          Write-Host ('UQ42_FULL_REGRESSION=PASS tests_started='+@([regex]::Matches($text,'(?m)^RUN .+$')).Count+' elapsed_seconds='+[int]$sw.Elapsed.TotalSeconds)
+          Write-Host 'UQ42_PRODUCTION_MEMORY_WRITES=0'
+          Write-Host 'UQ42_CODEX_AND_PAID_INFERENCE=0'
+      - name: Fail-closed private scratch cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction Stop}
+          if(Test-Path -LiteralPath $base){throw 'UQ42_PRIVATE_SCRATCH_RETAINED'}
+          Write-Host 'UQ42_PRIVATE_SCRATCH_CLEAN=PASS'
