@@ -43,6 +43,8 @@ class FrozenAA(unittest.TestCase):
         base=[.4,.9,.65,.75,.8,.2,-.5]
         delta=[1.3,.2]
         for _,_,family,p,n in s.pairs("Yggdrasil","FIT")[:8]:
+            if family=="extended_depth":
+                continue  # historical original Q explicitly rejects >9 hops
             for graph in (p,n):
                 new_orig,wo=m.ygg_original(graph,base,delta)
                 orig,work=q.forward("Yggdrasil",graph,base,delta)
