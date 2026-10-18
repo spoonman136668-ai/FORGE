@@ -139,7 +139,7 @@ def normalize(graph,model,min_check):
     return raw if accepted else None,{
         "public_check_correct_bits":correct,"abstained":not accepted,
         "inference_queries":inferred,
-        "estimated_model_mul_add_lower":inferred*(FIT+2)*width*16,
+        "estimated_model_mul_add_lower":inferred*(FIT+2)*model["width"]*16,
         "shared_float_bytes_lower":model["shared_float_bytes_lower"],
         "task_FIT_bits_lower":FIT*32,
         "feature_activation_float_slots_lower":(FIT+1)*model["width"],
