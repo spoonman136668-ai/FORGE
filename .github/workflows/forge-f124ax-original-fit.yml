@@ -1,0 +1,129 @@
+name: F124-AX one original FIT with conditional held SCREEN and final regression
+on:
+  push:
+    branches: [research/f124ax-equal-information-nonlinear-transfer-20261018]
+    paths: ['.github/workflows/forge-f124ax-original-fit.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ax-one-original-fit-screen
+  cancel-in-progress: false
+jobs:
+  exact-source-original-fit-screen:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate source, frozen criteria, prior tests, one-use boundary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object reference/research-intake/f124ax-frozen-equal-information-transfer.json)" = 9c853649d498af8d264271851417070ab5ee0450
+          test "$(git log -1 --format=%H -- reference/research-intake/f124ax-frozen-equal-information-transfer.json)" = d56847eafb0c4ab43d3514f33b93b1fce8412d61
+          git merge-base --is-ancestor d56847eafb0c4ab43d3514f33b93b1fce8412d61 HEAD
+          test "$(git hash-object nativeevidence/f124ax_train_source.py)" = ed13f5bc332c20a5fff9c21bebfc4f35c2d074df
+          test "$(git hash-object nativeevidence/f124ax_sparse_quadratic.py)" = bcdd91164d9ce73953f666d0fdfae6f8a2f656f0
+          test "$(git hash-object nativeevidence/f124ax_fit_screen_evidence.py)" = 5fe65eb96190266762319d88d9a06d8df4981a45
+          test "$(git hash-object nativeevidence/test_f124ax_nonconsuming.py)" = 7e09b25d2d6be56c6aed2f774e6b5bd00221f8ad
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39146955903" --jq '[.head_sha,.status,.conclusion] | join(" ")' | grep -Fx '6523fbb3316a125cb8689dc38d4b90cd7995d950 completed success'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39145084951" --jq '[.head_sha,.status,.conclusion] | join(" ")' | grep -Fx 'a0173ff8ab3093dbb24d1b517c416c03502570e1 completed success'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39145084951/artifacts" --jq '.artifacts[] | select(.id==12142901818 and .expired==false) | .digest' | grep -Fx 'sha256:0f4fe659e490adad0b539272c9fbbf675b96c8c21e029853aff4677337f4a3a3'
+          prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124ax-equal-information-nonlinear-transfer-20261018&per_page=100" --jq '[.workflow_runs[] | select(.path==".github/workflows/forge-f124ax-original-fit.yml") | select(.id != (env.GITHUB_RUN_ID | tonumber))] | length')
+          test "$prior" = 0 || { echo F124AX_REPEAT_SCIENCE_FORBIDDEN; exit 1; }
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f124ax_*.py' -q
+          python3 -B isolationguard/check.py
+          echo 'F124AX_SOURCE_FIRST_USE_GATE=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39145084951
+          github-token: ${{ github.token }}
+          name: f124aw-independent-no-dev-preflight-a0173ff8ab3093dbb24d1b517c416c03502570e1
+          path: original-aw
+      - name: One FIT, one optional held SCREEN, no DEV construction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ax_fit_screen_evidence.py \
+            --aw-preflight original-aw/f124aw-independent-nonconsuming-preflight.json \
+            --fit-output "$RUNNER_TEMP/f124ax-first-fit.json" \
+            --screen-output "$RUNNER_TEMP/f124ax-one-held-screen.json"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os
+          root=Path(os.environ["RUNNER_TEMP"])
+          fit=json.loads((root/"f124ax-first-fit.json").read_text())
+          assert fit["schema"]=="forge.research.f124ax.one-original-equal-budget-fit-screen.v1"
+          assert fit["phase"]=="FIT" and fit["FIT_paired_cases"]==24
+          assert fit["DEV_cases_constructed"]==0 and fit["Wingless_DEV_constructed"]==0
+          assert all(row["pairs"]==24 and row["total_response_observations"]==24*48
+                     for row in fit["Yggdrasil"].values())
+          screened=root/"f124ax-one-held-screen.json"
+          if fit["FIT_selected"] is None:
+              assert not screened.exists()
+              print("F124AX_FIT_NEGATIVE_SCREEN_UNTOUCHED=true")
+          else:
+              s=json.loads(screened.read_text())
+              assert s["phase"]=="SCREEN" and s["FIT_selection"]==fit["FIT_selected"]
+              assert s["SCREEN_paired_cases"]==24 and s["DEV_cases_constructed"]==0
+              print("F124AX_ONE_HELD_SCREEN_COMPLETE=true")
+          print("F124AX_NO_PROTECTED_DEV=true")
+          PY
+          (cd "$RUNNER_TEMP" && sha256sum f124ax-first-fit.json > f124ax-first-fit.json.sha256)
+          if test -f "$RUNNER_TEMP/f124ax-one-held-screen.json"; then
+            (cd "$RUNNER_TEMP" && sha256sum f124ax-one-held-screen.json > f124ax-one-held-screen.json.sha256)
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124ax-first-fit-optional-screen-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124ax-first-fit.json
+            ${{ runner.temp }}/f124ax-first-fit.json.sha256
+            ${{ runner.temp }}/f124ax-one-held-screen.json
+            ${{ runner.temp }}/f124ax-one-held-screen.json.sha256
+          if-no-files-found: warn
+          retention-days: 90
+  one-final-full-regression:
+    needs: exact-source-original-fit-screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one complete regression, race, vet, build and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AX_ONE_FINAL_FULL_REGRESSION=PASS"
+          echo "F124AX_EXACT_HEAD=$GITHUB_SHA"
+          echo "F124AX_PROTECTED_SCIENCE_ACCEPTED=false"
+          echo "F124AX_OPTIMIZER_PROMOTION=false"
