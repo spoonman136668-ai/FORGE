@@ -1,0 +1,79 @@
+name: F124-AR frozen source and attribution focused
+on:
+  push:
+    branches: [research/f124ar-failure-isolation-fresh-train-20261018]
+    paths:
+      - '.github/workflows/forge-f124ar-focused.yml'
+      - 'nativeevidence/f124ar_*.py'
+      - 'nativeevidence/test_f124ar_*.py'
+      - 'reference/research-intake/f124ar-frozen-failure-isolation.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ar-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-and-capacity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact immutable freeze and Windows/Linux focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AR_EXACT_HEAD_DRIFT' }
+          $f='reference/research-intake/f124ar-frozen-failure-isolation.json'
+          if((git hash-object $f).Trim() -cne '952bbe93d732890eeb6ad8c201ea07feb46b3609' -or
+             (git log -1 --format=%H -- $f).Trim() -cne 'be0a4e4a93e377abdb8c3a2ac1b04ef4161e488b') {
+            throw 'F124AR_FROZEN_BEFORE_IMPLEMENTATION_MISMATCH'
+          }
+          if((git rev-parse 'cb2d4ff16e8054e790a0f1dfb4e558b97ebcb3a1:nativeevidence/f124aq_train_source.py').Trim() -cne '7899ce9c63f040823fec73657154e5245feb7899') {
+            throw 'F124AR_QUALIFIED_AQ_SOURCE_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          foreach($pattern in @('test_f124ar_*.py','test_f124aq_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if($LASTEXITCODE -ne 0) { throw "F124AR_FOCUSED_FAILED:$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0) { throw 'F124AR_ISOLATION_FAILED' }
+          Write-Output 'F124AR_FOCUSED_SOURCE=PASS'
+          Write-Output 'F124AR_DEV_CONSUMED=false'
+  independent-custody:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate exact F124-AQ scientific negatives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $rules=@(
+            @{id=39124962572;head='1d4222158da000f66f6ad28033c9b15f4dcabe93';aid=12136050383;digest='sha256:59120d20472eb45661c9c5599a6e832824866abc25cf8e68e34d8d604f841a97'},
+            @{id=39125383562;head='cb2d4ff16e8054e790a0f1dfb4e558b97ebcb3a1';aid=12136071540;digest='sha256:c45afc2719dc217184b754ef1a7eabb76d256713ee71d5d680be45dfcb45362a'}
+          )
+          foreach($p in $rules) {
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.head_sha -cne $p.head -or
+               $r.status -cne 'completed' -or $r.conclusion -cne 'success' -or
+               $r.event -cne 'push') { throw 'F124AR_ORIGINAL_RUN_DRIFT' }
+            $a=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json
+            $f=@($a.artifacts | Where-Object { $_.id -eq $p.aid })
+            if($LASTEXITCODE -ne 0 -or $f.Count -ne 1 -or
+               $f[0].expired -or $f[0].digest -cne $p.digest) {
+              throw 'F124AR_ORIGINAL_RAW_ARTIFACT_DRIFT'
+            }
+          }
+          Write-Output 'F124AR_ORIGINAL_AQ_NEGATIVE_CUSTODY=PASS'
