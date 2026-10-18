@@ -1,0 +1,238 @@
+name: F124-AK FIT intermediate supervision and learned relational binder
+on:
+  push:
+    branches: [research/f124ak-intermediate-operator-20261018]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: f124ak-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-new-source:
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Freeze source, whole paired FIT DEV, local-hop supervision original controls and sixteen cells
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AK_EXACT_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ak_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AK_FROZEN_SOURCE_OR_ORIGINAL_CAP_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AK_ORIGINAL_FORGE_ISOLATION_FAIL' }
+          Write-Output 'F124AK_PROTECTED_FIRST_USE=false'
+  true-FIT-hop-and-binder-training:
+    needs: frozen-new-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Fit raw bit MLP from fresh public FIT hop labels; then fit cross-hop binder FIT labels only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ak_learned.py --output "$RUNNER_TEMP/f124ak-learned.json"
+          python3 - "$RUNNER_TEMP/f124ak-learned.json" <<'PY'
+          import json,sys
+          v=json.load(open(sys.argv[1]))
+          assert v["schema"]=="forge.research.f124ak.FIT-trained-intermediate-and-binder.v1"
+          assert v["freeze_blob"]=="53c7cd76e2a8fc44be05e186b989ef8b1a3ad86f"
+          assert v["trained"]["parameter_count"]==39
+          assert v["trained"]["FIT_graph_pairs"]==288
+          assert v["trained"]["FIT_local_epochs"]==320
+          assert v["trained"]["FIT_relation_epochs"]==360
+          assert v["trained"]["trained_L2_distance_from_random_initial"]>0
+          assert v["original_cell_cap"]==16 and v["original_cell_fields_unchanged"]
+          assert v["no_DEV_training_or_selection"] and not v["protected_first_use"]
+          assert len(v["FIT_curve"])==9
+          for family in ("near_weave","far_weave","role_weave"):
+              for group in ("DEV","untrained_DEV","intermediate_trained_untrained_binder_DEV"):
+                  a=v[group][family]
+                  assert a["pairs"]==48 and len(a["cases"])==48
+                  assert all(x["pairs"]==16 for x in a["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ak-learned.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ak-FIT-learned-intermediate-and-binder-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ak-learned.json
+          retention-days: 90
+          if-no-files-found: error
+  authentic-science-comparison:
+    needs: true-FIT-hop-and-binder-training
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124ak-FIT-learned-intermediate-and-binder-${{ github.sha }}
+          path: fit
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Frozen original O U authentic weights vs source-independent fixed and actual learned ablations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ak_comparison.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --trained-receipt fit/f124ak-learned.json --output "$RUNNER_TEMP/f124ak-comparison.json"
+          python3 - "$RUNNER_TEMP/f124ak-comparison.json" <<'PY'
+          import json,sys
+          v=json.load(open(sys.argv[1]))
+          assert v["schema"]=="forge.research.f124ak.original-vs-intermediate-supervised.v1"
+          assert v["freeze_blob"]=="53c7cd76e2a8fc44be05e186b989ef8b1a3ad86f"
+          assert v["original_O_U_authentic_FIT_weights_unchanged"]
+          assert v["raw_operator_learned_parameter_count"]==39
+          assert v["original_16_cell_cap"]==16
+          assert v["DEV_is_untrained_and_no_model_selection"]
+          assert not v["protected_first_use"] and not v["independent_science_accepted"]
+          for phase in ("FIT","DEV"):
+              for family in ("near_weave","far_weave","role_weave"):
+                  for arm,a in v[phase][family]["arms"].items():
+                      assert a["pairs"]==48 and len(a["cases"])==48
+                      assert all(d["pairs"]==16 for d in a["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ak-comparison.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ak-all-case-DEV-original-and-fixed-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ak-comparison.json
+          retention-days: 90
+          if-no-files-found: error
+  real-hardware-cost:
+    needs: true-FIT-hop-and-binder-training
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124ak-FIT-learned-intermediate-and-binder-${{ github.sha }}
+          path: fit
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Seven arms three fresh-process identical graphs, actual total RSS CPU wall heap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124ak-cost-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124ak_physical.py --bench --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --trained-receipt fit/f124ak-learned.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AK_HARDWARE_RESOURCE_FAILURE' }
+          $d=Get-Content $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.research.f124ak.actual-whole-model-resource.v1' -or
+              $d.freeze_blob -cne '53c7cd76e2a8fc44be05e186b989ef8b1a3ad86f' -or
+              $d.raw.Count -ne 21 -or $d.original_cell_cap -ne 16 -or
+              -not $d.additional_global_parameter_RAM_recorded -or
+              -not $d.packed_state_integer_payload_recorded -or
+              $d.protected_first_use -or $d.science_accepted) {
+            throw 'F124AK_RESOURCE_RECEIPT_DRIFT'
+          }
+          foreach ($arm in @('historical_O_combined','historical_U_combined','fixed_consistency16','fixed_collisionfree','untrained_hop_relation','intermediate_trained_untrained_binder','trained_hop_relation')) {
+            $r=$d.results.$arm
+            if ($r.repetitions -ne 3 -or $r.median_wall_ns -le 0 -or
+                $r.median_cpu_ns -le 0 -or $r.median_process_peak_RSS_bytes -le 0) {
+              throw 'F124AK_PROCESS_DENOMINATOR'
+            }
+            Write-Output "F124AK_COST_$($arm):RSS=$($r.median_process_peak_RSS_bytes):wall_ns=$($r.median_wall_ns):cpu_ns=$($r.median_cpu_ns):heap=$($r.median_Python_inference_heap_bytes)"
+          }
+          Write-Output "F124AK_RESOURCE_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ak-physical-seven-arm-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ak-cost-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+  one-original-full-regression:
+    needs: [authentic-science-comparison, real-hardware-cost]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env: {GOMAXPROCS: '2', GOFLAGS: '-p=2', GOMEMLIMIT: '1536MiB'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Exactly one full Go test race vet build and original FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AK_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124AK_PROTECTED_FIRST_USE=false'
