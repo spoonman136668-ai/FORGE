@@ -1,0 +1,183 @@
+name: F124-S packed key and independent causal credit development
+on:
+  push:
+    branches: [research/f124s-packed-keys-cell-credit-20261017]
+    paths:
+      - 'reference/research-intake/f124s-packed-key-causal-credit-freeze.json'
+      - 'nativeevidence/f124s_*.py'
+      - 'nativeevidence/test_f124s_*.py'
+      - '.github/workflows/forge-f124s-packed-key-cell-credit.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124s-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  focused-source-two-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen S public source and strict state/cell/resource guard tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124S_SOURCE_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124s_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124S_FOCUSED_TEST_FAILURE' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124S_PARENT_F124R_REGRESSION' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124S_FORGE_ISOLATION_FAILURE' }
+          Write-Output 'F124S_NO_PROTECTED_FIRST_USE=true'
+
+  authentic-development-experiment:
+    needs: focused-source-two-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: original-r
+      - name: Authenticate original weight and trained delta receipts then compare both independent fresh cohorts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $o='original-o/f124o-independent-two-learned-development.json'
+          $r='original-r/f124r-fresh-calibrated-continuous-development.json'
+          if ((Get-FileHash -LiteralPath $o -Algorithm SHA256).Hash.ToLowerInvariant() -cne '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d') { throw 'F124S_O_RECEIPT_SHA_MISMATCH' }
+          if ((Get-FileHash -LiteralPath $r -Algorithm SHA256).Hash.ToLowerInvariant() -cne '8ac2d22d10c91e453e33ca7d6deba44a75d92849b106d6f49cc9f19b123f2525') { throw 'F124S_R_RECEIPT_SHA_MISMATCH' }
+          $out=Join-Path $env:RUNNER_TEMP 'f124s-fresh-packed-key-cell-credit-development.json'
+          & python3 -B nativeevidence/f124s_development_evidence.py --original-o $o --original-r $r --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124S_GENUINE_TRAIN_OR_SOURCE_QUALIFICATION_FAILED' }
+          $a=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($a.schema -cne 'forge.research.f124s.fresh-packed-key-cell-credit-development.v1' -or
+              $a.exact_qualified_parent -cne '522601491c10ebfeb36e7dca2627ff5366b51abb' -or
+              $a.preimplementation_git_blob -cne '33b299417fb284982aa162684b467b4593a6d828' -or
+              $a.authenticated_f124o_sha256 -cne '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d' -or
+              $a.authenticated_f124r_sha256 -cne '8ac2d22d10c91e453e33ca7d6deba44a75d92849b106d6f49cc9f19b123f2525' -or
+              $a.lanes.Count -ne 2 -or
+              $a.protected_cases_generated -ne 0 -or $a.protected_first_use -or
+              $a.independent_accepted_science -or $a.scientific_acceptances -ne 0 -or
+              $a.accepted_ref_mutations -ne 0 -or $a.optimizer_promotions -ne 0 -or
+              $a.codex_calls -ne 0 -or $a.paid_api_calls -ne 0 -or $a.new_schedulers -ne 0 -or
+              $a.resource_matched_superiority_proven) {
+            throw 'F124S_FALSE_SCIENTIFIC_AUTHORITY_OR_SOURCE_DRIFT'
+          }
+          foreach ($lane in $a.lanes) {
+            if ($lane.lane -cnotin @('Wingless','Yggdrasil')) { throw 'F124S_LANE_AUTHORITY' }
+            if ($lane.training_status -ceq 'FROZEN_FIT_NEGATIVE') {
+              if ($null -ne $lane.dev -or $null -ne $lane.training -or
+                  $lane.new_dev_scored) { throw 'F124S_NEGATIVE_LANE_DEV_FALSIFIED' }
+              Write-Output "F124S_FIT_NEGATIVE_$($lane.lane)=$($lane.negative)"
+              continue
+            }
+            if ($lane.training_status -cne 'GENUINE_FIT_PASS' -or
+                $lane.training.training_steps -ne 72 -or
+                $lane.training.fit_pairs -ne 48 -or
+                $lane.training.weight_update_l2 -le 0 -or
+                $lane.training.DEV_access_during_train -ne 0 -or
+                $lane.training.protected_access_during_train -ne 0) {
+              throw 'F124S_FAKE_TRAINING_OR_SOURCE_CONSUMPTION'
+            }
+            foreach ($cohort in @($lane.fit,$lane.dev)) {
+              if ($cohort.pairs -ne 48 -or $cohort.exact_symbolic_paired -ne 48 -or
+                  $cohort.role_only_paired -ne 0 -or
+                  @($cohort.arms.PSObject.Properties).Count -ne 5) {
+                throw 'F124S_COHORT_DENOMINATOR'
+              }
+              foreach ($item in $cohort.arms.PSObject.Properties) {
+                $arm=$item.Value
+                if ($arm.pairs -ne 48 -or $arm.cases.Count -ne 48 -or
+                    $arm.depth.'7'.pairs -ne 16 -or $arm.depth.'8'.pairs -ne 16 -or
+                    $arm.depth.'9'.pairs -ne 16 -or $arm.execution_errors -ne 0 -or
+                    $arm.max_retained -gt 9) {
+                  throw 'F124S_FULL_CASE_OR_RESOURCE_CENSUS'
+                }
+                if ($lane.lane -ceq 'Yggdrasil' -and $arm.max_active -gt 7) { throw 'F124S_7_ACTIVE_BUDGET' }
+              }
+              if ($lane.lane -ceq 'Wingless') {
+                if ($cohort.resource_comparison.serialized_candidate_bytes_per_Wingless_state -ne 10 -or
+                    $cohort.resource_comparison.serialized_reference_bytes_per_Wingless_state -ne 40 -or
+                    $cohort.resource_comparison.equal_information_capacity_proven -or
+                    $cohort.resource_comparison.wall_clock_matched_proven -or
+                    $cohort.resource_comparison.scientific_resource_matched_superiority_proven) {
+                  throw 'F124S_FALSE_MEMORY_MATCH'
+                }
+              }
+            }
+            Write-Output "F124S_DEV_$($lane.lane):new=$($lane.dev.arms.new_F124S.paired)/48 prior_R=$($lane.dev.arms.old_F124R.paired)/48 fixed=$($lane.dev.arms.strong_fixed.paired)/48 op_proxy_matched=$($lane.dev.resource_comparison.operation_proxy_matched)"
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            $digest+'  f124s-fresh-packed-key-cell-credit-development.json'+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+          Write-Output "F124S_EVIDENCE_SHA256=$digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124s-source-backed-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124s-fresh-packed-key-cell-credit-development.json
+            ${{ runner.temp }}/f124s-fresh-packed-key-cell-credit-development.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  final-one-full-regression:
+    needs: authentic-development-experiment
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete full Go regression race vet build with private controller isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124S_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124S_NO_SCIENTIFIC_ACCEPTANCE=true'
