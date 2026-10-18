@@ -1,0 +1,79 @@
+name: F124-AP frozen kernel and hop TRAIN-focused
+on:
+  push:
+    branches: [research/f124ap-learned-kernel-relations-one-packed-hop-evidence-20261018]
+    paths:
+      - '.github/workflows/forge-f124ap-frozen-train-focused.yml'
+      - 'nativeevidence/f124ap_*.py'
+      - 'nativeevidence/test_f124ap_*.py'
+      - 'reference/research-intake/f124ap-frozen-kernel-relations-and-hop-evidence.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ap-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-windows-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest,ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Immutable preimplementation F124-AP freeze and focused source tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F124AP_EXPECTED_HEAD'
+          }
+          $file='reference/research-intake/f124ap-frozen-kernel-relations-and-hop-evidence.json'
+          if ((git hash-object $file).Trim() -cne '4ceb1d410001cfb56d0be5e4b6eb8b17cf4cade9' -or
+              (git log -1 --format=%H -- $file).Trim() -cne 'cf662ef10827124189fa8d10a3ee6daeb3167592') {
+            throw 'F124AP_FROZEN_BEFORE_IMPLEMENTATION'
+          }
+          if ((git rev-parse 'a0d15c8cf307a9c7972728899b525f79717049c7:nativeevidence/f124ao_frozen_source.py').Trim() -cne '6c6bd9b685b8ad6b1b3685f95959947c4940f2ff') {
+            throw 'F124AP_SOURCE_FOUNDATION_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          foreach($pattern in @('test_f124ap_*.py','test_f124ao_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124AP_SOURCE_TEST_FAILED:$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AP_CROSS_PROJECT_ISOLATION' }
+          Write-Output 'F124AP_FOCUSED_SOURCE=PASS'
+          Write-Output 'F124AP_DEV_GENERATED=0'
+          Write-Output 'F124AP_SCIENCE_ACCEPTED=false'
+  original-ao-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify qualified AO parent and exact first DEV custody
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39122374949' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $r.head_sha -cne 'a0d15c8cf307a9c7972728899b525f79717049c7' -or
+              $r.status -cne 'completed' -or $r.conclusion -cne 'success' -or
+              $r.event -cne 'push') {
+            throw 'F124AP_PARENT_QUALIFICATION_DRIFT'
+          }
+          $a=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39122374949/artifacts' | ConvertFrom-Json
+          $match=@($a.artifacts | Where-Object { $_.id -eq 12134498287 })
+          if ($LASTEXITCODE -ne 0 -or $match.Count -ne 1 -or $match[0].expired -or
+              $match[0].digest -cne 'sha256:5d189c95dfdc00ce5a00b7170236d9514175b2b3b77fc7407522c16ecf878f2c') {
+            throw 'F124AP_PARENT_SCIENTIFIC_RECEIPT_DRIFT'
+          }
+          Write-Output 'F124AP_ORIGINAL_AO_SOURCE_CUSTODY=PASS'
