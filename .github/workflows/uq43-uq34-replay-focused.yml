@@ -24,7 +24,7 @@ jobs:
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ43_WRONG_RUNNER'}
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
-          $head='cd21b6a488f641c2728f53c1bac0aae7b5f761e1'
+          $head='bcce44efc2b7f7c89e25679cecc2d46424a4aaf0'
           $main='22d819c3473b80be34ecac7280881a67c981207c'
           foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
             $a=@(& git.exe ls-remote --exit-code $remote $pair[0])
@@ -42,6 +42,8 @@ jobs:
             if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ43_CHECKOUT_DRIFT'}
             $blob=(& git.exe -C $root hash-object (Join-Path $root 'tests/Test-UQ34CheckpointReplay.ps1')|Out-String).Trim()
             if($LASTEXITCODE -ne 0 -or $blob -cne 'e6847c408fc4fdcc80cc657dc202efc07bae8803'){throw 'UQ43_TEST_BLOB_DRIFT'}
+            $intakeBlob=(& git.exe -C $root hash-object (Join-Path $root 'tools/browser-chat-intake.ps1')|Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $intakeBlob -cne 'd548b886eb20eb0a22929b7438b5dd0ffbeeb607'){throw 'UQ43_INTAKE_SHA_BLOB_DRIFT'}
             $out=Join-Path $scratch 'out.txt'
             $err=Join-Path $scratch 'err.txt'
             $tool=Join-Path $root 'tests/Test-UQ34CheckpointReplay.ps1'
