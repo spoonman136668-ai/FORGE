@@ -56,7 +56,7 @@ class BCNonconsuming(unittest.TestCase):
     def test_model_imports_and_scientific_scope(self):
         src=(ROOT/"f124bc_original_hard_negative.py").read_text()
         tree=ast.parse(src)
-        self.assertNotIn("scientific_protected_acceptance":True",src)
+        self.assertNotIn('"scientific_protected_acceptance": True',src)
         self.assertIn("if open_screen:",src)
         self.assertIn("if_hard_coverage",str(source.frozen()["prospective_rules"]))
         self.assertEqual(len(experiment.ARMS),4)
