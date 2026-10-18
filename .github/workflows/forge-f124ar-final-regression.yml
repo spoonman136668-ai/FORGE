@@ -1,0 +1,58 @@
+name: F124-AR diagnostic retained-negative final qualification
+on:
+  push:
+    branches: [research/f124ar-failure-isolation-fresh-train-20261018]
+    paths: ['.github/workflows/forge-f124ar-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ar-diagnostic-final-single-regression
+  cancel-in-progress: false
+jobs:
+  one-final-system-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Independently authenticate exact original negative TRAIN and untouched DEV
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124ar-frozen-failure-isolation.json
+          retained=reference/research-intake/f124ar-authenticated-train-diagnostic-negative.json
+          test "$(git hash-object "$freeze")" = 952bbe93d732890eeb6ad8c201ea07feb46b3609
+          test "$(git log -1 --format=%H -- "$freeze")" = be0a4e4a93e377abdb8c3a2ac1b04ef4161e488b
+          test "$(git log -1 --format=%H -- "$retained")" = 08dfef309211241c8a6a0976d87bf4f03abfe614
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39132070075 --jq '.head_sha + " " + .conclusion' | grep -Fx '3b00382c1376e243f31556921e1a9479efd99727 success'
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39132070075/artifacts --jq '.artifacts[] | select(.id==12137929442) | .digest' | grep -Fx 'sha256:2ec955fe782763abbfb8590d67098c961ce4939bf7962d5831682a0a6c453e8f'
+          python3 -B -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["schema"]=="forge.research.f124ar.authenticated-train-diagnostic-negative.v1"; assert x["evidence"]["original_unmodified_raw_json_sha256"]=="d527308655b1f8c688fa940964871dfc2313ce80f53e92e75de807b3e5708c67"; assert x["Yggdrasil"]["forced_decoder_diagnostic"]["paired"]==0 and x["Yggdrasil"]["evaluator_true_inverse_control"]["paired"]==47; assert x["Wingless"]["unchanged_baseline"]["paired"]==x["Wingless"]["fixed_AQ_candidate"]["paired"]==42; assert x["Wingless"]["unchanged_baseline"]["FP"]==x["Wingless"]["fixed_AQ_candidate"]["FP"]==5; assert x["safeguards"]["both_NEW_DEV_cohorts_consumed"] is False and x["safeguards"]["both_NEW_DEV_cases_generated"]==0 and x["safeguards"]["optimizer_promotion"] is False' "$retained"
+          echo 'F124AR_ORIGINAL_DIAGNOSTIC_CUSTODY=PASS'
+          echo 'F124AR_NEW_DEV_CONSUMED=false'
+      - name: Exactly one full integration test, race, vet, build, isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AR_DIAGNOSTIC_FINAL_FULL_REGRESSION=PASS"
+          echo "F124AR_DIAGNOSTIC_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124AR_SCIENCE_ACCEPTED=false'
