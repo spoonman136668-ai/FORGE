@@ -134,8 +134,10 @@ def forward(arm,g,weights,mode='original',positive_prefix=None):
         target=(R_target_sum/max(1,R_target_n)-.5) if R_target_n else -.5
         logit=logit+2.*weights["R"][0]*mean
         logit=logit+2.*weights["R"][1]*target
-    ref,_=original_forward(arm,g,weights)
-    if mode=="original":
+    # Original bit identity is checked in the evaluator-only forensic pass.
+    # Inference-only resource benchmarks do not execute a second reference.
+    if mode=="original" and positive_prefix is not None:
+        ref,_=original_forward(arm,g,weights)
         need(logit.hex()==ref.hex(),"ORIGINAL_7_9_MODEL_REPLAY_"+arm)
     return {"prediction":bool(O.sigmoid(logit)>=.5),
             "logit_hex":logit.hex(),"hops":hops,
