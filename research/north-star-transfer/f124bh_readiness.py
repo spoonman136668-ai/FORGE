@@ -91,6 +91,16 @@ def verify_chronology():
         p = subprocess.run(["git", "cat-file", "-e", commit + ":" + path],
                            cwd=ROOT, capture_output=True)
         need((p.returncode == 0) is expected_existence, "BIRTH_ORDER")
+    # The source bytes at each *original birth commit* must be exactly the
+    # immutable blobs later used by the readiness audit, not merely present.
+    for commit, filename in (
+        (FREEZE_COMMIT, "f124bh-frozen-protocol.json"),
+        (U_COMMIT, "f124bh_u_family.py"),
+        (R_COMMIT, "f124bh_r_family.py"),
+    ):
+        gitpath = "research/north-star-transfer/" + filename
+        need(run_git("rev-parse", commit + ":" + gitpath) == BLOBS[filename],
+             "SOURCE_BIRTH_BLOB_DRIFT_" + filename)
     cohorts = freeze["identity_ranges"]
     need(cohorts["UNSEEN_U"] == [902000, 902127]
          and cohorts["INDEPENDENT_REPLICATION_R"] == [903000, 903127],
