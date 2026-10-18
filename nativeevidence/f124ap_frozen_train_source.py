@@ -14,7 +14,7 @@ import f124q_fresh_source as q
 
 FREEZE=Path(__file__).resolve().parents[1]/"reference/research-intake/f124ap-frozen-kernel-relations-and-hop-evidence.json"
 FREEZE_BLOB="4ceb1d410001cfb56d0be5e4b6eb8b17cf4cade9"
-PARENT_SOURCE_BLOB="e88c7c882e79b4ff040279fe5cfdaf6dd7657f88a"
+PARENT_SOURCE_BLOB="6c6bd9b685b8ad6b1b3685f95959947c4940f2ff"
 COHORTS={
  "Yggdrasil":{"TRAIN":range(2800000,2800024),"DEV":range(2800100,2800124)},
  "Wingless":{"TRAIN":range(2810000,2810024),"DEV":range(2810100,2810124)}}
@@ -28,7 +28,7 @@ def need(ok,label):q.need(ok,"F124AP_"+label)
 
 def frozen():
     parent.frozen()
-    need(witness.blob(FREEZE)==FREEZE_BLOB,
+    need(witness.blob(FREEZE)==FREEZE_BLOB and witness.blob(parent.__file__)==PARENT_SOURCE_BLOB,
          "PREIMPLEMENTATION_FROZEN_BLOB")
     p=json.loads(FREEZE.read_text(encoding="utf-8"))
     src=p["sources"]
