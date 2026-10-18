@@ -164,7 +164,7 @@ jobs:
             }
             $validation = (& (Join-Path $txn 'tools/mind.ps1') validate | Out-String).Trim()
             if ($validation -notmatch 'Mind-Palace validation passed') { throw 'UQ50_TXN_MIND_VALIDATE_FAILED' }
-            $ledgerValidation = ((& (Join-Path $txn 'tools/source-ledger.ps1') validate | Out-String).Trim() | ConvertFrom-Json)
+            $ledgerValidation = ((& (Join-Path $txn 'tools/source-ledger.ps1') validate -BatchPath $batch | Out-String).Trim() | ConvertFrom-Json)
             if (-not [bool]$ledgerValidation.valid) { throw 'UQ50_TXN_LEDGER_INVALID' }
             Write-Host 'UQ50_TXN_STAGE_CHECKPOINT_LEDGER_SNAPSHOTS=PASS records=263 ledger=104'
             Write-Host 'UQ50_ORIGINAL_260_RECORDS_BYTE_EQUIVALENT_AND_NO_RETIREMENTS=PASS'
@@ -215,7 +215,7 @@ jobs:
             }
             $lv = (& (Join-Path $live 'tools/mind.ps1') validate | Out-String).Trim()
             if ($lv -notmatch 'Mind-Palace validation passed') { throw 'UQ50_SYNTHETIC_LIVE_VALIDATION_FAILED' }
-            $ll = ((& (Join-Path $live 'tools/source-ledger.ps1') validate | Out-String).Trim() | ConvertFrom-Json)
+            $ll = ((& (Join-Path $live 'tools/source-ledger.ps1') validate -BatchPath (Join-Path $live $batchRel) | Out-String).Trim() | ConvertFrom-Json)
             if (-not [bool]$ll.valid) { throw 'UQ50_SYNTHETIC_LIVE_LEDGER_INVALID' }
             Write-Host 'UQ50_SYNTHETIC_SUCCESSFUL_COMMIT_AND_POST_VALIDATION=PASS'
             # Current Git checkpoint admissibility is a separate strict gate.
