@@ -17,7 +17,7 @@ import f124v_yggdrasil_causal_trace as V
 import f124n_development_evidence as adapter
 import f124h_train_receipt as ctrl
 
-SCHEMA="forge.research.f124y.fit-only-score-vs-threshold-intervention.v1"
+SCHEMA="forge.research.f124y.independent-value-credit-transfer.v1"
 THRESHOLDS=(-8,-6,-4,-3,-2,-1,0,1,2,3,4,6,8)
 ARMS=("O_original","R_readout","S_original","U_rank",
       "S_no_value_credit","S_fit_threshold_only","S_no_value_fit_threshold",
