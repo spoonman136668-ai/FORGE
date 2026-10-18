@@ -131,7 +131,7 @@ def select_wing_cap(cases,weights,delta,count):
             b,_,_=wing(n,weights,delta,count,cap)
             paired+=int(a>=0 and b<0)
             fp+=int(b>=0)
-            if fam in ("long_dense_13_15","extended_13_15"):
+            if fam in ("rotate4_dense_13_15","xor16_extended_13_15"):
                 long_pos+=int(a>=0)
         grid.append({"cap":cap,"paired":paired,
                      "FP":fp,"long_positive_sensitivity":long_pos})
