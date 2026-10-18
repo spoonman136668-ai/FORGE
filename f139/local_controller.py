@@ -23,7 +23,6 @@ import zipfile
 
 REPO = "spoonman136668-ai/FORGE"
 WORKFLOW = "forge-f139-development-worker.yml"
-TITLE = "FORGE F139 development worker"
 SCHEMA = "forge.f139.windows-controller.v1"
 ZERO = "0" * 64
 SHA = re.compile(r"[a-f0-9]{40}\Z")
@@ -332,7 +331,8 @@ class GitHub:
 
     def run_proof(self,run:dict,ticket:str,source:str,started_at:str):
         require(isinstance(run,dict) and run.get("display_title")=="F139 "+ticket
-                and run.get("event")=="workflow_dispatch" and run.get("name")==TITLE
+                and run.get("event")=="workflow_dispatch" and run.get("name")=="F139 "+ticket
+                and run.get("workflow_id")==388797257
                 and run.get("path")==".github/workflows/"+WORKFLOW
                 and run.get("head_sha")==source and run.get("head_branch")=="main"
                 and run.get("run_attempt")==1 and isinstance(run.get("id"),int)
