@@ -1,0 +1,47 @@
+name: FORGE F138-C2 complete provider archive qualification
+
+# PR-only source integrity and rejection tests; no schedule, dispatch, token,
+# protected-science admission, automatic Git commit, or authority transition.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'nativeevidence/f138_archive_c2.py'
+      - 'nativeevidence/test_f138_archive_c2.py'
+      - 'reference/research-intake/f138-c2-provider-39124429721.members.xz.b64'
+      - '.github/workflows/forge-f138-c2-archive-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forge-f138-c2-archive-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-original-provider-member-bytes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify 24 original files, full provider history and negative provenance tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f138_archive_c2.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F138_C2_SOURCE_NEGATIVE_TESTS_FAILED' }
+          python -B nativeevidence/f138_archive_c2.py
+          if ($LASTEXITCODE -ne 0) { throw 'F138_C2_ORIGINAL_MEMBER_RECONSTRUCTION_FAILED' }
+          Write-Host 'F138_C2_FULL_PROVIDER_HISTORY_SOURCE_CUSTODY=PASS'
+          Write-Host 'F138_C2_GENUINE_SCHEDULE_CONTINUITY=PENDING'
+          Write-Host 'F138_C2_PROTECTED_SCIENCE_AUTHORITY=FALSE'
+          Write-Host 'F138_C2_AUTONOMOUS_DISPATCH=FALSE'
