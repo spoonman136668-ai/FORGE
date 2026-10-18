@@ -1,0 +1,57 @@
+name: T4 mass train-only learning and real resource parity
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t4-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: northstar-t4-mass-nonprotected-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-source-aware-open-diagnostic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check immutable source, T3 controls and complete frozen T4 admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T4_EXACT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t4-frozen-train-only.json').Trim() -cne '200c22a44529525be0c25e5a534b7b5d42ac65d1'){throw 'T4_FREEZE_BLOB_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-mass-t4-frozen-train-only.json').Trim() -cne 'e0613b7bb54b9283fc9b3ad6ac0cffd62ff8f134'){throw 'T4_FREEZE_NOT_PRECODE'}
+          git merge-base --is-ancestor 'e0613b7bb54b9283fc9b3ad6ac0cffd62ff8f134' HEAD
+          if($LASTEXITCODE -ne 0){throw 'T4_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t4-learning.py').Trim() -cne '5d59f2711ae70de9a210cc5882a45d2b51e69ca7'){throw 'T4_TRAINING_SOURCE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t3-learned-sbox.py').Trim() -cne '4ae82a1c4a052da9c61f84bf1bd91b46d303c6eb'){throw 'T4_T3_FROZEN_LEARNER_DRIFT'}
+          Write-Output 'T4_MASS_EXACT_SOURCE_FREEZE=PASS'
+      - name: Execute disjoint public learning and compare genuine controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-mass-t4-learning.py' | Tee-Object -FilePath 't4-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T4_MASS_LEARNING_EVALUATION_FAIL'}
+          $j=Get-Content 't4-mass-original.json' -Raw | ConvertFrom-Json
+          if($j.'strict_transfer_scientifically_accepted' -ne $false){throw 'T4_PROTECTED_SCIENCE_UNAUTHORIZED'}
+          if($j.'reserved_MNS_and_original_F124_source_used' -ne 0 -and $j.'reserved_MNS_and_original_F124_source_used' -ne $false){throw 'T4_PROTECTED_SOURCE_USED'}
+          Write-Output 'T4_MASS_TRAINING_AND_RESOURCE_EVIDENCE=PASS'
+          Write-Output 'T4_MASS_INDEPENDENT_PROTECTED_TRANSFER_ACCEPTANCE=false'
+          Write-Output 'T4_MASS_AUTOMATIC_PROMOTION=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t4-mass-nonprotected-${{ matrix.os }}-${{ github.sha }}
+          path: t4-mass-original.json
+          retention-days: 90
+          if-no-files-found: error
