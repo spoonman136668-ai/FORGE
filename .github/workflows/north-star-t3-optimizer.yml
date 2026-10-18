@@ -1,0 +1,44 @@
+name: T3 optimizer learned-cognition correction nonconsuming
+on:
+  push:
+    branches: [research/north-star-transfer-optimizer-20261018]
+    paths: ['.github/workflows/north-star-t3-optimizer.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t3-optimizer-frozen-readiness-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  exact-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify preimplementation T3 freeze and run only source-neutral math/native checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T3_EXACT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-t3-mechanism-freeze.json').Trim() -cne 'd1ba0c59434e1ed26b4fea849b1c0f365736c9d4'){throw 'T3_SOURCE_FROZEN_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-optimizer-t3-mechanism-freeze.json').Trim() -cne '32a4bec0235b3cdb3cd8b7d9a49fa0c5a66aca63'){throw 'T3_SOURCE_FREEZE_AFTER_IMPLEMENTATION'}
+          git merge-base --is-ancestor '32a4bec0235b3cdb3cd8b7d9a49fa0c5a66aca63' HEAD
+          if($LASTEXITCODE -ne 0){throw 'T3_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'optimizerbridge/selection_audit.go').Trim() -cne '48810d9935b0cfd119991b22300cbaa783bd9adb'){throw 'T3_UNCHANGED_HISTORICAL_BASELINE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-optimizer-t2-readiness.py').Trim() -cne 'b8bdab367bcd1872c6f28d7e43b250af48e6d986'){throw 'T3_NEW_CORRECTION_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-optimizer-t2-readiness.py'
+          if($LASTEXITCODE -ne 0){throw 'T3_FROZEN_FOCUSED_NONCONSUMING_FAIL'}
+          Write-Output 'T3_OPTIMIZER_FOCUSED_SOURCE_QUALIFICATION=PASS'
+          Write-Output 'T3_OPTIMIZER_ORIGINAL_PROTECTED_COHORTS_CONSUMED=0'
+          Write-Output 'T3_OPTIMIZER_FULL_RESOURCE_PARITY_NOT_ASSUMED=true'
+          Write-Output 'T3_OPTIMIZER_SCIENTIFIC_TRANSFER_ACCEPTANCE=false'
