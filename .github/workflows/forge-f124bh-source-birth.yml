@@ -1,0 +1,105 @@
+name: F124-BH source-birth and prospective transfer readiness (no first-use)
+on:
+  push:
+    branches: [research/f124bh-authentic-transfer-readiness-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bh-frozen-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  independent-source-readiness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin exact unchanged source, verify chronological births and nonconsuming gates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BH_EXACT_HEAD_CHANGED' }
+          if ((& git merge-base 'aca5b279e0e0985560e3a13f0c892d4a30ae08e6' HEAD).Trim() -cne 'aca5b279e0e0985560e3a13f0c892d4a30ae08e6') { throw 'BH_ORIGINAL_FOUNDATION_DRIFT' }
+          $expected = @(
+            '.github/workflows/forge-f124bh-source-birth.yml',
+            'research/north-star-transfer/f124bh-frozen-protocol.json',
+            'research/north-star-transfer/f124bh_u_family.py',
+            'research/north-star-transfer/f124bh_r_family.py',
+            'research/north-star-transfer/f124bh_readiness.py',
+            'research/north-star-transfer/test_f124bh_readiness.py'
+          )
+          $changed = @(& git diff --name-only 'aca5b279e0e0985560e3a13f0c892d4a30ae08e6' HEAD | Where-Object { $_ })
+          if ((@($changed | Sort-Object) -join '|') -cne (@($expected | Sort-Object) -join '|')) { throw 'BH_BOUNDED_PATCH_DRIFT' }
+          & python -B -m unittest discover -s research/north-star-transfer -p 'test_f124bh_readiness.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'BH_PYTHON_SCIENTIFIC_BOUNDARY_FAILURE' }
+          $report = Join-Path $env:RUNNER_TEMP 'f124bh-readiness.json'
+          & python -B research/north-star-transfer/f124bh_readiness.py --output $report
+          if ($LASTEXITCODE -ne 0) { throw 'BH_READINESS_REFUSED' }
+          $r = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($r.registered_cohort_generated -ne 0 -or
+              $r.registered_cohort_consumed -ne 0 -or
+              $r.protected_first_use -or $r.scientific_acceptance -or
+              $r.resource_parity_qualified -or
+              $r.independent_external_birth_witness -or
+              $r.optimizer_promotion -or $r.dispatch_authorized -or
+              $r.separately_committed_source_algorithms.U.birth_commit -cne 'c62b33a830f61a99f9d28cb88ffec04ef32b0d9a' -or
+              $r.separately_committed_source_algorithms.R.birth_commit -cne 'fa623739ebf1f2352d5636acd0b39614a38b688d') { throw 'BH_UNEARNED_SCIENTIFIC_AUTHORITY' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BH_ISOLATION_FAIL' }
+          Write-Output 'F124BH_NONCONSUMING_SOURCE_BIRTH=PASS'
+          Write-Output 'F124BH_REGISTERED_SOURCE_CONSUMED=0'
+          Write-Output 'F124BH_INDEPENDENT_EXTERNAL_WITNESS=false'
+          Write-Output 'F124BH_FULL_RESOURCE_PARITY=false'
+  one-final-regression:
+    needs: independent-source-readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run one full integration regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bh"
+          python3 -B research/north-star-transfer/f124bh_readiness.py --output "$RUNNER_TEMP/f124bh/readiness.json"
+          sha256sum research/north-star-transfer/f124bh-frozen-protocol.json \
+            research/north-star-transfer/f124bh_u_family.py \
+            research/north-star-transfer/f124bh_r_family.py \
+            research/north-star-transfer/f124bh_readiness.py \
+            research/north-star-transfer/test_f124bh_readiness.py \
+            .github/workflows/forge-f124bh-source-birth.yml \
+            > "$RUNNER_TEMP/f124bh/source-sha256.txt"
+          printf 'EXACT_HEAD=%s\nPRECODE_CHRONOLOGY=VERIFIED\nSCIENCE_FIRST_USE=false\nINDEPENDENT_ISSUER_ATTESTED=false\nTOTAL_RESOURCE_PARITY=false\nOPTIMIZER_PROMOTION=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bh/disposition.txt"
+          echo F124BH_FINAL_INTEGRATION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bh-nonconsuming-source-readiness-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bh/
+          retention-days: 90
+          if-no-files-found: error
