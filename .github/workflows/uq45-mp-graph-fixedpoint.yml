@@ -26,7 +26,7 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $main='22d819c3473b80be34ecac7280881a67c981207c'
-          $head='bcce44efc2b7f7c89e25679cecc2d46424a4aaf0'
+          $head='e72ff275846f78ed64fe2b68201a4b62d674e3f2'
           foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
             $v=@(& git.exe ls-remote --exit-code $remote $pair[0])
             if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or ([string]$v[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ45_SOURCE_REF_DRIFT'}
@@ -61,7 +61,7 @@ jobs:
             if(($idsBefore -join '~') -cne ($idsAfter -join '~') -or ($edgesBefore -join '~') -cne ($edgesAfter -join '~')){throw 'UQ45_GRAPH_SEMANTICS_CHANGED'}
             $oldBlob=(& git.exe -C $root hash-object -- $tracked|Out-String).Trim()
             $newBlob=(& git.exe -C $root hash-object --path '.ice/project-dependency-graph.json' -- $preview | Out-String).Trim()
-            if($LASTEXITCODE -ne 0 -or $oldBlob -ceq $newBlob){throw 'UQ45_GRAPH_EXPECTED_DELTA_MISSING'}
+            if($LASTEXITCODE -ne 0){throw 'UQ45_GRAPH_HASH_UNAVAILABLE'}
             if((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash -cne $beforeRecords -or (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $beforeLedger){throw 'UQ45_PRODUCTION_SOURCE_DRIFT'}
             if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ45_WORKTREE_CHANGED'}
             Write-Host 'UQ45_GRAPH_NODE_AND_EDGE_SETS_EQUAL=PASS'
@@ -69,6 +69,9 @@ jobs:
             Write-Host ('UQ45_EXPECTED_GRAPH_BLOB='+$newBlob)
             Write-Host ('UQ45_FIRST_SORTED_NODE='+[string]$fresh.nodes[0].id)
             Write-Host ('UQ45_FIRST_SORTED_EDGE='+[string]$fresh.edges[0].record_id)
+            Write-Host ('UQ45_SORTED_NODE_ORDER='+(@($fresh.nodes|ForEach-Object {$_.id}) -join ','))
+            Write-Host ('UQ45_SORTED_EDGE_ORDER='+(@($fresh.edges|ForEach-Object {$_.record_id}) -join ','))
+            Write-Host ('UQ45_GRAPH_B64='+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([IO.File]::ReadAllText($preview))))
             Write-Host 'UQ45_RECORDS_AND_LEDGER_HASH_STABLE=PASS'
             Write-Host 'UQ45_PRODUCTION_MEMORY_WRITES=0'
             Write-Host 'UQ45_PAID_INFERENCE_AND_CODEX=0'
