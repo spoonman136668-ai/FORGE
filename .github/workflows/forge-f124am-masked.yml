@@ -1,0 +1,138 @@
+name: F124-AM genuine masked public bits and recurrent variable-event research
+on:
+  push:
+    branches: [research/f124am-masked-variable-event-20261018]
+permissions: {contents: read, actions: read}
+concurrency:
+  group: f124am-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source-two-OS:
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: New public null erasure, masked source truth, original sixteen cells, fixed reference and isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AM_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124am_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AM_NEW_SOURCE_OR_CELL_QUARANTINE' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AM_FORGE_ISOLATION' }
+          Write-Output 'F124AM_PROTECTED_FIRST_USE=false'
+  fresh-FIT-trained-recurrence:
+    needs: frozen-source-two-OS
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: FIT-only 6-weight masked recurrence 220 epochs, freeze 0-FP and positive recall BEFORE DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124am_masked_learner.py --output "$RUNNER_TEMP/f124am-fresh.json"
+          python3 - "$RUNNER_TEMP/f124am-fresh.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.research.f124am.FIT-recurrent-readout.v1"
+          assert x["freeze_blob"]=="4675bdcebd9fcf99d3d5d9b539630c43cc5dbc95"
+          assert x["train_only_FIT"] and x["no_DEV_training_or_selection"]
+          assert x["learned"]["FIT_samples"]==288 and x["learned"]["epochs"]==220
+          assert x["learned"]["parameter_count"]==6
+          assert x["additional_model_global_parameters"]==7
+          assert x["learned"]["learned_L2"]>0
+          assert x["original_16_cells"] and x["new_score_fields"]==0
+          assert not x["protected_first_use"] and not x["independent_science_accepted"]
+          for cohort in ("DEV","untrained_DEV","fixed_DEV"):
+              for family in ("masked_middle","masked_first","variable_four"):
+                  z=x[cohort][family]
+                  assert z["pairs"]==48 and len(z["cases"])==48
+                  assert all(v["pairs"]==16 for v in z["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124am-fresh.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124am-fresh-FIT-masked-recurrent-${{ github.sha }}
+          path: ${{ runner.temp }}/f124am-fresh.json
+          retention-days: 90
+          if-no-files-found: error
+  actual-OS-cost:
+    needs: fresh-FIT-trained-recurrence
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124am-fresh-FIT-masked-recurrent-${{ github.sha }}
+          path: fit
+      - name: Three exact 96-graph source-identical model and controls fresh-process RSS CPU wall heap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP "f124am-cost-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124am_physical.py --bench --train-receipt fit/f124am-fresh.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AM_REAL_RESOURCE_FAILED' }
+          $d=Get-Content $out -Raw | ConvertFrom-Json
+          if ($d.schema -cne 'forge.research.f124am.physical-total-cost.v1' -or
+              $d.freeze_blob -cne '4675bdcebd9fcf99d3d5d9b539630c43cc5dbc95' -or
+              $d.raw.Count -ne 9 -or $d.original_three_field_cells_cap -ne 16 -or
+              -not $d.global_params_counted -or -not $d.large_packed_python_integer_score_recorded -or
+              $d.protected_first_use -or $d.science_accepted) {
+            throw 'F124AM_RESOURCE_IDENTITY'
+          }
+          foreach ($arm in @('fixed_maskset','learned_masked','untrained_masked')) {
+            $r=$d.summary.$arm
+            if ($r.repetitions -ne 3 -or $r.median_wall_ns -le 0 -or
+                $r.median_CPU_ns -le 0 -or $r.median_OS_peak_RSS_bytes -le 0 -or
+                $r.max_original_cells -gt 16) { throw 'F124AM_RESOURCE_MISSING' }
+            Write-Output "F124AM_COST_$($arm):wall_ns=$($r.median_wall_ns):RSS=$($r.median_OS_peak_RSS_bytes):CPU_ns=$($r.median_CPU_ns):HEAP=$($r.median_Python_peak_bytes):SCORE_BITS=$($r.largest_integer_score_bits)"
+          }
+          Write-Output "F124AM_RESOURCE_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124am-genuine-masked-OS-resources-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124am-cost-${{ matrix.os }}.json
+          retention-days: 90
+          if-no-files-found: error
+  one-original-full-regression:
+    needs: [fresh-FIT-trained-recurrence, actual-OS-cost]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env: {GOMAXPROCS: '2', GOFLAGS: '-p=2', GOMEMLIMIT: '1536MiB'}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Original FORGE isolation and exactly one Go test race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AM_EXACT_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124AM_PROTECTED_FIRST_USE=false'
