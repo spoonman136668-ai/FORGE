@@ -1,0 +1,193 @@
+name: F124-U bounded-index and independent causal ranking research
+on:
+  push:
+    branches: [research/f124u-microindex-causal-rank-20261017]
+    paths:
+      - 'reference/research-intake/f124u-microindex-causal-rank-freeze.json'
+      - 'nativeevidence/f124u_*.py'
+      - 'nativeevidence/test_f124u_*.py'
+      - '.github/workflows/forge-f124u-microindex-causal-rank.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124u-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-identity-two-os:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source, microindex bit-exact replay and rank-only cognition
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124U_EXACT_SOURCE_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124u_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_NEW_FOCUSED_TESTS_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124t_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_PARENT_T_TESTS_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124s_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_PARENT_S_TESTS_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_ISOLATION_FAIL' }
+          Write-Output 'F124U_NO_PROTECTED_CONFIRMATION=true'
+  original-receipt-and-fresh-development:
+    needs: focused-identity-two-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39083518686
+          github-token: ${{ github.token }}
+          name: f124t-authenticated-indexed-credit-diagnostic-7bae930a53c4196ff32badfc5b58c16825a2d9ac
+          path: t
+      - name: Original receipts, independent Yggdrasil FIT, bit-exact Wingless costed DEV
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $o='o/f124o-independent-two-learned-development.json'
+          $r='r/f124r-fresh-calibrated-continuous-development.json'
+          $s='s/f124s-fresh-packed-key-cell-credit-development.json'
+          $t='t/f124t-fresh-packed-indexed-cell-credit-diagnostic.json'
+          $items=@(@($o,'025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d'),
+                   @($r,'8ac2d22d10c91e453e33ca7d6deba44a75d92849b106d6f49cc9f19b123f2525'),
+                   @($s,'fb28a06ca4e0bfde9b4053734d61f2e3d1e760a8a3dda29e834780abe2339f25'),
+                   @($t,'6aeab10ff49a98819e2e7614140d6304a0079cc8caebca7dd20b08b8ff73fab3'))
+          foreach ($item in $items) {
+            $actual=(Get-FileHash -LiteralPath $item[0] -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -cne $item[1]) { throw 'F124U_AUTHENTIC_ANCESTOR_SOURCE_MISMATCH' }
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124u-bounded-index-fresh-causal-rank-development.json'
+          & python3 -B nativeevidence/f124u_development_evidence.py --original-o $o --original-r $r --original-s $s --original-t $t --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_SOURCE_OR_FIT_FAILURE' }
+          $x=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.research.f124u.bounded-index-and-fresh-causal-rank-development.v1' -or
+              $x.preimplementation_freeze_blob -cne '3f7150378a3b7e86006534843d4f1f41f6e783ef' -or
+              $x.source_parent_qualified_head -cne 'becf7829c7a5521b234a1c25b659b614570f1af7' -or
+              $x.lanes.Count -ne 2 -or $x.wingless_new_trained_parameters -ne 0 -or
+              $x.Yggdrasil_training.training_steps -ne 72 -or
+              $x.Yggdrasil_training.pairs -ne 48 -or
+              $x.Yggdrasil_training.update_l2 -le 0 -or
+              $x.Yggdrasil_training.dev_access_during_training -ne 0 -or
+              $x.protected_examples_generated -ne 0 -or $x.protected_first_use -or
+              $x.scientific_acceptances -ne 0 -or $x.optimizer_promotions -ne 0 -or
+              $x.accepted_ref_mutations -ne 0 -or $x.new_schedulers -ne 0 -or
+              $x.codex_paid_api_calls -ne 0 -or $x.matched_compute_superiority_proven) {
+            throw 'F124U_FALSE_SCIENTIFIC_ADMISSION'
+          }
+          foreach ($lane in $x.lanes) {
+            foreach ($cohort in @($lane.fit,$lane.dev)) {
+              if ($cohort.pairs -ne 48 -or $cohort.exact_symbolic_pairs -ne 48 -or
+                  $cohort.role_only_pairs -ne 0) { throw 'F124U_COHORT_DENOMINATOR' }
+              foreach ($entry in $cohort.arms.PSObject.Properties) {
+                $a=$entry.Value
+                if ($a.pairs -ne 48 -or $a.case_hashes.Count -ne 48 -or
+                    $a.depth.'7'.pairs -ne 16 -or $a.depth.'8'.pairs -ne 16 -or
+                    $a.depth.'9'.pairs -ne 16 -or $a.max_retained -gt 9) {
+                  throw 'F124U_CASE_OR_CELL_BOUND'
+                }
+                if ($lane.lane -ceq 'Yggdrasil' -and $a.max_active -gt 7) {
+                  throw 'F124U_YGG_7_ACTIVE'
+                }
+              }
+              if ($lane.lane -ceq 'Wingless') {
+                if ($cohort.arms.original_S.paired -ne $cohort.arms.T_index.paired -or
+                    $cohort.arms.original_S.paired -ne $cohort.arms.U_microindex.paired -or
+                    $cohort.cost_census.U_index_peak_entries -gt 8 -or
+                    $cohort.cost_census.U_cache_peak_entries -gt 8 -or
+                    $cohort.cost_census.total_ram_equal_comparison_proven -or
+                    $cohort.cost_census.matched_compute_superiority_proven) {
+                  throw 'F124U_WING_S_T_U_BIT_OR_RESOURCE_DRIFT'
+                }
+              }
+            }
+            if ($lane.lane -ceq 'Wingless') {
+              Write-Output "F124U_WING_DEV:oldS=$($lane.dev.arms.original_S.paired)/48 fullT=$($lane.dev.arms.T_index.paired)/48 boundedU=$($lane.dev.arms.U_microindex.paired)/48 fixed=$($lane.dev.arms.fixed.paired)/48 edgeScans=$($lane.dev.arms.U_microindex.public_edge_scans) scratchEdges=$($lane.dev.cost_census.U_index_peak_entries)"
+            } else {
+              Write-Output "F124U_YGG_DEV:new=$($lane.dev.arms.U_fresh_rank.paired)/48 originalR=$($lane.dev.arms.original_R.paired)/48 priorRank=$($lane.dev.arms.T_rank_only.paired)/48 fixed=$($lane.dev.arms.fixed.paired)/48"
+            }
+          }
+          $digest=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),
+            $digest+'  f124u-bounded-index-fresh-causal-rank-development.json'+[Environment]::NewLine,
+            [Text.UTF8Encoding]::new($false))
+          Write-Output "F124U_EVIDENCE_SHA256=$digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124u-source-backed-independent-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124u-bounded-index-fresh-causal-rank-development.json
+            ${{ runner.temp }}/f124u-bounded-index-fresh-causal-rank-development.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+  final-one-full-regression:
+    needs: original-receipt-and-fresh-development
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete integration Go test race vet build at exact frozen U head
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124U_FROZEN_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124U_PROTECTED_FIRST_USE=false'
