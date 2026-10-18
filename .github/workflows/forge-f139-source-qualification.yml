@@ -41,6 +41,21 @@ jobs:
           Write-Host 'F139_LOCAL_SQLITE_AND_RESTART_PROOF=PASS'
           Write-Host 'F139_CLOUDFLARE_CONTROLLER=ABSENT'
           Write-Host 'F139_SCIENTIFIC_ORIGINALS=ZERO'
+      - name: Verify native Windows PowerShell 5.1 strict-mode dry run
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
+            throw 'F139_WINDOWS_DESKTOP_RUNTIME_UNEXPECTED'
+          }
+          $before = @(Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue)
+          & ./scripts/Install-FORGE-F139.ps1
+          if (-not $?) { throw 'F139_WINDOWS_DESKTOP_DRY_RUN_FAILED' }
+          $after = @(Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue)
+          if ($before.Count -ne $after.Count) { throw 'F139_WINDOWS_TASK_MUTATED_BY_DRY_RUN' }
+          Write-Host 'F139_WINDOWS_POWERSHELL_51_DRY_RUN=PASS'
       - name: Check native Windows task installation is safe by default
         if: runner.os == 'Windows'
         shell: pwsh

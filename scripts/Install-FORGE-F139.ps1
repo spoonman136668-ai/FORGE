@@ -11,7 +11,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($Apply -and $Remove) { throw 'F139_CONFLICTING_TASK_ACTIONS' }
-if (-not $IsWindows -and $PSVersionTable.PSEdition -eq 'Core') {
+# PS 5.1 has no $IsWindows; .NET platform identity works on Desktop and Core.
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   if ($Apply -or $Remove -or $ConfigureKey) { throw 'F139_WINDOWS_ONLY_MUTATION' }
 }
 if ($TaskName -ne 'FORGE-F139-UnifiedController') { throw 'F139_TASK_NAME_NOT_QUALIFIED' }
