@@ -1,0 +1,203 @@
+name: F124-W frozen causal-hop survival and Wingless indexed checksums
+on:
+  push:
+    branches: [research/f124w-frozen-hop-trace-and-indexed-wingless-20261017]
+    paths:
+      - 'reference/research-intake/f124w-frozen-hop-survival-indexed-checksum.json'
+      - 'nativeevidence/f124w_*.py'
+      - 'nativeevidence/test_f124w_*.py'
+      - '.github/workflows/forge-f124w-hop-trace-indexed-checksum.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124w-frozen-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-frozen-sources:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact-head source freeze, cross-platform parity and preserved science guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124W_GIT_HEAD_DRIFT' }
+          foreach ($pattern in @('test_f124w_*.py','test_f124v_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124W_FROZEN_SOURCE_FAIL_$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_SOURCE_ISOLATION_DRIFT' }
+          Write-Output 'F124W_NO_ORACLE_IN_MODEL=PASS'
+  source-verified-development:
+    needs: focused-frozen-sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify four upstream GitHub run identities and immutable artifact digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($p in @(
+            @{id='39078269441';head='5b52da1e38d5ff5671c582676790daf0462dd18d';artifact='12116979526';digest='sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c'},
+            @{id='39082424955';head='01560f7f4f1aab5737cfd045dffd7faaccfb0608';artifact='12120010101';digest='sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3'},
+            @{id='39083528704';head='6ba96aaaeff083a5e2f54020c70d2a717e431a10';artifact='12119184999';digest='sha256:93cf41e63c5fd458376778fd54f6da9eaa8677b390be763b6b214ca26fa6089a'},
+            @{id='39084350355';head='163e67995f57e4be9543be4b5451aef1982cfca4';artifact='12120186814';digest='sha256:f281a6c9cfb08aa4598ade003500c24016528f2734e09f69aa0d2fe3e9d051d8'}
+          )) {
+            $run=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.head -or
+                $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+                $run.event -cne 'push') { throw 'F124W_ORIGINAL_SOURCE_GITHUB_RUN_CUSTODY' }
+            $ls=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0) { throw 'F124W_GITHUB_ARTIFACT_INDEX_UNAVAILABLE' }
+            $items=@($ls.artifacts | Where-Object { "$($_.id)" -ceq $p.artifact })
+            if ($items.Count -ne 1 -or $items[0].digest -cne $p.digest -or $items[0].expired) {
+              throw 'F124W_SOURCE_ARTIFACT_CUSTODY_FAILURE'
+            }
+          }
+          Write-Output 'F124W_UPSTREAM_SCIENCE_CUSTODY=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: original-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39083528704
+          github-token: ${{ github.token }}
+          name: f124u-preregistered-fresh-development-6ba96aaaeff083a5e2f54020c70d2a717e431a10
+          path: original-u
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084350355
+          github-token: ${{ github.token }}
+          name: f124v-authentic-fresh-structure-163e67995f57e4be9543be4b5451aef1982cfca4
+          path: original-v
+      - name: Exact raw JSON original receipts then first fresh FIT and DEV hop/cost measures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $o='original-o/f124o-independent-two-learned-development.json'
+          $t='original-t/f124t-fresh-absolute-development.json'
+          $u='original-u/f124u-fresh-cell-and-readout-development.json'
+          $v='original-v/f124v-fresh-collision-and-centered-cell.json'
+          $cases=@(
+            @{path=$o;sha='025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d'},
+            @{path=$t;sha='a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2'},
+            @{path=$u;sha='63a2a57973444752d4002bc4718ec63de88a26ed05142627305de3a94fa9fb41'},
+            @{path=$v;sha='ce9e63e7e78daa470007df03a2447dab5c64f12f1a767d50df7a6b89740a31b3'}
+          )
+          foreach ($case in $cases) {
+            if ((Get-FileHash -LiteralPath $case.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $case.sha) {
+              throw 'F124W_RAW_ORIGINAL_RECEIPT_SHA_DRIFT'
+            }
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124w-fresh-hop-survival-and-checksum.json'
+          & python3 -B nativeevidence/f124w_frozen_development.py --o $o --t $t --u $u --v $v --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_MECHANISM_SOURCE_HOP_OR_CUSTODY_QUARANTINE' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124w.original-frozen-hop-survival-and-compute-development.v1' -or
+              $r.freeze_git_blob -cne '54489aa0ec10cd487270ff2925dd502f86f5d169' -or
+              $r.lanes.Count -ne 2 -or -not $r.immutable_qualified_originals -or
+              -not $r.selected_only_using_FIT -or -not $r.DEV_only_after_all_methods_frozen -or
+              $r.training_steps -ne 0 -or $r.scientific_acceptances -ne 0 -or
+              $r.optimizer_promotions -ne 0 -or $r.protected_first_use -or
+              $r.resource_matched_superiority_proven -or $r.paid_model_calls -ne 0 -or
+              $r.codex_calls -ne 0 -or $r.accepted_ref_mutations -ne 0) {
+            throw 'F124W_FALSE_SCIENCE_AUTHORITY'
+          }
+          foreach ($lane in $r.lanes) {
+            if (-not $lane.inference_memory_unchanged -or
+                $lane.FIT.pairs -ne 48 -or $lane.DEV.pairs -ne 48 -or
+                $lane.FIT.reference_exact -ne 48 -or $lane.DEV.reference_exact -ne 48 -or
+                $lane.FIT.reference_role_only -ne 0 -or $lane.DEV.reference_role_only -ne 0) {
+              throw 'F124W_PUBLIC_COHORT_OR_MEMORY'
+            }
+            foreach ($phase in @($lane.FIT,$lane.DEV)) {
+              $expected=if ($lane.lane -ceq 'Wingless') { 7 } else { 4 }
+              if (@($phase.arms.PSObject.Properties).Count -ne $expected) {
+                throw 'F124W_FROZEN_CONTROL_ARM_SET'
+              }
+              foreach ($prop in $phase.arms.PSObject.Properties) {
+                $arm=$prop.Value
+                if ($arm.pairs -ne 48 -or $arm.case_sha256.Count -ne 48 -or
+                    $arm.depth.'7'.pairs -ne 16 -or $arm.depth.'8'.pairs -ne 16 -or
+                    $arm.depth.'9'.pairs -ne 16 -or $arm.max_retained -gt 9 -or
+                    ($lane.lane -ceq 'Yggdrasil' -and $arm.max_active -gt 7)) {
+                  throw 'F124W_MISSING_CASE_OR_INFERENCE_BUDGET'
+                }
+              }
+            }
+          }
+          $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$hash+'  f124w-fresh-hop-survival-and-checksum.json'+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124W_DEVELOPMENT_RAW_RECEIPT_SHA256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124w-frozen-hop-trace-and-indexed-fresh-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124w-fresh-hop-survival-and-checksum.json
+            ${{ runner.temp }}/f124w-fresh-hop-survival-and-checksum.json.sha256
+          retention-days: 90
+          if-no-files-found: error
+  one-full-regression:
+    needs: source-verified-development
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One original full Go regression/race/vet/build and source isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124W_FULL_ENGINEERING_SHA=$GITHUB_SHA"
+          echo "F124W_SCIENCE_ACCEPTANCE=false"
