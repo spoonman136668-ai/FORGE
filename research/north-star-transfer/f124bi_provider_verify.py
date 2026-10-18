@@ -75,10 +75,13 @@ def verify(local_only=False):
     local = {}
     provider = {}
     for tag, (commit, blob, path) in BIRTHS.items():
-        raw = (ROOT / path).read_bytes()
-        need(git_blob(raw) == blob, "LOCAL_BLOB_" + tag)
+        # Worktree bytes may be CRLF-smudged on Windows; Git's canonical
+        # immutable blob is the actual qualification identity.
         born = shell("git", "show", commit + ":" + path)
-        need(born == raw, "LOCAL_BIRTH_" + tag)
+        raw = born
+        need(git_blob(raw) == blob, "LOCAL_BLOB_" + tag)
+        at_head = shell("git", "rev-parse", "HEAD:" + path).decode().strip()
+        need(at_head == blob, "LOCAL_HEAD_BLOB_" + tag)
         local[tag] = {"birth_commit": commit, "git_blob": blob,
                       "source_sha256": hashlib.sha256(raw).hexdigest()}
         if not local_only:
@@ -122,7 +125,8 @@ def verify(local_only=False):
     # modules; scan exact bytes at original birth, not mutable HEAD.
     for tag in ("U", "R"):
         path = BIRTHS[tag][2]
-        tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
+        original_source = shell("git", "show", BIRTHS[tag][0] + ":" + path)
+        tree = ast.parse(original_source.decode("utf-8"))
         imports = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -137,8 +141,8 @@ def verify(local_only=False):
              "SOURCE_API_" + tag)
 
     for path, expected in MODEL_BLOBS.items():
-        raw = (ROOT / path).read_bytes()
-        need(git_blob(raw) == expected, "ORIGINAL_MODEL_DRIFT")
+        at_head = shell("git", "rev-parse", "HEAD:" + path).decode().strip()
+        need(at_head == expected, "ORIGINAL_MODEL_DRIFT")
     need(BIRTHS["U"][1] != BIRTHS["R"][1],
          "SAME_SOURCE_BLOB_UNACCEPTABLE")
     return {
