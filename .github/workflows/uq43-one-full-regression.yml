@@ -25,7 +25,7 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $main='22d819c3473b80be34ecac7280881a67c981207c'
-          $head='b61dfce9046d719f2ebbbd8b270b754667043884'
+          $head='bcce44efc2b7f7c89e25679cecc2d46424a4aaf0'
           foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
             $r=@(& git.exe ls-remote --exit-code $remote $pair[0])
             if($LASTEXITCODE -ne 0 -or $r.Count -ne 1 -or ([string]$r[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ43_SOURCE_IDENTITY_DRIFT'}
@@ -46,7 +46,9 @@ jobs:
               'tools/project-dependency-graph.ps1'='639ed34d1ff5e2a872be60d8f400f43eaaf8b3da';
               'tests/Test-ProjectDependencyGraph.ps1'='74a04c59bcbe43a35d8d30ec7182f166d98a844f';
               'tools/source-inventory-import.ps1'='aa681e1f1f867b997c6b396fd4307d91c8e928d4';
-              'tests/Test-SourceInventoryImport.ps1'='f07decc0bfff44fd52bdb2c4b6ed24e48b1abc72'
+              'tests/Test-SourceInventoryImport.ps1'='f07decc0bfff44fd52bdb2c4b6ed24e48b1abc72';
+              'tests/Test-UQ34CheckpointReplay.ps1'='e6847c408fc4fdcc80cc657dc202efc07bae8803';
+              'tools/browser-chat-intake.ps1'='d548b886eb20eb0a22929b7438b5dd0ffbeeb607'
             }
             foreach($f in $expected.Keys){
               $blob=(& git.exe -C $root hash-object (Join-Path $root $f)|Out-String).Trim()
@@ -57,7 +59,7 @@ jobs:
               '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
             $before=@{}
             foreach($file in $protected){$before[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash}
-            Write-Host 'UQ43_EXACT_FIVE_SOURCE_BLOBS=PASS'
+            Write-Host 'UQ43_EXACT_SEVEN_SOURCE_BLOBS=PASS'
             Write-Host 'UQ43_REUSED_FOCUSED_PROOFS=UQ42:39087685620,UQ43:39110134816'
             $tool=Join-Path $root 'tests/Test-All.ps1'
             $clock=[Diagnostics.Stopwatch]::StartNew()
