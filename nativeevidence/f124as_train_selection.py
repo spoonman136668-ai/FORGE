@@ -34,7 +34,7 @@ def original(o,t,an,ao_raw,ap_raw,aq_raw,ar_raw):
     need(aqinfo["schema"]==old.SCHEMA and
          aqinfo["DEV_cases_generated"]==0 and
          not aqinfo["DEV_consumed"] and
-         arinfo["schema"]=="forge.research.f124ar.authentic-fresh-train-selection.v1"
+         arinfo["schema"]=="forge.research.f124ar.first-original-train-meta-relations.v1"
          and arinfo["DEV_cases_generated"]==0 and
          arinfo["DEV_cases_consumed"]==0 and
          not arinfo["optimizer_promotion"],
@@ -42,7 +42,7 @@ def original(o,t,an,ao_raw,ap_raw,aq_raw,ar_raw):
     return base,delta,arinfo
 
 def check_source(rows):
-    oracle=src.prior.parent.parent.parent.am.old.prior.parent.original.parent.prior.parent.routes15
+    oracle=src.prior.parent.parent.parent.parent.am.old.prior.parent.original.parent.prior.parent.routes15
     positive=negative=corrupt=raw_literal=0
     fam={f:0 for f in src.FAMILIES}
     for seed,vec,f,op,nonce,p,n in rows:
