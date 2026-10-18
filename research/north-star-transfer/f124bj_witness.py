@@ -23,7 +23,7 @@ FROZEN_COMMIT = "9627b45e4c6f788cf1dd5a47f879f8115e94ae5e"
 A_COMMIT = "436a4c15035dfb06ec8e94513efae398e1b24151"
 B_COMMIT = "2a2d649c66207e98755ef3e29ed3e379191b6f35"
 BIRTHS = (
-    ("method", FROZEN_COMMIT, BI_HEAD, "f124bj-train-freeze.json",
+    ("method", FROZEN_COMMIT, "d77e0f26c0ef8ca88ebb108833c03db05eb5de81", "f124bj-train-freeze.json",
      "48c54172f4ded0571d9611635e6a1a575a54d3f4"),
     ("affine", A_COMMIT, FROZEN_COMMIT, "f124bj_affine_source.py",
      "b94ead68d9e953002e790939011fe69ba7017a75"),
@@ -77,6 +77,8 @@ def verify(*, provider):
          "FROZEN_IDENTITIES")
     need(git("merge-base", BI_HEAD, "HEAD").decode().strip() == BI_HEAD,
          "BI_FOUNDATION_DRIFT")
+    need(git("rev-parse", "d77e0f26c0ef8ca88ebb108833c03db05eb5de81^").decode().strip() == BI_HEAD,
+         "ORIGINAL_PRECODE_PARENT")
     receipts = []
     for tag, commit, parent, name, blob in BIRTHS:
         path = "research/north-star-transfer/" + name
