@@ -1,0 +1,117 @@
+name: F124-AO authenticated TRAIN-only selection
+on:
+  push:
+    branches: [research/f124ao-learned-relations-and-single-state-evidence-20261018]
+    paths:
+      - 'nativeevidence/f124ao_training_evidence.py'
+      - '.github/workflows/forge-f124ao-train-only.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ao-train-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-authenticated-train-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate exact historical O T AN provider custody
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $entries=@(
+            @{id=39078269441;sha='5b52da1e38d5ff5671c582676790daf0462dd18d';artifact='12116979526';digest='sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c'},
+            @{id=39082424955;sha='01560f7f4f1aab5737cfd045dffd7faaccfb0608';artifact='12120010101';digest='sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3'},
+            @{id=39118489510;sha='ca46eba41179a1c6d9cd0bfa74119782c6d11d88';artifact='12132914773';digest='sha256:eb30d76eccdf8f33e24b6348c43d17acb50c3fcbafec8ec039a6b4239593abeb'}
+          )
+          foreach ($p in $entries) {
+            $run=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.sha -or
+                $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+                $run.event -cne 'push') { throw 'F124AO_UNAUTHENTIC_HISTORICAL_RUN' }
+            $a=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0) { throw 'F124AO_ARTIFACT_INDEX' }
+            $found=@($a.artifacts | Where-Object { "$($_.id)" -ceq $p.artifact })
+            if ($found.Count -ne 1 -or $found[0].expired -or
+                $found[0].digest -cne $p.digest) {
+              throw 'F124AO_HISTORICAL_ARTIFACT_DRIFT'
+            }
+          }
+          Write-Output 'F124AO_THREE_ORIGINAL_PROVIDER_IDENTITIES=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: original-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: original-an
+      - name: Produce and validate original-source TRAIN-only selection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F124AO_TRAIN_EXACT_HEAD_DRIFT'
+          }
+          $o='original-o/f124o-independent-two-learned-development.json'
+          $t='original-t/f124t-fresh-absolute-development.json'
+          $an='original-an/f124an-calibrated-affine-wing-isolation.json'
+          $proofs=@(
+            @{path=$o;sha='025c97abc8eb69079d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d'},
+            @{path=$t;sha='a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2'},
+            @{path=$an;sha='7226e267ac02090069690ebb40e92696a2cba1bd56a567d838fc6e48880cff9c'})
+          foreach ($p in $proofs) {
+            if (-not (Test-Path -LiteralPath $p.path) -or
+                (Get-FileHash -LiteralPath $p.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $p.sha) {
+              throw 'F124AO_HISTORICAL_RAW_BYTES_MISMATCH'
+            }
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124ao-frozen-train-selection.json'
+          & python3 -B nativeevidence/f124ao_training_evidence.py --o $o --t $t --an $an --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AO_TRAIN_SELECTION_FAILED' }
+          $data=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($data.schema -cne 'forge.research.f124ao.authentic-train-only-frozen-selection.v1' -or
+              $data.source_blob -cne '2c3a60739ad0bc9163f2d30e88390c4f8c20dd45' -or
+              -not $data.only_train_sources_evaluated -or
+              $data.dev_cases_generated -ne 0 -or $data.dev_selection_or_retuning -or
+              -not $data.source_oracle_never_model_input -or
+              $data.protected_first_use -or $data.independent_science_acceptance -or
+              $data.optimizer_promotion -or $data.production_activation -or
+              $data.grid.Yggdrasil.Count -ne 24 -or $data.grid.Wingless.Count -ne 7) {
+            throw 'F124AO_FROZEN_TRAIN_SELECTION_SCHEMA'
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$sha+"  f124ao-frozen-train-selection.json"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124AO_RAW_TRAIN_SHA256=$sha"
+          Write-Output 'F124AO_DEV_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ao-frozen-train-selection-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124ao-frozen-train-selection.json
+            ${{ runner.temp }}/f124ao-frozen-train-selection.json.sha256
+          if-no-files-found: error
+          retention-days: 90
