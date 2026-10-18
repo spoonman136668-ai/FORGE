@@ -1,0 +1,195 @@
+name: F124-AA orthogonal key/topology transfer and same-source instrumentation
+on:
+  push:
+    branches: [research/f124aa-transfer-and-instrumentation-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124aa-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-safety-identity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Frozen first-use source, out-family decoys, independent original logits and original repo isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AA_SOURCE_SHA_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124aa_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_FOCUSED_TESTS_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_FORGE_ISOLATION' }
+          Write-Output 'F124AA_PROTECTED_FIRST_USE=false'
+  yggdrasil-transfer-evidence:
+    needs: focused-safety-identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Fetch immutable original O R S U FIT-only evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_O' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_R' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_S' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_U' }
+      - name: Independently new public-key permutation plus topology-rewired 48-pair DEV transfer and true path census
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124aa_ygg_transfer.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124aa-ygg-transfer.json"
+          python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["schema"]=="forge.research.f124aa.outfamily-node-diversity-transfer.v1" and x["freeze_blob"]=="5277d748ac56b888741bd5f867a95737904d5146" and x["persistent_record_slots"]==16 and not x["protected_first_use"] and all(v["pairs"]==48 for a in x["DEV"].values() for v in a.values())' "$RUNNER_TEMP/f124aa-ygg-transfer.json"
+          sha256sum "$RUNNER_TEMP/f124aa-ygg-transfer.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124aa-ygg-outfamily-transfer-${{ github.sha }}
+          path: ${{ runner.temp }}/f124aa-ygg-transfer.json
+          retention-days: 90
+          if-no-files-found: error
+  yggdrasil-measured-heap-and-CPU:
+    needs: focused-safety-identity
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Fetch immutable original O R S U FIT-only evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_O' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_R' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_S' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_U' }
+      - name: Exact same-runner four-arm public-source 96-graph inference cost with true-process RSS and Python peak
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP 'f124aa-ygg-hardware.json'
+          & $py -B nativeevidence/f124aa_ygg_cost.py --bench --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_YGG_REAL_HARDWARE_TEST_FAILED' }
+          $x=Get-Content $out -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.research.f124aa.ygg-real-memory-compute.v1' -or
+              $x.freeze_blob -cne '5277d748ac56b888741bd5f867a95737904d5146' -or
+              $x.raw.Count -ne 8 -or -not $x.same_host -or
+              $x.equal_total_memory_proven -or $x.science_accepted) { throw 'F124AA_INVALID_COST_EVIDENCE' }
+          Write-Output "F124AA_Y_COST_${{ matrix.os }}_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124aa-ygg-real-cost-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124aa-ygg-hardware.json
+          retention-days: 90
+          if-no-files-found: error
+  wingless-matched-instrumentation:
+    needs: focused-safety-identity
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Fetch immutable original O R S U FIT-only evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_O' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_R' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_S' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_ORIGINAL_U' }
+      - name: Truly same fixtures and kernel hard cap, only tracemalloc on versus off at 28 24 20 MiB
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $env:PYTHONHASHSEED='0'
+          $out=Join-Path $env:RUNNER_TEMP 'f124aa-wing-instrumentation.json'
+          & $py -B nativeevidence/f124aa_wing_ablation.py --bench --original-o o/f124o-independent-two-learned-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AA_WING_MATCHED_ABLATION_FAILED' }
+          $x=Get-Content $out -Raw | ConvertFrom-Json
+          if ($x.schema -cne 'forge.research.f124aa.wingless-matched-tracemalloc-ablation.v1' -or
+              $x.freeze_blob -cne '5277d748ac56b888741bd5f867a95737904d5146' -or
+              $x.results.Count -ne 36 -or
+              $x.science_accepted -or -not $x.resource_blocked_is_not_inference_OOM) {
+            throw 'F124AA_WING_FALSE_ABLATION_EVIDENCE'
+          }
+          Write-Output "F124AA_WING_${{ matrix.os }}_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124aa-wing-tracemalloc-factor-${{ matrix.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124aa-wing-instrumentation.json
+          retention-days: 90
+          if-no-files-found: error
+  one-full-regression:
+    needs: [yggdrasil-transfer-evidence,yggdrasil-measured-heap-and-CPU,wingless-matched-instrumentation]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Exactly one full Go test race vet build and original isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AA_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124AA_PROTECTED_FIRST_USE=false'
