@@ -414,28 +414,43 @@ def receipt_from_zip(raw:bytes,meta:dict,task:dict,run_id:int,oslabel:str,epoch:
 
 
 def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str]:
-    """Create a new terminal evidence directory; never overwrite an existing one."""
-    folder=root/"evidence"/ticket/str(run_id)
-    require(not folder.exists(),"EVIDENCE_ALREADY_EXISTS_NO_OVERWRITE")
-    folder.mkdir(parents=True)
-    try:
-        digests={}
-        for oslabel,blob in archives.items():
-            path=folder/(oslabel+".zip")
-            with path.open("xb") as f:
-                f.write(blob)
-                f.flush();os.fsync(f.fileno())
-            digests[oslabel]=hash_bytes(blob)
-        report={"schema":"forge.f139.windows-evidence-manifest.v1","ticket":ticket,
-                "run_id":run_id,"sha256":digests,"scientific_originals":0,"approved_science":False}
-        payload=canonical(report)
-        with (folder/"manifest.json").open("xb") as f:
-            f.write(payload);f.flush();os.fsync(f.fileno())
-        return (str(folder),hash_bytes(payload))
-    except BaseException:
-        # Never erase partial custody; mark ambiguous and require independent review.
-        raise
+    """Retain original provider bytes; reconcile only exact prior completed custody.
 
+    A crash after durable files but before the SQLite terminal transaction must
+    not cause a second dispatch or falsely quarantine a valid original.
+    Partial or changed custody is never silently repaired or overwritten.
+    """
+    folder=root/"evidence"/ticket/str(run_id)
+    require(set(archives)=={"ubuntu-latest","windows-latest"} and
+            all(isinstance(blob,bytes) and 0<len(blob)<MAX_ZIP_BYTES for blob in archives.values()),
+            "EVIDENCE_INPUT_SET_INVALID")
+    digests={oslabel:hash_bytes(blob) for oslabel,blob in archives.items()}
+    report={"schema":"forge.f139.windows-evidence-manifest.v1","ticket":ticket,
+            "run_id":run_id,"sha256":digests,"scientific_originals":0,"approved_science":False}
+    payload=canonical(report)
+    expected={oslabel+".zip":blob for oslabel,blob in archives.items()}
+    expected["manifest.json"]=payload
+
+    if folder.exists() or folder.is_symlink():
+        # Exact-match readback is the only automatic post-crash recovery.
+        # Never accept partial writes, symlinks, extra members or substituted bytes.
+        require(folder.is_dir() and not folder.is_symlink(), "EVIDENCE_RECOVERY_CONFLICT")
+        require({p.name for p in folder.iterdir()}==set(expected), "EVIDENCE_RECOVERY_CONFLICT")
+        for name,data in expected.items():
+            path=folder/name
+            require(path.is_file() and not path.is_symlink() and path.read_bytes()==data,
+                    "EVIDENCE_RECOVERY_CONFLICT")
+        return (str(folder),hash_bytes(payload))
+
+    folder.mkdir(parents=True)
+    for name,data in expected.items():
+        with (folder/name).open("xb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+    # A mid-write interruption retains the partial directory for investigation;
+    # it cannot be replayed or mistaken for fully accepted evidence on recovery.
+    return (str(folder),hash_bytes(payload))
 
 def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()

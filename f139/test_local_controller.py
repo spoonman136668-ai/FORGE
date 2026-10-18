@@ -104,6 +104,43 @@ class SQLiteControllerTests(unittest.TestCase):
             self.assertEqual(len(evidence),2)
         reopened=Database(self.path);reopened.verify();reopened.close()
 
+    def test_crash_after_complete_artifact_storage_recovers_without_redispatch(self):
+        self.call()
+        self.gh.mode='complete'
+        task=dict(self.db.active())
+        run=self.gh.candidates(task['ticket'],task['started_at'])
+        rid,artifacts=self.gh.run_proof(run,task['ticket'],task['source_sha'],task['started_at'])
+        archives={}
+        for oslabel in ('ubuntu-latest','windows-latest'):
+            item=next(x for x in artifacts if x['name']=='forge-f139-dev-receipt-'+oslabel)
+            archives[oslabel]=self.gh.artifact(item['id'])
+        stored,digest=store_evidence(self.path.parent,task['ticket'],rid,archives)
+        self.assertTrue(Path(stored,'manifest.json').is_file())
+        self.assertEqual(self.db.status()['tasks'][0]['stage'],'WAIT_PROVIDER')
+        self.db.close()
+        self.db=Database(self.path)
+        result=self.call()
+        self.assertEqual(result['ticket'],TASKS[1]['ticket'])
+        self.assertEqual(len(self.gh.dispatches),2)
+        recovered=dict(self.db.conn.execute('SELECT * FROM tasks WHERE ticket=?',(task['ticket'],)).fetchone())
+        self.assertEqual(recovered['stage'],'VERIFIED')
+        self.assertEqual(recovered['evidence_sha'],digest)
+        self.assertEqual(recovered['run_id'],rid)
+
+    def test_partial_custody_after_crash_quarantines_without_overwrite_or_replay(self):
+        self.call()
+        self.gh.mode='complete'
+        first=TASKS[0]
+        folder=self.path.parent/'evidence'/first['ticket']/'1000'
+        folder.mkdir(parents=True)
+        partial=b'partial-workstation-write'
+        (folder/'ubuntu-latest.zip').write_bytes(partial)
+        with self.assertRaisesRegex(F139Error,'EVIDENCE_RECOVERY_CONFLICT'):
+            self.call()
+        self.assertEqual((folder/'ubuntu-latest.zip').read_bytes(),partial)
+        self.assertEqual(self.db.status()['tasks'][0]['stage'],'QUARANTINED')
+        self.assertEqual(len(self.gh.dispatches),1)
+
     def test_restart_after_start_risk_never_relaunches(self):
         self.gh.fail_launch=True
         with self.assertRaisesRegex(F139Error,'TIMEOUT'):self.call()
