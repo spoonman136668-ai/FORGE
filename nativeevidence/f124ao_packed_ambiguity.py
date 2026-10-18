@@ -113,7 +113,42 @@ def select(cases,base,delta):
     """Filter by identical AN gamma0 accepted long-positives on TRAIN first."""
     need(len(cases)==48,"TRAIN_ONLY")
     rows=[]
-    source=[]
+    # Cases are evaluator-certified source-normalized tuples (id,family,pos,neg).
+    # This module never handles the hidden operation, inverse or truth oracle.
+    need(all(len(row)==4 and set(row[2])=={"start","target","roles","edges"}
+             and set(row[3])=={"start","target","roles","edges"}
+             for row in cases),"EVALUATOR_CERTIFIED_GRAPH_SHAPE")
     protected=set()
-    for seed,vec,fam,operator,nonce,p,n in cases:
-        raise RuntimeError("Source-normalized cases required from evaluator; never use source oracle in model")
+    for identity,family,pos,neg in cases:
+        result,_=score(pos,base,delta,"gamma0",0.)
+        if len(pos["roles"])>=13 and result>=0:
+            protected.add(identity)
+    results=[]
+    for mode in MODES:
+        for alpha in ((0.,) if mode=="gamma0" else ALPHAS[1:]):
+            paired=fp=fn=extra=0
+            accepted=set()
+            for identity,family,pos,neg in cases:
+                yes,wa=score(pos,base,delta,mode,alpha)
+                no,wb=score(neg,base,delta,mode,alpha)
+                paired+=int(yes>=0 and no<0)
+                fp+=int(no>=0)
+                fn+=int(yes<0)
+                extra+=wa["model_extra_candidate_inspections"]
+                extra+=wb["model_extra_candidate_inspections"]
+                if len(pos["roles"])>=13 and yes>=0:accepted.add(identity)
+                for work in (wa,wb):
+                    need(work["max_states_per_node"]==1 and
+                         work["max_packed_bits_per_state"]==12 and
+                         work["max_active"]<=64,"FROZEN_STATE_BUDGET")
+            results.append({"mode":mode,"alpha":alpha,"paired":paired,
+                            "FP":fp,"FN":fn,"extra_inspections":extra,
+                            "accepted_long":len(accepted),
+                            "protected_long":len(protected),
+                            "strict_train_preservation":protected.issubset(accepted)})
+    eligible=[r for r in results if r["strict_train_preservation"]]
+    need(any(r["mode"]=="gamma0" for r in eligible),"CONTROL_ELIGIBLE")
+    chosen=sorted(eligible,key=lambda r:(-r["paired"],r["FP"],
+           r["extra_inspections"],r["mode"]!="gamma0",
+           r["mode"],r["alpha"]))[0]
+    return chosen,results
