@@ -1,0 +1,45 @@
+name: FORGE F139 unified controller source qualification
+# Qualification only. Does not run the controller or dispatch a worker.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'f139/**'
+      - '.github/workflows/forge-f139-development-worker.yml'
+      - '.github/workflows/forge-f139-source-qualification.yml'
+      - 'docs/F139-UNIFIED-FORGE-CONTROLLER.md'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Cross-platform no-replay, source identity, dispatch ticket and D1 tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          node --test f139/test_core.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'F139_CONTROLLER_TESTS_FAILED' }
+          python -B -m unittest discover -s f139 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F139_WORKER_D1_TESTS_FAILED' }
+          Write-Host 'F139_UNIFIED_CONTROLLER_SOURCE=PASS'
+          Write-Host 'F139_CLOUDFLARE_DEPLOYMENT=OFF'
+          Write-Host 'F139_WORKER_DISPATCHES=ZERO'
+          Write-Host 'F139_SCIENTIFIC_ORIGINALS=ZERO'
