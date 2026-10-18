@@ -1,0 +1,152 @@
+name: UQ42 exact-source existing Mind-Palace checkpoint qualification
+on:
+  push:
+    branches: [qualification/uq42-mind-palace-existing-commit-checkpoint]
+    paths: ['.github/workflows/uq42-mind-palace-existing-checkpoint.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq42-mind-palace-existing-checkpoint
+  cancel-in-progress: false
+jobs:
+  isolated-acceptance:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 28
+    steps:
+      - name: Qualify exact commit collector stage checkpoint ledger retrieval with zero production writes
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'UQ42_RUNNER_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $expectedMain='22d819c3473b80be34ecac7280881a67c981207c'
+          $expectedPr='6debd15278da2ec69ceb616cbc1c6d688a647dc7'
+          $expectedBlob='ace25ffdafde95467ae4f8800b0266dfb316ddb9'
+          $prRef='refs/heads/ingestion/2026-10-17-authenticated-project-delta'
+          $batchRel='pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq42-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $stdout=Join-Path $scratch 'out.txt'
+          $stderr=Join-Path $scratch 'err.txt'
+          function Assert([bool]$yes,[string]$tag){if(-not $yes){throw ('UQ42_STOP_'+$tag)}}
+          function RemoteHead([string]$ref){
+            $lines=@(& git.exe ls-remote --exit-code $remote $ref)
+            Assert ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1) ('REMOTE_REF_UNAVAILABLE_'+$ref)
+            return (([string]$lines[0] -split '\s+')[0])
+          }
+          function Child([string]$file,[string[]]$argList){
+            if(Test-Path $stdout){Remove-Item $stdout -Force}
+            if(Test-Path $stderr){Remove-Item $stderr -Force}
+            $tool=Join-Path $root ('tools/'+$file+'.ps1')
+            $a=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$tool+'"')) + $argList
+            $p=Start-Process -FilePath (Get-Command powershell.exe).Source -ArgumentList $a -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $text=[IO.File]::ReadAllText($stdout)
+            if($p.ExitCode -ne 0){
+              $e=[IO.File]::ReadAllText($stderr)
+              Write-Host ('UQ42_FAILED_PHASE='+$file+'; exit='+$p.ExitCode+'; stderr_tail='+$e.Substring([Math]::Max(0,$e.Length-900)))
+              throw ('UQ42_CHILD_FAILED_'+$file)
+            }
+            return $text.Trim()
+          }
+          function JsonChild([string]$name,[string[]]$argv){
+            $v=Child $name $argv
+            Assert (-not [string]::IsNullOrWhiteSpace($v)) ('EMPTY_'+$name)
+            return ($v | ConvertFrom-Json -ErrorAction Stop)
+          }
+          function FileSha([string]$path){return (Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          Assert (-not (Test-Path $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          try {
+            Assert ((RemoteHead 'refs/heads/main') -ceq $expectedMain) 'MAIN_DRIFT'
+            Assert ((RemoteHead $prRef) -ceq $expectedPr) 'PR_DRIFT'
+            & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch main $remote $root
+            Assert ($LASTEXITCODE -eq 0) 'PRIVATE_PARTIAL_CLONE'
+            Assert ((& git.exe -C $root config --get remote.origin.partialclonefilter | Out-String).Trim() -ceq 'blob:none') 'FILTER_NOT_SET'
+            & git.exe -C $root sparse-checkout set --cone .ice tools schemas policies tests archive
+            Assert ($LASTEXITCODE -eq 0) 'SPARSE_SETUP'
+            & git.exe -C $root checkout --force $expectedMain
+            Assert ($LASTEXITCODE -eq 0) 'MAIN_CHECKOUT'
+            Assert ((& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim() -ceq 'main') 'BRANCH_NOT_MAIN'
+            & git.exe -C $root fetch --quiet --no-tags --depth 1 origin $expectedPr
+            Assert ($LASTEXITCODE -eq 0) 'PINNED_PR_FETCH'
+            $runtime=Join-Path $root '.mind-runtime'
+            New-Item -ItemType Directory -Force -Path $runtime | Out-Null
+            $batch=Join-Path $runtime 'uq42-selected-project.batch.json'
+            $spec=$expectedPr+':'+$batchRel
+            $git=Start-Process -FilePath (Get-Command git.exe).Source -ArgumentList @('-C',('"'+$root+'"'),'show',$spec) -Wait -PassThru -NoNewWindow -RedirectStandardOutput $batch -RedirectStandardError $stderr
+            Assert ($git.ExitCode -eq 0) 'EXACT_BATCH_EXTRACTION'
+            $blob=(& git.exe -C $root hash-object $batch | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $blob -ceq $expectedBlob) 'BATCH_BLOB_MISMATCH'
+            Write-Host 'UQ42_PR65_BLOB_AND_PRODUCTION_PIN=PASS'
+            $before=@{}
+            foreach($f in $protected){$before[$f]=FileSha $f}
+            $known=JsonChild 'source-ledger' @('check','-BatchPath',('"'+$batch+'"'))
+            Assert ([int]$known.known -eq 0 -and [int]$known.unprocessed -eq 3) 'LEDGER_ALREADY_PROCESSED'
+            $classified=JsonChild 'collect' @('classify','-InputPath',('"'+$batch+'"'))
+            Assert ([int]$classified.result.counts.new -eq 3 -and [int]$classified.result.counts.review -eq 0) 'CLASSIFY_NOT_THREE_NEW'
+            $classFile=Join-Path $runtime 'uq42-classification.json'
+            [IO.File]::WriteAllText($classFile,(ConvertTo-Json -InputObject $classified -Depth 30),[Text.UTF8Encoding]::new($false))
+            $staged=JsonChild 'collect' @('stage','-InputPath',('"'+$batch+'"'))
+            Assert ([int]$staged.result.counts.new -eq 3 -and [int]$staged.result.counts.review -eq 0) 'STAGE_DRIFT'
+            Write-Host 'UQ42_COLLECTOR_STAGE_3_NEW=PASS'
+            $checkpoint=Child 'mind' @('checkpoint')
+            Assert ($checkpoint -like '*promoted=3 duplicates=0 retired=0 durable=263*') 'CHECKPOINT_NOT_EXACT_THREE'
+            $merge=JsonChild 'consolidate' @('merge-provenance')
+            Assert ([int]$merge.proposals -eq 0 -and [int]$merge.changed_records -eq 0) 'UNEXPECTED_MERGE'
+            $archive=JsonChild 'archive' @('apply')
+            $saved=JsonChild 'source-ledger' @('record','-BatchPath',('"'+$batch+'"'),'-ClassificationPath',('"'+$classFile+'"'))
+            Assert ([int]$saved.entries_added -eq 3 -and [int]$saved.total_entries -eq 104) 'LEDGER_104_EXPECTED'
+            $again=JsonChild 'source-ledger' @('record','-BatchPath',('"'+$batch+'"'),'-ClassificationPath',('"'+$classFile+'"'))
+            Assert ([int]$again.entries_added -eq 0 -and [int]$again.already_recorded -eq 3) 'REPLAY_NOT_IDEMPOTENT'
+            $knownAgain=JsonChild 'source-ledger' @('check','-BatchPath',('"'+$batch+'"'))
+            Assert ([int]$knownAgain.known -eq 3 -and [int]$knownAgain.unprocessed -eq 0) 'LEDGER_REPLAY_PARITY'
+            Write-Host 'UQ42_CHECKPOINT_263_RECORDS_104_SOURCES_REPLAY_SAFE=PASS'
+            $newRecords=[IO.File]::ReadAllText((Join-Path $root '.ice/records.json'))|ConvertFrom-Json
+            $ids=@(
+             'project_state/forge-guarded-mind-palace-polling-merged-20261017',
+             'project_state/wingless-codex-free-executor-boundary-20261016',
+             'project_state/yggdrasil-codex-free-executor-boundary-20261016'
+            )
+            foreach($id in $ids){
+              $hits=@($newRecords | Where-Object {$_.id -ceq $id})
+              Assert ($hits.Count -eq 1 -and [string]$hits[0].status -eq 'observed') ('NEW_RECORD_MISSING_'+$id)
+            }
+            $null=Child 'remote-snapshot' @()
+            $mindValidate=Child 'mind' @('validate')
+            Assert ($mindValidate -like '*validation passed*') 'MIND_VALIDATE_FAILED'
+            $ledgerValidation=JsonChild 'source-ledger' @('validate','-BatchPath',('"'+$batch+'"'))
+            Assert ([bool]$ledgerValidation.valid) 'LEDGER_INVALID'
+            $checkpointValidated=JsonChild 'update-checkpoint' @('validate')
+            Assert ([string]$checkpointValidated.status -eq 'ready' -and
+              [bool]$checkpointValidated.ready -and [bool]$checkpointValidated.remote_snapshot_match -and
+              [bool]$checkpointValidated.retrieval_quality_gate -and -not [bool]$checkpointValidated.pushed -and
+              -not [bool]$checkpointValidated.committed) 'UPDATE_CHECKPOINT_NOT_READY'
+            $changes=@(& git.exe -C $root diff --name-only)
+            Assert ($LASTEXITCODE -eq 0) 'DIFF_UNAVAILABLE'
+            Assert ($changes -contains '.ice/records.json' -and $changes -contains '.ice/source-ledger.json') 'REQUIRED_DURABLE_DELTA_MISSING'
+            $allowed=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            foreach($f in $changes){Assert ($allowed -contains [string]$f) ('UNAUTHORIZED_PATH_'+$f)}
+            foreach($f in @('.ice/chat-delta-state.json')){Assert ((FileSha $f) -ceq $before[$f]) 'CHAT_DELTA_CHANGED'}
+            Assert ((RemoteHead 'refs/heads/main') -ceq $expectedMain) 'FINAL_MAIN_DRIFT'
+            Assert ((RemoteHead $prRef) -ceq $expectedPr) 'FINAL_PR_DRIFT'
+            Write-Host 'UQ42_RETRIEVAL_QUALITY_AND_UPDATE_CHECKPOINT_VALIDATE=PASS'
+            Write-Host 'UQ42_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ42_PRODUCTION_COMMITS=0'
+            Write-Host 'UQ42_FULL_EXISTING_COMMIT_PATH=PASS'
+          } finally {
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Assert (-not (Test-Path $scratch)) 'PRIVATE_SCRATCH_CLEANUP_FAILED'
+          }
