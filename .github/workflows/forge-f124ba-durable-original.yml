@@ -1,0 +1,79 @@
+name: F124-BA append-only original scientific raw evidence archival
+on:
+  push:
+    branches: [research/f124ba-public-confidence-rejection-20261018]
+    paths: ['.github/workflows/forge-f124ba-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124ba-single-original-append-only-receipt
+  cancel-in-progress: false
+jobs:
+  original-archive:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39161174504
+          github-token: ${{ github.token }}
+          name: f124ba-original-public-confidence-ten-arm-fit-screen-aac5bbd1b1d40713a55cbece8da1cff00a57cf5a
+          path: original
+      - name: Authenticate provider first-use and append original bytes ONLY to feature branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = 'research/f124ba-public-confidence-rejection-20261018'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39161174504" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = 'aac5bbd1b1d40713a55cbece8da1cff00a57cf5a completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39161174504/artifacts" --jq '.artifacts[] | select(.id==12149256434 and .expired==false) | .digest')" = 'sha256:cd16d3588ba606aa3e34fd6231d14a639394e49e8c24b83d0fabbc2588c90b40'
+          echo 'fe1da13a796af4b233aaef2ab7575c896e4f8e4c448e51459faed3e18b23e7d2  original/f124ba-original-fit-screen.json' | sha256sum --check --strict
+          dest='reference/research-intake/originals/f124ba-original-public-confidence-ten-arm-fit-screen.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124BA_APPEND_ONLY_ORIGINAL_ALREADY_EXISTS
+            exit 1
+          fi
+          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha')
+          test "$remote_sha" = "$GITHUB_SHA" || { echo 'F124BA_FEATURE_BRANCH_DRIFT_STOP'; exit 1; }
+          python3 -B - <<'PY'
+          import json
+          d=json.load(open('original/f124ba-original-fit-screen.json'))
+          assert d['schema']=='forge.research.f124ba.original-lower-tail-public-confidence-TRAIN.v1'
+          assert d['source_freeze_blob']=='5877cc65e94cf4c2e11560a9f9f4cfc1da46d149'
+          assert d['FIT_selected_before_held_SCREEN'] is None
+          assert d['FIT_control_paired']==11
+          assert d['SCREEN_models']['joint_balanced48']['paired']==23
+          assert d['SCREEN_models']['confidence_balanced_minrow12']['paired']==6
+          assert all(x['public_response_calls']==1152 for x in d['SCREEN_models'].values())
+          assert d['SCREEN_strict_frozen_joint_success'] is False
+          assert d['Ygg_DEV_generated']==d['Wingless_DEV_generated']==0
+          assert d['Ygg_DEV_consumed'] is False and d['Wingless_DEV_consumed'] is False
+          assert len(d['FIT_models'])==len(d['SCREEN_models'])==10
+          print('F124BA_FULL_ORIGINAL_SOURCE_NEGATIVE_AUTHENTICATED=PASS')
+          PY
+          # A 277 KB original exceeds OS argument-size limits when passed as -f.
+          # Pipe immutable encoded bytes through a temporary JSON request body.
+          python3 -B - <<'PY'
+          import base64,json,os
+          original=open("original/f124ba-original-fit-screen.json","rb").read()
+          request={
+              "message":"F124-BA append original unmodified authenticated 10-arm TRAIN FIT SCREEN case evidence",
+              "content":base64.b64encode(original).decode("ascii"),
+              "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124ba-original-append-request.json","w",encoding="utf-8") as f:
+              json.dump(request,f,separators=(",",":"))
+          print("F124BA_ORIGINAL_RAW_REQUEST_READY=PASS")
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" \
+            --input /tmp/f124ba-original-append-request.json \
+            --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124BA_ORIGINAL_RAW_LONGTERM_REPOSITORY_ARCHIVED=PASS
+          echo F124BA_NO_SCIENTIFIC_PROMOTION=true
