@@ -1,0 +1,85 @@
+name: UQ46 classify snapshot serialization drift
+on:
+  push:
+    branches: [qualification/uq46-snapshot-serialization]
+    paths: ['.github/workflows/uq46-snapshot-drift-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Compare snapshot semantics and byte-level differences on pinned source
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ46_RUNNER_IDENTITY'}
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $head='ba99ec086047dba394817235f3d09e58ef103260'
+          $base='22d819c3473b80be34ecac7280881a67c981207c'
+          foreach($r in @(@('refs/heads/main',$base),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
+            $x=@(& git.exe ls-remote --exit-code $remote $r[0])
+            if($LASTEXITCODE -ne 0 -or $x.Count -ne 1 -or ([string]$x[0] -split '\s+')[0] -cne $r[1]){throw 'UQ46_SOURCE_DRIFT'}
+          }
+          if(-not (Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')){throw 'UQ46_DATEKIND_STRING_UNAVAILABLE'}
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          if(Test-Path $scratch){throw 'UQ46_SCRATCH_EXISTING'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ46_CLONE_FAILED'}
+            & git.exe -C $root sparse-checkout set --cone .ice tools archive
+            if($LASTEXITCODE -ne 0){throw 'UQ46_SPARSE_FAILED'}
+            & git.exe -C $root checkout --force engineering/uq42-utc-offset-checkpoint-compat
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ46_CHECKOUT_DRIFT'}
+            $files=@('.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+                     '.ice/remote-index.ndjson','.ice/project-state-capsules.json')
+            $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+                         '.ice/chat-delta-state.json','.ice/project-dependency-graph.json')
+            $baseline=@{}
+            foreach($f in @($files+$protected)){
+              $baseline[$f]=[IO.File]::ReadAllText((Join-Path $root $f))
+            }
+            $out=Join-Path $scratch 'generated'
+            Copy-Item -LiteralPath $root -Destination $out -Recurse -Force -ErrorAction Stop
+            # This copy is entirely within disposable private scratch.
+            $null= & (Join-Path $out 'tools/remote-snapshot.ps1') -RepoRoot $out
+            Write-Host 'UQ46_GENERATOR_COMPLETED=PASS'
+            $semanticsOk=$true
+            foreach($f in $files){
+              $before=$baseline[$f]
+              $after=[IO.File]::ReadAllText((Join-Path $out $f))
+              if($f -like '*.ndjson'){
+                $a=@($before -split '\r?\n' | Where-Object {$_} | ForEach-Object { ($_ | ConvertFrom-Json -DateKind String | ConvertTo-Json -Depth 100 -Compress) })
+                $b=@($after -split '\r?\n' | Where-Object {$_} | ForEach-Object { ($_ | ConvertFrom-Json -DateKind String | ConvertTo-Json -Depth 100 -Compress) })
+                $same=($a.Count -eq $b.Count -and (($a -join [char]10) -ceq ($b -join [char]10)))
+              }else{
+                $a=$before|ConvertFrom-Json -DateKind String|ConvertTo-Json -Depth 100 -Compress
+                $b=$after|ConvertFrom-Json -DateKind String|ConvertTo-Json -Depth 100 -Compress
+                $same=($a -ceq $b)
+              }
+              $changed=($before -cne $after)
+              Write-Host ('UQ46_FILE '+$f+' BYTES_CHANGED='+$changed+' SEMANTIC_IDENTICAL='+$same+' BEFORE='+$before.Length+' AFTER='+$after.Length)
+              if(-not $same){$semanticsOk=$false}
+            }
+            foreach($f in $protected){
+              if([IO.File]::ReadAllText((Join-Path $out $f)) -cne $baseline[$f]){throw ('UQ46_CORE_DRIFT_'+$f)}
+            }
+            Write-Host 'UQ46_FIVE_CORE_SURFACES_UNCHANGED=PASS'
+            if(-not $semanticsOk){throw 'UQ46_SEMANTIC_DIFFERENCES_REQUIRE_FURTHER_INSPECTION'}
+            Write-Host 'UQ46_FOUR_DERIVED_FILES_FORMAT_ONLY=PASS'
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ46_SOURCE_CHANGED'}
+            Write-Host 'UQ46_PRODUCTION_WRITES=0'
+            Write-Host 'UQ46_PAID_INFERENCE_AND_CODEX=0'
+          }finally{
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $scratch){throw 'UQ46_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ46_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
