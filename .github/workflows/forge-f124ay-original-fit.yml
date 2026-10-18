@@ -1,0 +1,110 @@
+name: F124-AY one original structural failure diagnostic and full regression
+on:
+  push:
+    branches: [research/f124ay-structural-inverse-failure-20261018]
+    paths: ['.github/workflows/forge-f124ay-original-fit.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ay-exactly-one-original-first-FIT
+  cancel-in-progress: false
+jobs:
+  original-one-fit:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enforce pre-implementation source birth, prior focused qualification and single use
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git hash-object reference/research-intake/f124ay-frozen-diagnostic-contract.json)" = e7dedbf082c9852259ff4cc30502f5a8a3e322a3
+          test "$(git log -1 --format=%H -- reference/research-intake/f124ay-frozen-diagnostic-contract.json)" = 3df04df42869c5cf3f58386d3feea628913d1942
+          git merge-base --is-ancestor 3df04df42869c5cf3f58386d3feea628913d1942 HEAD
+          test "$(git hash-object nativeevidence/f124ay_source_only.py)" = 7dc773e12138470b5971cea9054d45907a310c4b
+          test "$(git hash-object nativeevidence/f124ay_structural_diagnostics.py)" = 21716eb888ec2abe015bdc3eb522b75cb1a60d41
+          test "$(git hash-object nativeevidence/f124ay_original_fit_diagnosis.py)" = b8d2b4fc75f1b9e12364d50970057dc34c74995a
+          test "$(git hash-object nativeevidence/test_f124ay_nonconsuming.py)" = 5f7c80c7b1d0c615d7060fa21756c0283a1d4861
+          test "$(git hash-object nativeevidence/f124ax_sparse_quadratic.py)" = bcdd91164d9ce73953f666d0fdfae6f8a2f656f0
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39148503034" --jq '[.head_sha,.status,.conclusion] | join(" ")' | grep -Fx 'd5f5cd495aba9bd151c1786d40ab2d79b6f6c07e completed success'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39147109834" --jq '[.head_sha,.status,.conclusion] | join(" ")' | grep -Fx '089745a0ea0c388842c0ed1be5f9221daf580549 completed success'
+          prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124ay-structural-inverse-failure-20261018&per_page=100" --jq '[.workflow_runs[] | select(.path==".github/workflows/forge-f124ay-original-fit.yml") | select(.id != (env.GITHUB_RUN_ID | tonumber))] | length')
+          test "$prior" = 0 || { echo 'F124AY_REPEAT_SOURCE_BIRTH_FORBIDDEN'; exit 1; }
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f124ay_*.py' -q
+          python3 -B isolationguard/check.py
+          echo 'F124AY_SOURCE_NONCONSUMING_PREFLIGHT=PASS'
+      - name: Consume exactly one new Ygg TRAIN-FIT for structural diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ay_original_fit_diagnosis.py --output "$RUNNER_TEMP/f124ay-first-diagnostic.json"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os
+          report=json.loads(Path(os.environ["RUNNER_TEMP"],"f124ay-first-diagnostic.json").read_text())
+          assert report["schema"]=="forge.research.f124ay.one-original-frozen-negative-decomposition.v1"
+          assert report["original_frozen_FIT_cases"]==24
+          assert len(report["individual_FIT_cases"])==24
+          assert len(report["structural_witnesses_by_operator"])==4
+          assert all(x["oracle_evaluator_only"] for x in report["structural_witnesses_by_operator"].values())
+          assert report["reserved_SCREEN_cases_constructed"]==0
+          assert report["reserved_DEV_cases_constructed"]==0
+          assert report["Wingless_cases_constructed"]==0
+          assert not report["scientific_acceptance"] and not report["optimizer_promotion"]
+          assert all(x["cases"]==12 for x in report["sourceblind_diagnostic_by_operator_family"].values())
+          print("F124AY_FIRST_DIAGNOSTIC_RESULT_AUTHENTICATED=PASS")
+          print("F124AY_SCREEN_AND_DEV_REMAIN_UNUSED=true")
+          PY
+          (cd "$RUNNER_TEMP" && sha256sum f124ay-first-diagnostic.json > f124ay-first-diagnostic.json.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124ay-single-original-diagnostic-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124ay-first-diagnostic.json
+            ${{ runner.temp }}/f124ay-first-diagnostic.json.sha256
+          if-no-files-found: warn
+          retention-days: 90
+  final-full-regression:
+    needs: original-one-fit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Single full Go regression and isolation after frozen diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AY_FINAL_FULL_REGRESSION=PASS"
+          echo "F124AY_EXACT_SOURCE=$GITHUB_SHA"
+          echo "F124AY_PROTECTED_SCIENCE_ACCEPTANCE=false"
+          echo "F124AY_OPTIMIZER_ADMISSION=false"
