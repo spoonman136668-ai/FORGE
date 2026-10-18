@@ -37,7 +37,7 @@ def frozen():
          and s["TRAIN"]==[4900000,4900023] and s["DEV"]==[4900100,4900123]
          and s["operators_TRAIN"]==list(OPERATORS["TRAIN"])
          and s["operators_DEV"]==list(OPERATORS["DEV"])
-         and s["public_responses_per_task"]==48
+         and s["total_public_responses_per_task"]==48
          and s["FIT_public_pairs"]==40 and s["CHECK_public_pairs"]==8
          and len(d["models"]["fixed_arms"])==10
          and d["models"]["original_cognitive_cells"]["active"]==7 and d["models"]["original_cognitive_cells"]["retained"]==9
