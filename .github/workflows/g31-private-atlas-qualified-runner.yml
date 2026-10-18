@@ -1,0 +1,43 @@
+name: G31 isolated private atlas qualification
+on:
+  push:
+    branches:
+      - qualification/g31-private-atlas-forge-runner-20261018
+    paths:
+      - .github/workflows/g31-private-atlas-qualified-runner.yml
+      - scripts/g31_private_atlas_qualify.ps1
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: g31-private-atlas-forge-runner
+  cancel-in-progress: false
+jobs:
+  verify:
+    name: G31 private source, no memory or controller writes
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - name: Verify isolated runner and three exact-source private PRs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'G31_REPO_IDENTITY_MISMATCH' }
+          $source = 'https://raw.githubusercontent.com/spoonman136668-ai/FORGE/' + $env:GITHUB_SHA + '/scripts/g31_private_atlas_qualify.ps1'
+          # Runner may not have public HTTP egress. Use the exact Git commit
+          # already accessible to the runner, without checkout on the runner.
+          $tempRoot = Join-Path $env:RUNNER_TEMP ('g31-workflow-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $tempRoot) { throw 'G31_SCRIPT_SCRATCH_COLLISION' }
+          New-Item -ItemType Directory -Path $tempRoot -ErrorAction Stop | Out-Null
+          try {
+            & git.exe clone --quiet --depth 1 --single-branch --branch qualification/g31-private-atlas-forge-runner-20261018 'https://github.com/spoonman136668-ai/FORGE.git' $tempRoot\forge
+            if ($LASTEXITCODE -ne 0) { throw 'G31_PUBLIC_FORGE_SCRIPT_CLONE_FAILED' }
+            $head = (& git.exe -C "$tempRoot\forge" rev-parse HEAD | Out-String).Trim()
+            if ($head -cne $env:GITHUB_SHA) { throw 'G31_SCRIPT_SOURCE_HEAD_DRIFT' }
+            & "$tempRoot\forge\scripts\g31_private_atlas_qualify.ps1"
+            if (-not $?) { throw 'G31_QUALIFIER_FAILED' }
+          } finally {
+            if (Test-Path -LiteralPath $tempRoot) {
+              Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction Stop
+            }
+          }
