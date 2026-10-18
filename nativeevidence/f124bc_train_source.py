@@ -30,7 +30,7 @@ def frozen():
          witness.blob(original.__file__)==PARENT_SOURCE_BLOB,
          "IMMUTABLE_ORIGINAL_FROZEN_SOURCE")
     d=json.loads(FREEZE.read_text(encoding="utf-8"))
-    s=d["source"]
+    s=d["new_source"]
     need(d["schema"]=="forge.research.f124bc.preimplementation-public-xor-closure-graph-independent-v1"
          and d["status"]=="SOURCE_AND_HYPOTHESES_FROZEN_BEFORE_MODEL_IMPLEMENTATION"
          and d["parent"]["qualified_BB_head"]==PARENT_SHA
