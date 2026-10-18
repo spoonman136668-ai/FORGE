@@ -1,0 +1,56 @@
+name: T6 mass source-frozen causal learned-mechanism qualification
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t6-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t6-mass-first-nonprotected-original
+  cancel-in-progress: false
+jobs:
+  independent-new-public-TRAIN-OPEN:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 60
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin preregistered T6 source and exact unchanged control
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T6_GITHUB_HEAD_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t6-freeze.json').Trim() -cne '5dc9f7a8a9db77be0ff018cc988a89cca5146385'){throw 'T6_SOURCE_FREEZE_BLOB_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-mass-t6-freeze.json').Trim() -cne 'c7721b069c6cb0b49647a40dfc3991c05aabe25b'){throw 'T6_FREEZE_NOT_PREIMPLEMENTATION'}
+          git merge-base --is-ancestor c7721b069c6cb0b49647a40dfc3991c05aabe25b HEAD
+          if($LASTEXITCODE -ne 0){throw 'T6_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t6-learning.py').Trim() -cne '2befffb1c0117a73bf70c1f39d0d6618e037599d'){throw 'T6_ENGINEERING_SOURCE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t5-learning.py').Trim() -cne '12e474e4a89c708e8166e7c9c68d1dff89b8837c'){throw 'T6_ORIGINAL_T5_CONTROL_DRIFT'}
+          Write-Output 'T6_MASS_PREIMPLEMENTATION_SOURCE_IDENTITY=PASS'
+      - name: Execute once on fresh OPEN diagnostics with complete public controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-mass-t6-learning.py' | Tee-Object 't6-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T6_MASS_SOURCE_OR_NATIVE_INVARIANT_FAILED'}
+          $j=Get-Content 't6-mass-original.json' -Raw | ConvertFrom-Json
+          if($j.'protected_scientific_first_use' -ne $false -or $j.'science_accepted' -ne $false){throw 'T6_SCIENTIFIC_ORIGINAL_NOT_AUTHORIZED'}
+          Write-Output 'T6_MASS_ORIGINAL_TRAIN_OPEN_EVIDENCE=PASS'
+          Write-Output 'T6_MASS_PROTECTED_SOURCE_FIRST_USE=false'
+          Write-Output 'T6_MASS_SCIENCE_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t6-mass-original-${{ matrix.os }}-${{ github.sha }}
+          path: t6-mass-original.json
+          retention-days: 90
+          if-no-files-found: error
