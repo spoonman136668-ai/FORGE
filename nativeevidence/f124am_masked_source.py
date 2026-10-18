@@ -100,6 +100,9 @@ def semantic_routes(g,mode="consistent"):
         for node,carried,belief,events in paths:
             for edge in g["edges"]:
                 if node!=edge["from"] or role!=edge["role"]:continue
+                if carried is not None and sum(
+                        a!=b for a,b in zip(carried,edge["src_bits"])
+                        if b is not None)>2:continue
                 candidate=allowed_masks(carried,edge["src_bits"])
                 if mode=="exact" and candidate:continue
                 if mode=="consistent" and carried is not None:
