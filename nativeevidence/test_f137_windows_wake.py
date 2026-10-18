@@ -154,6 +154,16 @@ class WindowsWakeTests(unittest.TestCase):
         with self.assertRaises(m.f.Invalid):
             self.decide(wake=w)
 
+    def test_dpapi_assembly_loaded_before_unprotect(self):
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "scripts/f137-windows-wake.ps1").read_text()
+        loader = "Add-Type -AssemblyName System.Security -ErrorAction Stop"
+        decrypt = "[Security.Cryptography.ProtectedData]::Unprotect("
+        self.assertEqual(script.count(loader), 1)
+        self.assertEqual(script.count(decrypt), 1)
+        self.assertLess(script.index(loader), script.index(decrypt))
+
     def test_same_source_and_synthetic_workflow_contract(self):
         from pathlib import Path
         root=Path(__file__).resolve().parents[1]

@@ -100,6 +100,7 @@ try {
             throw 'F137_RESTRICTED_CREDENTIAL_MISSING'
         }
         $cipher = [IO.File]::ReadAllBytes($secretPath)
+        Add-Type -AssemblyName System.Security -ErrorAction Stop
         $bytes = [Security.Cryptography.ProtectedData]::Unprotect(
             $cipher, $null,
             [Security.Cryptography.DataProtectionScope]::LocalMachine)
