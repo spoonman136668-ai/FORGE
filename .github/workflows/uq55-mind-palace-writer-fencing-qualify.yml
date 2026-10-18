@@ -1,0 +1,136 @@
+name: UQ55 Mind-Palace writer-ownership fencing qualification
+
+on:
+  push:
+    branches:
+      - qualification/uq55-mind-palace-writer-fencing
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uq55-mind-palace-frozen-source-windows
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: "1"
+    steps:
+      - name: Verify pinned Mind-Palace source, cross-process exclusive ownership, owner kill and full regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ55_QUAL_WRONG_REPO_OR_RUNNER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $base = '710bc858c8c27520c3341b6d1566b5daec08e9ea'
+          $head = 'e08f2ef33f17f119ccb10661e83a74b88b1fb728'
+          $branch = 'engineering/uq55-repo-source-writer-fencing'
+          $scratch = Join-Path $env:RUNNER_TEMP ('mind-palace-uq55-' + $env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'source'
+          $protected = @(
+            '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+            '.ice/chat-delta-state.json', '.ice/remote-bootstrap.json',
+            '.ice/remote-catalog.json', '.ice/remote-index.ndjson',
+            '.ice/project-state-capsules.json', '.ice/project-dependency-graph.json'
+          )
+          if (Test-Path -LiteralPath $scratch) { throw 'UQ55_PREEXISTING_SCRATCH' }
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $remoteMain = @(git.exe ls-remote --exit-code $remote refs/heads/main)
+            $remoteBranch = @(git.exe ls-remote --exit-code $remote ('refs/heads/' + $branch))
+            if ($LASTEXITCODE -ne 0 -or $remoteMain.Count -ne 1 -or $remoteBranch.Count -ne 1 -or
+                ([string]$remoteMain[0] -split '\s+')[0] -cne $base -or
+                ([string]$remoteBranch[0] -split '\s+')[0] -cne $head) {
+              throw 'UQ55_PINNED_GIT_IDENTITY_CHANGED'
+            }
+            git.exe clone --quiet --no-local --single-branch --branch $branch $remote $root
+            if ($LASTEXITCODE -ne 0 -or ((git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $head) {
+              throw 'UQ55_SOURCE_CLONE_IDENTITY_DRIFT'
+            }
+            $actual = @(git.exe -C $root diff --name-only ($base + '..' + $head))
+            $expected = @(
+              'docs/REPO_SOURCE_WRITER_FENCING.md',
+              'tests/Test-All.ps1', 'tests/Test-RepoSourceWriterFencing.ps1',
+              'tools/repo-source-authority.ps1', 'tools/repo-source-recover.ps1',
+              'tools/repo-source-transaction.ps1'
+            )
+            if ($LASTEXITCODE -ne 0 -or (@($actual | Sort-Object) -join '|') -cne (@($expected | Sort-Object) -join '|')) {
+              throw ('UQ55_DIFF_SCOPE_DRIFT ' + ($actual -join ';'))
+            }
+            $before = @{}
+            foreach ($f in $protected) {
+              $a = (git.exe -C $root rev-parse ($base + ':' + $f) | Out-String).Trim()
+              $b = (git.exe -C $root rev-parse ('HEAD:' + $f) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $a -cne $b) { throw ('UQ55_PROTECTED_BLOB_DRIFT_' + $f) }
+              $before[$f] = (Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash
+            }
+            $manifest = (git.exe -C $root rev-parse 'HEAD:.ice/manifest.json' | Out-String).Trim()
+            $policy = (git.exe -C $root rev-parse 'HEAD:policies/repo-source-admission.json' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $manifest -cne '37e0f5ffe301519e2ce7d564367cbfe9312017c1' -or
+                $policy -cne '26893d899bc85f7385a8687d7755cc572026e0d4') {
+              throw 'UQ55_ADMISSION_POLICY_OR_MANIFEST_MOVED'
+            }
+            Write-Host 'UQ55_SOURCE_SCOPE_NINE_HASHES_AND_DEFAULT_DENY=PASS'
+            $test = Join-Path $root 'tests/Test-RepoSourceWriterFencing.ps1'
+            $out = Join-Path $scratch 'focused.out'
+            $err = Join-Path $scratch 'focused.err'
+            $p = Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"' + $test + '"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $body = [IO.File]::ReadAllText($out)
+            $errors = [IO.File]::ReadAllText($err)
+            $markers = @(
+              'UQ55_CONCURRENT_PLAN_APPLY_AND_RECOVERY_DENIED=PASS',
+              'UQ55_LIVE_OS_HANDLE_IS_SOLE_AUTHORITY=PASS',
+              'UQ55_ACTUAL_OWNER_PROCESS_KILLED=PASS',
+              'UQ55_KILLED_OWNER_OS_LEASE_RELEASED=PASS',
+              'UQ55_STALE_PID_METADATA_NO_STEAL_NO_BLOCK=PASS',
+              'UQ55_PROTECTED_NINE_HASHES_UNCHANGED=PASS',
+              'UQ55_PRODUCTION_MEMORY_WRITES=0'
+            )
+            if ($p.ExitCode -ne 0 -or @($markers | Where-Object { -not $body.Contains($_) }).Count -ne 0) {
+              $full = $errors + [Environment]::NewLine + $body
+              throw ('UQ55_FOCUSED_FAILED ' + $full.Substring([Math]::Max(0,$full.Length-4200)))
+            }
+            foreach ($m in $markers) { Write-Host $m }
+            Write-Host 'UQ55_CROSS_PROCESS_FENCING_FOCUSED=PASS'
+            $all = Join-Path $root 'tests/Test-All.ps1'
+            $fullOut = Join-Path $scratch 'regression.out'
+            $fullErr = Join-Path $scratch 'regression.err'
+            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"' + $all + '"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $fullOut -RedirectStandardError $fullErr
+            $result = [IO.File]::ReadAllText($fullOut)
+            $errorText = [IO.File]::ReadAllText($fullErr)
+            $count = @([regex]::Matches($result,'(?m)^RUN .+$')).Count
+            if ($proc.ExitCode -ne 0 -or $count -ne 67 -or $result -notmatch 'Mind-Palace regression suite passed') {
+              $tests = @([regex]::Matches($result,'(?m)^RUN .+$'))
+              $last = if ($tests.Count -gt 0) { $tests[-1].Value } else { 'none' }
+              $full = $errorText + [Environment]::NewLine + $result
+              throw ('UQ55_COMPLETE_REGRESSION_FAILED count=' + $count + ' last=' + $last + ' ' + $full.Substring([Math]::Max(0,$full.Length-2300)))
+            }
+            Write-Host 'UQ55_COMPLETE_WINDOWS_REGRESSION=PASS tests=67'
+            foreach ($f in $protected) {
+              $now = (Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash
+              if ($now -cne $before[$f]) { throw ('UQ55_ORIGINAL_PROTECTED_FILE_CHANGED_' + $f) }
+            }
+            $dirty = @(git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw ('UQ55_SOURCE_TREE_DIRTY ' + ($dirty -join ';')) }
+            $remoteAfter = @(git.exe ls-remote --exit-code $remote refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remoteAfter.Count -ne 1 -or
+                ([string]$remoteAfter[0] -split '\s+')[0] -cne $base) {
+              throw 'UQ55_REMOTE_MAIN_MOVED'
+            }
+            Write-Host 'UQ55_PROTECTED_NINE_HASHES_AND_CLEAN_SOURCE_TREE=PASS'
+            Write-Host 'UQ55_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ55_NO_CODEX_NO_SOURCE_PUSH=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Force -Recurse }
+            if (Test-Path -LiteralPath $scratch) { throw 'UQ55_QUAL_SCRATCH_NOT_CLEAN' }
+            Write-Host 'UQ55_QUAL_SCRATCH_CLEAN=PASS'
+          }
