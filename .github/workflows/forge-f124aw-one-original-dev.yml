@@ -1,0 +1,207 @@
+name: F124-AW single authenticated original Yggdrasil DEV first-use
+on:
+  push:
+    branches: [research/f124aw-frozen-active-inverse-first-dev-20261018]
+    paths: ['.github/workflows/forge-f124aw-one-original-dev.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124aw-exact-original-ygg-first-use-only
+  cancel-in-progress: false
+jobs:
+  exactly-one-original-dev:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: No previous first-use and immutable qualified source confirmation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # Refuse a second run even if the previous completed negatively or failed mid-evaluation.
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39144927202" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'ee59df9e6878f17b22edb43d8c58d9093fb9c13a completed failure'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39144927202/jobs" --jq '.total_count')" = 0
+          prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-f124aw-one-original-dev.yml/runs?branch=research/f124aw-frozen-active-inverse-first-dev-20261018&per_page=100" --jq '[.workflow_runs[] | select(.id != (env.GITHUB_RUN_ID | tonumber)) | select(.id != 39144927202)] | length')
+          test "$prior" = 0 || { echo 'F124AW_NO_REPEAT_AFTER_ANY_FIRST_USE_ATTEMPT'; exit 1; }
+          f=reference/research-intake/f124aw-frozen-original-ygg-first-dev.json
+          test "$(git hash-object "$f")" = 'e86cbf31e179bb4a1d4ceeee039c3d017ba27789'
+          test "$(git log -1 --format=%H -- "$f")" = '1415ad0cba12b9f89c626b0786fdca3544e975b6'
+          test "$(git rev-parse 'ffbc188963f673c20b6d7ecd3c4613aa4551614d:nativeevidence/f124aw_one_original_dev.py')" = "$(git hash-object nativeevidence/f124aw_one_original_dev.py)"
+          test "$(git hash-object reference/research-intake/f124av-authenticated-screen-selected-ygg.json)" = '47d2fdb893307a871458348074b6d97b34d42de5'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39144700158" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'ffbc188963f673c20b6d7ecd3c4613aa4551614d completed success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39144700224" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'ffbc188963f673c20b6d7ecd3c4613aa4551614d completed success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141947437" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4 completed success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39141593876/artifacts" --jq '.artifacts[] | select(.id==12141722057 and .expired==false) | .digest')" = 'sha256:05977f984699c359864b622fb9124013ae85536bdadfaedbb063f907c63f4504'
+          python3 -B nativeevidence/f124aw_one_original_dev.py --mode preflight
+          python3 -B isolationguard/check.py
+          echo 'F124AW_EXACT_FROZEN_FIRST_USE_PREFLIGHT=PASS'
+          echo 'F124AW_WINGLESS_DEV_NOT_GENERATED=true'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: originals/o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: originals/t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: originals/an
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39122374949
+          github-token: ${{ github.token }}
+          name: f124ao-first-dev-evidence-a0d15c8cf307a9c7972728899b525f79717049c7
+          path: originals/ao
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39123857883
+          github-token: ${{ github.token }}
+          name: f124ap-authentic-train-only-c5330bbff435febe198c55e9da19beb17bc613d8
+          path: originals/ap
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39124962572
+          github-token: ${{ github.token }}
+          name: f124aq-train-1d4222158da000f66f6ad28033c9b15f4dcabe93
+          path: originals/aq
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39133441550
+          github-token: ${{ github.token }}
+          name: f124ar-original-train-d261861f31c34152ffe9d7081302f764ac02fb7d
+          path: originals/ar
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39136517506
+          github-token: ${{ github.token }}
+          name: f124as-original-new-train-06ca4e0dc54a619de8ec623c97ff1ef1ce0496b5
+          path: originals/as_train
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39136910292
+          github-token: ${{ github.token }}
+          name: f124as-original-first-dev-449fc54cecccb6e30eaa13016f9d1828532714ac
+          path: originals/as_dev
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39138041247
+          github-token: ${{ github.token }}
+          name: f124at-fresh-diagnostic-699ba7abc460bc0763eed2f11d10bdf766e4604b
+          path: originals/at
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39140097345
+          github-token: ${{ github.token }}
+          name: f124au-original-fit-screen-ec8a61f41fce6b4f29d8ae30a4ec52fafbde95af
+          path: originals/au
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39141593876
+          github-token: ${{ github.token }}
+          name: f124av-original-fit-screen-b6f48b01ecc5dfea159e275a7becf69b3b3f4c76
+          path: originals/av
+      - name: Verify original model custody and all original raw science input bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d  originals/o/f124o-independent-two-learned-development.json' \
+            'a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2  originals/t/f124t-fresh-absolute-development.json' \
+            '7226e267ac02090069690ebb40e92696a2cba1bd56a567d838fc6e48880cff9c  originals/an/f124an-calibrated-affine-wing-isolation.json' \
+            '37d61d2130fc73f28fd96d32b85d018dee231c5319dd515b2024132f7855cb52  originals/ao/f124ao-first-dev-independent-evidence.json' \
+            '56bb2b97a2d0ae5babc0884e55841252ecefd6a11748f33425753e6309ef1417  originals/ap/f124ap-authentic-kernel-hop-train.json' \
+            'd3a3935cc58d0fe69f46a496ae130a434360bee4169dc22bdad72385af3aa5b0  originals/aq/f124aq-train.json' \
+            '8e8a062ed46af068cf490044f9f5f548d78cc31655ca7fe2061f4ad8ddfd0446  originals/ar/f124ar-original-fresh-train.json' \
+            'f012c3c34ee7f859932b5d4274e53d675f683568b2cda74cbeeee6407c785b7b  originals/as_train/f124as-original-train.json' \
+            'd6d6c184ec4a06df0c33de1a0490d8fb67d1d9897ec78529d51e85547b0d48f7  originals/as_dev/f124as-first-dev.json' \
+            '8050c9f4bae5821c4bc2d222d1c4985a41e3c86cb4af1c3cedf1a70c1a94422d  originals/at/f124at-original-fresh-train.json' \
+            '7e0cc7b084e70fed69ac9f38eb5e66ecac1e33a14a4cccfa5919677d41e95fff  originals/au/f124au-original-fit-screen.json' \
+            'f7cbfc844e64510a172a4144bd90a56a37ec6f76b805e5b39cb2bf953e40641d  originals/av/f124av-original-fit-screen.json' | sha256sum --check --strict
+          python3 -B - <<'PY'
+          import hashlib,json,sys
+          sys.path.insert(0,'nativeevidence')
+          from f124av_fit_screen import parent
+          (base,delta)=parent.lineage(
+            'originals/o/f124o-independent-two-learned-development.json',
+            'originals/t/f124t-fresh-absolute-development.json',
+            'originals/an/f124an-calibrated-affine-wing-isolation.json',
+            'originals/ao/f124ao-first-dev-independent-evidence.json',
+            'originals/ap/f124ap-authentic-kernel-hop-train.json',
+            'originals/aq/f124aq-train.json',
+            'originals/ar/f124ar-original-fresh-train.json',
+            'originals/as_train/f124as-original-train.json',
+            'originals/as_dev/f124as-first-dev.json',
+            'originals/at/f124at-original-fresh-train.json',
+          )
+          assert isinstance(base['Yggdrasil'],list) and isinstance(delta['Yggdrasil'],list)
+          assert len(base['Yggdrasil'])==7 and len(delta['Yggdrasil'])==2
+          assert all(isinstance(v,(int,float)) for v in base['Yggdrasil']+delta['Yggdrasil'])
+          p='originals/av/f124av-original-fit-screen.json'
+          raw=open(p,'rb').read()
+          assert hashlib.sha256(raw).hexdigest()=='f7cbfc844e64510a172a4144bd90a56a37ec6f76b805e5b39cb2bf953e40641d'
+          av=json.loads(raw)
+          assert av['Yggdrasil']['FIT_selection']=={'query_condition':'balanced_basis48','fit_bit_budget':12,'min_CHECK_correct':96}
+          assert av['Yggdrasil']['SCREEN_eligible'] and av['Yggdrasil']['TRAIN_SCREEN']['candidates'][0]['results']['paired']==9
+          assert av['Yggdrasil']['TRAIN_SCREEN']['candidates'][0]['results']['FP']==0
+          assert av['Wingless']['FIT_selection'] is None and not av['both_new_DEV_consumed']
+          assert av['both_new_DEV_generated']==0
+          with open('/tmp/f124aw-authentic-base-ygg.json','w') as f:json.dump(base['Yggdrasil'],f)
+          with open('/tmp/f124aw-authentic-delta-ygg.json','w') as f:json.dump(delta['Yggdrasil'],f)
+          print('F124AW_FIRST_USE_HISTORICAL_SOURCES=PASS')
+          print('F124AW_SELECTED_CONFIG_FIXED=PASS')
+          PY
+      - name: Execute exactly one authenticated Ygg-only original first DEV evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B nativeevidence/f124aw_one_original_dev.py \
+            --mode one-original-dev \
+            --av-original originals/av/f124av-original-fit-screen.json \
+            --base-ygg /tmp/f124aw-authentic-base-ygg.json \
+            --delta-ygg /tmp/f124aw-authentic-delta-ygg.json \
+            --output "${{ runner.temp }}/f124aw-first-original-ygg-dev.json"
+          python3 -B -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["schema"]=="forge.research.f124aw.single-original-selected-ygg-dev-first-use.v1"; assert d["immutable_first_use_freeze_blob"]=="e86cbf31e179bb4a1d4ceeee039c3d017ba27789"; assert d["selected_exactly_FIT_frozen_config"]=={"query_condition":"balanced_basis48","fit_bit_budget":12,"min_CHECK_correct":96}; assert d["Yggdrasil_DEV_first_use_count"]==1 and d["Yggdrasil_DEV_consumed"] is True; assert d["Wingless_DEV_generated"]==0 and d["Wingless_DEV_consumed"] is False; assert len(d["models"])==4 and all(x["pairs"]==48 for x in d["models"].values()); assert d["independent_scientific_acceptance"] is False and d["optimizer_promotion"] is False' "${{ runner.temp }}/f124aw-first-original-ygg-dev.json"
+          sha256sum "${{ runner.temp }}/f124aw-first-original-ygg-dev.json" > "${{ runner.temp }}/f124aw-first-original-ygg-dev.json.sha256"
+          echo 'F124AW_ORIGINAL_SINGLE_DEV_EVIDENCE=PASS'
+          echo 'F124AW_WINGLESS_DEV_CONSUMED=false'
+          echo 'F124AW_INDEPENDENT_SCIENTIFIC_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124aw-original-first-ygg-dev-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124aw-first-original-ygg-dev.json
+            ${{ runner.temp }}/f124aw-first-original-ygg-dev.json.sha256
+          if-no-files-found: error
+          retention-days: 90

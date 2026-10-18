@@ -1,0 +1,84 @@
+name: F124-AW exact selected source focused Windows/Linux
+on:
+  push:
+    branches: [research/f124aw-frozen-active-inverse-first-dev-20261018]
+    paths:
+      - '.github/workflows/forge-f124aw-focused.yml'
+      - 'nativeevidence/f124aw_*.py'
+      - 'nativeevidence/test_f124aw_*.py'
+      - 'reference/research-intake/f124aw-frozen-original-ygg-first-dev.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124aw-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact frozen before implementation and no unqualified DEV
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){ throw 'F124AW_EXACT_SOURCE_DRIFT' }
+          $f='reference/research-intake/f124aw-frozen-original-ygg-first-dev.json'
+          Write-Output "F124AW_DIAG_FREEZE_BLOB=$(git hash-object $f)"
+          Write-Output "F124AW_DIAG_FREEZE_COMMIT=$(git log -1 --format=%H -- $f)"
+          Write-Output "F124AW_DIAG_PARENT_SOURCE=$(git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_train_source.py')"
+          Write-Output "F124AW_DIAG_PARENT_MODEL=$(git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_informative_inverse.py')"
+          $err='reference/research-intake/f124aw-original-model-identity-erratum.json'
+          $note=Get-Content $err -Raw | ConvertFrom-Json
+          if($note.actual_qualified_AV_model_blob -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5' -or $note.DEV_cases_constructed -ne 0){ throw 'F124AW_ERRATUM_NOT_VALID' }
+          if((git hash-object $f).Trim() -cne 'e86cbf31e179bb4a1d4ceeee039c3d017ba27789' -or
+             (git log -1 --format=%H -- $f).Trim() -cne '1415ad0cba12b9f89c626b0786fdca3544e975b6' -or
+             (git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_train_source.py').Trim() -cne '07c311e7b0443e21db39a200199a33cc0747046e' -or
+             (git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_informative_inverse.py').Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5'){
+            throw 'F124AW_FROZEN_PARENT_MODEL_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124aw_*.py' -v
+          if($LASTEXITCODE -ne 0){ throw 'F124AW_SOURCE_FOCUSED_FAIL' }
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){ throw 'F124AW_ISOLATION_FAIL' }
+          Write-Output 'F124AW_FOCUSED_ORIGINAL_DEV_NOT_OPENED=PASS'
+  independently-authenticate-original-AV:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Original selected Ygg SCREEN and exact engineering acceptance
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($x in @(
+            @{run=39141593876;head='b6f48b01ecc5dfea159e275a7becf69b3b3f4c76'},
+            @{run=39141766369;head='227bd206ef129dee8e7fc6451790e0c16c361471'},
+            @{run=39141947437;head='0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4'}
+          )){
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($x.run)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.status -cne 'completed' -or
+               $r.conclusion -cne 'success' -or $r.head_sha -cne $x.head){
+              throw 'F124AW_ORIGINAL_TRAIN_SOURCE_OR_ENGINEERING_FAILED'
+            }
+          }
+          $a=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39141593876/artifacts' | ConvertFrom-Json
+          $x=@($a.artifacts | Where-Object { $_.id -eq 12141722057 })
+          if($LASTEXITCODE -ne 0 -or $x.Count -ne 1 -or $x[0].expired -or
+             $x[0].digest -cne 'sha256:05977f984699c359864b622fb9124013ae85536bdadfaedbb063f907c63f4504'){
+            throw 'F124AW_ORIGINAL_AV_RAW_EVIDENCE_DRIFT'
+          }
+          Write-Output 'F124AW_ORIGINAL_FIT_SELECTED_SCREEN_QUALIFIED=PASS'
