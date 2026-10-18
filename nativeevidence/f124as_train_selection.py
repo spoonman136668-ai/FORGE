@@ -36,7 +36,7 @@ def original(o,t,an,ao_raw,ap_raw,aq_raw,ar_raw):
          not aqinfo["DEV_consumed"] and
          arinfo["schema"]=="forge.research.f124ar.first-original-train-meta-relations.v1"
          and arinfo["DEV_cases_generated"]==0 and
-         arinfo["DEV_cases_consumed"]==0 and
+         arinfo["DEV_consumed"] is False and
          not arinfo["optimizer_promotion"],
          "HISTORICAL_NEGATIVE_NO_DEV_ADMISSION")
     return base,delta,arinfo
