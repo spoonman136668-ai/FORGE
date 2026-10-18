@@ -134,3 +134,35 @@ def decision(wake, integrated, wake_runs, main_sha, pinned_sha, nonce, now,
         "accepted_ref_mutations":0,"science_originals":0,
         "codex_calls":0,"paid_api_calls":0,
     }
+
+def run_cli():
+    import argparse
+    import json
+    from pathlib import Path
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--root",type=Path,required=True)
+    ap.add_argument("--now",required=True)
+    ap.add_argument("--pinned-sha",required=True)
+    ap.add_argument("--nonce",required=True)
+    ap.add_argument("--paused",choices=("true","false"),required=True)
+    ap.add_argument("--enabled",choices=("true","false"),required=True)
+    ap.add_argument("--output",type=Path,required=True)
+    a=ap.parse_args()
+    root=a.root
+    pieces=[f.strict((root/("page-%d.json"%p)).read_bytes())
+            for p in (1,2,3)]
+    rows=[w for piece in pieces for w in piece["workflow_runs"]]
+    recent={"total_count":pieces[0]["total_count"],"workflow_runs":rows}
+    report=decision(
+        f.strict((root/"wake.json").read_bytes()),recent,
+        f.strict((root/"wake-history.json").read_bytes()),
+        (root/"main.sha").read_text().strip(),
+        a.pinned_sha,a.nonce,f.stamp(a.now),
+        paused=(a.paused=="true"),enabled=(a.enabled=="true"))
+    a.output.write_text(json.dumps(report,sort_keys=True,separators=(",",":"))+"\n")
+    print("F137_WINDOWS_WAKE_DISPATCH="+str(report["dispatch"]))
+    for reason in report["reasons"]:
+        print("F137_WINDOWS_WAKE_DECLINED_"+reason)
+
+if __name__=="__main__":
+    run_cli()
