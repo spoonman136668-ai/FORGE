@@ -38,7 +38,12 @@ jobs:
           if ((git log -1 --format=%H -- $freeze).Trim() -cne 'd56847eafb0c4ab43d3514f33b93b1fce8412d61') { throw 'F124AX_FREEZE_NOT_PREIMPLEMENTATION' }
           git merge-base --is-ancestor d56847eafb0c4ab43d3514f33b93b1fce8412d61 HEAD
           if ($LASTEXITCODE -ne 0) { throw 'F124AX_FREEZE_NOT_ANCESTOR' }
-          if ((git rev-parse 'a0173ff8ab3093dbb24d1b517c416c03502570e1:nativeevidence/f124av_informative_inverse.py').Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd5') { throw 'F124AX_AV_MODEL_DRIFT' }
+          $actualBase=(git rev-parse 'a0173ff8ab3093dbb24d1b517c416c03502570e1:nativeevidence/f124av_informative_inverse.py' 2>&1 | Out-String).Trim()
+          $actualHead=(git hash-object nativeevidence/f124av_informative_inverse.py | Out-String).Trim()
+          Write-Output "F124AX_PARENT_MODEL_OBSERVED=$actualBase"
+          Write-Output "F124AX_HEAD_MODEL_OBSERVED=$actualHead"
+          if ($actualBase -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd5' -or
+              $actualHead -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd5') { throw 'F124AX_AV_MODEL_DRIFT' }
           $py=if($IsWindows){'python'}else{'python3'}
           & $py -B -m unittest discover -s nativeevidence -p 'test_f124ax_*.py' -v
           if ($LASTEXITCODE -ne 0) { throw 'F124AX_FOCUSED_FAIL' }
