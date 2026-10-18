@@ -280,6 +280,9 @@ def transfer_pair(seed,vector,phase,family):
         # Public relationship chain extended by 3 hops, not a new model rule.
         # The original source is 7–9 deep; extended source is 10–12.
         before=pos["target"]
+        # Detach paired query roles before both independently append 3 hops.
+        pos["roles"]=list(pos["roles"])
+        neg["roles"]=list(neg["roles"])
         for g in (pos,neg):
             dst=before
             # Anchor first src key on original terminal edge's public dst bits.
