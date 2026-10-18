@@ -72,3 +72,105 @@ jobs:
           path: ${{ runner.temp }}/f124x-wing.json
           if-no-files-found: error
           retention-days: 90
+
+
+  y-calibrate:
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Authenticate immutable O R S U weights and train receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'O_AUTH_FAIL' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'R_AUTH_FAIL' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'S_AUTH_FAIL' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'U_AUTH_FAIL' }
+      - name: FIT-only fixed-threshold intervention and fresh DEV evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124x_ygg_intervention.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124x-cal.json"
+          python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["DEV_never_used_to_select_threshold"] and len(x["DEV"])==8 and not x["protected_first_use"]' "$RUNNER_TEMP/f124x-cal.json"
+          sha256sum "$RUNNER_TEMP/f124x-cal.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124x-ygg-FIT-calibration-${{ github.sha }}
+          path: ${{ runner.temp }}/f124x-cal.json
+          retention-days: 90
+          if-no-files-found: error
+
+  y-stress:
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: spoonman136668-ai/FORGE
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Authenticate immutable O R S U weights and train receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          gh run download 39078269441 -n f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d -D o
+          if ($LASTEXITCODE -ne 0) { throw 'O_AUTH_FAIL' }
+          gh run download 39081990918 -n f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb -D r
+          if ($LASTEXITCODE -ne 0) { throw 'R_AUTH_FAIL' }
+          gh run download 39082745397 -n f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27 -D s
+          if ($LASTEXITCODE -ne 0) { throw 'S_AUTH_FAIL' }
+          gh run download 39084599471 -n f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d -D u
+          if ($LASTEXITCODE -ne 0) { throw 'U_AUTH_FAIL' }
+      - name: Separate harder-graph 7+9 candidate pressure, exact model and true-path survival
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124x_ygg_capacity_stress.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124x-stress.json"
+          python3 -c 'import json,sys; x=json.load(open(sys.argv[1])); assert len(x["DEV"])==4 and all(v["pairs"]==48 for v in x["DEV"].values()) and not x["protected_first_use"]' "$RUNNER_TEMP/f124x-stress.json"
+          sha256sum "$RUNNER_TEMP/f124x-stress.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124x-ygg-independent-stress-${{ github.sha }}
+          path: ${{ runner.temp }}/f124x-stress.json
+          retention-days: 90
+          if-no-files-found: error
+
+  final-full-regression:
+    needs: [wing, y-calibrate, y-stress]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: Exactly one full Go tests, race, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124X_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124X_SCIENTIFIC_FIRST_USE=false'
