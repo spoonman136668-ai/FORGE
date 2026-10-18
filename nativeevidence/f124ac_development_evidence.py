@@ -298,7 +298,7 @@ def run(o,t,u,w,x,y,z,aa,ab_path):
     frozen.frozen()
     bases,deltas=original_custody(o,t,u,w,x,y,z,aa,ab_path)
     result={"schema":SCHEMA,"freeze_git_blob":frozen.FREEZE_BLOB,
-            "original_ab_json_sha256":AB_RAW,
+            "original_ab_json_sha256":AB_RAW_SHA,
             "zero_new_training":True,"frozen_model_weights":True,
             "protected_first_use":False,"independent_science_acceptance":False,
             "optimizer_promotion":False,"production":False,
