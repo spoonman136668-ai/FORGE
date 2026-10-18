@@ -71,7 +71,10 @@ class BDNonconsuming(unittest.TestCase):
             if isinstance(n,ast.ImportFrom):imports.append(n.module or "")
         self.assertFalse(any("f124bd_source_only" in s or "f124bc_hard_negative_source" in s or
                              "f124aa_frozen_source" in s for s in imports))
-        self.assertNotIn("routes15(",sourcecode)
+        calls=[node.func.attr for node in ast.walk(parsed)
+               if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)]
+        self.assertNotIn("routes15",calls)
+        self.assertNotIn("routes",calls)
         self.assertNotIn("source.relation",sourcecode)
         self.assertEqual(len(science.ARMS),10)
 if __name__=="__main__":unittest.main()
