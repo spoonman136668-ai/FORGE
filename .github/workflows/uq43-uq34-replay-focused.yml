@@ -1,0 +1,63 @@
+name: UQ43 UQ34 native Windows PowerShell replay focused test
+on:
+  push:
+    branches: [qualification/uq43-inventory-utc-baseline-20261018]
+    paths: ['.github/workflows/uq43-uq34-replay-focused.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq43-uq34-replay-focused
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify native host boundary and unchanged-source replay with cleanup
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ43_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $head='cd21b6a488f641c2728f53c1bac0aae7b5f761e1'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
+            $a=@(& git.exe ls-remote --exit-code $remote $pair[0])
+            if($LASTEXITCODE -ne 0 -or $a.Count -ne 1 -or ([string]$a[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ43_SOURCE_REF_DRIFT'}
+          }
+          $hostExe=(Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue)
+          if($null -eq $hostExe){throw 'UQ43_NO_NATIVE_WINDOWS_POWERSHELL'}
+          Write-Host 'UQ43_NATIVE_POWERSHELL_LOCATED=PASS'
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          if(Test-Path -LiteralPath $scratch){throw 'UQ43_SCRATCH_PREEXISTS'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            & git.exe clone --quiet --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ43_CHECKOUT_DRIFT'}
+            $blob=(& git.exe -C $root hash-object (Join-Path $root 'tests/Test-UQ34CheckpointReplay.ps1')|Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne 'e6847c408fc4fdcc80cc657dc202efc07bae8803'){throw 'UQ43_TEST_BLOB_DRIFT'}
+            $out=Join-Path $scratch 'out.txt'
+            $err=Join-Path $scratch 'err.txt'
+            $tool=Join-Path $root 'tests/Test-UQ34CheckpointReplay.ps1'
+            $p=Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$tool+'"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $stdout=[IO.File]::ReadAllText($out)
+            if($p.ExitCode -ne 0 -or $stdout -notmatch 'UQ34_CHECKPOINT_REPLAY_REGRESSION=PASS'){
+              $e=[IO.File]::ReadAllText($err)
+              Write-Host ('UQ43_UQ34_STOP exit='+$p.ExitCode+' stderr_tail='+$e.Substring([Math]::Max(0,$e.Length-1150)))
+              throw 'UQ43_UQ34_REPLAY_FAILED'
+            }
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ43_DIRTY_REPLAY_SOURCE'}
+            Write-Host 'UQ43_UQ34_NATIVE_WINDOWS_REPLAY=PASS'
+            Write-Host 'UQ43_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ43_PAID_INFERENCE_AND_CODEX=0'
+          } finally {
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $scratch){throw 'UQ43_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ43_SCRATCH_CLEAN=PASS'
+          }
