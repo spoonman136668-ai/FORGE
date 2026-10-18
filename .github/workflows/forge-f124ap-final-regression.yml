@@ -1,0 +1,100 @@
+name: F124-AP one final system integration for TRAIN negative
+on:
+  push:
+    branches: [research/f124ap-learned-kernel-relations-one-packed-hop-evidence-20261018]
+    paths:
+      - '.github/workflows/forge-f124ap-final-regression.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ap-one-final-regression
+  cancel-in-progress: false
+jobs:
+  exactly-one-final-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39123857883
+          github-token: ${{ github.token }}
+          name: f124ap-authentic-train-only-c5330bbff435febe198c55e9da19beb17bc613d8
+          path: qualified-train
+      - name: Authenticate one frozen negative TRAIN receipt and no DEV
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F124AP_REGRESSION_HEAD_DRIFT'
+          }
+          $freeze='reference/research-intake/f124ap-frozen-kernel-relations-and-hop-evidence.json'
+          $negative='reference/research-intake/f124ap-qualified-train-negative-no-dev.json'
+          if((git hash-object $freeze).Trim() -cne '4ceb1d410001cfb56d0be5e4b6eb8b17cf4cade9' -or
+             (git log -1 --format=%H -- $freeze).Trim() -cne 'cf662ef10827124189fa8d10a3ee6daeb3167592' -or
+             (git hash-object $negative).Trim() -cne 'b8a640a5212e55c792fafc5a41f9e935ca9bdf98' -or
+             (git log -1 --format=%H -- $negative).Trim() -cne '0d980cfb0c8f962cf93d23e7640ebf161ce79bc6') {
+            throw 'F124AP_FROZEN_SOURCE_OR_DISPOSITION_DRIFT'
+          }
+          $run=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39123857883' | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $run.status -cne 'completed' -or
+             $run.conclusion -cne 'success' -or
+             $run.head_sha -cne 'c5330bbff435febe198c55e9da19beb17bc613d8') {
+            throw 'F124AP_TRAIN_PROVIDER_RUN_IDENTITY'
+          }
+          $art=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39123857883/artifacts' | ConvertFrom-Json
+          $matches=@($art.artifacts | Where-Object { $_.id -eq 12135381471 })
+          if($LASTEXITCODE -ne 0 -or $matches.Count -ne 1 -or $matches[0].expired -or
+             $matches[0].digest -cne 'sha256:008018afc6bb3b564439191dea0ac38423fd651609e7885a9068b714c36f09ef') {
+            throw 'F124AP_TRAIN_ARTIFACT_PROVENANCE'
+          }
+          $original='qualified-train/f124ap-authentic-kernel-hop-train.json'
+          if(-not (Test-Path -LiteralPath $original) -or
+             (Get-FileHash $original -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              '56bb2b97a2d0ae5babc0884e55841252ecefd6a11748f33425753e6309ef1417') {
+            throw 'F124AP_ORIGINAL_TRAIN_RAW_BYTES'
+          }
+          $r=Get-Content -LiteralPath $original -Raw | ConvertFrom-Json
+          $n=Get-Content -LiteralPath $negative -Raw | ConvertFrom-Json
+          if($r.dev_cases_generated -ne 0 -or $r.dev_source_touched -or
+             $r.selected.Yggdrasil.paired -ne 0 -or
+             $r.selected.Yggdrasil.FP -ne 0 -or
+             $r.selected.Yggdrasil.abstained_graphs -ne 96 -or
+             $r.selected.Wingless.mode -cne 'original_gamma0' -or
+             $r.selected.Wingless.paired -ne 39 -or
+             $r.selected.Wingless.FP -ne 8 -or
+             $n.DEV.consumed -or $n.DEV.generated_cases -ne 0 -or
+             $n.authority.optimizer_promotion -or $n.authority.production_activation) {
+            throw 'F124AP_NEGATIVE_OR_DEV_ISOLATION_DRIFT'
+          }
+          Write-Output 'F124AP_ORIGINAL_NEGATIVE_TRAIN_CUSTODY=PASS'
+          Write-Output 'F124AP_DEV_CONSUMED=false'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete final Go test race vet build and project isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AP_ONE_FINAL_FULL_REGRESSION=PASS"
+          echo "F124AP_QUALIFIED_EXACT_SOURCE=$GITHUB_SHA"
+          echo "F124AP_DEV_GENERATED=0"
+          echo "F124AP_SCIENTIFIC_ACCEPTANCE=false"

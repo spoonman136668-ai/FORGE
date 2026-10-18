@@ -1,0 +1,132 @@
+name: F124-AP authentic TRAIN-only model screening
+on:
+  push:
+    branches: [research/f124ap-learned-kernel-relations-one-packed-hop-evidence-20261018]
+    paths:
+      - '.github/workflows/forge-f124ap-authenticated-train.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ap-original-training
+  cancel-in-progress: false
+jobs:
+  authenticated-train-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate four original GitHub provider records
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $checks=@(
+            @{run=39078269441;head='5b52da1e38d5ff5671c582676790daf0462dd18d';artifact=12116979526;digest='sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c'},
+            @{run=39082424955;head='01560f7f4f1aab5737cfd045dffd7faaccfb0608';artifact=12120010101;digest='sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3'},
+            @{run=39118489510;head='ca46eba41179a1c6d9cd0bfa74119782c6d11d88';artifact=12132914773;digest='sha256:eb30d76eccdf8f33e24b6348c43d17acb50c3fcbafec8ec039a6b4239593abeb'},
+            @{run=39122374949;head='a0d15c8cf307a9c7972728899b525f79717049c7';artifact=12134498287;digest='sha256:5d189c95dfdc00ce5a00b7170236d9514175b2b3b77fc7407522c16ecf878f2c'}
+          )
+          foreach($p in $checks) {
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.run)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.head_sha -cne $p.head -or
+               $r.status -cne 'completed' -or $r.conclusion -cne 'success' -or
+               $r.event -cne 'push') { throw 'F124AP_UNAUTHENTIC_ORIGINAL_RUN' }
+            $index=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.run)/artifacts" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0) { throw 'F124AP_ARTIFACT_INDEX' }
+            $found=@($index.artifacts | Where-Object { "$($_.id)" -ceq "$($p.artifact)" })
+            if($found.Count -ne 1 -or $found[0].expired -or $found[0].digest -cne $p.digest) {
+              throw 'F124AP_ORIGINAL_ARTIFACT_SHA_DRIFT'
+            }
+          }
+          Write-Output 'F124AP_FOUR_HISTORICAL_PROVIDER_IDENTITIES=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: original-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: original-an
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39122374949
+          github-token: ${{ github.token }}
+          name: f124ao-first-dev-evidence-a0d15c8cf307a9c7972728899b525f79717049c7
+          path: original-ao
+      - name: Select only from new TRAIN, measure candidates and archive immutable receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AP_TRAIN_HEAD_DRIFT' }
+          $o='original-o/f124o-independent-two-learned-development.json'
+          $t='original-t/f124t-fresh-absolute-development.json'
+          $an='original-an/f124an-calibrated-affine-wing-isolation.json'
+          $ao='original-ao/f124ao-first-dev-independent-evidence.json'
+          $receipts=@(
+            @{path=$o;sha='025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d'},
+            @{path=$t;sha='a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2'},
+            @{path=$an;sha='7226e267ac02090069690ebb40e92696a2cba1bd56a567d838fc6e48880cff9c'},
+            @{path=$ao;sha='37d61d2130fc73f28fd96d32b85d018dee231c5319dd515b2024132f7855cb52'}
+          )
+          foreach($p in $receipts) {
+            if(-not (Test-Path -LiteralPath $p.path)) { throw "F124AP_MISSING_RECEIPT:$($p.path)" }
+            $actual=(Get-FileHash -LiteralPath $p.path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($actual -cne $p.sha) { throw "F124AP_RAW_BYTES_DRIFT:$($p.path):$actual" }
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'f124ap-authentic-kernel-hop-train.json'
+          & python3 -B nativeevidence/f124ap_train_selection.py --o $o --t $t --an $an --ao $ao --output $out
+          if($LASTEXITCODE -ne 0) { throw 'F124AP_TRAIN_FAIL_CLOSED' }
+          $report=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if($report.schema -cne 'forge.research.f124ap.authentic-train-only-kernel-and-hop-selection.v1' -or
+             $report.frozen_source_blob -cne '4ceb1d410001cfb56d0be5e4b6eb8b17cf4cade9' -or
+             $report.dev_cases_generated -ne 0 -or $report.dev_source_touched -or
+             -not $report.selection_used_only_TRAIN_labels -or
+             -not $report.source_oracle_not_model_input -or
+             -not $report.transient_kernel_memory_disclosed -or
+             $report.train_grid.Yggdrasil.Count -ne 16 -or $report.train_grid.Wingless.Count -ne 7 -or
+             $report.protected_first_use -or $report.independent_science_acceptance -or
+             $report.optimizer_promotion -or $report.production_activation -or
+             $report.accepted_ref_mutation) { throw 'F124AP_TRAIN_PROVENANCE_OR_CAPACITY' }
+          foreach($lane in @('Yggdrasil','Wingless')) {
+            if($report.source.$lane.pairs -ne 48 -or
+               $report.source.$lane.positive_truths -ne 48 -or
+               $report.source.$lane.negative_truths -ne 48 -or
+               $report.source.$lane.three_corrupted_demos -ne 48 -or
+               $report.source.$lane.old_literal_shortcuts -ne 0) {
+              throw 'F124AP_TRAIN_PAIRS_WRONG'
+            }
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$sha+"  f124ap-authentic-kernel-hop-train.json"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124AP_TRAIN_RAW_SHA256=$sha"
+          Write-Output 'F124AP_DEV_GENERATED=0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ap-authentic-train-only-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124ap-authentic-kernel-hop-train.json
+            ${{ runner.temp }}/f124ap-authentic-kernel-hop-train.json.sha256
+          if-no-files-found: error
+          retention-days: 90
