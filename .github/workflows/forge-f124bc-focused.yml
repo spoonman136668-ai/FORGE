@@ -1,0 +1,50 @@
+name: F124-BC original one-bit hard-negative preflight
+on:
+  push:
+    branches: [research/f124bc-frozen-hard-negative-source-20261018]
+    paths:
+      - '.github/workflows/forge-f124bc-focused.yml'
+      - 'nativeevidence/f124bc_*.py'
+      - 'nativeevidence/test_f124bc_*.py'
+      - 'reference/research-intake/f124bc-frozen-hard-negative-falsification.json'
+permissions:
+  contents: read
+concurrency:
+  group: f124bc-nonconsuming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Identity-gated frozen-source tests without constructing source cohort
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BC_HEAD_DRIFT'}
+          $f='reference/research-intake/f124bc-frozen-hard-negative-falsification.json'
+          if((git hash-object $f).Trim() -cne '834945168ad01172dcd63b9e6440cfcc482cc0b1'){throw 'F124BC_ORIGINAL_FROZEN_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- $f).Trim() -cne '0fd49102ab8d7aca68adeac089d88194670b816e'){throw 'F124BC_NOT_PREREGISTERED'}
+          git merge-base --is-ancestor 0fd49102ab8d7aca68adeac089d88194670b816e HEAD
+          if($LASTEXITCODE -ne 0){throw 'F124BC_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object nativeevidence/f124bb_train_source.py).Trim() -cne '1547633c2cea224643e43d08bffeb04ed4e56f7d'){throw 'F124BC_PRIOR_SOURCE_MUTATED'}
+          if((git hash-object nativeevidence/f124az_joint_public_inverse.py).Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'F124BC_JOINT_MODEL_DRIFT'}
+          if((git hash-object nativeevidence/f124av_informative_inverse.py).Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5'){throw 'F124BC_AFFINE_MODEL_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124bc_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BC_FOCUSED_FAIL'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BC_ISOLATION_FAIL'}
+          Write-Output 'F124BC_NONCONSUMING_SOURCE_PRECHECK=PASS'
+          Write-Output 'F124BC_NEW_FIT_SCREEN_DEV_BORN=0'
