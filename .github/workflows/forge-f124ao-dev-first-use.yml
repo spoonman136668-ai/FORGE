@@ -1,0 +1,166 @@
+name: F124-AO one frozen DEV first-use and final regression
+on:
+  push:
+    branches: [research/f124ao-learned-relations-and-single-state-evidence-20261018]
+    paths:
+      - '.github/workflows/forge-f124ao-dev-first-use.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ao-single-first-dev-source
+  cancel-in-progress: false
+jobs:
+  source-authenticated-one-first-dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Confirm immutable source selection and previously qualified preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F124AO_DEV_EXACT_HEAD'
+          }
+          $file='reference/research-intake/f124ao-post-train-selected-parameters.json'
+          if ((git hash-object $file).Trim() -cne 'e30c39911fe9aee5af48c1d94233c5a5402b99bc' -or
+              (git log -1 --format=%H -- $file).Trim() -cne '7f312048d1f01634883f0f30dcc917c10b873024') {
+            throw 'F124AO_DEV_NOT_PRESELECTED_BEFORE_FIRST_USE'
+          }
+          $runs=@(
+            @{id=39121840563;head='a9e3d0818f2dc407dfc8857057f932ba0f80bb26'},
+            @{id=39122210384;head='96c6f57d19d3efbfa8e60fbffddf9f0e327a905a'},
+            @{id=39122261563;head='2f97e2c13fb548ff7b948ddeb9182970e38d80d4'}
+          )
+          foreach ($p in $runs) {
+            $run=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.head -or
+                $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+                $run.event -cne 'push') {
+              throw 'F124AO_PRIOR_QUALIFIED_RUN_IDENTITY'
+            }
+          }
+          $a=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39121840563/artifacts' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'F124AO_ORIGINAL_TRAIN_RECEIPT_INDEX' }
+          $hit=@($a.artifacts | Where-Object { $_.id -eq 12133978388 })
+          if ($hit.Count -ne 1 -or $hit[0].expired -or
+              $hit[0].digest -cne 'sha256:cc15eec8e7f51485d1298e010f3f2a0cc20978b299aa7bdaf70fb46dc186b9f9') {
+            throw 'F124AO_ORIGINAL_TRAIN_RECEIPT_DRIFT'
+          }
+          Write-Output 'F124AO_ALL_PRIOR_QUALIFICATION_IDENTITY=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: original-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: original-an
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39121840563
+          github-token: ${{ github.token }}
+          name: f124ao-frozen-train-selection-a9e3d0818f2dc407dfc8857057f932ba0f80bb26
+          path: frozen-train
+      - name: One immutable first DEV evaluation of exact TRAIN-frozen candidates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124ao-first-dev-independent-evidence.json'
+          & python3 -B nativeevidence/f124ao_dev_evidence.py --mode dev `
+            --o original-o/f124o-independent-two-learned-development.json `
+            --t original-t/f124t-fresh-absolute-development.json `
+            --an original-an/f124an-calibrated-affine-wing-isolation.json `
+            --train frozen-train/f124ao-frozen-train-selection.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AO_ORIGINAL_DEV_FIRST_USE_FAILED_CLOSED' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124ao.frozen-first-dev-source-backed-outcome.v1' -or
+              $r.mode -cne 'dev' -or $r.period -cne 'DEV' -or
+              $r.frozen_selection_blob -cne 'e30c39911fe9aee5af48c1d94233c5a5402b99bc' -or
+              $r.original_train_raw_sha256 -cne '40d21628aa38ebad9e26f1ebcb4ee918bd60aba58b19fe065eb54bc0062f6217' -or
+              $r.lanes.Count -ne 2 -or
+              -not $r.no_DEV_selection_or_retuning -or
+              $r.protected_first_use -or $r.independent_science_acceptance -or
+              $r.optimizer_promotion -or $r.production_activation) {
+            throw 'F124AO_FIRST_DEV_AUTHORITY_OR_SOURCE_INVALID'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.pairs -ne 48 -or
+                $lane.source_diagnostic.valid_positive -ne 48 -or
+                $lane.source_diagnostic.valid_negative -ne 48 -or
+                $lane.source_diagnostic.three_corruptions -ne 48 -or
+                $lane.source_diagnostic.old_literal_positive -ne 0 -or
+                $lane.models.AO_selected.pairs -ne 48 -or
+                $lane.resources.arms.AO_selected.graphs -ne 24 -or
+                $lane.resources.arms.AO_selected.timed_calls -ne 72) {
+              throw 'F124AO_FIRST_DEV_FROZEN_SOURCE_OR_COST_INVALID'
+            }
+            Write-Output "F124AO_DEV_SCIENCE_$($lane.lane):candidate=$($lane.models.AO_selected.paired)/48;FP=$($lane.models.AO_selected.FP);FN=$($lane.models.AO_selected.FN);strict=$($lane.strict_scientific_win)"
+          }
+          $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($out+'.sha256'),$sha+"  f124ao-first-dev-independent-evidence.json"+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124AO_FROZEN_DEV_ORIGINAL_SHA256=$sha"
+          Write-Output 'F124AO_PROTECTED_FIRST_USE=false'
+          Write-Output 'F124AO_OPTIMIZER_PROMOTION=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ao-first-dev-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124ao-first-dev-independent-evidence.json
+            ${{ runner.temp }}/f124ao-first-dev-independent-evidence.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  exactly-one-final-full-integration:
+    needs: source-authenticated-one-first-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run ONE final system-level regression on exact scientific source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AO_FINAL_ONE_FULL_REGRESSION=PASS"
+          echo "F124AO_QUALIFIED_SOURCE_HEAD=$GITHUB_SHA"
+          echo "F124AO_SCIENCE_ACCEPTED=false"
