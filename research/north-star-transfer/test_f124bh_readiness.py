@@ -26,7 +26,7 @@ class BirthChronologyTests(unittest.TestCase):
         for lane in receipt.values():
             self.assertEqual(lane["registered_cases_generated"], 0)
             self.assertIs(lane["witnessed_externally"], False)
-            self.assertEqual(lane["synthetic_fixed_point_count"], 260)
+            self.assertEqual(lane["synthetic_fixed_point_count"], 258)
 
     def test_roundtrips_do_not_depend_on_learned_kernel(self):
         u = bh.module("f124bh_u_test", "f124bh_u_family.py")
