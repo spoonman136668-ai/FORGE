@@ -116,7 +116,7 @@ def synthetic_operator_audit():
     for tag, m in (("U", u), ("R", r)):
         private_recipe = m._recipe(FIXTURES[tag])
         # Adversarial fixed synthetic domain points; not prospective tasks.
-        points = tuple(range(0, 65536, 257)) + (0, 1, 65534, 65535)
+        points = tuple(sorted(set(range(0, 65536, 257)) | {0, 1, 65534, 65535}))
         enc = [m.forward(x, private_recipe) for x in points]
         need(len(set(enc)) == len(points), "SYNTHETIC_NONBIJECTION_" + tag)
         need(all(m.inverse(m.forward(x, private_recipe), private_recipe) == x
