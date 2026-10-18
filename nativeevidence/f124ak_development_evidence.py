@@ -181,9 +181,19 @@ def stage(lane,phase,base,delta,amount,beta,fixed):
                     row["extra_comparison_calls"]+=work.get(
                                                  "extra_competitor_packed_evaluations",0)
                 if meta is not None:
-                    row["learner_ambiguous_graphs"]+=int(
-                         not meta["learn"]["unique"])
-                    row["learner_tested_support"]+=meta["learn"]["demos"]
+                    # Previous AJ baseline uses a different read-only
+                    # diagnostic schema. Normalize receipt counters only;
+                    # the frozen model and new source remain unchanged.
+                    if "learn" in meta:
+                        row["learner_ambiguous_graphs"]+=int(
+                            not meta["learn"]["unique"])
+                        row["learner_tested_support"]+=meta["learn"]["demos"]
+                    else:
+                        need("learning" in meta,
+                             "HISTORICAL_DIAGNOSTIC_SCHEMA")
+                        row["learner_ambiguous_graphs"]+=int(
+                            not meta["learning"]["unique_bijective_mapping"])
+                        row["learner_tested_support"]+=meta["learning"]["pairs_used"]
             outcomes[arm]=tuple(decisions)
             append(measured[arm],fam,len(p["roles"]),seed,vec,op,
                    arm,phase,*decisions)
