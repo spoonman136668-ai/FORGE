@@ -1,0 +1,72 @@
+name: UQ60 final Mind-Palace postmerge checkpoint integrity
+
+on:
+  push:
+    branches:
+      - qualification/uq60-postmerge-checkpoint-verify
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Verify exact seven promoted blobs and validate durable memory
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'UQ60_WRONG_RUNNER_CONTEXT' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $merge='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $parent='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $checkpoint='84d9a171588374e385bb809af7b25b30b09d765c'
+          $wanted=@{
+            '.ice/project-dependency-graph.json'='f004283eef345d7ff0d7837e2f3fe5079b7dffea'
+            '.ice/project-state-capsules.json'='7f6a63db081a3b76aaf98528bb6ddcbef60f5ce2'
+            '.ice/records.json'='3f49a1f95092132475ce6d6f29f5e0afaeca54d9'
+            '.ice/remote-bootstrap.json'='c1cbfd5c2972e917ce000212c48a556f892dec4d'
+            '.ice/remote-catalog.json'='90b066178e1da08ea184df254499bfd1abacc063'
+            '.ice/remote-index.ndjson'='e544dafe6ba1f9f6550dabeb4235e9ffa04844db'
+            '.ice/source-ledger.json'='1ddb71aa4a0db8a8ff862d011fecd3cd3b74a44e'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq60-postmerge-' + $env:GITHUB_RUN_ID)
+          if (Test-Path $scratch) { throw 'UQ60_EXISTING_SCRATCH' }
+          try {
+            $seen=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $seen.Count -ne 1 -or ([string]$seen[0] -split '\s+')[0] -cne $merge) { throw 'UQ60_REMOTE_MAIN_IDENTITY_CHANGED' }
+            & git.exe clone --quiet --single-branch --branch main $remote $scratch
+            if ($LASTEXITCODE -ne 0) { throw 'UQ60_CLONE_FAILED' }
+            $head=(& git.exe -C $scratch rev-parse HEAD | Out-String).Trim()
+            $parents=(& git.exe -C $scratch rev-list --parents -n 1 HEAD | Out-String).Trim().Split(' ')
+            if ($head -cne $merge -or $parents.Count -ne 3 -or $parents[1] -cne $parent -or $parents[2] -cne $checkpoint) { throw 'UQ60_MERGE_PARENT_DRIFT' }
+            $actual=@(& git.exe -C $scratch diff-tree --no-commit-id --name-only -r HEAD)
+            $paths=@($wanted.Keys | Sort-Object)
+            if ($LASTEXITCODE -ne 0 -or ($actual -join '|') -cne ($paths -join '|')) { throw 'UQ60_MERGED_PATH_SCOPE_CHANGED' }
+            foreach($p in $paths) {
+              $blob=(& git.exe -C $scratch rev-parse ('HEAD:' + $p) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $blob -cne $wanted[$p]) { throw ('UQ60_MERGED_BLOB_DRIFT '+$p) }
+            }
+            Write-Host 'UQ60_POSTMERGE_SEVEN_PATHS_AND_BLOBS=PASS'
+            $records=[IO.File]::ReadAllText((Join-Path $scratch '.ice/records.json')) | ConvertFrom-Json
+            $ledger=[IO.File]::ReadAllText((Join-Path $scratch '.ice/source-ledger.json')) | ConvertFrom-Json
+            if (@($records).Count -ne 263 -or @($ledger.entries).Count -ne 104) { throw 'UQ60_DURABLE_COUNTS_INVALID' }
+            $policy=[IO.File]::ReadAllText((Join-Path $scratch 'policies/repo-source-admission.json')) | ConvertFrom-Json
+            if ($policy.bulk_repo_ingestion -or $policy.background_ingestion) { throw 'UQ60_POLICY_EXPANDED' }
+            foreach($id in @($policy.expected_ids)) {
+              $set=@($records | Where-Object { $_.id -ceq $id })
+              if ($set.Count -ne 1 -or [string]$set[0].status -cne 'observed') { throw 'UQ60_MISSING_EXACT_OBSERVATION' }
+            }
+            if ((& (Join-Path $scratch 'tools/mind.ps1') validate | Out-String) -notmatch 'Mind-Palace validation passed') { throw 'UQ60_MIND_VALIDATE_FAILED' }
+            $ledgerValidation=((& (Join-Path $scratch 'tools/source-ledger.ps1') validate -BatchPath (Join-Path $scratch ([string]$policy.batch_path)) | Out-String).Trim() | ConvertFrom-Json)
+            if (-not [bool]$ledgerValidation.valid) { throw 'UQ60_LEDGER_VALIDATE_FAILED' }
+            Write-Host 'UQ60_POSTMERGE_MEMORY_263_LEDGER_104_VALID=PASS'
+            $dirty=@(& git.exe -C $scratch status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'UQ60_POSTMERGE_CLONE_DIRTY' }
+            Write-Host 'UQ60_POSTMERGE_READONLY_VALIDATION_AND_CLEAN_TREE=PASS'
+          } finally {
+            if (Test-Path $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+          }
