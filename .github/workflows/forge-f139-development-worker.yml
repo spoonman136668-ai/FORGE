@@ -1,0 +1,90 @@
+name: FORGE F139 development worker
+run-name: F139 ${{ inputs.ticket }}
+# Execution endpoint only. Controller owns scheduling/queue/recovery.
+# Not a second scheduler, not a science original or scientific authority.
+on:
+  workflow_dispatch:
+    inputs:
+      ticket:
+        description: Source-bound, once-only development ticket
+        type: string
+        required: true
+      lane:
+        description: Pre-authorized development lane
+        type: choice
+        options: [Wingless, Yggdrasil, Qualification]
+        required: true
+      source_sha:
+        description: Protected main source SHA
+        type: string
+        required: true
+      epoch:
+        description: Monotonic owner epoch
+        type: string
+        required: true
+      signature:
+        description: SHA256 HMAC of exact controller dispatch fields
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-worker-${{ inputs.ticket }}
+  cancel-in-progress: false
+jobs:
+  execute:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original controller ticket BEFORE executing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -c 'import os; from f139.verify_ticket import admit,inputs_from_env; admit(inputs_from_env()); print("F139_CONTROLLER_TICKET=VERIFIED")'
+          if ($LASTEXITCODE -ne 0) { throw 'F139_UNQUALIFIED_WORKER_REQUEST' }
+      - name: Execute bounded model-free development advisory only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'f139-development'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $data = & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'F139_MODEL_FREE_DEVELOPMENT_FAILED' }
+          [IO.File]::WriteAllText((Join-Path $folder 'advisory.json'), (($data -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+          python -B f139/verify_ticket.py --advisory (Join-Path $folder 'advisory.json') --output-dir $folder
+          if ($LASTEXITCODE -ne 0) { throw 'F139_DEVELOPMENT_RECEIPT_REJECTED' }
+          Write-Host 'F139_AUTONOMOUS_DEV_EXECUTION_POINT=PASS'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f139-dev-receipt-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f139-development/f139-receipt.json
+            ${{ runner.temp }}/f139-development/f139-receipt.sha256
+          if-no-files-found: error
+          retention-days: 90
