@@ -25,7 +25,7 @@ jobs:
           if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ46_WRONG_RUNNER'}
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
-          $expected='1a8befa00808a0cc951223e35a58023729fbfcc4'
+          $expected='1d4cc14541944b950195caf47d0e7826b2005a4c'
           $main='22d819c3473b80be34ecac7280881a67c981207c'
           $ref='refs/heads/engineering/uq46-canonical-snapshot-serializer'
           foreach($pair in @(@('refs/heads/main',$main),@($ref,$expected))){
@@ -73,22 +73,21 @@ jobs:
               }
             }
             Write-Host 'UQ46_POWERSHELL7_NINE_FILE_FIXED_POINT=PASS'
-            # Native Windows PowerShell must delegate to the same canonical
-            # renderer and MUST NOT create a different set of JSON bytes.
+            # Windows PowerShell 5.1 cannot emit canonical snapshots.
+            # Verify it fails before modifying any protected surface.
             $out=Join-Path $scratch 'ps5.out'
             $err=Join-Path $scratch 'ps5.err'
             $p=Start-Process -FilePath (Get-Command powershell.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$gen+'"'),'-RepoRoot',('"'+$root+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-            if($p.ExitCode -ne 0){
-              $e=[IO.File]::ReadAllText($err)
-              Write-Host ('UQ46_DELEGATE_ERROR='+$e.Substring([Math]::Max(0,$e.Length-950)))
-              throw 'UQ46_POWERSHELL5_DELEGATION_FAILED'
+            $errorText=[IO.File]::ReadAllText($err)
+            if($p.ExitCode -eq 0 -or $errorText -notmatch 'remote snapshot regeneration requires PowerShell 7'){
+              throw 'UQ46_POWERSHELL5_FAIL_CLOSED_CHECK_FAILED'
             }
             foreach($f in $nine){
               if((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash -cne $before[$f]){
-                throw ('UQ46_POWERSHELL5_NOT_FIXED_POINT_'+$f)
+                throw ('UQ46_POWERSHELL5_CHANGED_PROTECTED_'+$f)
               }
             }
-            Write-Host 'UQ46_POWERSHELL5_DELEGATED_NINE_FILE_FIXED_POINT=PASS'
+            Write-Host 'UQ46_POWERSHELL5_NO_WRITE_FAIL_CLOSED=PASS'
             $tests=@('Test-ProjectDependencyGraph.ps1','Test-ProjectStateCapsules.ps1','Test-RemoteBootstrap.ps1','Test-UpdateCheckpoint.ps1')
             foreach($name in $tests){
               $stdout=Join-Path $scratch ($name+'.out')
