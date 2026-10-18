@@ -1,0 +1,182 @@
+name: F124-U frozen fresh causal readout and cell-score tests
+on:
+  push:
+    branches: [research/f124u-readout-and-cell-score-20261017]
+    paths:
+      - 'reference/research-intake/f124u-frozen-readout-cell-score.json'
+      - 'nativeevidence/f124u_*.py'
+      - 'nativeevidence/test_f124u_*.py'
+      - '.github/workflows/forge-f124u-readout-cell-score.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124u-frozen-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen public cohorts, FIT-only calibration and original model isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124U_HEAD_IDENTITY_DRIFT' }
+          foreach ($pattern in @('test_f124u_*.py','test_f124t_*.py','test_f124qg_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124U_FOCUSED_SOURCE_FAILURE_$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_CROSS_PLANE_ISOLATION' }
+          Write-Output 'F124U_FROZEN_NO_SCIENCE_PROMOTION=true'
+
+  original-custody-and-independent-dev:
+    needs: frozen-source-focused
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact original pre-trained weights, original FIT deltas, and retained negative
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($p in @(
+            @{id='39078269441';head='5b52da1e38d5ff5671c582676790daf0462dd18d';artifact='12116979526';digest='sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c'},
+            @{id='39082424955';head='01560f7f4f1aab5737cfd045dffd7faaccfb0608';artifact='12120010101';digest='sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3'}
+          )) {
+            $run=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne $p.head -or
+                $run.status -cne 'completed' -or $run.conclusion -cne 'success' -or
+                $run.event -cne 'push') { throw 'F124U_PROVIDER_ORIGINAL_RUN_CUSTODY' }
+            $index=(& gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)/artifacts" | ConvertFrom-Json)
+            if ($LASTEXITCODE -ne 0) { throw 'F124U_PROVIDER_INDEX' }
+            $matches=@($index.artifacts | Where-Object { "$($_.id)" -ceq $p.artifact })
+            if ($matches.Count -ne 1 -or $matches[0].digest -cne $p.digest -or $matches[0].expired) {
+              throw 'F124U_PROVIDER_ARTIFACT_DIGEST'
+            }
+          }
+          Write-Output 'F124U_ORIGINAL_GITHUB_PROVIDER_CUSTODY=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: source-original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: source-original-t
+      - name: One frozen FIT bias selection, zero Ygg retraining, full independent DEV controls and operations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $o='source-original-o/f124o-independent-two-learned-development.json'
+          $t='source-original-t/f124t-fresh-absolute-development.json'
+          if ((Get-FileHash -LiteralPath $o -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d') {
+            throw 'F124U_ORIGINAL_O_RAW_SHA_DRIFT'
+          }
+          if ((Get-FileHash -LiteralPath $t -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              'a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2') {
+            throw 'F124U_ORIGINAL_T_NEGATIVE_RAW_SHA_DRIFT'
+          }
+          $output=Join-Path $env:RUNNER_TEMP 'f124u-fresh-cell-and-readout-development.json'
+          & python3 -B nativeevidence/f124u_development_evidence.py --original-o-receipt $o --original-t-receipt $t --output $output
+          if ($LASTEXITCODE -ne 0) { throw 'F124U_ORIGINAL_CUSTODY_OR_FRESH_MEASUREMENT' }
+          $receipt=Get-Content -LiteralPath $output -Raw | ConvertFrom-Json
+          if ($receipt.schema -cne 'forge.research.f124u.authentic-fresh-fit-calibrated-cell-interventions.v1' -or
+              $receipt.frozen_protocol_git_blob -cne '204b4dc051607aa9a30307875bcafb1d188426a2' -or
+              $receipt.lanes.Count -ne 2 -or -not $receipt.t_negative_untouched -or
+              -not $receipt.source_fresh_fit_and_dev -or
+              $receipt.models_retrained -or $receipt.additional_yggdrasil_cells -ne 0 -or
+              $receipt.protected_cases_generated -ne 0 -or $receipt.protected_first_use -or
+              $receipt.independent_scientific_acceptance -or $receipt.optimizer_promotion -or
+              $receipt.accepted_ref_mutations -ne 0 -or $receipt.paid_api_or_codex_calls -ne 0 -or
+              $receipt.matched_compute_superiority_proven) { throw 'F124U_FALSE_ACCEPTANCE_OR_METHOD_DRIFT' }
+          foreach ($row in $receipt.lanes) {
+            if ($row.lane -cnotin @('Wingless','Yggdrasil') -or
+                -not $row.candidate_frozen_before_DEV -or
+                $row.FIT.pairs -ne 48 -or $row.DEV.pairs -ne 48 -or
+                $row.FIT.exact_symbolic_ceiling -ne 48 -or
+                $row.DEV.exact_symbolic_ceiling -ne 48 -or
+                $row.FIT.role_only_negative -ne 0 -or $row.DEV.role_only_negative -ne 0) {
+              throw 'F124U_FRESH_SOURCE_COHORT_DENOMINATOR'
+            }
+            foreach ($c in @($row.FIT,$row.DEV)) {
+              foreach ($kv in $c.arms.PSObject.Properties) {
+                $arm=$kv.Value
+                if ($arm.pairs -ne 48 -or $arm.case_sha256.Count -ne 48 -or
+                    $arm.depth.'7'.pairs -ne 16 -or $arm.depth.'8'.pairs -ne 16 -or
+                    $arm.depth.'9'.pairs -ne 16 -or $arm.max_retained -gt 9 -or
+                    ($row.lane -ceq 'Yggdrasil' -and $arm.max_active -gt 7)) {
+                  throw 'F124U_SCIENCE_CELL_BUDGET_OR_STRATUM'
+                }
+              }
+            }
+            Write-Output "F124U_VERIFIED=$($row.lane):new=$($row.DEV.arms.($row.candidate).paired)/48:unchanged=$($row.DEV.arms.f124t_unchanged.paired)/48:fixed=$($row.DEV.arms.strong_fixed.paired)/48"
+          }
+          $digest=(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($output+'.sha256'),$digest+'  f124u-fresh-cell-and-readout-development.json'+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+          Write-Output "F124U_AUTHENTIC_RAW_RECEIPT_SHA256=$digest"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124u-preregistered-fresh-development-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124u-fresh-cell-and-readout-development.json
+            ${{ runner.temp }}/f124u-fresh-cell-and-readout-development.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+
+  one-full-regression:
+    needs: original-custody-and-independent-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete exact-head Go regression, race, vet, build, isolated research lanes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124U_EXACT_HEAD=$GITHUB_SHA"
+          echo "F124U_NO_PROTECTED_SCIENCE=true"
