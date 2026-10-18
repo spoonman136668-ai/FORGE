@@ -30,7 +30,9 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           # Refuse a second run even if the previous completed negatively or failed mid-evaluation.
-          prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-f124aw-one-original-dev.yml/runs?branch=research/f124aw-frozen-active-inverse-first-dev-20261018&per_page=100" --jq "[.workflow_runs[] | select(.id != ($ENV.GITHUB_RUN_ID | tonumber))] | length")
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39144927202" --jq '[.head_sha,.status,.conclusion] | join(" ")')" = 'ee59df9e6878f17b22edb43d8c58d9093fb9c13a completed failure'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39144927202/jobs" --jq '.total_count')" = 0
+          prior=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-f124aw-one-original-dev.yml/runs?branch=research/f124aw-frozen-active-inverse-first-dev-20261018&per_page=100" --jq '[.workflow_runs[] | select(.id != (env.GITHUB_RUN_ID | tonumber)) | select(.id != 39144927202)] | length')
           test "$prior" = 0 || { echo 'F124AW_NO_REPEAT_AFTER_ANY_FIRST_USE_ATTEMPT'; exit 1; }
           f=reference/research-intake/f124aw-frozen-original-ygg-first-dev.json
           test "$(git hash-object "$f")" = 'e86cbf31e179bb4a1d4ceeee039c3d017ba27789'
@@ -151,16 +153,16 @@ jobs:
           sys.path.insert(0,'nativeevidence')
           from f124av_fit_screen import parent
           (base,delta)=parent.lineage(
-  'originals/o/f124o-independent-two-learned-development.json',
-  'originals/t/f124t-fresh-absolute-development.json',
-  'originals/an/f124an-calibrated-affine-wing-isolation.json',
-  'originals/ao/f124ao-first-dev-independent-evidence.json',
-  'originals/ap/f124ap-authentic-kernel-hop-train.json',
-  'originals/aq/f124aq-train.json',
-  'originals/ar/f124ar-original-fresh-train.json',
-  'originals/as_train/f124as-original-train.json',
-  'originals/as_dev/f124as-first-dev.json',
-  'originals/at/f124at-original-fresh-train.json',
+            'originals/o/f124o-independent-two-learned-development.json',
+            'originals/t/f124t-fresh-absolute-development.json',
+            'originals/an/f124an-calibrated-affine-wing-isolation.json',
+            'originals/ao/f124ao-first-dev-independent-evidence.json',
+            'originals/ap/f124ap-authentic-kernel-hop-train.json',
+            'originals/aq/f124aq-train.json',
+            'originals/ar/f124ar-original-fresh-train.json',
+            'originals/as_train/f124as-original-train.json',
+            'originals/as_dev/f124as-first-dev.json',
+            'originals/at/f124at-original-fresh-train.json',
           )
           assert isinstance(base['Yggdrasil'],list) and isinstance(delta['Yggdrasil'],list)
           assert len(base['Yggdrasil'])==7 and len(delta['Yggdrasil'])==2
