@@ -1,0 +1,50 @@
+name: F124-BA frozen confidence focused Windows/Linux
+on:
+  push:
+    branches: [research/f124ba-public-confidence-zero-fp-20261018]
+    paths:
+      - '.github/workflows/forge-f124ba-focused.yml'
+      - 'nativeevidence/f124ba_*.py'
+      - 'nativeevidence/test_f124ba_*.py'
+      - 'reference/research-intake/f124ba-frozen-public-confidence.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ba-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  nonconsuming:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source/cognition identity, frozen before code, synthetic public-only focused
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BA_HEAD_DRIFT'}
+          $freeze='reference/research-intake/f124ba-frozen-public-confidence.json'
+          if((git hash-object $freeze).Trim() -cne '7ca3648e451fdd45b51b76c8d5113f5f66705b77') {throw 'F124BA_FROZEN_GIT_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- $freeze).Trim() -cne '2e31e732ba2bce2ef850c8b3832fb2a4edb116fa'){throw 'F124BA_FREEZE_NOT_PREIMPLEMENTATION'}
+          git merge-base --is-ancestor 2e31e732ba2bce2ef850c8b3832fb2a4edb116fa HEAD
+          if($LASTEXITCODE -ne 0){throw 'F124BA_SOURCE_BIRTH_NOT_FROM_FREEZE'}
+          if((git hash-object nativeevidence/f124az_joint_public_inverse.py).Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'F124BA_IMMUTABLE_AZ_ROUTER_DRIFT'}
+          if((git hash-object nativeevidence/f124ay_learned_composition.py).Trim() -cne '30a4175a7d711f392acd10c934378ecd802208f8'){throw 'F124BA_PARENT_FEISTEL_MODEL_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ba_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BA_NONCONSUMING_TESTS_FAILED'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BA_ISOLATION_FAILED'}
+          Write-Output 'F124BA_FOCUSED_NONCONSUMING=PASS'
+          Write-Output 'F124BA_PROTECTED_AND_FIT_SOURCES_UNUSED=true'
