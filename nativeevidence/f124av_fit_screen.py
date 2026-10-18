@@ -16,6 +16,7 @@ import f124as_noisy_inverse as old_ygg
 import f124ao_public_relation_learner as nearest
 import f124ag_transition_models as ag
 import f124q_independent_binding as q
+import f124au_fit_screen_evidence as parent
 
 SCHEMA="forge.research.f124av.fresh-public-query-inverse-handoff-train.v1"
 AU_SHA="7e0cc7b084e70fed69ac9f38eb5e66ecac1e33a14a4cccfa5919677d41e95fff"
@@ -80,7 +81,7 @@ def store(out,row,a,b,w1,w2,diags=(),cpu=0,extra_ops=0):
     for d in diags:
         if d:
             out["abstained_graphs"]+=int(d.get("abstained",False))
-            out["public_queries"]+=d.get("query_calls",0)
+            # Shared paired public queries billed separately exactly once.
             out["extra_model_bits"]=max(out["extra_model_bits"],
                                          d.get("extra_task_model_bits",0))
 def original_ygg(p,n,base,delta):
@@ -90,34 +91,33 @@ def original_ygg(p,n,base,delta):
     a,wa,ma=fit(p);b,wb,mb=fit(n)
     return a,b,wa,wb,ma,mb
 
-def ygg_evaluate(cases,base,delta,do_candidates):
+def ygg_evaluate(cases,base,delta,configs):
     need(len(cases)==24,"EXACT_FIT_OR_SCREEN")
     candidates={}
-    if do_candidates:
-        for cond in ("balanced_basis48","random48"):
-            for budget in model.BUDGETS:
-                for required in model.CHECK_LIMITS:
-                    candidates[(cond,budget,required)]=blank()
+    for config in configs:candidates[config]=blank()
     old=blank();near=blank();oracle=blank()
     for row in cases:
         seed,vec,fam,op,nonce,p,n=row
         need(p["demos"]==n["demos"],"PAIR_PUBLIC_INDEPENDENCE")
-        if do_candidates:
-            for cond in ("balanced_basis48","random48"):
+        if configs:
+            for cond in sorted(set(x[0] for x in configs)):
                 pub=source.active_public_demos(seed,vec,op,cond,p["demos"])
+                start_fit=time.process_time_ns()
                 fitted,info=model.fit(pub,nonce)
+                fit_cpu=time.process_time_ns()-start_fit
                 checked=model.check(pub,fitted)
                 for budget in model.BUDGETS:
                     for required in model.CHECK_LIMITS:
                         key=(cond,budget,required)
+                        if key not in candidates:continue
                         cpu=time.process_time_ns()
                         a,wa,ma=model.score(p,base,delta,fitted,info,checked,
                                             budget,required)
                         b,wb,mb=model.score(n,base,delta,fitted,info,checked,
                                             budget,required)
                         cost=time.process_time_ns()-cpu
-                        store(candidates[key],row,a,b,wa,wb,(ma,mb),cpu=cost+
-                              info["all_ransac_attempts"]*0)
+                        store(candidates[key],row,a,b,wa,wb,(ma,mb),cpu=cost+fit_cpu,
+                              extra_ops=info["all_ransac_attempts"])
                         candidates[key]["public_queries"]+=len(pub)
         a,b,wa,wb,ma,mb=original_ygg(p,n,base,delta)
         store(old,row,a,b,wa,wb,(ma,mb))
@@ -143,11 +143,9 @@ def ygg_evaluate(cases,base,delta,do_candidates):
             "extra_query_calls_are_model_cost":True,
             "source_inverse_or_operator_revealed_to_models":False}
 
-def wing_evaluate(cases,base,delta,do_candidates):
+def wing_evaluate(cases,base,delta,configs):
     from f124am_terminal_competition import terminal_competitive
-    names=[(mode,alpha) for mode in ("weak_handoff_gap",
-                                   "rival_overconfidence")
-           for alpha in (0.04,0.10,0.20)] if do_candidates else []
+    names=configs
     candidates={name:blank() for name in names}
     baseline=blank()
     for row in cases:
@@ -175,7 +173,7 @@ def wing_evaluate(cases,base,delta,do_candidates):
                  v["paired"]>=baseline["paired"] and
                  baseline_long.issubset(v["accepted_long_case_ids"])}
              for k,v in candidates.items()]
-    need(len(options)==(6 if do_candidates else 0) and
+    need(len(options)==len(configs) and
          baseline["pairs"]==24 and
          all(x["results"]["pairs"]==24 for x in options),
          "COMPLETE_WING_DENOMINATORS")
@@ -201,36 +199,62 @@ def choose_wing(data):
                 x["results"]["FP"],x["results"]["extra_ops"],
                 x["config"]["mode"],x["config"]["alpha"]))["config"] if eligible else None
 
-def run(au):
+def run(o,t,an,ao_raw,ap,aq,ar,as_train,as_dev,at,au):
     parent_receipt(au)
-    # FIT is evaluated independently first; only afterwards construct screen.
+    base,delta=parent.lineage(o,t,an,ao_raw,ap,aq,ar,
+                              as_train,as_dev,at)
+    y_options=[(cond,budget,check)
+         for cond in ("balanced_basis48","random48")
+         for budget in model.BUDGETS for check in model.CHECK_LIMITS]
+    w_options=[(mode,alpha)
+         for mode in ("weak_handoff_gap","rival_overconfidence")
+         for alpha in (0.04,0.10,0.20)]
     y_fit=ygg_evaluate(rows("Yggdrasil","FIT"),
-                       [0]*7,[0]*2,True)
+                       base["Yggdrasil"],delta["Yggdrasil"],y_options)
     w_fit=wing_evaluate(rows("Wingless","FIT"),
-                        [0]*7,[0]*4,True)
+                        base["Wingless"],delta["Wingless"],w_options)
     y_choice=choose_ygg(y_fit)
     w_choice=choose_wing(w_fit)
-    # No candidate source rematerialization or tuning on SCREEN results.
+    # FIT-only selection fixed before either SCREEN source instantiated.
     y_screen=ygg_evaluate(rows("Yggdrasil","SCREEN"),
-                          [0]*7,[0]*2,False)
+                          base["Yggdrasil"],delta["Yggdrasil"],
+                          [(y_choice["query_condition"],y_choice["fit_bit_budget"],
+                            y_choice["min_CHECK_correct"])] if y_choice else [])
     w_screen=wing_evaluate(rows("Wingless","SCREEN"),
-                           [0]*7,[0]*4,False)
+                           base["Wingless"],delta["Wingless"],
+                           [(w_choice["mode"],w_choice["alpha"])] if w_choice else [])
+    y_control=max((y_screen["original_controls"][k]["paired"]
+                   for k in ("AS_24","AO_24")
+                   if y_screen["original_controls"][k]["FP"]==0),default=0)
+    y_candidate=y_screen["candidates"][0]["results"] if y_choice else None
+    y_admit=(y_candidate is not None and y_candidate["FP"]==0 and
+             y_candidate["paired"]>y_control and y_candidate["paired"]>=1)
+    control=w_screen["original_gamma0"]
+    candidate=w_screen["candidate_grid"][0]["results"] if w_choice else None
+    w_admit=(candidate is not None and candidate["FP"]<control["FP"]
+             and candidate["paired"]>=control["paired"] and
+             set(control["accepted_long_case_ids"]).issubset(
+                 candidate["accepted_long_case_ids"]))
     return {"schema":SCHEMA,"preimplementation_freeze_blob":source.FREEZE_BLOB,
+            "original_parent_head":"c5cdb9ba55772b4b69a2534dd48cfc8b7abe20b2",
             "Yggdrasil":{"TRAIN_FIT":y_fit,"FIT_selection":y_choice,
-                         "TRAIN_SCREEN":y_screen},
+                         "TRAIN_SCREEN":y_screen,"SCREEN_eligible":y_admit,
+                         "strongest_SCREEN_public_control":y_control},
             "Wingless":{"TRAIN_FIT":w_fit,"FIT_selection":w_choice,
-                        "TRAIN_SCREEN":w_screen},
+                        "TRAIN_SCREEN":w_screen,"SCREEN_eligible":w_admit},
             "FIT_cases_per_lane":24,"SCREEN_cases_per_lane":24,
+            "SCREEN_never_used_to_select_or_tune":True,
             "both_new_DEV_generated":0,"both_new_DEV_consumed":False,
             "scientific_acceptance":False,"optimizer_promotion":False,
             "production_activation":False}
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("--au",required=True);p.add_argument("--output",required=True)
+    for key in ("o","t","an","ao","ap","aq","ar","as_train","as_dev","at","au","output"):
+        p.add_argument("--"+key,required=True)
     x=p.parse_args();dest=Path(x.output)
     need(dest.parent.is_dir() and not dest.exists(),"IMMUTABLE_NEW_REPORT")
-    d=run(x.au)
+    d=run(x.o,x.t,x.an,x.ao,x.ap,x.aq,x.ar,x.as_train,x.as_dev,x.at,x.au)
     raw=json.dumps(d,sort_keys=True,indent=2).encode()+b"\n"
     with dest.open("xb") as out:out.write(raw)
     print("F124AV_FIT_RAW_SHA256="+hashlib.sha256(raw).hexdigest())
