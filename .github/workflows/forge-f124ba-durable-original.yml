@@ -1,0 +1,77 @@
+name: F124-BA append-only original public confidence evidence custody
+on:
+  push:
+    branches: [research/f124ba-public-confidence-zero-fp-20261018]
+    paths: ['.github/workflows/forge-f124ba-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124ba-original-evidence-append-once
+  cancel-in-progress: false
+jobs:
+  original-custody:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39161714187
+          github-token: ${{ github.token }}
+          name: f124ba-original-confidence-84c682411cb76f511c0048606c0bbae6a1d2b75a
+          path: original
+      - name: Verify original science and append exact original raw bytes to research branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/f124ba-public-confidence-zero-fp-20261018
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39161714187/jobs" --jq '[.jobs[] | select(.name=="original-one-fit-optional-screen") | .conclusion] | join(" ")')" = success
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39161714187" --jq .head_sha)" = 84c682411cb76f511c0048606c0bbae6a1d2b75a
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39161714187/artifacts" --jq '.artifacts[] | select(.id==12149102739 and .expired==false) | .digest')" = 'sha256:4466ff6fb4da43e5795e6ef998088d39be2eb4f3532dffc44659c92d96dd3af3'
+          echo '0cfb45ac5ffdd25d865ef6957d287326d47cdbc1a0ff41c2d13b56c200eda01c  original/f124ba-original-fit-conditional-screen.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json
+          d=json.load(open("original/f124ba-original-fit-conditional-screen.json"))
+          assert d["schema"]=="forge.research.f124ba.original-confidence-new-train.v1"
+          assert d["frozen_source_blob"]=="7ca3648e451fdd45b51b76c8d5113f5f66705b77"
+          assert d["FIT_selection"]=="confidence_balanced_check112_row12_gap0"
+          assert d["FIT_pairs"]==d["SCREEN_pairs"]==24
+          assert d["SCREEN_strict_success"] and d["SCREEN_elected_eligibility"]["eligible"]
+          assert len(d["FIT_models"])==10 and len(d["SCREEN_models"])==3
+          assert d["FIT_models"]["confidence_balanced_check112_row12_gap0"]["paired"]==15
+          assert d["FIT_models"]["confidence_balanced_check112_row12_gap0"]["FP"]==0
+          assert d["SCREEN_models"]["confidence_balanced_check112_row12_gap0"]["paired"]==15
+          assert d["SCREEN_models"]["confidence_balanced_check112_row12_gap0"]["FP"]==0
+          assert d["FIT_models"]["joint_balanced_margin0"]["paired"]==22
+          assert d["FIT_models"]["joint_balanced_margin0"]["FP"]==0
+          assert d["DEV_constructed"]==0 and d["Wingless_DEV_constructed"]==0
+          assert not d["protected_scientific_acceptance"] and not d["optimizer_promotion"]
+          print("F124BA_ORIGINAL_RAW_AUTHENTICATED=PASS")
+          PY
+          dest='reference/research-intake/originals/f124ba-original-public-confidence-fit-screen.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124BA_APPEND_ONLY_DESTINATION_EXISTS_STOP; exit 1
+          fi
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          test "$current" = "$GITHUB_SHA" || { echo F124BA_RESEARCH_BRANCH_IDENTITY_DRIFT; exit 1; }
+          python3 - <<'PY'
+          import base64,json,os
+          with open("original/f124ba-original-fit-conditional-screen.json","rb") as f:raw=f.read()
+          payload={"message":"F124-BA append original 196372-byte public confidence FIT/SCREEN first-use raw science unchanged",
+                   "content":base64.b64encode(raw).decode("ascii"),
+                   "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124ba-append-original-request.json","w") as f:json.dump(payload,f,separators=(",",":"))
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" --input /tmp/f124ba-append-original-request.json --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124BA_COMPLETE_ORIGINAL_RAW_LONGTERM_CUSTODY=PASS
+          echo F124BA_NO_SCIENTIFIC_PROMOTION=true
