@@ -43,7 +43,7 @@ jobs:
             $head=(& git.exe -C $scratch rev-parse HEAD | Out-String).Trim()
             $parents=(& git.exe -C $scratch rev-list --parents -n 1 HEAD | Out-String).Trim().Split(' ')
             if ($head -cne $merge -or $parents.Count -ne 3 -or $parents[1] -cne $parent -or $parents[2] -cne $checkpoint) { throw 'UQ60_MERGE_PARENT_DRIFT' }
-            $actual=@(& git.exe -C $scratch diff-tree --no-commit-id --name-only -r HEAD)
+            $actual=@(& git.exe -C $scratch diff --name-only ($parent + '..' + $merge))
             $paths=@($wanted.Keys | Sort-Object)
             if ($LASTEXITCODE -ne 0 -or ($actual -join '|') -cne ($paths -join '|')) { throw 'UQ60_MERGED_PATH_SCOPE_CHANGED' }
             foreach($p in $paths) {
