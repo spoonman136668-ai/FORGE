@@ -1,0 +1,196 @@
+name: UQ59 read-only independent post-application ledger custody audit
+
+on:
+  push:
+    branches:
+      - qualification/uq59-postapply-ledger-custody-audit
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify exact three-record application, old entries as set, no Git promotion
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ59_AUDIT_WRONG_RUNNER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\Mind-Palace'
+          $expected='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $allowed=@(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json'
+          )
+          $policyPath=Join-Path $root 'policies/repo-source-admission.json'
+          $batchPath=Join-Path $root 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          if (-not [IO.Directory]::Exists([IO.Path]::Combine($root,'.git'))) {
+            throw 'UQ59_AUDIT_PERSISTENT_CHECKOUT_UNAVAILABLE'
+          }
+          . (Join-Path $root 'tools/repo-source-authority.ps1')
+          $lease=Enter-RepoSourceAuthority -RepoRoot $root
+          try {
+            Assert-RepoSourceAuthority -Lease $lease
+            $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $branch=(& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -cne $expected -or $branch -cne 'main') {
+              throw 'UQ59_AUDIT_MAIN_COMMIT_CHANGED'
+            }
+            $origin=(& git.exe -C $root remote get-url origin | Out-String).Trim()
+            $remote=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $remote.Count -ne 1 -or
+                ([string]$remote[0] -split '\s+')[0] -cne $expected) {
+              throw 'UQ59_AUDIT_REMOTE_MAIN_MOVED_OR_PUSH_OCCURRED'
+            }
+            $policy=[IO.File]::ReadAllText($policyPath) | ConvertFrom-Json
+            if (-not [bool]$policy.enabled -or
+                [string]$policy.operator_approval -cne 'separately-authorized-exact-cohort' -or
+                [bool]$policy.bulk_repo_ingestion -or [bool]$policy.background_ingestion) {
+              throw 'UQ59_AUDIT_POLICY_DRIFT'
+            }
+            $newRecords=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $newLedger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            $origRecordText=(& git.exe -C $root show 'HEAD:.ice/records.json' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ59_AUDIT_ORIGINAL_RECORDS_UNAVAILABLE' }
+            $origLedgerText=(& git.exe -C $root show 'HEAD:.ice/source-ledger.json' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ59_AUDIT_ORIGINAL_LEDGER_UNAVAILABLE' }
+            $origRecords=@($origRecordText | ConvertFrom-Json)
+            $origLedger=$origLedgerText | ConvertFrom-Json
+            if ($origRecords.Count -ne 260 -or
+                @($origLedger.entries).Count -ne 101 -or
+                $newRecords.Count -ne 263 -or
+                @($newLedger.entries).Count -ne 104) {
+              throw 'UQ59_AUDIT_RECORD_OR_LEDGER_COUNTS_NOT_EXACT'
+            }
+            $oldById=@{}
+            foreach($r in $origRecords) {
+              $id=[string]$r.id
+              if ($oldById.ContainsKey($id)) { throw 'UQ59_AUDIT_DUPLICATE_OLD_RECORD_ID' }
+              $oldById[$id]=(ConvertTo-Json -InputObject $r -Compress -Depth 32)
+            }
+            $recordsById=@{}
+            foreach($r in $newRecords) {
+              $id=[string]$r.id
+              if ($recordsById.ContainsKey($id)) { throw 'UQ59_AUDIT_DUPLICATE_NEW_RECORD_ID' }
+              $recordsById[$id]=$r
+            }
+            foreach($id in $oldById.Keys) {
+              if (-not $recordsById.ContainsKey($id) -or
+                  (ConvertTo-Json -InputObject $recordsById[$id] -Compress -Depth 32) -cne $oldById[$id]) {
+                throw 'UQ59_AUDIT_PREEXISTING_RECORD_MODIFIED'
+              }
+            }
+            $extraRecordIds=@($recordsById.Keys | Where-Object { -not $oldById.ContainsKey($_) } | Sort-Object)
+            $approvedRecordIds=@($policy.expected_ids | ForEach-Object { [string]$_ } | Sort-Object)
+            if (($extraRecordIds -join '|') -cne ($approvedRecordIds -join '|')) {
+              throw 'UQ59_AUDIT_UNAUTHORIZED_RECORD_ADDITION'
+            }
+            foreach($id in $extraRecordIds) {
+              if ([string]$recordsById[$id].status -cne 'observed' -or
+                  @($recordsById[$id].supersedes).Count -ne 0) {
+                throw 'UQ59_AUDIT_NEW_RECORD_NOT_OBSERVED'
+              }
+            }
+            Write-Host 'UQ59_ALL_ORIGINAL_260_RECORDS_SEMANTIC_IDENTITIES_UNCHANGED=PASS'
+            Write-Host 'UQ59_EXACT_THREE_NEW_OBSERVED_RECORDS=PASS'
+
+            # The source-ledger writer maintains entries sorted by stable ID;
+            # qualifying by array index would incorrectly reject insertion.
+            # Require exact canonical JSON parity for each old stable ID.
+            $oldLedgerById=@{}
+            foreach($e in @($origLedger.entries)) {
+              $id=[string]$e.id
+              if ([string]::IsNullOrWhiteSpace($id) -or $oldLedgerById.ContainsKey($id)) {
+                throw 'UQ59_AUDIT_DUPLICATE_OLD_LEDGER_ID'
+              }
+              $oldLedgerById[$id]=(ConvertTo-Json -InputObject $e -Compress -Depth 32)
+            }
+            $newLedgerById=@{}
+            foreach($e in @($newLedger.entries)) {
+              $id=[string]$e.id
+              if ([string]::IsNullOrWhiteSpace($id) -or $newLedgerById.ContainsKey($id)) {
+                throw 'UQ59_AUDIT_DUPLICATE_NEW_LEDGER_ID'
+              }
+              $newLedgerById[$id]=$e
+            }
+            foreach($id in $oldLedgerById.Keys) {
+              if (-not $newLedgerById.ContainsKey($id) -or
+                  (ConvertTo-Json -InputObject $newLedgerById[$id] -Compress -Depth 32) -cne
+                  $oldLedgerById[$id]) {
+                throw 'UQ59_AUDIT_OLD_LEDGER_ENTRY_CHANGED'
+              }
+            }
+            $extraLedgerIds=@($newLedgerById.Keys | Where-Object { -not $oldLedgerById.ContainsKey($_) } | Sort-Object)
+            if ($extraLedgerIds.Count -ne 3) { throw 'UQ59_AUDIT_NEW_LEDGER_ID_COUNT_NOT_THREE' }
+            $observedRefs=@($extraLedgerIds | ForEach-Object { [string]$newLedgerById[$_].source_ref } | Sort-Object)
+            $approvedRefs=@($policy.source_refs | ForEach-Object { [string]$_ } | Sort-Object)
+            if (($observedRefs -join '|') -cne ($approvedRefs -join '|')) {
+              throw 'UQ59_AUDIT_UNEXPECTED_NEW_LEDGER_SOURCE_REF'
+            }
+            Write-Host 'UQ59_ALL_ORIGINAL_101_LEDGER_IDS_AND_PAYLOADS_UNCHANGED=PASS'
+            Write-Host 'UQ59_EXACT_THREE_APPROVED_NEW_LEDGER_ENTRIES=PASS'
+
+            $status=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0) { throw 'UQ59_AUDIT_STATUS_UNAVAILABLE' }
+            $changed=@()
+            foreach($line in $status) {
+              if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+              if ($line.Length -lt 4 -or $line.Substring(0,2) -cne ' M') {
+                throw 'UQ59_AUDIT_STAGED_OR_UNKNOWN_FILE_MODIFICATION'
+              }
+              $path=$line.Substring(3).Replace('\','/')
+              if ($allowed -cnotcontains $path) { throw 'UQ59_AUDIT_CHANGED_FILE_OUT_OF_SCOPE' }
+              $changed += $path
+            }
+            if ($changed -cnotcontains '.ice/records.json' -or
+                $changed -cnotcontains '.ice/source-ledger.json') {
+              throw 'UQ59_AUDIT_APPLIED_STATE_NOT_VISIBLE_AS_UNCOMMITTED'
+            }
+            $forbidden=@('archive/index.json','.ice/chat-delta-state.json')
+            $diff=@(& git.exe -C $root diff --name-only HEAD -- @forbidden)
+            if ($LASTEXITCODE -ne 0 -or @($diff | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
+              throw 'UQ59_AUDIT_ARCHIVE_OR_CURSOR_CHANGED'
+            }
+            $stranded=Join-Path $root '.mind-runtime'
+            if ([IO.Directory]::Exists($stranded) -and
+                @(Get-ChildItem -LiteralPath $stranded -Directory -Filter 'uq51-repo-transaction-*').Count -ne 0) {
+              throw 'UQ59_AUDIT_STRANDED_COPY_TRANSACTION'
+            }
+            Assert-RepoSourceAuthority -Lease $lease
+            $memory=(& (Join-Path $root 'tools/mind.ps1') validate | Out-String).Trim()
+            if ($memory -notmatch 'Mind-Palace validation passed') {
+              throw 'UQ59_AUDIT_MEMORY_VALIDATE_FAILED'
+            }
+            $ledgerValidation=((& (Join-Path $root 'tools/source-ledger.ps1') validate -BatchPath $batchPath | Out-String).Trim() | ConvertFrom-Json)
+            if (-not [bool]$ledgerValidation.valid) { throw 'UQ59_AUDIT_LEDGER_VALIDATE_FAILED' }
+            Write-Host 'UQ59_PERSISTENT_CHECKOUT_MEMORY_AND_LEDGER_VALIDATION=PASS'
+            Write-Host 'UQ59_GIT_COMMIT_AND_MEMORY_PUSH_NOT_PERFORMED=PASS'
+            Write-Host 'UQ59_ARCHIVE_CURSOR_UNCHANGED_NO_STRANDED_CUSTODY=PASS'
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq59-postapply-custody-audit.v1'
+              status='local_three_observations_applied_without_git_promotion'
+              authorized_main_sha=$head
+              original_records=260
+              newly_accepted_observations=3
+              total_records=263
+              original_ledger_entries_unchanged=101
+              new_ledger_entries=3
+              total_ledger_entries=104
+              changed_tracked_paths=@($changed | Sort-Object)
+              no_git_commit=$true
+              no_git_push=$true
+              no_external_source_writer=$true
+              checkpoint_promotion_not_performed=$true
+            }) -Depth 8 | Write-Host
+          } finally {
+            Exit-RepoSourceAuthority -Lease $lease
+          }
