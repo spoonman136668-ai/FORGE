@@ -1,0 +1,122 @@
+name: F124-AC FIT-only terminal evidence and long-chain recovery
+on:
+  push:
+    branches: [research/f124ac-terminal-evidence-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ac-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Frozen independent 10-12 hop source and oracle-safe readout on both systems
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AC_HEAD_DRIFT' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ac_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AC_TEST_OR_SOURCE_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AC_ISOLATION_FAIL' }
+          Write-Output 'F124AC_PROTECTED_FIRST_USE=false'
+  authentic-FIT-DEV:
+    needs: frozen-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Historical weights, frozen FIT-only 2D intervention, new DEV with zero-FP criterion
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B nativeevidence/f124ac_terminal_intervention.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output "$RUNNER_TEMP/f124ac-evidence.json"
+          python3 - "$RUNNER_TEMP/f124ac-evidence.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x["schema"]=="forge.research.f124ac.terminal-bridge-FIT-only.v1"
+          assert x["freeze_blob"]=="67ec468f3dfcbdad5ec1039ec6688dce0d256967"
+          assert x["persistent_cells"]==16 and x["DEV_proposals_never_selected"]
+          assert not x["no_original_protected_first_use"] is False
+          assert not x["independent_science_accepted"] and not x["optimizer_promoted"]
+          for arm in ("O","U"):
+              for family in ("unchanged","depth_only","terminal_exact_only","combined"):
+                  case=x["DEV_scores"][arm][family]
+                  if case is not None:
+                      assert case["pairs"]==48 and len(case["cases"])==48
+                      assert all(z["cases"]==16 for z in case["by_depth"].values())
+          PY
+          sha256sum "$RUNNER_TEMP/f124ac-evidence.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ac-independent-terminal-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ac-evidence.json
+          retention-days: 90
+          if-no-files-found: error
+  final-full-regression:
+    needs: authentic-FIT-DEV
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 2, persist-credentials: false}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod, cache: false}
+      - name: One complete Go test race vet build and FORGE isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AC_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124AC_PROTECTED_FIRST_USE=false'
