@@ -1,0 +1,232 @@
+name: UQ57 Mind-Palace exact cohort admission reconciliation
+
+on:
+  push:
+    branches:
+      - qualification/uq57-mind-palace-admission-reconcile
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uq57-mind-palace-isolated-admission-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: "1"
+    steps:
+      - name: Verify exact PR71 policy against integrated main and qualify synthetic-only admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'UQ57_WRONG_REPOSITORY_OR_RUNNER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main = '1304b861016aeb21d04e9459a96d1bb86d23abb2'
+          $proposal = '48decd5cf42dfa2c04e9288caa7a099a488dc47b'
+          $proposalBranch = 'admission/uq53-exact-three-source-review'
+          $policyRel = 'policies/repo-source-admission.json'
+          $expectedBatch = 'ace25ffdafde95467ae4f8800b0266dfb316ddb9'
+          $expectedPolicy = '13e7dcaf71956d64631ba13e4f6df0f9ea9f287a'
+          $protected = @(
+            '.ice/records.json', '.ice/source-ledger.json', 'archive/index.json',
+            '.ice/chat-delta-state.json', '.ice/remote-bootstrap.json',
+            '.ice/remote-catalog.json', '.ice/remote-index.ndjson',
+            '.ice/project-state-capsules.json', '.ice/project-dependency-graph.json'
+          )
+          $scratch = Join-Path $env:RUNNER_TEMP ('mind-palace-uq57-' + $env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'main'
+          $bare = Join-Path $scratch 'fixture-origin.git'
+          $fixture = Join-Path $scratch 'fixture'
+          if (Test-Path -LiteralPath $scratch) { throw 'UQ57_EXISTING_SCRATCH_CUSTODY' }
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          function SHA([string]$file) { return (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() }
+          function Git([string[]]$argv) {
+            $text = (& git.exe @argv 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw ('UQ57_GIT_FAILED ' + $text) }
+            return $text
+          }
+          function Exec([string]$file, [string[]]$argv, [bool]$shouldPass) {
+            $text = (& pwsh.exe -NoProfile -NonInteractive -File $file @argv 2>&1 | Out-String).Trim()
+            $exit = $LASTEXITCODE
+            if ($shouldPass -and $exit -ne 0) { throw ('UQ57_CHILD_EXPECTED_PASS ' + $text) }
+            if (-not $shouldPass -and $exit -eq 0) { throw 'UQ57_CHILD_SHOULD_FAIL' }
+            return $text
+          }
+          try {
+            $remoteMain = @(git.exe ls-remote --exit-code $remote refs/heads/main)
+            $remotePolicy = @(git.exe ls-remote --exit-code $remote ('refs/heads/' + $proposalBranch))
+            if ($LASTEXITCODE -ne 0 -or $remoteMain.Count -ne 1 -or $remotePolicy.Count -ne 1 -or
+                ([string]$remoteMain[0] -split '\s+')[0] -cne $main -or
+                ([string]$remotePolicy[0] -split '\s+')[0] -cne $proposal) {
+              throw 'UQ57_AUTHENTIC_REMOTE_MAIN_OR_PROPOSAL_MOVED'
+            }
+            Git @('clone','--quiet','--single-branch','--branch','main',$remote,$root) | Out-Null
+            if ((Git @('-C',$root,'rev-parse','HEAD')) -cne $main) { throw 'UQ57_CLONE_SOURCE_DRIFT' }
+            Git @('-C',$root,'fetch','--quiet','origin',$proposal) | Out-Null
+            $blob = Git @('-C',$root,'rev-parse',($proposal + ':' + $policyRel))
+            if ($blob -cne $expectedPolicy) { throw 'UQ57_PROPOSED_POLICY_BLOB_CHANGED' }
+            if ((Git @('-C',$root,'rev-parse','HEAD:pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json')) -cne $expectedBatch) {
+              throw 'UQ57_AUTHENTIC_COLLECTOR_BATCH_DRIFT'
+            }
+            $baselinePolicy = [IO.File]::ReadAllText((Join-Path $root $policyRel)) | ConvertFrom-Json
+            $proposedText = (& git.exe -C $root show ($proposal + ':' + $policyRel) | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ57_CANNOT_READ_PROPOSED_POLICY' }
+            $proposedPolicy = $proposedText | ConvertFrom-Json
+            $diffKeys = @($baselinePolicy.PSObject.Properties.Name | Where-Object {
+              (ConvertTo-Json -InputObject $baselinePolicy.$_ -Depth 16 -Compress) -cne
+              (ConvertTo-Json -InputObject $proposedPolicy.$_ -Depth 16 -Compress)
+            } | Sort-Object)
+            if (($diffKeys -join ',') -cne 'enabled,operator_approval' -or
+                [bool]$baselinePolicy.enabled -or
+                [string]$baselinePolicy.operator_approval -cne 'not-issued' -or
+                -not [bool]$proposedPolicy.enabled -or
+                [string]$proposedPolicy.operator_approval -cne 'separately-authorized-exact-cohort' -or
+                [bool]$proposedPolicy.bulk_repo_ingestion -or [bool]$proposedPolicy.background_ingestion) {
+              throw 'UQ57_PROPOSAL_SCOPE_OR_ADMISSION_FLAGS_INVALID'
+            }
+            $batch = [IO.File]::ReadAllText((Join-Path $root 'pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json')) | ConvertFrom-Json
+            $refs = @($batch.sources | ForEach-Object { [string]$_.ref } | Sort-Object)
+            $allowed = @($proposedPolicy.source_refs | ForEach-Object { [string]$_ } | Sort-Object)
+            $ids = @($batch.candidates | ForEach-Object { [string]$_.kind + '/' + [string]$_.key } | Sort-Object)
+            $expectedIds = @($proposedPolicy.expected_ids | ForEach-Object { [string]$_ } | Sort-Object)
+            if (@($batch.sources).Count -ne 3 -or @($batch.candidates).Count -ne 3 -or
+                ($refs -join '|') -cne ($allowed -join '|') -or ($ids -join '|') -cne ($expectedIds -join '|')) {
+              throw 'UQ57_SOURCE_AND_STABLE_RECORD_IDENTITIES_CHANGED'
+            }
+            $manifest = [IO.File]::ReadAllText((Join-Path $root '.ice/manifest.json')) | ConvertFrom-Json
+            if ([bool]$manifest.automatic_background_scanning_enabled -or
+                @($manifest.bulk_ingestion_scopes) -contains 'repo') { throw 'UQ57_GENERIC_REPO_INGESTION_ALLOWED' }
+            Write-Host 'UQ57_PR71_RECONCILED_EXACT_TWO_POLICY_FIELDS=PASS'
+            Write-Host 'UQ57_THREE_REPOSITORY_SOURCES_AND_STABLE_IDS=PASS'
+            Write-Host 'UQ57_MAIN_POLICY_DEFAULT_DENY_AND_NO_BULK_REPO_SCOPE=PASS'
+            $before = @{}
+            foreach ($f in $protected) { $before[$f] = SHA (Join-Path $root $f) }
+            $originalRecords = @([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $originalLedger = [IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            if ($originalRecords.Count -ne 260 -or @($originalLedger.entries).Count -ne 101) {
+              throw 'UQ57_CURRENT_MAIN_RECORD_LEDGER_BASELINE_DRIFT'
+            }
+
+            # PROPOSAL POLICY ONLY IN DISPOSABLE CLONE: never write to GitHub main.
+            Git @('init','--quiet','--bare',$bare) | Out-Null
+            Git @('clone','--quiet','--no-local','--single-branch','--branch','main',$root,$fixture) | Out-Null
+            Git @('-C',$fixture,'remote','set-url','origin',$bare) | Out-Null
+            Git @('-C',$fixture,'config','--add','remote.origin.fetch','+refs/heads/main:refs/remotes/origin/main') | Out-Null
+            Git @('-C',$fixture,'push','--quiet','-u','origin','main') | Out-Null
+            Git @('-C',$fixture,'fetch','--quiet','origin','main:refs/remotes/origin/main') | Out-Null
+            [IO.File]::WriteAllText((Join-Path $fixture $policyRel),$proposedText + [Environment]::NewLine,(New-Object Text.UTF8Encoding($false)))
+            Git @('-C',$fixture,'add','--',$policyRel) | Out-Null
+            $fixtureDelta = @(git.exe -C $fixture diff --cached --name-only)
+            if ($LASTEXITCODE -ne 0 -or $fixtureDelta.Count -ne 1 -or [string]$fixtureDelta[0] -cne $policyRel) {
+              throw ('UQ57_FIXTURE_UNEXPECTED_FILES ' + ($fixtureDelta -join ';'))
+            }
+            Git @('-C',$fixture,'-c','user.name=UQ57 Synthetic Fixture','-c','user.email=uq57@test.invalid','-c','commit.gpgsign=false','commit','--quiet','-m','fixture: exact PR71 admission proposal') | Out-Null
+            Git @('-C',$fixture,'push','--quiet','origin','main') | Out-Null
+            $fixtureHead = Git @('-C',$fixture,'rev-parse','HEAD')
+            $tool = Join-Path $fixture 'tools/repo-source-transaction.ps1'
+            $fixtureBefore=@{}
+            foreach ($f in $protected) { $fixtureBefore[$f] = SHA (Join-Path $fixture $f) }
+            $noConfirmation = Exec $tool @('apply','-ExpectedMainSha',$fixtureHead) $false
+            if ($noConfirmation -notmatch 'UQ51_EXPLICIT_REPOSITORY_SOURCE_ADMISSION_REQUIRED') {
+              throw 'UQ57_PRODUCTION_APPLY_WITHOUT_EXPLICIT_CONFIRMATION_NOT_BLOCKED'
+            }
+            Write-Host 'UQ57_SYNTHETIC_ADMISSION_NO_CONFIRM_APPLY_REJECTED=PASS'
+            $plan = (Exec $tool @('plan','-ExpectedMainSha',$fixtureHead) $true) | ConvertFrom-Json
+            if ($plan.status -cne 'ready_for_explicit_apply' -or $plan.new_records -ne 3 -or
+                $plan.ledger_entries -ne 3 -or $plan.production_memory_writes -ne 0) {
+              throw 'UQ57_READ_ONLY_ADMISSION_PLAN_INVALID'
+            }
+            foreach ($f in $protected) {
+              if ((SHA (Join-Path $fixture $f)) -cne $fixtureBefore[$f]) {
+                throw ('UQ57_READ_ONLY_PLAN_CHANGED_FILE ' + $f)
+              }
+            }
+            Write-Host 'UQ57_RECONCILED_POLICY_READ_ONLY_PLAN_THREE_NEW=PASS'
+
+            # Isolated local bare-origin transaction verifies final prospective
+            # admission behavior WITHOUT any external push or policy promotion.
+            $apply = (Exec $tool @('apply','-ExpectedMainSha',$fixtureHead,'-ConfirmRepoApply') $true) | ConvertFrom-Json
+            if ($apply.status -cne 'applied' -or $apply.new_records -ne 3 -or
+                $apply.processed_sources -ne 3 -or -not [bool]$apply.git_commit_required) {
+              throw 'UQ57_SYNTHETIC_APPLY_RESULT_INVALID'
+            }
+            $records=@([IO.File]::ReadAllText((Join-Path $fixture '.ice/records.json')) | ConvertFrom-Json)
+            $ledger=[IO.File]::ReadAllText((Join-Path $fixture '.ice/source-ledger.json')) | ConvertFrom-Json
+            if ($records.Count -ne 263 -or @($ledger.entries).Count -ne 104) {
+              throw 'UQ57_SYNTHETIC_TRANSACTION_COUNTS_INVALID'
+            }
+            $byId=@{}
+            foreach ($row in $records) { $byId[[string]$row.id]=$row }
+            foreach ($row in $originalRecords) {
+              $id=[string]$row.id
+              if (-not $byId.ContainsKey($id) -or
+                  (ConvertTo-Json -InputObject $byId[$id] -Depth 16 -Compress) -cne
+                  (ConvertTo-Json -InputObject $row -Depth 16 -Compress)) {
+                throw ('UQ57_ORIGINAL_RECORD_CHANGED ' + $id)
+              }
+            }
+            foreach ($id in @($proposedPolicy.expected_ids)) {
+              if (-not $byId.ContainsKey([string]$id) -or
+                  [string]$byId[[string]$id].status -cne 'observed' -or
+                  @($byId[[string]$id].supersedes).Count -ne 0) {
+                throw ('UQ57_COHORT_RECORD_INVALID ' + $id)
+              }
+            }
+            foreach ($f in @('archive/index.json','.ice/chat-delta-state.json')) {
+              if ((SHA (Join-Path $fixture $f)) -cne $fixtureBefore[$f]) {
+                throw ('UQ57_UNAUTHORIZED_ARCHIVE_OR_CURSOR_MUTATION '+$f)
+              }
+            }
+            $check=(Exec (Join-Path $fixture 'tools/update-checkpoint.ps1') @('validate') $true) | ConvertFrom-Json
+            if (-not [bool]$check.ready -or [string]$check.status -cne 'ready') {
+              throw 'UQ57_SYNTHETIC_CHECKPOINT_NOT_READY'
+            }
+            Write-Host 'UQ57_EXACT_POLICY_SYNTHETIC_APPLY_AND_CHECKPOINT_VALIDATE=PASS'
+            Write-Host 'UQ57_ORIGINAL_260_RECORDS_PRESERVED_AND_LEDGER_101_TO_104=PASS'
+
+            # Exactly one consolidated full regression on unchanged integrated main.
+            $all=Join-Path $root 'tests/Test-All.ps1'
+            $out=Join-Path $scratch 'full.out'
+            $err=Join-Path $scratch 'full.err'
+            $proc=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"' + $all + '"')) -WorkingDirectory $root -Wait -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $result=[IO.File]::ReadAllText($out)
+            $errors=[IO.File]::ReadAllText($err)
+            $count=@([regex]::Matches($result,'(?m)^RUN .+$')).Count
+            if ($proc.ExitCode -ne 0 -or $count -ne 67 -or $result -notmatch 'Mind-Palace regression suite passed') {
+              $allText=$errors + [Environment]::NewLine + $result
+              throw ('UQ57_REGRESSION_FAILED count=' + $count + ' ' + $allText.Substring([Math]::Max(0,$allText.Length-2700)))
+            }
+            Write-Host 'UQ57_INTEGRATED_MAIN_WINDOWS_REGRESSION=PASS tests=67'
+            foreach ($f in $protected) {
+              if ((SHA (Join-Path $root $f)) -cne $before[$f]) {
+                throw ('UQ57_PRODUCTION_REPOSITORY_PROTECTED_HASH_CHANGED ' + $f)
+              }
+            }
+            $dirty=@(git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw ('UQ57_SOURCE_TREE_DIRTY ' + ($dirty -join ';')) }
+            $mainAgain=@(git.exe ls-remote --exit-code $remote refs/heads/main)
+            $propAgain=@(git.exe ls-remote --exit-code $remote ('refs/heads/' + $proposalBranch))
+            if ($LASTEXITCODE -ne 0 -or
+                ([string]$mainAgain[0] -split '\s+')[0] -cne $main -or
+                ([string]$propAgain[0] -split '\s+')[0] -cne $proposal) {
+              throw 'UQ57_REMOTE_IDENTITY_CHANGED_DURING_QUALIFICATION'
+            }
+            Write-Host 'UQ57_MAIN_NINE_PROTECTED_HASHES_AND_CLEAN_TREE=PASS'
+            Write-Host 'UQ57_DEFAULT_DENY_PRODUCTION_POLICY_STILL_DISABLED=PASS'
+            Write-Host 'UQ57_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ57_NO_CODEX_NO_EXTERNAL_PUSH=PASS'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+            if (Test-Path -LiteralPath $scratch) { throw 'UQ57_SCRATCH_NOT_CLEAN' }
+            Write-Host 'UQ57_ISOLATED_SCRATCH_CLEAN=PASS'
+          }
