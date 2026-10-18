@@ -1,0 +1,64 @@
+name: F124-BA original frozen lower-tail public confidence focused qualification
+on:
+  push:
+    branches: [research/f124ba-public-confidence-rejection-20261018]
+    paths:
+      - '.github/workflows/forge-f124ba-focused.yml'
+      - 'nativeevidence/f124ba_train_source.py'
+      - 'nativeevidence/f124ba_public_confidence.py'
+      - 'nativeevidence/f124ba_fit_screen.py'
+      - 'nativeevidence/test_f124ba_public_confidence_preflight.py'
+      - 'reference/research-intake/f124ba-frozen-lower-tail-public-check-confidence.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ba-frozen-nonconsuming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact new source freeze and source-blind public-only synthetic tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BA_HEAD_DRIFT'}
+          $f='reference/research-intake/f124ba-frozen-lower-tail-public-check-confidence.json'
+          if ((git hash-object $f).Trim() -cne '5877cc65e94cf4c2e11560a9f9f4cfc1da46d149' -or
+              (git log -1 --format=%H -- $f).Trim() -cne '977c4fc000848fab590011fc54eb2e96ca22852c' -or
+              (git rev-parse '3707fb2c8b28d386cbea530ff61c56ff8bcc147e:nativeevidence/f124az_train_source.py').Trim() -cne '942f1581e1546c68e418dddd3417269d3a158f1c'){
+            throw 'F124BA_ORIGINAL_FROZEN_IDENTITY_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ba_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BA_PUBLIC_ONLY_FOCUSED_FAILED'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BA_CROSS_PROJECT_ISOLATION_FAILURE'}
+          Write-Output 'F124BA_WINDOWS_LINUX_SYNTHETIC=PASS'
+          Write-Output 'F124BA_NEW_TRAIN_CONSUMED=false'
+          Write-Output 'F124BA_NEW_DEV_CONSUMED=false'
+  original-parent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Authenticate exact AZ full regression and original prior scientific evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/$GITHUB_REPOSITORY/actions/runs/39149785608 --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '3707fb2c8b28d386cbea530ff61c56ff8bcc147e completed success push'
+          echo F124BA_ORIGINAL_AZ_PARENT_QUALIFIED=PASS
