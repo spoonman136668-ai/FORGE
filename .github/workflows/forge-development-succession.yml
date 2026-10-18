@@ -32,6 +32,7 @@ on:
       - 'nativeevidence/test_f137_observer_bootstrap.py'
       - 'nativeevidence/f137_windows_wake.py'
       - 'nativeevidence/test_f137_windows_wake.py'
+      - 'scripts/f137-windows-wake.ps1'
       - 'reference/research-intake/f136-development-succession-freeze.json'
       - '.github/workflows/forge-development-succession.yml'
 
@@ -83,6 +84,23 @@ jobs:
             $errorsFound | Format-List
             throw 'F137_WINDOWS_SYNTAX_INVALID'
           }
+          # Regression: remainder must be nonnegative across the whole hour,
+          # including :21 and :57 where PowerShell's signed % previously failed.
+          foreach ($minute in 0..59) {
+            foreach ($second in @(0, 30, 59)) {
+              $secondsIntoInterval = (($minute % 10) * 60) + $second
+              $untilFallback = (420 - $secondsIntoInterval + 600) % 600
+              if ($untilFallback -lt 0 -or $untilFallback -ge 600) {
+                throw 'F137_FALLBACK_MODULO_INVALID'
+              }
+            }
+          }
+          $minute = 21; $second = 0
+          $secondsIntoInterval = (($minute % 10) * 60) + $second
+          if (((420 - $secondsIntoInterval + 600) % 600) -ne 360) {
+            throw 'F137_FALLBACK_21_MINUTE_REGRESSION'
+          }
+          Write-Host 'F137_WINDOWS_FALLBACK_MODULO=PASS'
           Write-Host 'F137_WINDOWS_WAKE_SYNTAX=PASS'
           Write-Host 'F137_WAKE_DISPATCH_EXECUTED=FALSE'
 
