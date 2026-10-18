@@ -1,0 +1,92 @@
+name: FORGE F138 read-only continuity qualification
+
+# PR-only evidence qualification; no schedule, workflow dispatch, or controller.
+# The live system keeps its original F136/F137 guards and source protocols.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'nativeevidence/f138_*.py'
+      - 'nativeevidence/test_f138_*.py'
+      - 'scripts/f138_readonly_snapshot.py'
+      - '.github/workflows/forge-f138-readonly-qualification.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: forge-f138-readonly-qualification-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  f138-source-ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Adversarial F138-B continuity and F138-A lineage tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s nativeevidence -p 'test_f138_*.py' -v
+          python3 -m py_compile nativeevidence/f138_continuity.py scripts/f138_readonly_snapshot.py
+          echo 'F138_B_SOURCE_AND_NEGATIVES_UBUNTU=PASS'
+          echo 'F138_NO_DISPATCH_OR_PROTECTED_SCIENCE=PASS'
+
+  f138-source-windows:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Adversarial F138-B native Windows source qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s nativeevidence -p 'test_f138_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F138_WINDOWS_ADVERSARIAL_TESTS_FAILED' }
+          Write-Host 'F138_B_SOURCE_AND_NEGATIVES_WINDOWS=PASS'
+
+  f138-readonly-provider-observation:
+    needs: [f138-source-ubuntu, f138-source-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Query authoritative protected source without any workflow dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          main="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+          [[ "$main" =~ ^[0-9a-f]{40}$ ]]
+          root="$RUNNER_TEMP/f138-readonly-evidence"
+          python3 -B scripts/f138_readonly_snapshot.py \
+            --expected-main "$main" --output-dir "$root"
+          test -f "$root/decision.json"
+          jq -e '.schema == "forge.autonomy.f138.continuity-decision.v1"
+              and (.verdict == "PASS" or .verdict == "PENDING" or .verdict == "QUARANTINED")
+              and .scientific_first_use_authorized == false
+              and .permanent_custody_verified == false
+              and .accepted_ref_mutations == 0' "$root/decision.json" >/dev/null
+          jq '{verdict,reason,verified_unattended_runs,windows_recovery_continuity_verified,genuine_scheduled_count,qualifying_three_run_ids}' "$root/decision.json"
+          echo 'F138_READONLY_GITHUB_PROVENANCE_OBSERVED=TRUE'
+          if [[ "$(jq -r .verdict "$root/decision.json")" == QUARANTINED ]]; then
+            echo 'F138_SOURCE_RUNTIME_QUARANTINED=TRUE'
+            exit 1
+          fi
+          echo 'F138_SOURCE_RUNTIME_QUARANTINED=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f138-readonly-provider-snapshot-${{ github.run_id }}
+          path: ${{ runner.temp }}/f138-readonly-evidence
+          retention-days: 90
+          if-no-files-found: warn
