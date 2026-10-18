@@ -1,0 +1,101 @@
+name: UQ61 Mind-Palace persistent checkout reconciliation
+on:
+  push:
+    branches:
+      - qualification/uq61-mind-palace-persistent-reconcile
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Reconcile committed local checkpoint and validate read-only restart
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'UQ61_UNEXPECTED_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\Mind-Palace'
+          $old='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $candidate='84d9a171588374e385bb809af7b25b30b09d765c'
+          $merged='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $branch='qualification/uq60-seven-record-checkpoint-20261018'
+          $wanted=@{
+            '.ice/project-dependency-graph.json'='f004283eef345d7ff0d7837e2f3fe5079b7dffea'
+            '.ice/project-state-capsules.json'='7f6a63db081a3b76aaf98528bb6ddcbef60f5ce2'
+            '.ice/records.json'='3f49a1f95092132475ce6d6f29f5e0afaeca54d9'
+            '.ice/remote-bootstrap.json'='c1cbfd5c2972e917ce000212c48a556f892dec4d'
+            '.ice/remote-catalog.json'='90b066178e1da08ea184df254499bfd1abacc063'
+            '.ice/remote-index.ndjson'='e544dafe6ba1f9f6550dabeb4235e9ffa04844db'
+            '.ice/source-ledger.json'='1ddb71aa4a0db8a8ff862d011fecd3cd3b74a44e'
+          }
+          . (Join-Path $root 'tools/repo-source-authority.ps1')
+          $lease=Enter-RepoSourceAuthority -RepoRoot $root
+          try {
+            Assert-RepoSourceAuthority -Lease $lease
+            $origin=(& git.exe -C $root remote get-url origin | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $origin -notmatch 'spoonman136668-ai/Mind-Palace') { throw 'UQ61_ORIGIN_MISMATCH' }
+            $ref=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $ref.Count -ne 1 -or ([string]$ref[0] -split '\s+')[0] -cne $merged) { throw 'UQ61_REMOTE_MAIN_MOVED' }
+            $local=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $active=(& git.exe -C $root symbolic-ref --short HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ61_DETACHED_OR_UNKNOWN_HEAD' }
+            $dirty=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or @($dirty | Where-Object { $_ }).Count -ne 0) { throw 'UQ61_WORKTREE_DIRTY_ABORT' }
+            if ($local -cne $candidate -and $local -cne $merged) { throw 'UQ61_LOCAL_HEAD_NOT_QUALIFIED_CHECKPOINT' }
+            if ($local -ceq $candidate -and $active -cne $branch) { throw 'UQ61_CHECKPOINT_BRANCH_MISMATCH' }
+            if ($local -ceq $merged -and $active -cne 'main') { throw 'UQ61_MERGED_HEAD_NOT_ON_MAIN' }
+            Write-Host 'UQ61_CLEAN_QUALIFIED_LOCAL_CHECKPOINT=PASS'
+            & git.exe -C $root fetch --no-tags origin main
+            if ($LASTEXITCODE -ne 0) { throw 'UQ61_FETCH_FAILED' }
+            $fetched=(& git.exe -C $root rev-parse FETCH_HEAD | Out-String).Trim()
+            if ($fetched -cne $merged) { throw 'UQ61_FETCH_IDENTITY_CHANGED' }
+            $committedBlob=@{}
+            foreach($p in @($wanted.Keys)) {
+              $blob=(& git.exe -C $root rev-parse ($candidate + ':' + $p) | Out-String).Trim()
+              if ($LASTEXITCODE -ne 0 -or $blob -cne $wanted[$p]) { throw ('UQ61_CANDIDATE_BLOB_DRIFT '+$p) }
+              $committedBlob[$p]=$blob
+            }
+            $parents=(& git.exe -C $root rev-list --parents -n 1 $merged | Out-String).Trim().Split(' ')
+            if ($parents.Count -ne 3 -or $parents[1] -cne $old -or $parents[2] -cne $candidate) { throw 'UQ61_MERGE_PARENTS_CHANGED' }
+            Write-Host 'UQ61_PROMOTED_MERGE_AND_SEVEN_BLOBS_VERIFIED=PASS'
+            if ($local -cne $merged) {
+              & git.exe -C $root switch main
+              if ($LASTEXITCODE -ne 0) { throw 'UQ61_SWITCH_MAIN_FAILED' }
+              & git.exe -C $root merge --ff-only $merged
+              if ($LASTEXITCODE -ne 0) { throw 'UQ61_FAST_FORWARD_FAILED' }
+            }
+            $newHead=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $nowBranch=(& git.exe -C $root symbolic-ref --short HEAD | Out-String).Trim()
+            if ($newHead -cne $merged -or $nowBranch -cne 'main') { throw 'UQ61_RECONCILED_MAIN_IDENTITY_FAILED' }
+            foreach($p in @($wanted.Keys)) {
+              $blob=(& git.exe -C $root rev-parse ('HEAD:'+$p) | Out-String).Trim()
+              if ($blob -cne $wanted[$p]) { throw ('UQ61_POST_RECONCILE_BLOB_DRIFT '+$p) }
+            }
+            $records=[IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json
+            $ledger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            if (@($records).Count -ne 263 -or @($ledger.entries).Count -ne 104) { throw 'UQ61_RECORD_COUNTS_CHANGED' }
+            $policy=[IO.File]::ReadAllText((Join-Path $root 'policies/repo-source-admission.json')) | ConvertFrom-Json
+            foreach($id in @($policy.expected_ids)) {
+              $rows=@($records | Where-Object { $_.id -ceq $id })
+              if ($rows.Count -ne 1 -or $rows[0].status -cne 'observed') { throw 'UQ61_OBSERVATION_MISSING' }
+            }
+            Write-Host 'UQ61_PERSISTENT_MAIN_RECONCILED_263_104=PASS'
+            # Fresh child processes reproduce read-only validation after source switch.
+            $mindOut=(& pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tools/mind.ps1') validate | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $mindOut -notmatch 'Mind-Palace validation passed') { throw 'UQ61_FRESH_PROCESS_MIND_VALIDATE_FAILED' }
+            $batch=Join-Path $root ([string]$policy.batch_path)
+            $ledgerOut=(& pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tools/source-ledger.ps1') validate -BatchPath $batch | Out-String).Trim() | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or -not [bool]$ledgerOut.valid) { throw 'UQ61_FRESH_PROCESS_LEDGER_VALIDATE_FAILED' }
+            Write-Host 'UQ61_FRESH_PROCESS_READONLY_MEMORY_LEDGER_VALIDATE=PASS'
+            $dirtyAgain=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+            $stranded=@(Get-ChildItem -LiteralPath (Join-Path $root '.mind-runtime') -Directory -Filter 'uq51-repo-transaction-*')
+            if ($LASTEXITCODE -ne 0 -or @($dirtyAgain | Where-Object { $_ }).Count -ne 0 -or $stranded.Count -ne 0) { throw 'UQ61_WORKTREE_DIRTY_OR_STRANDED' }
+            Assert-RepoSourceAuthority -Lease $lease
+            Write-Host 'UQ61_CLEAN_RESTART_NO_NEW_RECORDS_NO_STRANDED_CUSTODY=PASS'
+            Write-Host 'UQ61_NO_NEW_INGESTION_NO_CHECKPOINT_NO_PUSH=PASS'
+          } finally {
+            Exit-RepoSourceAuthority -Lease $lease
+          }
