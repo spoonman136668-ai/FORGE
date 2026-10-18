@@ -39,10 +39,13 @@ jobs:
           Write-Output "F124AW_DIAG_FREEZE_COMMIT=$(git log -1 --format=%H -- $f)"
           Write-Output "F124AW_DIAG_PARENT_SOURCE=$(git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_train_source.py')"
           Write-Output "F124AW_DIAG_PARENT_MODEL=$(git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_informative_inverse.py')"
+          $err='reference/research-intake/f124aw-original-model-identity-erratum.json'
+          $note=Get-Content $err -Raw | ConvertFrom-Json
+          if($note.actual_qualified_AV_model_blob -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5' -or $note.DEV_cases_constructed -ne 0){ throw 'F124AW_ERRATUM_NOT_VALID' }
           if((git hash-object $f).Trim() -cne 'e86cbf31e179bb4a1d4ceeee039c3d017ba27789' -or
              (git log -1 --format=%H -- $f).Trim() -cne '1415ad0cba12b9f89c626b0786fdca3544e975b6' -or
              (git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_train_source.py').Trim() -cne '07c311e7b0443e21db39a200199a33cc0747046e' -or
-             (git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_informative_inverse.py').Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd5'){
+             (git rev-parse '0c54bee8cc9a69bd87a7852a236b0e0bc57e01c4:nativeevidence/f124av_informative_inverse.py').Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd8fbd5'){
             throw 'F124AW_FROZEN_PARENT_MODEL_DRIFT'
           }
           $py=if($IsWindows){'python'}else{'python3'}
