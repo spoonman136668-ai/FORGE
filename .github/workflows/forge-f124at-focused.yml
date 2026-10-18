@@ -1,0 +1,74 @@
+name: F124-AT frozen source and model-isolation focused
+on:
+  push:
+    branches: [research/f124at-identifiability-and-packed-collision-20261018]
+    paths:
+      - '.github/workflows/forge-f124at-focused.yml'
+      - 'nativeevidence/f124at_*.py'
+      - 'nativeevidence/test_f124at_*.py'
+      - 'reference/research-intake/f124at-frozen-identifiability-and-packed-collision.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124at-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-Windows-Linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original preimplementation frozen source and one-state capacity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AT_SOURCE_SHA_CHANGED' }
+          $freeze='reference/research-intake/f124at-frozen-identifiability-and-packed-collision.json'
+          if((git hash-object $freeze).Trim() -cne '45dca352cd732358b1dd02b05bf9661c4ed37dc5' -or
+             (git log -1 --format=%H -- $freeze).Trim() -cne '9766381def378de050b69465b664d201907759d9' -or
+             (git rev-parse '449fc54cecccb6e30eaa13016f9d1828532714ac:nativeevidence/f124as_train_source.py').Trim() -cne '7b20f61d7f4257f76297f173e3c8805b8ace88ef') {
+            throw 'F124AT_PREIMPLEMENTATION_ORIGINAL_IDENTITY_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          foreach($pattern in @('test_f124at_*.py','test_f124as_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if($LASTEXITCODE -ne 0) { throw "F124AT_ORIGINAL_FOCUSED_FAILED:$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){ throw 'F124AT_ISOLATION_FAILED' }
+          Write-Output 'F124AT_WINDOWS_LINUX_SOURCE_FOCUSED=PASS'
+          Write-Output 'F124AT_NEW_DEV_CONSUMED=false'
+  original-AS-custody:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Reauthenticate original AS source, negative and qualified regression
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $r=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39136910292' | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $r.status -cne 'completed' -or
+             $r.conclusion -cne 'success' -or
+             $r.head_sha -cne '449fc54cecccb6e30eaa13016f9d1828532714ac') {
+            throw 'F124AT_AS_RUN_QUALIFICATION_DRIFT'
+          }
+          $a=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39136910292/artifacts' | ConvertFrom-Json
+          $hit=@($a.artifacts | Where-Object { $_.id -eq 12140595542 })
+          if($LASTEXITCODE -ne 0 -or $hit.Count -ne 1 -or $hit[0].expired -or
+             $hit[0].digest -cne 'sha256:d4e65fc365497932dcc1a105473d0e965ec24e20049f699c7cd50c4923838e40') {
+            throw 'F124AT_AS_NEGATIVE_CUSTODY_DRIFT'
+          }
+          Write-Output 'F124AT_AS_NEGATIVE_SOURCE_CUSTODY=PASS'

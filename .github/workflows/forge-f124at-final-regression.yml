@@ -1,0 +1,73 @@
+name: F124-AT negative evidence and one final full regression
+on:
+  push:
+    branches: [research/f124at-identifiability-and-packed-collision-20261018]
+    paths: ['.github/workflows/forge-f124at-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124at-single-final-regression
+  cancel-in-progress: false
+jobs:
+  one-complete-integrated-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify authentic original TRAIN-negative and both untouched DEV cohorts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          frozen=reference/research-intake/f124at-frozen-identifiability-and-packed-collision.json
+          packet=reference/research-intake/f124at-authentic-train-negative-no-dev.json
+          test "$(git hash-object "$frozen")" = 45dca352cd732358b1dd02b05bf9661c4ed37dc5
+          test "$(git log -1 --format=%H -- "$frozen")" = 9766381def378de050b69465b664d201907759d9
+          test "$(git hash-object "$packet")" = 7ab3358933c355b1e619e00031d8d64346afc408
+          test "$(git log -1 --format=%H -- "$packet")" = 2a5526854770ad89c65d58c7d7fa2b8739ed0477
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39138041247 --jq '[.head_sha,.status,.conclusion,.event] | join(" ")' | grep -Fx '699ba7abc460bc0763eed2f11d10bdf766e4604b completed success push'
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39138041247/artifacts --jq '.artifacts[] | select(.id==12139584964 and .expired==false) | .digest' | grep -Fx 'sha256:765aa8cea697f18914948a3269280b91371359bd62c1bd7f9da1546aa4246a1a'
+          python3 -B -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["schema"]=="forge.research.f124at.authentic-TRAIN-source-negative-disposition.v1"; assert d["Yggdrasil"]["public_FIT_rank_17_column_histogram"]["17"]==24 and d["Yggdrasil"]["tasks_with_exact_learned_inverse"]==0 and d["Yggdrasil"]["evaluator_diagnostics"]["AG_true_inverse_ORACLE_ONLY"]["paired"]==48; assert d["Wingless"]["one_state_12bit"][2]["paired"]==41 and d["Wingless"]["one_state_12bit"][2]["eligible"] is False and d["research_gate"]["both_source_DEV_cohorts_consumed"] is False and d["research_gate"]["both_source_DEV_cohorts_generated"]==0 and d["research_gate"]["optimizer_promotion"] is False' "$packet"
+          echo 'F124AT_AUTHENTIC_NEGATIVE_AND_DEV_ISOLATION=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39138041247
+          github-token: ${{ github.token }}
+          name: f124at-fresh-diagnostic-699ba7abc460bc0763eed2f11d10bdf766e4604b
+          path: original-train
+      - name: Verify original raw scientific evidence byte-for-byte and source bounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '8050c9f4bae5821c4bc2d222d1c4985a41e3c86cb4af1c3cedf1a70c1a94422d  original-train/f124at-original-fresh-train.json' | sha256sum --check --strict
+          python3 -B -c 'import json; r=json.load(open("original-train/f124at-original-fresh-train.json")); assert r["schema"]=="forge.research.f124at.original-fresh-train-identifiability-collision.v1"; assert r["Yggdrasil"]["cohort"]==r["Wingless"]["cohort"]==48; assert r["Yggdrasil"]["models"]["AG_true_inverse_ORACLE_ONLY"]["paired"]==48; assert r["Wingless"]["models"]["fixed_12bit_checksum_2413"]["new_candidate_eligible"] is False; assert r["new_DEV_generated"]==0 and r["new_DEV_consumed"] is False'
+          echo 'F124AT_ORIGINAL_RAW_TRAIN_RECEIPT=PASS'
+      - name: Exactly one complete source-isolated Go test race vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AT_ONE_FINAL_FULL_REGRESSION=PASS"
+          echo "F124AT_QUALIFIED_SOURCE_HEAD=$GITHUB_SHA"
+          echo 'F124AT_SCIENCE_ACCEPTED=false'
+          echo 'F124AT_DEV_CONSUMED=false'
