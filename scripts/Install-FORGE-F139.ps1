@@ -33,6 +33,18 @@ Write-Host "F139_DATABASE=$db"
 Write-Host "F139_TASK=$TaskName"
 Write-Host 'F139_DOES_NOT_DISABLE_LEGACY=TRUE'
 Write-Host 'F139_CLOUDFLARE_CONTROLLER=FALSE'
+# The controller host may be on battery: never let Task Scheduler strand it queued.
+# Construct and verify the very settings object that -Apply registers.
+if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+  $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
+    -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+  if ($settings.DisallowStartIfOnBatteries -or $settings.StopIfGoingOnBatteries) {
+    throw 'F139_BATTERY_POLICY_NOT_ADMISSIBLE'
+  }
+  Write-Host 'F139_BATTERY_ADMISSION_CONFIG=PASS'
+}
 if (-not ($Apply -or $Remove -or $ConfigureKey)) {
   Write-Host 'F139_INSTALL=DRY_RUN_NO_CHANGES'
   return
@@ -59,7 +71,7 @@ if ($Apply) {
     '-EncryptedKeyFile',('"'+$key+'"')) -join ' '
   $action = New-ScheduledTaskAction -Execute $ps -Argument $arg
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
-  $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
+  if ($null -eq $settings) { throw 'F139_TASK_SETTINGS_ABSENT' }
   $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
   Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
   Write-Host 'F139_TASK_INSTALLED_INERT_UNTIL_SEPARATE_VERIFIED_CUTOVER'
