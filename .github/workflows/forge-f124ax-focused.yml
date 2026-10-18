@@ -1,0 +1,49 @@
+name: F124-AX frozen source and equal-information focused qualification
+on:
+  push:
+    branches: [research/f124ax-equal-information-nonlinear-transfer-20261018]
+    paths:
+      - '.github/workflows/forge-f124ax-focused.yml'
+      - 'nativeevidence/f124ax_*.py'
+      - 'nativeevidence/test_f124ax_*.py'
+      - 'reference/research-intake/f124ax-frozen-equal-information-transfer.json'
+permissions:
+  contents: read
+concurrency:
+  group: f124ax-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  nonconsuming-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify preimplementation Git identity and isolate new TRAIN
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AX_HEAD_DRIFT' }
+          $freeze='reference/research-intake/f124ax-frozen-equal-information-transfer.json'
+          if ((git hash-object $freeze).Trim() -cne '9c853649d498af8d264271851417070ab5ee0450') { throw 'F124AX_FREEZE_BLOB_MISMATCH' }
+          if ((git log -1 --format=%H -- $freeze).Trim() -cne 'd56847eafb0c4ab43d3514f33b93b1fce8412d61') { throw 'F124AX_FREEZE_NOT_PREIMPLEMENTATION' }
+          git merge-base --is-ancestor d56847eafb0c4ab43d3514f33b93b1fce8412d61 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'F124AX_FREEZE_NOT_ANCESTOR' }
+          if ((git rev-parse 'a0173ff8ab3093dbb24d1b517c416c03502570e1:nativeevidence/f124av_informative_inverse.py').Trim() -cne '0364e6a00c2bc3ffcda0e91ab2fe292e6bd5') { throw 'F124AX_AV_MODEL_DRIFT' }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124ax_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124AX_FOCUSED_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AX_CROSS_PROJECT_ISOLATION_FAIL' }
+          Write-Output 'F124AX_NONCONSUMING_FOCUSED=PASS'
+          Write-Output 'F124AX_DEV_CASES_CONSTRUCTED=0'
+          Write-Output 'F124AX_SCIENCE_FIRST_USE=NOT_RUN'
