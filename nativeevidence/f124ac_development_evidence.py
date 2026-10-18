@@ -68,11 +68,9 @@ def causal_join(trace,witness,wing=False):
     steps=[]
     for i,(snap,(node,key)) in enumerate(zip(trace,witness),1):
         if wing:
-            compressed=sum(obs.CHECKSUM[k]*list(key)[4*j+k]
-                           for k in range(4) for j in []) if False else None
             packed=0
             for j,v in enumerate(obs.pack_public(list(key))):packed|=v<<(j*3)
-            candidate=any(n==node and any(dst==packed for _,dst in rows)
+            candidate=any(n==node and any(dst==packed for _,_,dst in rows)
                           for n,rows in snap["all_public_candidate_keys"])
             kept=any(n==node and stored==packed for n,_,stored in snap["kept"])
             hard_active=kept
