@@ -49,6 +49,16 @@ jobs:
             }
             $out=Join-Path $scratch 'generated'
             Copy-Item -LiteralPath $root -Destination $out -Recurse -Force -ErrorAction Stop
+            # Probe the target generator without altering its source repository.
+            # PS5.1 ConvertFrom-Json preserves ISO strings; PS7 can convert
+            # them to localized DateTime and subsequently change visible values.
+            $generator=Join-Path $out 'tools/remote-snapshot.ps1'
+            $generatorText=[IO.File]::ReadAllText($generator)
+            $old='return ($Raw | ConvertFrom-Json)'
+            if($generatorText.Split([string[]]@($old),[StringSplitOptions]::None).Count -ne 2){throw 'UQ46_GENERATOR_PROBE_ANCHOR_DRIFT'}
+            $generatorText=$generatorText.Replace($old,'return ($Raw | ConvertFrom-Json -DateKind String)')
+            [IO.File]::WriteAllText($generator,$generatorText,[Text.UTF8Encoding]::new($false))
+            Write-Host 'UQ46_STRING_PRESERVING_JSON_PROBE=ENABLED'
             # This copy is entirely within disposable private scratch.
             $null= & (Join-Path $out 'tools/remote-snapshot.ps1') -RepoRoot $out
             Write-Host 'UQ46_GENERATOR_COMPLETED=PASS'
