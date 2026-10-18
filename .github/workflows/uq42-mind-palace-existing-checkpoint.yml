@@ -75,8 +75,9 @@ jobs:
             Assert ((& git.exe -C $root config --get remote.origin.partialclonefilter | Out-String).Trim() -ceq 'blob:none') 'FILTER_NOT_SET'
             & git.exe -C $root sparse-checkout set --cone .ice tools schemas policies tests archive
             Assert ($LASTEXITCODE -eq 0) 'SPARSE_SETUP'
-            & git.exe -C $root checkout --force $expectedMain
+            & git.exe -C $root checkout --quiet --force main
             Assert ($LASTEXITCODE -eq 0) 'MAIN_CHECKOUT'
+            Assert ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $expectedMain) 'MAIN_SHA_DRIFT'
             Assert ((& git.exe -C $root rev-parse --abbrev-ref HEAD | Out-String).Trim() -ceq 'main') 'BRANCH_NOT_MAIN'
             & git.exe -C $root fetch --quiet --no-tags --depth 1 origin $expectedPr
             Assert ($LASTEXITCODE -eq 0) 'PINNED_PR_FETCH'
