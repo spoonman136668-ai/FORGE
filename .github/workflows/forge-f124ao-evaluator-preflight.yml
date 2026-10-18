@@ -1,0 +1,107 @@
+name: F124-AO evaluator TRAIN-only preflight
+on:
+  push:
+    branches: [research/f124ao-learned-relations-and-single-state-evidence-20261018]
+    paths:
+      - '.github/workflows/forge-f124ao-evaluator-preflight.yml'
+      - 'nativeevidence/f124ao_dev_evidence.py'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ao-evaluator-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  train-only-evaluator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify pre-first-use selection and authentic TRAIN artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='reference/research-intake/f124ao-post-train-selected-parameters.json'
+          if ((git hash-object $p).Trim() -cne 'e30c39911fe9aee5af48c1d94233c5a5402b99bc' -or
+              (git log -1 --format=%H -- $p).Trim() -cne '7f312048d1f01634883f0f30dcc917c10b873024') {
+            throw 'F124AO_SELECTION_NOT_PREDEV_FROZEN'
+          }
+          $run=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39121840563' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne 'a9e3d0818f2dc407dfc8857057f932ba0f80bb26' -or
+              $run.conclusion -cne 'success' -or $run.event -cne 'push') {
+            throw 'F124AO_TRAIN_NOT_AUTHENTIC'
+          }
+          $art=gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39121840563/artifacts' | ConvertFrom-Json
+          $hit=@($art.artifacts | Where-Object { $_.id -eq 12133978388 })
+          if ($LASTEXITCODE -ne 0 -or $hit.Count -ne 1 -or $hit[0].expired -or
+              $hit[0].digest -cne 'sha256:cc15eec8e7f51485d1298e010f3f2a0cc20978b299aa7bdaf70fb46dc186b9f9') {
+            throw 'F124AO_TRAIN_ARTIFACT_NOT_AUTHENTIC'
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: original-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: original-an
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39121840563
+          github-token: ${{ github.token }}
+          name: f124ao-frozen-train-selection-a9e3d0818f2dc407dfc8857057f932ba0f80bb26
+          path: frozen-train
+      - name: Evaluate TRAIN only to qualify the DEV harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124ao-train-evaluator-preflight.json'
+          & python3 -B nativeevidence/f124ao_dev_evidence.py --mode preflight `
+            --o original-o/f124o-independent-two-learned-development.json `
+            --t original-t/f124t-fresh-absolute-development.json `
+            --an original-an/f124an-calibrated-affine-wing-isolation.json `
+            --train frozen-train/f124ao-frozen-train-selection.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124AO_TRAIN_ONLY_EVALUATOR_FAILURE' }
+          $r=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json
+          if ($r.schema -cne 'forge.research.f124ao.frozen-first-dev-source-backed-outcome.v1' -or
+              $r.mode -cne 'preflight' -or $r.period -cne 'TRAIN' -or
+              $r.lanes.Count -ne 2 -or $r.no_DEV_selection_or_retuning -ne $true -or
+              $r.protected_first_use -or $r.independent_science_acceptance -or
+              $r.optimizer_promotion -or $r.production_activation) {
+            throw 'F124AO_PREFLIGHT_OUTPUT_INVALID'
+          }
+          foreach ($lane in $r.lanes) {
+            if ($lane.pairs -ne 48 -or $lane.models.AO_selected.pairs -ne 48) {
+              throw 'F124AO_PREFLIGHT_NOT_FROZEN_PAIRED_SOURCE'
+            }
+          }
+          Write-Output 'F124AO_EVALUATOR_PREFLIGHT=PASS'
+          Write-Output 'F124AO_DEV_CASES_GENERATED=0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ao-evaluator-train-preflight-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ao-train-evaluator-preflight.json
+          if-no-files-found: error
+          retention-days: 90

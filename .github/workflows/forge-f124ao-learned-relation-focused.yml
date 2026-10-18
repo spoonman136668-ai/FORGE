@@ -1,0 +1,83 @@
+name: F124-AO frozen relation and packed evidence focused
+on:
+  push:
+    branches: [research/f124ao-learned-relations-and-single-state-evidence-20261018]
+    paths:
+      - '.github/workflows/forge-f124ao-learned-relation-focused.yml'
+      - 'reference/research-intake/f124ao-frozen-learned-relations-and-single-state-evidence.json'
+      - 'nativeevidence/f124ao_*.py'
+      - 'nativeevidence/test_f124ao_*.py'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ao-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prospective-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify freeze precedes model, inherited identity and source only isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {
+            throw 'F124AO_EXPECTED_EXACT_HEAD'
+          }
+          $f='reference/research-intake/f124ao-frozen-learned-relations-and-single-state-evidence.json'
+          if ((git hash-object $f).Trim() -cne '2c3a60739ad0bc9163f2d30e88390c4f8c20dd45') {
+            throw 'F124AO_FREEZE_BLOB_MISMATCH'
+          }
+          if ((git log -1 --format=%H -- $f).Trim() -cne '7ed4286c056066dd2b4417753cdc944285d2bfb3') {
+            throw 'F124AO_FREEZE_NOT_PRIOR_TO_IMPLEMENTATION'
+          }
+          if ((git rev-parse 'ca46eba41179a1c6d9cd0bfa74119782c6d11d88:nativeevidence/f124an_frozen_source.py').Trim() -cne '0bdb7579050f90c078a5c05acc7faf77d2f9c5d4') {
+            throw 'F124AO_AN_EXACT_SOURCE_DRIFT'
+          }
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          foreach ($pattern in @('test_f124ao_*.py','test_f124an_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124AO_FOCUSED_FAILED_$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AO_CROSS_PROJECT_ISOLATION' }
+          Write-Output 'F124AO_SOURCE_AND_FOCUSED_PASS=TRUE'
+          Write-Output 'F124AO_DEV_FIRST_USE=FALSE'
+          Write-Output 'F124AO_SCIENTIFIC_WIN=UNDETERMINED'
+  authenticated-parent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify immutable authenticated parent proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $run=gh api "repos/$env:GH_REPO/actions/runs/39118489510" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.head_sha -cne 'ca46eba41179a1c6d9cd0bfa74119782c6d11d88' -or
+              $run.event -cne 'push' -or $run.status -cne 'completed' -or $run.conclusion -cne 'success') {
+            throw 'F124AO_PARENT_AUTHENTICATED_RUN_DRIFT'
+          }
+          $artifact=gh api "repos/$env:GH_REPO/actions/runs/39118489510/artifacts" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'F124AO_PARENT_ARTIFACT_INDEX' }
+          $found=@($artifact.artifacts | Where-Object { $_.id -eq 12132914773 })
+          if ($found.Count -ne 1 -or $found[0].expired -or
+              $found[0].digest -cne 'sha256:eb30d76eccdf8f33e24b6348c43d17acb50c3fcbafec8ec039a6b4239593abeb') {
+            throw 'F124AO_PARENT_ARTIFACT_DRIFT'
+          }
+          Write-Output 'F124AO_IMMUTABLE_PARENT_CUSTODY_PASS=TRUE'
+          Write-Output 'F124AO_PROTECTED_SCIENCE=FALSE'
