@@ -57,14 +57,14 @@ jobs:
           $root = Join-Path $scratch 'source'
           if (Test-Path -LiteralPath $scratch) { throw 'UQ59_PREEXISTING_TEMP_CUSTODY' }
           New-Item -ItemType Directory -Path $scratch -Force | Out-Null
-          function Git([string[]]$args) {
-            $text = (& git.exe @args 2>&1 | Out-String).Trim()
+          function Git([string[]]$argv) {
+            $text = (& git.exe @argv 2>&1 | Out-String).Trim()
             if ($LASTEXITCODE -ne 0) { throw ('UQ59_GIT_ERROR ' + $text) }
             return $text
           }
           function Hash([string]$p) { return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() }
-          function Child([string]$script, [string[]]$args, [bool]$success) {
-            $out = (& pwsh.exe -NoProfile -NonInteractive -File $script @args 2>&1 | Out-String).Trim()
+          function Child([string]$script, [string[]]$argv, [bool]$success) {
+            $out = (& pwsh.exe -NoProfile -NonInteractive -File $script @argv 2>&1 | Out-String).Trim()
             $code = $LASTEXITCODE
             if ($success -and $code -ne 0) { throw ('UQ59_EXPECTED_SUCCESS_FAILED ' + $out) }
             if (-not $success -and $code -eq 0) { throw 'UQ59_UNAUTHORIZED_OPERATION_SUCCEEDED' }
