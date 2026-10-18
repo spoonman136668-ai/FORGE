@@ -237,9 +237,10 @@ def measured(lane,graphs,base,delta,selection):
     for arm in arms:
         times=[];peaks=[]
         for graph in graphs:
-            function=(lambda:score_y(arm,graph,base,delta,selection)
-                      if lane=="Yggdrasil" else
-                      lambda:score_w(arm,graph,base,delta,selection))
+            if lane=="Yggdrasil":
+                function=lambda:score_y(arm,graph,base,delta,selection)
+            else:
+                function=lambda:score_w(arm,graph,base,delta,selection)
             function()
             for _ in range(3):
                 t=time.perf_counter_ns()
