@@ -30,12 +30,7 @@ SALTS["AE_near_break"]="forge/F124AE/fresh-family/near-break/v1/"
 SALTS["AE_late_break"]="forge/F124AE/fresh-family/late-break/v1/"
 FORBIDDEN={lane:range(180100,180148) for lane in COHORTS}
 VECTORS = ((2, 1, 1), (1, 2, 1))
-FORBIDDEN = {
-    "Wingless": range(180100, 180148),
-    "Yggdrasil": range(190100, 190148),
-    "YggdrasilStress": range(190100, 190148),
-    "YggdrasilCost": range(190100,190148),
-}
+
 GRAPH_KEYS = {"start", "target", "roles", "edges"}
 EDGE_KEYS = {"from", "to", "role", "src_bits", "dst_bits"}
 
