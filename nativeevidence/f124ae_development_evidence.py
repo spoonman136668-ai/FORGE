@@ -268,7 +268,7 @@ def main():
         if lane["lane"]=="Wingless":
             print("F124AE_WING_DEV="+str(arms["FIT_threshold"]["paired"])+
                   "/48;one="+str(arms["original_one_state"]["paired"])+
-                  "/48;bias="+str(bias))
+                  "/48;bias="+str(result["wing_fit_selection"]["bias"]))
         else:
             print("F124AE_YGG_DEV=AD="+str(arms["AD_anchor10"]["paired"])+
                   "/48;AB="+str(arms["AB_anchor16"]["paired"])+
