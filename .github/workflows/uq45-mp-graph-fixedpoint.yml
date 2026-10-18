@@ -1,0 +1,79 @@
+name: UQ45 Mind-Palace pinned graph fixed-point preview
+on:
+  push:
+    branches: [qualification/uq45-mind-palace-graph-fixedpoint]
+    paths: ['.github/workflows/uq45-mp-graph-fixedpoint.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq45-mind-palace-graph-preview
+  cancel-in-progress: false
+jobs:
+  graph:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Preview exact derived graph and verify no memory changes
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ45_RUNNER_IDENTITY_MISMATCH'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $head='bcce44efc2b7f7c89e25679cecc2d46424a4aaf0'
+          foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq42-utc-offset-checkpoint-compat',$head))){
+            $v=@(& git.exe ls-remote --exit-code $remote $pair[0])
+            if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or ([string]$v[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ45_SOURCE_REF_DRIFT'}
+          }
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $preview=Join-Path $scratch 'preview-graph.json'
+          if(Test-Path $scratch){throw 'UQ45_SCRATCH_ALREADY_EXISTS'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            & git.exe clone --quiet --filter=blob:none --no-checkout --single-branch --branch engineering/uq42-utc-offset-checkpoint-compat $remote $root
+            if($LASTEXITCODE -ne 0){throw 'UQ45_CLONE_FAILED'}
+            & git.exe -C $root sparse-checkout set --cone .ice tools
+            if($LASTEXITCODE -ne 0){throw 'UQ45_SPARSE_FAILED'}
+            & git.exe -C $root checkout --force engineering/uq42-utc-offset-checkpoint-compat
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $head)){throw 'UQ45_CHECKOUT_IDENTITY_DRIFT'}
+            $tracked=Join-Path $root '.ice/project-dependency-graph.json'
+            $records=Join-Path $root '.ice/records.json'
+            $ledger=Join-Path $root '.ice/source-ledger.json'
+            $beforeRecords=(Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash
+            $beforeLedger=(Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash
+            $current=[IO.File]::ReadAllText($tracked)|ConvertFrom-Json
+            $generator=Join-Path $root 'tools/project-dependency-graph.ps1'
+            $null= & $generator -RepoRoot $root -OutputPath $preview
+            $fresh=[IO.File]::ReadAllText($preview)|ConvertFrom-Json
+            if([string]$current.source_records_sha256 -cne [string]$fresh.source_records_sha256){throw 'UQ45_RECORDS_SOURCE_SHA_DRIFT'}
+            if([int]$current.node_count -ne [int]$fresh.node_count -or [int]$current.edge_count -ne [int]$fresh.edge_count){throw 'UQ45_GRAPH_COUNTS_DRIFT'}
+            $idsBefore=@($current.nodes | ForEach-Object {$_.id}|Sort-Object)
+            $idsAfter=@($fresh.nodes | ForEach-Object {$_.id}|Sort-Object)
+            $edgesBefore=@($current.edges | ForEach-Object {$_.from+'|'+$_.relation+'|'+$_.to+'|'+$_.record_id}|Sort-Object)
+            $edgesAfter=@($fresh.edges | ForEach-Object {$_.from+'|'+$_.relation+'|'+$_.to+'|'+$_.record_id}|Sort-Object)
+            if(($idsBefore -join '~') -cne ($idsAfter -join '~') -or ($edgesBefore -join '~') -cne ($edgesAfter -join '~')){throw 'UQ45_GRAPH_SEMANTICS_CHANGED'}
+            $oldBlob=(& git.exe -C $root hash-object -- $tracked|Out-String).Trim()
+            $newBlob=(& git.exe -C $root hash-object --path '.ice/project-dependency-graph.json' -- $preview | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $oldBlob -ceq $newBlob){throw 'UQ45_GRAPH_EXPECTED_DELTA_MISSING'}
+            if((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash -cne $beforeRecords -or (Get-FileHash -LiteralPath $ledger -Algorithm SHA256).Hash -cne $beforeLedger){throw 'UQ45_PRODUCTION_SOURCE_DRIFT'}
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ45_WORKTREE_CHANGED'}
+            Write-Host 'UQ45_GRAPH_NODE_AND_EDGE_SETS_EQUAL=PASS'
+            Write-Host ('UQ45_OLD_GRAPH_BLOB='+$oldBlob)
+            Write-Host ('UQ45_EXPECTED_GRAPH_BLOB='+$newBlob)
+            Write-Host ('UQ45_FIRST_SORTED_NODE='+[string]$fresh.nodes[0].id)
+            Write-Host ('UQ45_FIRST_SORTED_EDGE='+[string]$fresh.edges[0].record_id)
+            Write-Host 'UQ45_RECORDS_AND_LEDGER_HASH_STABLE=PASS'
+            Write-Host 'UQ45_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ45_PAID_INFERENCE_AND_CODEX=0'
+          }finally{
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $scratch){throw 'UQ45_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ45_SCRATCH_CLEAN=PASS'
+          }
