@@ -1,0 +1,112 @@
+name: F124-ST merged-stack exact-head requalification
+on:
+  push:
+    branches: [research/f124s-packed-keys-cell-credit-20261017]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124st-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-identity-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify frozen S+T actual integrated source on this SHA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124ST_HEAD_IDENTITY_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124s_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124ST_S_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124t_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124ST_T_FAIL' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124r_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124ST_PARENT_FAIL' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124ST_ISOLATION_FAIL' }
+          Write-Output 'F124ST_ORIGINAL_PROTECTED_SOURCE_UNTOUCHED=true'
+
+  original-artifact-custody:
+    needs: source-identity-cross-platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: qualified-s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39083518686
+          github-token: ${{ github.token }}
+          name: f124t-authenticated-indexed-credit-diagnostic-7bae930a53c4196ff32badfc5b58c16825a2d9ac
+          path: qualified-t
+      - name: Verify SHA256 of genuine source-backed original negative and ablation evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $s=(Get-FileHash -LiteralPath 'qualified-s/f124s-fresh-packed-key-cell-credit-development.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $t=(Get-FileHash -LiteralPath 'qualified-t/f124t-fresh-packed-indexed-cell-credit-diagnostic.json' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($s -cne 'fb28a06ca4e0bfde9b4053734d61f2e3d1e760a8a3dda29e834780abe2339f25') { throw 'F124ST_S_SCIENCE_IDENTITY_DRIFT' }
+          if ($t -cne '6aeab10ff49a98819e2e7614140d6304a0079cc8caebca7dd20b08b8ff73fab3') { throw 'F124ST_T_SCIENCE_IDENTITY_DRIFT' }
+          $a=Get-Content 'qualified-s/f124s-fresh-packed-key-cell-credit-development.json' -Raw | ConvertFrom-Json
+          $b=Get-Content 'qualified-t/f124t-fresh-packed-indexed-cell-credit-diagnostic.json' -Raw | ConvertFrom-Json
+          if ($a.scientific_acceptances -ne 0 -or $a.optimizer_promotions -ne 0 -or
+              $b.scientific_acceptances -ne 0 -or $b.optimizer_promotions -ne 0 -or
+              $b.training_steps -ne 0 -or $a.lanes.Count -ne 2 -or $b.lanes.Count -ne 2) {
+            throw 'F124ST_UNAUTHORIZED_SCIENCE_ADVANCEMENT'
+          }
+          Write-Output "F124ST_AUTHENTIC_S_SHA256=$s"
+          Write-Output "F124ST_AUTHENTIC_T_SHA256=$t"
+          Write-Output "F124ST_MERGED_SOURCE_HEAD=$env:GITHUB_SHA"
+
+  one-full-regression:
+    needs: original-artifact-custody
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one full original Go test race vet build at new stacked head
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124ST_ACTUAL_MERGED_HEAD=$GITHUB_SHA"
+          echo 'F124ST_PROTECTED_FIRST_USE=false'
