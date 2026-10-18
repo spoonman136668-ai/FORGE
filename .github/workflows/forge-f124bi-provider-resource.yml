@@ -1,0 +1,178 @@
+name: F124-BI provider source authentication and matched resource evidence
+on:
+  push:
+    branches: [research/f124bi-provider-resource-admission-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bi-readonly-exact-head-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify precode-before-implementation, immutable source, bounded patch and adversarial tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BI_EXACT_HEAD' }
+          & git merge-base --is-ancestor '0c7e2fdcdcc6ee85873657424aaa85c59e0de1ed' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BI_BH_FOUNDATION_DRIFT' }
+          $files=@(& git diff --name-only '0c7e2fdcdcc6ee85873657424aaa85c59e0de1ed' HEAD | Where-Object { $_ })
+          $wanted=@(
+            '.github/workflows/forge-f124bi-provider-resource.yml',
+            'research/north-star-transfer/f124bi-frozen-method.json',
+            'research/north-star-transfer/f124bi_provider_verify.py',
+            'research/north-star-transfer/f124bi_measure.py',
+            'research/north-star-transfer/test_f124bi_readiness.py'
+          )
+          if ((@($files | Sort-Object) -join '|') -cne (@($wanted | Sort-Object) -join '|')) { throw 'BI_SCOPE_WIDENED' }
+          & git merge-base --is-ancestor 'b0580b52cc6d2e4985d035f3fc6da0cdc28bf433' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BI_PREREG_DRIFT' }
+          & git cat-file -e 'b0580b52cc6d2e4985d035f3fc6da0cdc28bf433:research/north-star-transfer/f124bi_provider_verify.py' 2>$null
+          if ($LASTEXITCODE -eq 0) { throw 'BI_CODE_PREEXISTED_FREEZE' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bi_readiness.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BI_ADVERSE_BOUNDS' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bh_readiness.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BI_INHERITED_BH_REGRESSION' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BI_REPO_ISOLATION' }
+          Write-Output 'F124BI_CROSS_PLATFORM_FOCUSED=PASS'
+          Write-Output 'F124BI_ORIGINAL_SCIENCE_CONSUMED=false'
+  github-provider-witness:
+    needs: focused-cross-platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independent GitHub REST original-blob and first-parent witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bi"
+          python -B research/north-star-transfer/f124bi_provider_verify.py \
+            --provider --output "$RUNNER_TEMP/f124bi/github-provider-custody.json"
+          python -B - "$RUNNER_TEMP/f124bi/github-provider-custody.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['provider_commit_blob_tree_authenticated'] is True
+          assert len(d['provider_receipts'])==3
+          assert d['strict_first_parent_source_birth_chronology'] is True
+          assert d['external_independent_source_origin_confirmed'] is False
+          assert d['source_novelty_vs_all_historical_ledger_certified'] is False
+          assert d['scientific_admission_authorized'] is False
+          assert d['registered_case_generated']==0
+          print('F124BI_GITHUB_CUSTODY_ENGINEERING=PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bi-provider-object-witness-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bi/
+          retention-days: 90
+          if-no-files-found: error
+  measured-partial-resource:
+    needs: focused-cross-platform
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source-identical 48-observation candidate/AZ isolated partial CPU and RSS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bi"
+          python -B research/north-star-transfer/f124bi_measure.py \
+            --output "$RUNNER_TEMP/f124bi/partial-resources.json"
+          python -B - "$RUNNER_TEMP/f124bi/partial-resources.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          s=d['summary']
+          assert s['recorded_arm_count']==12
+          assert s['resource_parity_qualified'] is False
+          assert s['scientific_admission'] is False
+          assert s['registered_source_constructed']==0
+          assert set(s['matched_measurements'])=={'U','R'}
+          for r in d['raw_child_measurements']:
+              assert r['TRAIN_192_cpu_ns'] is None
+              assert r['full_native_graph_scoring_cpu_ns'] is None
+              assert r['complete_cognition_state_bytes'] is None
+              assert r['registered_source_generated']==0
+          print('F124BI_REAL_PARTIAL_CPU_AND_PEAK_RSS=PASS')
+          print('F124BI_FULL_LIFECYCLE_PARITY_NOT_PROVEN=true')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bi-matched-negative-fixture-resources-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bi/
+          retention-days: 90
+          if-no-files-found: error
+  one-final-integration:
+    needs: [github-provider-witness, measured-partial-resource]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Single final complete regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bi"
+          sha256sum research/north-star-transfer/f124bi-frozen-method.json \
+            research/north-star-transfer/f124bi_provider_verify.py \
+            research/north-star-transfer/f124bi_measure.py \
+            research/north-star-transfer/test_f124bi_readiness.py \
+            .github/workflows/forge-f124bi-provider-resource.yml \
+            > "$RUNNER_TEMP/f124bi/source-sha256.txt"
+          printf 'EXACT_HEAD=%s\nPROVIDER_OBJECTS=WITNESSED_BY_EXISTING_GITHUB\nEXTERNAL_SOURCE_ORIGIN_ATTESTED=false\nWHOLE_TASK_RESOURCE_PARITY=false\nPROSPECTIVE_COHORTS_CONSUMED=0\nSCIENTIFIC_ADMISSION=false\nOPTIMIZER_PROMOTION=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bi/engineering-disposition.txt"
+          echo F124BI_FINAL_INTEGRATION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bi-engineering-evidence-not-science-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bi/
+          if-no-files-found: error
+          retention-days: 90
