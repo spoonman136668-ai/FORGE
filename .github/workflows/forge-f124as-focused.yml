@@ -1,0 +1,76 @@
+name: F124-AS frozen source and model focused
+on:
+  push:
+    branches: [research/f124as-noise-tolerant-relational-code-and-packed-counterfactual-20261018]
+    paths:
+      - '.github/workflows/forge-f124as-focused.yml'
+      - 'nativeevidence/f124as_*.py'
+      - 'nativeevidence/test_f124as_*.py'
+      - 'reference/research-intake/f124as-frozen-noisy-relations-and-packed-forks.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124as-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen-before-implementation and source/one-packed limits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AS_EXACT_HEAD' }
+          $p='reference/research-intake/f124as-frozen-noisy-relations-and-packed-forks.json'
+          if((git hash-object $p).Trim() -cne '8920dcdc81e5cfb4355d0943eff1be359926ab04' -or
+             (git log -1 --format=%H -- $p).Trim() -cne '78bc985278f74f114414b6f39a2296ff73c939fa' -or
+             (git rev-parse 'bc5c1dad37637247f105c98d98c1dd0ed2ae1f92:nativeevidence/f124ar_train_source.py').Trim() -cne '8fe8af6f16dbe730f791994252a2bf136be6f337') {
+            throw 'F124AS_FROZEN_OR_PARENT_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124as_*.py' -v
+          if($LASTEXITCODE -ne 0) { throw 'F124AS_FOCUSED_PY_FAIL' }
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0) { throw 'F124AS_ISOLATION_FAILED' }
+          Write-Output 'F124AS_FOCUSED=PASS'
+          Write-Output 'F124AS_DEV_USED=false'
+  parent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Original qualified F124-AR evidence and final Go acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($p in @(
+            @{id=39133441550;sha='d261861f31c34152ffe9d7081302f764ac02fb7d'},
+            @{id=39133680305;sha='bc5c1dad37637247f105c98d98c1dd0ed2ae1f92'}
+          )){
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.head_sha -cne $p.sha -or
+               $r.conclusion -cne 'success' -or $r.status -cne 'completed') {
+              throw 'F124AS_PARENT_RUN_NOT_QUALIFIED'
+            }
+          }
+          $a=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/39133441550/artifacts" | ConvertFrom-Json
+          $hit=@($a.artifacts | Where-Object { $_.id -eq 12138622197 })
+          if($LASTEXITCODE -ne 0 -or $hit.Count -ne 1 -or $hit[0].expired -or
+             $hit[0].digest -cne 'sha256:af5ad2a392481dbb7819bb28a0524b308330c2065b98ed20688de35a6516e0a7') {
+            throw 'F124AS_PARENT_RAW_TRAIN_CUSTODY'
+          }
+          Write-Output 'F124AS_PARENT_AUTHENTICATED=PASS'
