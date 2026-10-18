@@ -1,0 +1,49 @@
+name: F124-BB nonconsuming independent public consensus preflight
+on:
+  push:
+    branches: [research/f124bb-public-model-consensus-20261018]
+    paths:
+      - '.github/workflows/forge-f124bb-focused.yml'
+      - 'nativeevidence/f124bb_*.py'
+      - 'nativeevidence/test_f124bb_*.py'
+      - 'reference/research-intake/f124bb-frozen-public-transition-consensus.json'
+permissions:
+  contents: read
+concurrency:
+  group: f124bb-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  pre-first-use:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fail closed if original scientific parent or new preregistration drifts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'F124BB_HEAD_DRIFT'}
+          $freeze='reference/research-intake/f124bb-frozen-public-transition-consensus.json'
+          if((git hash-object $freeze).Trim() -cne '7328674f265efe93fa7c76b48ddeefee31ebe990'){throw 'F124BB_FREEZE_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- $freeze).Trim() -cne '28f712b226864f1c7092d5c9a3c611241a9a025a'){throw 'F124BB_NOT_FROZEN_BEFORE_IMPLEMENTATION'}
+          git merge-base --is-ancestor 28f712b226864f1c7092d5c9a3c611241a9a025a HEAD
+          if($LASTEXITCODE -ne 0){throw 'F124BB_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object nativeevidence/f124ba_train_source.py).Trim() -cne 'eb7ef9ffeaabcabb2c73a283b1b20ebd574d0e40'){throw 'F124BB_BA_PARENT_SOURCE_DRIFT'}
+          if((git hash-object nativeevidence/f124az_joint_public_inverse.py).Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'F124BB_PARENT_JOINT_MODEL_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124bb_*.py' -v
+          if($LASTEXITCODE -ne 0){throw 'F124BB_FOCUSED_FAIL'}
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0){throw 'F124BB_ISOLATION_FAIL'}
+          Write-Output 'F124BB_NONCONSUMING_SOURCE_QUAL=PASS'
+          Write-Output 'F124BB_FIT_SCREEN_DEV_CONSTRUCTED=0'
