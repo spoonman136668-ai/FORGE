@@ -1,0 +1,94 @@
+name: F124-BC append original hard-negative first-use evidence
+on:
+  push:
+    branches: [research/f124bc-frozen-hard-negative-source-20261018]
+    paths: ['.github/workflows/forge-f124bc-durable-original.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: f124bc-original-hard-negative-append-once
+  cancel-in-progress: false
+jobs:
+  immutable-custody:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39166152134
+          github-token: ${{ github.token }}
+          name: f124bc-original-hard-negative-3e20ba84a0c705f61f1b7857a99ca4049a5c9a97
+          path: original
+      - name: Authenticate provider success and complete original raw, then append to feature branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/f124bc-frozen-hard-negative-source-20261018
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39166152134" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '3e20ba84a0c705f61f1b7857a99ca4049a5c9a97 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39166152134/jobs" --jq '[.jobs[] | select(.name=="one-original-source-FIT" or .name=="one-complete-final-regression") | .conclusion] | sort | join(" ")')" = 'success success'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39166152134/artifacts" --jq '.artifacts[] | select(.id==12151360105 and .expired==false) | .digest')" = 'sha256:e7a171b3ad3fb51834025b728145d98169cc22d178d891f65a2cfb4db4524810'
+          echo '85394433b6c475bba7e406f850ea94a6079e1d98423fc41fcb743f538d8640c8  original/f124bc-original-hard-negative.json' | sha256sum --check --strict
+          python3 - <<'PY'
+          import json
+          raw=open("original/f124bc-original-hard-negative.json","rb").read()
+          assert len(raw)==156150
+          d=json.loads(raw)
+          assert d["schema"]=="forge.research.f124bc.original-source-new-hard-negative-falsification.v1"
+          assert d["frozen_blob"]=="834945168ad01172dcd63b9e6440cfcc482cc0b1"
+          assert d["FIT_pairs"]==d["SCREEN_pairs"]==24
+          assert d["FIT_hard_source_count"]==d["SCREEN_hard_source_count"]==24
+          assert d["FIT_source_oracle_probes"]==1240
+          assert d["held_SCREEN_opened_by_frozen_coverage_and_FP_rule"]
+          assert d["FIT_existing_joint_has_hard_negative_FP"]
+          assert len(d["FIT_models"])==len(d["SCREEN_models"])==4
+          for phase in ("FIT","SCREEN"):
+              for name,c in d[phase+"_models"].items():
+                  assert c["pairs"]==c["hard_negative_eligible_cases"]==24
+                  assert c["fallback_negative_cases"]==0
+                  assert c["original_negative_FP"]==0
+                  assert len(c["case_outcomes"])==24
+                  assert all(x["valid_one_bit_hard_source"] and
+                             x["one_bit_field"] in ("src_bits","dst_bits") and
+                             x["one_bit_index"] in range(16) for x in c["case_outcomes"])
+          for mode,fitfp in (("balanced",5),("random",4)):
+              fit=d["FIT_models"]["joint_"+mode+"48"]
+              screen=d["SCREEN_models"]["joint_"+mode+"48"]
+              assert fit["hard_negative_FP"]==fitfp
+              assert screen["hard_negative_FP"]==1
+              assert fit["by_operator"]["feistel"]["hard_FP"]==2
+              assert screen["by_operator"]["feistel"]["hard_FP"]==0
+          assert d["protected_DEV_constructed"]==d["Wingless_DEV_constructed"]==0
+          assert d["new_model_elected"] is None
+          assert not d["scientific_protected_acceptance"] and not d["optimizer_promotion"]
+          print("F124BC_ALL_ORIGINAL_HARD_NEGATIVE_AND_HELD_SCREEN_EVIDENCE=PASS")
+          PY
+          dest='reference/research-intake/originals/f124bc-original-one-bit-hard-negative-fit-screen.json'
+          if gh api "repos/$GITHUB_REPOSITORY/contents/$dest?ref=$GITHUB_REF_NAME" --silent >/dev/null 2>&1; then
+            echo F124BC_APPEND_ONLY_ORIGINAL_ALREADY_EXISTS_STOP; exit 1
+          fi
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha)
+          test "$current" = "$GITHUB_SHA" || { echo F124BC_RESEARCH_BRANCH_DRIFT_STOP; exit 1; }
+          python3 - <<'PY'
+          import base64,json,os
+          original=open("original/f124bc-original-hard-negative.json","rb").read()
+          request={"message":"F124-BC append exact authenticated 156150-byte hard-negative FIT and SCREEN original science",
+                   "content":base64.b64encode(original).decode("ascii"),
+                   "branch":os.environ["GITHUB_REF_NAME"]}
+          with open("/tmp/f124bc-append-once.json","w",encoding="utf-8") as f:
+              json.dump(request,f,separators=(",",":"))
+          PY
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$dest" --input /tmp/f124bc-append-once.json --jq '[.commit.sha,.content.sha] | join(" ")'
+          echo F124BC_COMPLETE_ORIGINAL_RAW_REPOSITORY_CUSTODY=PASS
+          echo F124BC_INDEPENDENT_SCIENTIFIC_ACCEPTANCE=false
+          echo F124BC_DEV_CONSUMED=false
