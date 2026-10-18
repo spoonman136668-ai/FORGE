@@ -80,8 +80,8 @@ def fixture(folder, *, with_schedule=False):
             folder_os.mkdir(parents=True)
             raw = source.encode(report)
             (folder_os / "f138-lineage.json").write_bytes(raw)
-            (folder_os / "f138-lineage.sha256").write_text(
-                hashlib.sha256(raw).hexdigest() + "  f138-lineage.json\n")
+            (folder_os / "f138-lineage.sha256").write_bytes(
+                (hashlib.sha256(raw).hexdigest() + "  f138-lineage.json\n").encode("ascii"))
         artifacts[str(rid)] = index([
             artifact(rid, "forge-f138-lineage-" + os)
             for os in m.OS
