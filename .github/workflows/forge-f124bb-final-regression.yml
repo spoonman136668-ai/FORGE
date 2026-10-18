@@ -1,0 +1,113 @@
+name: F124-BB one complete exact-head regression with original disagreement-negative custody
+on:
+  push:
+    branches: [research/f124bb-public-disagreement-veto-20261018]
+    paths: ['.github/workflows/forge-f124bb-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bb-one-full-regression-exact-original
+  cancel-in-progress: false
+jobs:
+  full-source-and-evidence:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 45
+          persist-credentials: false
+      - name: Verify original frozen source, one TRAIN, original 311KB raw, per-arm FP efficacy and sealed DEV
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124bb-frozen-public-disagreement-veto.json
+          receipt=reference/research-intake/f124bb-retained-disagreement-negative-no-dev.json
+          raw=reference/research-intake/originals/f124bb-original-public-disagreement-ten-arm-fit-screen.json
+          test "$(git hash-object "$freeze")" = '56e77ac974b4c4673d9d1ba5e012357719165711'
+          test "$(git log -1 --format=%H -- "$freeze")" = 'e0bc101fe36a8c590668dd57165e4aa39d12b04f'
+          test "$(git hash-object "$receipt")" = '851d10279fd2d8e9d5c4088c6aad274cf4333ae4'
+          test "$(git log -1 --format=%H -- "$receipt")" = '8df6d4fe8e7a18bf081d39b5a647b894cb03d1a6'
+          test "$(git hash-object "$raw")" = '79fa8788dcd26be02ecc8ca7bb089c906c461571'
+          test "$(git log -1 --format=%H -- "$raw")" = 'dd388fff487887bfdd8087ae07c3f6f92efc18f3'
+          echo 'd430f9887adb33c82aa68cd58818677dadd06ddf237e3315aef9c1beeb437f48  reference/research-intake/originals/f124bb-original-public-disagreement-ten-arm-fit-screen.json' | sha256sum --check --strict
+          for path in nativeevidence/f124bb_train_source.py nativeevidence/f124bb_disagreement_confidence.py nativeevidence/f124bb_fit_screen.py; do
+            test "$(git hash-object "$path")" = "$(git rev-parse "5f1779f7b248993a50e1fd6b073827323b084f24:$path")"
+          done
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39163058506" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '5f1779f7b248993a50e1fd6b073827323b084f24 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39163058506/artifacts" --jq '.artifacts[] | select(.id==12149792073 and .expired==false) | .digest')" = 'sha256:0b70a5390d400c65426598b4c0a8c00811f65915d61ade99464303e2ae4cec1b'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39163538209" --jq '[.status,.conclusion] | join(" ")')" = 'completed success'
+          python3 -B - <<'PY'
+          import hashlib,json
+          rpath='reference/research-intake/originals/f124bb-original-public-disagreement-ten-arm-fit-screen.json'
+          npath='reference/research-intake/f124bb-retained-disagreement-negative-no-dev.json'
+          blob=open(rpath,'rb').read()
+          record=json.loads(blob)
+          note=json.load(open(npath))
+          assert note['schema']=='forge.research.f124bb.original-disagreement-negative-no-DEV.v1'
+          assert record['schema']=='forge.research.f124bb.original-disagreement-public-contrast-TRAIN.v1'
+          assert len(blob)==note['original']['original_raw_bytes']==311267
+          assert hashlib.sha256(blob).hexdigest()==note['original']['original_raw_sha256']
+          assert note['original']['complete_case_raw_archived'] is True
+          assert record['source_freeze_blob']==note['source']['original_preimplementation_freeze_git_blob']
+          assert record['FIT_paired_cases']==record['SCREEN_paired_cases']==24
+          assert len(record['FIT_models'])==len(record['SCREEN_models'])==len(note['science']['original_arms'])==10
+          assert record['FIT_selected_before_held_SCREEN'] is None
+          assert record['SCREEN_strict_frozen_joint_success'] is False
+          assert note['science']['all_disagreement_vetoes_in_FIT_and_SCREEN']==0
+          assert record['FIT_control_paired']==12 and record['SCREEN_control_paired']==11
+          for arm in note['science']['original_arms']:
+            name=arm['name']
+            for stage in ('FIT','SCREEN'):
+              actual=record[stage+'_models'][name]
+              old=arm[stage]
+              for key in ('paired','FP','FN','public_response_calls','model_CPU_ns','extra_model_bits_lower'):
+                actual_field='max_extra_model_bits_lower' if key=='extra_model_bits_lower' else key
+                assert actual[actual_field]==old[key],(name,stage,key)
+              assert actual['by_operator']['feistel']['paired']==old['Feistel_paired']
+              assert len(actual['case_outcomes'])==24
+              assert sum(x.get('public_CHECK_veto_applied') is True for x in actual['case_outcomes'])==old['conflict_vetoes']
+              assert actual['public_response_calls']==1152
+              assert actual['max_active']<=7 and actual['max_retained']<=9
+          for stage in ('FIT','SCREEN'):
+            expected=note['science']['new_candidate_eligibility'][stage]
+            actual=record[stage+'_joint_eligibility']
+            assert expected==actual
+            assert not any(c['eligible'] for c in actual.values())
+          assert record['SCREEN_models']['joint_random48']['FP']==1
+          assert record['SCREEN_models']['disagreement_random_veto2']['FP']==1
+          assert record['SCREEN_models']['disagreement_balanced_veto4']['FP']==1
+          assert record['Ygg_DEV_generated']==record['Wingless_DEV_generated']==0
+          assert record['Ygg_DEV_consumed'] is False and record['Wingless_DEV_consumed'] is False
+          assert not record['scientific_protected_acceptance'] and not record['optimizer_promotion']
+          assert all(value is False for value in note['authority'].values())
+          print('F124BB_FULL_ORIGINAL_MODEL_BIRTH_AND_NEGATIVE_EVIDENCE=PASS')
+          print('F124BB_SCIENTIFIC_PROMOTION_INELIGIBLE_DEV_UNCONSUMED=true')
+          PY
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete unchanged Go regression, race, vet, build and isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BB_ONE_EXACT_SOURCE_FULL_REGRESSION=PASS
+          echo F124BB_ACCEPTED_EXACT_HEAD=$GITHUB_SHA
+          echo F124BB_SCIENCE_ACCEPTED=false
+          echo F124BB_NEW_DEV_CONSUMED=false
