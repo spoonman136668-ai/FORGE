@@ -70,4 +70,65 @@ jobs:
             production_memory_writes=0
             did_not_create_checkout=$true
           }) -Depth 6 | Write-Host
+          $physical = 'C:\Users\camar\GolandProjects\Mind-Palace'
+          $pinnedRemote='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          if (-not [IO.Directory]::Exists([IO.Path]::Combine($physical,'.git'))) {
+            throw 'UQ59_PERSISTENT_CHECKOUT_NOT_FOUND'
+          }
+          $before = (& git.exe -C $physical rev-parse HEAD | Out-String).Trim()
+          $dirty=@(& git.exe -C $physical status --porcelain=v1 --untracked-files=all)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
+            throw 'UQ59_PERSISTENT_CHECKOUT_DIRTY_OR_GIT_FAILED'
+          }
+          $origin=(& git.exe -C $physical remote get-url origin | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $origin -notmatch 'spoonman136668-ai/Mind-Palace(\.git)?
+) {
+            throw 'UQ59_PERSISTENT_REMOTE_DRIFT'
+          }
+          $upstream = @(& git.exe ls-remote --exit-code $origin refs/heads/main)
+          if ($LASTEXITCODE -ne 0 -or $upstream.Count -ne 1 -or
+              ([string]$upstream[0] -split '\s+')[0] -cne $pinnedRemote) {
+            throw 'UQ59_PERSISTENT_REMOTE_MAIN_CHANGED'
+          }
+          # This fetch changes Git's object/cache area only; it does not alter the
+          # tracked source or accepted memory in the workstation worktree.
+          & git.exe -C $physical fetch --no-tags --quiet origin refs/heads/main
+          if ($LASTEXITCODE -ne 0) { throw 'UQ59_FF_PROBE_FETCH_FAILED' }
+          $target=(& git.exe -C $physical rev-parse FETCH_HEAD | Out-String).Trim()
+          & git.exe -C $physical merge-base --is-ancestor $before $target
+          if ($LASTEXITCODE -ne 0 -or $target -cne $pinnedRemote) {
+            throw 'UQ59_LOCAL_SOURCE_NOT_A_FAST_FORWARD_ANCESTOR'
+          }
+          $protected=@(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/chat-delta-state.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/project-state-capsules.json','.ice/project-dependency-graph.json'
+          )
+          $changed=@(& git.exe -C $physical diff --name-only $before $target)
+          $protectedChanged=@(& git.exe -C $physical diff --name-only $before $target -- @protected)
+          $localRecords=@([IO.File]::ReadAllText((Join-Path $physical '.ice/records.json')) | ConvertFrom-Json)
+          $localLedger=[IO.File]::ReadAllText((Join-Path $physical '.ice/source-ledger.json')) | ConvertFrom-Json
+          $ignoredRuntime=Join-Path $physical '.mind-runtime'
+          $runtimeNames=if ([IO.Directory]::Exists($ignoredRuntime)) {
+            @([IO.Directory]::EnumerateFileSystemEntries($ignoredRuntime) | ForEach-Object { [IO.Path]::GetFileName($_) })
+          } else { @() }
+          ConvertTo-Json -InputObject ([ordered]@{
+            schema='mind-palace.uq59-workstation-fastforward-preflight.v1'
+            original_head=$before
+            target_main_sha=$target
+            fast_forward_only=true
+            changed_tracked_count=@($changed).Count
+            changed_protected_files=@($protectedChanged)
+            local_record_count=$localRecords.Count
+            local_ledger_entries=@($localLedger.entries).Count
+            runtime_entry_names=@($runtimeNames)
+            source_worktree_unchanged=true
+            memory_writes=0
+          }) -Depth 8 | Write-Host
+          $after=(& git.exe -C $physical rev-parse HEAD | Out-String).Trim()
+          $afterStatus=@(& git.exe -C $physical status --porcelain=v1 --untracked-files=all)
+          if ($after -cne $before -or $LASTEXITCODE -ne 0 -or $afterStatus.Count -ne 0) {
+            throw 'UQ59_READONLY_FASTFORWARD_PROBE_CHANGED_WORKTREE'
+          }
+          Write-Host 'UQ59_FAST_FORWARD_ELIGIBILITY_READ_ONLY=PASS'
           Write-Host 'UQ59_DISCOVERY_READ_ONLY=PASS'
