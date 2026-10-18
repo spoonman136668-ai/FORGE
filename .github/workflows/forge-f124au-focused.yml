@@ -1,0 +1,76 @@
+name: F124-AU frozen source focused Windows and Linux
+on:
+  push:
+    branches: [research/f124au-public-parity-and-conditional-onepacked-20261018]
+    paths:
+      - '.github/workflows/forge-f124au-focused.yml'
+      - 'nativeevidence/f124au_*.py'
+      - 'nativeevidence/test_f124au_*.py'
+      - 'reference/research-intake/f124au-frozen-public-parity-and-onepacked-policy.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124au-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify preregistration, original source, and bounded model semantics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'AU_QUALIFIED_SHA_DRIFT' }
+          $f='reference/research-intake/f124au-frozen-public-parity-and-onepacked-policy.json'
+          if((git hash-object $f).Trim() -cne '73476e75eec999cf246f4416a8d371c6e1eec0df' -or
+             (git log -1 --format=%H -- $f).Trim() -cne '95f2d1087c2cde674d739ddd81591b158ffd80cf' -or
+             (git rev-parse 'b5bb419f9d406bf3d35b868431310cd82e68b7c4:nativeevidence/f124at_train_source.py').Trim() -cne 'e4da961ea74eb286824487c6f20fb3327ae40dc5') {
+            throw 'AU_FROZEN_SOURCE_IDENTITY_DRIFT'
+          }
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124au_*.py' -v
+          if($LASTEXITCODE -ne 0) { throw 'AU_FOCUSED_TEST_FAIL' }
+          & $py -B isolationguard/check.py
+          if($LASTEXITCODE -ne 0) { throw 'AU_REPOSITORY_ISOLATION_FAIL' }
+          Write-Output 'F124AU_SOURCE_FOCUSED=PASS'
+          Write-Output 'F124AU_DEV_CONSUMED=false'
+  original-custody:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Authenticate original F124-AT evidence and final regression
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($p in @(
+            @{id=39138041247; sha='699ba7abc460bc0763eed2f11d10bdf766e4604b'},
+            @{id=39138289418; sha='8b910711c143e9ab2940b61969824957d3fee1f9'}
+          )){
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.status -cne 'completed' -or
+               $r.conclusion -cne 'success' -or $r.head_sha -cne $p.sha) {
+              throw 'AU_ORIGINAL_NEGATIVE_CUSTODY_DRIFT'
+            }
+          }
+          $a=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/39138041247/artifacts" | ConvertFrom-Json
+          $hit=@($a.artifacts | Where-Object { $_.id -eq 12139584964 })
+          if($LASTEXITCODE -ne 0 -or $hit.Count -ne 1 -or $hit[0].expired -or
+             $hit[0].digest -cne 'sha256:765aa8cea697f18914948a3269280b91371359bd62c1bd7f9da1546aa4246a1a') {
+            throw 'AU_ORIGINAL_RAW_ARTIFACT_DRIFT'
+          }
+          Write-Output 'F124AU_ORIGINAL_NEGATIVE_CUSTODY=PASS'

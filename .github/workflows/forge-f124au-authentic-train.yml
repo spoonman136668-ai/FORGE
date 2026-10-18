@@ -1,0 +1,166 @@
+name: F124-AU original isolated TRAIN-FIT and TRAIN-SCREEN parity and one-packed
+on:
+  push:
+    branches: [research/f124au-public-parity-and-conditional-onepacked-20261018]
+    paths: ['.github/workflows/forge-f124au-authentic-train.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124au-original-fit-screen
+  cancel-in-progress: false
+jobs:
+  authenticated-source-TRAIN:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate prospective source freeze, original focused PASS and ten historical receipts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          f=reference/research-intake/f124au-frozen-public-parity-and-onepacked-policy.json
+          test "$(git hash-object "$f")" = 73476e75eec999cf246f4416a8d371c6e1eec0df
+          test "$(git log -1 --format=%H -- "$f")" = 95f2d1087c2cde674d739ddd81591b158ffd80cf
+          test "$(git rev-parse 'b5bb419f9d406bf3d35b868431310cd82e68b7c4:nativeevidence/f124at_train_source.py')" = e4da961ea74eb286824487c6f20fb3327ae40dc5
+          while read -r run head aid sha; do
+            got=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')
+            test "$got" = "$head completed success push" || {
+              echo "F124AU_AUTHENTIC_PROVIDER_RUN_DRIFT:$run"; exit 1;
+            }
+            digest=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq ".artifacts[] | select(.id==$aid and .expired==false) | .digest")
+            test "$digest" = "$sha" || {
+              echo "F124AU_AUTHENTIC_ARTIFACT_DRIFT:$run"; exit 1;
+            }
+          done <<'ORIGINAL'
+          39078269441 5b52da1e38d5ff5671c582676790daf0462dd18d 12116979526 sha256:fefa2135a029660f36970a66b08809aaa128c5f6d2b3c5705ef8a29a9b4f014c
+          39082424955 01560f7f4f1aab5737cfd045dffd7faaccfb0608 12120010101 sha256:b1b483e03a1ba8f9a66e75e11d48481573d24926b8f17dc77db076158c3168f3
+          39118489510 ca46eba41179a1c6d9cd0bfa74119782c6d11d88 12132914773 sha256:eb30d76eccdf8f33e24b6348c43d17acb50c3fcbafec8ec039a6b4239593abeb
+          39122374949 a0d15c8cf307a9c7972728899b525f79717049c7 12134498287 sha256:5d189c95dfdc00ce5a00b7170236d9514175b2b3b77fc7407522c16ecf878f2c
+          39123857883 c5330bbff435febe198c55e9da19beb17bc613d8 12135381471 sha256:008018afc6bb3b564439191dea0ac38423fd651609e7885a9068b714c36f09ef
+          39124962572 1d4222158da000f66f6ad28033c9b15f4dcabe93 12136050383 sha256:59120d20472eb45661c9c5599a6e832824866abc25cf8e68e34d8d604f841a97
+          39133441550 d261861f31c34152ffe9d7081302f764ac02fb7d 12138622197 sha256:af5ad2a392481dbb7819bb28a0524b308330c2065b98ed20688de35a6516e0a7
+          39136517506 06ca4e0dc54a619de8ec623c97ff1ef1ce0496b5 12140410476 sha256:4f16c8b3f3b9f80c7ba9a8ba608b70e3d95eac64c812d5279541864b47b7e773
+          39136910292 449fc54cecccb6e30eaa13016f9d1828532714ac 12140595542 sha256:d4e65fc365497932dcc1a105473d0e965ec24e20049f699c7cd50c4923838e40
+          39138041247 699ba7abc460bc0763eed2f11d10bdf766e4604b 12139584964 sha256:765aa8cea697f18914948a3269280b91371359bd62c1bd7f9da1546aa4246a1a
+          ORIGINAL
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39139942835 --jq '[.head_sha,.status,.conclusion] | join(" ")' | grep -Fx 'c111550b7a8547d116f0ab5da33ec1ed38520db1 completed success'
+          echo 'F124AU_TEN_ORIGINAL_RECEIPTS=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: originals/o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: originals/t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: originals/an
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39122374949
+          github-token: ${{ github.token }}
+          name: f124ao-first-dev-evidence-a0d15c8cf307a9c7972728899b525f79717049c7
+          path: originals/ao
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39123857883
+          github-token: ${{ github.token }}
+          name: f124ap-authentic-train-only-c5330bbff435febe198c55e9da19beb17bc613d8
+          path: originals/ap
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39124962572
+          github-token: ${{ github.token }}
+          name: f124aq-train-1d4222158da000f66f6ad28033c9b15f4dcabe93
+          path: originals/aq
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39133441550
+          github-token: ${{ github.token }}
+          name: f124ar-original-train-d261861f31c34152ffe9d7081302f764ac02fb7d
+          path: originals/ar
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39136517506
+          github-token: ${{ github.token }}
+          name: f124as-original-new-train-06ca4e0dc54a619de8ec623c97ff1ef1ce0496b5
+          path: originals/as_train
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39136910292
+          github-token: ${{ github.token }}
+          name: f124as-original-first-dev-449fc54cecccb6e30eaa13016f9d1828532714ac
+          path: originals/as_dev
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39138041247
+          github-token: ${{ github.token }}
+          name: f124at-fresh-diagnostic-699ba7abc460bc0763eed2f11d10bdf766e4604b
+          path: originals/at
+      - name: Execute only independent newly frozen TRAIN and archive full evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d  originals/o/f124o-independent-two-learned-development.json' \
+            'a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2  originals/t/f124t-fresh-absolute-development.json' \
+            '7226e267ac02090069690ebb40e92696a2cba1bd56a567d838fc6e48880cff9c  originals/an/f124an-calibrated-affine-wing-isolation.json' \
+            '37d61d2130fc73f28fd96d32b85d018dee231c5319dd515b2024132f7855cb52  originals/ao/f124ao-first-dev-independent-evidence.json' \
+            '56bb2b97a2d0ae5babc0884e55841252ecefd6a11748f33425753e6309ef1417  originals/ap/f124ap-authentic-kernel-hop-train.json' \
+            'd3a3935cc58d0fe69f46a496ae130a434360bee4169dc22bdad72385af3aa5b0  originals/aq/f124aq-train.json' \
+            '8e8a062ed46af068cf490044f9f5f548d78cc31655ca7fe2061f4ad8ddfd0446  originals/ar/f124ar-original-fresh-train.json' \
+            'f012c3c34ee7f859932b5d4274e53d675f683568b2cda74cbeeee6407c785b7b  originals/as_train/f124as-original-train.json' \
+            'd6d6c184ec4a06df0c33de1a0490d8fb67d1d9897ec78529d51e85547b0d48f7  originals/as_dev/f124as-first-dev.json' \
+            '8050c9f4bae5821c4bc2d222d1c4985a41e3c86cb4af1c3cedf1a70c1a94422d  originals/at/f124at-original-fresh-train.json' | sha256sum --check --strict
+          python3 -B nativeevidence/f124au_fit_screen_evidence.py \
+            --o originals/o/f124o-independent-two-learned-development.json \
+            --t originals/t/f124t-fresh-absolute-development.json \
+            --an originals/an/f124an-calibrated-affine-wing-isolation.json \
+            --ao originals/ao/f124ao-first-dev-independent-evidence.json \
+            --ap originals/ap/f124ap-authentic-kernel-hop-train.json \
+            --aq originals/aq/f124aq-train.json \
+            --ar originals/ar/f124ar-original-fresh-train.json \
+            --as_train originals/as_train/f124as-original-train.json \
+            --as_dev originals/as_dev/f124as-first-dev.json \
+            --at originals/at/f124at-original-fresh-train.json \
+            --output "$RUNNER_TEMP/f124au-original-fit-screen.json"
+          python3 -B -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["schema"]=="forge.research.f124au.authentic-noisy-parity-and-conditional-packed-train-screen.v1"; assert d["source_frozen_blob"]=="73476e75eec999cf246f4416a8d371c6e1eec0df"; assert d["FIT_pairs_per_lane"]==d["SCREEN_pairs_per_lane"]==24 and len(d["Yggdrasil"]["TRAIN_FIT"]["fit_grid"])==4 and len(d["Wingless"]["TRAIN_FIT"]["FIT_grid"])==6; assert d["SCREEN_never_used_for_parameter_selection"] and d["new_DEV_cases_generated"]==0 and d["new_DEV_consumed"] is False and d["optimizer_promotion"] is False' "$RUNNER_TEMP/f124au-original-fit-screen.json"
+          sha256sum "$RUNNER_TEMP/f124au-original-fit-screen.json" > "$RUNNER_TEMP/f124au-original-fit-screen.json.sha256"
+          echo 'F124AU_AUTHENTIC_FIT_SCREEN_TRAIN_ONLY=PASS'
+          echo 'F124AU_NEW_DEV_CONSUMED=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124au-original-fit-screen-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124au-original-fit-screen.json
+            ${{ runner.temp }}/f124au-original-fit-screen.json.sha256
+          if-no-files-found: error
+          retention-days: 90

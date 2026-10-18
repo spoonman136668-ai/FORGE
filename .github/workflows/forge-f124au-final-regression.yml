@@ -1,0 +1,75 @@
+name: F124-AU negative first TRAIN and one final full integration
+on:
+  push:
+    branches: [research/f124au-public-parity-and-conditional-onepacked-20261018]
+    paths: ['.github/workflows/forge-f124au-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124au-one-final-full-regression
+  cancel-in-progress: false
+jobs:
+  full-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify original frozen source, real complete artifact and negative custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          freeze=reference/research-intake/f124au-frozen-public-parity-and-onepacked-policy.json
+          neg=reference/research-intake/f124au-retained-authentic-fit-screen-negative.json
+          test "$(git hash-object "$freeze")" = 73476e75eec999cf246f4416a8d371c6e1eec0df
+          test "$(git log -1 --format=%H -- "$freeze")" = 95f2d1087c2cde674d739ddd81591b158ffd80cf
+          test "$(git hash-object "$neg")" = 96e1ed69bdba87e1167d429f1295cad87196aed7
+          test "$(git log -1 --format=%H -- "$neg")" = 8573d61907183bf493f59cef029ac093d8d04d2e
+          test "$(git rev-parse 'b5bb419f9d406bf3d35b868431310cd82e68b7c4:nativeevidence/f124at_train_source.py')" = e4da961ea74eb286824487c6f20fb3327ae40dc5
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39140097345" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")' | grep -Fx 'ec8a61f41fce6b4f29d8ae30a4ec52fafbde95af completed success push'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39140097345/artifacts" --jq '.artifacts[] | select(.id==12141317064 and .expired==false) | .digest' | grep -Fx 'sha256:2cdf58028af0dc90f04587347fa0932a2102917aafb7a58e11e3fc002235ffea'
+          python3 -B -c 'import json; d=json.load(open("reference/research-intake/f124au-retained-authentic-fit-screen-negative.json")); assert d["schema"]=="forge.research.f124au.original-fit-screen-negative-retention.v1"; assert d["Yggdrasil"]["FIT_selected"] is None and d["Wingless"]["FIT_selected"] is None; assert d["cohort"]["new_DEV_consumed"] is False and d["cohort"]["new_DEV_Ygg_cases_generated"]==0 and d["cohort"]["new_DEV_Wing_cases_generated"]==0 and not d["authority"]["optimizer_promotion"]; assert d["source_evidence"]["original_full_raw_sha256"]=="7e0cc7b084e70fed69ac9f38eb5e66ecac1e33a14a4cccfa5919677d41e95fff"'
+          echo 'F124AU_AUTHENTIC_NEGATIVE_CUSTODY=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39140097345
+          github-token: ${{ github.token }}
+          name: f124au-original-fit-screen-ec8a61f41fce6b4f29d8ae30a4ec52fafbde95af
+          path: original-AU
+      - name: Check original raw bytes and held-screen eligibility without replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '7e0cc7b084e70fed69ac9f38eb5e66ecac1e33a14a4cccfa5919677d41e95fff  original-AU/f124au-original-fit-screen.json' | sha256sum --check --strict
+          python3 -B -c 'import json; d=json.load(open("original-AU/f124au-original-fit-screen.json")); assert d["schema"]=="forge.research.f124au.authentic-noisy-parity-and-conditional-packed-train-screen.v1"; assert d["source_frozen_blob"]=="73476e75eec999cf246f4416a8d371c6e1eec0df"; assert len(d["Yggdrasil"]["TRAIN_FIT"]["fit_grid"])==4 and len(d["Wingless"]["TRAIN_FIT"]["FIT_grid"])==6; assert d["Yggdrasil"]["TRAIN_FIT"]["FIT_selected"] is None and d["Wingless"]["TRAIN_FIT"]["FIT_selected"] is None; assert "parity_selected" not in d["Yggdrasil"]["TRAIN_SCREEN"]["models"] and "conditional_policy" not in d["Wingless"]["TRAIN_SCREEN"]; assert d["new_DEV_cases_generated"]==0 and d["new_DEV_consumed"] is False and not d["optimizer_promotion"]'
+          echo 'F124AU_ORIGINAL_COMPLETE_SCIENCE_RECEIPT=PASS'
+          echo 'F124AU_BOTH_DEV_UNCONSUMED=true'
+      - name: Exactly one full integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AU_FULL_REGRESSION=PASS"
+          echo "F124AU_EXACT_QUALIFIED_HEAD=$GITHUB_SHA"
+          echo 'F124AU_SCIENTIFIC_ACCEPTANCE=false'
+          echo 'F124AU_PRODUCTION_PROMOTION=false'
