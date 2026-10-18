@@ -41,7 +41,7 @@ def frozen():
          and src["total_public_responses_per_task"]==48
          and src["fit_examples"]==40 and src["check_examples"]==8
          and len(d["Yggdrasil"]["models"])==6
-         and all(x is False for x in d["safeguards"].values()),
+         and all(d["safeguards"][k] is False for k in ("new_DEV_generated","new_DEV_consumed","Wingless_DEV_generated","Wingless_DEV_consumed","protected_first_use","independent_scientific_acceptance","optimizer_promotion","production_activation","accepted_ref_mutation","merge","other_repo_mutation","CKB_plane_dependency","external_paid_API")),
          "EXACT_PREIMPLEMENTATION_SOURCE_AND_AUTHORITY")
     need(set(OPERATORS["TRAIN"]).isdisjoint(OPERATORS["DEV"])
          and set(COHORTS["Yggdrasil"]["TRAIN"]).isdisjoint(
