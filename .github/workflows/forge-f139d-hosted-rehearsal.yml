@@ -28,6 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -42,7 +43,27 @@ jobs:
           $work = Join-Path $env:RUNNER_TEMP 'f139d'
           if (Test-Path -LiteralPath $work) { throw 'F139D_EXISTING_REHEARSAL_DIRECTORY' }
           New-Item -ItemType Directory -Path $work | Out-Null
-          $data = & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $env:GITHUB_SHA
+          $frozen = '${{ github.event.pull_request.head.sha }}'
+          $actual = (& git rev-parse HEAD).Trim()
+          if ($actual -ne $frozen -or $actual -notmatch '^[0-9a-f]{40}          if ($LASTEXITCODE -ne 0) { throw 'F139D_WORKLOAD_EXECUTION_FAILED' }
+          [IO.File]::WriteAllText((Join-Path $work 'advisory.json'), (($data -join [Environment]::NewLine) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+          python -B -m f139.qualify_development_worker --advisory (Join-Path $work 'advisory.json') --output (Join-Path $work 'rehearsal-only') --source-sha $frozen --run-id $env:GITHUB_RUN_ID --os '${{ matrix.os }}'
+          if ($LASTEXITCODE -ne 0) { throw 'F139D_REHEARSAL_VALIDATION_FAILED' }
+          Write-Host 'F139D_ACTUAL_HOSTED_OS=${{ matrix.os }}'
+          Write-Host 'F139D_GENUINE_CONTROLLER_DISPATCH=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139d-rehearsal-only-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f139d/advisory.json
+            ${{ runner.temp }}/f139d/rehearsal-only/f139d-rehearsal.json
+            ${{ runner.temp }}/f139d/rehearsal-only/f139d-synthetic-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+) { throw 'F139D_PR_HEAD_DRIFT' }
+          Write-Host 'F139D_PR_HEAD_SOURCE_PIN=PASS'
+          $data = & go run ./cmd/forge-model-free-loop --synthetic-only --source-ref $frozen
           if ($LASTEXITCODE -ne 0) { throw 'F139D_WORKLOAD_EXECUTION_FAILED' }
           [IO.File]::WriteAllText((Join-Path $work 'advisory.json'), (($data -join [Environment]::NewLine) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
           python -B -m f139.qualify_development_worker --advisory (Join-Path $work 'advisory.json') --output (Join-Path $work 'rehearsal-only') --source-sha $env:GITHUB_SHA --run-id $env:GITHUB_RUN_ID --os '${{ matrix.os }}'
