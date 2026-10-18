@@ -1,0 +1,102 @@
+name: F124-AU authenticated TRAIN negative and one final complete regression
+on:
+  push:
+    branches: [research/f124au-learned-public-relation-and-packed-witness-20261018]
+    paths: ['.github/workflows/forge-f124au-final-regression.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124au-one-final-complete-regression
+  cancel-in-progress: false
+jobs:
+  one-full-regression:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39140301387
+          github-token: ${{ github.token }}
+          name: f124au-first-train-97d2595aabad0d79764d1e556f1b71bd0123d826
+          path: original-train
+      - name: Reauthenticate source, frozen original negative and full 8+7 grid without DEV
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          f=reference/research-intake/f124au-frozen-public-relation-and-packed-witness.json
+          r=reference/research-intake/f124au-qualified-train-negative-no-dev.json
+          test "$(git hash-object "$f")" = 421785b12f13a9675e682d07489ca3cca934332c
+          test "$(git log -1 --format=%H -- "$f")" = 1be5f40d3486ecf4a2c8f6964ab2a8d3d80888e9
+          test "$(git hash-object "$r")" = 5deb117e5580d82850d0950a8167db1220670bc4
+          test "$(git log -1 --format=%H -- "$r")" = a22547efdbec9fa74759da58f4b3e080c93230d1
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39140301387" --jq '[.head_sha,.status,.conclusion,.event] | join(" ")')" = '97d2595aabad0d79764d1e556f1b71bd0123d826 completed success push'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39140301387/artifacts" --jq '.artifacts[] | select(.id==12140823540 and .expired==false) | .digest')" = 'sha256:04a937b10bd2501b67184559496bac44b96f9516dd34c93bf1a0a6ca7fa2f574'
+          echo '12d8a823a612b7929b7ecda8bada05e538af700874cccc65b25b183198a734ec  original-train/f124au-first-authenticated-train.json' | sha256sum --check --strict
+          python3 -B - <<'PY'
+          import json
+          raw=json.load(open('original-train/f124au-first-authenticated-train.json'))
+          note=json.load(open('reference/research-intake/f124au-qualified-train-negative-no-dev.json'))
+          assert note['schema']=='forge.research.f124au.retained-negative-after-one-original-train.v1'
+          assert raw['schema']=='forge.research.f124au.first-authenticated-public-relations-packed-witness-TRAIN.v1'
+          assert raw['freeze_blob']==note['lineage']['freeze_blob']=='421785b12f13a9675e682d07489ca3cca934332c'
+          assert raw['new_DEV_cases_generated']==note['source']['DEV_cases_generated']==0
+          assert raw['new_DEV_consumed'] is False and note['source']['DEV_cases_consumed']==0
+          assert not raw['eligible_to_consider_DEV']['Yggdrasil']
+          assert not raw['eligible_to_consider_DEV']['Wingless']
+          assert raw['selection']=={'Wingless':None,'Yggdrasil':None}
+          assert len(raw['candidate_grids']['Yggdrasil'])==len(note['Yggdrasil']['new_learned_models'])==8
+          assert len(raw['candidate_grids']['Wingless'])==len(note['Wingless']['candidate_grid'])==7
+          for original,saved in zip(raw['candidate_grids']['Yggdrasil'],note['Yggdrasil']['new_learned_models']):
+              for a,b in (('mode','mode'),('width','width'),('check_threshold','public_check_min'),
+                          ('paired','paired'),('FP','FP'),('FN','FN'),
+                          ('abstained_graphs','abstained_graphs'),
+                          ('shared_float_bytes_lower','shared_parameter_float_bytes_lower')):
+                  assert original[a]==saved[b],('Yggdrasil',a,b)
+              assert original['resources']['arm_CPU_ns']==saved['same_host_CPU_ns']
+          for original,saved in zip(raw['candidate_grids']['Wingless'],note['Wingless']['candidate_grid']):
+              for a,b in (('mode','mode'),('alpha','alpha'),('paired','paired'),
+                          ('FP','FP'),('FN','FN'),('extra_hop_ops','extra_evidence_ops'),
+                          ('preserves_all_original_long_positive_ids',
+                           'preserves_all_original_22_accepted_long_positives')):
+                  assert original[a]==saved[b],('Wingless',a,b)
+              assert original['resources']['arm_CPU_ns']==saved['same_host_CPU_ns']
+          assert raw['same_source_controls']['Yggdrasil']['AG_ORACLE_TRUE_INVERSE']['admissible_source_blind'] is False
+          assert note['Wingless']['chosen_for_DEV'] is None
+          assert note['Yggdrasil']['chosen_for_DEV'] is None
+          assert all(v is False for v in note['authority'].values())
+          print('F124AU_SOURCE_AND_ORIGINAL_NEGATIVE_CUSTODY=PASS')
+          print('F124AU_ORIGINAL_8_7_CANDIDATE_CENSUS=PASS')
+          print('F124AU_NEW_DEV_GENERATED=0')
+          PY
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exactly one full Go test race vet build and cross-project isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124AU_ONE_FINAL_FULL_REGRESSION=PASS
+          echo F124AU_QUALIFIED_SOURCE_HEAD=$GITHUB_SHA
+          echo F124AU_INDEPENDENT_SCIENTIFIC_ACCEPTANCE=false
+          echo F124AU_DEV_FIRST_USE=false
