@@ -172,6 +172,18 @@ jobs:
             }
             $ledgerValidation=((& (Join-Path $root 'tools/source-ledger.ps1') validate -BatchPath $batchPath | Out-String).Trim() | ConvertFrom-Json)
             if (-not [bool]$ledgerValidation.valid) { throw 'UQ59_AUDIT_LEDGER_VALIDATE_FAILED' }
+            $sealedHashes=[ordered]@{}
+            foreach($f in @($changed | Sort-Object)) {
+              $sealedHashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            ConvertTo-Json -InputObject ([ordered]@{
+              schema='mind-palace.uq59-live-local-state-hashes.v1'
+              source_main_sha=$head
+              modified_tracked_count=@($changed).Count
+              local_sha256_by_path=$sealedHashes
+              git_memory_checkpoint_committed=$false
+            }) -Depth 10 | Write-Host
+            Write-Host 'UQ59_LOCAL_POSTAPPLY_CONTENT_SHA256_SEALED=PASS'
             Write-Host 'UQ59_PERSISTENT_CHECKOUT_MEMORY_AND_LEDGER_VALIDATION=PASS'
             Write-Host 'UQ59_GIT_COMMIT_AND_MEMORY_PUSH_NOT_PERFORMED=PASS'
             Write-Host 'UQ59_ARCHIVE_CURSOR_UNCHANGED_NO_STRANDED_CUSTODY=PASS'
