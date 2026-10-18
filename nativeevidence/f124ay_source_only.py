@@ -49,10 +49,9 @@ def frozen():
          and s["DEV_cases_constructed"]==0
          and s["public_48"]["fit_RANSAC_trials"]==256
          and s["public_96_diagnostic_only"]["fit_trials"]==256
-         and not any(d["governance"].values() if False else [
-            d["governance"][key] for key in
-            ("no_promotion","no_merge","no_accepted_ref_mutation")
-            if not d["governance"][key]]),
+         and all(d["governance"][key] is True for key in
+                 ("no_promotion","no_merge","no_accepted_ref_mutation",
+                  "no_Wingless_use","no_second_controller")),
          "PREIMPLEMENTATION_CONTRACT")
     need(set(TRAIN).isdisjoint(RESERVED_DEV)
          and set(OPERATORS["TRAIN"]).isdisjoint(OPERATORS["DEV"]),
