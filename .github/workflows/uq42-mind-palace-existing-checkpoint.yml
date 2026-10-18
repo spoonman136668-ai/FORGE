@@ -141,6 +141,26 @@ jobs:
               Assert ($hits.Count -eq 1 -and [string]$hits[0].status -eq 'observed') ('NEW_RECORD_MISSING_'+$id)
             }
             $null=Child 'remote-snapshot' @()
+            # Diagnostic clone of the checkpoint's deterministic snapshot preview.
+            # Print hashes, counts and structural equality only (no source bodies).
+            $tmpSnap=Join-Path $scratch 'snapshot-verify'
+            $tmpIce=Join-Path $tmpSnap '.ice'
+            New-Item -ItemType Directory -Force -Path $tmpIce | Out-Null
+            foreach($f in @('bootstrap.json','manifest.json','records.json')){
+              Copy-Item -LiteralPath (Join-Path (Join-Path $root '.ice') $f) -Destination (Join-Path $tmpIce $f) -Force
+            }
+            $null=Child 'remote-snapshot' @('-RepoRoot',('"'+$tmpSnap+'"'))
+            $graph1=Join-Path $root '.ice/project-dependency-graph.json'
+            $graph2=Join-Path $tmpIce 'project-dependency-graph.json'
+            $a=[IO.File]::ReadAllText($graph1) | ConvertFrom-Json
+            $b=[IO.File]::ReadAllText($graph2) | ConvertFrom-Json
+            $ha=(Get-FileHash -LiteralPath $graph1 -Algorithm SHA256).Hash
+            $hb=(Get-FileHash -LiteralPath $graph2 -Algorithm SHA256).Hash
+            $nodeA=@($a.nodes | ForEach-Object {$_.id} | Sort-Object)
+            $nodeB=@($b.nodes | ForEach-Object {$_.id} | Sort-Object)
+            $edgeA=@($a.edges | ForEach-Object {$_.from+'|'+$_.to+'|'+$_.record_id} | Sort-Object)
+            $edgeB=@($b.edges | ForEach-Object {$_.from+'|'+$_.to+'|'+$_.record_id} | Sort-Object)
+            Write-Host ('UQ42_GRAPH_PREVIEW actual='+$ha+' expected='+$hb+' srcsame='+($a.source_records_sha256 -ceq $b.source_records_sha256)+' nodecounts='+$nodeA.Count+'/'+$nodeB.Count+' edgecounts='+$edgeA.Count+'/'+$edgeB.Count+' nodesEqual='+(($nodeA -join '~') -ceq ($nodeB -join '~'))+' edgesEqual='+(($edgeA -join '~') -ceq ($edgeB -join '~')))
             $mindValidate=Child 'mind' @('validate')
             Assert ($mindValidate -like '*validation passed*') 'MIND_VALIDATE_FAILED'
             $ledgerValidation=JsonChild 'source-ledger' @('validate','-BatchPath',('"'+$batch+'"'))
