@@ -1,0 +1,216 @@
+name: F124-W kernel-memory cap and independent Ygg score-drift diagnostic
+on:
+  push:
+    branches: [research/f124w-capped-memory-score-drift-20261017]
+    paths:
+      - 'reference/research-intake/f124w-*.json'
+      - 'nativeevidence/f124w_*.py'
+      - 'nativeevidence/test_f124w_*.py'
+      - '.github/workflows/forge-f124w-hardcap-score-drift.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124w-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-and-hard-cap-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate frozen source, test actual OS kernel memory cap and exact model replay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124W_HEAD_MISMATCH' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124w_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_SOURCE_HARDCAP_OR_TRACE_FAILED' }
+          & $py -B -m unittest discover -s nativeevidence -p 'test_f124v_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_ORIGINAL_V_PARENT_FAILED' }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_ISOLATION_DRIFT' }
+          Write-Output 'F124W_PROTECTED_FIRST_USE=false'
+
+  wingless-strict-kernel-budget:
+    needs: source-and-hard-cap-smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Three independent hard-capped worker runs for each of five arms, same host and 96 graphs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:PYTHONHASHSEED='0'
+          $py=if ($IsWindows) {'python'} else {'python3'}
+          $out=Join-Path $env:RUNNER_TEMP "f124w-wing-${{ matrix.os }}.json"
+          & $py -B nativeevidence/f124w_wingless_hardcap.py --bench --original-o o/f124o-independent-two-learned-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_REAL_HARD_CAP_BENCH_FAILED' }
+          $result=Get-Content $out -Raw | ConvertFrom-Json
+          if ($result.schema -cne 'forge.research.f124w.wingless-hardware-hard-capped.v1' -or
+              $result.hard_budget_bytes -ne 100663296 -or
+              $result.repetitions_per_arm -ne 3 -or
+              $result.raw_repetitions.Count -ne 15 -or
+              -not $result.all_processes_enforced -or
+              $result.compute_matched_scientific_superiority_proven -or
+              $result.total_memory_equal_proven -or
+              $result.benchmark_arms.S_packed.logit_hex_sha256 -cne
+              $result.benchmark_arms.T_full_index.logit_hex_sha256 -or
+              $result.benchmark_arms.S_packed.logit_hex_sha256 -cne
+              $result.benchmark_arms.U_microindex.logit_hex_sha256) {
+            throw 'F124W_KERNEL_CAP_OR_SCIENTIFIC_OUTPUT_INVALID'
+          }
+          Write-Output "F124W_WING_${{ matrix.os }}_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124w-hard-capped-wingless-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124w-wing-${{ matrix.os }}.json
+            ${{ runner.temp }}/f124w_*.json
+          retention-days: 90
+          if-no-files-found: error
+
+  yggdrasil-score-drift:
+    needs: source-and-hard-cap-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39081990918
+          github-token: ${{ github.token }}
+          name: f124r-fresh-two-lane-causal-evidence-522601491c10ebfeb36e7dca2627ff5366b51abb
+          path: r
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082745397
+          github-token: ${{ github.token }}
+          name: f124s-source-backed-development-bc59de4f118b37d9a501dd8a944e210540222a27
+          path: s
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39084599471
+          github-token: ${{ github.token }}
+          name: f124u-source-backed-independent-development-7d8df58e3fd7363e5c91b39a426ff3430fedf20d
+          path: u
+      - name: Preserve fully authenticated score margins and causal accumulated value on new DEV and FIT
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'f124w-yggdrasil-score-drift.json'
+          & python3 -B nativeevidence/f124w_yggdrasil_score_drift.py --original-o o/f124o-independent-two-learned-development.json --original-r r/f124r-fresh-calibrated-continuous-development.json --original-s s/f124s-fresh-packed-key-cell-credit-development.json --original-u u/f124u-bounded-index-fresh-causal-rank-development.json --output $out
+          if ($LASTEXITCODE -ne 0) { throw 'F124W_YGGDRASIL_SCORE_DRIFT_EVIDENCE_FAILED' }
+          $data=Get-Content $out -Raw | ConvertFrom-Json
+          if ($data.schema -cne 'forge.research.f124w.yggdrasil-score-drift-calibration.v1' -or
+              $data.preimplementation_blob -cne 'eb36f4e409631127cf155da8afce4515c7fac2e7' -or
+              $data.new_training_steps -ne 0 -or
+              $data.protected_original_first_use -or
+              $data.science_accepted -or $data.optimizer_promoted -or
+              @($data.DEV.PSObject.Properties).Count -ne 4) {
+            throw 'F124W_YGG_SCIENTIFIC_OR_DENOMINATOR_DRIFT'
+          }
+          foreach ($p in $data.DEV.PSObject.Properties) {
+            if ($p.Value.pairs -ne 48 -or $p.Value.cases.Count -ne 48 -or
+                $p.Value.per_depth.'7'.pairs -ne 16 -or
+                $p.Value.per_depth.'8'.pairs -ne 16 -or
+                $p.Value.per_depth.'9'.pairs -ne 16) {
+              throw 'F124W_YGG_MISSING_CASE_OR_DEPTH'
+            }
+          }
+          Write-Output "F124W_YGG_SHA256=$((Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant())"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124w-yggdrasil-score-drift-${{ github.sha }}
+          path: ${{ runner.temp }}/f124w-yggdrasil-score-drift.json
+          retention-days: 90
+          if-no-files-found: error
+
+  final-full-regression:
+    needs: [wingless-strict-kernel-budget, yggdrasil-score-drift]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One final full Go test, race, vet and build on exact qualified head
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124W_EXACT_HEAD=$GITHUB_SHA"
+          echo 'F124W_PROTECTED_FIRST_USE=false'
