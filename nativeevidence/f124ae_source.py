@@ -300,23 +300,23 @@ def transfer_pair(seed,vector,phase,family):
                     old=edge[key]
                     edge[key]=[old[(i*5)%16]^((0xA53C>>i)&1) for i in range(16)]
     elif family=="rewire":
-        main_nodes={pos["start"],pos["target"]}
-        for edge in route:
-            main_nodes.add(edge["from"])
-            main_nodes.add(edge["to"])
-        # Rewire only noncausal decoy-to-decoy edges at the same role stage.
-        for role in pos["roles"][:6]:
-            possible=sorted({edge["to"] for edge in pos["edges"]
-                  if edge["role"]==role and edge["from"] not in main_nodes
-                  and edge["to"] not in main_nodes})
-            if len(possible)<4:continue
-            targets={node:possible[(i+2)%len(possible)]
-                     for i,node in enumerate(possible)}
+        # Restrict rewiring to SAME-DEPTH, OFF-TARGET decoy destinations.
+        # Other source stages can reuse query role IDs; mixing their nodes
+        # would artificially produce cycles and unbounded role-only paths.
+        salt=SALTS["AE_"+family]+str(seed)+"/"+phase+"/"+str(tuple(vector))
+        def decoy(h,j):
+            return hashlib.sha256((salt+"/noise-node/"+str(h)+"/"+
+                                   str(j)).encode()).hexdigest()[:22]
+        for hop in range(1,min(len(pos["roles"])-1,6)):
+            previous={decoy(hop-1,j) for j in range(4)}
+            destinations={decoy(hop,j):decoy(hop,(j+2)%4)
+                          for j in range(4)}
             for graph in (pos,neg):
                 for edge in graph["edges"]:
-                    if (edge["role"]==role and edge["from"] not in main_nodes
-                         and edge["to"] in targets):
-                        edge["to"]=targets[edge["to"]]
+                    if (edge["from"] in previous and
+                         edge["role"]==graph["roles"][hop] and
+                         edge["to"] in destinations):
+                        edge["to"]=destinations[edge["to"]]
     else:
         # Newly construct negative from positive at an independently selected
         # role-chain break, rather than inherit old fixed hop-3 negative.
