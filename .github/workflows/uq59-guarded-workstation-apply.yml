@@ -1,0 +1,269 @@
+name: UQ59 single authorized guarded local Mind-Palace ingestion
+
+on:
+  push:
+    branches:
+      - qualification/uq59-guarded-workstation-apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uq59-single-guarded-local-admission
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: "1"
+    steps:
+      - name: Guarded one-time local source sync and three-observation apply; no commit or push
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/uq59-guarded-workstation-apply') {
+            throw 'UQ59_AUTHORIZED_RUNNER_OR_BRANCH_CHANGED'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:UQ51_SYNTHETIC_TEST,Env:UQ53_SYNTHETIC_TEST -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\Mind-Palace'
+          $original='90e1cc742dff20b5f53b38fd7102b9c00e4474ad'
+          $target='e1dd7f6744ae120b69130597a3055d5a4e4317be'
+          $batch='pilots/chat-history/2026-10-17-source-backed-project-delta.batch.json'
+          $allowed=@(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json'
+          )
+          $protected=@($allowed)+@('.ice/chat-delta-state.json')
+          $protectedBlobs=@{
+            '.ice/records.json'='db129504ae08cda1fa3533c74f973c5e04b16714'
+            '.ice/source-ledger.json'='df9f5ae34895050969249721c724bfd40e6ac24b'
+            'archive/index.json'='4ce089b79bcc01659435ae67bc5498cf4608928a'
+            '.ice/chat-delta-state.json'='4dc6d258a9fd1e2cb38e5d69b05f5c51de1dd373'
+            '.ice/remote-bootstrap.json'='0d53def2269e244973e6656f99a9805c1c96b895'
+            '.ice/remote-catalog.json'='d2b7e557792033f774b50623c73fd6325d4376c1'
+            '.ice/remote-index.ndjson'='53199dce4073ef90717f1cf4ec2ecb909c5b79b2'
+            '.ice/project-state-capsules.json'='0e7e49a3650cbf63757b26c2bee78b6d25a6be20'
+            '.ice/project-dependency-graph.json'='da17aaf4a38388fcc9a5983ae7ed0edff4e93278'
+          }
+          function Git([string[]]$argv) {
+            $out=(& git.exe @argv 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) {
+              throw ('UQ59_GIT_OPERATION_STOP ' + $out)
+            }
+            return $out
+          }
+          function Hash([string]$file) {
+            return (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function Status([string]$where) {
+            $raw=@(& git.exe -C $where status --porcelain=v1 --untracked-files=all)
+            if ($LASTEXITCODE -ne 0) { throw 'UQ59_GIT_STATUS_UNAVAILABLE' }
+            return @($raw | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+          }
+          if (-not [IO.Directory]::Exists([IO.Path]::Combine($root,'.git'))) {
+            throw 'UQ59_PERSISTENT_PRODUCTION_CHECKOUT_NOT_PRESENT'
+          }
+          $rootInfo=Get-Item -LiteralPath $root -Force
+          if ($rootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw 'UQ59_ROOT_REPARSE_POINT_UNTRUSTED'
+          }
+          if ((Git @('-C',$root,'rev-parse','--abbrev-ref','HEAD')) -cne 'main' -or
+              (Git @('-C',$root,'rev-parse','HEAD')) -cne $original -or
+              (Status $root).Count -ne 0) {
+            throw 'UQ59_LOCAL_WORKTREE_CHANGED_SINCE_INDEPENDENT_PREFLIGHT'
+          }
+          $origin=Git @('-C',$root,'remote','get-url','origin')
+          if ($origin -notmatch 'spoonman136668-ai/Mind-Palace(\.git)?$') {
+            throw 'UQ59_ORIGIN_REPOSITORY_DRIFT'
+          }
+          $upstream=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+          if ($LASTEXITCODE -ne 0 -or $upstream.Count -ne 1 -or
+              ([string]$upstream[0] -split '\s+')[0] -cne $target) {
+            throw 'UQ59_REMOTE_MAIN_NOT_EXACT_AUTHORIZED_SHA'
+          }
+          $rt=Join-Path $root '.mind-runtime'
+          if ([IO.Directory]::Exists($rt) -and
+              @(Get-ChildItem -LiteralPath $rt -Directory -Filter 'uq51-repo-transaction-*').Count -ne 0) {
+            throw 'UQ59_EXISTING_INCOMPLETE_COPY_CUSTODY'
+          }
+          # Fetch and fast-forward ONLY a known, clean ancestor. No reset.
+          & git.exe -C $root fetch --no-tags --quiet origin refs/heads/main
+          if ($LASTEXITCODE -ne 0) { throw 'UQ59_FETCH_FAILED' }
+          if ((Git @('-C',$root,'rev-parse','FETCH_HEAD')) -cne $target) {
+            throw 'UQ59_FETCHED_REF_DRIFT'
+          }
+          & git.exe -C $root merge-base --is-ancestor $original $target
+          if ($LASTEXITCODE -ne 0) { throw 'UQ59_NON_FASTFORWARD_SOURCE_DENIED' }
+          $changedProtected=@(& git.exe -C $root diff --name-only $original $target -- @protected)
+          $expectedHistorical=@(
+            '.ice/project-dependency-graph.json','.ice/project-state-capsules.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson'
+          )
+          if ($LASTEXITCODE -ne 0 -or
+              (@($changedProtected | Sort-Object) -join '|') -cne
+              (@($expectedHistorical | Sort-Object) -join '|')) {
+            throw 'UQ59_HISTORICAL_RETRIEVAL_SOURCE_DELTA_DRIFT'
+          }
+          if ((Status $root).Count -ne 0) { throw 'UQ59_CHANGED_DURING_PRE_FF' }
+          & git.exe -C $root merge --ff-only --no-edit FETCH_HEAD | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'UQ59_FASTFORWARD_FAILED_NO_RESET' }
+          if ((Git @('-C',$root,'rev-parse','HEAD')) -cne $target -or
+              (Status $root).Count -ne 0) { throw 'UQ59_FASTFORWARD_DID_NOT_REACH_CLEAN_EXPECTED_MAIN' }
+          foreach($name in $protected) {
+            if ((Git @('-C',$root,'rev-parse',('HEAD:'+$name))) -cne $protectedBlobs[$name]) {
+              throw ('UQ59_POST_FF_PROTECTED_SOURCE_BLOB_CHANGED '+$name)
+            }
+          }
+          if ((Git @('-C',$root,'rev-parse','HEAD:policies/repo-source-admission.json')) -cne
+                '13e7dcaf71956d64631ba13e4f6df0f9ea9f287a' -or
+              (Git @('-C',$root,'rev-parse',('HEAD:'+$batch))) -cne
+                'ace25ffdafde95467ae4f8800b0266dfb316ddb9') {
+            throw 'UQ59_POST_FF_ADMISSION_POLICY_OR_BATCH_CHANGED'
+          }
+          $oldRecords=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+          $oldLedger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+          if ($oldRecords.Count -ne 260 -or @($oldLedger.entries).Count -ne 101) {
+            throw 'UQ59_MAIN_RECORD_LEDGER_BASELINE_INCORRECT'
+          }
+          $before=@{}
+          foreach($name in $protected) { $before[$name]=Hash (Join-Path $root $name) }
+          Write-Host 'UQ59_PERSISTENT_CHECKOUT_SAFE_FASTFORWARD_EXACT_MAIN=PASS'
+          Write-Host 'UQ59_POST_FF_260_RECORDS_101_LEDGER_AND_NINE_BLOBS=PASS'
+
+          # Exactly one guarded plan and one guarded apply. No retries or pushes.
+          $tool=Join-Path $root 'tools/repo-source-transaction.ps1'
+          $planRaw=(& pwsh.exe -NoProfile -NonInteractive -File $tool plan -ExpectedMainSha $target 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw ('UQ59_LOCAL_PLAN_FAILED '+$planRaw) }
+          $plan=$planRaw | ConvertFrom-Json
+          if ([string]$plan.schema -cne 'mind-palace.repo-source-transaction.v1' -or
+              [string]$plan.command -cne 'plan' -or
+              [string]$plan.status -cne 'ready_for_explicit_apply' -or
+              [string]$plan.source_main_sha -cne $target -or
+              [int]$plan.new_records -ne 3 -or [int]$plan.ledger_entries -ne 3 -or
+              [int]$plan.retired_records -ne 0 -or [int]$plan.production_memory_writes -ne 0) {
+            throw 'UQ59_PERSISTENT_PLAN_NOT_EXACT_THREE'
+          }
+          foreach($name in $protected) {
+            if ((Hash (Join-Path $root $name)) -cne $before[$name]) {
+              throw 'UQ59_PLAN_TOUCHED_LIVE_PROTECTED_SOURCE'
+            }
+          }
+          if ((Status $root).Count -ne 0) { throw 'UQ59_PLAN_CHANGED_GIT_WORKTREE' }
+          Write-Host 'UQ59_EXACT_SOURCE_THREE_RECORD_PLAN=PASS'
+          $applyRaw=(& pwsh.exe -NoProfile -NonInteractive -File $tool apply -ExpectedMainSha $target -ConfirmRepoApply 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw ('UQ59_GUARDED_APPLY_STOP '+$applyRaw) }
+          $apply=$applyRaw | ConvertFrom-Json
+          if ([string]$apply.schema -cne 'mind-palace.repo-source-transaction.v1' -or
+              [string]$apply.command -cne 'apply' -or
+              [string]$apply.status -cne 'applied' -or
+              [int]$apply.new_records -ne 3 -or [int]$apply.processed_sources -ne 3 -or
+              [int]$apply.retired_records -ne 0 -or
+              -not [bool]$apply.git_commit_required -or
+              -not [bool]$apply.production_state_changed) {
+            throw 'UQ59_GUARDED_APPLY_UNEXPECTED_DISPOSITION'
+          }
+          $records=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+          $ledger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+          if ($records.Count -ne 263 -or @($ledger.entries).Count -ne 104) {
+            throw 'UQ59_AFTER_APPLY_COUNT_MISMATCH'
+          }
+          $byId=@{}
+          foreach($v in $records) { $byId[[string]$v.id]=$v }
+          foreach($v in $oldRecords) {
+            $id=[string]$v.id
+            if (-not $byId.ContainsKey($id) -or
+                (ConvertTo-Json -InputObject $v -Compress -Depth 16) -cne
+                (ConvertTo-Json -InputObject $byId[$id] -Compress -Depth 16)) {
+              throw ('UQ59_OLD_RECORD_WAS_MUTATED '+$id)
+            }
+          }
+          $policy=[IO.File]::ReadAllText((Join-Path $root 'policies/repo-source-admission.json')) | ConvertFrom-Json
+          foreach($id in @($policy.expected_ids)) {
+            if (-not $byId.ContainsKey([string]$id) -or
+                [string]$byId[[string]$id].status -cne 'observed' -or
+                @($byId[[string]$id].supersedes).Count -ne 0) {
+              throw ('UQ59_NEW_OBSERVATION_IDENTITY_INVALID '+$id)
+            }
+          }
+          for($i=0;$i -lt 101;$i++) {
+            if ((ConvertTo-Json -InputObject $ledger.entries[$i] -Compress -Depth 16) -cne
+                (ConvertTo-Json -InputObject $oldLedger.entries[$i] -Compress -Depth 16)) {
+              throw 'UQ59_OLD_LEDGER_ENTRY_WAS_CHANGED'
+            }
+          }
+          foreach($name in @('archive/index.json','.ice/chat-delta-state.json')) {
+            if ((Hash (Join-Path $root $name)) -cne $before[$name]) {
+              throw ('UQ59_ARCHIVE_OR_CURSOR_CHANGED '+$name)
+            }
+          }
+          $status=Status $root
+          $changed=@()
+          foreach($line in $status) {
+            if ($line.Length -lt 4 -or
+                $line.Substring(0,2) -cne ' M') {
+              throw ('UQ59_UNEXPECTED_STAGED_OR_UNTRACKED_FILE '+$line)
+            }
+            $path=$line.Substring(3).Replace('\','/')
+            if ($allowed -cnotcontains $path) {
+              throw ('UQ59_CHANGED_OUTSIDE_EXACT_ADMISSION_FILES '+$path)
+            }
+            $changed += $path
+          }
+          foreach($name in @('.ice/records.json','.ice/source-ledger.json')) {
+            if ($changed -cnotcontains $name -or
+                (Hash (Join-Path $root $name)) -ceq $before[$name]) {
+              throw ('UQ59_RECORD_OR_LEDGER_WAS_NOT_UPDATED '+$name)
+            }
+          }
+          if ((Git @('-C',$root,'rev-parse','HEAD')) -cne $target -or
+              (Git @('-C',$root,'rev-parse','--abbrev-ref','HEAD')) -cne 'main' -or
+              (Git @('-C',$root,'diff','--cached','--name-only')) -cne '') {
+            throw 'UQ59_GIT_CHECKPOINT_PROMOTED_OR_MAIN_MOVED'
+          }
+          $remoteAgain=@(& git.exe ls-remote --exit-code $origin refs/heads/main)
+          if ($LASTEXITCODE -ne 0 -or $remoteAgain.Count -ne 1 -or
+              ([string]$remoteAgain[0] -split '\s+')[0] -cne $target) {
+            throw 'UQ59_REMOTE_MAIN_CHANGED_OR_UNAPPROVED_PUSH'
+          }
+          if ([IO.Directory]::Exists($rt) -and
+              @(Get-ChildItem -LiteralPath $rt -Directory -Filter 'uq51-repo-transaction-*').Count -ne 0) {
+            throw 'UQ59_STRANDED_TRANSACTION_AFTER_APPLY'
+          }
+          $mind=(& (Join-Path $root 'tools/mind.ps1') validate | Out-String).Trim()
+          if ($mind -notmatch 'Mind-Palace validation passed') {
+            throw 'UQ59_POST_APPLY_MEMORY_VALIDATION_FAILED'
+          }
+          $ld=((& (Join-Path $root 'tools/source-ledger.ps1') validate -BatchPath (Join-Path $root $batch) | Out-String).Trim() | ConvertFrom-Json)
+          if (-not [bool]$ld.valid) { throw 'UQ59_POST_APPLY_LEDGER_VALIDATION_FAILED' }
+          Write-Host 'UQ59_EXACT_THREE_RECORD_GUARDED_LOCAL_APPLICATION=PASS'
+          Write-Host 'UQ59_ORIGINAL_260_RECORDS_PRESERVED_NEW_263_LEDGER_104=PASS'
+          Write-Host 'UQ59_POST_APPLY_MEMORY_AND_LEDGER_VALIDATION=PASS'
+          Write-Host 'UQ59_EXCLUSIVE_LOCK_AND_COPY_CUSTODY_NO_STRANDED=PASS'
+          Write-Host 'UQ59_LOCAL_SOURCE_MAIN_UNCHANGED_NO_COMMIT_OR_PUSH=PASS'
+          Write-Host 'UQ59_DURABLE_MEMORY_CHECKPOINT_NOT_PROMOTED=PASS'
+          ConvertTo-Json -InputObject ([ordered]@{
+            schema='mind-palace.uq59-guarded-local-application-result.v1'
+            source_main_sha=$target
+            previous_source_sha=$original
+            status='applied_uncommitted_local_only'
+            newly_applied_observations=3
+            total_record_count=263
+            source_ledger_entries=104
+            original_records_preserved=260
+            approved_changed_paths=@($changed | Sort-Object)
+            git_commit_performed=$false
+            git_push_performed=$false
+            protected_archive_and_chat_cursor_unchanged=$true
+            synthetic_failure_injection_disabled=$true
+            requires_separate_memory_promotion_authorization=$true
+          }) -Depth 8 | Write-Host
