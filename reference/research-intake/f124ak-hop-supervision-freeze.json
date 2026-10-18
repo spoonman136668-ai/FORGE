@@ -1,0 +1,189 @@
+{
+  "schema": "forge.research.f124ak.intermediate-supervised-relation.v1",
+  "stage": "PREIMPLEMENTATION_FROZEN",
+  "qualified_parent": {
+    "pr": 516,
+    "head": "9aa122181ce517f4e6967e752d8aff337c77d01c",
+    "run": 39114981482
+  },
+  "science_goal": "learn raw public one-bit mismatch event masks through strong FIT-only bit-lane supervision, then learn a trainable relational binder from FIT examples; no explicit mismatch-index/equality operator in neural inference",
+  "source": {
+    "independent_generator": "new layered braided 3-way distracting graph source; no import or invocation of F124AJ / earlier cohort builders",
+    "families": [
+      {
+        "name": "near_weave",
+        "salt": "forge/F124AK/learned-hop/near/v1",
+        "error_hops": [
+          2,
+          4
+        ],
+        "role_repeat": 0
+      },
+      {
+        "name": "far_weave",
+        "salt": "forge/F124AK/learned-hop/far/v1",
+        "error_hops": [
+          1,
+          9
+        ],
+        "role_repeat": 0
+      },
+      {
+        "name": "role_weave",
+        "salt": "forge/F124AK/learned-hop/reused/v1",
+        "error_hops": [
+          3,
+          8
+        ],
+        "role_repeat": 4
+      }
+    ],
+    "FIT_seed_interval": [
+      3290000,
+      3290023
+    ],
+    "DEV_seed_interval": [
+      3290100,
+      3290123
+    ],
+    "vectors": [
+      [
+        2,
+        1,
+        1
+      ],
+      [
+        1,
+        2,
+        1
+      ]
+    ],
+    "pairs_per_family_phase": 48,
+    "depths": {
+      "10": 16,
+      "11": 16,
+      "12": 16
+    },
+    "positive_same_flip_lane": true,
+    "negative_different_flip_lane": true,
+    "paired_public_topology_role_token_inventory_equal": true,
+    "exact_continuation_rejects_both": true,
+    "tolerant_continuation_accepts_both": true,
+    "protected_first_use_source_unavailable": true
+  },
+  "architecture": {
+    "local_operator": "shared 2-bit->8 tanh->1 sigmoid MLP trained to predict actual public carried-vs-src bit flip for each bit lane (FIT-only intermediate edge supervision). No explicit XOR/mismatch index in inference; 4 raw input pair types are cached from learned network once per graph for bounded CPU.",
+    "local_weights": 33,
+    "first_event_memory": "pack learned 16-lane binary flip mask with sentinel into EXISTING cell.score scalar, no new persistent cell fields. Learned mask from sigmoid >=0.5 per raw lane. Lanes aligned by engineered public bit order.",
+    "event_gate": "Require exactly one learned flip bit on two separate edges and zero elsewhere; this event-count policy is engineered and must not be reported as learned.",
+    "trainable_relation": "FIT-labelled examples supervise a sigmoid logistic binder on aggregated aligned binary pair histogram (00,01,10,11), four learned histogram weights+one bias; no supplied bit-index equality rule or oracle at inference.",
+    "relation_weights": 5,
+    "threshold_parameter": 1,
+    "total_global_params": 39,
+    "original_cell_fields": [
+      "node",
+      "raw16",
+      "score"
+    ],
+    "max_active": 7,
+    "max_retained": 9,
+    "max_total": 16,
+    "additional_cell_fields": 0,
+    "full_Python_int_scalar_bytes_must_be_measured": true,
+    "matched_total_parameter_memory_is_not_assumed": true
+  },
+  "training": {
+    "local_epochs": 320,
+    "local_lr": 0.09,
+    "local_weight_decay": 0.0001,
+    "local_gradient_clip": 1,
+    "init_salt": "forge/F124AK/local-mlp/v1",
+    "intermediate_label": "public FIT edge carried/raw16 src per-lane difference labels from training-only public true pathway; no labels provided during inference",
+    "balanced_four_pattern_training": "each of 00,01,10,11 FIT-present; equal-weight per-pattern batch gradient, no hand-coded XOR feature at inference",
+    "binder_epochs": 360,
+    "binder_lr": 0.18,
+    "binder_weight_decay": 0.0001,
+    "binder_gradient_clip": 1,
+    "fit_labelled_examples": 288,
+    "head_input": "histogram of four learned mask lane-pairs over 16 aligned lanes; head weights+offset learned from FIT",
+    "FIT_threshold_grid": [
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9
+    ],
+    "threshold_selection": "maximize FIT correctly paired with ZERO FIT false positives and at least 72/144 FIT positive recalls; else no-qualified threshold, use fixed 0.1 solely for diagnostic DEV; never use DEV for tuning"
+  },
+  "comparators": [
+    "historical_O_combined",
+    "historical_U_combined",
+    "fixed_consistency16",
+    "fixed_collisionfree",
+    "untrained_hop_relation",
+    "intermediate_trained_untrained_binder",
+    "trained_hop_relation"
+  ],
+  "attribution": "report local hop-accuracy 4 raw patterns plus held-out public FIT-labelled bit scores; binder training delta and ablation vs untrained head, learned vs perfect deterministic controls; do not claim learned superiority if deterministic same accuracy",
+  "evidence": {
+    "per_family_FIT_DEV_48": true,
+    "all_raw_case_pred_positive_negative": true,
+    "FP_and_FN_separate": true,
+    "complete_FIT_threshold_curve": true,
+    "actual_peak_cells_and_parameter_counts": true,
+    "authentic_original_weights": true,
+    "retained_negative_even_when_failed": true
+  },
+  "resources": {
+    "platforms": [
+      "ubuntu-latest",
+      "windows-latest"
+    ],
+    "family": "far_weave",
+    "graphs": 96,
+    "fresh_subprocess_repetitions": 3,
+    "arms": [
+      "historical_O_combined",
+      "historical_U_combined",
+      "fixed_consistency16",
+      "fixed_collisionfree",
+      "untrained_hop_relation",
+      "intermediate_trained_untrained_binder",
+      "trained_hop_relation"
+    ],
+    "metrics": [
+      "process_peak_RSS_bytes",
+      "Python_inference_heap_bytes",
+      "cpu_ns",
+      "wall_ns",
+      "edge_scans",
+      "raw_bit_lane_predictor_calls",
+      "global_parameters_39",
+      "packed_cell_bytes"
+    ],
+    "same_OS_worker": true,
+    "not_byte_or_compute_equal_by_cell_count": true
+  },
+  "governance": {
+    "protected_scientific_first_use": false,
+    "independent_scientific_acceptance": false,
+    "optimizer_promotion": false,
+    "accepted_ref_mutation": false,
+    "production_activation": false,
+    "paid_API_or_Codex": false,
+    "new_scheduler": false,
+    "CKB_plane_contact": false,
+    "MindPalace_Cloudflare_writes": false
+  },
+  "qualification": {
+    "Windows_Ubuntu_focused": true,
+    "FIT_training_before_DEV": true,
+    "one_original_full_Go_test_race_vet_build": true,
+    "original_FORGE_isolation": true,
+    "draft_unmerged": true
+  }
+}
