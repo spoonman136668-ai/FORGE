@@ -60,6 +60,32 @@ jobs:
           python3 -B -m unittest discover -s nativeevidence -p 'test_f136_*.py' -v
           python3 -B -m unittest discover -s nativeevidence -p 'test_f137_*.py' -v
 
+  windows-wake-syntax:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify silent SYSTEM PowerShell syntax without running wake or dispatch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errorsFound = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $pwd 'scripts/f137-windows-wake.ps1'),
+            [ref]$tokens,[ref]$errorsFound)
+          if ($errorsFound.Count -ne 0) {
+            $errorsFound | Format-List
+            throw 'F137_WINDOWS_SYNTAX_INVALID'
+          }
+          Write-Host 'F137_WINDOWS_WAKE_SYNTAX=PASS'
+          Write-Host 'F137_WAKE_DISPATCH_EXECUTED=FALSE'
+
   source-gated-successor:
     if: >-
       github.event_name == 'workflow_run' &&
