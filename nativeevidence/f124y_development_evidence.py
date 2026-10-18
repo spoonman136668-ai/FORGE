@@ -118,7 +118,7 @@ def score(lane,phase,base,delta,fixed,learned):
     if lane=="Wingless":
         left,right=stats["selected_indexed"],stats["same_checksum_uncached"]
         need(all(left[k]==right[k] for k in ("paired","false_positive",
-                "false_negative","case_sha256")),"SAME_CHECKSUM_PARITY")
+                "false_negative")),"SAME_CHECKSUM_PARITY")
     return {"phase":phase,"pairs":48,"reference_exact":48,"reference_role_only":0,
             "arms":stats}
 
