@@ -68,6 +68,21 @@ def train(demos,mode):
             if best[2] is None or best[0]>=errors:break
             indices.append(best[2])
             residual=[residual[k]^xs[k][best[2]] for k in range(FIT)]
+        # Exactly two preregistered deterministic full coordinate sweeps.
+        for _ in range(PASSES):
+            for slot in range(len(indices)):
+                untouched=[indices[k] for k in range(len(indices)) if k!=slot]
+                current=indices[slot]
+                target=[d["input_bits"][bit] ^
+                        (sum(xs[row][j] for j in untouched)%2)
+                        for row,d in enumerate(fit)]
+                best=(sum(target[row]^xs[row][current] for row in range(FIT)),current)
+                for j in range(QUADRATIC_WIDTH):
+                    if j in untouched:continue
+                    score=sum(target[row]^xs[row][j] for row in range(FIT))
+                    ops+=FIT
+                    if (score,j)<best:best=(score,j)
+                indices[slot]=best[1]
         model.append(tuple(indices))
     need(len(model)==16 and all(len(x)<=3 for x in model),
          "BOUNDED_SPARSITY")
