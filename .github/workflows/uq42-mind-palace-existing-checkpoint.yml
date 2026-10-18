@@ -160,6 +160,17 @@ jobs:
             $nodeB=@($b.nodes | ForEach-Object {$_.id} | Sort-Object)
             $edgeA=@($a.edges | ForEach-Object {$_.from+'|'+$_.to+'|'+$_.record_id} | Sort-Object)
             $edgeB=@($b.edges | ForEach-Object {$_.from+'|'+$_.to+'|'+$_.record_id} | Sort-Object)
+
+            $orderedNodeIdsA=@($a.nodes | ForEach-Object {$_.id})
+            $orderedNodeIdsB=@($b.nodes | ForEach-Object {$_.id})
+            $orderedEdgeIdsA=@($a.edges | ForEach-Object {$_.from+'|'+$_.relation+'|'+$_.to+'|'+$_.record_id})
+            $orderedEdgeIdsB=@($b.edges | ForEach-Object {$_.from+'|'+$_.relation+'|'+$_.to+'|'+$_.record_id})
+            $nodeObjA=@($a.nodes | ForEach-Object {ConvertTo-Json -InputObject $_ -Compress -Depth 5}|Sort-Object)
+            $nodeObjB=@($b.nodes | ForEach-Object {ConvertTo-Json -InputObject $_ -Compress -Depth 5}|Sort-Object)
+            $edgeObjA=@($a.edges | ForEach-Object {ConvertTo-Json -InputObject $_ -Compress -Depth 5}|Sort-Object)
+            $edgeObjB=@($b.edges | ForEach-Object {ConvertTo-Json -InputObject $_ -Compress -Depth 5}|Sort-Object)
+            Write-Host ('UQ42_GRAPH_STRUCTURE nodeOrderEqual='+(($orderedNodeIdsA -join '~') -ceq ($orderedNodeIdsB -join '~'))+' edgeOrderEqual='+(($orderedEdgeIdsA -join '~') -ceq ($orderedEdgeIdsB -join '~'))+' fullNodeSetEqual='+(($nodeObjA -join '~') -ceq ($nodeObjB -join '~'))+' fullEdgeSetEqual='+(($edgeObjA -join '~') -ceq ($edgeObjB -join '~')))
+
             Write-Host ('UQ42_GRAPH_PREVIEW actual='+$ha+' expected='+$hb+' srcsame='+($a.source_records_sha256 -ceq $b.source_records_sha256)+' nodecounts='+$nodeA.Count+'/'+$nodeB.Count+' edgecounts='+$edgeA.Count+'/'+$edgeB.Count+' nodesEqual='+(($nodeA -join '~') -ceq ($nodeB -join '~'))+' edgesEqual='+(($edgeA -join '~') -ceq ($edgeB -join '~')))
             $mindValidate=Child 'mind' @('validate')
             Assert ($mindValidate -like '*validation passed*') 'MIND_VALIDATE_FAILED'
