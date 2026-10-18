@@ -1,0 +1,79 @@
+name: F124-AQ fresh TRAIN and source-safe models
+on:
+  push:
+    branches: [research/f124aq-sparse-compositional-and-local-contrast-20261018]
+    paths:
+      - '.github/workflows/forge-f124aq-focused.yml'
+      - 'nativeevidence/f124aq_*.py'
+      - 'nativeevidence/test_f124aq_*.py'
+      - 'reference/research-intake/f124aq-frozen-compositional-parity-and-local-contrast.json'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124aq-focused-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 18
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source, original parent and no DEV
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'F124AQ_HEAD_DRIFT' }
+          $file='reference/research-intake/f124aq-frozen-compositional-parity-and-local-contrast.json'
+          if ((git hash-object $file).Trim() -cne 'e0a29f6062c45646eb72a31d06be961a7262f1e1' -or
+              (git log -1 --format=%H -- $file).Trim() -cne '3ae6a97ad5d725588a2e0a8d00f638eccfabdb9b') {
+            throw 'F124AQ_ORIGINAL_PREIMPLEMENTATION_FREEZE'
+          }
+          if ((git rev-parse '18081dadc80a536adc9d0fe1241b5991b4b69bcb:nativeevidence/f124ap_frozen_train_source.py').Trim() -cne 'd56cacd61d3a37aea3d10e789b993b631ebbcc01') {
+            throw 'F124AQ_PARENT_SOURCE_BLOB'
+          }
+          $py=if ($IsWindows) { 'python' } else { 'python3' }
+          foreach($pattern in @('test_f124aq_*.py','test_f124ap_*.py')) {
+            & $py -B -m unittest discover -s nativeevidence -p $pattern -v
+            if ($LASTEXITCODE -ne 0) { throw "F124AQ_FOCUSED_FAILED_$pattern" }
+          }
+          & $py -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'F124AQ_PROJECT_ISOLATION_FAILED' }
+          Write-Output 'F124AQ_FOCUSED=PASS'
+          Write-Output 'F124AQ_DEV_CONSUMED=false'
+  parent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify original AP qualification and negative evidence custody
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $runs=@(
+            @{id=39123857883;sha='c5330bbff435febe198c55e9da19beb17bc613d8'},
+            @{id=39124012087;sha='18081dadc80a536adc9d0fe1241b5991b4b69bcb'}
+          )
+          foreach($p in $runs) {
+            $r=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($p.id)" | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $r.head_sha -cne $p.sha -or
+               $r.status -cne 'completed' -or $r.conclusion -cne 'success' -or
+               $r.event -cne 'push') { throw 'F124AQ_PARENT_RUN_NOT_QUALIFIED' }
+          }
+          $a=gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/39123857883/artifacts" | ConvertFrom-Json
+          $found=@($a.artifacts | Where-Object { $_.id -eq 12135381471 })
+          if($LASTEXITCODE -ne 0 -or $found.Count -ne 1 -or $found[0].expired -or
+             $found[0].digest -cne 'sha256:008018afc6bb3b564439191dea0ac38423fd651609e7885a9068b714c36f09ef') {
+            throw 'F124AQ_PARENT_TRAIN_NEGATIVE_ARTIFACT_DRIFT'
+          }
+          Write-Output 'F124AQ_QUALIFIED_NEGATIVE_FOUNDATION=PASS'

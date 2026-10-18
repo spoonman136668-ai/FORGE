@@ -1,0 +1,143 @@
+name: F124-AQ one Wingless DEV first-use and final qualification
+on:
+  push:
+    branches: [research/f124aq-sparse-compositional-and-local-contrast-20261018]
+    paths: ['.github/workflows/forge-f124aq-wing-first-dev.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124aq-original-first-dev-once
+  cancel-in-progress: false
+jobs:
+  one-original-wing-dev:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original TRAIN selection and independent preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          f=reference/research-intake/f124aq-posttrain-selected-wing-dev.json
+          test "$(git hash-object "$f")" = e60bd99d881ba213a9ad2f65750fa486bff2ebc4
+          test "$(git log -1 --format=%H -- "$f")" = 942f20c12810932bf59bcd4f1d197b34d13ec905
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39125297723 --jq '.head_sha + " " + .conclusion' | grep -Fx '8d288a0f041afb394876682c922c0b404ae90e79 success'
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39125229599 --jq '.head_sha + " " + .conclusion' | grep -Fx '3c41bede4b3e398d975d0eb1a63a7cf848e5667b success'
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39124962572 --jq '.head_sha + " " + .conclusion' | grep -Fx '1d4222158da000f66f6ad28033c9b15f4dcabe93 success'
+          gh api repos/spoonman136668-ai/FORGE/actions/runs/39124962572/artifacts --jq '.artifacts[] | select(.id == 12136050383) | .digest' | grep -Fx 'sha256:59120d20472eb45661c9c5599a6e832824866abc25cf8e68e34d8d604f841a97'
+          echo 'F124AQ_SOURCE_AND_PREFLIGHT_AUTHENTICATED=PASS'
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39078269441
+          github-token: ${{ github.token }}
+          name: f124o-both-native-learned-development-5b52da1e38d5ff5671c582676790daf0462dd18d
+          path: original-o
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39082424955
+          github-token: ${{ github.token }}
+          name: f124t-source-verified-fresh-development-01560f7f4f1aab5737cfd045dffd7faaccfb0608
+          path: original-t
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39118489510
+          github-token: ${{ github.token }}
+          name: f124an-calibrated-source-isolation-ca46eba41179a1c6d9cd0bfa74119782c6d11d88
+          path: original-an
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39122374949
+          github-token: ${{ github.token }}
+          name: f124ao-first-dev-evidence-a0d15c8cf307a9c7972728899b525f79717049c7
+          path: original-ao
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39123857883
+          github-token: ${{ github.token }}
+          name: f124ap-authentic-train-only-c5330bbff435febe198c55e9da19beb17bc613d8
+          path: original-ap
+      - uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39124962572
+          github-token: ${{ github.token }}
+          name: f124aq-train-1d4222158da000f66f6ad28033c9b15f4dcabe93
+          path: original-aq
+      - name: Exactly one Wingless fresh DEV first-use and raw custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            '025c97abc8eb69079d7d7d0f59bfdb81235b9ad9ab83e230f32b542d2cfbdb5d  original-o/f124o-independent-two-learned-development.json' \
+            'a2f7b3641c2f84f684372918849170c97912c7a104fa4dbe264bcbd6d444c2d2  original-t/f124t-fresh-absolute-development.json' \
+            '7226e267ac02090069690ebb40e92696a2cba1bd56a567d838fc6e48880cff9c  original-an/f124an-calibrated-affine-wing-isolation.json' \
+            '37d61d2130fc73f28fd96d32b85d018dee231c5319dd515b2024132f7855cb52  original-ao/f124ao-first-dev-independent-evidence.json' \
+            '56bb2b97a2d0ae5babc0884e55841252ecefd6a11748f33425753e6309ef1417  original-ap/f124ap-authentic-kernel-hop-train.json' \
+            'd3a3935cc58d0fe69f46a496ae130a434360bee4169dc22bdad72385af3aa5b0  original-aq/f124aq-train.json' | sha256sum --check --strict
+          python3 -B nativeevidence/f124aq_wing_evidence.py --mode dev \
+            --o original-o/f124o-independent-two-learned-development.json \
+            --t original-t/f124t-fresh-absolute-development.json \
+            --an original-an/f124an-calibrated-affine-wing-isolation.json \
+            --ao original-ao/f124ao-first-dev-independent-evidence.json \
+            --ap original-ap/f124ap-authentic-kernel-hop-train.json \
+            --aq original-aq/f124aq-train.json \
+            --output "$RUNNER_TEMP/f124aq-original-first-wing-dev.json"
+          python3 -B -c 'import json,sys; r=json.load(open(sys.argv[1])); a=r["Wingless"]; assert r["mode"]=="dev" and r["schema"]=="forge.research.f124aq.verified-single-wing-first-dev-evidence.v1"; assert a["models"]["AQ_selected"]["pairs"]==48 and a["source_diagnostic"]["correct_positive_truth"]==48 and a["source_diagnostic"]["correct_negative_truth"]==48 and a["source_diagnostic"]["three_corrupted_examples"]==48; assert not r["Yggdrasil"]["DEV_consumed"] and not r["independent_science_acceptance"] and not r["optimizer_promotion"]; assert a["resources"]["arms"]["AQ_selected"]["graphs"]==24 and a["resources"]["arms"]["AQ_selected"]["timed_calls"]==72' "$RUNNER_TEMP/f124aq-original-first-wing-dev.json"
+          sha256sum "$RUNNER_TEMP/f124aq-original-first-wing-dev.json" > "$RUNNER_TEMP/f124aq-original-first-wing-dev.json.sha256"
+          echo 'F124AQ_ORIGINAL_WING_DEV_SOURCE=PASS'
+          echo 'F124AQ_YGG_DEV_CONSUMED=false'
+          echo 'F124AQ_SCIENTIFIC_PROMOTION=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124aq-original-wing-dev-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/f124aq-original-first-wing-dev.json
+            ${{ runner.temp }}/f124aq-original-first-wing-dev.json.sha256
+          if-no-files-found: error
+          retention-days: 90
+  one-final-full-regression:
+    needs: one-original-wing-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Run one complete unchanged system regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go test -race -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo "F124AQ_FINAL_FULL_SYSTEM_REGRESSION=PASS"
+          echo "F124AQ_QUALIFIED_SOURCE_HEAD=$GITHUB_SHA"
+          echo "F124AQ_SCIENCE_ACCEPTED=false"
