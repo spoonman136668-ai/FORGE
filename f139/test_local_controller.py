@@ -80,7 +80,7 @@ class SQLiteControllerTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path=Path(self.tmp.name)/'state.sqlite'
         self.db=Database.initialize(self.path,SHA)
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         self.gh=FakeGitHub()
         self.db.enqueue(TASKS,'f'*64)
         self.db.enable(legacy_suspended=True)
