@@ -1,0 +1,97 @@
+name: UQ46 canonical snapshot single full regression
+on:
+  push:
+    branches: [qualification/uq46-snapshot-serialization]
+    paths: ['.github/workflows/uq46-one-full-regression.yml']
+permissions:
+  contents: read
+concurrency:
+  group: uq46-exact-head-one-full-regression
+  cancel-in-progress: false
+jobs:
+  full:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 38
+    steps:
+      - name: Execute one full suite with exact source identity and private custody
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UQ46_WRONG_RUNNER'}
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $main='22d819c3473b80be34ecac7280881a67c981207c'
+          $head='1d4cc14541944b950195caf47d0e7826b2005a4c'
+          foreach($pair in @(@('refs/heads/main',$main),@('refs/heads/engineering/uq46-canonical-snapshot-serializer',$head))){
+            $r=@(& git.exe ls-remote --exit-code $remote $pair[0])
+            if($LASTEXITCODE -ne 0 -or $r.Count -ne 1 -or ([string]$r[0] -split '\s+')[0] -cne $pair[1]){throw 'UQ46_SOURCE_IDENTITY_DRIFT'}
+          }
+          $scratch=Join-Path (Join-Path $env:RUNNER_TEMP 'mp37-private-scratch') ('run-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $out=Join-Path $scratch 'full.stdout'
+          $err=Join-Path $scratch 'full.stderr'
+          if(Test-Path $scratch){throw 'UQ46_PRIVATE_SCRATCH_EXISTS'}
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          try{
+            # The accepted tests clone local Git source themselves. This
+            # isolated qualifier therefore requires a full (non-sparse) tree.
+            & git.exe clone --quiet --single-branch --branch engineering/uq46-canonical-snapshot-serializer $remote $root
+            if($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ46_PR_CHECKOUT_DRIFT'}
+            $expected=@{
+              'tools/update-checkpoint.ps1'='76ae6839e144f883613b769b26ca3692480cf8d2';
+              'tools/project-dependency-graph.ps1'='639ed34d1ff5e2a872be60d8f400f43eaaf8b3da';
+              'tests/Test-ProjectDependencyGraph.ps1'='74a04c59bcbe43a35d8d30ec7182f166d98a844f';
+              'tools/source-inventory-import.ps1'='aa681e1f1f867b997c6b396fd4307d91c8e928d4';
+              'tests/Test-SourceInventoryImport.ps1'='f07decc0bfff44fd52bdb2c4b6ed24e48b1abc72';
+              'tests/Test-UQ34CheckpointReplay.ps1'='e6847c408fc4fdcc80cc657dc202efc07bae8803';
+              'tools/browser-chat-intake.ps1'='d548b886eb20eb0a22929b7438b5dd0ffbeeb607';
+              'tools/remote-snapshot.ps1'='a22493676ba6ce729f9a2e3ee041926942be229f';
+              '.ice/remote-bootstrap.json'='0d53def2269e244973e6656f99a9805c1c96b895';
+              '.ice/remote-catalog.json'='d2b7e557792033f774b50623c73fd6325d4376c1';
+              '.ice/remote-index.ndjson'='53199dce4073ef90717f1cf4ec2ecb909c5b79b2';
+              '.ice/project-state-capsules.json'='0e7e49a3650cbf63757b26c2bee78b6d25a6be20';
+              '.ice/project-dependency-graph.json'='da17aaf4a38388fcc9a5983ae7ed0edff4e93278'
+            }
+            foreach($f in $expected.Keys){
+              $blob=(& git.exe -C $root hash-object (Join-Path $root $f)|Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne $expected[$f]){throw 'UQ46_CHANGED_BLOB_DRIFT'}
+            }
+            $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            $before=@{}
+            foreach($file in $protected){$before[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash}
+            Write-Host 'UQ46_EXACT_CANONICAL_SOURCE_AND_SNAPSHOT_BLOBS=PASS'
+            Write-Host 'UQ46_FOCUSED_QUALIFICATION_REUSED=39118007026'
+            $tool=Join-Path $root 'tests/Test-All.ps1'
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            $p=Start-Process -FilePath (Get-Command pwsh.exe -ErrorAction Stop).Source -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$tool+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $clock.Stop()
+            $s=[IO.File]::ReadAllText($out)
+            $tests=@([regex]::Matches($s,'(?m)^RUN .+$'))
+            if($p.ExitCode -ne 0 -or $s -notmatch 'Mind-Palace regression suite passed'){
+              $details=[IO.File]::ReadAllText($err)
+              $tail=$details.Substring([Math]::Max(0,$details.Length-1250))
+              $last=if($tests.Count){$tests[-1].Value}else{'none'}
+              Write-Host ('UQ46_FULL_REGRESSION_STOP exit='+$p.ExitCode+' tests_started='+$tests.Count+' last='+$last+' stderr_tail='+$tail)
+              throw 'UQ46_FULL_REGRESSION_FAILED'
+            }
+            Write-Host ('UQ46_FULL_REGRESSION=PASS tests_started='+$tests.Count+' elapsed_seconds='+[int]$clock.Elapsed.TotalSeconds)
+            foreach($file in $protected){
+              $sha=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash
+              if($sha -cne $before[$file]){throw ('UQ46_PROTECTED_STATE_DRIFT_'+$file)}
+            }
+            Write-Host 'UQ46_NINE_PROTECTED_HASHES_STABLE=PASS'
+            if(@(& git.exe -C $root status --porcelain=v1 --untracked-files=all).Count -ne 0){throw 'UQ46_UNCLEAN_SOURCE_TREE'}
+            if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -cne $head)){throw 'UQ46_FINAL_HEAD_DRIFT'}
+            Write-Host 'UQ46_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ46_CODEX_AND_PAID_INFERENCE=0'
+          }finally{
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path $scratch){throw 'UQ46_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ46_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
