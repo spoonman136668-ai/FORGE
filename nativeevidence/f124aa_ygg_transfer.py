@@ -14,7 +14,7 @@ need=V.need
 original_forward=V.original_forward
 ARMS=("O","U")
 MODES=("original","diverse")
-SCHEMA="forge.research.f124aa.public-node-diversity-16-cell-development.v1"
+SCHEMA="forge.research.f124aa.outfamily-node-diversity-transfer.v1"
 
 def forward(arm,g,weights,mode='original',positive_prefix=None):
     """Instrument model allocation. Prefix remains evaluator-only diagnostic."""
