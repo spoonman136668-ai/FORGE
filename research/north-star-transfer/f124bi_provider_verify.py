@@ -99,7 +99,7 @@ def verify(local_only=False):
                 "verified_remote_object": True,
             }
     # Strict original first-parent birth order, not a later rebased ancestry.
-    chain = ((BIRTHS["protocol"][0], BH_HEAD),
+    chain = ((BIRTHS["protocol"][0], "aca5b279e0e0985560e3a13f0c892d4a30ae08e6"),
              (BIRTHS["U"][0], BIRTHS["protocol"][0]),
              (BIRTHS["R"][0], BIRTHS["U"][0]))
     for current, prior in chain:
