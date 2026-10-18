@@ -76,6 +76,8 @@ jobs:
           PAUSE: ${{ vars.FORGE_DEV_AUTONOMY_PAUSE }}
         run: |
           set -euo pipefail
+          # A restarted or manually rerun controller may not replay dispatch.
+          test "$GITHUB_RUN_ATTEMPT" = "1"
           root="$RUNNER_TEMP/forge-f136-succession"
           mkdir -p "$root"
           # Obtain authoritative GitHub data independently of webhook fields.
@@ -129,6 +131,48 @@ jobs:
           python3 "$root/preflight.py" "$root" "$stamp" "$paused"
           eligible="$(jq -r '.dispatch' "$root/preflight.json")"
           if [[ "$eligible" != "true" ]]; then
+            # Only the *sole* near-fallback veto permits one bounded pause.
+            # Recheck after the nominal slot; never relax the frozen F136 gate.
+            delay="$(python3 - "$root/preflight.json" "$stamp" <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,"nativeevidence")
+          import f136_succession as g
+          report=g.strict(Path(sys.argv[1]).read_bytes())
+          print(g.single_recheck_delay_seconds(report,g.stamp(sys.argv[2])))
+          PY
+            )"
+            if [[ "$delay" != "0" ]]; then
+              cp "$root/preflight.json" "$root/preflight-initial.json"
+              echo "F136_POST_SLOT_RECHECK_ONCE_SECONDS=$delay"
+              sleep "$delay"
+              test "$GITHUB_RUN_ATTEMPT" = "1"
+              gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha' > "$root/main.sha"
+              test "$(git rev-parse HEAD)" = "$(tr -d '\r\n' < "$root/main.sha")"
+              for page in 1 2 3; do
+                gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-integrated-synthetic-cycle.yml/runs?branch=main&per_page=100&page=$page" > "$root/page-$page.json"
+              done
+              python3 - "$root" <<'PY'
+          import json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          pages=[json.loads((root/f"page-{n}.json").read_text()) for n in (1,2,3)]
+          rows=[r for p in pages for r in p["workflow_runs"]]
+          assert len(rows)==len({r["id"] for r in rows}),"F136_RECHECK_GITHUB_PAGINATION_DUPLICATE"
+          assert rows and len(rows)<=300,"F136_RECHECK_GITHUB_HISTORY_BOUNDS"
+          (root/"recent.json").write_text(json.dumps(
+              {"total_count":pages[0]["total_count"],"workflow_runs":rows},
+              sort_keys=True,separators=(",",":")))
+          PY
+              stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              paused=false
+              if [[ "$PAUSE" == 'true' ]]; then paused=true; fi
+              python3 "$root/preflight.py" "$root" "$stamp" "$paused"
+              eligible="$(jq -r '.dispatch' "$root/preflight.json")"
+              echo "F136_POST_SLOT_RECHECK_ONCE_DECISION=$eligible"
+            fi
+          fi
+          if [[ "$eligible" != "true" ]]; then
             echo "dispatch=false" >> "$GITHUB_OUTPUT"
             jq -r '.reasons[]' "$root/preflight.json" | sed 's/^/F136_DECLINED_/'
             exit 0
@@ -161,6 +205,7 @@ jobs:
           EXPECTED_SHA: ${{ steps.gate.outputs.sha }}
         run: |
           set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
           test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" = "$EXPECTED_SHA"
           # GitHub GITHUB_TOKEN allows workflow_dispatch. No PAT, no paid API,
           # no code write, and no new scheduler or scientific first-use.
@@ -176,6 +221,7 @@ jobs:
           name: forge-f136-completion-decision-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/forge-f136-succession/preflight.json
+            ${{ runner.temp }}/forge-f136-succession/preflight-initial.json
             ${{ runner.temp }}/forge-f136-succession/f136-decision.json
           if-no-files-found: warn
           retention-days: 14
