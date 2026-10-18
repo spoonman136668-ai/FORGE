@@ -28,11 +28,8 @@ MODEL_BLOBS = {
     HERE / "20261018-mass-learned-kernel.py":
         "bf81ed56cc0daa2c413ad7d9c698969f92befe3d",
     NATIVE / "f124az_joint_public_inverse.py":
-        "0122190aa3a0972ffb4a709bc6c7ffb124b311",  # replaced below
+        "0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7",
 }
-MODEL_BLOBS[NATIVE / "f124az_joint_public_inverse.py"] = (
-    "0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7"
-)
 
 
 def need(value, key):
