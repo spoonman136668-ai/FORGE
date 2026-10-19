@@ -146,16 +146,17 @@ func TestLegacyFamilySignatureCannotDowngradeLedgerBinding(t *testing.T){
   ActiveFamilySHA256:f.Snapshot.ActiveFamilySHA256,
   ConsumedFamilySHA256:f.Snapshot.ConsumedFamilySHA256,
  }
- message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\\n",legacy)
+ message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\n",legacy)
  if err!=nil{t.Fatal(err)}
  // This fixture must be a genuine, internally verified v1 signature, not
  // an invalid signature accidentally accepted as a sufficient negative test.
- if !strings.HasPrefix(string(message),"FORGE-SCIENCE-FAMILY-LEDGER-V1\\n")||
+ if !strings.HasPrefix(string(message),"FORGE-SCIENCE-FAMILY-LEDGER-V1\n")||
   strings.Contains(string(message),"ledger_snapshot_sha256"){
   t.Fatal("legacy signed payload is not the authentic v1 envelope")
  }
  f.SignatureHex=hex.EncodeToString(ed25519.Sign(priv,message))
- if !ed25519.Verify(pub,message,ed25519.Sign(priv,message)){
+ signature,err:=hex.DecodeString(f.SignatureHex)
+ if err!=nil||!ed25519.Verify(pub,message,signature){
   t.Fatal("legacy v1 signer fixture failed independent signature verification")
  }
  f.Snapshot.Schema=legacy.Schema
