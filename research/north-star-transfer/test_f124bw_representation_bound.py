@@ -56,6 +56,33 @@ class TwoPointUniversalStructuralBound(unittest.TestCase):
                      "optimizer_policy_promoted"):
             self.assertFalse(result[name],name)
 
+    def test_effective_30bit_original_hypothesis_and_two_32bit_flags(self):
+        f=proof.frozen_model()
+        self.assertEqual(len(f.ODD_GAINS),64)
+        self.assertEqual(64*256*64*256*2*2,2**30)
+        for program in ((1,0,1,0,1,1),(53,37,41,19,0,1),
+                        (127,255,127,255,1,0)):
+            for option in (0,1):
+                for reserve in (0,1):
+                    packed=proof.encode_same_32bits_with_two_new_structural_flags(
+                        program,option,reserve)
+                    self.assertLess(packed,2**32)
+                    self.assertEqual(
+                        proof.decode_same_32bits_with_two_new_structural_flags(packed),
+                        (program,option,reserve))
+
+    def test_one_structural_flag_constructively_expresses_three_shear_swap(self):
+        m=proof.frozen_model()
+        old=(1,0,1,0,1,1)
+        self.assertNotEqual(m.forward(0x3500)&255,m.forward(0x3501)&255)
+        for x in range(65536):
+            self.assertEqual(
+                proof.optional_third_xor_shear(x,m,old,1),
+                proof.byte_swap(x))
+            self.assertEqual(proof.optional_third_xor_shear(x,m,old,0),
+                             m.forward(x,old))
+        self.assertFalse(proof.audit()["successor_real_CPU_RSS_parity_established"])
+
     def test_reject_invalid_probe_input(self):
         with self.assertRaises(RuntimeError):
             proof.byte_swap(-1)
