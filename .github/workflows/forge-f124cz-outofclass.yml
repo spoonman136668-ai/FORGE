@@ -1,0 +1,127 @@
+name: F124-CZ out-of-class learned causal structure sourcefree study
+on:
+  push:
+    branches: [research/f124cz-out-of-class-causal-composition-20261019]
+    paths: [.github/workflows/forge-f124cz-outofclass.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124cz-sourcefree-quadratic-vs-modular-first-design
+  cancel-in-progress: false
+jobs:
+  frozen-nonlinear-prebirth:
+    name: frozen-nonlinear-prebirth (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin CPU-only recurrent reference dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CZ_NUMPY_DEPENDENCY' }
+      - name: Exact preregistration and unchanged previous frozen models
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CZ_SHA_DRIFT' }
+          & git merge-base --is-ancestor 34e757c1a0bd0b1f563cb66488f5e6128e2c1164 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CZ_PRESCIENCE_SOURCE_FREEZE_MISSING' }
+          & git merge-base --is-ancestor bcd83c753bc9f666ac52d0cab09053751a62f234 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CZ_PARENT_CY_ORIGINAL_EVIDENCE_MISSING' }
+          $j=Get-Content -Raw research/north-star-transfer/f124cz-frozen-outofclass-protocol.json | ConvertFrom-Json
+          if ($j.schema -cne 'mass.f124cz.sourcefree-out-of-affine-causal-composition-prereg.v1') { throw 'CZ_INVALID_SOURCEFREE_FREEZE' }
+          foreach ($p in @(@('research/north-star-transfer/f124cy_shared_causal_composition.py','8684a4ecd0057e0851a6dbdff935e3fd3882f8b7'),@('research/north-star-transfer/f124ct_gated_sequence_control.py','3ef0cc31ce78eee8a5a1bbde71c31b8364108325'))) {
+            $actual=(& git rev-parse "HEAD:$($p[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $p[1]) { throw "CZ_PRIOR_FROZEN_MODEL_MUTATION:$($p[0])" }
+          }
+          if (!$j.sourcefree_only -or !$j.no_original_scientific_source_924_through_937_reused -or !$j.no_new_firstuse -or !$j.no_scientific_success_promotion) { throw 'CZ_UNAUTHORIZED_PROSPECTIVE_SOURCE' }
+          Write-Host 'F124CZ_SOURCE_FREEZE_BEFORE_NOVEL_CAUSAL_WORLD=PASS'
+      - name: Test genuine nonlinear public laws, equivalent features and teacher-free recall
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cz_outofclass.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CZ_MODEL_OR_SOURCEFREE_QUALIFICATION_FAIL' }
+          Write-Host 'F124CZ_FROZEN_AFFINE_VS_NEW_NONLINEAR_CONTROLS_PRETEST=PASS'
+  original-outofclass-whole-os:
+    name: original-outofclass-whole-os (${{ matrix.regime }}, seed ${{ matrix.first_seed }})
+    needs: frozen-nonlinear-prebirth
+    strategy:
+      fail-fast: false
+      matrix:
+        regime: [nonlinear_cross_role_quadratic, modular_carry_composition]
+        first_seed: [41, 43]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Same pinned frozen NumPy
+        run: python -m pip install --disable-pip-version-check numpy==2.3.5
+      - name: Measure five actual whole-process OS repetitions of each exact sourcefree arm and case
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cz_whole_os_shard.py \
+            --regime "${{ matrix.regime }}" \
+            --first-seed "${{ matrix.first_seed }}" \
+            --out "$RUNNER_TEMP/f124cz-50-whole-os"
+      - name: Preserve complete unchanged original sourcefree shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cz-sourcefree-${{ matrix.regime }}-${{ matrix.first_seed }}
+          path: ${{ runner.temp }}/f124cz-50-whole-os/shard-*.json
+          if-no-files-found: error
+          retention-days: 90
+  independent-sourcefree-final-audit:
+    name: independent-sourcefree-final-audit
+    needs: original-outofclass-whole-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Obtain all four sourcefree nonoverlapping original OS-shard archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124cz-sourcefree-*
+          path: ${{ runner.temp }}/f124cz-all-original-shards
+          merge-multiple: true
+      - name: Independently reconcile 200 full OS receipts and all natural admission outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cz_readonly_audit.py \
+            --shards "$RUNNER_TEMP/f124cz-all-original-shards" \
+            --out "$RUNNER_TEMP/f124cz-original-review"
+      - name: Preserve full read-only sourcefree evidence and bounded findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cz-original-full-200-sourcefree-outofclass-evidence
+          path: ${{ runner.temp }}/f124cz-original-review/
+          if-no-files-found: error
+          retention-days: 90
