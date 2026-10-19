@@ -20,6 +20,7 @@ from statistics import median
 
 PROTOCOL_BLOB="5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5"
 PROTOCOL_COMMIT="be7e9c2b91970ec2585a499a77e7b3369617fc1a"
+ORIGINAL_PROVIDER_FROZEN_AT="2026-10-19T08:09:59Z"
 FORGE_OWNER="spoonman136668-ai"
 EXPECTED={"A":{"fit":list(range(924000,924012)),
                "holdout":list(range(924100,924228))},
@@ -138,7 +139,9 @@ def original_witness_one(source,witness):
          and root.get("author",{}).get("login")==creator,
          "PROVIDER_VERIFIED_SIGNATURE_AND_AUTHOR")
     born_at=_parsed_time(commit.get("author",{}).get("date"))
-    freeze_at=_parsed_time(source.get("precode_frozen_at"))
+    need(source.get("precode_frozen_at")==ORIGINAL_PROVIDER_FROZEN_AT,
+         "REQUIRE_PROVIDER_ACTUAL_PRECODE_TIMESTAMP_NOT_SELF_DECLARED")
+    freeze_at=_parsed_time(ORIGINAL_PROVIDER_FROZEN_AT)
     need(born_at>freeze_at,"SIGNED_ORIGINAL_BIRTH_AFTER_FREEZE")
     need(source.get("future_firstuse_timestamp") is None,
          "NO_FABRICATED_FUTURE_FIRSTUSE")
