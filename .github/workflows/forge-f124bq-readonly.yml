@@ -1,0 +1,133 @@
+name: F124-BQ original prebirth negative read-only custody
+on:
+  push:
+    branches: [research/f124bq-sealed-resource-negative-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bq-once-only-original-resource-negative-readonly
+  cancel-in-progress: false
+jobs:
+  original-provider-6-process-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require unchanged model/protocol and just two evidence-only files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 4a18329f84b46f956c7e59c1da326169247710c3 HEAD
+          mapfile -t changed < <(git diff --name-only 4a18329f84b46f956c7e59c1da326169247710c3 HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/forge-f124bq-readonly.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124bq-frozen-no-source-resource-negative.json'
+          for path in research/north-star-transfer/f124bq-frozen-program.json \
+            research/north-star-transfer/f124bq_program_learner.py \
+            research/north-star-transfer/f124bq_resource_prebirth.py \
+            nativeevidence/f124az_joint_public_inverse.py \
+            nativeevidence/f124ag_transition_models.py; do
+            test "$(git rev-parse HEAD:"$path")" =                  "$(git rev-parse 4a18329f84b46f956c7e59c1da326169247710c3:"$path")"
+          done
+          echo F124BQ_NEW_SOURCE_MODEL_EXECUTIONS=0
+      - name: Independently authenticate provider's failed resource gate and original artifact data
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bq-original-provider"
+          mkdir -p "$root/original"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39189381963" > "$root/run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/117858599682" > "$root/job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12158658902" > "$root/artifact.json"
+          python3 -B - "$root" <<'PY'
+          import pathlib,sys,json
+          p=pathlib.Path(sys.argv[1])
+          run=json.loads((p/'run.json').read_text())
+          job=json.loads((p/'job.json').read_text())
+          artifact=json.loads((p/'artifact.json').read_text())
+          assert run['id']==39189381963
+          assert run['head_sha']=='4a18329f84b46f956c7e59c1da326169247710c3'
+          assert run['status']=='completed' and run['conclusion']=='failure'
+          assert job['run_id']==run['id'] and job['conclusion']=='failure'
+          steps={x['name']:x['conclusion'] for x in job['steps']}
+          assert steps['Confirm exact unchanged model, original AZ and no source-first-use']=='success'
+          assert steps['Read-only nonregistered source-neutral OS CPU RSS task comparison, six fresh processes']=='failure'
+          assert steps['Always preserve actual passed or failed prebirth measurements']=='success'
+          assert artifact['id']==12158658902
+          assert artifact['workflow_run']['id']==39189381963
+          assert artifact['expired'] is False
+          assert artifact['digest']=='sha256:42a3a0a69cd4bf575718c7553c614dbc8cf941d8902e2551e86359794014fd79'
+          print('F124BQ_ORIGINAL_FAILED_RESOURCE_GATE_PROVIDER_AUTHENTICATED=PASS')
+          PY
+          gh run download 39189381963 --repo "$GITHUB_REPOSITORY" \
+            --name f124bq-unconsumed-os-resource-measurement-4a18329f84b46f956c7e59c1da326169247710c3 \
+            --dir "$root/original"
+          python3 -B - "$root" <<'PY'
+          import json,pathlib,sys,statistics,hashlib
+          p=pathlib.Path(sys.argv[1])
+          files={x.name for x in (p/'original').iterdir() if x.is_file()}
+          assert files=={'native-synthetic-resource.json'}, files
+          original=(p/'original'/'native-synthetic-resource.json').read_bytes()
+          data=json.loads(original)['summary']
+          frozen=json.load(open('research/north-star-transfer/f124bq-frozen-no-source-resource-negative.json'))
+          f=frozen['original_resource_measurements']
+          assert data['samples']==6 and data['fresh_process_each_sample'] is True
+          assert not data['both_resource_screens']
+          assert data['CPU_prebirth_screen'] and not data['RSS_prebirth_screen']
+          assert not data['prospective_source_firstuse']
+          assert not data['preregistered_resource_admission']
+          assert data['AZ_original_may_abstain_no_forced_scoring']
+          assert data['equivalent_native_workload_not_claimed']
+          assert data['old_BM_BN_BO_BP_source_reused'] is False
+          assert data['per_arm']['AZ']['public_graph_identity']==f['source_neutral_synthetic_public_graph_sha256']
+          assert data['per_arm']['compact']['public_graph_identity']==f['source_neutral_synthetic_public_graph_sha256']
+          for actual, sealed in [('AZ','original_AZ'),('compact','new_learned_program')]:
+              a=data['per_arm'][actual]
+              b=f[sealed]
+              assert a['CPU_ns_samples']==b['cpu_ns']
+              assert a['RSS_bytes_samples']==b['peak_process_rss_bytes']
+              assert a['CPU_ns_median']==b['cpu_median_ns']
+              assert a['RSS_bytes_median']==b['rss_median_bytes']
+              assert a['RSS_bytes_max']==b['rss_max_bytes']
+          assert (f['new_learned_program']['rss_median_bytes']-
+                  f['original_AZ']['rss_median_bytes'])==110592
+          assert frozen['guards']['prospective_new_924000_or_925000_case_constructed'] is False
+          assert frozen['guards']['protected_924100_or_925100_case_constructed'] is False
+          assert frozen['guards']['scientific_transfer_accepted'] is False
+          assert frozen['guards']['optimizer_policy_promoted'] is False
+          receipt={
+              'schema':'mass.f124bq.independent-original-provider-6-process-negative.v1',
+              'original_run':39189381963,'original_source_head':'4a18329f84b46f956c7e59c1da326169247710c3',
+              'artifact_id':12158658902,
+              'original_resource_json_sha256':hashlib.sha256(original).hexdigest(),
+              'recounted_OS_CPU_median_AZ_ns':data['per_arm']['AZ']['CPU_ns_median'],
+              'recounted_OS_CPU_median_learner_ns':data['per_arm']['compact']['CPU_ns_median'],
+              'recounted_OS_RSS_median_AZ_bytes':data['per_arm']['AZ']['RSS_bytes_median'],
+              'recounted_OS_RSS_median_learner_bytes':data['per_arm']['compact']['RSS_bytes_median'],
+              'source_firstuse':False,'resource_nonregression':False,'science_accepted':False,
+              'source_or_model_executed_by_this_reconciliation':False}
+          (p/'original-provider-recount.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          print('F124BQ_ORIGINAL_SIX_PROCESS_RESOURCE_RECOUNT=PASS')
+          print('F124BQ_CPU_FEASIBILITY=PASS')
+          print('F124BQ_RSS_FEASIBILITY=FAIL')
+          print('F124BQ_NEW_PROSPECTIVE_SOURCE_CONSUMED=false')
+          print('F124BQ_SCIENCE_ACCEPTED=false')
+          PY
+          (cd "$root" && sha256sum run.json job.json artifact.json original-provider-recount.json > receipt-sha256.txt && sha256sum -c receipt-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bq-independent-synthetic-negative-custody-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bq-original-provider/
+          retention-days: 90
+          if-no-files-found: warn
