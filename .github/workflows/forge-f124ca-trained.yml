@@ -1,0 +1,53 @@
+name: F124-CA fully trained equal-information binding comparator
+on:
+  push:
+    branches: [research/f124ca-trained-binding-parity-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124ca-original-model-training-controls-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  trained-comparator-original-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze identities then qualify equally trained sourceblind comparator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='4ac1bc40f515b01ec9e548b4531ecff2224a573c'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CA_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CA_ORIGINAL_BZ_SOURCE_DRIFT' }
+          & git merge-base --is-ancestor aa9ba5f0e8d8e9d8e7db03936adfc05f6d7de87f HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CA_STRONG_CONTROL_NOT_FROZEN_FIRST' }
+          $orig=@{
+            'research/north-star-transfer/f124bz_binding_candidate.py'='8f24a4aab3e880d7ba5f89a2af6ab210912d865c'
+            'research/north-star-transfer/f124bx_learned_flag.py'='74b907aba821678d5f8a59b06f85f5e87cb05002'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'research/north-star-transfer/f124by-frozen-panel.json'='d546a7cfd9aee45ddbad18bba099ad8ceb5b4a55'
+          }
+          foreach ($path in $orig.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $orig[$path]) { throw "CA_ORIGINAL_SCIENCE_IDENTITY_DRIFT:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124ca_trained_comparator.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CA_TRAINED_CONTROL_FOCUSED_FAIL' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CA_PRESERVED_PROTECTED_FIRSTUSE_FAILURE' }
+          Write-Output 'F124CA_STRONG_FULLY_TRAINED_CONTROL=PASS'
+          Write-Output 'F124CA_COMPLETE_OS_RESOURCE_ADMISSION=NOT_YET_CHECKED'
+          Write-Output 'F124CA_AUTHENTIC_INDEPENDENT_SOURCE_FIRSTUSE=false'
