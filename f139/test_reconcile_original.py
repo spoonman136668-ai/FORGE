@@ -180,7 +180,7 @@ class OriginalQuarantineTests(unittest.TestCase):
             "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq LIMIT 14")],
                          baseline)
         self.assertEqual(run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)[
-            "disposition"], "START_RISK_PENDING_NO_REDISPATCH")
+            "disposition"], "WORKER_RUNNING_NO_REDISPATCH")
         self.assertEqual(len(provider.dispatches), 1)
         self.db.close()
         self.db = Database(self.dbpath)
