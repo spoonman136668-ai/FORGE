@@ -112,6 +112,16 @@ jobs:
           run_private G47_GRAPHIFY_PINNED_INSTALL python -m pip install "$RUNNER_TEMP/graphify-wheel/graphifyy-0.9.92-py3-none-any.whl"
           run_private G47_GRAPHIFY_CODE_ONLY_EXTRACT graphify extract . --code-only --max-workers 2
           run_private G47_GRAPHIFY_LOCAL_COMMUNITIES graphify cluster-only .
+          # Original Graphify file-catalog consumer requires the exact-bound
+          # source manifest generated in the full K-Terminal workflow.
+          {
+            printf 'repository=Kboomllc/K-Terminal\n'
+            printf 'source_sha=%s\n' "$K_TERM_SHA"
+            printf 'graphify_version=0.9.92\n'
+            printf 'graphify_wheel_sha256=9722846e627a369150107dd792145c3e3d3da46f7a7bff9f96b75da857c\n'
+            printf 'extraction=code-only\n'
+            printf 'labeling=no-llm\n'
+          } > graphify-out/source-manifest.txt
           run_private G47_FILE_CATALOG python tools/graphify/build_file_catalog.py graphify-out
           run_private G47_SYMBOL_GRAPH python tools/graphify/build_symbol_map.py graphify-out
           for pkg in internal/consumedwire internal/reportstore cmd/chart-history; do
