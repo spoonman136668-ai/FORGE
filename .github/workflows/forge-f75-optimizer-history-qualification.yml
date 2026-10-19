@@ -1,0 +1,30 @@
+name: FORGE F75 frozen real-evidence optimizer selection without research dispatch
+on:
+  push:
+    branches: [research/forge-f75-frozen-optimizer-comparison-20261016-r1]
+permissions:
+  contents: read
+jobs:
+  optimizer-selection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Freeze source and verify historical evidence selector
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B -m unittest discover -s research/r9-policy-successor -p 'test_*.py' -v
+          go test -count=1 ./dreamrsi ./evoportfolio ./cmd/forge-dreamrsi
+          test -s research/r9-policy-successor/frozen.json
+          sha256sum research/r9-policy-successor/frozen.json
+          echo F75_HISTORICAL_FROZEN_SELECTION_TEST=PASS
+          echo F75_INDEPENDENT_SIGNED_PROSPECTIVE_EVIDENCE=NOT_ATTESTED
+          echo F75_AUTONOMOUS_NEW_EXPERIMENT=NOT_DISPATCHED
