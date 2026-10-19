@@ -9,6 +9,7 @@ import zipfile
 
 from local_controller import Database, F139Error, canonical, hash_bytes
 import reconcile_original as repair
+import transition_original_source as transition
 
 KEYS = ["f139-d2c-qualification-659bb1f4d751",
         "f139-d2c-wingless-659bb1f4d751"]
@@ -164,6 +165,43 @@ class OriginalQuarantineTests(unittest.TestCase):
         self.db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", ("3" * 40,))
         with self.assertRaisesRegex(F139Error, "SOURCE_TRANSITION_HEAD_INVALID"):
             self.db.verify()
+
+    def test_original_source_promotion_backed_up_once_without_replay(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        nextsha = "2" * 40
+        self.api.protected_main = lambda: nextsha
+        with mock.patch.object(transition, "ORIGINALS", self.original), \
+             mock.patch.object(transition, "verify_inactive_owners", return_value=None):
+            old = self.db.meta()
+            dry = transition.reconcile_source(self.dbpath, nextsha, api=self.api)
+            self.assertEqual(dry["disposition"], "F139_SOURCE_TRANSITION_DRY_RUN_PASS")
+            self.assertEqual(dry["db_writes"], 0)
+            self.assertEqual(self.db.meta()["head_hash"], old["head_hash"])
+            applied = transition.reconcile_source(self.dbpath, nextsha, apply=True, api=self.api)
+            self.assertEqual(applied["disposition"],
+                             "F139_SOURCE_TRANSITION_COMMITTED_HISTORICAL_SOURCE_PRESERVED")
+            self.assertEqual(applied["head_seq"], 12)
+            self.assertEqual(applied["dispatches"], 0)
+            self.assertEqual(applied["historic_ticket_sources_rewritten"], 0)
+            self.assertTrue(Path(applied["backup"]).is_file())
+            before = self.db.meta()
+            self.assertEqual(before["source_sha"], nextsha)
+            self.assertTrue(all(task["source_sha"] == repair.SOURCE for task in
+                                self.db.status()["tasks"]))
+            self.assertEqual(self.db.meta()["starts"], 2)
+            with self.assertRaisesRegex(F139Error, "ORIGINAL_SOURCE_OR_HEAD_DRIFT"):
+                transition.reconcile_source(self.dbpath, nextsha, apply=True, api=self.api)
+            self.assertEqual(self.api.dispatch_count, 0)
+
+    def test_transition_rejects_wrong_new_protected_main_without_database_writes(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        self.api.protected_main = lambda: "3" * 40
+        with mock.patch.object(transition, "ORIGINALS", self.original), \
+             mock.patch.object(transition, "verify_inactive_owners", return_value=None):
+            with self.assertRaisesRegex(F139Error, "NEW_MAIN_NOT_PROTECTED_EXACT"):
+                transition.reconcile_source(self.dbpath, "2" * 40, apply=True, api=self.api)
+            self.assertEqual(self.db.meta()["head_seq"], 11)
+            self.assertFalse((self.dbpath.parent / "source-transition-custody").exists())
 
     def test_mismatched_zip_blocks_without_history_change(self):
         self.api.corrupt = True
