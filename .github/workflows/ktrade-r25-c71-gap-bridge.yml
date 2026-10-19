@@ -1,0 +1,313 @@
+name: R25-C71 explain authentic canonical-to-operational accounting differences
+# Owner-local, source-derived, read-only. No installed KTRADE startup,
+# no private export, no broker, no release, no migration, no auto resume.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c71-gap-bridge.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r25-c71-historical-gap-bridge
+  cancel-in-progress: false
+jobs:
+  replay:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Qualify original owner context, no trading access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+             throw 'R25_C71_UNQUALIFIED_MACHINE_OR_USER'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          Write-Host 'R25_C71_OWNER_CONTEXT=PASS'
+          Write-Host 'R25_C71_APP_ORDER_OR_RESEARCH_DISPATCH=FALSE'
+      - name: Replay source-derived exact rational FIFO on preserved canonical fills
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=@'
+          package main
+          import (
+            "crypto/sha256"
+            "encoding/hex"
+            "encoding/json"
+            "errors"
+            "fmt"
+            "math"
+            "math/big"
+            "os"
+            "path/filepath"
+            "regexp"
+            "sort"
+            "strconv"
+            "strings"
+            "time"
+          )
+          // Adapted solely as offline review from original donor
+          // pkg/accounting.go canonicalAccountingRat, canonicalAccountingLess,
+          // deriveCanonicalFIFOAccounting, frozen SHA
+          // 912294dc27e52901f8b62b9b920758ccf2442b56.
+          // This is NOT the original application executable.
+          type Fill struct{
+            Sequence uint64 `json:"sequence"`
+            FillID string `json:"fill_id"`
+            TradeID string `json:"trade_id"`
+            OrderID string `json:"order_id"`
+            ProductID string `json:"product_id"`
+            Side string `json:"side"`
+            Quantity float64 `json:"quantity"`
+            GrossValue float64 `json:"gross_value"`
+            Fee float64 `json:"fee"`
+            BrokerTimestamp string `json:"broker_timestamp"`
+            SequenceTimestamp string `json:"sequence_timestamp"`
+          }
+          type Trade struct{
+            FillID string `json:"fill_id"`
+            Side string `json:"side"`
+            PnL float64 `json:"pnl"`
+            Fee float64 `json:"fee"`
+          }
+          type State struct{
+            TradeHistory []Trade `json:"trade_history"`
+            CanonicalFills []Fill `json:"canonical_fills"`
+            SumQty float64 `json:"sum_qty"`
+            SumCost float64 `json:"sum_cost"`
+            RealizedPnL float64 `json:"realized_pnl"`
+            TotalFeesUsd float64 `json:"total_fees_usd"`
+          }
+          type Item struct{Path string `json:"path"`;Bytes int64 `json:"bytes"`; SHA256 string `json:"sha256"`}
+          type Manifest struct{Schema string `json:"schema"`;CopiedFileCount int `json:"copied_file_count"`;CopiedBytes int64 `json:"copied_bytes"`;SourceFiles []Item `json:"source_files"`}
+          type Receipt struct{ManifestSHA256 string `json:"manifest_sha256"`}
+          type Lot struct{qty,gross,buyFee *big.Rat}
+          type Projection struct{qty,cost,realized,fees float64;buy,sell int;sourceMissing bool}
+          var selected=regexp.MustCompile(`^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$`)
+          var hashPattern=regexp.MustCompile(`^[0-9a-f]{64}$`)
+          func sum(raw []byte)string{h:=sha256.Sum256(raw);return hex.EncodeToString(h[:])}
+          func ordinaryDir(p string)bool{x,e:=os.Lstat(p);return e==nil&&x.IsDir()&&x.Mode()&os.ModeSymlink==0}
+          func read(p string,max int64)([]byte,error){
+            st,e:=os.Lstat(p)
+            if e!=nil||!st.Mode().IsRegular()||st.Mode()&os.ModeSymlink!=0||st.Size()<1||st.Size()>max{return nil,errors.New("file scope")}
+            b,e:=os.ReadFile(p)
+            if e!=nil||int64(len(b))!=st.Size(){return nil,errors.New("identity drift")}
+            return b,nil
+          }
+          func finite(v float64)bool{return !math.IsNaN(v)&&!math.IsInf(v,0)}
+          func rational(v float64,positive bool)(*big.Rat,error){
+            if !finite(v)||v<0||(positive&&v<=0){return nil,errors.New("invalid financial value")}
+            s:=strconv.FormatFloat(v,'g',-1,64)
+            r,ok:=new(big.Rat).SetString(s)
+            if !ok{return nil,errors.New("non-rational financial value")}
+            return r,nil
+          }
+          func number(r *big.Rat)float64{
+            if r.Sign()==0{return 0}
+            v,_:=r.Float64()
+            if v==0{return 0}
+            return v
+          }
+          func when(f Fill)time.Time{v,_:=time.Parse(time.RFC3339Nano,strings.TrimSpace(f.BrokerTimestamp));return v}
+          func seqWhen(f Fill)(time.Time,bool){
+            if strings.TrimSpace(f.SequenceTimestamp)==""{return time.Time{},false}
+            t,e:=time.Parse(time.RFC3339Nano,strings.TrimSpace(f.SequenceTimestamp))
+            return t,e==nil
+          }
+          func less(a,b Fill)bool{
+            ta,tb:=when(a),when(b)
+            if !ta.Equal(tb){return ta.Before(tb)}
+            sa,oka:=seqWhen(a);sb,okb:=seqWhen(b)
+            if oka&&okb&&!sa.Equal(sb){return sa.Before(sb)}
+            if strings.TrimSpace(a.TradeID)!=strings.TrimSpace(b.TradeID){
+              return strings.TrimSpace(a.TradeID)<strings.TrimSpace(b.TradeID)
+            }
+            return strings.TrimSpace(a.FillID)<strings.TrimSpace(b.FillID)
+          }
+          func replay(state State)(Projection,error){
+            result:=Projection{}
+            events:=append([]Fill(nil),state.CanonicalFills...)
+            sort.SliceStable(events,func(i,j int)bool{return less(events[i],events[j])})
+            lots:=[]Lot{}
+            pnl:=new(big.Rat);fees:=new(big.Rat)
+            product:=""
+            for _,f:=range events{
+              if product==""{product=f.ProductID}
+              if f.ProductID!=product{return result,errors.New("cross-product fill")}
+              qty,e:=rational(f.Quantity,true);if e!=nil{return result,e}
+              gross,e:=rational(f.GrossValue,true);if e!=nil{return result,e}
+              fee,e:=rational(f.Fee,false);if e!=nil{return result,e}
+              fees.Add(fees,fee)
+              switch f.Side {
+              case "BUY":
+                lots=append(lots,Lot{new(big.Rat).Set(qty),new(big.Rat).Set(gross),new(big.Rat).Set(fee)})
+                result.buy++
+              case "SELL":
+                remaining:=new(big.Rat).Set(qty)
+                basis:=new(big.Rat)
+                for remaining.Sign()>0{
+                  if len(lots)==0{result.sourceMissing=true;return result,nil}
+                  lot:=&lots[0]
+                  take:=new(big.Rat).Set(remaining)
+                  if take.Cmp(lot.qty)>0{take.Set(lot.qty)}
+                  ratio:=new(big.Rat).Quo(new(big.Rat).Set(take),lot.qty)
+                  gs:=new(big.Rat).Mul(lot.gross,ratio)
+                  fs:=new(big.Rat).Mul(lot.buyFee,ratio)
+                  basis.Add(basis,new(big.Rat).Add(gs,fs))
+                  lot.qty.Sub(lot.qty,take)
+                  lot.gross.Sub(lot.gross,gs)
+                  lot.buyFee.Sub(lot.buyFee,fs)
+                  remaining.Sub(remaining,take)
+                  if lot.qty.Sign()==0{lots=lots[1:]}
+                }
+                pnl.Add(pnl,new(big.Rat).Sub(new(big.Rat).Sub(gross,fee),basis))
+                result.sell++
+              default:return result,errors.New("invalid side")
+              }
+            }
+            qty:=new(big.Rat);cost:=new(big.Rat)
+            for _,lot:=range lots{
+              qty.Add(qty,lot.qty);cost.Add(cost,new(big.Rat).Add(lot.gross,lot.buyFee))
+            }
+            result.qty=number(qty);result.cost=number(cost)
+            result.realized=number(pnl);result.fees=number(fees)
+            return result,nil
+          }
+          func near(a,b float64,qty bool)bool{
+            if !finite(a)||!finite(b){return false}
+            tol:=math.Max(0.000001,math.Abs(b)*1e-8)
+            if qty {tol=math.Max(1e-10,math.Abs(b)*1e-8)}
+            return math.Abs(a-b)<=tol
+          }
+          func audit()error{
+            if len(os.Args)!=3{return errors.New("args")}
+            custody,recovery:=os.Args[1],os.Args[2]
+            for _,p:=range []string{custody,recovery,filepath.Join(recovery,"Application"),filepath.Join(recovery,"Application","data")}{
+              if !ordinaryDir(p){return errors.New("directory")}
+            }
+            mraw,e:=read(filepath.Join(custody,"R25-C47-private-manifest.json"),2<<20);if e!=nil{return e}
+            rraw,e:=read(filepath.Join(custody,"R25-C47-receipt.json"),16<<10);if e!=nil{return e}
+            var m Manifest;var r Receipt
+            if json.Unmarshal(mraw,&m)!=nil||json.Unmarshal(rraw,&r)!=nil||
+              m.Schema!="ktrade.r25-c47.selected-user-data-snapshot.v1"||
+              m.CopiedFileCount!=695||m.CopiedBytes!=164194320||
+              len(m.SourceFiles)!=695||r.ManifestSHA256!=sum(mraw){return errors.New("custody identity")}
+            files,fillCount,fullReplays,basisBlocked:=0,0,0,0
+            qtyMismatches,costMismatches,pnlMismatches,feeMismatches:=0,0,0,0
+            total:=int64(0)
+            explainedFee,explainedPnL,unmatchedTrade,unmatchedSells:=0,0,0,0
+            deltaUnexplainedFee,deltaUnexplainedPnL:=0,0
+            for _,f:=range m.SourceFiles{
+              if !selected.MatchString(f.Path){continue}
+              if f.Bytes<=0||f.Bytes>4<<20||total>8<<20-f.Bytes||!hashPattern.MatchString(f.SHA256){
+                return errors.New("source limit")
+              }
+              raw,e:=read(filepath.Join(recovery,filepath.FromSlash(f.Path)),4<<20)
+              if e!=nil||int64(len(raw))!=f.Bytes||sum(raw)!=f.SHA256{return errors.New("source changed")}
+              total+=f.Bytes;files++
+              var st State
+              if json.Unmarshal(raw,&st)!=nil||len(st.CanonicalFills)>20000{return errors.New("financial metadata invalid")}
+              fillCount+=len(st.CanonicalFills)
+              p,e:=replay(st)
+              if e!=nil{return e}
+              if p.sourceMissing{basisBlocked++;continue}
+              fullReplays++
+              known:=make(map[string]struct{},len(st.CanonicalFills))
+              for _,f:=range st.CanonicalFills{
+                if f.FillID==""{return errors.New("empty canonical ID")}
+                known[strings.ToLower(strings.TrimSpace(f.FillID))]=struct{}{}
+              }
+              missingFees,missingSellPnL:=0.0,0.0
+              for _,trade:=range st.TradeHistory{
+                id:=strings.ToLower(strings.TrimSpace(trade.FillID))
+                if id==""{return errors.New("empty historical fill ID")}
+                if !finite(trade.Fee)||!finite(trade.PnL){return errors.New("nonfinite history")}
+                if _,matched:=known[id];!matched{
+                  unmatchedTrade++;missingFees+=trade.Fee
+                  if strings.EqualFold(strings.TrimSpace(trade.Side),"SELL"){
+                    unmatchedSells++;missingSellPnL+=trade.PnL
+                  }
+                }
+              }
+              expectedGapFees:=st.TotalFeesUsd-p.fees
+              expectedGapPnL:=st.RealizedPnL-p.realized
+              if near(expectedGapFees,missingFees,false){explainedFee++}else{deltaUnexplainedFee++}
+              if near(expectedGapPnL,missingSellPnL,false){explainedPnL++}else{deltaUnexplainedPnL++}
+              if !near(st.SumQty,p.qty,true){qtyMismatches++}
+              if !near(st.SumCost,p.cost,false){costMismatches++}
+              if !near(st.RealizedPnL,p.realized,false){pnlMismatches++}
+              if !near(st.TotalFeesUsd,p.fees,false){feeMismatches++}
+            }
+            if files!=2||fillCount!=120{return errors.New("source count drift")}
+            fmt.Println("R25_C71_AUTHENTIC_CANONICAL_FIFO_REPLAY_EXECUTED=TRUE")
+            fmt.Printf("R25_C71_FILES_REVIEWED=%d\n",files)
+            fmt.Printf("R25_C71_SOURCE_FILL_EVENTS=%d\n",fillCount)
+            fmt.Printf("R25_C71_COMPLETE_FIFO_REPLAYS=%d\n",fullReplays)
+            fmt.Printf("R25_C71_UNMATCHED_SELL_BASIS_BLOCKERS=%d\n",basisBlocked)
+            fmt.Printf("R25_C71_OPERATIONAL_QTY_MISMATCHES=%d\n",qtyMismatches)
+            fmt.Printf("R25_C71_OPERATIONAL_BASIS_MISMATCHES=%d\n",costMismatches)
+            fmt.Printf("R25_C71_OPERATIONAL_REALIZED_PNL_MISMATCHES=%d\n",pnlMismatches)
+            fmt.Printf("R25_C71_OPERATIONAL_TOTAL_FEE_MISMATCHES=%d\n",feeMismatches)
+            if basisBlocked+qtyMismatches+costMismatches+pnlMismatches+feeMismatches==0 {
+              fmt.Println("R25_C71_CANONICAL_VS_OPERATIONAL_ACCOUNTING=PASS")
+            }else{
+              fmt.Println("R25_C71_CANONICAL_VS_OPERATIONAL_ACCOUNTING=BLOCKED")
+            }
+            fmt.Printf("R25_C71_NONCANONICAL_RETAINED_TRADES=%d\\n",unmatchedTrade)
+            fmt.Printf("R25_C71_NONCANONICAL_SELL_TRADES=%d\\n",unmatchedSells)
+            fmt.Printf("R25_C71_FEE_GAP_EXPLAINED_FILES=%d\\n",explainedFee)
+            fmt.Printf("R25_C71_REALIZED_PNL_GAP_EXPLAINED_FILES=%d\\n",explainedPnL)
+            fmt.Printf("R25_C71_FEE_GAP_UNEXPLAINED_FILES=%d\\n",deltaUnexplainedFee)
+            fmt.Printf("R25_C71_REALIZED_PNL_GAP_UNEXPLAINED_FILES=%d\\n",deltaUnexplainedPnL)
+            if files==fullReplays&&deltaUnexplainedFee+deltaUnexplainedPnL==0&&unmatchedTrade==10&&unmatchedSells==2 {
+              fmt.Println("R25_C71_HISTORICAL_ACCOUNTING_GAP_ATTRIBUTION=PASS")
+            }else{
+              fmt.Println("R25_C71_HISTORICAL_ACCOUNTING_GAP_ATTRIBUTION=BLOCKED")
+            }
+            fmt.Println("R25_C71_SOURCE_DONOR_GO_APP_EXECUTED=FALSE")
+            fmt.Println("R25_C71_BROKER_FILLS_REVERIFIED=FALSE")
+            fmt.Println("R25_C71_REAL_USER_VALUES_IDS_AND_HASHES_EXPORTED=FALSE")
+            fmt.Println("R25_C71_APP_OR_STRATEGY_RESTART=FALSE")
+            fmt.Println("R25_C71_MIGRATION_RELEASE_AUTHORIZED=FALSE")
+            return nil
+          }
+          func main(){
+            if e:=audit();e!=nil{
+              fmt.Fprintln(os.Stderr,"R25_C71_CANONICAL_REPLAY_UNQUALIFIED")
+              os.Exit(1)
+            }
+          }
+          '@
+          $scratch=Join-Path $env:RUNNER_TEMP ('r25c69-'+[Guid]::NewGuid().ToString('N'))
+          $null=New-Item -ItemType Directory -Path $scratch
+          try{
+            $sourcePath=Join-Path $scratch 'audit.go'
+            $binary=Join-Path $scratch 'audit.exe'
+            [IO.File]::WriteAllText($sourcePath,$source,[Text.UTF8Encoding]::new($false))
+            $env:GOMAXPROCS='1';$env:GOFLAGS='-p=1';$env:GO111MODULE='off'
+            $env:GOCACHE=Join-Path $scratch 'go-cache'
+            & go build -trimpath -o $binary $sourcePath *> (Join-Path $scratch 'private-build.log')
+            if($LASTEXITCODE -ne 0){throw 'R25_C71_BOUNDED_GO_BUILD_FAILED'}
+            $root=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+            $copy=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+            $out=@(& $binary $root $copy)
+            if($LASTEXITCODE -ne 0 -or
+               @($out|Where-Object{$_ -ceq 'R25_C71_AUTHENTIC_CANONICAL_FIFO_REPLAY_EXECUTED=TRUE'}).Count -ne 1){
+              throw 'R25_C71_PRIVATE_FINANCIAL_REPLAY_ABORTED'
+            }
+            $out|ForEach-Object{Write-Host $_}
+            Write-Host 'R25_C71_READ_ONLY_CUSTODY_UNMODIFIED=TRUE'
+            Write-Host 'R25_C71_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+          }finally{
+            Remove-Item Env:\GOCACHE -ErrorAction SilentlyContinue
+            Remove-Item Env:\GOFLAGS -ErrorAction SilentlyContinue
+            Remove-Item Env:\GO111MODULE -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+          }
