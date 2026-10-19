@@ -15,7 +15,7 @@ import sqlite3
 import tempfile
 
 from f139.local_controller import (
-    ZERO, MAX_ZIP_BYTES, canonical, hash_bytes, receipt_from_zip,
+    ZERO, MAX_ZIP_BYTES, canonical, hash_bytes, receipt_from_zip, d2j_plan,
 )
 
 SHA40=re.compile(r"[a-f0-9]{40}\Z")
@@ -36,6 +36,18 @@ def check(condition, reason):
 # The provider manifest is not an independently signed Windows SQLite head.
 D2C_SOURCE = "f569b827aeeddcbb2865bec49c062d2a7e523886"
 D2J_SOURCE = "4a5665d9d01b6e68effc00be244ac39b6794a222"
+# Authenticated protected-main merge sequence. Allowed suffixes are strictly
+# append-only transitions, not admission of work or independent science.
+ALLOWED_SOURCE_SUCCESSORS = (
+    "99be12f448c27aea7f74a5224c9ebccf6e9d7c21",
+    "c0eaa5eef08d38417fe2875bbdd352362e130b5f",
+    "5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba",
+    "e8166b1ef2f52ad935029ee583a5a0827b8a25d8",
+    "41263bb8aec510b293fc93b81b58df689f089aae",
+    "6842e97126ebb31790681e86c54dc01d0aae652f",
+    "296f2784621b92006f3e217012fafa54b8aed1f6",
+    "365e5eb8b888c11716376973ad2551523a869bab",
+)
 EXPECTED_RUNS = {
     "f139-d2c-qualification-659bb1f4d751": (39178196331, D2C_SOURCE),
     "f139-d2c-wingless-659bb1f4d751": (39178299792, D2C_SOURCE),
@@ -111,12 +123,20 @@ def copied_snapshot(source: Path, scratch: Path):
 
 
 def verify_chain(events, expected_head: str):
+    """Require externally sealed first 23 events and strictly source-only successors.
+
+    The caller must supply the *original*, independently sealed head. Checking
+    a later local head against itself would permit fabricated post-merge custody.
+    """
     check(isinstance(expected_head,str) and SHA64.fullmatch(expected_head),
           "UNSEALED_EXPECTED_EVENT_HEAD")
-    check(len(events)==23, "EVENT_COUNT_NOT_23")
+    check(23 <= len(events) <= 23+len(ALLOWED_SOURCE_SUCCESSORS),
+          "EVENT_COUNT_UNSUPPORTED")
     prior=ZERO
     kinds=[]
     terminals=[]
+    current_source=D2J_SOURCE
+    approved_index=-1
     for number,row in enumerate(events,1):
         check(row["seq"]==number and row["prior_sha"]==prior,
               "EVENT_SEQUENCE_OR_PREDECESSOR")
@@ -127,28 +147,96 @@ def verify_chain(events, expected_head: str):
         check(canonical(payload).decode()==row["payload"],"EVENT_NOT_CANONICAL")
         record={"seq":number,"prior_sha":prior,
                 "kind":row["kind"],"payload":payload}
-        prior=hash_bytes(canonical(record))
-        check(prior==row["sha"],"EVENT_HASH_MISMATCH")
-        kinds.append(row["kind"])
-        if row["kind"]=="PROVIDER_VERIFIED_TERMINAL":
+        digest=hash_bytes(canonical(record))
+        check(digest==row["sha"],"EVENT_HASH_MISMATCH")
+        if number<=23:
+            kinds.append(row["kind"])
+            if row["kind"]=="PROVIDER_VERIFIED_TERMINAL":
+                check(isinstance(payload,dict) and set(payload)=={
+                    "ticket","run_id","evidence_sha"}
+                    and isinstance(payload["ticket"],str)
+                    and type(payload["run_id"]) is int and payload["run_id"]>0
+                    and isinstance(payload["evidence_sha"],str)
+                    and SHA64.fullmatch(payload["evidence_sha"]),
+                    "TERMINAL_EVENT_FIELDS_INVALID")
+                terminals.append(payload)
+            if number==23:
+                check(digest==expected_head,"SEALED_EVENT_HEAD_MISMATCH")
+        else:
+            check(row["kind"]=="SOURCE_TRANSITION_ADMITTED",
+                  "NON_SOURCE_EVENT_AFTER_SEALED_PREFIX")
             check(isinstance(payload,dict) and set(payload)=={
-                "ticket","run_id","evidence_sha"}
-                and isinstance(payload["ticket"],str)
-                and type(payload["run_id"]) is int and payload["run_id"]>0
-                and isinstance(payload["evidence_sha"],str)
-                and SHA64.fullmatch(payload["evidence_sha"]),
-                "TERMINAL_EVENT_FIELDS_INVALID")
-            terminals.append(payload)
+                "schema","from_source_sha","to_source_sha",
+                "prior_event_head_sha256","verified_historical_tasks",
+                "new_dispatches","scientific_first_use"},
+                  "SOURCE_SUFFIX_FIELDS_INVALID")
+            target=payload["to_source_sha"]
+            check(payload["schema"]=="forge.f139.source-transition.v1"
+                  and payload["from_source_sha"]==current_source
+                  and payload["prior_event_head_sha256"]==prior
+                  and target in ALLOWED_SOURCE_SUCCESSORS
+                  and ALLOWED_SOURCE_SUCCESSORS.index(target)>approved_index
+                  and type(payload["verified_historical_tasks"]) is int
+                  and payload["verified_historical_tasks"]==4
+                  and type(payload["new_dispatches"]) is int
+                  and payload["new_dispatches"]==0
+                  and payload["scientific_first_use"] is False,
+                  "SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT")
+            current_source=target
+            approved_index=ALLOWED_SOURCE_SUCCESSORS.index(target)
+        prior=digest
     observed=Counter(kinds)
     check(observed["SOURCE_TRANSITION_ADMITTED"]==3
           and observed["UNATTENDED_SUCCESSION_ADMITTED"]==1
           and observed["PROVIDER_VERIFIED_TERMINAL"]==4
           and kinds[14]=="UNATTENDED_SUCCESSION_ADMITTED",
           "D2J_HISTORY_SHAPE_INVALID")
-    check(prior==expected_head,"SEALED_EVENT_HEAD_MISMATCH")
     check(len(terminals)==4 and len({x["ticket"] for x in terminals})==4,
           "FOUR_DISTINCT_TERMINAL_EVENTS_REQUIRED")
-    return {x["ticket"]:x for x in terminals}
+    return {x["ticket"]:x for x in terminals}, prior, current_source
+
+
+def verify_d2j_task_bindings(events, tasks):
+    """Verify native-controller D2J manifest/rows without writing to SQLite.
+
+    A head-sealed event proves only immutable event bytes; mutable task rows
+    must still match the admitted manifest. Use the controller's frozen planner
+    instead of constructing a second, less strict manifest definition.
+    """
+    admissions=[row for row in events if row["kind"]=="UNATTENDED_SUCCESSION_ADMITTED"]
+    check(len(admissions)==1 and admissions[0]["seq"]==15,
+          "D2J_ADMISSION_EVENT_ABSENT")
+    event=admissions[0]
+    try:
+        doc=json.loads(event["payload"])
+    except (TypeError,ValueError) as exc:
+        raise CustodyBlocked("F139_D2K_CUSTODY_D2J_ADMISSION_INVALID_JSON") from exc
+    check(isinstance(doc,dict) and set(doc)=={
+        "schema","source_sha","prior_event_head_sha256","manifest_sha256",
+        "tickets","new_dispatches","scientific_first_use"},
+        "D2J_ADMISSION_FIELDS_INVALID")
+    source=doc["source_sha"]
+    check(isinstance(source,str) and SHA40.fullmatch(source)
+          and doc["schema"]=="forge.f139.d2j-once-only-succession.v1"
+          and doc["prior_event_head_sha256"]==event["prior_sha"]
+          and type(doc["new_dispatches"]) is int and doc["new_dispatches"]==0
+          and doc["scientific_first_use"] is False,
+          "D2J_ADMISSION_INVALID")
+    plan=d2j_plan(source,event["prior_sha"])
+    manifest_sha256=hash_bytes(canonical(plan))
+    expected_items={task["ticket"]:task for task in plan["tasks"]}
+    check(doc["manifest_sha256"]==manifest_sha256
+          and doc["tickets"]==[task["ticket"] for task in plan["tasks"]],
+          "D2J_ADMISSION_MANIFEST_DRIFT")
+    actual={task["ticket"]:task for task in tasks}
+    check(set(expected_items).issubset(actual)
+          and len(expected_items)==2
+          and all(actual[ticket]["lane"]==planned["lane"]
+                  and actual[ticket]["source_sha"]==planned["source_sha"]
+                  and actual[ticket]["manifest_sha"]==manifest_sha256
+                  for ticket,planned in expected_items.items()),
+          "D2J_ADMISSION_TASK_BINDING_DRIFT")
+    return manifest_sha256
 
 
 def verify_evidence(root: Path, row: dict, epoch: int, anchor: dict):
@@ -222,14 +310,18 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
             check(connection.execute("PRAGMA integrity_check").fetchone()[0]=="ok",
                   "SQLITE_INTEGRITY_FAILURE")
             meta=connection.execute("SELECT * FROM meta WHERE id=1").fetchone()
-            check(meta is not None and meta["head_seq"]==23
-                  and meta["head_hash"]==expected_head
-                  and meta["source_sha"]==expected_source
-                  and meta["enabled"]==1 and meta["legacy_suspended"]==1,
+            check(meta is not None and meta["enabled"]==1
+                  and meta["legacy_suspended"]==1
+                  and meta["source_sha"]==expected_source,
                   "SEALED_METADATA_NOT_MATCHED")
             events=connection.execute("SELECT * FROM events ORDER BY seq").fetchall()
-            terminals=verify_chain(events,expected_head)
+            terminals,observed_head,derived_source=verify_chain(events,expected_head)
+            check(meta["head_seq"]==len(events)
+                  and meta["head_hash"]==observed_head
+                  and meta["source_sha"]==(derived_source if len(events)>23 else expected_source),
+                  "SOURCE_SUFFIX_METADATA_DRIFT")
             tasks=[dict(row) for row in connection.execute("SELECT * FROM tasks ORDER BY ticket")]
+            admitted_manifest=verify_d2j_task_bindings(events,tasks)
             check(len(tasks)==4
                   and sum(t["ticket"].startswith("f139-d2c-") for t in tasks)==2
                   and sum(t["ticket"].startswith("f139-d2j-") for t in tasks)==2,
@@ -244,10 +336,15 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
             connection.close()
     return {"schema":"forge.f139.d2k-custody.readonly-audit.v1",
             "disposition":"LOCAL_CUSTODY_SNAPSHOT_VERIFIED_NOT_SOURCE_TRANSITION",
-            "event_count":23,"task_count":4,"archive_count":8,
+            "event_count":len(events),"historical_prefix_event_count":23,
+            "source_only_suffix_count":len(events)-23,
+            "observed_current_head_sha256":observed_head,
+            "task_count":4,"archive_count":8,
             "expected_source_sha":expected_source,"sealed_event_head_sha256":expected_head,
             "external_provider_anchor_records":4,
             "external_provider_artifacts_checked":8,
+            "d2j_admission_manifest_sha256":admitted_manifest,
+            "d2j_task_bindings_verified":2,
             "original_database_writes":0,"controller_actions":0,
             "scientific_first_use":False,"receipts":reports}
 

@@ -1,5 +1,6 @@
 """D2K-CUSTODY hosted qualification of the nonintrusive custody snapshot and fail-closed audit."""
 import hashlib
+from contextlib import closing
 import os
 from pathlib import Path
 import sqlite3
@@ -11,7 +12,7 @@ from f139.audit_d2k_custody import (
     audit, CustodyBlocked, copied_snapshot,
     load_provider_anchor as real_load_provider_anchor,
 )
-from f139.local_controller import Database, canonical, hash_bytes, store_evidence
+from f139.local_controller import Database, canonical, hash_bytes, store_evidence, d2j_plan
 from test_local_controller import SHA, artifact
 
 
@@ -53,8 +54,20 @@ class ReadonlyCustodyTests(unittest.TestCase):
         terminal_indexes=(0,3,17,20)
         with db.transaction():
             for i,kind in enumerate(kinds):
-                payload=(recorded[terminal_indexes.index(i)]
-                         if i in terminal_indexes else {"test_only":True,"iteration":i})
+                if i==14:
+                    plan=d2j_plan(SHA,db.meta()["head_hash"])
+                    manifest_sha256=hash_bytes(canonical(plan))
+                    for task in plan["tasks"]:
+                        db.conn.execute("UPDATE tasks SET manifest_sha=? WHERE ticket=?",
+                            (manifest_sha256,task["ticket"]))
+                    payload={"schema":plan["schema"],"source_sha":SHA,
+                             "prior_event_head_sha256":db.meta()["head_hash"],
+                             "manifest_sha256":manifest_sha256,
+                             "tickets":[task["ticket"] for task in plan["tasks"]],
+                             "new_dispatches":0,"scientific_first_use":False}
+                else:
+                    payload=(recorded[terminal_indexes.index(i)]
+                             if i in terminal_indexes else {"test_only":True,"iteration":i})
                 db.event("PROVIDER_VERIFIED_TERMINAL" if i in terminal_indexes
                          else kind,payload)
         self.head=db.meta()["head_hash"]
@@ -74,11 +87,29 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.assertEqual(result["archive_count"],8)
         self.assertEqual(result["external_provider_anchor_records"],4)
         self.assertEqual(result["external_provider_artifacts_checked"],8)
+        self.assertEqual(result["d2j_task_bindings_verified"],2)
         self.assertEqual(result["controller_actions"],0)
         self.assertEqual(result["original_database_writes"],0)
 
+    def test_mutable_d2j_manifest_drift_rejected_even_with_same_sealed_head(self):
+        original_head=self.head
+        original_manifest=self.provider_anchor
+        with closing(sqlite3.connect(self.dbpath)) as conn, conn:
+            conn.execute("UPDATE tasks SET manifest_sha=? WHERE ticket LIKE 'f139-d2j-%'",
+                         ("0"*64,))
+        with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
+            audit(self.dbpath,SHA,self.head)
+        self.assertEqual(self.head,original_head)
+        self.assertIs(self.provider_anchor,original_manifest)
+
+    def test_d2j_lane_or_source_row_drift_rejected(self):
+        with closing(sqlite3.connect(self.dbpath)) as conn, conn:
+            conn.execute("UPDATE tasks SET lane='Qualification' WHERE ticket LIKE 'f139-d2j-yggdrasil-%'")
+        with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
+            audit(self.dbpath,SHA,self.head)
+
     def test_wrong_sealed_head_or_source_rejected(self):
-        with self.assertRaisesRegex(CustodyBlocked,"SEALED_METADATA_NOT_MATCHED"):
+        with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
             audit(self.dbpath,SHA,"0"*64)
         with self.assertRaisesRegex(CustodyBlocked,"SEALED_METADATA_NOT_MATCHED"):
             audit(self.dbpath,"0"*40,self.head)
@@ -128,6 +159,135 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.provider_anchor[ticket]["run_id"]=293
         with self.assertRaisesRegex(CustodyBlocked,"EXTERNAL_PROVIDER_RUN_OR_SOURCE_DRIFT"):
             audit(self.dbpath,SHA,self.head)
+
+    def append_source_transition(self, target, *, prior_sha=None,
+                                 from_source=SHA, kind="SOURCE_TRANSITION_ADMITTED",
+                                 dispatches=0, originals=False):
+        source=sqlite3.connect(str(self.dbpath))
+        try:
+            seq,previous=source.execute(
+                "SELECT head_seq,head_hash FROM meta WHERE id=1").fetchone()
+            payload={
+                "schema":"forge.f139.source-transition.v1",
+                "from_source_sha":from_source,"to_source_sha":target,
+                "prior_event_head_sha256":previous if prior_sha is None else prior_sha,
+                "verified_historical_tasks":4,"new_dispatches":dispatches,
+                "scientific_first_use":originals,
+            }
+            item={"seq":seq+1,"prior_sha":previous,"kind":kind,"payload":payload}
+            digest=hash_bytes(canonical(item))
+            source.execute("INSERT INTO events(seq,kind,payload,prior_sha,sha) "
+                           "VALUES(?,?,?,?,?)",
+                           (seq+1,kind,canonical(payload).decode(),previous,digest))
+            source.execute("UPDATE meta SET source_sha=?,head_seq=?,head_hash=? WHERE id=1",
+                           (target,seq+1,digest))
+            source.commit()
+        finally:
+            source.close()
+
+    def test_exact_one_source_only_append_preserves_four_receipts(self):
+        new_source="5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba"
+        before={(p.relative_to(self.root)).as_posix():p.read_bytes()
+                for p in (self.root/"evidence").rglob("*") if p.is_file()}
+        self.append_source_transition(new_source)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            proof=audit(self.dbpath,new_source,self.head)
+        after={(p.relative_to(self.root)).as_posix():p.read_bytes()
+               for p in (self.root/"evidence").rglob("*") if p.is_file()}
+        self.assertEqual(before,after)
+        self.assertEqual(proof["event_count"],24)
+        self.assertEqual(proof["historical_prefix_event_count"],23)
+        self.assertEqual(proof["source_only_suffix_count"],1)
+        self.assertEqual(proof["archive_count"],8)
+        self.assertEqual(proof["controller_actions"],0)
+        self.assertNotEqual(proof["observed_current_head_sha256"],self.head)
+
+    def test_multi_source_monotonic_merge_chain(self):
+        first="99be12f448c27aea7f74a5224c9ebccf6e9d7c21"
+        second="c0eaa5eef08d38417fe2875bbdd352362e130b5f"
+        third="5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba"
+        self.append_source_transition(first)
+        self.append_source_transition(second,from_source=first)
+        self.append_source_transition(third,from_source=second)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            result=audit(self.dbpath,third,self.head)
+        self.assertEqual(result["source_only_suffix_count"],3)
+        self.assertEqual(result["event_count"],26)
+        self.assertEqual(result["task_count"],4)
+
+    def test_non_source_or_unapproved_transition_fails_closed(self):
+        for config, reason in [
+            ({"kind":"DEVELOPMENT_WORK_ADMITTED"},"NON_SOURCE_EVENT_AFTER_SEALED_PREFIX"),
+            ({"dispatches":1},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"originals":True},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"prior_sha":"0"*64},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"from_source":"0"*40},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"target":"e"*40},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+        ]:
+            with self.subTest(config=config):
+                # Reset to exact source and sealed prefix: subcases are isolated.
+                with tempfile.TemporaryDirectory() as scratch:
+                    replacement=Path(scratch)/"source.sqlite"
+                    original=sqlite3.connect(self.dbpath)
+                    copy=sqlite3.connect(replacement)
+                    try: original.backup(copy)
+                    finally: copy.close();original.close()
+                    current=self.dbpath
+                    self.dbpath=replacement
+                    try:
+                        arguments=dict(config)
+                        target=arguments.pop("target",
+                           "5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba")
+                        self.append_source_transition(target,**arguments)
+                        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+                            with self.assertRaisesRegex(CustodyBlocked,reason):
+                                audit(self.dbpath,target,self.head)
+                    finally:
+                        self.dbpath=current
+
+    def test_earlier_history_cannot_be_resealed_using_new_head(self):
+        target="5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba"
+        self.append_source_transition(target)
+        new=sqlite3.connect(str(self.dbpath))
+        try:
+            current_head=new.execute(
+                "SELECT head_hash FROM meta WHERE id=1").fetchone()[0]
+        finally: new.close()
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
+                audit(self.dbpath,target,current_head)
+
+    def test_integrated_suffix_and_mutable_task_manifest_drift(self):
+        target="365e5eb8b888c11716376973ad2551523a869bab"
+        self.append_source_transition(target)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            record=audit(self.dbpath,target,self.head)
+        self.assertEqual(record["source_only_suffix_count"],1)
+        self.assertEqual(record["d2j_task_bindings_verified"],2)
+        self.assertEqual(record["task_count"],4)
+        with closing(sqlite3.connect(self.dbpath)) as conn, conn:
+            conn.execute("UPDATE tasks SET manifest_sha=? WHERE ticket LIKE 'f139-d2j-%'",("0"*64,))
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
+                audit(self.dbpath,target,self.head)
+
+    def test_integrated_unpinned_event_head_never_accepted(self):
+        target="365e5eb8b888c11716376973ad2551523a869bab"
+        self.append_source_transition(target)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
+                audit(self.dbpath,target,"0"*64)
+
+    def test_monotonic_jump_to_latest_qualified_main(self):
+        first="e8166b1ef2f52ad935029ee583a5a0827b8a25d8"
+        final="365e5eb8b888c11716376973ad2551523a869bab"
+        self.append_source_transition(first)
+        self.append_source_transition(final,from_source=first)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            record=audit(self.dbpath,final,self.head)
+        self.assertEqual(record["source_only_suffix_count"],2)
+        self.assertEqual(record["event_count"],25)
+        self.assertEqual(record["d2j_task_bindings_verified"],2)
 
     def test_absent_sealed_authority_fails_closed(self):
         with self.assertRaisesRegex(CustodyBlocked,"EXPECTED_PREFIX_NOT_SUPPLIED"):
