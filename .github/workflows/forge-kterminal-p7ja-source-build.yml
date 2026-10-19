@@ -1,0 +1,133 @@
+name: FORGE K-Terminal source-build original Windows application
+on:
+  push:
+    branches: [qualification/kterminal-p7ja-canonical-build-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterm-p7ja-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  build-original-windows-application:
+    runs-on: windows-2022
+    timeout-minutes: 38
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Enforce FORGE runner and exact one-file qualification boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7ja-canonical-build-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 30a29c80326cc7e39470c90e63af72dc1b9811b5 HEAD
+          test "$(git diff --name-only 30a29c80326cc7e39470c90e63af72dc1b9811b5 HEAD)" = .github/workflows/forge-kterminal-p7ja-source-build.yml
+          test -z "$(git status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          echo P7JA_FORGE_HOSTED_BUILD_SCOPE=PASS
+      - name: Fetch private original K-Terminal source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 5995c1eb85b8fef551d246ca60b2119a9e2b612d
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Install pinned Windows Go compiler
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Build full original Windows desktop package from committed source only
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows' -or $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER'){throw 'P7JA_WRONG_RUNNER'}
+          if((git rev-parse HEAD).Trim() -cne '5995c1eb85b8fef551d246ca60b2119a9e2b612d'){throw 'P7JA_KTERM_COMMIT_DRIFT'}
+          if((git rev-parse 'HEAD:cmd/launcher/desktop-session.cs').Trim() -cne '5ca4dfe0c695c4f7b83dbe19f95e4dfc23679efd'){throw 'P7JA_MANAGED_LAUNCHER_DRIFT'}
+          if((git rev-parse 'HEAD:tools/build/Build-KTerminal-Windows.ps1').Trim() -cne 'ecef02bc4743d5b9cf40cc692bc6b36a86fb5846'){throw 'P7JA_CANONICAL_BUILDER_DRIFT'}
+          if(@(git status --porcelain).Count -ne 0){throw 'P7JA_SOURCE_DIRTY'}
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'P7JA_REAL_BROKER_CREDENTIAL_PRESENT'}
+          }
+          $trace=Join-Path $env:RUNNER_TEMP 'p7ja-private-build-output.txt'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .\tools\build\Build-KTerminal-Windows.ps1 *> $trace
+          $result=$LASTEXITCODE
+          if($result -ne 0){
+            $all=Get-Content -LiteralPath $trace -Raw
+            $codes=@([regex]::Matches($all,'CS[0-9]{4}') | ForEach-Object {$_.Value} | Sort-Object -Unique)
+            Write-Host ('P7JA_PRIVATE_BUILD_COMPILER_CLASS='+($codes -join ','))
+            throw 'P7JA_ORIGINAL_APPLICATION_BUILD_FAILED'
+          }
+          $root=Join-Path (Get-Location).Path 'dist\K-Terminal-PAPER'
+          $zip=Join-Path (Get-Location).Path 'dist\K-Terminal-PAPER.zip'
+          if(-not(Test-Path $zip -PathType Leaf)){throw 'P7JA_DISTRIBUTION_ZIP_MISSING'}
+          $names=@('K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Account-Lookup.exe','K-Terminal-Chart.exe','K-Terminal-Chart-History.exe','K-Terminal-Subminute-Chart.exe','K-Terminal-Intelligence.exe','K-Terminal-Notifications.exe')
+          foreach($name in $names){if(-not(Test-Path (Join-Path $root $name) -PathType Leaf)){throw 'P7JA_DISTRIBUTION_EXE_MISSING'}}
+          foreach($name in @('dashboard-ui.ps1','launch-kterminal.ps1','desktop-session.ps1','ui-runtime-loader.ps1','pkg\tranche-plans.json','data\ui-preferences.json','K-Terminal-BUILD-MANIFEST.json')){
+            if(-not(Test-Path (Join-Path $root $name) -PathType Leaf)){throw 'P7JA_DISTRIBUTION_UI_ASSET_MISSING'}
+          }
+          foreach($name in @('config.json','pending-program-update.json','installed-program-update.json','data\native-runtime','data\account-orders-v1.json')){
+            if(Test-Path (Join-Path $root $name)){throw 'P7JA_PRIVATE_DATA_ENTERED_DISTRIBUTION'}
+          }
+          $prefs=Get-Content (Join-Path $root 'data\ui-preferences.json') -Raw | ConvertFrom-Json
+          if($prefs.mode -cne 'PAPER'){throw 'P7JA_PACKAGE_NOT_PAPER_BY_DEFAULT'}
+          $manifest=Get-Content (Join-Path $root 'K-Terminal-BUILD-MANIFEST.json') -Raw | ConvertFrom-Json
+          if($manifest.source_commit -cne '5995c1eb85b8fef551d246ca60b2119a9e2b612d' -or @($manifest.files|Where-Object{$_.path -like '*.exe'}).Count -ne 8){throw 'P7JA_MANIFEST_SOURCE_OR_EXECUTABLE_DRIFT'}
+          $checks=@()
+          foreach($file in @($manifest.files)){
+            $actual=Join-Path $root ([string]$file.path).Replace('/','\')
+            if(-not(Test-Path $actual -PathType Leaf) -or (Get-FileHash $actual -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256){throw 'P7JA_RELEASE_FILE_DIGEST_MISMATCH'}
+            $checks+=1
+          }
+          $receipt=[ordered]@{
+            schema='forge.kterminal.p7ja.source-built-original-windows.v1'
+            kterminal_source_sha='5995c1eb85b8fef551d246ca60b2119a9e2b612d'
+            compiler='go1.26.5 windows/amd64 plus original framework C#'
+            original_executables=8
+            verified_manifest_files=$checks.Count
+            zip_sha256=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            launcher_sha256=(Get-FileHash -LiteralPath (Join-Path $root 'K-Terminal.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+            original_wpf_assets_present=$true
+            paper_default=$true
+            real_data_accessed=$false
+            private_source_or_binary_uploaded=$false
+            original_full_regression='FAILED_NOT_WAIVED'
+            genuine_owner_desktop='NOT_VERIFIED'
+            disposition='P7JA_CANONICAL_SOURCE_BUILD_AND_PORTABLE_MANIFEST_VERIFIED'
+          }
+          $proof=Join-Path $env:RUNNER_TEMP 'p7ja-sanitized'
+          [void][IO.Directory]::CreateDirectory($proof)
+          $output=Join-Path $proof 'receipt.json'
+          [IO.File]::WriteAllText($output,($receipt|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+          $sha=(Get-FileHash $output -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $proof 'receipt.sha256'),$sha,[Text.UTF8Encoding]::new($false))
+          Write-Host 'P7JA_CANONICAL_SOURCE_WINDOWS_BUILD=PASS'
+          Write-Host 'P7JA_ORIGINAL_EIGHT_BINARIES=PASS'
+          Write-Host 'P7JA_RUNTIME_UI_ASSETS=PASS'
+          Write-Host ('P7JA_RECEIPT_SHA256='+$sha)
+          Write-Host 'P7JA_PRIVATE_BINARIES_NOT_EXPORTED=TRUE'
+      - name: Upload only sanitized build evidence, never K-Terminal source or binaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7ja-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/p7ja-sanitized/receipt.json
+            ${{ runner.temp }}/p7ja-sanitized/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
