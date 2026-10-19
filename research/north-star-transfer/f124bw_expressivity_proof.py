@@ -105,6 +105,50 @@ def invariant_for_all_programs():
     }
 
 
+def encode_same_32bits_with_two_new_structural_flags(p, third_shear, reserve):
+    """Hypothetical next-model PACK ONLY, not installed or trained.
+
+    Original BQ odd gains each have 64 choices (six variable bits), despite
+    occupying seven raw bit positions with always-one parity. Their two
+    fixed odd parity bits can be reallocated to TWO structural flags without
+    changing the 32-bit persisted budget. This changes the hypothesis
+    class (and could increase fitting cost), never the protected BQ model.
+    """
+    a,b,c,d,m1,m2=p
+    need(a in range(1,128,2) and c in range(1,128,2)
+         and 0<=b<=255 and 0<=d<=255
+         and m1 in (0,1) and m2 in (0,1)
+         and third_shear in (0,1) and reserve in (0,1),
+         "SUCCESSOR_ENCODER_DOMAIN")
+    return ((a>>1)|(b<<6)|(c>>1<<14)|(d<<20)|
+            (m1<<28)|(m2<<29)|(third_shear<<30)|(reserve<<31))
+
+
+def decode_same_32bits_with_two_new_structural_flags(packed):
+    need(type(packed) is int and 0<=packed<2**32,
+         "SUCCESSOR_DECODER_DOMAIN")
+    a=((packed&63)<<1)|1
+    b=(packed>>6)&255
+    c=(((packed>>14)&63)<<1)|1
+    d=(packed>>20)&255
+    m1=(packed>>28)&1
+    m2=(packed>>29)&1
+    third_shear=(packed>>30)&1
+    reserved=(packed>>31)&1
+    return (a,b,c,d,m1,m2),third_shear,reserved
+
+
+def optional_third_xor_shear(x, original_BQ_model, program, enabled):
+    """Analytical constructed successor, NOT trained/eligible for science."""
+    need(enabled in (0,1),"OPTIONAL_SHEAR_SWITCH")
+    y=original_BQ_model.forward(x,program)
+    lo=y&255
+    hi=y>>8
+    if enabled:
+        lo^=hi
+    return lo|(hi<<8)
+
+
 def audit():
     m=frozen_model()
     # Exhaustive check is for one canonical mathematical comparator, not
@@ -131,6 +175,22 @@ def audit():
             tested+=256
         need((m.forward(x0,p)&255)!=(m.forward(x1,p)&255),
              "IMPOSSIBILITY_WITNESS_INVALID")
+    # One constructive successor demonstrates that the obstruction can be
+    # escaped with a single learned structural flag and *no extra STATE bits*
+    # by recoding gains as their six variable high bits. We do NOT assert
+    # identical runtime CPU/RSS or that public FIT can learn the flag.
+    gain_choices=len(m.ODD_GAINS)
+    need(gain_choices==64 and gain_choices*256*gain_choices*256*4==
+         1<<30,"EXACT_30_VARIABLE_STATE_BITS")
+    constructive_program=(1,0,1,0,1,1)
+    word=encode_same_32bits_with_two_new_structural_flags(
+        constructive_program,1,0)
+    need(decode_same_32bits_with_two_new_structural_flags(word)==
+         (constructive_program,1,0),"PACKED_32BIT_STRUCTURAL_FLAG")
+    gated_count=sum(
+        optional_third_xor_shear(x,m,constructive_program,1)==byte_swap(x)
+        for x in range(65536))
+    need(gated_count==65536,"CONSTRUCTIVE_32BIT_FLAG_DOES_NOT_EXPRESS_SWAP")
     theorem=invariant_for_all_programs()
     result={
        "schema":"mass.f124bw.frozen-BQ-expressivity-two-point-theorem.v1",
@@ -142,6 +202,14 @@ def audit():
        "two_distinct_input_witnesses":[x0,x1],
        "same_swap_low_output":h,
        "source_code_boundary_injective_checks":tested,
+       "original_BQ_actual_variable_hypothesis_bits":30,
+       "original_BQ_encoding_bits":32,
+       "unused_raw_parity_positions":2,
+       "possible_successor_structural_flags_with_repacked_odds":2,
+       "hypothetical_32bit_encoded_successor_witness":word,
+       "hypothetical_successor_with_one_optional_third_shear_swap_domain_count":gated_count,
+       "successor_frozen_model_replaced_or_train_qualified":False,
+       "successor_real_CPU_RSS_parity_established":False,
        "universal_analytical_invariant":theorem,
        "old_registered_scientific_source_used":False,
        "new_development_924000_or_925000_cases_born":False,
