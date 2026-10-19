@@ -1,0 +1,114 @@
+name: F124-BM read-only reconciliation of original negative FIT first-use
+on:
+  push:
+    branches: [research/f124bm-readonly-firstuse-reconcile-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bm-original-firstuse-custody-reconcile-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  provider-firstuse-receipt-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate immutable original source, read-only scope and quarantine freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 98e1ccae79af2ab3f21173f7827dd4627ff64895 HEAD
+          mapfile -t files < <(git diff --name-only 98e1ccae79af2ab3f21173f7827dd4627ff64895 HEAD | sort)
+          test "${#files[@]}" -eq 3
+          test "${files[0]}" = ".github/workflows/forge-f124bm-reconcile.yml"
+          test "${files[1]}" = "research/north-star-transfer/f124bm-original-negative-freeze.json"
+          test "${files[2]}" = "research/north-star-transfer/f124bm_reconcile_archive.py"
+          for f in research/north-star-transfer/f124bm_gf2_source.py \
+            research/north-star-transfer/f124bm_arx_source.py \
+            research/north-star-transfer/f124bm_fit_eval.py \
+            research/north-star-transfer/20261018-mass-learned-kernel.py \
+            nativeevidence/f124az_joint_public_inverse.py; do
+            test "$(git rev-parse HEAD:"$f")" = \
+                 "$(git rev-parse 98e1ccae79af2ab3f21173f7827dd4627ff64895:"$f")"
+          done
+          python3 -B -m py_compile research/north-star-transfer/f124bm_reconcile_archive.py
+          echo F124BM_NO_SOURCE_REEXECUTION_SCOPE=PASS
+      - name: Verify provider original step success, reporting failure and artifact digest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bm-reconciliation"
+          mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39180767870" > "$root/original-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/117832876109" > "$root/original-job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12156221004" > "$root/original-artifact.json"
+          python3 -B - "$root" <<'PY'
+          import pathlib,sys,json
+          root=pathlib.Path(sys.argv[1])
+          r=json.loads((root/'original-run.json').read_text())
+          j=json.loads((root/'original-job.json').read_text())
+          a=json.loads((root/'original-artifact.json').read_text())
+          assert r['head_sha']=='98e1ccae79af2ab3f21173f7827dd4627ff64895'
+          assert r['id']==39180767870 and r['status']=='completed'
+          assert r['conclusion']=='failure'
+          assert j['run_id']==r['id'] and j['conclusion']=='failure'
+          steps={s['name']:s['conclusion'] for s in j['steps']}
+          assert steps['Issue exactly 16 new GF2 and 16 ARX public FIT pairs and append observations before aggregation']=='success'
+          assert steps['Read-only FIT disposition and immutable source identity']=='failure'
+          assert steps['Seal original records even if evaluation fails (partial observation custody)']=='success'
+          assert a['id']==12156221004 and not a['expired']
+          assert a['workflow_run']['id']==39180767870
+          assert a['digest']=='sha256:3ef60ff75f92038c69082dc7a2be2d3c58d851145951551b3646117865062b2b'
+          print('F124BM_PROVIDER_ORIGINAL_FIRSTUSE_ARCHIVE=PASS')
+          print('F124BM_FAIL_IS_REPORTING_STEP_NOT_MODEL_FIRSTUSE=true')
+          PY
+      - name: Download exactly original provider artifact and recount all 64 cases without any source/model import
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bm-reconciliation"
+          mkdir -p "$root/raw-original"
+          gh run download 39180767870 --repo "$GITHUB_REPOSITORY" \
+            --name f124bm-original-public-fit-firstuse-not-protected-98e1ccae79af2ab3f21173f7827dd4627ff64895 \
+            --dir "$root/raw-original"
+          python3 -B research/north-star-transfer/f124bm_reconcile_archive.py \
+            --original-dir "$root/raw-original" \
+            --output "$root/independent-recount-firstuse-negative.json"
+          python3 -B - "$root/independent-recount-firstuse-negative.json" <<'PY'
+          import json,sys
+          a=json.load(open(sys.argv[1]))
+          assert a['source_cases_consumed_once']==32
+          assert a['frozen_arm_evaluations']==64
+          assert not a['source_regenerated_in_reconciliation']
+          assert not a['source_model_imported_in_reconciliation']
+          assert a['original_firstuse_reporting_step_failed_after_result']
+          assert not a['scientific_transfer_success']
+          assert not a['protected_scientific_admission']
+          assert not a['BM_128case_protected_holdout_used']
+          assert not a['original_BH_U_R_used']
+          assert not a['optimizer_promotion']
+          print('F124BM_REAL_ORIGINAL_NEGATIVE_RECOUNT=PASS')
+          PY
+          sha256sum "$root/independent-recount-firstuse-negative.json" \
+            "$root/original-run.json" "$root/original-job.json" \
+            "$root/original-artifact.json" > "$root/receipt-sha256.txt"
+          (cd "$root" && sha256sum --check receipt-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bm-durable-readonly-original-negative-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bm-reconciliation/
+          retention-days: 90
+          if-no-files-found: warn
