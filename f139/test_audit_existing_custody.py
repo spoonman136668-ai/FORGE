@@ -18,27 +18,32 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.root=Path(self.temp.name)
         self.dbpath=self.root/"state.sqlite"
         db=Database.initialize(self.dbpath,SHA)
+        items=[
+            ("f139-d2c-qualification-659bb1f4d751","Qualification"),
+            ("f139-d2c-wingless-659bb1f4d751","Wingless"),
+            ("f139-d2j-wingless-"+SHA[:12],"Wingless"),
+            ("f139-d2j-yggdrasil-"+SHA[:12],"Yggdrasil")]
+        recorded=[]
+        for i,(ticket,lane) in enumerate(items,1):
+            task={"ticket":ticket,"lane":lane,"source_sha":SHA}
+            archives={label:artifact(task,i,label)
+                      for label in ("ubuntu-latest","windows-latest")}
+            folder,digest=store_evidence(self.root,ticket,i,archives)
+            db.conn.execute(
+                "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
+                "run_id,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?)",
+                (ticket,lane,SHA,"f"*64,i,folder,digest))
+            recorded.append({"ticket":ticket,"run_id":i,"evidence_sha":digest})
         kinds=["SYNTHETIC_EVENT"]*23
-        for index in (2,5,9):kinds[index]="SOURCE_TRANSITION_ADMITTED"
+        for index in (2,5,9): kinds[index]="SOURCE_TRANSITION_ADMITTED"
         kinds[14]="UNATTENDED_SUCCESSION_ADMITTED"
-        for index in (0,3,17,20):kinds[index]="PROVIDER_VERIFIED_TERMINAL"
+        terminal_indexes=(0,3,17,20)
         with db.transaction():
             for i,kind in enumerate(kinds):
-                db.event(kind,{"test_only":True,"iteration":i})
-            items=[
-                ("f139-d2c-qualification-659bb1f4d751","Qualification"),
-                ("f139-d2c-wingless-659bb1f4d751","Wingless"),
-                ("f139-d2j-wingless-"+SHA[:12],"Wingless"),
-                ("f139-d2j-yggdrasil-"+SHA[:12],"Yggdrasil")]
-            for i,(ticket,lane) in enumerate(items,1):
-                task={"ticket":ticket,"lane":lane,"source_sha":SHA}
-                archives={oslabel:artifact(task,i,oslabel)
-                          for oslabel in ("ubuntu-latest","windows-latest")}
-                folder,digest=store_evidence(self.root,ticket,i,archives)
-                db.conn.execute(
-                    "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
-                    "run_id,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?)",
-                    (ticket,lane,SHA,"f"*64,i,folder,digest))
+                payload=(recorded[terminal_indexes.index(i)]
+                         if i in terminal_indexes else {"test_only":True,"iteration":i})
+                db.event("PROVIDER_VERIFIED_TERMINAL" if i in terminal_indexes
+                         else kind,payload)
         self.head=db.meta()["head_hash"]
         db.close()
 

@@ -61,6 +61,7 @@ def verify_chain(events, expected_head: str):
     check(len(events)==23, "EVENT_COUNT_NOT_23")
     prior=ZERO
     kinds=[]
+    terminals=[]
     for number,row in enumerate(events,1):
         check(row["seq"]==number and row["prior_sha"]==prior,
               "EVENT_SEQUENCE_OR_PREDECESSOR")
@@ -74,6 +75,15 @@ def verify_chain(events, expected_head: str):
         prior=hash_bytes(canonical(record))
         check(prior==row["sha"],"EVENT_HASH_MISMATCH")
         kinds.append(row["kind"])
+        if row["kind"]=="PROVIDER_VERIFIED_TERMINAL":
+            check(isinstance(payload,dict) and set(payload)=={
+                "ticket","run_id","evidence_sha"}
+                and isinstance(payload["ticket"],str)
+                and type(payload["run_id"]) is int and payload["run_id"]>0
+                and isinstance(payload["evidence_sha"],str)
+                and SHA64.fullmatch(payload["evidence_sha"]),
+                "TERMINAL_EVENT_FIELDS_INVALID")
+            terminals.append(payload)
     observed=Counter(kinds)
     check(observed["SOURCE_TRANSITION_ADMITTED"]==3
           and observed["UNATTENDED_SUCCESSION_ADMITTED"]==1
@@ -81,7 +91,9 @@ def verify_chain(events, expected_head: str):
           and kinds[14]=="UNATTENDED_SUCCESSION_ADMITTED",
           "D2J_HISTORY_SHAPE_INVALID")
     check(prior==expected_head,"SEALED_EVENT_HEAD_MISMATCH")
-    return prior
+    check(len(terminals)==4 and len({x["ticket"] for x in terminals})==4,
+          "FOUR_DISTINCT_TERMINAL_EVENTS_REQUIRED")
+    return {x["ticket"]:x for x in terminals}
 
 
 def verify_evidence(root: Path, row: dict, epoch: int):
@@ -153,12 +165,17 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
                   and meta["enabled"]==1 and meta["legacy_suspended"]==1,
                   "SEALED_METADATA_NOT_MATCHED")
             events=connection.execute("SELECT * FROM events ORDER BY seq").fetchall()
-            verify_chain(events,expected_head)
+            terminals=verify_chain(events,expected_head)
             tasks=[dict(row) for row in connection.execute("SELECT * FROM tasks ORDER BY ticket")]
             check(len(tasks)==4
                   and sum(t["ticket"].startswith("f139-d2c-") for t in tasks)==2
                   and sum(t["ticket"].startswith("f139-d2j-") for t in tasks)==2,
                   "FOUR_HISTORICAL_TASKS_REQUIRED")
+            check({t["ticket"] for t in tasks}==set(terminals)
+                  and all(terminals[t["ticket"]]["run_id"]==t["run_id"]
+                          and terminals[t["ticket"]]["evidence_sha"]==t["evidence_sha"]
+                          for t in tasks),
+                  "TERMINAL_EVENT_TASK_OR_RECEIPT_DRIFT")
             reports=[verify_evidence(dbpath.parent,t,meta["epoch"]) for t in tasks]
         finally:
             connection.close()
