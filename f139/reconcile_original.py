@@ -14,7 +14,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 
-from .local_controller import (
+from local_controller import (
     Database, F139Error, GitHub, REPO, SingleOwner, ZERO, canonical,
     hash_bytes, legacy_windows_task_disabled, receipt_from_zip,
     require, store_evidence, utc_now,
