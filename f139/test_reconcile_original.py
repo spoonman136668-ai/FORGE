@@ -204,6 +204,18 @@ class OriginalQuarantineTests(unittest.TestCase):
             self.assertEqual(self.db.meta()["head_seq"], 11)
             self.assertFalse((self.dbpath.parent / "source-transition-custody").exists())
 
+    def test_sqlite_symlink_rejected_before_resolution(self):
+        alias = self.dbpath.parent / "source-alias.sqlite"
+        try:
+            alias.symlink_to(self.dbpath)
+        except (OSError, NotImplementedError):
+            self.skipTest("Windows host lacks unprivileged symlink admission")
+        with self.assertRaisesRegex(F139Error, "REPAIR_PRODUCTION_DB_SYMLINK"):
+            repair.reconcile(alias, api=self.api)
+        with self.assertRaisesRegex(F139Error, "TRANSITION_DB_ABSENT_OR_SYMLINK"):
+            transition.reconcile_source(alias, "2" * 40, api=self.api)
+        self.assertEqual(self.db.meta()["head_seq"], 9)
+
     def test_mismatched_zip_blocks_without_history_change(self):
         self.api.corrupt = True
         before = self.db.meta()["head_hash"]
