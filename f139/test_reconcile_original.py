@@ -127,6 +127,44 @@ class OriginalQuarantineTests(unittest.TestCase):
             repair.reconcile(self.dbpath, apply=True, api=self.api)
         self.assertEqual(self.api.dispatch_count, 0)
 
+    def test_verified_originals_survive_source_transition_without_rewriting_history(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        original_events = list(self.db.conn.execute("SELECT kind,payload,sha FROM events ORDER BY seq"))
+        original_tasks = [(x["ticket"], x["source_sha"], x["run_id"], x["evidence_sha"])
+                          for x in self.db.status()["tasks"]]
+        self.assertEqual(len(original_events), 11)
+        replacement = "2" * 40
+        self.db.transition_source(replacement)
+        status = self.db.status()
+        self.assertEqual(status["meta"]["source_sha"], replacement)
+        self.assertEqual(status["meta"]["head_seq"], 12)
+        self.assertEqual(status["meta"]["starts"], 2)
+        self.assertEqual([(x["ticket"], x["source_sha"], x["run_id"], x["evidence_sha"])
+                          for x in status["tasks"]], original_tasks)
+        self.assertEqual(original_events, list(
+            self.db.conn.execute("SELECT kind,payload,sha FROM events ORDER BY seq LIMIT 11")))
+        newevent = self.db.conn.execute("SELECT kind,payload FROM events WHERE seq=12").fetchone()
+        self.assertEqual(newevent["kind"], "SOURCE_TRANSITION_ADMITTED")
+        self.assertEqual(json.loads(newevent["payload"])["from_source_sha"], repair.SOURCE)
+        self.db.close()
+        self.db = Database(self.dbpath)
+        self.assertEqual(self.db.meta()["source_sha"], replacement)
+        with self.assertRaisesRegex(F139Error, "OWNER_OR_IDENTITY"):
+            self.db.transition_source(replacement)
+
+    def test_transition_disallowed_for_quarantined_attempts(self):
+        with self.assertRaisesRegex(F139Error, "UNVERIFIED_OR_PENDING"):
+            self.db.transition_source("2" * 40)
+        self.assertEqual(self.db.meta()["head_seq"], 9)
+        self.assertEqual(self.db.meta()["source_sha"], repair.SOURCE)
+
+    def test_transition_event_tamper_fails_closed(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        self.db.transition_source("2" * 40)
+        self.db.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", ("3" * 40,))
+        with self.assertRaisesRegex(F139Error, "SOURCE_TRANSITION_HEAD_INVALID"):
+            self.db.verify()
+
     def test_mismatched_zip_blocks_without_history_change(self):
         self.api.corrupt = True
         before = self.db.meta()["head_hash"]
