@@ -1,0 +1,124 @@
+name: F124-CC independent original provider CPU RSS and native witness audit
+on:
+  push:
+    branches: [research/f124cc-original-70-source-custody-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124cc-retain-original-source-no-model-reexecution
+  cancel-in-progress: false
+jobs:
+  verify-original-provider-run-and-all-seventy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify source-only evidence addition and immutable original consumed models
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=d15c87ef218d74af27d572002aed2ebb3ee8bb72
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$base" HEAD
+          mapfile -t actual < <(git diff --name-only "$base" HEAD | sort)
+          expected=(.github/workflows/forge-f124cc-original-custody.yml research/north-star-transfer/f124cc-original-70-process-retained-custody.json)
+          test "${actual[*]}" = "${expected[*]}"
+          for file in research/north-star-transfer/f124cb_dual_link_learner.py \
+                     research/north-star-transfer/f124cc_trained_two_link_control.py \
+                     research/north-star-transfer/f124cc_new_source_neutral.py \
+                     research/north-star-transfer/f124cc_full_native_resource.py \
+                     research/north-star-transfer/f124cc-frozen-trained-two-link.json; do
+            test "$(git rev-parse HEAD:"$file")" = "$(git rev-parse "$base":"$file")"
+          done
+          echo F124CC_NO_CONSUMED_SOURCE_OR_MODEL_REEXECUTION=PASS
+      - name: Authenticate GitHub original run, archive and recount exact full original seventy processes and genuine native inputs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124cc-original-readonly"
+          mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39236449514" > "$root/original-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12180065896" > "$root/original-artifact.json"
+          gh run download 39236449514 --repo "$GITHUB_REPOSITORY" \
+             --name f124cc-first-original-14-native-70-processes-d15c87ef218d74af27d572002aed2ebb3ee8bb72 \
+             --dir "$root"
+          (cd "$root" && sha256sum -c SHA256SUMS.txt)
+          python3 -B - "$root" <<'PY'
+          import json,hashlib,statistics,sys,pathlib
+          root=pathlib.Path(sys.argv[1])
+          r=json.loads(pathlib.Path('research/north-star-transfer/f124cc-original-70-process-retained-custody.json').read_text())
+          run=json.loads((root/'original-run.json').read_text())
+          a=json.loads((root/'original-artifact.json').read_text())
+          raw=(root/'14-native-70-whole-process-original.json').read_bytes()
+          data=json.loads(raw)
+          orig=r['original_provider']
+          assert orig['original_raw_159333_byte_json_sha256']==hashlib.sha256(raw).hexdigest()
+          assert run['id']==orig['original_run_id']
+          assert run['head_sha']==orig['original_source_git_sha']
+          assert run['status']=='completed' and run['conclusion']=='success'
+          assert a['id']==orig['original_artifact_id'] and not a['expired']
+          assert a['workflow_run']['id']==orig['original_run_id']
+          assert a['digest']=='sha256:'+orig['original_artifact_zip_sha256']
+          samples=data['whole_OS_process_original_70']
+          pre=data['preflight_original_14']
+          assert len(samples)==70 and len(pre)==14 and len(data['cases'])==2
+          assert data['full_seven_arm_scientific_resource_admission'] is False
+          assert data['all_negative_and_native_ineligible_original_cases']['hard_false_positives']==[]
+          assert data['all_negative_and_native_ineligible_original_cases']['lost_control_positives']==[]
+          assert data['all_negative_and_native_ineligible_original_cases']['all_seven_arm_natural_work_ineligible']==['CC-ENG-01','CC-ENG-02']
+          assert not data['scientific_firstuse_924xxx_925xxx']
+          assert data['both_128_protected_replication_cohorts_unopened']
+          assert not data['science_accepted'] and not data['optimizer_promoted']
+          for case in ('CC-ENG-01','CC-ENG-02'):
+              original=data['cases'][case]
+              saved=r['native_witness'][case]
+              assert original['eligible_trained_same_native_controls']==saved['trained_same_native_controls']
+              assert not original['all_seven_original_native_work_matched']
+              assert original['CB_resource_nonregression_vs_every_trained_same_native_control']
+              for arm in ('AZ','BQ','BX','BZ','CA','CB','CC'):
+                  rows=[x for x in samples if x['case']==case and x['arm']==arm]
+                  assert len(rows)==5
+                  recorded=r['raw_all_original_samples'][case][arm]
+                  cpu=[x['complete_process_cpu_ns'] for x in rows]
+                  rss=[x['complete_OS_peak_RSS_bytes'] for x in rows]
+                  assert cpu==[1000*x for x in recorded['cpu_us']]
+                  assert rss==recorded['peak_RSS_bytes']
+                  assert statistics.median(cpu)==recorded['median_cpu_us']*1000
+                  assert statistics.median(rss)==recorded['median_peak_RSS_bytes']
+                  assert max(rss)==recorded['max_peak_RSS_bytes']
+                  witness=original['original_trained_arm_metrics'][arm]
+                  p=[x for x in pre if x['case']==case and x['arm']==arm]
+                  assert len(p)==1
+                  assert p[0]['natural_route']==witness['natural_route']
+                  assert p[0]['positive_accepted']==witness['positive_accepted']
+                  assert p[0]['hard_false_positive']==witness['hard_false_positive']
+                  assert p[0]['actual_native_calls']==witness['actual_native_calls']
+                  assert p[0]['source_task_sha256']==rows[0]['source_task_sha256']
+                  assert not witness['hard_false_positive']
+                  if arm in ('CB','CC'):
+                      assert witness['original_native_input_sha256']==saved['CB_CC_genuine_native_input_sha256']
+                      assert witness['original_native_full_output_sha256']==saved['CB_CC_original_native_full_return_sha256']
+              print('F124CC_'+case+'_ALL_ORIGINAL_SEVEN_ARM_CPU_RSS_AND_NATIVE=PASS')
+          assert not r['scientific_custody']['external_independent_source_origination_authenticated']
+          assert not r['scientific_custody']['scientific_transfer_accepted']
+          print('F124CC_ALL_SEVENTY_ORIGINAL_OS_PROCESS_SAMPLES_VERIFIED=PASS')
+          print('F124CC_GENUINELY_TRAINED_CC_TWO_LINK_EQUAL_NATIVE_WORK=PASS')
+          print('F124CC_SOURCE_BLIND_NEGATIVE_AND_NO_PROTECTED_FIRSTUSE=PASS')
+          PY
+          (cd "$root" && sha256sum original-run.json original-artifact.json SHA256SUMS.txt > provider-record-sha256.txt && sha256sum -c provider-record-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124cc-original-provider-full-seventy-readonly-custody-${{ github.sha }}
+          path: ${{ runner.temp }}/f124cc-original-readonly/
+          retention-days: 90
+          if-no-files-found: warn
