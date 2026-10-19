@@ -23,7 +23,6 @@ import zipfile
 
 REPO = "spoonman136668-ai/FORGE"
 WORKFLOW = "forge-f139-development-worker.yml"
-TITLE = "FORGE F139 development worker"
 SCHEMA = "forge.f139.windows-controller.v1"
 ZERO = "0" * 64
 SHA = re.compile(r"[a-f0-9]{40}\Z")
@@ -150,6 +149,7 @@ class Database:
     def verify(self):
         meta = self.meta()
         head, count = ZERO, 0
+        source_transitions = []
         for row in self.conn.execute("SELECT * FROM events ORDER BY seq"):
             count += 1
             require(row["seq"] == count and row["prior_sha"] == head, "EVIDENCE_CHAIN_DISCONTINUITY")
@@ -158,13 +158,53 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "SOURCE_TRANSITION_ADMITTED":
+                require(isinstance(doc, dict) and set(doc) == {
+                    "schema", "from_source_sha", "to_source_sha", "prior_event_head_sha256",
+                    "verified_historical_tasks", "new_dispatches", "scientific_first_use"},
+                    "SOURCE_TRANSITION_EVENT_FIELDS")
+                require(doc["schema"] == "forge.f139.source-transition.v1"
+                        and isinstance(doc["from_source_sha"], str)
+                        and SHA.fullmatch(doc["from_source_sha"])
+                        and isinstance(doc["to_source_sha"], str)
+                        and SHA.fullmatch(doc["to_source_sha"])
+                        and doc["from_source_sha"] != doc["to_source_sha"]
+                        and doc["prior_event_head_sha256"] == row["prior_sha"]
+                        and isinstance(doc["verified_historical_tasks"], int)
+                        and doc["verified_historical_tasks"] > 0
+                        and type(doc["new_dispatches"]) is int
+                        and doc["new_dispatches"] == 0
+                        and doc["scientific_first_use"] is False,
+                        "SOURCE_TRANSITION_EVENT_INVALID")
+                source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
-        for row in self.conn.execute("SELECT ticket,lane,source_sha,stage,run_id FROM tasks"):
+        historical_sources = set()
+        if source_transitions:
+            for index, transition in enumerate(source_transitions):
+                if index:
+                    require(transition["from_source_sha"] == source_transitions[index-1]["to_source_sha"],
+                            "SOURCE_TRANSITION_CHAIN_INVALID")
+                historical_sources.add(transition["from_source_sha"])
+            require(source_transitions[-1]["to_source_sha"] == meta["source_sha"],
+                    "SOURCE_TRANSITION_HEAD_INVALID")
+        for row in self.conn.execute("SELECT ticket,lane,source_sha,stage,run_id,evidence_dir,evidence_sha FROM tasks"):
+            historical = (row["source_sha"] in historical_sources and
+                          row["stage"] == "VERIFIED" and
+                          isinstance(row["run_id"], int) and row["run_id"] > 0 and
+                          isinstance(row["evidence_dir"], str) and bool(row["evidence_dir"]) and
+                          isinstance(row["evidence_sha"], str) and
+                          re.fullmatch(r"[a-f0-9]{64}", row["evidence_sha"]) is not None)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
-                    row["source_sha"] == meta["source_sha"] and row["stage"] in ALLOWED_STAGES,
+                    (row["source_sha"] == meta["source_sha"] or historical) and
+                    row["stage"] in ALLOWED_STAGES,
                     "TASK_STATE_CORRUPT")
             require(row["run_id"] is None or (isinstance(row["run_id"], int) and row["run_id"]>0),
                     "TASK_RUN_ID_INVALID")
+        if source_transitions:
+            admitted=sum(1 for row in self.conn.execute("SELECT source_sha,stage FROM tasks")
+                         if row["source_sha"] in historical_sources and row["stage"] == "VERIFIED")
+            require(admitted >= source_transitions[-1]["verified_historical_tasks"],
+                    "SOURCE_TRANSITION_HISTORIC_COUNT_INVALID")
         active = self.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')").fetchone()[0]
         require(active <= 1, "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
 
@@ -193,6 +233,35 @@ class Database:
         with self.transaction():
             self.conn.execute("UPDATE meta SET enabled=1,legacy_suspended=1 WHERE id=1")
             self.event("CUTOVER_ACTIVATED",{"source_sha":self.meta()["source_sha"]})
+
+    def transition_source(self, new_source_sha: str):
+        """Append immutable authority evidence; never rewrite historical task source or run."""
+        require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
+                "SOURCE_TRANSITION_NEW_SHA_INVALID")
+        with self.transaction():
+            meta = self.meta()
+            require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
+                    and new_source_sha != meta["source_sha"],
+                    "SOURCE_TRANSITION_OWNER_OR_IDENTITY_INVALID")
+            tasks = list(self.conn.execute("SELECT * FROM tasks"))
+            require(tasks and all(
+                row["stage"] == "VERIFIED" and row["run_id"] is not None
+                and isinstance(row["evidence_sha"], str)
+                and re.fullmatch(r"[a-f0-9]{64}", row["evidence_sha"]) is not None
+                and row["evidence_dir"] for row in tasks),
+                "SOURCE_TRANSITION_UNVERIFIED_OR_PENDING_TASK")
+            prior = meta["head_hash"]
+            self.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", (new_source_sha,))
+            self.event("SOURCE_TRANSITION_ADMITTED", {
+                "schema": "forge.f139.source-transition.v1",
+                "from_source_sha": meta["source_sha"],
+                "to_source_sha": new_source_sha,
+                "prior_event_head_sha256": prior,
+                "verified_historical_tasks": len(tasks),
+                "new_dispatches": 0,
+                "scientific_first_use": False,
+            })
+            self.verify()
 
     def enqueue(self, tasks: list[dict], freeze_sha: str):
         require(re.fullmatch(r"[a-f0-9]{64}",freeze_sha) is not None, "MANIFEST_HASH_UNQUALIFIED")
@@ -332,7 +401,8 @@ class GitHub:
 
     def run_proof(self,run:dict,ticket:str,source:str,started_at:str):
         require(isinstance(run,dict) and run.get("display_title")=="F139 "+ticket
-                and run.get("event")=="workflow_dispatch" and run.get("name")==TITLE
+                and run.get("event")=="workflow_dispatch" and run.get("name")=="F139 "+ticket
+                and run.get("workflow_id")==388797257
                 and run.get("path")==".github/workflows/"+WORKFLOW
                 and run.get("head_sha")==source and run.get("head_branch")=="main"
                 and run.get("run_attempt")==1 and isinstance(run.get("id"),int)

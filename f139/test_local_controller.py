@@ -226,11 +226,14 @@ class ProviderProofTests(unittest.TestCase):
     def test_git_provider_accepts_expected_run_but_not_spoof(self):
         github=GitHub(runner=lambda args: b'{}')
         run={'display_title':'F139 '+TASKS[0]['ticket'],'event':'workflow_dispatch',
-             'name':'FORGE F139 development worker','path':'.github/workflows/forge-f139-development-worker.yml',
+             'name':'F139 '+TASKS[0]['ticket'],'workflow_id':388797257,
+             'path':'.github/workflows/forge-f139-development-worker.yml',
              'head_sha':SHA,'head_branch':'main','run_attempt':1,'id':123,'created_at':NOW,
              'status':'in_progress'}
         self.assertIsNone(github.run_proof(run,TASKS[0]['ticket'],SHA,NOW))
-        for key,val in [('head_sha','0'*40),('event','schedule'),('run_attempt',2),('display_title','other')]:
+        for key,val in [('head_sha','0'*40),('event','schedule'),('run_attempt',2),
+                        ('display_title','other'),('name','FORGE F139 development worker'),
+                        ('workflow_id',0)]:
             bad={**run,key:val}
             with self.subTest(key=key),self.assertRaisesRegex(F139Error,'SPOOFED'):
                 github.run_proof(bad,TASKS[0]['ticket'],SHA,NOW)
