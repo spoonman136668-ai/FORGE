@@ -117,7 +117,7 @@ def verify(pre_dir,cost_dir):
                      and row["source_operator_passed_to_model"] is False
                      and row["original_case_firstuse"] is False
                      and row["protected_case_firstuse"] is False
-                     and row["source_neutral_graph_SHA256"]==
+                     and row["public_pair_graph_sha256"]==
                           e["source_neutral_full_public_graph_SHA256"]
                      and row["native_score_and_work_sha256"]==
                           e["identical_score_and_work_sha256"]
