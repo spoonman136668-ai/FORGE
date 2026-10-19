@@ -1,0 +1,79 @@
+name: F124-BT frozen native allocator source-neutral real OS cost
+on:
+  push:
+    branches: [research/f124bt-allocator-runtime-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bt-once-libc-malloc-native-source-neutral
+  cancel-in-progress: false
+jobs:
+  original-provider-lean-malloc-15-processes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact unchanged original scientific source, prior BS controls and bounded runtime only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 1eca8879ef481effb798d0ce49101566f18c5705 HEAD
+          mapfile -t files < <(git diff --name-only 1eca8879ef481effb798d0ce49101566f18c5705 HEAD | sort)
+          test "${#files[@]}" -eq 3
+          test "${files[0]}" = '.github/workflows/forge-f124bt-malloc.yml'
+          test "${files[1]}" = 'research/north-star-transfer/f124br_native_cost.py'
+          test "${files[2]}" = 'research/north-star-transfer/f124bt-frozen-allocator.json'
+          for path in research/north-star-transfer/f124bq-frozen-program.json \
+            research/north-star-transfer/f124bq_program_learner.py \
+            research/north-star-transfer/f124br_native_view.py \
+            nativeevidence/f124ag_transition_models.py \
+            nativeevidence/f124az_joint_public_inverse.py \
+            nativeevidence/f124aj_example_operator_learner.py; do
+            test "$(git rev-parse HEAD:"$path")" =                  "$(git rev-parse 1eca8879ef481effb798d0ce49101566f18c5705:"$path")"
+          done
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124br_native_parity.py -v
+          python3 -B isolationguard/check.py
+          echo F124BT_ORIGINAL_LEARNER_NATIVE_THROUGHPUT_IDENTICAL=PASS
+      - name: Five genuine OS-process samples each AZ, original BQ, and lean malloc candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f124bt-real-native"
+          python3 -B research/north-star-transfer/f124br_native_cost.py \
+            --output "$RUNNER_TEMP/f124bt-real-native/real-native-original-15.json"
+          python3 -B - "$RUNNER_TEMP/f124bt-real-native/real-native-original-15.json" <<'PY'
+          import json,sys
+          s=json.load(open(sys.argv[1]))['summary']
+          assert s['sample_count']==15 and s['fresh_process_samples_per_arm']==5
+          assert s['legacy_and_lean_native_score_work_exact']
+          assert s['legacy_and_lean_causal_decisions_exact']
+          assert s['AZ_scientific_abstention_preserved']
+          assert s['AZ_and_candidate_native_work_not_equivalent']
+          assert not s['full_scientific_resource_parity']
+          assert not s['old_BM_BN_BO_BP_BQ_cases_replayed']
+          assert not s['new_prospective_or_protected_cases_used']
+          for arm in ('AZ','legacy','lean'):
+              r=s['arms'][arm]
+              print('F124BT_'+arm.upper()+'_CPU_NS_MEDIAN='+str(r['CPU_median_ns']))
+              print('F124BT_'+arm.upper()+'_RSS_MEDIAN='+str(r['RSS_median_bytes']))
+              print('F124BT_'+arm.upper()+'_RSS_MAX='+str(r['RSS_max_bytes']))
+          if not (s['lean_source_neutral_os_nonregression_vs_original_AZ']
+                  and s['lean_os_nonregression_vs_original_BQ_legacy']):
+              raise SystemExit('F124BT_RESOURCE_NOT_QUALIFIED_DO_NOT_ORIGINATE_NEW_SOURCE')
+          print('F124BT_SOURCE_NEUTRAL_PROCESS_GATE=PASS')
+          PY
+          (cd "$RUNNER_TEMP/f124bt-real-native" && sha256sum real-native-original-15.json > native-original.sha256 && sha256sum -c native-original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bt-original-malloc-15-process-OS-cost-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bt-real-native/
+          retention-days: 90
+          if-no-files-found: warn
