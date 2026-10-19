@@ -144,9 +144,7 @@ def task(family,ordinal,seed):
             "dst_bits":bits(state[j+1])} for j in range(hops)]
     others=[]
     for j in range(9):
-        v=rng.randrange(65536)
-        if j==0:
-            need(v!=state[3],"SOURCE_NO_POST_FIRSTUSE_RESEED_ALLOWED")
+        v=(state[3]^0x8000) if j==0 else rng.randrange(65536)
         others.append({
             "from":f"off{j}","to":f"dead{j}",
             "role":roles[(3+j)%hops],
