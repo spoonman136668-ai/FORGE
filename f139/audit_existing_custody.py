@@ -18,8 +18,8 @@ from f139.local_controller import (
     ZERO, MAX_ZIP_BYTES, canonical, hash_bytes, receipt_from_zip,
 )
 
-SHA40=re.compile(r"[a-f0-9]{40}\\Z")
-SHA64=re.compile(r"[a-f0-9]{64}\\Z")
+SHA40=re.compile(r"[a-f0-9]{40}\Z")
+SHA64=re.compile(r"[a-f0-9]{64}\Z")
 MAX_SOURCE_BYTES=16_000_000
 OS_LABELS=("ubuntu-latest","windows-latest")
 
