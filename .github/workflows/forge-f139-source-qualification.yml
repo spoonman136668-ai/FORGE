@@ -7,6 +7,7 @@ on:
       - 'f139/**'
       - 'scripts/Install-FORGE-F139.ps1'
       - 'scripts/Run-FORGE-F139.ps1'
+      - 'scripts/F139WindowsJobSupervisor.cs'
       - '.github/workflows/forge-f139-development-worker.yml'
       - '.github/workflows/forge-f139-source-qualification.yml'
       - 'docs/F139-UNIFIED-FORGE-CONTROLLER.md'
@@ -97,7 +98,11 @@ jobs:
               if ($child.HasExited) { throw ('F139_NATIVE_LAUNCHER_PREMATURE_EXIT=' + $child.ExitCode) }
               if (Test-Path -LiteralPath $log) {
                 $body = [IO.File]::ReadAllText($log)
-                if ($body -match 'F139_CONTROLLER_INACTIVE_OR_LEGACY_RUNNING') { $observed = $true; break }
+                if ($body -match 'F139_CONTROLLER_INACTIVE_OR_LEGACY_RUNNING' -and
+                    $body -match 'F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS') {
+                  $observed = $true
+                  break
+                }
               }
             }
             if (-not $observed) { throw 'F139_EXPECTED_DISABLED_MARKER_ABSENT' }
@@ -108,18 +113,28 @@ jobs:
                 $state.status.meta.head_seq -ne 0 -or @($state.status.tasks).Count -ne 0) {
               throw 'F139_PROBE_DISABLED_DB_MUTATED'
             }
-            Write-Host 'F139_POWERSHELL_51_NATIVE_STDERR_LOGGED=PASS'
+            Write-Host 'F139_NATIVE_JOB_OBJECT_ARMED_BEFORE_RESUME=PASS'
             Write-Host 'F139_DISABLED_CONTROLLER_PROCESS_ALIVE=PASS'
           } finally {
             $child.Refresh()
             if (-not $child.HasExited) { Stop-Process -Id $child.Id -Force -ErrorAction Stop }
             $child.WaitForExit()
-            # PowerShell termination does not always terminate its Python child.
-            # Fence cleanup to this test's exact isolated SQLite path only.
-            $owned = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
-              Where-Object { $null -ne $_.CommandLine -and $_.CommandLine.Contains($db) -and
-                $_.CommandLine.Contains('f139.local_controller') })
-            foreach ($process in $owned) { Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction Stop }
+            # Source-qualified launcher uses kill-on-job-close: Python must die
+            # automatically when Task Scheduler (here: the test) kills PowerShell.
+            $owned = @()
+            foreach ($n in 1..20) {
+              $owned = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                Where-Object { $null -ne $_.CommandLine -and $_.CommandLine.Contains($db) -and
+                  $_.CommandLine.Contains('f139.local_controller') })
+              if ($owned.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 350
+            }
+            if ($owned.Count -ne 0) {
+              # Cleanup only the exact isolated test child, then fail qualification.
+              foreach ($process in $owned) { Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction Stop }
+              throw 'F139_JOB_CHILD_SURVIVED_KILLED_LAUNCHER'
+            }
+            Write-Host 'F139_POWERSHELL_TERMINATION_KILLS_PYTHON_CHILD=PASS'
             Remove-Item -LiteralPath $key -Force -ErrorAction SilentlyContinue
           }
       - name: Check native Windows task installation is safe by default
