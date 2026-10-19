@@ -1,0 +1,57 @@
+name: T9 mass causal learning focused source-neutral
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t9-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t9-mass-source-neutral-no-protected-firstuse
+  cancel-in-progress: false
+jobs:
+  exact-source-new-causal-mechanism:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 55
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source and unchanged original scientific control verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T9_EXACT_SOURCE_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t9-source-freeze.json').Trim() -cne '2f974ab66835b6c1f4ec445c867180857f0f6b3a'){throw 'T9_PREREG_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t9-source-freeze.json').Trim() -cne 'edcd3cc5eea1cd6d264b76ff14dea897e8647ce3'){throw 'T9_FREEZE_NOT_BEFORE_IMPLEMENTATION'}
+          git merge-base --is-ancestor edcd3cc5eea1cd6d264b76ff14dea897e8647ce3 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T9_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t9-composition.py').Trim() -cne '84c8ece419eed77136334145cba79cdc12d025af'){throw 'T9_NEW_MECHANISM_SOURCE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t3-learned-sbox.py').Trim() -cne '4ae82a1c4a052da9c61f84bf1bd91b46d303c6eb'){throw 'T9_FROZEN_ORIGINAL_CONTROL_DRIFT'}
+          Write-Output 'T9_MASS_SOURCE_IDENTITY_AND_FREEZE=PASS'
+      - name: Execute causal sufficiency and full public control diagnostic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261019-mass-t9-composition.py' | Tee-Object 't9-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T9_MASS_NONCONSUMING_MECHANISM_FAILED'}
+          $d=Get-Content 't9-mass-original.json' -Raw | ConvertFrom-Json
+          if($d.'prospective_scientific_first_use' -ne $false -and $d.'prospective_scientific_first_use' -ne 0){throw 'T9_PROTECTED_SOURCE_USED'}
+          if($d.'scientific_acceptance' -ne $false){throw 'T9_SCIENCE_ACCEPTANCE_UNAUTHORIZED'}
+          Write-Output 'T9_MASS_EVIDENCE_OR_NEGATIVE=PASS'
+          Write-Output 'T9_MASS_PROTECTED_FIRST_USE=false'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t9-mass-nonconsuming-${{ matrix.os }}-${{ github.sha }}
+          path: t9-mass-original.json
+          retention-days: 90
+          if-no-files-found: warn
