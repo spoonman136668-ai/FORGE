@@ -1,4 +1,4 @@
-"""D2L hosted qualification of the nonintrusive custody snapshot and fail-closed audit."""
+"""D2K-CUSTODY hosted qualification of the nonintrusive custody snapshot and fail-closed audit."""
 import hashlib
 import os
 from pathlib import Path
@@ -6,7 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from f139.audit_existing_custody import audit, CustodyBlocked, copied_snapshot
+from f139.audit_d2k_custody import audit, CustodyBlocked, copied_snapshot
 from f139.local_controller import Database, canonical, hash_bytes, store_evidence
 from test_local_controller import SHA, artifact
 

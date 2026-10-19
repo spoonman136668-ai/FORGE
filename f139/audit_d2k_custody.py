@@ -1,4 +1,4 @@
-"""F139-D2L: nonintrusive, content-addressed read-only custody preflight.
+"""F139-D2K-CUSTODY: nonintrusive, content-addressed read-only custody preflight.
 
 This deliberately does not start/stop any controller or transition accepted refs.
 An externally sealed 23-event head is mandatory; the local DB is not its own witness.
@@ -30,7 +30,7 @@ class CustodyBlocked(RuntimeError):
 
 def check(condition, reason):
     if not condition:
-        raise CustodyBlocked("F139_D2L_"+reason)
+        raise CustodyBlocked("F139_D2K_CUSTODY_"+reason)
 
 
 def copied_snapshot(source: Path, scratch: Path):
@@ -68,7 +68,7 @@ def verify_chain(events, expected_head: str):
         try:
             payload=json.loads(row["payload"])
         except (ValueError,TypeError) as exc:
-            raise CustodyBlocked("F139_D2L_INVALID_EVENT_JSON") from exc
+            raise CustodyBlocked("F139_D2K_CUSTODY_INVALID_EVENT_JSON") from exc
         check(canonical(payload).decode()==row["payload"],"EVENT_NOT_CANONICAL")
         record={"seq":number,"prior_sha":prior,
                 "kind":row["kind"],"payload":payload}
@@ -121,7 +121,7 @@ def verify_evidence(root: Path, row: dict, epoch: int):
     raw=manifest_file.read_bytes()
     check(hash_bytes(raw)==row["evidence_sha"],"MANIFEST_DIGEST_CHANGED")
     try: manifest=json.loads(raw)
-    except ValueError as exc: raise CustodyBlocked("F139_D2L_MANIFEST_JSON") from exc
+    except ValueError as exc: raise CustodyBlocked("F139_D2K_CUSTODY_MANIFEST_JSON") from exc
     check(canonical(manifest)==raw
           and manifest.get("schema")=="forge.f139.windows-evidence-manifest.v1"
           and manifest.get("ticket")==ticket and manifest.get("run_id")==row["run_id"]
@@ -179,7 +179,7 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
             reports=[verify_evidence(dbpath.parent,t,meta["epoch"]) for t in tasks]
         finally:
             connection.close()
-    return {"schema":"forge.f139.d2l.readonly-audit.v1",
+    return {"schema":"forge.f139.d2k-custody.readonly-audit.v1",
             "disposition":"LOCAL_CUSTODY_SNAPSHOT_VERIFIED_NOT_SOURCE_TRANSITION",
             "event_count":23,"task_count":4,"archive_count":8,
             "expected_source_sha":expected_source,"sealed_event_head_sha256":expected_head,
@@ -201,4 +201,4 @@ def main():
 if __name__=="__main__":
     try: main()
     except (CustodyBlocked,sqlite3.DatabaseError,OSError,ValueError) as exc:
-        raise SystemExit("F139_D2L_FAIL_CLOSED "+str(exc)) from exc
+        raise SystemExit("F139_D2K_CUSTODY_FAIL_CLOSED "+str(exc)) from exc
