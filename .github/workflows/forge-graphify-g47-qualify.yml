@@ -46,7 +46,9 @@ jobs:
           repository: Kboomllc/K-Terminal
           ref: 67e9847a3e2b510f3432f6e716c332e3cdbed76a
           path: kterminal-private
-          fetch-depth: 1
+          # G35 prove_sources compares an immutable historical base blob;
+          # shallow depth=1 omits it and cannot qualify the source ancestry.
+          fetch-depth: 0
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -129,6 +131,7 @@ jobs:
             run_private "G47_COMPILER_${name}" go run tools/graphify/g30_type_calls.go --root . --sha "$K_TERM_SHA" --package "./$pkg" --out "$RUNNER_TEMP/g47-g30/$name.json"
           done
           run_private G47_INTERPACKAGE_COMPILER go run tools/graphify/g31_interpackage_calls.go --root . --sha "$K_TERM_SHA" --out "$RUNNER_TEMP/g47-g31.json"
+          test "$(git rev-parse b55453ffeefe97ce847940eeb17fa85e0ab395a4)" = "b55453ffeefe97ce847940eeb17fa85e0ab395a4" || { echo G47_G35_FROZEN_ANCESTRY_NOT_FETCHED; exit 1; }
           run_private G47_G35_EXACT_ATLAS_OVERLAY python tools/graphify/g35_unify.py --g30-raw "$RUNNER_TEMP/g47-g30" --g31-raw "$RUNNER_TEMP/g47-g31.json" --atlas graphify-out --source-sha "$K_TERM_SHA"
           run_private G47_REAL_AST_WITNESS go run tools/graphify/g44_ast_call_witness.go --root . --sha "$K_TERM_SHA" --input graphify-out/SYMBOL_MAP.json --out "$RUNNER_TEMP/g47-ast-witness.json"
           python - <<'PY'
