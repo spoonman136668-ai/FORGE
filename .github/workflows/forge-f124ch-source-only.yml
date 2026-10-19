@@ -1,0 +1,47 @@
+name: F124-CH internal E/F original source-only algebra
+on:
+  push:
+    branches: [research/f124ch-internal-blinded-ef-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124ch-frozen-EF-sourceonly-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  source-only-no-firstuse:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify pre-birth protocol and E/F pure source math (no development cases created)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CH_PREBIRTH_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor 62eb3584f42d3edd5caddc7667b567e81489af4f HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CH_FROZEN_BEFORE_EF_SOURCE_MISSING' }
+          foreach ($pair in @(
+            @('research/north-star-transfer/f124cb_dual_link_learner.py','8a10bf8cec12afc7d8703e3586d8eba91ebfdc7c'),
+            @('research/north-star-transfer/f124cc_trained_two_link_control.py','29c0c02f54ea539bed0910fe82adcc86d3aff94d'),
+            @('nativeevidence/f124ag_transition_models.py','94d2ae8266da792d254ac54baf3056bbd9b49412'),
+            @('research/north-star-transfer/f124bv-frozen-independent-science.json','5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5')
+          )) {
+            if ((& git rev-parse ('HEAD:'+$pair[0])).Trim() -cne $pair[1]) { throw "CH_FROZEN_CONTROL_CHANGED:$($pair[0])" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124ch_source_only_math.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CH_SOURCE_ONLY_MATH_NEGATIVE' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CH_SCIENCE_ISOLATION_FAIL' }
+          Write-Output 'F124CH_EF_ORIGINAL_SOURCE_ALGEBRA_QUALIFIED=PASS'
+          Write-Output 'F124CH_DEVELOPMENT_SOURCE_FIRSTUSE=0'
+          Write-Output 'F124CH_PROTECTED_COHORTS_OPENED=0'
