@@ -103,7 +103,7 @@ def child(arm):
         fitted,fit_receipt,plausible=learner.learn(pairs[:40],pairs[40:])
         need(fitted is not None,"COMPACT_SYNTHETIC_NOT_FIT")
         need(fit_receipt["state_bits"]==32
-             and fit_receipt["confidence_models"]>=1,
+             and fit_receipt["confidence_programs"]>=1,
              "COMPACT_UNQUALIFIED_STATE")
         outcomes=[]
         work=[]
