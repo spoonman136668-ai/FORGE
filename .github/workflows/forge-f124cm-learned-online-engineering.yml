@@ -1,0 +1,45 @@
+name: F124-CM learned online state engineering qualification
+on:
+  push:
+    branches: [research/f124cm-learned-online-state-20261019]
+    paths:
+      - research/north-star-transfer/f124cm_learned_online_state.py
+      - research/north-star-transfer/test_f124cm_learned_online_state.py
+      - research/north-star-transfer/f124cm_trained_relational_control.py
+      - research/north-star-transfer/test_f124cm_trained_relational_control.py
+      - research/north-star-transfer/f124cm-engineering-contract.json
+      - .github/workflows/forge-f124cm-learned-online-engineering.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124cm-engineering-source-only
+  cancel-in-progress: false
+jobs:
+  source-only-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source-free model tests (NO prospective evaluation)
+        run: |
+          python -B research/north-star-transfer/test_f124cm_learned_online_state.py -v
+          python -B research/north-star-transfer/test_f124cm_trained_relational_control.py -v
+      - name: Verify explicitly denied scientific promotion/source use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $c = Get-Content -Raw research/north-star-transfer/f124cm-engineering-contract.json | ConvertFrom-Json
+          if ($c.status -cne 'ENGINEERING_CANDIDATE_ONLY_NO_FIRSTUSE') { throw 'CM_STATUS' }
+          if ($c.authority.scientific_acceptance -or $c.authority.prospective_source_birth -or $c.authority.protected_holdout -or $c.authority.automatic_merge) { throw 'CM_UNAUTHORIZED_SCIENCE' }
+          if ($c.candidate.FIT -ne 40 -or $c.candidate.CHECK_veto_only -ne 8 -or $c.candidate.learned_coefficient_bits -ne 100) { throw 'CM_CONTRACT_DRIFT' }
+          if ($c.comparator.FIT -ne 40 -or $c.comparator.CHECK_veto_only -ne 8 -or $c.comparator.learned_coefficient_bits -ne 100) { throw 'CM_COMPARATOR_DRIFT' }
+          Write-Host 'F124CM_ENGINEERING_ONLY=PASS'
