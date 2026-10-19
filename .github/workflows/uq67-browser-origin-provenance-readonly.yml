@@ -1,0 +1,169 @@
+name: UQ67 selected browser-chat source read-only provenance
+on:
+  push:
+    branches:
+      - qualification/uq67-browser-origin-provenance-readonly
+permissions:
+  contents: read
+concurrency:
+  group: uq67-browser-source-review-only
+  cancel-in-progress: false
+jobs:
+  review:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Verify genuine selected chat extraction custody, replay, aliases, and default deny
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference='Stop'
+          function Assert([bool]$ok,[string]$reason) { if (-not $ok) { throw ('UQ67_STOP_'+$reason) } }
+          Assert ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          Assert (Test-Path $native -PathType Container) 'NATIVE_PS_MODULES_MISSING'
+          $env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $base='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $paths=@('pilots/chat-history/2026-10-15-webclient-only-ingestion.extraction.json','pilots/chat-history/2026-10-17-pr58-authorization.extraction.json')
+          $blobs=@('d3b1d73c7c7551e01c053fda58a0eaeae5d3d613','3bbb92ba9b6a154726ded6710dc9a4f26e785b47')
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq67-browser-provenance-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          Assert (-not (Test-Path $scratch)) 'SCRATCH_ALREADY_PRESENT'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          try {
+            $remoteRef=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            Assert ($LASTEXITCODE -eq 0 -and $remoteRef.Count -eq 1 -and ([string]$remoteRef[0] -split '\s+')[0] -ceq $base) 'SOURCE_MAIN_DRIFT'
+            & git.exe clone --quiet --depth 1 --single-branch --branch main $remote $root
+            Assert ($LASTEXITCODE -eq 0) 'SOURCE_CLONE_FAILED'
+            $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $head -ceq $base) 'CHECKOUT_SOURCE_DRIFT'
+            $before=@{}
+            foreach($p in $protected) {
+              $full=Join-Path $root $p
+              Assert (Test-Path $full -PathType Leaf) ('PROTECTED_MISSING_'+$p)
+              $before[$p]=(Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $queuePath=Join-Path $root 'policies/guarded-chat-source-queue.json'
+            $queueHash=(Get-FileHash -LiteralPath $queuePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $productionQueue=[IO.File]::ReadAllText($queuePath) | ConvertFrom-Json
+            Assert (@($productionQueue.sources).Count -eq 0 -and -not [bool]$productionQueue.allow_production_memory_writes -and -not [bool]$productionQueue.allow_unbounded_discovery) 'PRODUCTION_QUEUE_NOT_DEFAULT_DENY'
+            $records=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $ledger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            Assert ($records.Count -eq 263 -and @($ledger.entries).Count -eq 104) 'FROZEN_BASELINE_DRIFT'
+            $bootstrap=[IO.File]::ReadAllText((Join-Path $root '.ice/remote-bootstrap.json')) | ConvertFrom-Json
+            $catalog=[IO.File]::ReadAllText((Join-Path $root '.ice/remote-catalog.json')) | ConvertFrom-Json
+            Assert ([string]$bootstrap.schema -ceq 'mind-palace.remote-bootstrap.v1' -and [string]$catalog.schema -ceq 'mind-palace.remote-catalog.v1' -and [string]$bootstrap.source.records_sha256 -ceq [string]$catalog.source.records_sha256) 'BOOTSTRAP_CATALOG_MISMATCH'
+            Write-Host 'UQ67_MAIN_AND_REMOTE_RETRIEVAL_CONTRACT_PINNED=PASS'
+            $sources=@()
+            $probes=@()
+            for($i=0;$i -lt $paths.Count;$i++) {
+              $path=$paths[$i]
+              $blob=(& git.exe -C $root rev-parse ('HEAD:'+$path) | Out-String).Trim()
+              Assert ($LASTEXITCODE -eq 0 -and $blob -ceq $blobs[$i]) ('SOURCE_BLOB_DRIFT_'+$i)
+              $full=Join-Path $root $path
+              Assert ((& git.exe -C $root hash-object -- $full | Out-String).Trim() -ceq $blobs[$i]) ('CHECKOUT_BLOB_DRIFT_'+$i)
+              $src=[IO.File]::ReadAllText($full) | ConvertFrom-Json
+              Assert ([string]$src.schema -ceq 'mind-palace.chat-extraction.v1' -and @($src.candidates).Count -eq 1 -and @($src.turns).Count -eq 1) ('REAL_EXTRACT_FORMAT_'+$i)
+              Assert ([string]$src.turns[0].role -ceq 'operator' -and [string]$src.candidates[0].source_turn_ids[0] -ceq [string]$src.turns[0].id) ('SELECTED_OPERATOR_TURN_PROVENANCE_'+$i)
+              Assert ([string]::IsNullOrWhiteSpace([string]$src.conversation.content_sha256)) ('UNEXPECTED_PROVIDER_HASH_'+$i)
+              Assert ($null -eq $src.conversation.PSObject.Properties['immutable_provider_conversation_id']) ('UNEXPECTED_PROVIDER_ID_'+$i)
+              if ($i -eq 0) {
+                Assert ([string]$src.conversation.ref -ceq 'chat:2026-10-15-mind-palace-web-client-ingestion' -and [string]$src.conversation.version -ceq 'visible-selected-operator-turns-20261015-r1') 'BROWSER_PREFERENCE_ORIGIN_DRIFT'
+                Assert ([bool]$src.candidates[0].details.selected_operator_turns_only -and -not [bool]$src.candidates[0].details.account_history_coverage_complete -and -not [bool]$src.candidates[0].details.immutable_conversation_id_available) 'BROWSER_SOURCE_PROVENANCE_OVERCLAIM'
+              } else {
+                Assert ([string]$src.conversation.ref -ceq 'chat:2026-10-17-mind-palace-pr58-explicit-merge-authorization' -and [string]$src.conversation.version -ceq 'visible-selected-operator-direction-20261017-r1') 'PR58_ORIGIN_DRIFT'
+                Assert (-not [bool]$src.candidates[0].details.original_chat_turn_identity_cryptographically_attested -and -not [bool]$src.candidates[0].details.full_chat_history_coverage) 'PR58_SOURCE_PROVENANCE_OVERCLAIM'
+                Assert (@($src.corroborating_sources).Count -eq 1 -and [string]$src.corroborating_sources[0].version -ceq '10220f4f4ff28ed49b3f8b6b64029fcb20b3cee4') 'EXTERNAL_CORROBORATION_DRIFT'
+              }
+              $known=@($ledger.entries | Where-Object { [string]$_.source_ref -ceq [string]$src.conversation.ref -and [string]$_.source_version -ceq [string]$src.conversation.version })
+              Assert ($known.Count -eq 1 -and @($known[0].candidate_ids).Count -eq 1) ('HISTORICAL_LEDGER_SOURCE_MISSING_'+$i)
+              $probeText=(& (Join-Path $root 'tools/source-probe.ps1') probe -Type chat -Ref ([string]$src.conversation.ref) -Version ([string]$src.conversation.version) | Out-String).Trim()
+              $probe=$probeText | ConvertFrom-Json
+              Assert ([string]$probe.schema -ceq 'mind-palace.source-probe-result.v1' -and [bool]$probe.processed -and [string]$probe.action -ceq 'skip' -and [string]$probe.reason -ceq 'exact-fingerprint-known' -and [string]$probe.source_id -ceq [string]$known[0].id) ('EXACT_REPLAY_NOT_DEDUPED_'+$i)
+              $sources+=,$src
+              $probes+=,$probe
+            }
+            Write-Host 'UQ67_TWO_REAL_SELECTED_BROWSER_CHAT_EXTRACTIONS_GIT_AUTHENTICATED=PASS'
+            Write-Host 'UQ67_BOTH_SOURCE_IDENTITIES_ALREADY_INGESTED_EXACT_REPLAY_SKIPPED=PASS'
+            Write-Host 'UQ67_ORIGINAL_PROVIDER_TRANSCRIPT_ATTESTATION=UNAVAILABLE'
+            Write-Host 'UQ67_FULL_BROWSER_HISTORY_COVERAGE=NOT_CLAIMED'
+
+            $runtime=Join-Path $root '.mind-runtime/uq67-readonly'
+            New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+            $privateQueue=[ordered]@{
+              schema='mind-palace.guarded-chat-source-queue.v1'
+              allow_unbounded_discovery=$false
+              allow_production_memory_writes=$false
+              sources=@(
+                [ordered]@{path=$paths[0];git_blob=$blobs[0];source_ref=[string]$sources[0].conversation.ref;source_version=[string]$sources[0].conversation.version;authorized_for_preparation=$false},
+                [ordered]@{path=$paths[1];git_blob=$blobs[1];source_ref=[string]$sources[1].conversation.ref;source_version=[string]$sources[1].conversation.version;authorized_for_preparation=$false}
+              )
+            }
+            $inspectionQueue=Join-Path $runtime 'review-only-queue.json'
+            [IO.File]::WriteAllText($inspectionQueue,((ConvertTo-Json -InputObject $privateQueue -Depth 16)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+            $engine=Join-Path $root 'tools/guarded-unattended-intake.ps1'
+            for($replay=0;$replay -lt 2;$replay++) {
+              $json=(& $engine inspect -QueuePath $inspectionQueue -MaxSources 2 | Out-String).Trim()
+              $result=$json | ConvertFrom-Json
+              Assert ([string]$result.schema -ceq 'mind-palace.guarded-chat-source-queue-result.v1' -and [int]$result.inspected_count -eq 2 -and @($result.items).Count -eq 2) 'REPLAY_RESULT_SCHEMA'
+              foreach($item in @($result.items)) {
+                Assert ([string]$item.disposition -ceq 'skip_known' -and [int]$item.records_applied -eq 0) 'REPLAY_WOULD_ADMIT'
+              }
+              Assert ([bool]$result.durable_state_unchanged -and [int]$result.production_memory_writes -eq 0 -and [int]$result.source_ledger_writes -eq 0 -and [int]$result.paid_model_invocations -eq 0 -and -not [bool]$result.automatic_background_discovery -and -not [bool]$result.automatic_production_updates) 'READONLY_BOUNDARY'
+            }
+            Write-Host 'UQ67_CANONICAL_INTAKE_READONLY_REPLAY_TWICE=PASS'
+
+            # Explicit adversarial source-identity relabeling: the new fingerprint is not new authentic evidence.
+            $v=[string]$sources[0].conversation.version+'-unattested-revision'
+            $variant=(& (Join-Path $root 'tools/source-probe.ps1') probe -Type chat -Ref ([string]$sources[0].conversation.ref) -Version $v | Out-String).Trim() | ConvertFrom-Json
+            Assert (-not [bool]$variant.processed -and [string]$variant.reason -ceq 'unseen-fingerprint' -and [string]$variant.source_id -cne [string]$probes[0].source_id) 'UNATTESTED_RELABELLING_NOT_DISTINCT'
+            # The unverified revision has no provider custody or registered source blob; DO NOT add to queue or invoke prepare.
+            Write-Host 'UQ67_UNATTESTED_VERSION_RELABEL_BLOCKED_BEFORE_PREPARATION=PASS'
+
+            $aliasBatch=[ordered]@{
+              schema='mind-palace.collector-batch.v1'
+              sources=@([ordered]@{type='chat';ref='chat:2026-10-15-web-client-mind-palace-ingestion-direction';role='primary'})
+              candidates=@([ordered]@{kind='preference';key='mind-palace-ingestion-web-client-no-desktop-app-20261015';source_refs=@([ordered]@{type='chat';ref='chat:2026-10-15-web-client-mind-palace-ingestion-direction'})})
+            }
+            $aliasPath=Join-Path $runtime 'disallowed-alias.json'
+            [IO.File]::WriteAllText($aliasPath,((ConvertTo-Json -InputObject $aliasBatch -Depth 12)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+            $aliasRejected=$false
+            try { & (Join-Path $root 'tools/chat-source-alias-guard.ps1') -BatchPath $aliasPath | Out-Null }
+            catch { $aliasRejected=($_.Exception.Message -match 'CHAT_SOURCE_ALIAS_BLOCKED') }
+            Assert $aliasRejected 'KNOWN_ALIAS_NOT_REJECTED'
+            Write-Host 'UQ67_REGISTERED_BROWSER_CHAT_ALIAS_REJECTED=PASS'
+
+            # A git-blob mismatch must fail before any source processing; process is read-only.
+            $tampered=[IO.File]::ReadAllText($inspectionQueue) | ConvertFrom-Json
+            $tampered.sources[0].git_blob=('0'*40)
+            $tamperedPath=Join-Path $runtime 'tampered-source-blob.json'
+            [IO.File]::WriteAllText($tamperedPath,((ConvertTo-Json -InputObject $tampered -Depth 16)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+            $tamperRejected=$false
+            try { & $engine inspect -QueuePath $tamperedPath -MaxSources 2 | Out-Null }
+            catch { $tamperRejected=($_.Exception.Message -match 'UQ37_STOP_SOURCE_BLOB_DRIFT') }
+            Assert $tamperRejected 'SOURCE_BLOB_TAMPER_NOT_REJECTED'
+            Write-Host 'UQ67_SOURCE_GIT_BLOB_TAMPERING_REJECTED=PASS'
+
+            # Nothing from read-only qualification may enter the tracked source tree or production state.
+            foreach($p in $protected) {
+              $after=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Assert ($after -ceq $before[$p]) ('PROTECTED_HASH_DRIFT_'+$p)
+            }
+            Assert ((Get-FileHash -LiteralPath $queuePath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $queueHash) 'PRODUCTION_QUEUE_DRIFT'
+            $tracked=@(& git.exe -C $root status --porcelain)
+            Assert ($LASTEXITCODE -eq 0 -and $tracked.Count -eq 0) 'WORKTREE_UNEXPECTED_DRIFT'
+            Write-Host 'UQ67_ALL_NINE_PROTECTED_HASHES_AND_PRODUCTION_QUEUE_UNCHANGED=PASS'
+            Write-Host 'UQ67_DURABLE_RECORDS=263'
+            Write-Host 'UQ67_SOURCE_LEDGER_ENTRIES=104'
+            Write-Host 'UQ67_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ67_SOURCE_LEDGER_WRITES=0'
+            Write-Host 'UQ67_PAID_INFERENCE_AND_CODEX=0'
+            Write-Host 'UQ67_NO_PREPARE_NO_APPLY_NO_PUSH=PASS'
+          } finally {
+            if (Test-Path $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop }
+            Assert (-not (Test-Path $scratch)) 'SCRATCH_NOT_CLEANED'
+            Write-Host 'UQ67_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
