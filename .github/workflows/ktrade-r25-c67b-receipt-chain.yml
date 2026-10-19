@@ -77,17 +77,21 @@ jobs:
               throw 'R25_C67B_UNSAFE_PRIVATE_FILE_SCOPE'
             }
             $path=Join-Path $recovery ($relative.Replace('/',[IO.Path]::DirectorySeparatorChar))
+            $stage='CHECK_FILE'
             try {
               $info=Get-Item -LiteralPath $path -Force -ErrorAction Stop
               if($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
                  $info.Length -ne $size){throw 'unsafe-file'}
+              $stage='READ_BYTES'
               $raw=[IO.File]::ReadAllBytes($path)
               if($raw.Length -ne $size){throw 'size-drift'}
+              $stage='FILE_SHA256'
               $actual=([Security.Cryptography.SHA256]::HashData($raw) |
                 ForEach-Object{$_.ToString('x2')}) -join ''
               if($actual -cne [string]$entry['sha256']){throw 'hash-drift'}
               $readTotal+=$raw.Length
               $checked++
+              $stage='PARSE_JSON'
               $state=[Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xfeff)|ConvertFrom-Json -AsHashtable -Depth 64
               $list=@()
               if($state.Contains('settlement_receipts') -and $null -ne $state['settlement_receipts']){
@@ -98,6 +102,7 @@ jobs:
               $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
               $seq=0
               foreach($r in $list){
+                $stage='RECEIPT_STRUCT'
                 $seq++;$receipts++
                 if($r -isnot [Collections.IDictionary]){$malformed++;continue}
                 if($r['schema_version'] -ne 1 -or $r['sequence'] -ne $seq -or
@@ -133,6 +138,7 @@ jobs:
                   }
                 }
                 if($unsupported){$unsupportedSerialization++;$prior=[string]$r['receipt_hash'];continue}
+                $stage='MAKE_ORDERED_CORE'
                 $core=[ordered]@{
                   schema_version=[int]$r['schema_version']
                   sequence=[long]$r['sequence']
@@ -152,8 +158,10 @@ jobs:
                 if(![string]::IsNullOrEmpty([string]$r['previous_receipt_hash'])){
                   $core['previous_receipt_hash']=[string]$r['previous_receipt_hash']
                 }
+                $stage='SERIALIZE_CORE'
                 $canonical=ConvertTo-Json -InputObject $core -Depth 6 -Compress
                 $bytes=[Text.Encoding]::UTF8.GetBytes($canonical)
+                $stage='CORE_SHA256'
                 $digest=([Security.Cryptography.SHA256]::HashData($bytes)|
                    ForEach-Object{$_.ToString('x2')}) -join ''
                 if($digest -cne [string]$r['receipt_hash']){$digestErrors++}
@@ -162,6 +170,7 @@ jobs:
                 $prior=[string]$r['receipt_hash']
               }
             } catch {
+              Write-Host ('R25_C67B_STOP_STAGE='+$stage)
               throw 'R25_C67B_PROTECTED_RECEIPT_READ_OR_COMPUTE_FAILED'
             } finally {
               $raw=$null;$state=$null;$list=$null;$core=$null;$bytes=$null
