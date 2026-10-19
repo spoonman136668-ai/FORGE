@@ -10,6 +10,8 @@ import pathlib
 import sqlite3
 import unittest
 
+import migration_contract
+
 HERE = pathlib.Path(__file__).resolve().parent
 SCHEMA = (HERE / "schema.sql").read_text(encoding="utf-8")
 RESERVE = (HERE / "reserve_pending.sql").read_text(encoding="utf-8")
@@ -75,7 +77,7 @@ class ExistingD1MigrationCompatibility(unittest.TestCase):
 
     def test_additive_migration_preserves_existing_archive_and_user_data(self):
         before = old_snapshot(self.db)
-        self.db.executescript(SCHEMA)
+        migration_contract.qualify_atomic_sqlite(self.db)
         self.assertEqual(old_snapshot(self.db), before)
         self.assertEqual(set(row[0] for row in self.db.execute(
             "SELECT name FROM sqlite_master WHERE name GLOB 'forge_fsa_*'")),
@@ -93,13 +95,13 @@ class ExistingD1MigrationCompatibility(unittest.TestCase):
         self.assertEqual(old_snapshot(self.db), before)
 
     def test_schema_replay_denied_without_changing_previous_content(self):
-        self.db.executescript(SCHEMA)
+        migration_contract.qualify_atomic_sqlite(self.db)
         before = old_snapshot(self.db)
         fsa_objects = tuple(self.db.execute(
             "SELECT type,name,sql FROM sqlite_master "
             "WHERE name GLOB 'forge_fsa_*' ORDER BY type,name"))
         with self.assertRaises(sqlite3.OperationalError):
-            self.db.executescript(SCHEMA)
+            migration_contract.qualify_atomic_sqlite(self.db)
         self.assertEqual(old_snapshot(self.db), before)
         self.assertEqual(tuple(self.db.execute(
             "SELECT type,name,sql FROM sqlite_master "
@@ -109,7 +111,7 @@ class ExistingD1MigrationCompatibility(unittest.TestCase):
         self.db.execute("CREATE TABLE forge_fsa_authority_state (x TEXT)")
         previous = old_snapshot(self.db)
         with self.assertRaises(sqlite3.OperationalError):
-            self.db.executescript(SCHEMA)
+            migration_contract.qualify_atomic_sqlite(self.db)
         self.assertEqual(old_snapshot(self.db), previous)
         self.assertEqual(self.db.execute(
             "SELECT COUNT(*) FROM forge_fsa_authority_state").fetchone()[0], 0)
@@ -117,9 +119,43 @@ class ExistingD1MigrationCompatibility(unittest.TestCase):
             "SELECT COUNT(*) FROM sqlite_master "
             "WHERE name='forge_fsa_original_firstuse'").fetchone()[0], 0)
 
+    def test_collisions_at_all_six_ddl_steps_rollback_without_partial_schema(self):
+        for kind, name in migration_contract.OBJECTS:
+            with self.subTest(kind=kind, name=name):
+                db = existing_archive()
+                try:
+                    if kind == "TABLE":
+                        db.execute('CREATE TABLE "' + name + '" (data TEXT)')
+                    else:
+                        db.execute('CREATE TRIGGER "' + name + '" '
+                                   'BEFORE INSERT ON operator_settings '
+                                   'BEGIN SELECT 1; END;')
+                    db.commit()
+                    old_schema = tuple(db.execute(
+                        "SELECT type,name,sql FROM sqlite_master "
+                        "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name"))
+                    old_rows = old_snapshot(db)
+                    with self.assertRaises(sqlite3.OperationalError):
+                        migration_contract.qualify_atomic_sqlite(db)
+                    self.assertEqual(tuple(db.execute(
+                        "SELECT type,name,sql FROM sqlite_master "
+                        "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")),
+                        old_schema)
+                    self.assertEqual(old_snapshot(db), old_rows)
+                finally:
+                    db.close()
+
+    def test_schema_contract_requires_exact_d1_batch_of_six_objects(self):
+        batch = migration_contract.statements()
+        self.assertEqual(len(batch), 6)
+        for sql, (kind, name) in zip(batch, migration_contract.OBJECTS):
+            self.assertIn("CREATE " + kind + " " + name, sql)
+        self.assertNotIn("BEGIN TRANSACTION", "\n".join(batch))
+        self.assertNotIn("COMMIT;", "\n".join(batch))
+
     def test_prior_archived_seals_are_immutable(self):
         before = old_snapshot(self.db)
-        self.db.executescript(SCHEMA)
+        migration_contract.qualify_atomic_sqlite(self.db)
         with self.assertRaises(sqlite3.IntegrityError):
             self.db.execute("DELETE FROM forge_research_originals")
         self.assertEqual(old_snapshot(self.db), before)
