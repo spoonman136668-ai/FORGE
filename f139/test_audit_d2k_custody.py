@@ -129,6 +129,103 @@ class ReadonlyCustodyTests(unittest.TestCase):
         with self.assertRaisesRegex(CustodyBlocked,"EXTERNAL_PROVIDER_RUN_OR_SOURCE_DRIFT"):
             audit(self.dbpath,SHA,self.head)
 
+    def append_source_transition(self, target, *, prior_sha=None,
+                                 from_source=SHA, kind="SOURCE_TRANSITION_ADMITTED",
+                                 dispatches=0, originals=False):
+        source=sqlite3.connect(str(self.dbpath))
+        try:
+            seq,previous=source.execute(
+                "SELECT head_seq,head_hash FROM meta WHERE id=1").fetchone()
+            payload={
+                "schema":"forge.f139.source-transition.v1",
+                "from_source_sha":from_source,"to_source_sha":target,
+                "prior_event_head_sha256":previous if prior_sha is None else prior_sha,
+                "verified_historical_tasks":4,"new_dispatches":dispatches,
+                "scientific_first_use":originals,
+            }
+            item={"seq":seq+1,"prior_sha":previous,"kind":kind,"payload":payload}
+            digest=hash_bytes(canonical(item))
+            source.execute("INSERT INTO events(seq,kind,payload,prior_sha,sha) "
+                           "VALUES(?,?,?,?,?)",
+                           (seq+1,kind,canonical(payload).decode(),previous,digest))
+            source.execute("UPDATE meta SET source_sha=?,head_seq=?,head_hash=? WHERE id=1",
+                           (target,seq+1,digest))
+            source.commit()
+        finally:
+            source.close()
+
+    def test_exact_one_source_only_append_preserves_four_receipts(self):
+        new_source="5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba"
+        before={(p.relative_to(self.root)).as_posix():p.read_bytes()
+                for p in (self.root/"evidence").rglob("*") if p.is_file()}
+        self.append_source_transition(new_source)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            proof=audit(self.dbpath,new_source,self.head)
+        after={(p.relative_to(self.root)).as_posix():p.read_bytes()
+               for p in (self.root/"evidence").rglob("*") if p.is_file()}
+        self.assertEqual(before,after)
+        self.assertEqual(proof["event_count"],24)
+        self.assertEqual(proof["historical_prefix_event_count"],23)
+        self.assertEqual(proof["source_only_suffix_count"],1)
+        self.assertEqual(proof["archive_count"],8)
+        self.assertEqual(proof["controller_actions"],0)
+        self.assertNotEqual(proof["observed_current_head_sha256"],self.head)
+
+    def test_multi_source_monotonic_merge_chain(self):
+        first="99be12f448c27aea7f74a5224c9ebccf6e9d7c21"
+        second="c0eaa5eef08d38417fe2875bbdd352362e130b5f"
+        third="5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba"
+        self.append_source_transition(first)
+        self.append_source_transition(second,from_source=first)
+        self.append_source_transition(third,from_source=second)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            result=audit(self.dbpath,third,self.head)
+        self.assertEqual(result["source_only_suffix_count"],3)
+        self.assertEqual(result["event_count"],26)
+        self.assertEqual(result["task_count"],4)
+
+    def test_non_source_or_unapproved_transition_fails_closed(self):
+        for config, reason in [
+            ({"kind":"DEVELOPMENT_WORK_ADMITTED"},"NON_SOURCE_EVENT_AFTER_SEALED_PREFIX"),
+            ({"dispatches":1},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"originals":True},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"prior_sha":"0"*64},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"from_source":"0"*40},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+            ({"target":"e"*40},"SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"),
+        ]:
+            with self.subTest(config=config):
+                # Reset to exact source and sealed prefix: subcases are isolated.
+                with tempfile.TemporaryDirectory() as scratch:
+                    replacement=Path(scratch)/"source.sqlite"
+                    original=sqlite3.connect(self.dbpath)
+                    copy=sqlite3.connect(replacement)
+                    try: original.backup(copy)
+                    finally: copy.close();original.close()
+                    current=self.dbpath
+                    self.dbpath=replacement
+                    try:
+                        arguments=dict(config)
+                        target=arguments.pop("target",
+                           "5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba")
+                        self.append_source_transition(target,**arguments)
+                        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+                            with self.assertRaisesRegex(CustodyBlocked,reason):
+                                audit(self.dbpath,target,self.head)
+                    finally:
+                        self.dbpath=current
+
+    def test_earlier_history_cannot_be_resealed_using_new_head(self):
+        target="5ca118a0425dd4c6b3fa67a2f575cfda491cb8ba"
+        self.append_source_transition(target)
+        new=sqlite3.connect(str(self.dbpath))
+        try:
+            current_head=new.execute(
+                "SELECT head_hash FROM meta WHERE id=1").fetchone()[0]
+        finally: new.close()
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
+                audit(self.dbpath,target,current_head)
+
     def test_absent_sealed_authority_fails_closed(self):
         with self.assertRaisesRegex(CustodyBlocked,"EXPECTED_PREFIX_NOT_SUPPLIED"):
             audit(self.dbpath,SHA,"")
