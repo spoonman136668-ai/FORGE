@@ -99,11 +99,14 @@ jobs:
             else echo "$label=FAILED"; grep -Eo 'G(2[0-9]|3[0-9]|4[0-9])_[A-Z0-9_]+' "$RUNNER_TEMP/forge-graphify-g47-private-last.log" | sort -u | head -12 || true; exit 1; fi
           }
           mkdir -p "$RUNNER_TEMP/graphify-wheel" "$RUNNER_TEMP/g47-g30"
-          run_private G47_GRAPHIFY_PINNED_DOWNLOAD python -m pip download --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/graphify-wheel" graphifyy==0.9.92
+          run_private G47_GRAPHIFY_PINNED_DOWNLOAD python -m pip download --disable-pip-version-check --no-cache-dir --index-url https://pypi.org/simple --no-deps --only-binary=:all: --dest "$RUNNER_TEMP/graphify-wheel" graphifyy==0.9.92
           python - <<'PY'
           import hashlib,os,pathlib
           wheel=pathlib.Path(os.environ["RUNNER_TEMP"])/"graphify-wheel/graphifyy-0.9.92-py3-none-any.whl"
-          assert hashlib.sha256(wheel.read_bytes()).hexdigest()=="9722846e627a369150107dd792145c3e3d3da46f7a7bff9f96b75da857c", "GRAPHIFY_WHEEL_SHA256_MISMATCH"
+          found=hashlib.sha256(wheel.read_bytes()).hexdigest()
+          expected="9722846e627a369150107dd792145c3e3a53e3d3da46f7a7bff9f96b75da857c"
+          if found != expected:
+              raise SystemExit("GRAPHIFY_WHEEL_SHA256_MISMATCH actual="+found)
           print("G47_GRAPHIFY_DISTRIBUTION_SHA=PASS")
           PY
           run_private G47_GRAPHIFY_PINNED_INSTALL python -m pip install "$RUNNER_TEMP/graphify-wheel/graphifyy-0.9.92-py3-none-any.whl"
