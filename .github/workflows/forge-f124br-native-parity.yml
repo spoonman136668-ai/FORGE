@@ -1,0 +1,56 @@
+name: F124-BR native view source-neutral semantic equivalence
+on:
+  push:
+    branches: [research/f124br-native-memory-path-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124br-lower-allocation-native-parity-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  exact-unmodified-learning-and-native-outputs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact immutable frozen protocol, model, native scorer, and parser
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BR_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor c18445b2a87b2c9932421b4bc18bceb0fd21b294 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BR_BQ_EVIDENCE_PARENT_DRIFT' }
+          $expected=@(
+            '.github/workflows/forge-f124br-native-parity.yml',
+            'research/north-star-transfer/f124br-frozen-native-memory.json',
+            'research/north-star-transfer/f124br_native_view.py',
+            'research/north-star-transfer/test_f124br_native_parity.py'
+          )
+          $actual=@(& git diff --name-only c18445b2a87b2c9932421b4bc18bceb0fd21b294 HEAD | Where-Object { $_ })
+          if ((@($actual|Sort-Object) -join '|') -cne (@($expected|Sort-Object) -join '|')) { throw 'BR_UNQUALIFIED_NEW_SOURCE_OR_SCIENCE_EDIT' }
+          $frozen=@{
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124bq-frozen-program.json'='b22b7b7415bd9c48dfc2b061e3638ac13df77d29'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'nativeevidence/f124aj_example_operator_learner.py'='eddf99c06af66f2e46bf4dc0ea050368c283fcb2'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+          }
+          foreach ($p in $frozen.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $frozen[$p]) { throw "BR_FROZEN_LEARNER_OR_NATIVE_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124br_native_parity.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BR_NATIVE_SCORE_WORK_OR_INPUT_PARITY' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BR_ISOLATION_GUARD' }
+          Write-Output 'F124BR_NATIVE_GRAPH_SCORE_WORK_PARITY=PASS'
+          Write-Output 'F124BR_NEW_SCIENTIFIC_SOURCE_CONSUMED=0'
