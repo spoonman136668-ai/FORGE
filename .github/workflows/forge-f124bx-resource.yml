@@ -1,0 +1,95 @@
+name: F124-BX natural matched scoring and full process cost
+on:
+  push:
+    branches: [research/f124bx-learn-structural-flag-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bx-natural-native-once
+  cancel-in-progress: false
+jobs:
+  original-native-and-process-cost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source-bound exact frozen BQ AZ native and nonregistered tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bq_program_learner.py)" = 91ad02a4f3893e3537dddc2390666e3c2d2db5d1
+          test "$(git rev-parse HEAD:nativeevidence/f124az_joint_public_inverse.py)" = 0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124bx_fit_only.py -v
+          python3 -B isolationguard/check.py
+      - name: Genuine natural AZ and candidate native identity then 20 full process costs
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/bx-native"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124bx_natural_resource.py --preflight --out "$root/original-native.json"
+          python3 -B - "$root/original-native.json" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1]))
+          for case,x in o['cases'].items():
+              print('BX_CASE='+case)
+              print('BX_AZ_NATURAL_ROUTE='+x['AZ_original_natural_route'])
+              print('BX_EQUAL_NATIVE='+str(x['identical_normalized_native_inputs_and_full_outputs']))
+          assert o['all_cases_naturally_eligible']
+          assert o['all_cases_same_normalized_native_work']
+          PY
+          python3 -B research/north-star-transfer/f124bx_natural_resource.py --measure --eligibility "$root/original-native.json" --out "$root/original-cost.json"
+          python3 -B - "$root/original-cost.json" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1]))
+          assert o['fresh_process_samples']==20
+          for case,x in o['case_results'].items():
+              print('BX_COST_CASE='+case)
+              for arm in ('AZ','learned'):
+                  p=x[arm]
+                  print(arm+'_CPU_MEDIAN_NS='+str(p['CPU_median_ns']))
+                  print(arm+'_RSS_MEDIAN_BYTES='+str(p['peak_RSS_median_bytes']))
+                  print(arm+'_RSS_MAX_BYTES='+str(p['peak_RSS_max_bytes']))
+              print('BX_NONREGRESSION='+str(x['same_work_full_OS_resource_noregression']))
+          assert o['whole_process_cost_per_case_nonregression']
+          assert not o['real_scientific_generalization_accepted']
+          print('F124BX_MATCHED_RESOURCE_QUALIFIED=PASS')
+          PY
+          (cd "$root" && sha256sum original-*.json > original-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bx-original-native-cost-${{ github.sha }}
+          path: ${{ runner.temp }}/bx-native/
+          retention-days: 90
+          if-no-files-found: warn
+  one-regression-if-resource-admitted:
+    needs: original-native-and-process-cost
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BX_ONE_FULL_REGRESSION=PASS
+        shell: bash

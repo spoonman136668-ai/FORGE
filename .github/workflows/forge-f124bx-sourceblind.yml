@@ -1,0 +1,61 @@
+name: F124-BX public-FIT structural selection engineering qualification
+on:
+  push:
+    branches: [research/f124bx-learn-structural-flag-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bx-sourceblind-32bit-fit-only-no-firstuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-structural-candidate-linux-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen BQ, AZ and BV sources, exact new model boundary and source-neutral tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BX_UNQUALIFIED_HEAD' }
+          & git merge-base --is-ancestor 13db39dc03edc36245dc7e86fa96613421ef6fd7 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BX_FROZEN_PARENT_INVALID' }
+          & git merge-base --is-ancestor 1b2915514bde6fd4bd132a288f2262c10b4b2290 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BX_PROTOCOL_NOT_BORN_FIRST' }
+          $only=@(
+            '.github/workflows/forge-f124bx-sourceblind.yml',
+            'research/north-star-transfer/f124bx-frozen-structural-fit.json',
+            'research/north-star-transfer/f124bx_learned_flag.py',
+            'research/north-star-transfer/test_f124bx_fit_only.py',
+            'research/north-star-transfer/f124bx_nonregistered_native.py',
+            'research/north-star-transfer/f124bx_natural_resource.py',
+            '.github/workflows/forge-f124bx-resource.yml'
+          )
+          $changed=@(& git diff --name-only 13db39dc03edc36245dc7e86fa96613421ef6fd7 HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($only|Sort-Object) -join '|')) { throw 'BX_OUT_OF_BOUNDS_SCIENCE_EDIT' }
+          $expected=@{
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($p in $expected.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $expected[$p]) { throw "BX_FROZEN_SOURCE_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bx_fit_only.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BX_NOISY_FIT_MODE_LEARNING_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BX_ISOLATION_OR_AUTHORITY_CHANGED' }
+          Write-Output 'F124BX_32_BIT_STRUCTURAL_FIT_ONLY=PASS'
+          Write-Output 'F124BX_REAL_CPU_RSS_NONREGRESSION=NOT_MEASURED'
+          Write-Output 'F124BX_NEW_SCIENCE_CASES_CONSUMED=0'
