@@ -7,7 +7,8 @@ import unittest
 from unittest import mock
 import zipfile
 
-from local_controller import Database, F139Error, canonical, hash_bytes
+from local_controller import Database, F139Error, canonical, hash_bytes, run_once, D2J_FROZEN_ORIGINALS
+from test_local_controller import FakeGitHub, SHA as QUALIFIED_SHA, KEY as WORKER_KEY, NOW as WORKER_NOW
 import reconcile_original as repair
 import transition_original_source as transition
 
@@ -153,6 +154,79 @@ class OriginalQuarantineTests(unittest.TestCase):
         with self.assertRaisesRegex(F139Error, "OWNER_OR_IDENTITY"):
             self.db.transition_source(replacement)
         self.db.close()  # Explicitly release SQLite handles before Windows TempDirectory cleanup
+
+    def test_d2j_automatic_two_real_worker_succession_without_manual_intake(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        self.db.transition_source("2" * 40)
+        self.db.transition_source("3" * 40)
+        old_events = [tuple(row) for row in self.db.conn.execute(
+            "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")]
+        self.assertEqual(len(old_events), 13)
+        self.db.transition_source(QUALIFIED_SHA)
+        baseline = [tuple(row) for row in self.db.conn.execute(
+            "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")]
+        self.assertEqual(len(baseline), 14)
+        self.assertEqual(baseline[:13], old_events)
+        provider = FakeGitHub()
+        first = run_once(self.db, provider, self.dbpath, WORKER_KEY, now=WORKER_NOW)
+        self.assertEqual(first["disposition"], "DEVELOPMENT_DISPATCHED_ONCE")
+        self.assertEqual(len(provider.dispatches), 1)
+        self.assertTrue(first["ticket"].startswith("f139-d2j-wingless-"))
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='UNATTENDED_SUCCESSION_ADMITTED'"
+        ).fetchone()[0], 1)
+        self.assertEqual(self.db.status()["meta"]["starts"], 3)
+        self.assertEqual([tuple(row) for row in self.db.conn.execute(
+            "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq LIMIT 14")],
+                         baseline)
+        self.assertEqual(run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)[
+            "disposition"], "START_RISK_PENDING_NO_REDISPATCH")
+        self.assertEqual(len(provider.dispatches), 1)
+        self.db.close()
+        self.db = Database(self.dbpath)
+        provider.mode = "complete"
+        second = run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)
+        self.assertEqual(second["disposition"], "DEVELOPMENT_DISPATCHED_ONCE")
+        self.assertEqual(len(provider.dispatches), 2)
+        self.assertTrue(second["ticket"].startswith("f139-d2j-yggdrasil-"))
+        self.assertEqual(run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)[
+            "disposition"], "QUEUE_EMPTY_NO_SCIENCE")
+        for _ in range(3):
+            self.assertEqual(run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)[
+                "disposition"], "QUEUE_EMPTY_NO_SCIENCE")
+        self.assertEqual(len(provider.dispatches), 2)
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='UNATTENDED_SUCCESSION_ADMITTED'"
+        ).fetchone()[0], 1)
+        state = self.db.status()
+        self.assertEqual(len(state["tasks"]), 4)
+        self.assertTrue(all(t["stage"] == "VERIFIED" for t in state["tasks"]))
+        self.assertEqual({t["run_id"] for t in state["tasks"]
+                          if t["ticket"] in D2J_FROZEN_ORIGINALS},
+                         {39178196331, 39178299792})
+        self.assertTrue(all(t["source_sha"] == repair.SOURCE
+                            for t in state["tasks"]
+                            if t["ticket"] in D2J_FROZEN_ORIGINALS))
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+        ).fetchone()[0], 3)
+
+    def test_d2j_rejects_wrong_origins_and_no_self_enrollment(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        self.db.transition_source("2" * 40)
+        self.db.transition_source("3" * 40)
+        # A third source transition is necessary; just 13 events cannot enroll.
+        self.assertFalse(self.db.admit_d2j_succession())
+        self.assertEqual(self.db.meta()["head_seq"],13)
+        self.db.transition_source(QUALIFIED_SHA)
+        # Wrong authentic original record cannot be enrolled under the frozen plan.
+        self.db.conn.execute("UPDATE tasks SET quarantine_reason=? WHERE ticket=?",
+                             ("UNAUTHORIZED", KEYS[0]))
+        with self.assertRaisesRegex(F139Error,"D2J_ORIGINAL_CUSTODY_NOT_QUALIFIED"):
+            self.db.admit_d2j_succession()
+        self.assertEqual(self.db.meta()["head_seq"],14)
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM tasks").fetchone()[0],2)
 
     def test_transition_disallowed_for_quarantined_attempts(self):
         with self.assertRaisesRegex(F139Error, "UNVERIFIED_OR_PENDING"):
