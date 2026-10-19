@@ -1,0 +1,119 @@
+name: F124-CA independent original provider negative data custody
+on:
+  push:
+    branches: [research/f124ca-original-negative-custody-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ca-readonly-original-fifty-process-custody
+  cancel-in-progress: false
+jobs:
+  independently-authenticate-original-unreplayed-fifty:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify 50-process candidate/source itself not changed, only evidence added
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 049568439afca7cc6428f38cf9198a914509c9c5 HEAD
+          mapfile -t changed < <(git diff --name-only 049568439afca7cc6428f38cf9198a914509c9c5 HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/forge-f124ca-original-custody.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124ca-original-50-process-negative-evidence.json'
+          for file in research/north-star-transfer/f124bz_binding_candidate.py \
+                      research/north-star-transfer/f124ca_trained_symbol_control.py \
+                      research/north-star-transfer/f124ca_complete_os_cost.py \
+                      research/north-star-transfer/f124ca_nonregistered_binding.py; do
+            test "$(git rev-parse HEAD:"$file")" = "$(git rev-parse 049568439afca7cc6428f38cf9198a914509c9c5:"$file")"
+          done
+          echo F124CA_ORIGINAL_MODEL_SOURCE_NO_REEXECUTION=PASS
+      - name: Fetch original GitHub provider run and archive, independently verify raw evidence and all 50 samples
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124ca-original-custody"
+          mkdir -p "$root"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39231729346" > "$root/provider-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12178080365" > "$root/provider-artifact.json"
+          gh run download 39231729346 --repo "$GITHUB_REPOSITORY" \
+            --name f124ca-original-five-trained-arms-50-os-processes-049568439afca7cc6428f38cf9198a914509c9c5 \
+            --dir "$root"
+          (cd "$root" && sha256sum -c source-bound-original.sha256)
+          python3 -B - "$root" <<'PY'
+          import json,sys,pathlib,hashlib,statistics
+          folder=pathlib.Path(sys.argv[1])
+          run=json.loads((folder/'provider-run.json').read_text())
+          artifact=json.loads((folder/'provider-artifact.json').read_text())
+          receipt=json.loads(pathlib.Path('research/north-star-transfer/f124ca-original-50-process-negative-evidence.json').read_text())
+          raw=(folder/'full-50-native-original.json').read_bytes()
+          original=json.loads(raw)
+          assert run['head_sha']==receipt['original_provider']['exact_head']
+          assert run['id']==receipt['original_provider']['run']
+          assert run['status']=='completed' and run['conclusion']=='success'
+          assert artifact['id']==receipt['original_provider']['artifact']
+          assert artifact['expired'] is False
+          assert artifact['workflow_run']['id']==run['id']
+          assert artifact['digest']=='sha256:'+receipt['original_provider']['artifact_zip_sha256']
+          assert hashlib.sha256(raw).hexdigest()==receipt['original_provider']['original_raw_110120_byte_json_sha256']
+          assert len(original['preflight_raw_original_10'])==10
+          assert len(original['full_OS_process_original_50'])==50
+          assert original['all_source_neutral_equal_training_resource_eligible'] is False
+          assert original['newly_independent_original_sources_authenticated'] is False
+          assert original['reserved_development_FIT_firstuse'] is False
+          assert original['protected_cohorts_consumed'] is False
+          assert original['science_accepted'] is False
+          assert original['optimizer_promoted'] is False
+          for case in ('CA-ENG-01','CA-ENG-02'):
+              summary=original['cases'][case]
+              assert summary['actual_native_work_all_5_same'] is False
+              assert summary['actual_native_work_BZ_CA_same'] is True
+              for arm in ('AZ','BQ','BX','BZ','CA'):
+                  samples=[x for x in original['full_OS_process_original_50']
+                           if x['case']==case and x['arm']==arm]
+                  assert len(samples)==5
+                  saved=receipt['original_raw_samples'][case][arm]
+                  cpu=[s['complete_process_cpu_ns'] for s in samples]
+                  rss=[s['complete_OS_peak_RSS_bytes'] for s in samples]
+                  assert saved['cpu_ns']==cpu
+                  assert saved['peak_RSS_bytes']==rss
+                  assert saved['median_cpu_ns']==statistics.median(cpu)
+                  assert saved['median_peak_RSS_bytes']==statistics.median(rss)
+                  assert saved['max_peak_RSS_bytes']==max(rss)
+                  pre=next(x for x in original['preflight_raw_original_10']
+                           if x['case']==case and x['arm']==arm)
+                  observed=receipt['original_preflight'][case][arm]
+                  assert observed['route']==pre['natural_route']
+                  assert observed['native_calls']==pre['actual_native_calls']
+                  assert observed['positive']==pre['positive_accepted']
+                  assert observed['hard_false_positive']==pre['hard_false_positive']
+                  if arm in ('BZ','CA'):
+                      assert pre['original_native_input_hashes']==receipt['native_sha256'][case]['BZ_CA_native_input_sha256']
+                      assert pre['original_native_full_output_hashes']==receipt['native_sha256'][case]['BZ_CA_native_return_sha256']
+              print('F124CA_'+case+'_TRAINED_BZ_CA_TRUE_POSITIVE_NO_HARD_FP=PASS')
+              print('F124CA_'+case+'_OLDER_TRAINED_AZ_BQ_BX_ABSTENTION_PRESERVED=PASS')
+          assert receipt['cautions']['complete_scientific_resource_parity'] is False
+          assert receipt['cautions']['protected_holdout_used'] is False
+          print('F124CA_ORIGINAL_FIFTY_PROCESS_RECOUNT=PASS')
+          print('F124CA_SOURCE_BOUND_PROVIDER_CUSTODY=PASS')
+          print('F124CA_INDEPENDENT_TRANSFER_NOT_PROVED=true')
+          PY
+          (cd "$root" && sha256sum provider-run.json provider-artifact.json source-bound-original.sha256 > original-provider-authentication.sha256 && sha256sum -c original-provider-authentication.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124ca-independent-original-negative-custody-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ca-original-custody/
+          retention-days: 90
+          if-no-files-found: warn
