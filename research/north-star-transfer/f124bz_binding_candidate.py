@@ -121,7 +121,7 @@ def _learn_slot(rows,perm,gate,slot):
             transformed.append((x[perm[slot]],target))
             count+=1
         bias=min(range(16),key=lambda b:(-hist[b],b))
-        errors=sum((((gain*v+b)&15)^target).bit_count()
+        errors=sum((((gain*v+bias)&15)^target).bit_count()
                    for v,target in transformed)
         candidate=(errors,gain,bias)
         if best is None or errors<best[0]:
