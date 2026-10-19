@@ -79,8 +79,7 @@ func bootstrap(path string) error {
  if err:=os.MkdirAll(root,0700);err!=nil {return err}
  st,err:=os.Lstat(root)
  if err!=nil || !st.IsDir() || st.Mode()&os.ModeSymlink!=0 {return errors.New("FSA owner state directory invalid")}
- if _,err:=os.Lstat(path);err==nil {return errors.New("FSA owner identity already exists: refusing overwrite")}
- if !os.IsNotExist(err) {return err}
+ if _,probeErr:=os.Lstat(path);probeErr==nil {return errors.New("FSA owner identity already exists: refusing overwrite")} else if !os.IsNotExist(probeErr) {return probeErr}
  seed:=make([]byte,ed25519.SeedSize)
  if _,err:=rand.Read(seed);err!=nil {return err}
  defer func(){for i:=range seed {seed[i]=0}}()
