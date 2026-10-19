@@ -140,8 +140,9 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--public-file",required=True,type=Path)
     p.add_argument("--arm",required=True,choices=ARMS)
+    p.add_argument("--synthetic-engineering",action="store_true")
     args=p.parse_args()
     task=json.loads(args.public_file.read_text())
-    print(json.dumps(evaluate(task,args.arm),sort_keys=True))
+    print(json.dumps(evaluate(task,args.arm,synthetic=args.synthetic_engineering),sort_keys=True))
 
 if __name__=="__main__":main()
