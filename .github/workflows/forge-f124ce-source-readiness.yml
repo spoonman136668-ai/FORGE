@@ -1,0 +1,119 @@
+name: F124-CE independent CB/CC science prebirth read-only admission
+on:
+  push:
+    branches: [research/f124ce-independent-cb-cc-source-freeze-20261019]
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: f124ce-sourceonly-no-scientific-firstuse
+  cancel-in-progress: false
+jobs:
+  frozen-separate-CB-CC-science-original-identity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source-parent, pre-first-use freeze, unchanged native and trained controls, adversarial negative tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='e3e3c2d89b6423cf229a72084546f7c3d21f30d1'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CE_SOURCE_HEAD_CHANGED' }
+          & git merge-base --is-ancestor $root HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CE_MISSING_OLD_SCIENCE_CUSTODY' }
+          & git merge-base --is-ancestor 264f12cfcd1f37a401f8eb9fbe1689ee274f3afc HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CE_PREBIRTH_FROZEN_COMMIT_MISSING' }
+          $changed=@(& git diff --name-only $root HEAD | Where-Object { $_ })
+          $allowed=@(
+            '.github/workflows/forge-f124ce-source-readiness.yml',
+            'research/north-star-transfer/f124ce-frozen-CB-CC-independent-science.json',
+            'research/north-star-transfer/f124ce_source_readiness.py',
+            'research/north-star-transfer/test_f124ce_source_readiness.py'
+          )
+          if ((@($changed|Sort-Object) -join '|') -cne (@($allowed|Sort-Object) -join '|')) { throw 'CE_UNAUTHORIZED_SOURCE_MODEL_OR_PRIOR_EVIDENCE_CHANGE' }
+          $frozen=@{
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'research/north-star-transfer/f124bv_origin_admission.py'='c9cce188545dddcfc394e7881b6547ed8d49891a'
+            'research/north-star-transfer/f124cb_dual_link_learner.py'='8a10bf8cec12afc7d8703e3586d8eba91ebfdc7c'
+            'research/north-star-transfer/f124cc_trained_two_link_control.py'='29c0c02f54ea539bed0910fe82adcc86d3aff94d'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124bx_learned_flag.py'='74b907aba821678d5f8a59b06f85f5e87cb05002'
+            'research/north-star-transfer/f124bz_binding_candidate.py'='8f24a4aab3e880d7ba5f89a2af6ab210912d865c'
+            'research/north-star-transfer/f124ca_trained_symbol_control.py'='a5cc942d17e8410420fd4003e9a13ff3cd2e819e'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($path in $frozen.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $frozen[$path]) { throw "CE_PROTECTED_ORIGINAL_MODEL_DRIFT:$path" }
+          }
+          if ((& git rev-parse '264f12cfcd1f37a401f8eb9fbe1689ee274f3afc:research/north-star-transfer/f124ce-frozen-CB-CC-independent-science.json').Trim() -cne 'df770890b0131e259ce30012ae9c599ca15bbfab') { throw 'CE_PREBIRTH_ORIGINAL_PROTOCOL_BLOB_IDENTITY' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124ce_source_readiness.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CE_ORIGINAL_SOURCE_ADMISSION_DEFECT' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CE_PROTECTED_GOVERNANCE_VIOLATION' }
+          Write-Output 'F124CE_SEPARATE_CB_CC_SCIENCE_PROTOCOL_FROZEN=PASS'
+          Write-Output 'F124CE_EIGHTY_YEAR_EXPERIMENT_REUSE=FALSE'
+          Write-Output 'F124CE_ORIGINAL_BV_AND_FROZEN_CC_UNCHANGED=PASS'
+          Write-Output 'F124CE_SOURCE_OR_NATIVE_FIRSTUSE=0'
+  real-original-external-source-issue-readonly:
+    needs: frozen-separate-CB-CC-science-original-identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read ACTUAL original GitHub issue 605, no claims of signed provider custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124ce-CB-CC-readonly-source"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124ce_source_readiness.py --output "$root/original-issue-source-readiness.json"
+          python3 -B - "$root/original-issue-source-readiness.json" <<'PY'
+          import json,sys
+          v=json.load(open(sys.argv[1]))
+          assert v['schema']=='mass.f124ce.original-CB-CC-external-source-readiness.v1'
+          assert v['source_protocol_commit']=='264f12cfcd1f37a401f8eb9fbe1689ee274f3afc'
+          assert v['source_protocol_blob']=='df770890b0131e259ce30012ae9c599ca15bbfab'
+          assert v['status'].startswith('BLOCKED_')
+          assert not v['source_provider_signed_original_commits_verified']
+          assert not v['scientific_novelty_and_independent_authorship_proven']
+          assert not v['source_generator_or_oracle_executed']
+          assert v['new_CB_CC_development_cases_created']==0
+          assert v['new_CB_CC_protected_cases_created']==0
+          assert not v['original_BV_science_sources_touched']
+          assert not v['original_CB_CC_or_native_scoring_rerun']
+          assert not v['science_accepted']
+          assert not v['optimizer_or_production_promoted']
+          assert not v['merge_or_firstuse_authorized']
+          print('F124CE_REAL_EXTERNAL_ORIGINAL_REFERENCE_COUNT='+str(v['source_reference_count']))
+          print('F124CE_AUTHENTIC_READONLY_ORIGIN_RESULT='+v['status'])
+          print('F124CE_BV_RESERVED_CASES_NOT_REUSED=PASS')
+          print('F124CE_NO_PROTECTED_FIRSTUSE=PASS')
+          PY
+          (cd "$root" && sha256sum original-issue-source-readiness.json > original-provider-negative.sha256 && sha256sum -c original-provider-negative.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ce-original-issue-CB-CC-unborn-sources-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ce-CB-CC-readonly-source/
+          retention-days: 90
+          if-no-files-found: error
