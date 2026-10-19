@@ -1,0 +1,52 @@
+name: F124-CO source-only original prebirth qualification
+on:
+  push:
+    branches: [research/f124co-prospective-once-20261019]
+    paths:
+      - research/north-star-transfer/f124co_*
+      - research/north-star-transfer/test_f124co_prebirth.py
+      - research/north-star-transfer/f124co-original-admission.json
+      - .github/workflows/forge-f124co-prebirth-qualification.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124co-safe-prebirth-qualification
+  cancel-in-progress: false
+jobs:
+  engineering-no-science:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen parent preregistration and candidate immutable blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor c956013ff7d7adbab99e66f22a54593581b8a0bc HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CO_PRESOURCE_HYPOTHESIS_NOT_FROZEN' }
+          $c=Get-Content -Raw research/north-star-transfer/f124cn-frozen-prospective-plan.json | ConvertFrom-Json
+          $a=(& git rev-parse 'HEAD:research/north-star-transfer/f124cm_learned_online_state.py').Trim()
+          $b=(& git rev-parse 'HEAD:research/north-star-transfer/f124cm_trained_relational_control.py').Trim()
+          if ($a -cne $c.candidate.blob_sha -or $b -cne $c.trained_control.blob_sha) { throw 'CO_MODEL_IDENTITY_DRIFT' }
+          Write-Host 'F124CO_EXISTING_FROZEN_MODELS=PASS'
+      - name: Source-only static and synthetic actual-process qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124co_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CO_SOURCE_AND_ORIGINAL_IDENTITY_FAILURE' }
+          python -B research/north-star-transfer/test_f124cn_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CO_FROZEN_PUBLIC_EVALUATOR_FAILURE' }
+          python -B research/north-star-transfer/test_f124cn_resource_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CO_SYNTHETIC_OS_MEASUREMENT_FAILURE' }
+          Write-Host 'F124CO_PREBIRTH_ENGINEERING_ONLY=PASS'
