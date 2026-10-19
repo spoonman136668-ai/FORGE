@@ -27,7 +27,7 @@ func hex64(s string)bool{if len(s)!=64{return false};for _,c:=range s{if !(c>='0
 func Verify(s Signed,w Expected)error{
  r:=s.Receipt
  if len(w.WorkerPublicKey)!=ed25519.PublicKeySize||r.Schema!=Schema||
- (r.Lane!="Wingless"&&r.Lane!="Yggdrasil")||r.Lane!=w.Lane||
+ (r.Lane!="Wingless"&&r.Lane!="Yggdrasil"&&r.Lane!="MassResearch")||r.Lane!=w.Lane||
  r.ExperimentID!=w.ExperimentID||r.ExperimentID==""||
  r.FrozenSHA256!=w.FrozenSHA256||!hex64(r.FrozenSHA256)||
  r.IntentSHA256!=w.IntentSHA256||!hex64(r.IntentSHA256)||
