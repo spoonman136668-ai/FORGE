@@ -1,0 +1,100 @@
+name: F124-BG synthetic kernel boundary qualification
+on:
+  push:
+    branches: [research/f124bg-kernel-qualification-20261018]
+    paths:
+      - 'research/north-star-transfer/20261018-mass-learned-kernel.py'
+      - 'research/north-star-transfer/test_mass_kernel_bg.py'
+      - '.github/workflows/forge-f124bg-kernel-boundaries.yml'
+permissions:
+  contents: read
+concurrency:
+  group: f124bg-exact-head-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-source-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen source, bounded patch and synthetic test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BG_EXACT_HEAD_DRIFT' }
+          if ((& git rev-parse HEAD^).Trim() -cne '3e480de74aac83f36c922b88cc393549a231316d') { throw 'BG_PARENT_DRIFT' }
+          $expect = @{
+            'research/north-star-transfer/20261018-mass-learned-kernel.py' = 'bf81ed56cc0daa2c413ad7d9c698969f92befe3d'
+            'research/north-star-transfer/20261018-mass-research-precode.json' = '2359c97b14a34d28881895713235f7fe9cee8a73'
+            'nativeevidence/f124az_joint_public_inverse.py' = '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+          }
+          foreach ($path in $expect.Keys) {
+            $actual = (& git hash-object -- $path).Trim()
+            if ($actual -cne $expect[$path]) { throw "BG_FROZEN_SOURCE_DRIFT:$path" }
+          }
+          $paths = @(& git diff --name-only '3e480de74aac83f36c922b88cc393549a231316d' HEAD | Where-Object { $_ })
+          $wanted = @('.github/workflows/forge-f124bg-kernel-boundaries.yml',
+                      'research/north-star-transfer/test_mass_kernel_bg.py')
+          if ((@($paths | Sort-Object) -join '|') -cne (@($wanted | Sort-Object) -join '|')) {
+            throw 'BG_SCOPE_WIDENED'
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p 'test_mass_kernel_bg.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'BG_SYNTHETIC_TEST_FAILURE' }
+          & python -B research/north-star-transfer/20261018-mass-learned-kernel.py
+          if ($LASTEXITCODE -ne 0) { throw 'BG_ORIGINAL_SELFTEST_FAILURE' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BG_PROJECT_ISOLATION_FAILURE' }
+          Write-Output 'F124BG_FOCUSED_SYNTHETIC_ONLY=PASS'
+          Write-Output 'F124BG_PROTECTED_FIRST_USE=false'
+          Write-Output 'F124BG_OOD_TRANSFER_ACCEPTED=false'
+  final-integration:
+    needs: focused-source-boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete Go regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bg"
+          sha256sum research/north-star-transfer/20261018-mass-learned-kernel.py \
+            research/north-star-transfer/20261018-mass-research-precode.json \
+            research/north-star-transfer/test_mass_kernel_bg.py \
+            .github/workflows/forge-f124bg-kernel-boundaries.yml \
+            > "$RUNNER_TEMP/f124bg/source-sha256.txt"
+          printf 'SOURCE_COMMIT=%s\nSYNTHETIC_ONLY=true\nSCIENCE_ACCEPTED=false\nPROTECTED_FIRST_USE=false\nOPTIMIZER_PROMOTION=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bg/qualification.txt"
+          echo F124BG_FINAL_INTEGRATION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bg-engineering-not-science-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bg/
+          retention-days: 30
+          if-no-files-found: error
