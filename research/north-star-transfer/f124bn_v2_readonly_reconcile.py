@@ -112,9 +112,27 @@ def verify(folder):
           "AZ_process_RSS_median":statistics.median(
               r["AZ_OS_RSS"] for r in observed)}
         frozen_expected=frozen["new_source_families"][family]
-        for key,value in data.items():
-            need(frozen_expected[key]==value,
+        # The sealed summary uses editorial labels; the original receipt
+        # uses evaluator field labels. Map keys explicitly, never adjust
+        # values or reinterpret the observed scientific outcomes.
+        labels={
+            "AZ_positive_count":"baseline_original_AZ_positive",
+            "AZ_hard_FP_count":"baseline_original_AZ_hard_FP",
+            "learner_positive_count":"learned_positive",
+            "baseline_positive_lost_ids":"baseline_positive_lost_ids",
+            "correctly_classified_learned_pairs":"correctly_discriminated_pairs",
+            "learned_identifiable_cases":"learned_model_identifiable",
+            "learner_CPU_ns_median":"learner_CPU_ns_median",
+            "AZ_CPU_ns_median":"AZ_CPU_ns_median",
+            "learner_process_RSS_median":"learner_process_RSS_median",
+            "AZ_process_RSS_median":"AZ_process_RSS_median",
+        }
+        for key, sealed_key in labels.items():
+            need(frozen_expected[sealed_key]==data[key],
                  "FROZEN_ORIGINAL_NEGATIVE_RESULT_"+family+"_"+key)
+        need(frozen_expected["learned_hard_FP"]==
+             len(data["learner_FP_case_ids"]),
+             "FROZEN_ORIGINAL_FP_COUNT_"+family)
         group=summary["families"][family]
         need(group["learner_positive_count"]==data["learner_positive_count"]
              and group["AZ_positive_count"]==data["AZ_positive_count"]
