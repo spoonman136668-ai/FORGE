@@ -26,6 +26,22 @@ on:
         description: SHA256 HMAC of exact controller dispatch fields
         type: string
         required: true
+      issue_number:
+        description: Signed D2K issue number
+        type: string
+        required: false
+      issue_id:
+        description: Signed D2K issue id
+        type: string
+        required: false
+      body_sha256:
+        description: Signed D2K canonical body digest
+        type: string
+        required: false
+      target_package:
+        description: Signed allowlisted Go package
+        type: string
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -49,6 +65,10 @@ jobs:
       F139_EPOCH: ${{ inputs.epoch }}
       F139_SIGNATURE: ${{ inputs.signature }}
       F139_RUNNER_OS: ${{ matrix.os }}
+      F139_ISSUE_NUMBER: ${{ inputs.issue_number }}
+      F139_ISSUE_ID: ${{ inputs.issue_id }}
+      F139_BODY_SHA256: ${{ inputs.body_sha256 }}
+      F139_TARGET_PACKAGE: ${{ inputs.target_package }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,6 +87,7 @@ jobs:
           python -B -c 'import os; from f139.verify_ticket import admit,inputs_from_env; admit(inputs_from_env()); print("F139_CONTROLLER_TICKET=VERIFIED")'
           if ($LASTEXITCODE -ne 0) { throw 'F139_UNQUALIFIED_WORKER_REQUEST' }
       - name: Execute bounded model-free development advisory only
+        if: ${{ !startsWith(inputs.ticket, 'f139-d2k-') }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -79,6 +100,20 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'F139_DEVELOPMENT_RECEIPT_REJECTED' }
           Write-Host 'F139_AUTONOMOUS_DEV_EXECUTION_POINT=PASS'
           Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - name: Execute bounded authenticated D2K package diagnostic
+        if: ${{ startsWith(inputs.ticket, 'f139-d2k-') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $folder = Join-Path $env:RUNNER_TEMP 'f139-development'
+          New-Item -ItemType Directory -Path $folder -Force | Out-Null
+          $diagnostic = Join-Path $folder 'f139-diagnostic.json'
+          python -B -m f139.issue_diagnostic --output $diagnostic
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_DIAGNOSTIC_FAILED_CLOSED' }
+          python -B -m f139.verify_ticket --diagnostic $diagnostic --output-dir $folder
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_RECEIPT_FAILED_CLOSED' }
+          Write-Host 'F139_D2K_SOURCE_BOUND_DIAGNOSTIC=PASS'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -86,5 +121,6 @@ jobs:
           path: |
             ${{ runner.temp }}/f139-development/f139-receipt.json
             ${{ runner.temp }}/f139-development/f139-receipt.sha256
+            ${{ runner.temp }}/f139-development/f139-diagnostic.json
           if-no-files-found: error
           retention-days: 90
