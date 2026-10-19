@@ -74,7 +74,7 @@ class TwoPointUniversalStructuralBound(unittest.TestCase):
     def test_one_structural_flag_constructively_expresses_three_shear_swap(self):
         m=proof.frozen_model()
         old=(1,0,1,0,1,1)
-        self.assertNotEqual(m.forward(0x3500)&255,m.forward(0x3501)&255)
+        self.assertNotEqual(m.forward(0x3500,old)&255,m.forward(0x3501,old)&255)
         for x in range(65536):
             self.assertEqual(
                 proof.optional_third_xor_shear(x,m,old,1),
