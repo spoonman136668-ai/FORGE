@@ -169,9 +169,12 @@ def reconcile(db_path: Path, *, apply=False, api=None):
                         [v["run_id"] for v in ORIGINALS.values()], "dispatches": 0}
             finally:
                 db.close()
-        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as conn:
-            conn.execute("PRAGMA query_only=ON")
-            tasks, head = original_state(conn)
+        connection = sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True)
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            tasks, head = original_state(connection)
+        finally:
+            connection.close()
         archives = provider_evidence(api, tasks)
         return {"disposition": "F139D2E_PROVIDER_AND_DB_DRY_RUN_PASS",
                 "original_event_head_sha256": head,
