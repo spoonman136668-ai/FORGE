@@ -110,16 +110,56 @@ func TestSignedFamilySnapshotMustMatchIndependentGlobalLedgerPin(t *testing.T){
  }
 }
 
+// This is the EXACT v1 signer payload. A v2 FamilySnapshot with a v1 domain
+// would not be a valid historical signature and cannot test downgrade safety.
+type legacyFamilyV1 struct{
+ Schema string `json:"schema"`
+ ArchiveID string `json:"archive_id"`
+ CustodyEpoch uint64 `json:"custody_epoch"`
+ Sequence uint64 `json:"sequence"`
+ HeadSHA256 string `json:"head_sha256"`
+ LedgerGeneration uint64 `json:"ledger_generation"`
+ CompleteAllLanes bool `json:"complete_all_lanes"`
+ FrozenSelectionSHA256 string `json:"frozen_selection_sha256"`
+ SourceBirthSHA256 string `json:"source_birth_sha256"`
+ FrozenSequence uint64 `json:"frozen_sequence"`
+ BirthSequence uint64 `json:"birth_sequence"`
+ ActiveFamilySHA256 []string `json:"active_family_sha256"`
+ ConsumedFamilySHA256 []string `json:"consumed_family_sha256"`
+}
+
 func TestLegacyFamilySignatureCannotDowngradeLedgerBinding(t *testing.T){
  s,b,f,p,e,a:=fixture(t)
  pub,priv,err:=ed25519.GenerateKey(rand.Reader)
  if err!=nil{t.Fatal(err)}
  p.FamilyLedgerSigner=pub
- f.Snapshot.Schema="forge.science.complete-family-ledger.v1"
- message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\n",f.Snapshot)
+ legacy:=legacyFamilyV1{
+  Schema:"forge.science.complete-family-ledger.v1",
+  ArchiveID:f.Snapshot.ArchiveID,CustodyEpoch:f.Snapshot.CustodyEpoch,
+  Sequence:f.Snapshot.Sequence,HeadSHA256:f.Snapshot.HeadSHA256,
+  LedgerGeneration:f.Snapshot.LedgerGeneration,
+  CompleteAllLanes:f.Snapshot.CompleteAllLanes,
+  FrozenSelectionSHA256:f.Snapshot.FrozenSelectionSHA256,
+  SourceBirthSHA256:f.Snapshot.SourceBirthSHA256,
+  FrozenSequence:f.Snapshot.FrozenSequence,
+  BirthSequence:f.Snapshot.BirthSequence,
+  ActiveFamilySHA256:f.Snapshot.ActiveFamilySHA256,
+  ConsumedFamilySHA256:f.Snapshot.ConsumedFamilySHA256,
+ }
+ message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\\n",legacy)
  if err!=nil{t.Fatal(err)}
+ // This fixture must be a genuine, internally verified v1 signature, not
+ // an invalid signature accidentally accepted as a sufficient negative test.
+ if !strings.HasPrefix(string(message),"FORGE-SCIENCE-FAMILY-LEDGER-V1\\n")||
+  strings.Contains(string(message),"ledger_snapshot_sha256"){
+  t.Fatal("legacy signed payload is not the authentic v1 envelope")
+ }
  f.SignatureHex=hex.EncodeToString(ed25519.Sign(priv,message))
+ if !ed25519.Verify(pub,message,ed25519.Sign(priv,message)){
+  t.Fatal("legacy v1 signer fixture failed independent signature verification")
+ }
+ f.Snapshot.Schema=legacy.Schema
  if _,err:=verifySelected(s,b,f,p,e,a,3,h("d"));err==nil{
-  t.Fatal("old family schema accepted after cryptographic contract change")
+  t.Fatal("authentic signed v1 family envelope accepted by v2 ledger-bound verifier")
  }
 }
