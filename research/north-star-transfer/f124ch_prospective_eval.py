@@ -218,7 +218,7 @@ def one(case,arm,capture):
 def measure_process(case,arm,capture=False):
     import resource
     args=[sys.executable,"-B",str(Path(__file__).resolve()),
-          "--child","--case",case,"--arm",arm]
+          "--child","--case",str(case),"--arm",arm]
     if capture:args.append("--capture")
     env=dict(os.environ)
     if arm in ("BZ","CA","BX","CB","CC"):
@@ -235,7 +235,7 @@ def measure_process(case,arm,capture=False):
         child.returncode=os.waitstatus_to_exitcode(status)
         stdout.seek(0);stderr.seek(0)
         text=stdout.read();err=stderr.read()
-        need(child.returncode==0,"REAL_PROCESS_"+case+"_"+arm+":"+err[-2200:])
+        need(child.returncode==0,"REAL_PROCESS_"+str(case)+"_"+arm+":"+err[-2200:])
     obj=json.loads(text)
     need(obj["case"]==case and obj["arm"]==arm
          and not obj["old_BV_CE_original_source_reused"]
@@ -256,7 +256,7 @@ def measure_process(case,arm,capture=False):
             "schema":"mass.f124ch.original-append-only-process-receipt.v1",
             "is_original_native_preflight":bool(capture),
             "original_complete_process_measurement":obj
-        },sort_keys=True)+"\\n")
+        },sort_keys=True)+"\n")
         handle.flush()
         os.fsync(handle.fileno())
     return obj
