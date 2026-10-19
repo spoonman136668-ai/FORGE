@@ -1,0 +1,57 @@
+name: T13 mass causal sufficiency source-only qualification
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t13-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: northstar-t13-mass-single-frozen-source
+  cancel-in-progress: false
+jobs:
+  focused-source-identity-and-causal-research:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact preimplementation freeze and baseline source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T13_GIT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t13-freeze.json').Trim() -cne '2a1672a98a7d5d1283f92f83cfc8398e3632a63e'){throw 'T13_PREREG_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t13-freeze.json').Trim() -cne '741d7832c4fede2fa1f9f81065ac55e5a1c46456'){throw 'T13_FREEZE_NOT_FIRST'}
+          git merge-base --is-ancestor 741d7832c4fede2fa1f9f81065ac55e5a1c46456 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T13_PRECODE_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t13-mechanism.py').Trim() -cne '6cab5186a36fc4835819f4a8e922d91e54d4e93f'){throw 'T13_SOURCE_CODE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t12-mechanism.py').Trim() -cne '5268dc077dfa394039ecbb5b4b54ec400f3a7f47'){throw 'T13_T12_FROZEN_CONTROL_DRIFT'}
+          Write-Output 'T13_MASS_SOURCE_IDENTITY_AND_FIRST_FREEZE=PASS'
+      - name: Run new source-only causal mechanism and resource comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261019-mass-t13-mechanism.py' | Tee-Object 't13-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T13_MASS_SOURCE_OR_MECHANISM_FAILED'}
+          $d=Get-Content 't13-mass-original.json' -Raw | ConvertFrom-Json
+          if($d.'private_or_consumed_original_sources_born' -ne $false -and $d.'private_or_consumed_original_sources_born' -ne 0){throw 'T13_PROTECTED_SOURCE_OR_REPLAY'}
+          if($d.'scientific_transfer_accepted' -ne $false){throw 'T13_SCIENCE_PROMOTION_UNAUTHORIZED'}
+          Write-Output 'T13_MASS_NONPROTECTED_ENGINEERING=PASS'
+          Write-Output 'T13_MASS_INDEPENDENT_SCIENCE_ADMISSION=false'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t13-mass-source-original-${{ matrix.os }}-${{ github.sha }}
+          path: t13-mass-original.json
+          retention-days: 90
+          if-no-files-found: warn
