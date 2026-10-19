@@ -10,6 +10,11 @@ import (
 
 func calibrationFixture()(Frozen,string,SignedProspective,ExternalCalibrationPin) {
     f:=fixture()
+    // A different frozen proposal discriminates via exposed limitations;
+    // negative/limitation outcomes both carry valid prospective information.
+    f.Candidates[1].OutcomeGivenHypothesis = [][4]uint16{
+        {0,0,10000,0},{0,0,0,10000},
+    }
     frozen:=Digest(f)
     rows:=[]ProspectiveRecord{
         {
