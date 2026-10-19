@@ -446,6 +446,20 @@ class Database:
         meta = self.meta()
         require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1,
                 "D2K_OWNER_NOT_ACTIVE")
+        # This source extension may run only after the original D2C and
+        # successful D2J local four-receipt custody, never on an empty DB.
+        verified = {
+            row["ticket"]:row for row in self.conn.execute(
+                "SELECT ticket,stage,run_id,evidence_sha FROM tasks")
+        }
+        require(meta["head_seq"] >= 23
+                and len(verified) >= 4
+                and all(t["stage"]=="VERIFIED" and t["run_id"] is not None
+                        and t["evidence_sha"] is not None
+                        for t in verified.values())
+                and sum(name.startswith("f139-d2j-") for name in verified) == 2
+                and sum(name.startswith("f139-d2c-") for name in verified) == 2,
+                "D2K_AUTHENTIC_SUCCESSSION_REQUIRED")
         require(isinstance(issue, dict) and set(issue) == {
                     "ticket", "issue_number", "issue_id", "source_sha",
                     "lane", "kind", "body_sha256"
