@@ -96,7 +96,18 @@ def evaluate(task,arm,synthetic=False):
     need(arm in ARMS,"REGISTERED_ARM_ONLY")
     if arm=="CANDIDATE":
         mod=load("f124cm_learned_online_state.py","CM_frozen_candidate")
-        model,training=mod.fit(task["FIT"],task["CHECK"])
+        try:
+            model,training=mod.fit(task["FIT"],task["CHECK"])
+        except ValueError as exc:
+            # A novel transition outside the frozen GF(2) family is a
+            # natural scientific abstention, never a reason to re-label or
+            # rerun its already-born first-use packet.
+            if str(exc)!="F124CM_INCONSISTENT_FIT":
+                raise
+            model=None
+            training={"natural_FIT_inconsistent_abstention":True,
+                      "fit_only":True,"frozen_candidate_unchanged":True,
+                      "CHECK_used_to_fit":False}
         step,state_type=mod.predict,mod.OnlineState
     elif arm=="TRAINED_CONTROL":
         mod=load("f124cm_trained_relational_control.py","CM_independent_control")
