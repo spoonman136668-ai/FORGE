@@ -18,6 +18,8 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.root=Path(self.temp.name)
         self.dbpath=self.root/"state.sqlite"
         db=Database.initialize(self.dbpath,SHA)
+        # Synthetic activated snapshot: no native scheduler or controller is started.
+        db.conn.execute("UPDATE meta SET enabled=1,legacy_suspended=1 WHERE id=1")
         items=[
             ("f139-d2c-qualification-659bb1f4d751","Qualification"),
             ("f139-d2c-wingless-659bb1f4d751","Wingless"),
