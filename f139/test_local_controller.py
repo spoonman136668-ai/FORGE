@@ -240,7 +240,8 @@ class D2KCatalogTests(unittest.TestCase):
         first=self.issue()
         items=self.provider([first]).d2k_eligible_issues(SHA)
         self.assertEqual(len(items),1)
-        self.assertEqual(items[0]["ticket"],"f139-d2k-i1401-"+SHA[:12])
+        self.assertTrue(items[0]["ticket"].startswith("f139-d2k-i1401-"+SHA[:12]+"-"))
+        self.assertTrue(items[0]["ticket"].endswith(items[0]["body_sha256"][:8]))
         self.assertEqual(items[0]["lane"],"Qualification")
         self.assertEqual(items[0]["source_sha"],SHA)
         for variant in (
