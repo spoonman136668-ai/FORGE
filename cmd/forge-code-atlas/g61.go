@@ -17,7 +17,7 @@ import (
 )
 const (
  g61Base = "c6f5823ee48c1df81d6d197b7cff3090b392c4cb"
- g61Target = "30a29c80326cc7e39470c90e63af72dc1b9811b5"
+ g61Target = "07b585dde1e9ea88bf4d768b46412ee77673b140"
  g61BaselineBlob = "0030963a413ff9905138fc9bb25d169199658166"
 )
 type g61Stats struct {
@@ -153,7 +153,7 @@ func g61Build(root string)(Atlas,g61Stats,error){
   }
   if filepath.Ext(p)==".go"{a.Counts.GoFiles++}
  }
- if stats.Reused!=747||stats.Modified!=16||stats.Added!=18||stats.CSharp!=1||len(stats.DeltaPaths)!=34{
+ if stats.Reused!=747||stats.Modified!=16||stats.Added!=20||stats.CSharp!=1||len(stats.DeltaPaths)!=36{
   return empty,stats,fmt.Errorf("G61_SCOPE_DRIFT reused=%d modified=%d added=%d cs=%d",
    stats.Reused,stats.Modified,stats.Added,stats.CSharp)
  }
@@ -163,7 +163,7 @@ func g61Build(root string)(Atlas,g61Stats,error){
   return x.ID<y.ID
  })
  a.Counts.Files=len(a.Files);a.Counts.Symbols=len(a.Symbols)
- if a.Counts.Files!=781{return empty,stats,errors.New("G61_BAD_UNION_COUNT")}
+ if a.Counts.Files!=783{return empty,stats,errors.New("G61_BAD_UNION_COUNT")}
  return a,stats,nil
 }
 func g61Run(root,out string)error{

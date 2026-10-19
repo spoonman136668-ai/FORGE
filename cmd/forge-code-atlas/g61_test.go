@@ -47,7 +47,7 @@ func TestG61PinnedSourceAndCoverage(t *testing.T) {
   t.Fatalf("G61 frozen source unavailable in complete history: %v",e)
  }
  a,s,e:=g61Build(root);if e!=nil{t.Fatal(e)}
- if s.Reused!=747||s.Modified!=16||s.Added!=18||s.CSharp!=1||a.Counts.Files!=781 {t.Fatalf("scope drift %+v %+v",s,a.Counts)}
+ if s.Reused!=747||s.Modified!=16||s.Added!=20||s.CSharp!=1||a.Counts.Files!=783 {t.Fatalf("scope drift %+v %+v",s,a.Counts)}
  found:=false
  for _,v:=range a.Symbols {
   if v.File=="scripts/F139WindowsJobSupervisor.cs"&&v.Name=="F139WindowsJobSupervisor" {
