@@ -1,0 +1,58 @@
+name: T16F independently pinned readback structure no firstuse
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t16f-remote-firstuse-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t16f-sourcebirth-remote-readback-focused
+  cancel-in-progress: false
+jobs:
+  sourcebirth-readback-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact source and frozen prior signed-contract identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T16F_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16f-remote-readback-preimplementation-freeze.json').Trim() -cne '0973de1f848891684deb315deab65f9487a6962b'){throw 'T16F_FREEZE_DRIFT'}
+          if((git hash-object 'sourcebirth/external_readback.go').Trim() -cne '2560af90f813bae03972ea1fbdf60aeada226257'){throw 'T16F_REMOTE_READBACK_CODE_DRIFT'}
+          if((git hash-object 'sourcebirth/external_readback_test.go').Trim() -cne 'be8040a4d2afde546ad1f221b1ef409b6bb8427b'){throw 'T16F_TEST_DRIFT'}
+          if((git hash-object 'sourcebirth/verify.go').Trim() -cne '2ea04d5ff4e81b2dc153dac8b18cd883c3a395c1'){throw 'T16F_SOURCEBIRTH_ORIGINAL_CHANGED'}
+          if((git hash-object 'sourcebirth/mass_t16c_test.go').Trim() -cne 'e9fa2d46fb88748e91a067bacbaa470cbeab682d'){throw 'T16F_MASS_CUSTODY_FOCUSED_CHANGED'}
+          git merge-base --is-ancestor 902ce7993db301f1aba6edc6f8029dd4cb066a87 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T16F_PREREG_NOT_BEFORE_CODE'}
+          Write-Output 'T16F_FROZEN_SOURCE_AND_PREIMPLEMENTATION=PASS'
+      - name: Existing native and new sourcebirth readback tests; no originals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 -timeout 8m ./sourcebirth ./originalclaim ./workerreconcile ./evidencegate
+          if($LASTEXITCODE -ne 0){throw 'T16F_FOCUSED_GO_TEST_FAILURE'}
+          go vet ./sourcebirth ./originalclaim ./workerreconcile ./evidencegate
+          if($LASTEXITCODE -ne 0){throw 'T16F_FOCUSED_GO_VET_FAILURE'}
+          go build ./sourcebirth ./originalclaim ./workerreconcile ./evidencegate
+          if($LASTEXITCODE -ne 0){throw 'T16F_FOCUSED_GO_BUILD_FAILURE'}
+          Write-Output 'T16F_FOCUSED_NATIVE_SOURCE_VERIFY=PASS'
+          Write-Output 'T16F_PHYSICAL_DEPLOYMENT_ATTESTED=FALSE'
+          Write-Output 'T16F_ORIGINAL_FIRSTUSE_AUTHORIZED=FALSE'
+          Write-Output 'T16F_T16_ORIGINAL_COHORTS_CONSUMED=ZERO'
