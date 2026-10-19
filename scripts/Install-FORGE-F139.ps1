@@ -24,6 +24,8 @@ if (-not $PythonExe -or !(Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
 }
 $runner = Join-Path $PSScriptRoot 'Run-FORGE-F139.ps1'
 if (!(Test-Path -LiteralPath $runner -PathType Leaf)) { throw 'F139_RUNNER_MISSING' }
+$jobSource = Join-Path $PSScriptRoot 'F139WindowsJobSupervisor.cs'
+if (!(Test-Path -LiteralPath $jobSource -PathType Leaf)) { throw 'F139_WINDOWS_JOB_SOURCE_MISSING' }
 $db = Join-Path $StateDirectory 'state.sqlite'
 $key = Join-Path $StateDirectory 'worker-hmac.dpapi.xml'
 $ps = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source

@@ -25,22 +25,27 @@ try {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
   if ($env:F139_WORKER_HMAC_KEY.Length -lt 32) { throw 'F139_SECRET_TOO_SHORT' }
   Set-Location -LiteralPath $RepositoryRoot
-  # Windows PowerShell 5.1 wraps a native process's stderr as a non-terminating
-  # NativeCommandError. In strict Stop mode a deliberately disabled controller
-  # would kill this launcher before the expected safety marker was logged.
-  # Relax ONLY native stderr promotion, not logging or child exit checks.
-  $previousPreference = $ErrorActionPreference
+  # Native Windows job control ensures Python is terminated if Task Scheduler
+  # terminates this PowerShell host. Suspend -> assign -> resume closes the
+  # orphan creation race, with CREATE_NO_WINDOW for its Python process.
+  $jobSource = Join-Path $PSScriptRoot 'F139WindowsJobSupervisor.cs'
+  if (!(Test-Path -LiteralPath $jobSource -PathType Leaf)) { throw 'F139_WINDOWS_JOB_SOURCE_MISSING' }
+  Add-Type -Path $jobSource -ErrorAction Stop
+  Add-Content -LiteralPath $log -Value ("$(Get-Date -Format o) F139_PROCESS_LIFETIME=KILL_ON_JOB_CLOSE") -Encoding UTF8
   try {
-    $ErrorActionPreference = 'Continue'
-    # Append each native output record independently. A continuously open Out-File
-    # pipe can lock the log against the host acceptance observer on Windows.
-    & $PythonExe -B -m f139.local_controller --db $Database loop --seconds $PollSeconds 2>&1 |
-      ForEach-Object -ErrorAction Stop {
-        Add-Content -LiteralPath $log -Value ("$(Get-Date -Format o) " + [string]$_) -Encoding UTF8 -ErrorAction Stop
-      }
-    $pythonExit = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousPreference
+    $pythonExit = [F139WindowsJobSupervisor]::Run(
+      $PythonExe, $RepositoryRoot, $Database, $PollSeconds, $log
+    )
+  } catch {
+    $failure = $_.Exception
+    # Diagnostic metadata only; never print the inherited HMAC secret.
+    $errorType = $failure.GetType().FullName
+    $message = $failure.Message
+    if ($env:F139_WORKER_HMAC_KEY) {
+      $message = $message.Replace($env:F139_WORKER_HMAC_KEY, '[REDACTED]')
+    }
+    Add-Content -LiteralPath $log -Value ("$(Get-Date -Format o) F139_JOB_SUPERVISOR_BLOCKED=$errorType $message") -Encoding UTF8
+    throw
   }
   if ($pythonExit -ne 0) { throw 'F139_CONTROLLER_EXITED' }
 } finally {
