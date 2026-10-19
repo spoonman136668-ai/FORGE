@@ -71,7 +71,7 @@ class OriginalQuarantineTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.dbpath = Path(self.tmp.name) / "state.sqlite"
         self.db = Database.initialize(self.dbpath, repair.SOURCE)
-        self.addCleanup(self.db.close)
+        self.addCleanup(lambda: self.db.close())
         original = {
             KEYS[0]: {"lane": "Qualification", "run_id": 39178196331},
             KEYS[1]: {"lane": "Wingless", "run_id": 39178299792},
