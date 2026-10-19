@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func hex(n int, c string) string { return strings.Repeat(c,n) }
+func repHex(n int, c string) string { return strings.Repeat(c,n) }
 
 func informative() [][4]uint16 {
 	return [][4]uint16{{10000,0,0,0},{0,10000,0,0}}
@@ -16,24 +16,24 @@ func uninformative() [][4]uint16 {
 }
 func fixture() Frozen {
 	f:=Frozen{
-		Schema:FrozenSchema,Lane:"Wingless",SourceSHA:hex(40,"f"),Epoch:1,
+		Schema:FrozenSchema,Lane:"Wingless",SourceSHA:repHex(40,"f"),Epoch:1,
 		Weights:Weights{InformationBP:7000,TransferBP:2000,LimitationBP:1000},
 		ComputeBudget:200, MinInformationMicrobits:10000, MaxSelected:3,MaxPerFamily:2,
 		Hypotheses:[]Hypothesis{
-			{IdentitySHA256:hex(64,"1"),PriorBP:5000},
-			{IdentitySHA256:hex(64,"2"),PriorBP:5000},
+			{IdentitySHA256:repHex(64,"1"),PriorBP:5000},
+			{IdentitySHA256:repHex(64,"2"),PriorBP:5000},
 		},
 		Candidates:[]Candidate{
-			{ID:"learned-causal-fast",MechanismSHA256:hex(64,"a"),
-				SourceSHA:hex(40,"a"),Family:"causal-representation",
+			{ID:"learned-causal-fast",MechanismSHA256:repHex(64,"a"),
+				SourceSHA:repHex(40,"a"),Family:"causal-representation",
 				Generator:"dream_rsi",OutcomeGivenHypothesis:informative(),
 				ExpectedTransferBP:5000,ExpectedTransferGainBP:5000,ComputeUnits:10},
-			{ID:"learned-causal-slow",MechanismSHA256:hex(64,"b"),
-				SourceSHA:hex(40,"b"),Family:"causal-representation",
+			{ID:"learned-causal-slow",MechanismSHA256:repHex(64,"b"),
+				SourceSHA:repHex(40,"b"),Family:"causal-representation",
 				Generator:"shinka_pareto",OutcomeGivenHypothesis:informative(),
 				ExpectedTransferBP:5000,ExpectedTransferGainBP:5000,ComputeUnits:100},
-			{ID:"uninformative-quick-win",MechanismSHA256:hex(64,"c"),
-				SourceSHA:hex(40,"c"),Family:"benchmark-rate",
+			{ID:"uninformative-quick-win",MechanismSHA256:repHex(64,"c"),
+				SourceSHA:repHex(40,"c"),Family:"benchmark-rate",
 				Generator:"frozen_control",OutcomeGivenHypothesis:uninformative(),
 				ExpectedTransferBP:10000,ExpectedTransferGainBP:10000,ComputeUnits:1},
 		},
@@ -67,15 +67,15 @@ func TestInformationPerComputeBeatsCheapUninformativeThroughput(t *testing.T){
 func TestHistoricalNegativeAndConsumedSourceRetainedNeverRedispatched(t *testing.T){
 	f:=fixture()
 	f.Candidates=append(f.Candidates, Candidate{
-		ID:"known-negative", MechanismSHA256:hex(64,"d"),SourceSHA:hex(40,"d"),
+		ID:"known-negative", MechanismSHA256:repHex(64,"d"),SourceSHA:repHex(40,"d"),
 		Family:"memory",Generator:"theta_evolve",
 		OutcomeGivenHypothesis:informative(),ComputeUnits:1,
 	})
 	f.History=[]HistoryRecord{
-		{MechanismSHA256:hex(64,"d"),SourceSHA:hex(40,"4"),
-			EvidenceSHA256:hex(64,"8"),Classification:"NEGATIVE"},
-		{MechanismSHA256:hex(64,"e"),SourceSHA:hex(40,"5"),
-			EvidenceSHA256:hex(64,"9"),Classification:"CONSUMED_INDETERMINATE"},
+		{MechanismSHA256:repHex(64,"d"),SourceSHA:repHex(40,"4"),
+			EvidenceSHA256:repHex(64,"8"),Classification:"NEGATIVE"},
+		{MechanismSHA256:repHex(64,"e"),SourceSHA:repHex(40,"5"),
+			EvidenceSHA256:repHex(64,"9"),Classification:"CONSUMED_INDETERMINATE"},
 	}
 	f.HistorySHA256=HistoryDigest(f.History)
 	got,err:=Recommend(f,Digest(f))
@@ -96,7 +96,7 @@ func TestFrozenSourceAndPreOutcomeIdentityTamperingDenied(t *testing.T){
 	f.Candidates[0].ComputeUnits++
 	if _,err:=Recommend(f,pin);err!=ErrFrozen{t.Fatalf("unfrozen compute changed: %v",err)}
 	f=fixture()
-	f.HistorySHA256=hex(64,"0")
+	f.HistorySHA256=repHex(64,"0")
 	if _,err:=Recommend(f,Digest(f));err!=ErrFrozen{t.Fatalf("hidden archive tampering accepted: %v",err)}
 	f=fixture()
 	f.Hypotheses[0].PriorBP=9000
@@ -126,8 +126,8 @@ func TestAllExistingOptimizersAreAdvisoryAndLanesIsolated(t *testing.T){
 		}{
 			c:=Candidate{
 				ID:"candidate-"+generator,
-				MechanismSHA256:hex(64,string(rune('a'+i))),
-				SourceSHA:hex(40,string(rune('a'+i))),
+				MechanismSHA256:repHex(64,string(rune('a'+i))),
+				SourceSHA:repHex(40,string(rune('a'+i))),
 				Family:"mechanism-"+generator,Generator:generator,
 				OutcomeGivenHypothesis:informative(),ComputeUnits:int64(1+i),
 			}
@@ -167,8 +167,8 @@ func TestBudgetDiversityAndDeterministicSelection(t *testing.T){
 func TestLimitationEvidenceCanBeInformativeWithoutSuccess(t *testing.T){
 	f:=fixture()
 	f.Candidates=[]Candidate{{
-		ID:"limitation-finder",MechanismSHA256:hex(64,"d"),
-		SourceSHA:hex(40,"d"),Family:"limits",Generator:"dgm_genenv",
+		ID:"limitation-finder",MechanismSHA256:repHex(64,"d"),
+		SourceSHA:repHex(40,"d"),Family:"limits",Generator:"dgm_genenv",
 		OutcomeGivenHypothesis:[][4]uint16{
 			{0,0,10000,0},
 			{0,0,0,10000},
