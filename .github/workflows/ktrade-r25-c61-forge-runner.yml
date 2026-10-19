@@ -42,6 +42,35 @@ jobs:
           Write-Host 'R25_C61_LOCAL_KTRADE_INSTALLED_APP_LAUNCHED=FALSE'
           Write-Host 'R25_C61_RESEARCH_DISPATCH_OR_SERVICE_MUTATION=FALSE'
           Write-Host 'R25_C61_CURRENT_RESOURCE_NONINTERFERENCE_VERIFIED=FALSE'
+      - name: Check whether FORGE runner can reach original owner recovery context
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {throw 'R25_C61_RUNNER_CHANGED'}
+          $isOriginalMachine=[Environment]::MachineName -ieq 'LINKDEADKB'
+          $account=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $isOwner=($account.Name -ieq 'LINKDEADKB\camar')
+          $root='C:\Users\camar\KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          $visible=$false
+          $accessDenied=$false
+          try {
+            $visible=[IO.Directory]::Exists($root)
+          } catch [UnauthorizedAccessException] {
+            $accessDenied=$true
+          } catch {
+            $accessDenied=$true
+          }
+          # Directory.Exists is metadata only and does not enumerate files.
+          # Neither a positive directory response nor owner SID similarity
+          # authorizes an actual historical-data read or application start.
+          Write-Host ('R25_C61_ORIGINAL_MACHINE='+$isOriginalMachine.ToString().ToUpperInvariant())
+          Write-Host ('R25_C61_RUNS_AS_OWNER='+$isOwner.ToString().ToUpperInvariant())
+          Write-Host ('R25_C61_ISOLATED_DIRECTORY_EXISTS='+$visible.ToString().ToUpperInvariant())
+          Write-Host ('R25_C61_DIRECTORY_PROBE_EXCEPTION='+$accessDenied.ToString().ToUpperInvariant())
+          Write-Host 'R25_C61_PRIVATE_FILE_CONTENT_READ=FALSE'
+          Write-Host 'R25_C61_USER_PROFILE_ACL_CHANGED=FALSE'
+          Write-Host 'R25_C61_RESEARCH_JOBS_STOPPED=FALSE'
       - name: Probe KTRADE source read authority without checking out source
         shell: pwsh
         run: |
