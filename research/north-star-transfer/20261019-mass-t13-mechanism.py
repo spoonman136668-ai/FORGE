@@ -12,7 +12,7 @@ from __future__ import annotations
 import random,math,itertools,json,sys,importlib.util,time,tracemalloc
 from pathlib import Path
 D=Path(__file__).parent
-TRAIN=range(-36015,-35999);OPEN=range(-36107,-36099)
+TRAIN=range(-37015,-36999);OPEN=range(-37107,-37099)
 def load(p,n):
  s=importlib.util.spec_from_file_location(n,p);m=importlib.util.module_from_spec(s)
  sys.modules[n]=m;s.loader.exec_module(m);return m
@@ -64,7 +64,7 @@ def refine(m,t10,prior,FIT,CHECK,witness,kind):
   loss=error(alt);proposals+=1
   if loss<current_error:
    p=alt;current_error=loss;improvements+=1
- for x,y in required:assert p[x]==y
+ for x,y in required.items():assert p[x]==y
  check=sum((m.forward(x,m.pack(p))^y).bit_count() for x,y in CHECK)
  return m.pack(p),{"FIT_bit_errors":current_error,
   "CHECK_bit_errors":check,"sourceblind_fixed_proposals":proposals,
