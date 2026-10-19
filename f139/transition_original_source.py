@@ -120,11 +120,15 @@ def reconcile_source(db_path, new_sha, *, apply=False, api=None):
                 db.conn.backup(backconn)
             finally:
                 backconn.close()
-            with sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True) as probe:
+            probe = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True)
+            try:
+                probe.execute("PRAGMA query_only=ON")
                 require(probe.execute("PRAGMA integrity_check").fetchone()[0] == "ok",
                         "TRANSITION_BACKUP_SQLITE_INTEGRITY")
                 require(inspect_original_completed(probe, db_path)["head_hash"] == meta["head_hash"],
                         "TRANSITION_BACKUP_HEAD_NOT_SAME")
+            finally:
+                probe.close()
             snapshot_sha = hash_bytes(backup.read_bytes())
             # Retry-resistant final owner, source and ledger check.
             verify_inactive_owners(api, db_path)
