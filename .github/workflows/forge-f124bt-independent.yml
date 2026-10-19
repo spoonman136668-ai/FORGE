@@ -1,0 +1,103 @@
+name: F124-BT independent exact-source process cost replication and final integration
+on:
+  push:
+    branches: [research/f124bt-independent-process-acceptance-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bt-independent-original-source-OS-replication
+  cancel-in-progress: false
+jobs:
+  separate-GitHub-hosted-replication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact previously passed science-blind model/runtime and only this workflow is new
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 4f81ac4186ee61dd620cd1a01109906d04475c1c HEAD
+          mapfile -t paths < <(git diff --name-only 4f81ac4186ee61dd620cd1a01109906d04475c1c HEAD | sort)
+          test "${#paths[@]}" -eq 1
+          test "${paths[0]}" = '.github/workflows/forge-f124bt-independent.yml'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bt-frozen-allocator.json)" = '51742176b56451479c3cf22435d2651c64525bd3'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124br_native_cost.py)" = 'ae03ba15f31b4c309ac87cefe94f50359339f2d3'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124br_native_view.py)" = '56427a3a685e442505e7f4b760863ce4d4cefc72'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bq_program_learner.py)" = '91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+          test "$(git rev-parse HEAD:nativeevidence/f124ag_transition_models.py)" = '94d2ae8266da792d254ac54baf3056bbd9b49412'
+          test "$(git rev-parse HEAD:nativeevidence/f124az_joint_public_inverse.py)" = '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+          python3 -B isolationguard/check.py
+          echo F124BT_SECOND_INDEPENDENT_RUN_SAME_SOURCE=PASS
+      - name: Independently repeat exact original 15-fresh-process source-neutral matched cost
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f124bt-independent"
+          python3 -B research/north-star-transfer/f124br_native_cost.py \
+            --output "$RUNNER_TEMP/f124bt-independent/second-same-source-original-15.json"
+          python3 -B - "$RUNNER_TEMP/f124bt-independent/second-same-source-original-15.json" <<'PY'
+          import json,sys
+          s=json.load(open(sys.argv[1]))['summary']
+          assert s['sample_count']==15 and s['fresh_process_samples_per_arm']==5
+          assert s['legacy_and_lean_native_score_work_exact'] is True
+          assert s['legacy_and_lean_causal_decisions_exact'] is True
+          assert s['AZ_scientific_abstention_preserved'] is True
+          assert s['AZ_and_candidate_native_work_not_equivalent'] is True
+          assert s['full_scientific_resource_parity'] is False
+          assert s['new_prospective_or_protected_cases_used'] is False
+          assert s['old_BM_BN_BO_BP_BQ_cases_replayed'] is False
+          for arm in ('AZ','legacy','lean'):
+              r=s['arms'][arm]
+              print('F124BT_REPLICATION_'+arm.upper()+'_CPU_NS='+str(r['CPU_median_ns']))
+              print('F124BT_REPLICATION_'+arm.upper()+'_RSS_MEDIAN='+str(r['RSS_median_bytes']))
+              print('F124BT_REPLICATION_'+arm.upper()+'_RSS_MAX='+str(r['RSS_max_bytes']))
+          if not (s['lean_source_neutral_os_nonregression_vs_original_AZ']
+                  and s['lean_os_nonregression_vs_original_BQ_legacy']):
+              raise SystemExit('F124BT_INDEPENDENT_RUN_RESOURCE_NOT_REPRODUCED')
+          print('F124BT_INDEPENDENT_PREBIRTH_COST_REPLICATION=PASS')
+          PY
+          (cd "$RUNNER_TEMP/f124bt-independent" && sha256sum second-same-source-original-15.json > evidence.sha256 && sha256sum -c evidence.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bt-independent-original-second-15-process-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bt-independent/
+          retention-days: 90
+          if-no-files-found: warn
+  one-final-source-integration-regression:
+    needs: separate-GitHub-hosted-replication
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact-head combined Linux full tests vet and build once
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BT_ONE_FULL_REGRESSION_VET_BUILD=PASS
+          echo F124BT_PROSPECTIVE_CASES_USED=false
+          echo F124BT_FULL_SCIENTIFIC_PARITY=false
