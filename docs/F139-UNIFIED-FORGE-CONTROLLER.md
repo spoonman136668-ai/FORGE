@@ -52,6 +52,42 @@ hidden task rebind before any new worker dispatch can pass the SHA check.
 Do not silently merge with the old controller running and assume admission
 has started: an unmatched main SHA correctly fails closed.
 
+## F139-D2K: bounded discovery of owner-authorized development work
+
+The D2K candidate selector is an explicit trust-boundary extension, not a
+free-running synthesis or science experiment. It is **disabled on the deployed
+D2J source until a separately qualified protected-main transition and native
+Windows acceptance**. D2K discovers open issues already labeled
+`f139-development-eligible` on the FORGE repository and admits at most one
+source-pinned development issue per idle controller tick. It requires an issue
+authored by the repository owner, `author_association=OWNER`, no pull request,
+an exact 40-byte protected-main SHA, a schema-typed JSON body, a fixed allowed
+lane and `model-free-development-advisory` kind, explicit false scientific
+first-use, and zero paid model calls. No free-form issue body is executed.
+The immutable GitHub issue number, API issue id, source and canonical body
+digest determine one once-only ticket. An edited or relabeled issue cannot
+reset its historical issue number for another dispatch. Untrusted sources
+fail closed rather than being converted into work.
+
+The SQLite event chain retains the admission's issue id, canonical body SHA,
+UTC day, ticket, manifest digest and prior event head. Source checks,
+single-owner locks, terminal verification, artifact custody and the existing
+start-before-POST replay barrier remain intact. Conservative limits are four
+new admissions per UTC day and 80 lifetime total tasks, including history.
+The controller examines only qualified issues and idles when none exist; it
+does not manufacture synthetic tickets to appear autonomous.
+
+**Substantive limitation:** D2K now signs the issue identity and runs only
+an allowlisted Go package test on GitHub-hosted Windows/Linux workers. A
+bounded package diagnostic, including authentic nonzero test failure or timeout,
+is retained alongside an issue-bound receipt and independently verified from
+the exact provider artifact. This is **task-specific diagnosis, not code repair**.
+No real owner-issued task has yet completed this new adapter; fixture-based
+regressions alone are not live-source acceptance. No scientific original,
+trained-model discovery, policy promotion, issue synthesis or automatic source
+transition is authorized. A continuing supply of genuine owner-authorized
+issues and separate engineering-outcome qualification remain necessary.
+
 ## Safeguards
 
 - Default-off and empty queue. No arbitrary scripts, API endpoints, shell commands or new scientific first-use or broker privileges are accepted as queue entries. Before dispatch, both protected `main` SHA and enabled/suspended authority are checked.

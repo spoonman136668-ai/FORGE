@@ -32,6 +32,13 @@ ALLOWED_STAGES = {"READY", "START_RISK", "WAIT_PROVIDER", "VERIFIED", "QUARANTIN
 LIMIT_PER_DAY = 48
 MAX_ZIP_BYTES = 2_000_000
 MAX_RECEIPT_BYTES = 8192
+D2K_WORK_LABEL = "f139-development-eligible"
+D2K_KIND = "go-package-test-diagnostic"
+D2K_ALLOWED_PACKAGES = ("./planner", "./dreamrsi", "./optimizerstages")
+D2K_MAX_DAILY = 4
+D2K_MAX_TOTAL = 80
+D2K_OWNER = "spoonman136668-ai"
+
 
 # D2J is a single bounded, source-bound development-only succession tranche.
 # Do not infer a science grant or evergreen self-authority from these two tickets.
@@ -188,6 +195,48 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "DEVELOPMENT_WORK_ADMITTED":
+                require(isinstance(doc, dict) and set(doc) == {
+                    "schema", "source_sha", "ticket", "issue_number", "issue_id",
+                    "lane", "kind", "target_package", "body_sha256", "manifest_sha256",
+                    "prior_event_head_sha256", "scientific_first_use",
+                    "admitted_day"},
+                    "D2K_ADMISSION_FIELDS")
+                require(doc["schema"] == "forge.f139.d2k.issue-work.v1"
+                        and SHA.fullmatch(doc["source_sha"]) is not None
+                        and doc["issue_number"] > 0 and type(doc["issue_number"]) is int
+                        and doc["issue_id"] > 0 and type(doc["issue_id"]) is int
+                        and doc["ticket"] == "f139-d2k-i" +
+                            str(doc["issue_number"]) + "-" + doc["source_sha"][:12] +
+                            "-" + doc["body_sha256"][:8]
+                        and doc["lane"] in LANES and doc["kind"] == D2K_KIND
+                        and doc["target_package"] in D2K_ALLOWED_PACKAGES
+                        and re.fullmatch(r"[a-f0-9]{64}", doc["body_sha256"]) is not None
+                        and re.fullmatch(r"[a-f0-9]{64}", doc["manifest_sha256"]) is not None
+                        and doc["prior_event_head_sha256"] == row["prior_sha"]
+                        and doc["scientific_first_use"] is False
+                        and isinstance(doc["admitted_day"],str)
+                        and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}",
+                                         doc["admitted_day"]) is not None,
+                        "D2K_ADMISSION_INVALID")
+                task = self.conn.execute(
+                    "SELECT lane,source_sha,manifest_sha FROM tasks WHERE ticket=?",
+                    (doc["ticket"],)).fetchone()
+                require(task is not None and task["lane"] == doc["lane"]
+                        and task["source_sha"] == doc["source_sha"]
+                        and task["manifest_sha"] == doc["manifest_sha256"],
+                        "D2K_ADMISSION_TASK_DRIFT")
+                digest = hash_bytes(canonical({
+                    "schema":doc["schema"], "source_sha":doc["source_sha"],
+                    "ticket":doc["ticket"], "issue_number":doc["issue_number"],
+                    "issue_id":doc["issue_id"], "lane":doc["lane"],
+                    "kind":doc["kind"], "target_package":doc["target_package"],
+                    "body_sha256":doc["body_sha256"],
+                    "prior_event_head_sha256":doc["prior_event_head_sha256"],
+                    "admitted_day":doc["admitted_day"],
+                    "scientific_first_use":False,
+                }))
+                require(digest == doc["manifest_sha256"],"D2K_MANIFEST_DIGEST_DRIFT")
             if row["kind"] == "UNATTENDED_SUCCESSION_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "source_sha", "prior_event_head_sha256",
@@ -394,6 +443,102 @@ class Database:
             self.verify()
             return True
 
+    def admit_d2k_issue(self, issue: dict):
+        """Atomic issue-bound work intake: never interpret free-form issue text."""
+        self.verify()
+        meta = self.meta()
+        require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1,
+                "D2K_OWNER_NOT_ACTIVE")
+        # This source extension may run only after the original D2C and
+        # successful D2J local four-receipt custody, never on an empty DB.
+        verified = {
+            row["ticket"]:row for row in self.conn.execute(
+                "SELECT ticket,stage,run_id,evidence_sha FROM tasks")
+        }
+        authenticated = {
+            name: row for name,row in verified.items()
+            if name.startswith("f139-d2j-") or name.startswith("f139-d2c-")
+        }
+        require(meta["head_seq"] >= 23
+                and len(authenticated) == 4
+                and all(t["stage"]=="VERIFIED" and t["run_id"] is not None
+                        and t["evidence_sha"] is not None
+                        for t in authenticated.values())
+                and sum(name.startswith("f139-d2j-") for name in authenticated) == 2
+                and sum(name.startswith("f139-d2c-") for name in authenticated) == 2,
+                "D2K_AUTHENTIC_SUCCESSION_REQUIRED")
+        require(isinstance(issue, dict) and set(issue) == {
+                    "ticket", "issue_number", "issue_id", "source_sha",
+                    "lane", "kind", "target_package", "body_sha256"
+                } and issue["source_sha"] == meta["source_sha"]
+                and issue["lane"] in LANES and issue["kind"] == D2K_KIND
+                and issue["target_package"] in D2K_ALLOWED_PACKAGES,
+                "D2K_ISSUE_IDENTITY_INVALID")
+        ticket = issue["ticket"]
+        require(isinstance(ticket, str) and TICKET.fullmatch(ticket)
+                and ticket == "f139-d2k-i" + str(issue["issue_number"]) + "-" +
+                  meta["source_sha"][:12] + "-" + issue["body_sha256"][:8], "D2K_TICKET_IDENTITY_INVALID")
+        with self.transaction():
+            self.verify()
+            require(self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+                    < D2K_MAX_TOTAL, "D2K_WORK_TOTAL_LIMIT")
+            today = utc_now()[:10]
+            rows = self.conn.execute(
+                "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
+            admitted_today = sum(
+                json.loads(row["payload"])["admitted_day"] == today
+                for row in rows)
+            require(admitted_today < D2K_MAX_DAILY,"D2K_DAILY_ADMISSION_LIMIT")
+            exists = self.conn.execute("SELECT 1 FROM tasks WHERE ticket=?",
+                                       (ticket,)).fetchone()
+            already_admitted = any(
+                json.loads(row["payload"])["issue_id"] == issue["issue_id"]
+                or json.loads(row["payload"])["issue_number"] == issue["issue_number"]
+                for row in self.conn.execute(
+                    "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
+            )
+            if exists is not None or already_admitted:
+                return False
+            require(self.active() is None and self.ready() is None,
+                    "D2K_PENDING_WORK_NOT_EMPTY")
+            prior = meta["head_hash"]
+            manifest = {
+                "schema":"forge.f139.d2k.issue-work.v1",
+                "source_sha":meta["source_sha"], "ticket":ticket,
+                "issue_number":issue["issue_number"], "issue_id":issue["issue_id"],
+                "lane":issue["lane"], "kind":issue["kind"],
+                "target_package":issue["target_package"],
+                "body_sha256":issue["body_sha256"],
+                "prior_event_head_sha256":prior,
+                "admitted_day":today, "scientific_first_use":False,
+            }
+            digest = hash_bytes(canonical(manifest))
+            self.event("DEVELOPMENT_WORK_ADMITTED", {
+                **manifest, "manifest_sha256":digest
+            })
+            self.conn.execute(
+                "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) "
+                "VALUES(?,?,?,'READY',?)",
+                (ticket,issue["lane"],meta["source_sha"],digest))
+            self.event("TASK_INTAKE", {
+                "ticket":ticket,"lane":issue["lane"],"manifest_sha":digest})
+            self.verify()
+            return True
+
+    def d2k_fields(self, ticket: str):
+        """Recover worker identity only from the immutable, verified admission event."""
+        if not ticket.startswith("f139-d2k-"):
+            return None
+        rows = [json.loads(row["payload"]) for row in self.conn.execute(
+            "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")]
+        matches = [r for r in rows if r.get("ticket")==ticket]
+        require(len(matches)==1, "D2K_ADMISSION_RECORD_MISSING_OR_DUPLICATE")
+        r=matches[0]
+        require(r["kind"]==D2K_KIND and r["target_package"] in D2K_ALLOWED_PACKAGES,
+                "D2K_ADMISSION_KIND_DRIFT")
+        return {"issue_number":str(r["issue_number"]), "issue_id":str(r["issue_id"]),
+                "body_sha256":r["body_sha256"],"target_package":r["target_package"]}
+
     def active(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 1").fetchone()
 
@@ -489,14 +634,85 @@ class GitHub:
                             for x in runs),"LEGACY_DISPATCH_STILL_IN_FLIGHT")
         return True
 
-    def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str):
+    def d2k_eligible_issues(self, source: str) -> list[dict]:
+        """Authenticated owner-labeled, source-bound, fixed-kind issue catalog.
+
+        The issue body is only declarative data. It cannot supply commands,
+        source paths, arbitrary prompts, or science authorization.
+        """
+        require(isinstance(source,str) and SHA.fullmatch(source) is not None,
+                "D2K_SOURCE_INVALID")
+        accepted = []
+        for page in (1, 2):
+            items = self.get(
+                "repos/" + REPO + "/issues?state=open&labels=" +
+                D2K_WORK_LABEL + "&per_page=100&page=" + str(page))
+            require(isinstance(items,list) and len(items)<=100,
+                    "D2K_ISSUE_INDEX_INVALID")
+            for raw in items:
+                require(isinstance(raw,dict) and raw.get("state") == "open"
+                        and "pull_request" not in raw
+                        and isinstance(raw.get("number"),int) and raw["number"]>0
+                        and isinstance(raw.get("id"),int) and raw["id"]>0
+                        and isinstance(raw.get("user"),dict)
+                        and raw["user"].get("login") == D2K_OWNER
+                        and raw.get("author_association") == "OWNER"
+                        and D2K_WORK_LABEL in [x.get("name") for x in
+                                               raw.get("labels",[]) if isinstance(x,dict)],
+                        "D2K_ISSUE_NOT_OWNER_QUALIFIED")
+                body = raw.get("body")
+                require(isinstance(body,str) and len(body)<2048,
+                        "D2K_ISSUE_BODY_INVALID")
+                try:
+                    record=json.loads(body)
+                except ValueError as exc:
+                    raise F139Error("F139_D2K_ISSUE_NOT_JSON") from exc
+                require(isinstance(record,dict) and set(record)=={
+                    "schema","source_sha","lane","kind","target_package",
+                    "scientific_first_use","paid_model_calls"
+                } and record["schema"]=="forge.f139.d2k.owner-development.v1"
+                    and record["source_sha"]==source
+                    and record["lane"] in LANES
+                    and record["kind"]==D2K_KIND
+                    and record["target_package"] in D2K_ALLOWED_PACKAGES
+                    and record["scientific_first_use"] is False
+                    and type(record["paid_model_calls"]) is int
+                    and record["paid_model_calls"]==0,
+                    "D2K_ISSUE_POLICY_INVALID")
+                accepted.append({
+                    "ticket":"f139-d2k-i"+str(raw["number"])+"-"+source[:12]+
+                             "-"+hash_bytes(canonical(record))[:8],
+                    "issue_number":raw["number"],"issue_id":raw["id"],
+                    "source_sha":source,"lane":record["lane"],
+                    "kind":D2K_KIND, "target_package":record["target_package"],
+                    "body_sha256":hash_bytes(canonical(record)),
+                })
+            if len(items)<100:
+                break
+        else:
+            raise F139Error("F139_D2K_ISSUE_CATALOG_TRUNCATED")
+        require(len({x["ticket"] for x in accepted})==len(accepted)
+                and len({x["issue_id"] for x in accepted})==len(accepted),
+                "D2K_DUPLICATE_ISSUE_IDENTITY")
+        return sorted(accepted,key=lambda x:x["issue_number"])
+
+    def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str, *, d2k_fields=None):
         require(TICKET.fullmatch(ticket) and lane in LANES and SHA.fullmatch(source)
-                and 0<epoch<2**31 and re.fullmatch(r"[a-f0-9]{64}",signature),"DISPATCH_NOT_ALLOWED")
-        path="repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches"
-        self.runner(["--method","POST",path,"-f","ref=main",
-                     "-f","inputs[ticket]="+ticket,"-f","inputs[lane]="+lane,
-                     "-f","inputs[source_sha]="+source,"-f","inputs[epoch]="+str(epoch),
-                     "-f","inputs[signature]="+signature])
+                and 0<epoch<2**31 and re.fullmatch(r"[a-f0-9]{64}",signature),
+                "DISPATCH_NOT_ALLOWED")
+        args=["--method","POST","repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
+              "-f","ref=main","-f","inputs[ticket]="+ticket,
+              "-f","inputs[lane]="+lane,"-f","inputs[source_sha]="+source,
+              "-f","inputs[epoch]="+str(epoch),"-f","inputs[signature]="+signature]
+        if ticket.startswith("f139-d2k-"):
+            require(isinstance(d2k_fields,dict) and set(d2k_fields)=={
+                "issue_number","issue_id","body_sha256","target_package"},
+                "D2K_SIGNED_DISPATCH_MISSING")
+            for name in ("issue_number","issue_id","body_sha256","target_package"):
+                args.extend(["-f","inputs["+name+"]="+d2k_fields[name]])
+        else:
+            require(d2k_fields is None,"D2K_FIELDS_ON_LEGACY_DISPATCH")
+        self.runner(args)
 
     def candidates(self,ticket:str,started_at:str):
         source_start=parse_time(started_at)
@@ -568,33 +784,98 @@ def legacy_windows_task_disabled():
     return True
 
 
-def receipt_from_zip(raw:bytes,meta:dict,task:dict,run_id:int,oslabel:str,epoch:int=1)->dict:
-    require(hash_bytes(raw)==meta["digest"][7:] and len(raw)==meta.get("size_in_bytes"),
-            "ARTIFACT_ZIP_DIGEST_DRIFT")
+def receipt_from_zip(raw:bytes,meta:dict,task:dict,run_id:int,oslabel:str,epoch:int=1, *, d2k_fields=None)->dict:
+    require(isinstance(meta.get("digest"),str) and meta["digest"].startswith("sha256:")
+            and hash_bytes(raw)==meta["digest"][7:]
+            and len(raw)==meta.get("size_in_bytes"),"ARTIFACT_ZIP_DIGEST_DRIFT")
+    d2k=task["ticket"].startswith("f139-d2k-")
+    expected=["f139-receipt.json","f139-receipt.sha256"]
+    if d2k: expected.append("f139-diagnostic.json")
+    else: require(d2k_fields is None,"D2K_FIELDS_ON_LEGACY_RECEIPT")
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             names=archive.namelist()
-            require(sorted(names)==["f139-receipt.json","f139-receipt.sha256"]
-                    and len(names)==len(set(names)),"ARTIFACT_MEMBER_SET_INVALID")
-            require(all(x.file_size<=MAX_RECEIPT_BYTES and not x.is_dir() for x in archive.infolist()),
-                    "ARTIFACT_MEMBER_OVERSIZE")
+            require(sorted(names)==sorted(expected) and len(names)==len(set(names)),
+                    "ARTIFACT_MEMBER_SET_INVALID")
+            require(all(not x.is_dir() and x.file_size <=
+                        (32768 if x.filename=="f139-diagnostic.json" else MAX_RECEIPT_BYTES)
+                        for x in archive.infolist()),"ARTIFACT_MEMBER_OVERSIZE")
             body=archive.read("f139-receipt.json")
-            receipt=archive.read("f139-receipt.sha256")
+            checksum=archive.read("f139-receipt.sha256")
+            diagnostic_raw=archive.read("f139-diagnostic.json") if d2k else None
     except (OSError,zipfile.BadZipFile,ValueError,RuntimeError) as exc:
         raise F139Error("F139_ARTIFACT_ZIP_INVALID") from exc
-    require(receipt==(hash_bytes(body)+"  f139-receipt.json\n").encode(),"RECEIPT_SHA_INVALID")
+    require(checksum==(hash_bytes(body)+"  f139-receipt.json\n").encode(),"RECEIPT_SHA_INVALID")
     try:
         value=json.loads(body)
-    except ValueError as exc:
+        diagnostic=json.loads(diagnostic_raw) if d2k else None
+    except (ValueError,UnicodeDecodeError) as exc:
         raise F139Error("F139_RECEIPT_JSON_INVALID") from exc
-    require(isinstance(value,dict) and value.get("schema")=="forge.f139.development-worker-receipt.v1"
+    require(isinstance(value,dict)
             and value.get("ticket")==task["ticket"] and value.get("lane")==task["lane"]
             and value.get("source_sha")==task["source_sha"] and value.get("epoch")==epoch
             and value.get("os")==oslabel and value.get("run_id")==run_id
-            and value.get("development_only") is True and value.get("scientific_first_use_authorized") is False
-            and value.get("scientific_originals_dispatched")==0 and value.get("accepted_ref_mutations")==0
-            and value.get("paid_model_calls")==0 and value.get("codex_calls")==0,
+            and value.get("development_only") is True
+            and value.get("scientific_first_use_authorized") is False
+            and type(value.get("scientific_originals_dispatched")) is int
+            and value["scientific_originals_dispatched"]==0
+            and type(value.get("accepted_ref_mutations")) is int
+            and value["accepted_ref_mutations"]==0
+            and type(value.get("paid_model_calls")) is int and value["paid_model_calls"]==0
+            and type(value.get("codex_calls")) is int and value["codex_calls"]==0,
             "RECEIPT_FALSE_SOURCE_OR_SCIENCE")
+    if not d2k:
+        require(value.get("schema")=="forge.f139.development-worker-receipt.v1",
+                "RECEIPT_LEGACY_SCHEMA_INVALID")
+        return value
+    require(isinstance(d2k_fields,dict) and set(d2k_fields)=={
+        "issue_number","issue_id","body_sha256","target_package"},
+        "D2K_RECEIPT_UNBOUND_ISSUE")
+    require(set(value)=={
+        "schema","ticket","lane","source_sha","epoch","run_id","os",
+        "issue_number","issue_id","body_sha256","target_package",
+        "diagnostic_sha256","outcome","development_only",
+        "scientific_first_use_authorized","scientific_originals_dispatched",
+        "accepted_ref_mutations","paid_model_calls","codex_calls"}
+        and value["schema"]=="forge.f139.d2k.package-diagnostic-receipt.v1"
+        and value["issue_number"]==int(d2k_fields["issue_number"])
+        and value["issue_id"]==int(d2k_fields["issue_id"])
+        and value["body_sha256"]==d2k_fields["body_sha256"]
+        and value["target_package"]==d2k_fields["target_package"]
+        and value["target_package"] in D2K_ALLOWED_PACKAGES
+        and value["diagnostic_sha256"]==hash_bytes(diagnostic_raw)
+        and value["outcome"] in ("PASS","TEST_FAILURE","TIMEOUT"),
+        "D2K_RECEIPT_IDENTITY_OR_DIGEST")
+    require(isinstance(diagnostic,dict) and set(diagnostic)=={
+        "schema","source_sha","issue_number","issue_id","body_sha256",
+        "target_package","run_id","os","outcome","returncode","duration_ms",
+        "output_sha256","output_excerpt","output_bytes",
+        "scientific_first_use","paid_model_calls"},
+        "D2K_DIAGNOSTIC_FIELDS")
+    require(diagnostic["schema"]=="forge.f139.d2k.package-diagnostic.v1"
+            and diagnostic["source_sha"]==task["source_sha"]
+            and diagnostic["issue_number"]==value["issue_number"]
+            and diagnostic["issue_id"]==value["issue_id"]
+            and diagnostic["body_sha256"]==value["body_sha256"]
+            and diagnostic["target_package"]==value["target_package"]
+            and diagnostic["run_id"]==run_id and diagnostic["os"]==oslabel
+            and diagnostic["outcome"]==value["outcome"]
+            and type(diagnostic["returncode"]) is int
+            and ((diagnostic["outcome"]=="PASS" and diagnostic["returncode"]==0)
+                 or (diagnostic["outcome"]=="TEST_FAILURE" and 0<diagnostic["returncode"]<=255)
+                 or (diagnostic["outcome"]=="TIMEOUT" and diagnostic["returncode"]==-1))
+            and type(diagnostic["duration_ms"]) is int
+            and 0<=diagnostic["duration_ms"]<=120000
+            and type(diagnostic["output_bytes"]) is int
+            and 0<=diagnostic["output_bytes"]<=100000
+            and isinstance(diagnostic["output_excerpt"],str)
+            and len(diagnostic["output_excerpt"].encode("utf-8"))<=16384
+            and isinstance(diagnostic["output_sha256"],str)
+            and re.fullmatch(r"[a-f0-9]{64}",diagnostic["output_sha256"])
+            and diagnostic["scientific_first_use"] is False
+            and type(diagnostic["paid_model_calls"]) is int
+            and diagnostic["paid_model_calls"]==0,
+            "D2K_DIAGNOSTIC_IDENTITY_OR_OUTCOME")
     return value
 
 
@@ -660,7 +941,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 matching=[x for x in artifacts if x.get("name")=="forge-f139-dev-receipt-"+oslabel]
                 require(len(matching)==1,"AMBIGUOUS_PROVIDER_ARTIFACT")
                 raw=api.artifact(matching[0]["id"])
-                receipt_from_zip(raw,matching[0],active,rid,oslabel,meta["epoch"])
+                receipt_from_zip(raw,matching[0],active,rid,oslabel,meta["epoch"],
+                                 d2k_fields=db.d2k_fields(active["ticket"]))
                 archives[oslabel]=raw
             path,digest=store_evidence(db_path.parent,active["ticket"],rid,archives)
             db.terminal(active["ticket"],rid,path,digest)
@@ -674,15 +956,35 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     ready=db.ready()
     if ready is None and db.admit_d2j_succession():
         ready=db.ready()
+    if ready is None and db.meta()["head_seq"] >= 23:
+        # Only issue-authorized development tasks; never invent work to stay busy.
+        # Reuse the existing SQLite mutex, source check, and daily dispatch budget.
+        known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
+        seen_issue_numbers = {
+            json.loads(row["payload"])["issue_number"]
+            for row in db.conn.execute(
+                "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
+        }
+        for item in api.d2k_eligible_issues(meta["source_sha"]):
+            if item["ticket"] in known or item["issue_number"] in seen_issue_numbers:
+                continue
+            if db.admit_d2k_issue(item):
+                ready=db.ready()
+            break
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
     db.claim(task["ticket"],timestamp)
-    # HMAC uses the same frozen wire schema as f139.verify_ticket on GitHub.
-    import hmac
-    payload="\n".join(("F139-DISPATCH-V1",REPO,WORKFLOW,task["ticket"],task["lane"],task["source_sha"],str(meta["epoch"])))+"\n"
-    signature=hmac.new(hmac_key.encode(),payload.encode(),hashlib.sha256).hexdigest()
-    api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
+    from f139.verify_ticket import signature as sign_worker_ticket
+    d2k=db.d2k_fields(task["ticket"])
+    signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
+                                 task["source_sha"],str(meta["epoch"]),
+                                 **(d2k or {}))
+    if d2k is not None:
+        api.dispatch(task["ticket"],task["lane"],task["source_sha"],
+                     meta["epoch"],signature,d2k_fields=d2k)
+    else:
+        api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
     db.dispatch_observed(task["ticket"])
     return {"disposition":"DEVELOPMENT_DISPATCHED_ONCE","ticket":task["ticket"],"science_authorized":False}
 
