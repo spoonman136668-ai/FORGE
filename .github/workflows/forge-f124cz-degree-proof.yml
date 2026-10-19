@@ -1,0 +1,33 @@
+name: F124-CZ algebraic third-degree out-of-class source witness
+on:
+  push:
+    branches: [research/f124cz-out-of-class-causal-composition-20261019]
+    paths: [.github/workflows/forge-f124cz-degree-proof.yml]
+permissions:
+  contents: read
+jobs:
+  exact-source-only-degree-proof:
+    name: exact-source-only-degree-proof (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original source-only degree boundary without models or first-use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor 34e757c1a0bd0b1f563cb66488f5e6128e2c1164 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CZ_ORIGINAL_PRE_SOURCE_PREREG' }
+          python -B research/north-star-transfer/f124cz_degree_boundary_witness.py
+          if ($LASTEXITCODE -ne 0) { throw 'CZ_NONREPRESENTABILITY_WITNESS_FAILED' }
+          Write-Host 'F124CZ_EXACT_CARRY_DEGREE3_GF2_EXCLUSION=PASS'
