@@ -123,8 +123,7 @@ func Calibrate(f Frozen, frozenPin string, signed SignedProspective, pin Externa
     if err!=nil||len(key)!=ed25519.PublicKeySize{return zero,ErrFrozen}
     sig,err:=hex.DecodeString(signed.SignatureHex)
     if err!=nil||!ed25519.Verify(ed25519.PublicKey(key),
-         []byte(CalibrationDomain+pin.ExpectedCohortSHA256+"
-"),sig){
+         []byte(CalibrationDomain+pin.ExpectedCohortSHA256+"\n"),sig){
          return zero,ErrFrozen
     }
     records:=signed.Cohort.Records
