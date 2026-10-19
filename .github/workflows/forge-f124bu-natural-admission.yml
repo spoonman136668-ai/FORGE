@@ -1,0 +1,194 @@
+name: F124-BU natural unforced AZ/native workload-matched resource admission
+on:
+  push:
+    branches: [research/f124bu-natural-workload-matching-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bu-genuine-AZ-scientific-cpu-rss-eligibility-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-neutral-no-forced-route:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact frozen 32-bit learner, scorer, AZ policy, source identity, and nonconsuming tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BU_HEAD_SOURCE_DRIFT' }
+          & git merge-base --is-ancestor 41b07e9ff91b96c4306f90f1471edc206bfde40b HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BU_BT_PROVIDER_EVIDENCE_DRIFT' }
+          $exact=@{
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'nativeevidence/f124aj_example_operator_learner.py'='eddf99c06af66f2e46bf4dc0ea050368c283fcb2'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124br_native_view.py'='56427a3a685e442505e7f4b760863ce4d4cefc72'
+            'research/north-star-transfer/f124br_native_cost.py'='ae03ba15f31b4c309ac87cefe94f50359339f2d3'
+          }
+          foreach ($p in $exact.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $exact[$p]) { throw "BU_ORIGINAL_SOURCE_DRIFT:$p" }
+          }
+          $only=@(
+            '.github/workflows/forge-f124bu-natural-admission.yml',
+            'research/north-star-transfer/f124bu-frozen-natural-parity.json',
+            'research/north-star-transfer/f124bu_synthetic_crossover.py',
+            'research/north-star-transfer/f124bu_natural_workload.py',
+            'research/north-star-transfer/test_f124bu_natural_admission.py'
+          )
+          $actual=@(& git diff --name-only 41b07e9ff91b96c4306f90f1471edc206bfde40b HEAD | Where-Object { $_ })
+          if ((@($actual|Sort-Object) -join '|') -cne (@($only|Sort-Object) -join '|')) { throw 'BU_CHANGED_ANY_FROZEN_SCIENTIFIC_WORK_OR_SOURCE' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bu_natural_admission.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BU_ONLY_SYNTHETIC_NATURAL_ROUTE_TEST_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BU_GOVERNANCE_GUARD_FAILED' }
+          Write-Output 'F124BU_UNFORCED_ROUTE_NEGATIVE_TESTS=PASS'
+          Write-Output 'F124BU_NEW_REGISTERED_AND_PROTECTED_FIRSTUSE=0'
+  original-natural-AZ-eligibility:
+    needs: source-neutral-no-forced-route
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Observe two genuine original AZ policy routes; capture exact native inputs, output and counters
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f124bu-original"
+          python3 -B research/north-star-transfer/f124bu_natural_workload.py \
+            --preflight --out "$RUNNER_TEMP/f124bu-original/genuine-AZ-native-eligibility.json"
+          python3 -B - "$RUNNER_TEMP/f124bu-original/genuine-AZ-native-eligibility.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          assert r['original_AZ_routing_forced'] is False
+          assert r['old_consumed_science_replayed'] is False
+          assert r['registered_sources_created']==0
+          assert r['source_neutral_only_not_scientific_admission'] is True
+          for case in ('BU-SYN-01','BU-SYN-02'):
+              x=r['cases'][case]
+              print('F124BU_'+case+'_NATURAL_AZ_ROUTE='+x['AZ_original_natural_route'])
+              print('F124BU_'+case+'_AZ_NATIVE_CALLED='+str(x['AZ_scored_original_two_graphs']))
+              print('F124BU_'+case+'_EXACT_NATIVE_INPUT_OUTPUT='+str(
+                  x['identical_normalized_native_inputs_and_full_outputs']))
+          if not (r['all_cases_naturally_eligible']
+                  and r['all_cases_same_normalized_native_work']):
+              raise SystemExit('F124BU_NATIVE_WORKLOAD_INELIGIBLE_NO_FORCED_DIAGNOSTIC_OR_COST')
+          print('F124BU_AUTHENTIC_TWO_NATIVE_CALLS_EACH_ARM=PASS')
+          PY
+          (cd "$RUNNER_TEMP/f124bu-original" && sha256sum genuine-AZ-native-eligibility.json > preflight.sha256 && sha256sum -c preflight.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bu-authentic-natural-AZ-and-BQ-native-matching-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bu-original/
+          retention-days: 90
+          if-no-files-found: warn
+  actual-native-matched-OS-resource:
+    needs: original-natural-AZ-eligibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve exact source natural eligibility; original evidence checks precede any resource sample
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the same workflow run's original preflight artifact is admitted.
+          mkdir -p "$RUNNER_TEMP/f124bu-preflight"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "f124bu-authentic-natural-AZ-and-BQ-native-matching-$GITHUB_SHA" \
+            --dir "$RUNNER_TEMP/f124bu-preflight"
+          (cd "$RUNNER_TEMP/f124bu-preflight" && sha256sum -c preflight.sha256)
+          test -s "$RUNNER_TEMP/f124bu-preflight/genuine-AZ-native-eligibility.json"
+          mkdir -p "$RUNNER_TEMP/f124bu-native-resource"
+          python3 -B research/north-star-transfer/f124bu_natural_workload.py \
+            --measure \
+            --eligibility "$RUNNER_TEMP/f124bu-preflight/genuine-AZ-native-eligibility.json" \
+            --out "$RUNNER_TEMP/f124bu-native-resource/real-20-process-matched-native.json"
+          python3 -B - "$RUNNER_TEMP/f124bu-native-resource/real-20-process-matched-native.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['fresh_process_samples']==20
+          assert d['never_forced_original_AZ_native_execution'] is True
+          assert d['native_input_and_actual_native_work_matched'] is True
+          assert d['nonregistered_synthetic_only'] is True
+          assert d['new_prospective_924xxx_925xxx_sources'] is False
+          assert d['protected_cohorts_consumed'] is False
+          assert d['real_scientific_generalization_accepted'] is False
+          assert d['optimizer_policy_promoted'] is False
+          for case in ('BU-SYN-01','BU-SYN-02'):
+              data=d['case_results'][case]
+              for arm in ('AZ','learned'):
+                  r=data[arm]
+                  print('BU_'+case+'_'+arm+'_CPU_MEDIAN='+str(r['CPU_median_ns']))
+                  print('BU_'+case+'_'+arm+'_PEAK_RSS_MEDIAN='+str(r['peak_RSS_median_bytes']))
+                  print('BU_'+case+'_'+arm+'_PEAK_RSS_MAX='+str(r['peak_RSS_max_bytes']))
+              print('BU_'+case+'_NATIVE_MATCHED_RESOURCE='+str(data['same_work_full_OS_resource_noregression']))
+          if not d['whole_process_cost_per_case_nonregression']:
+              raise SystemExit('F124BU_MATCHED_WORK_REAL_OS_COST_FAIL')
+          print('F124BU_NATURAL_SAME_WORK_SOURCE_NEUTRAL_OS_COST=PASS')
+          print('F124BU_PROTECTED_FIRSTUSE=false')
+          print('F124BU_TRANSFER_SCIENCE_ADMITTED=false')
+          PY
+          (cd "$RUNNER_TEMP/f124bu-native-resource" && sha256sum real-20-process-matched-native.json > original-resource.sha256 && sha256sum -c original-resource.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bu-unforced-matched-native-20-process-OS-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bu-native-resource/
+          retention-days: 90
+          if-no-files-found: warn
+  final-one-full-source-regression:
+    needs: actual-native-matched-OS-resource
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One source-qualified Go regression, vet, build only after eligible matched work and resource PASS
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BU_ONE_FINAL_FULL_REGRESSION=PASS
+          echo F124BU_SCIENTIFIC_TRANSFER_ACCEPTED=false
