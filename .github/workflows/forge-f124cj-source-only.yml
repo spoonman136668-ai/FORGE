@@ -1,0 +1,51 @@
+name: F124-CJ freeze AZ native role compatibility before new E2 F2 birth
+on:
+  push:
+    branches: [research/f124cj-interface-qualified-EF2-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124cj-original-AZ-parser-sourceonly-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  prebirth-unchanged-original-transport:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source and model blobs, AZ public parser transport, no case firstuse
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CJ_FROZEN_EXACT_SOURCE_HEAD' }
+          & git merge-base --is-ancestor b56b675b72ce6a52581f78860f4ec4e776e239b0 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CJ_NEW_PROTOCOL_PREBIRTH_REQUIRED' }
+          $prior=@{
+            'research/north-star-transfer/f124ci-original-EF-firstuse-failclosed-negative.json'='xxxx'
+            'research/north-star-transfer/f124ch_internal_source.py'='b014c0c80c2278618adf21e4da085b05d1129cf7'
+            'research/north-star-transfer/f124cb_dual_link_learner.py'='8a10bf8cec12afc7d8703e3586d8eba91ebfdc7c'
+            'research/north-star-transfer/f124cc_trained_two_link_control.py'='29c0c02f54ea539bed0910fe82adcc86d3aff94d'
+            'nativeevidence/f124aj_example_operator_learner.py'='eddf99c06af66f2e46bf4dc0ea050368c283fcb2'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          $prior.Remove('research/north-star-transfer/f124ci-original-EF-firstuse-failclosed-negative.json')
+          foreach ($path in $prior.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $prior[$path]) { throw "CJ_FROZEN_PARSER_OR_LEARNER_DRIFT:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124cj_source_and_AZ_transport.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CJ_SOURCE_ONLY_OPAQUE_ROLE_INTERFACE_REJECTED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CJ_SOURCE_ROLE_GOVERNANCE_FAILURE' }
+          Write-Output 'F124CJ_ORIGINAL_AZ_PARSER_ACCEPTS_NATIVE_PUBLIC_ROLES=PASS'
+          Write-Output 'F124CJ_SCIENCE_SOURCE_CASES_FIRSTUSE=0'
+          Write-Output 'F124CJ_OLD_CI_NEGATIVE_PRESERVED=PASS'
