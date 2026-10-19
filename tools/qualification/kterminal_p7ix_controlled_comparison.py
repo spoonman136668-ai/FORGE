@@ -144,7 +144,7 @@ def run_tests(names, label, limit):
         if isinstance(name, str) and name.startswith(OBSERVER) and act == "output":
             output_text = item.get("Output", "")
             if isinstance(output_text, str):
-                for hit in re.finditer(r"stage3-original-observer-forced-cuts_test\\.go:(\\d+)", output_text):
+                for hit in re.finditer(r"stage3-original-observer-forced-cuts_test\.go:(\d+)", output_text):
                     line_num = int(hit.group(1))
                     if 1 <= line_num <= 651 and len(observer_line_nums) < 12:
                         observer_line_nums.add(line_num)
