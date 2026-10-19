@@ -1,0 +1,148 @@
+name: F124-BN frozen learned causal model source and nonconsuming qualification
+on:
+  push:
+    branches: [research/f124bn-v1-failed-no-firstuse-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bn-nonconsuming-frozen-source-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  cross-platform-original-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact source, independent birth chronology and negative selftests (no FIT)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BN_EXACT_HEAD' }
+          & git merge-base --is-ancestor 0956b2c192eee3cb14d799afca5eddc364628914 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BN_FROZEN_BM_NEGATIVE_DRIFT' }
+          $required=@(
+            '.github/workflows/forge-f124bn-preuse.yml',
+            '.github/workflows/forge-f124bn-firstuse.yml',
+            'research/north-star-transfer/f124bn-frozen-causal-learning.json',
+            'research/north-star-transfer/f124bn_learned_causal.py',
+            'research/north-star-transfer/f124bn_mix_source.py',
+            'research/north-star-transfer/f124bn_word_source.py',
+            'research/north-star-transfer/f124bn_dev_eval.py',
+            'research/north-star-transfer/f124bn_source_witness.py',
+            'research/north-star-transfer/test_f124bn_learning_preuse.py'
+          )
+          $diff=@(& git diff --name-only 0956b2c192eee3cb14d799afca5eddc364628914 HEAD | Where-Object { $_ })
+          if ((@($diff|Sort-Object) -join '|') -cne (@($required|Sort-Object) -join '|')) { throw 'BN_UNQUALIFIED_PATCH_SCOPE' }
+          $objects=@{
+            'research/north-star-transfer/f124bn-frozen-causal-learning.json'='e83fc0d8d14306dda163bad448c8dcaad40204ba'
+            'research/north-star-transfer/f124bn_learned_causal.py'='fc627c4d8b627cdf7368f1b6c188ed5d2214ee51'
+            'research/north-star-transfer/f124bn_mix_source.py'='56909261219777cae7e975b80278e9387370b552'
+            'research/north-star-transfer/f124bn_word_source.py'='450165b2d497d6ac0d923fcbeaccd5a29959f24c'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($f in $objects.Keys) {
+            if ((& git rev-parse ('HEAD:'+$f)).Trim() -cne $objects[$f]) { throw "BN_FROZEN_MODEL_OR_SOURCE_DRIFT:$f" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bn_learning_preuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BN_NONCONSUMING_CAUSAL_LEARNER_FAIL' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bm_preflight.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BN_BM_PROTECTED_SOURCE_REGRESSION' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BN_ISOLATION_FAIL' }
+          Write-Output 'F124BN_CAUSAL_LEARNER_SOURCEBLIND_PREFLIGHT=PASS'
+          Write-Output 'F124BN_REGISTERED_NEW_FIT_CONSUMED=0'
+  github-immutable-original-births:
+    needs: cross-platform-original-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently check GitHub's immutable learner-first/source-after custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bn"
+          python3 -B research/north-star-transfer/f124bn_source_witness.py \
+            --provider --output "$RUNNER_TEMP/f124bn/preuse-source-custody.json"
+          python3 -B - "$RUNNER_TEMP/f124bn/preuse-source-custody.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert len(d['births'])==4
+          assert d['learner_source_born_before_both_evaluation_sources']
+          assert d['GitHub_provider_object_witnessed']
+          assert d['original_fit_constructed']==0
+          assert d['protected_holdouts_constructed']==0
+          assert not d['independent_external_source_novelty_certified']
+          print('F124BN_GITHUB_MODEL_BEFORE_BOTH_SOURCE_BIRTHS=PASS')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bn-nonconsuming-authenticated-source-birth-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bn/
+          retention-days: 90
+          if-no-files-found: error
+  one-final-integration-regression:
+    needs: github-immutable-original-births
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One entire Go test, vet, build, no source first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bn"
+          sha256sum research/north-star-transfer/f124bn-frozen-causal-learning.json \
+            research/north-star-transfer/f124bn_learned_causal.py \
+            research/north-star-transfer/f124bn_mix_source.py \
+            research/north-star-transfer/f124bn_word_source.py \
+            research/north-star-transfer/f124bn_dev_eval.py \
+            research/north-star-transfer/f124bn_source_witness.py \
+            .github/workflows/forge-f124bn-preuse.yml \
+            .github/workflows/forge-f124bn-firstuse.yml \
+            > "$RUNNER_TEMP/f124bn/exact-source.sha256"
+          printf 'EXACT_SHA=%s\nMODEL_FROZEN_BEFORE_NEW_SOURCE_BIRTH=true\nFIT_FIRST_USE=false\nBN_AND_BH_HOLDOUT_USED=false\nEXTERNAL_ORIGINALITY=false\nSCIENTIFIC_ACCEPTANCE=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bn/preuse-disposition.txt"
+          echo F124BN_PREUSE_FINAL_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bn-original-model-frozen-integration-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bn/
+          retention-days: 90
+          if-no-files-found: error
