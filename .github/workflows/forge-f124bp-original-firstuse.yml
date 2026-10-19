@@ -1,0 +1,109 @@
+name: F124-BP guarded once-only new nonlinear composition development FIT
+on:
+  push:
+    branches: [research/f124bp-original-firstuse-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bp-single-original-development-FIT
+  cancel-in-progress: false
+jobs:
+  source-qualified-first-and-only-authentication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact source head, provider authenticated preuse, first-run no-retry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/research/f124bp-new-composition-sources-20261019" > "$RUNNER_TEMP/qualified-source-ref.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bp-new-composition-sources-20261019&per_page=60" > "$RUNNER_TEMP/preuse-runs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bp-original-firstuse-20261019&per_page=80" > "$RUNNER_TEMP/firstuse-attempts.json"
+          python3 -B - "$RUNNER_TEMP" <<'PY'
+          import json,pathlib,sys,os
+          p=pathlib.Path(sys.argv[1]); sha=os.environ['GITHUB_SHA']
+          ref=json.loads((p/'qualified-source-ref.json').read_text())
+          first=json.loads((p/'firstuse-attempts.json').read_text())['workflow_runs']
+          pre=json.loads((p/'preuse-runs.json').read_text())['workflow_runs']
+          assert ref['object']['sha']==sha, 'BP_PREQUALIFIED_SOURCE_MUTATED'
+          same=[run for run in first
+                if run['path']=='.github/workflows/forge-f124bp-original-firstuse.yml'
+                and run['event']=='push']
+          assert len(same)==1 and same[0]['id']==int(os.environ['GITHUB_RUN_ID'])
+          valid=[run for run in pre
+                 if run['path']=='.github/workflows/forge-f124bp-original-preuse.yml'
+                 and run['head_sha']==sha and run['status']=='completed'
+                 and run['conclusion']=='success']
+          assert valid, 'BP_NO_EXACT_SHA_PROVIDER_ORIGINAL_SOURCE_QUALIFICATION'
+          print('F124BP_ORIGINAL_FIRSTUSE_AUTHENTICATED_SINGLETON=PASS')
+          PY
+          python3 -B research/north-star-transfer/f124bp_source_witness.py \
+            --provider --output "$RUNNER_TEMP/bp-last-source-birth-before-firstuse.json"
+  native-causal-composition-original-new-FIT:
+    needs: source-qualified-first-and-only-authentication
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Consume only 12 procedural and 12 feedback brand-new FIT cases once; append each arm receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bp-firstuse"
+          python3 -B research/north-star-transfer/f124bp_fit_eval.py \
+            --output "$RUNNER_TEMP/f124bp-firstuse/aggregated-original-FIT.json"
+      - name: Verify frozen result without model calibration or science promotion
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bp-firstuse"
+          python3 -B - "$root/aggregated-original-FIT.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))['summary']
+          assert r['cases']==24 and r['arm_records']==48
+          for flag in ('prior_BM_BN_BO_cases_used','original_192_TRAIN_replayed',
+                       'BO_BP_protected_and_prior_BH_U_R_used',
+                       'external_thirdparty_source_novelty_certified',
+                       'full_scientific_resource_parity_certified',
+                       'science_accepted','optimizer_policy_promoted'):
+              assert r[flag] is False, flag
+          for family in ('procedural','feedback'):
+              q=r['results'][family]
+              assert q['pair_count']==12
+              print('F124BP_'+family+'_CORRECT_PAIRS='+str(q['compact_correct_pairs']))
+              print('F124BP_'+family+'_HARD_FP='+str(len(q['compact_hard_false_positive_ids'])))
+              print('F124BP_'+family+'_LOST_BASELINE_POS='+str(len(q['baseline_positive_lost_ids'])))
+              print('F124BP_'+family+'_COST_NONREGRESSION='+str(q['resource_parity_every_case']))
+              print('F124BP_'+family+'_FROZEN_FIT_ADMISSION='+str(q['frozen_FIT_admissible']))
+          print('F124BP_JOINT_FROZEN_FIT='+str(r['preregistered_joint_FIT_admissible']))
+          print('F124BP_PROTECTED_SCIENCE_ADMISSION=false')
+          PY
+          (cd "$root" && sha256sum ./*.json > firstuse-sha256.txt && sha256sum -c firstuse-sha256.txt)
+      - name: Seal immutable original/partial receipts even after an exception; no retries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124bp-original-public-24-case-firstuse-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bp-firstuse/
+          retention-days: 90
+          if-no-files-found: warn
