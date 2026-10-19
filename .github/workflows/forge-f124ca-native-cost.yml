@@ -1,0 +1,114 @@
+name: F124-CA full trained control native CPU RSS original observation
+on:
+  push:
+    branches: [research/f124ca-trained-binding-parity-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124ca-original-50-process-one-engineering-trial
+  cancel-in-progress: false
+jobs:
+  original-five-arm-matched-native-process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      admitted: ${{ steps.screen.outputs.admitted }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require frozen originals and prohibit any prior science source change
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor aa9ba5f0e8d8e9d8e7db03936adfc05f6d7de87f HEAD
+          git merge-base --is-ancestor 4ac1bc40f515b01ec9e548b4531ecff2224a573c HEAD
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bz_binding_candidate.py)" = 8f24a4aab3e880d7ba5f89a2af6ab210912d865c
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bx_learned_flag.py)" = 74b907aba821678d5f8a59b06f85f5e87cb05002
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bq_program_learner.py)" = 91ad02a4f3893e3537dddc2390666e3c2d2db5d1
+          test "$(git rev-parse HEAD:nativeevidence/f124az_joint_public_inverse.py)" = 0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7
+          test "$(git rev-parse HEAD:nativeevidence/f124ag_transition_models.py)" = 94d2ae8266da792d254ac54baf3056bbd9b49412
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124by-frozen-panel.json)" = d546a7cfd9aee45ddbad18bba099ad8ceb5b4a55
+          mapfile -t changed < <(git diff --name-only 4ac1bc40f515b01ec9e548b4531ecff2224a573c HEAD | sort)
+          test "${#changed[@]}" -eq 7
+          expected=(
+            '.github/workflows/forge-f124ca-native-cost.yml'
+            '.github/workflows/forge-f124ca-trained.yml'
+            'research/north-star-transfer/f124ca-frozen-strong-trained-control.json'
+            'research/north-star-transfer/f124ca_complete_os_cost.py'
+            'research/north-star-transfer/f124ca_nonregistered_binding.py'
+            'research/north-star-transfer/f124ca_trained_symbol_control.py'
+            'research/north-star-transfer/test_f124ca_trained_comparator.py'
+          )
+          test "${changed[*]}" = "${expected[*]}"
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124ca_trained_comparator.py -v
+          python3 -B isolationguard/check.py
+          echo F124CA_ALL_PRIOR_SCIENCE_AND_TRAINED_MODEL_BLOBS_UNCHANGED=PASS
+      - name: First source-neutral natural-native witness and all 50 whole OS process original samples
+        id: screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f124ca-original-provider"
+          python3 -B research/north-star-transfer/f124ca_complete_os_cost.py \
+            --out "$RUNNER_TEMP/f124ca-original-provider/full-50-native-original.json"
+          python3 -B - "$RUNNER_TEMP/f124ca-original-provider/full-50-native-original.json" "$GITHUB_OUTPUT" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['schema']=='mass.f124ca.complete-original-five-trained-arms.v1'
+          assert len(d['preflight_raw_original_10'])==10
+          assert len(d['full_OS_process_original_50'])==50
+          assert len(d['cases'])==2
+          assert d['newly_independent_original_sources_authenticated'] is False
+          assert d['reserved_development_FIT_firstuse'] is False
+          assert d['protected_cohorts_consumed'] is False
+          assert d['science_accepted'] is False
+          assert d['optimizer_promoted'] is False
+          ok=d['all_source_neutral_equal_training_resource_eligible']
+          with open(sys.argv[2],'a') as f:f.write('admitted='+str(ok).lower()+'\n')
+          print('F124CA_ALL_FIFTY_REAL_OS_PROCESS_SOURCEBOUND_RECEIPTS=PASS')
+          print('F124CA_EQUAL_TRAINED_ORIGINAL_NATIVE_RESOURCE_PARITY='+str(ok))
+          print('F124CA_SCIENTIFIC_ADMISSION=false')
+          PY
+          (cd "$RUNNER_TEMP/f124ca-original-provider" && sha256sum full-50-native-original.json > source-bound-original.sha256 && sha256sum -c source-bound-original.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124ca-original-five-trained-arms-50-os-processes-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ca-original-provider/
+          if-no-files-found: warn
+          retention-days: 90
+  one-full-Go-regression-only-if-complete-source-neutral-parity:
+    needs: original-five-arm-matched-native-process
+    if: needs.original-five-arm-matched-native-process.outputs.admitted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete Go test vet build after original whole-source resource pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124CA_ONE_FINAL_GO_REGRESSION_PASS
+          echo F124CA_PROTECTED_SOURCE_FIRSTUSE=false
