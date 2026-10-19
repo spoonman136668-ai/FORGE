@@ -168,7 +168,7 @@ class R27FailClosed(unittest.TestCase):
 
     def test_no_eligible_candidates_performs_no_write(self):
         f = Ready()
-        f.pages["/pulls?state=open&per_page=100"] = []
+        f.pages["/pulls?state=open&per_page=20"] = []
         r = run(f)
         self.assertEqual(r["Count"], 0)
         self.assertFalse(r["MergeAuthorized"])
@@ -178,13 +178,13 @@ class R27FailClosed(unittest.TestCase):
     def test_open_pr_overflow_is_fail_closed(self):
         from fsa_source_audit import Blocked
         f = Ready()
-        f.pages["/pulls?state=open&per_page=100"] = [f.candidate] * 100
+        f.pages["/pulls?state=open&per_page=20"] = [f.candidate] * 20
         with self.assertRaises(Blocked):
             run(f)
 
     def test_stale_base_in_open_pr_is_denied_not_promoted(self):
         f = Ready()
-        f.pages["/pulls?state=open&per_page=100"] = [f.candidate]
+        f.pages["/pulls?state=open&per_page=20"] = [f.candidate]
         f.pages["/pulls/311"]["base"]["sha"] = "c" * 40
         r = run(f)
         self.assertEqual(r["Count"], 1)

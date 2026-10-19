@@ -22,6 +22,8 @@ RULESET = 25031517
 APP_ID = 15368
 PUBLIC = ".github/workflows/qualify.yml"
 FSA = ".github/workflows/qualify-fsa-source.yml"
+PR_PAGE_SIZE = 20  # Bound GitHub JSON responses without omitting eligible PRs.
+MAX_OPEN_PRS = 1000  # Preserve the existing census ceiling, not a sample.
 
 
 class Blocked(Exception):
@@ -73,11 +75,11 @@ class GitHub:
                                "/repositories/1413298198/pulls"),
                            "UNTRUSTED_PAGINATION_NEXT_ROUTE")
                     expect(old.get("state") == ["open"] and
-                           old.get("per_page") == ["100"] and
+                           old.get("per_page") == [str(PR_PAGE_SIZE)] and
                            set(old).issubset({"state", "per_page", "page"}),
                            "UNTRUSTED_PAGINATION_OLD_QUERY")
                     expect(new.get("state") == ["open"] and
-                           new.get("per_page") == ["100"] and
+                           new.get("per_page") == [str(PR_PAGE_SIZE)] and
                            set(new) == {"state", "per_page", "page"},
                            "UNTRUSTED_PAGINATION_NEXT_QUERY")
                     expect(new["page"] ==
@@ -92,7 +94,7 @@ class GitHub:
 
     def get_page(self, path):
         # Keep all non-inventory endpoint pagination denial unchanged.
-        if not re.fullmatch(r"/pulls\?state=open&per_page=100(?:&page=[1-9][0-9]*)?", path):
+        if not re.fullmatch(rf"/pulls\?state=open&per_page={PR_PAGE_SIZE}(?:&page=[1-9][0-9]*)?", path):
             raise Blocked("UNSAFE_OPEN_PR_PAGINATION")
         return self._read_http(path, allow_next=True)
 
@@ -122,12 +124,12 @@ def list_open_prs(g):
     Missing, duplicated, truncated or unbounded pages always fail closed.
     """
     result, seen = [], set()
-    for page in range(1, 11):  # at most 1000 open PRs
-        path = "/pulls?state=open&per_page=100"
+    for page in range(1, MAX_OPEN_PRS // PR_PAGE_SIZE + 1):  # complete bounded census
+        path = f"/pulls?state=open&per_page={PR_PAGE_SIZE}"
         if page > 1:
             path += "&page=" + str(page)
         rows, has_next = g.get_page(path)
-        expect(isinstance(rows, list) and len(rows) <= 100 and
+        expect(isinstance(rows, list) and len(rows) <= PR_PAGE_SIZE and
                (page == 1 or len(rows) > 0),
                "MISSING_OR_UNBOUNDED_GITHUB_PAGE")
         for item in rows:
@@ -139,7 +141,7 @@ def list_open_prs(g):
         result.extend(rows)
         if not has_next:
             return result
-        expect(len(rows) == 100, "INCOMPLETE_OPEN_PR_PAGINATION")
+        expect(len(rows) == PR_PAGE_SIZE, "INCOMPLETE_OPEN_PR_PAGINATION")
     raise Blocked("OPEN_PR_PAGE_BOUND_EXCEEDED")
 
 def current_main(g):
