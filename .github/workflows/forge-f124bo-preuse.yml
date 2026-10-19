@@ -1,0 +1,151 @@
+name: F124-BO frozen nonlinear-confidence mechanism and independent source preflight
+on:
+  push:
+    branches: [research/f124bo-nonlinear-confidence-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bo-before-firstuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-nonconsuming:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen exact-source, synthetic-only nonlinear learning and heldout denial
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BO_EXACT_HEAD' }
+          & git merge-base --is-ancestor 6958d6c4838e37e8431d0d078abdab84d7fda1b2 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BO_BN_NEGATIVE_DRIFT' }
+          $expected=@(
+            '.github/workflows/forge-f124bo-preuse.yml',
+            '.github/workflows/forge-f124bo-firstuse.yml',
+            'research/north-star-transfer/f124bo-freeze.json',
+            'research/north-star-transfer/f124bo_nonlinear_learner.py',
+            'research/north-star-transfer/f124bo_mod_source.py',
+            'research/north-star-transfer/f124bo_feistel_source.py',
+            'research/north-star-transfer/f124bo_source_witness.py',
+            'research/north-star-transfer/f124bo_fit_eval.py',
+            'research/north-star-transfer/test_f124bo_nonlinear_preorigin.py',
+            'research/north-star-transfer/test_f124bo_source_preuse.py'
+          )
+          $changed=@(& git diff --name-only 6958d6c4838e37e8431d0d078abdab84d7fda1b2 HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($expected|Sort-Object) -join '|')) { throw 'BO_UNFROZEN_CHANGE_SCOPE' }
+          $objects=@{
+            'research/north-star-transfer/f124bo-freeze.json'='acc26b376bb006ab36e2dd77b2c3e46eaf335d38'
+            'research/north-star-transfer/f124bo_nonlinear_learner.py'='fe1229770fa76185779678fc6155f87d28415cef'
+            'research/north-star-transfer/f124bo_mod_source.py'='4c037f55e220b22783d89e3e566b951e0eff618e'
+            'research/north-star-transfer/f124bo_feistel_source.py'='b934ce6962dc9a1526d82dbdc2736d210f2db57d'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($p in $objects.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $objects[$p]) { throw "BO_FROZEN_ORIGINAL_BLOB_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bo_nonlinear_preorigin.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BO_NONLINEAR_SYNTHETIC_TESTS' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bo_source_preuse.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BO_SOURCE_BIRTH_NEGATIVE_TESTS' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BO_REPOSITORY_ISOLATION' }
+          Write-Output 'F124BO_NONLINEAR_LEARNER_AND_SOURCE_PREFLIGHT=PASS'
+          Write-Output 'F124BO_PROSPECTIVE_CASES_CONSUMED=0'
+  original-provider-source-identity:
+    needs: focused-nonconsuming
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate frozen protocol, learner-before-source and independently born original GitHub objects
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bo"
+          python3 -B research/north-star-transfer/f124bo_source_witness.py \
+            --provider --output "$RUNNER_TEMP/f124bo/independent-provider-source-birth.json"
+          python3 -B - "$RUNNER_TEMP/f124bo/independent-provider-source-birth.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['source_GitHub_provider_authenticated'] is True
+          assert x['source_birth_after_frozen_learner'] is True
+          assert len(x['original_births'])==4
+          assert x['registered_FIT_cases_constructed']==0
+          assert x['protected_U_R_and_new_holdouts_constructed']==0
+          assert x['independent_external_thirdparty_origin_certified'] is False
+          print('F124BO_ORIGINAL_SOURCE_PROVIDER_BIRTH=PASS')
+          PY
+          sha256sum "$RUNNER_TEMP/f124bo/independent-provider-source-birth.json" > "$RUNNER_TEMP/f124bo/birth.sha256"
+          (cd "$RUNNER_TEMP/f124bo" && sha256sum --check birth.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bo-original-source-before-firstuse-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bo/
+          retention-days: 90
+          if-no-files-found: error
+  one-full-integration:
+    needs: original-provider-source-identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Single full Go regression, vet, build and SHA source seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bo"
+          sha256sum research/north-star-transfer/f124bo-freeze.json \
+            research/north-star-transfer/f124bo_nonlinear_learner.py \
+            research/north-star-transfer/f124bo_mod_source.py \
+            research/north-star-transfer/f124bo_feistel_source.py \
+            research/north-star-transfer/f124bo_fit_eval.py \
+            research/north-star-transfer/f124bo_source_witness.py \
+            .github/workflows/forge-f124bo-preuse.yml \
+            .github/workflows/forge-f124bo-firstuse.yml \
+            > "$RUNNER_TEMP/f124bo/source-sha256.txt"
+          printf 'EXACT_HEAD=%s\nORIGINAL_SOURCE_BEFORE_ANY_FIT=true\nOLD_BM_BN_TRAIN_REPLAY=false\nBO_HOLDOUT_FIRSTUSE=false\nEXTERNAL_ORIGINALITY_CERTIFIED=false\nSCIENCE_ACCEPTED=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bo/prior-to-firstuse.txt"
+          echo F124BO_FINAL_PREUSE_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bo-exact-head-integrated-preuse-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bo/
+          retention-days: 90
+          if-no-files-found: error
