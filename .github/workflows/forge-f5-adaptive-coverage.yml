@@ -1,0 +1,172 @@
+name: FORGE F5 history-only adaptive sensing qualification
+on:
+  push:
+    branches: [engineering/f5-native-coverage-r1]
+    paths:
+      - 'research/f5_native_coverage/**'
+      - 'f5custody/**'
+      - 'cmd/forge-f5-firstuse-audit/**'
+      - '.github/workflows/forge-f5-adaptive-coverage.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/f5_native_coverage/**'
+      - 'f5custody/**'
+      - 'cmd/forge-f5-firstuse-audit/**'
+      - '.github/workflows/forge-f5-adaptive-coverage.yml'
+permissions:
+  contents: read
+jobs:
+  independent-policy-contract:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Qualify signed custody rejection and source-content lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/f5_native_coverage -p 'test_*.py' -v
+          python -B research/f5_native_coverage/verify_source_lock.py --repo-root . --out "$RUNNER_TEMP/f5-source-content-review.json"
+          go test ./f5custody ./cmd/forge-f5-firstuse-audit -count=1 -v
+          if go run ./cmd/forge-f5-firstuse-audit; then
+            echo "UNSIGNED_EMPTY_CUSTODY_WRONGLY_ACCEPTED"
+            exit 1
+          fi
+          python -B -m compileall -q research/f5_native_coverage
+          echo F5_PUBLIC_ONLY_MEMORIED_ADAPTATION_TESTS=PASS
+          echo F5_SIGNED_ALL_LANE_CUSTODY_NEGATIVE_ENFORCEMENT=PASS
+          echo F5_SOURCE_CONTENT_PIN=PASS
+          echo F5_SCIENTIFIC_SOURCE_FREEZE=BLOCKED_NO_AUTHENTICATED_COHORT
+          echo F5_PROSPECTIVE_FIRST_USE=ZERO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f5-source-content-audit-${{ matrix.os }}
+          path: ${{ runner.temp }}/f5-source-content-review.json
+          if-no-files-found: error
+          retention-days: 90
+  pinned-real-history:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute F5 public adaptive sensing ONLY on previously used F3 development data
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f5_native_coverage/coverage_geometry.py > "$RUNNER_TEMP/f5-geometry.json"
+          python -B - "$RUNNER_TEMP/f5-geometry.json" <<'PY'
+          import json,sys
+          m=json.load(open(sys.argv[1]))
+          assert m["optimal_offsets"]==[0,1,4,6]
+          assert m["optimal"]["worst_pair_exposure"]==7
+          assert m["baseline"]["worst_pair_exposure"]==5
+          assert m["enumerated_offset_patterns"]==286
+          assert m["nonanchor_pair_count"]==91
+          assert m["new_first_use_claims"]==0
+          assert m["prospective_scientific_execution_authorized"] is False
+          print("F5_FULL_NONORACLE_MINIMAX_COVERAGE=PASS")
+          PY
+          python -B research/f5_native_coverage/run_historical.py --source-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f5-historical-evidence.json"
+          python -B research/f5_native_coverage/verify_historical.py --record "$RUNNER_TEMP/f5-historical-evidence.json" --source-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f5-historical-witness.json"
+          python -B - "$RUNNER_TEMP/f5-historical-evidence.json" "$RUNNER_TEMP/f5-historical-witness.json" <<'PY'
+          import json,sys,copy
+          sys.path.insert(0,"research/f5_native_coverage")
+          from verify_historical import replay
+          r=json.load(open(sys.argv[1]))
+          w=json.load(open(sys.argv[2]))
+          assert w["status"]=="HISTORICAL_SOURCE_REPLAY_ONLY_NO_NEW_FIRST_USE"
+          assert w["replayed_records"]==768
+          assert not w["scientific_authority"]
+          assert not r["scientific_winner_selected"]
+          assert r["new_f5_dev_cohort_accesses"]==0
+          assert r["new_f5_sealed_cohort_accesses"]==0
+          assert r["first_use_claims_consumed"]==0
+          forged=copy.deepcopy(r)
+          forged["records"][0]["pre_mismatch"]+=1
+          try:replay(forged,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F5_METRIC_TAMPER_ACCEPTED")
+          altered=copy.deepcopy(r)
+          altered["records"][0]["sample_trace"]["addresses"][3]=[8,11]
+          try:replay(altered,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F5_HIDDEN_SENSOR_TAMPER_ACCEPTED")
+          injected=copy.deepcopy(r)
+          injected["historical_seeds"][-1]=67640
+          try:replay(injected,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F5_FRESH_SEED_ACCEPTED")
+          print("F5_ACTUAL_PUBLIC_READ_REPLAY_AND_NEGATIVE_ENFORCEMENT=PASS")
+          print("F5_FIRST_USE=ZERO")
+          PY
+      - name: Autonomously prepare independently reviewed successor from actual source replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/f5_native_coverage/auto_successor.py \
+            --record "$RUNNER_TEMP/f5-historical-evidence.json" \
+            --witness "$RUNNER_TEMP/f5-historical-witness.json" \
+            --geometry "$RUNNER_TEMP/f5-geometry.json" \
+            --options research/f5_native_coverage/successor_options.json \
+            --out "$RUNNER_TEMP/f5-automatic-successor.json"
+          python -B research/f5_native_coverage/verify_auto_successor.py \
+            --proposal "$RUNNER_TEMP/f5-automatic-successor.json" \
+            --record "$RUNNER_TEMP/f5-historical-evidence.json" \
+            --witness "$RUNNER_TEMP/f5-historical-witness.json" \
+            --geometry "$RUNNER_TEMP/f5-geometry.json" \
+            --options research/f5_native_coverage/successor_options.json \
+            --out "$RUNNER_TEMP/f5-automatic-successor-review.json"
+          python -B - "$RUNNER_TEMP/f5-automatic-successor.json" "$RUNNER_TEMP/f5-automatic-successor-review.json" <<'PY'
+          import json,sys
+          s=json.load(open(sys.argv[1]))
+          review=json.load(open(sys.argv[2]))
+          assert s["disposition"]=="SUCCESSOR_PREPARED_CUSTODY_BLOCKED_NO_ORIGINAL"
+          assert review["status"]=="PROPOSAL_HONESTLY_PREPARED_NO_ORIGINAL_AUTHORITY"
+          assert review["selected_id"]==s["selected"]["proposal_id"]
+          assert s["scientific_dispatch_authorized"] is False
+          assert s["new_scientific_originals"]==0 and s["new_first_use_claims"]==0
+          assert s["new_seed_allocations"]==0 and s["paid_api_calls"]==0
+          assert s["not_a_scientific_winner"] is True
+          print("F5_EVIDENCE_TO_SUCCESSOR_NO_MANUAL_HANDOFF=PASS")
+          print("F5_SCIENCE_AUTHORITY_AND_FIRST_USE=ZERO")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f5-historical-public-sensor-adaptation-evidence
+          path: |
+            ${{ runner.temp }}/f5-historical-evidence.json
+            ${{ runner.temp }}/f5-historical-witness.json
+            ${{ runner.temp }}/f5-geometry.json
+            ${{ runner.temp }}/f5-automatic-successor.json
+            ${{ runner.temp }}/f5-automatic-successor-review.json
+          if-no-files-found: error
+          retention-days: 90
