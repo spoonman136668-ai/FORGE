@@ -1,0 +1,113 @@
+name: F124-CF original signed external source provider read-only gate
+on:
+  push:
+    branches: [research/f124cf-original-provider-signature-custody-20261019]
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: f124cf-original-provider-readonly-no-firstuse
+  cancel-in-progress: false
+jobs:
+  static-original-signer-and-no-firstuse-adversarial:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read-only source commit, existing models unchanged and precode sealed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='3ea809a45d81e735c46cae68c4c83a0a70fb1bce'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CF_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CF_OLD_CE_PROTOCOL_MISSING' }
+          & git merge-base --is-ancestor 5cee1c92776a3be54c437abe292d69e44eb9b022 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CF_PRECODE_SIGNED_PROVIDER_POLICY_MISSING' }
+          $expected=@(
+             '.github/workflows/forge-f124cf-source-provider.yml',
+             'research/north-star-transfer/f124cf-frozen-provider-authentication.json',
+             'research/north-star-transfer/f124cf_original_provider_verify.py',
+             'research/north-star-transfer/test_f124cf_original_provider_verify.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD | Where-Object { $_ })
+          if ((@($actual|Sort-Object) -join '|') -cne (@($expected|Sort-Object) -join '|')) { throw 'CF_NOT_SOURCE_READONLY_ONLY' }
+          $original=@{
+            'research/north-star-transfer/f124ce-frozen-CB-CC-independent-science.json'='df770890b0131e259ce30012ae9c599ca15bbfab'
+            'research/north-star-transfer/f124ce_source_readiness.py'='a8174e00eb719dcde901926b20e3bbb69fd4ae0f'
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'research/north-star-transfer/f124cb_dual_link_learner.py'='8a10bf8cec12afc7d8703e3586d8eba91ebfdc7c'
+            'research/north-star-transfer/f124cc_trained_two_link_control.py'='29c0c02f54ea539bed0910fe82adcc86d3aff94d'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($path in $original.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $original[$path]) { throw "CF_PROTECTED_ORIGINAL_SOURCE_DRIFT:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124cf_original_provider_verify.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CF_SIGNED_PROVIDER_SOURCE_CUSTODY_STATIC_TESTS' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CF_NO_FIRSTUSE_GOVERNANCE' }
+          Write-Output 'F124CF_GIT_SIGNATURE_TREE_BLOB_ADVERSARIAL_TESTS=PASS'
+          Write-Output 'F124CF_ORIGINAL_CB_CC_BV_SOURCE_FROZEN=PASS'
+          Write-Output 'F124CF_NO_EXTERNAL_ORACLE_EXECUTION=PASS'
+          Write-Output 'F124CF_FIRSTUSE=0'
+  actual-original-GitHub-provider-custody:
+    needs: static-original-signer-and-no-firstuse-adversarial
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fetch REAL GitHub issue #605 and conditionally signed C/D original blobs without any source execution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          dir="$RUNNER_TEMP/f124cf-original-readonly-provider"
+          mkdir -p "$dir"
+          python3 -B research/north-star-transfer/f124cf_original_provider_verify.py --out "$dir/original-provider-only-status.json"
+          python3 -B - "$dir/original-provider-only-status.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['schema']=='mass.f124cf.live-source-provider-readiness.v1'
+          assert x['frozen_CB_CC_protocol_blob']=='df770890b0131e259ce30012ae9c599ca15bbfab'
+          assert x['status'].startswith('BLOCKED_') or x['status']=='SOURCE_CUSTODY_ONLY_PENDING_INDEPENDENT_NOVELTY_AUTHORSHIP_CHRONOLOGY'
+          assert x['science_firstuse_cases_created']==0
+          assert x['protected_replication_cases_opened']==0
+          assert not x['source_and_oracle_executed']
+          assert not x['CB_CC_models_executed']
+          assert not x['scientific_accepted']
+          assert not x['optimizer_production_promoted']
+          assert not x['scientific_novelty_proven']
+          if x['original_external_reference_count']!=2:
+              assert x['status'].startswith('BLOCKED_')
+              assert not x['source_custody_qualified']
+          print('F124CF_ORIGINAL_SOURCE_COUNT='+str(x['original_external_reference_count']))
+          print('F124CF_SOURCE_PROVIDER_ONLY_DISPOSITION='+x['status'])
+          print('F124CF_SCIENTIFIC_SOURCE_FIRSTUSE=0')
+          print('F124CF_ZERO_MODEL_OR_ORACLE_EXECUTION=PASS')
+          PY
+          (cd "$dir" && sha256sum original-provider-only-status.json > source-only.sha256 && sha256sum -c source-only.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124cf-original-signed-external-source-custody-${{ github.sha }}
+          path: ${{ runner.temp }}/f124cf-original-readonly-provider/
+          retention-days: 90
+          if-no-files-found: error
