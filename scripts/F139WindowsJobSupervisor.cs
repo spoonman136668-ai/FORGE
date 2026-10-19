@@ -91,6 +91,10 @@ public static class F139WindowsJobSupervisor
         IntPtr procAttrs, IntPtr threadAttrs, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
         uint flags, IntPtr environment, string cwd, ref STARTUPINFO startup, out PROCESS_INFORMATION info);
     [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WriteFile(IntPtr handle, byte[] buffer, uint length,
+        out uint written, IntPtr overlapped);
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
@@ -177,8 +181,14 @@ public static class F139WindowsJobSupervisor
             assigned = true;
             Require(ResumeThread(process.hThread) != 0xFFFFFFFF,
                 "F139_JOB_CHILD_RESUME_FAILED");
-            File.AppendAllText(logPath, DateTimeOffset.UtcNow.ToString("o") +
-                " F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS\n", Encoding.UTF8);
+            // Write through the already-open inherited append handle. Opening a
+            // second File.AppendAllText handle on Windows fails sharing checks.
+            var markerBytes = Encoding.UTF8.GetBytes(DateTimeOffset.UtcNow.ToString("o") +
+                " F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS\n");
+            uint markerWritten;
+            Require(WriteFile(logHandle, markerBytes, (uint)markerBytes.Length,
+                out markerWritten, IntPtr.Zero) && markerWritten == (uint)markerBytes.Length,
+                "F139_JOB_APPEND_LOG_MARKER_FAILED");
             Require(WaitForSingleObject(process.hProcess, INFINITE) == WAIT_OBJECT_0,
                 "F139_JOB_CHILD_WAIT_FAILED");
             uint code;
