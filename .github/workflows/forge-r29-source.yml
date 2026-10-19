@@ -1,0 +1,32 @@
+name: FORGE R29 source-only scientific qualification
+on:
+  push:
+    branches: [engineering/r29-verified-successor-r1]
+    paths:
+      - 'research/r29-wingless/**'
+      - '.github/workflows/forge-r29-source.yml'
+permissions:
+  contents: read
+jobs:
+  frozen-source-review:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independent frozen source and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/r29-wingless/source_only_test.py
+          python -B -m unittest discover -s research/r29-wingless -p 'test_*.py' -v
+          echo 'R29_PROSPECTIVE_LAUNCH_AUTHORIZED=FALSE'
+          echo 'R29_ORIGINAL_SCIENCE_EXECUTED=FALSE'

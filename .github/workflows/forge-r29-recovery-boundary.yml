@@ -1,0 +1,33 @@
+name: FORGE R29 recovery and succession boundary
+on:
+  push:
+    branches: [engineering/r29-verified-successor-r1]
+    paths: ['.github/workflows/forge-r29-recovery-boundary.yml']
+permissions:
+  contents: read
+jobs:
+  independent-recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Native durable succession and interrupted intent fail-closed recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 -timeout=12m -v ./cyclecontroller -run '^(TestParallelTwoLaneDurableSuccessionAndIdempotentRestart|TestCrashAfterDurableIntentIsQuarantinedWithoutNewWorker|TestAnchoredRestoreToSeparateDirectoryThenTwoMoreGenerations|TestAnchoredRestoreRejectsRollbackAndWrongHeadBeforeWorker|TestAnchoredRestoreRejectsLostHistoryEvenIfFloorPresent)$'
+      - name: Assert no scientific original execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'R29_BOUNDARY_MODE=SYNTHETIC_NON_EXECUTING'
+          echo 'R29_NEW_SCIENTIFIC_ORIGINALS=0'
