@@ -1,0 +1,61 @@
+name: F124-CT full-sequence learned relational memory qualification
+on:
+  push:
+    branches: [research/f124ct-sequence-trained-causal-memory-20261019]
+    paths:
+      - research/north-star-transfer/f124ct_*
+      - research/north-star-transfer/test_f124ct_sequence_memory.py
+      - research/north-star-transfer/f124ct-frozen-sequence-contract.json
+      - .github/workflows/forge-f124ct-sequence-learned.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124ct-sourcefree-sequence-trained-qualification
+  cancel-in-progress: false
+jobs:
+  native-sequential-engineering:
+    name: native-sequential-engineering (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install bounded CPU-only numeric dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CT_PINNED_DEPENDENCY_FAILED' }
+      - name: Frozen negative custody ancestry and unchanged candidate/control identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor 333596d39f5f8f63fdff8639e4e01f3a50ea9298 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CT_FAILED_ORIGINAL_NEGATIVE_CUSTODY_ANCESTRY' }
+          $c=Get-Content -Raw research/north-star-transfer/f124ct-frozen-sequence-contract.json | ConvertFrom-Json
+          if ($c.schema -cne 'mass.f124ct.source-free-sequence-trained-mechanisms-freeze.v1') { throw 'CT_FROZEN_MECHANISM_SCHEMA' }
+          foreach ($p in @(@($c.candidate.path,$c.candidate.git_blob),@($c.strong_independent_control.path,$c.strong_independent_control.git_blob),@($c.shared_protocol.path,$c.shared_protocol.git_blob))) {
+            $actual=(& git rev-parse "HEAD:$($p[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $p[1]) { throw "CT_SOURCE_OR_MODEL_DRIFT:$($p[0])" }
+          }
+          if ($c.scientific_claims.unfamiliar_transfer -or $c.scientific_claims.resource_nonregression -or $c.scientific_claims.learned_sequence_development_qualified -or !$c.forbidden.automatic_merge) { throw 'CT_FORBIDDEN_PREMATURE_SCIENTIFIC_AUTHORITY' }
+          Write-Host 'F124CT_EXACT_SOURCE_FREEZE_AND_NEGATIVE_RETENTION=PASS'
+      - name: Train both architectures on isolated full causal episodes (no original sources)
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124ct_sequence_memory.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CT_FULL_SEQUENCE_TRAINING_FAILED' }
+          Write-Host 'F124CT_FULL_SEQUENCE_LEARNED_MEMORY_ENGINEERING=PASS'
