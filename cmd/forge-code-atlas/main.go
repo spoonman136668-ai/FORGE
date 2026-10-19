@@ -219,9 +219,12 @@ func main(){
  pending:=flag.Bool("check-if-present",false,"validate when artifacts are present")
  write:=flag.Bool("write",false,"write derived artifacts locally")
  emit:=flag.Bool("emit-base64",false,"emit chunked exact-head artifacts")
+ g61:=flag.Bool("g61",false,"qualify exact G60 source delta without touching G29 snapshot")
+ g61Out:=flag.String("g61-out","","optional isolated directory for G61 derived navigation")
  flag.Parse()
  root,err:=rootPath();fail:=func(e error){fmt.Fprintln(os.Stderr,e);os.Exit(1)}
  if err!=nil{fail(err)}
+ if *g61{if e:=g61Run(root,*g61Out);e!=nil{fail(e)};return}
  src:=*source
  if src==""{b,e:=os.ReadFile(filepath.Join(root,jsonFile));if e==nil{var v struct{SourceCommit string `json:"source_commit"`};if e=json.Unmarshal(b,&v);e!=nil{fail(e)};src=v.SourceCommit}else{h,e:=git(root,"rev-parse","HEAD");if e!=nil{fail(e)};src=strings.TrimSpace(string(h))}}
  a,err:=build(root,src);if err!=nil{fail(err)}

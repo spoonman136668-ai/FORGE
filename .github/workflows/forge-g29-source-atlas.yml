@@ -32,17 +32,26 @@ jobs:
           set -euo pipefail
           go test ./cmd/forge-code-atlas
           go vet ./cmd/forge-code-atlas
-      - name: Verify source-bound atlas and public-only boundaries
+      - name: G61 reconcile exact G60 source delta, retain immutable G29 baseline
         shell: bash
         run: |
           set -euo pipefail
-          go run ./cmd/forge-code-atlas --check-if-present
-      - name: Emit exact source index for durable snapshot (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+          go run ./cmd/forge-code-atlas --g61 --g61-out "$RUNNER_TEMP/G61"
+      - name: Verify source navigator output stays runner-private
         shell: bash
         run: |
           set -euo pipefail
-          go run ./cmd/forge-code-atlas --emit-base64
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "G61"
+          proof = json.loads((p/"G61_DELTA_PROVENANCE.json").read_text(encoding="utf-8"))
+          atlas = json.loads((p/"G61_SOURCE_ATLAS.json").read_text(encoding="utf-8"))
+          assert (proof["exact_blob_reused"],proof["modified_files"],proof["added_files"],proof["csharp_files"]) == (747,16,20,1)
+          assert atlas["counts"]["files"] == 783
+          assert any(s["file"]=="scripts/F139WindowsJobSupervisor.cs" and s["name"]=="F139WindowsJobSupervisor" and s["evidence_basis"]=="lexical-locator-only" for s in atlas["symbols"])
+          assert (p/"G61_SOURCE_ATLAS.html").stat().st_size > 1000
+          print("FORGE_G61_NAVIGATION_EVIDENCE_PASS")
+          PY
       - name: Clean checkout
         shell: bash
         run: |
