@@ -1,0 +1,54 @@
+name: F124-CN prebirth independent causal-trajectory engineering
+on:
+  push:
+    branches: [research/f124cn-causal-trajectory-prebirth-20261019]
+    paths:
+      - research/north-star-transfer/f124cn-*
+      - research/north-star-transfer/f124cn_*
+      - research/north-star-transfer/test_f124cn_prebirth.py
+      - research/north-star-transfer/test_f124cn_resource_prebirth.py
+      - .github/workflows/forge-f124cn-prebirth.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124cn-prebirth-engineering-only
+  cancel-in-progress: false
+jobs:
+  prebirth:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen origin model identity and prebirth authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $c = Get-Content -Raw research/north-star-transfer/f124cn-frozen-prospective-plan.json | ConvertFrom-Json
+          if ($c.schema -cne 'mass.f124cn.prospective-causal-trajectory-prebirth.v1') { throw 'CN_FREEZE_SCHEMA' }
+          if ($c.authority.development_firstuse_authorized -or $c.authority.protected_firstuse_authorized -or $c.authority.scientific_acceptance -or $c.authority.automatic_merge) { throw 'CN_BIRTH_OR_ACCEPTANCE_UNAUTHORIZED' }
+          $ref = 'c956013ff7d7adbab99e66f22a54593581b8a0bc'
+          & git merge-base --is-ancestor $ref HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CN_FROZEN_PREBIRTH_ANCESTOR_MISSING' }
+          $candidate = (& git rev-parse 'HEAD:research/north-star-transfer/f124cm_learned_online_state.py').Trim()
+          $control = (& git rev-parse 'HEAD:research/north-star-transfer/f124cm_trained_relational_control.py').Trim()
+          if ($candidate -cne $c.candidate.blob_sha -or $control -cne $c.trained_control.blob_sha) { throw 'CN_LEARNED_IDENTITY_DRIFT' }
+          Write-Host 'F124CN_MODELS_AND_FROZEN_PREBIRTH_AUTHORITY=PASS'
+      - name: No original science first use; source-blind engineering suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cn_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CN_ENGINEERING_TEST_FAILED' }
+          python -B research/north-star-transfer/test_f124cn_resource_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CN_RESOURCE_TEST_FAILED' }
+          Write-Host 'F124CN_SOURCE_NEUTRAL_ENGINEERING=PASS'
