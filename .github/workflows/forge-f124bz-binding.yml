@@ -1,0 +1,93 @@
+name: F124-BZ strong-trained binding source-neutral mechanism
+on:
+  push:
+    branches: [research/f124bz-strong-trained-transfer-contract-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bz-one-candidate-crossplatform-no-external-firstuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  bounded-binding-sourceblind-mechanism:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require original BY evidence, BX trained control and BV source provenance unchanged
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='2b6250dbea6f39c848270f2cbbab2c8743e9930f'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BZ_EXACT_SOURCE_DRIFT' }
+          & git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BZ_BY_ORIGINAL_SOURCE_PARENT_CHANGED' }
+          & git merge-base --is-ancestor 9f0f8fe7d67ca8b774f7359dee5fcf568bbcbbee HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BZ_TRAINED_COMPETITOR_PRECODE_MISSING' }
+          & git merge-base --is-ancestor 3c20df4862e106fc219d407a468e06ff68d238b0 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BZ_BINDING_HYPOTHESIS_NOT_FROZEN' }
+          $allowed=@(
+            '.github/workflows/forge-f124bz-binding.yml',
+            'research/north-star-transfer/f124bz-frozen-trained-transfer.json',
+            'research/north-star-transfer/f124bz-frozen-binding-hypothesis.json',
+            'research/north-star-transfer/f124bz_binding_candidate.py',
+            'research/north-star-transfer/test_f124bz_binding_candidate.py'
+          )
+          $changed=@(& git diff --name-only $parent HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($allowed|Sort-Object) -join '|')) { throw 'BZ_UNQUALIFIED_MODEL_OR_SOURCE_CHANGE' }
+          $prior=@{
+            'research/north-star-transfer/f124bx_learned_flag.py'='74b907aba821678d5f8a59b06f85f5e87cb05002'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'research/north-star-transfer/f124by-frozen-panel.json'='d546a7cfd9aee45ddbad18bba099ad8ceb5b4a55'
+          }
+          foreach ($path in $prior.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $prior[$path]) { throw "BZ_PRIOR_CONSUMED_EVIDENCE_OR_TRAINED_CONTROL_CHANGED:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bz_binding_candidate.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BZ_SOURCE_NEUTRAL_BINDING_QUALIFICATION_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BZ_GOVERNANCE_ISOLATION_FAILURE' }
+          Write-Output 'F124BZ_REVERSIBLE_BINDING_MECHANISM_FOCUSED=PASS'
+          Write-Output 'F124BZ_PRIOR_CONSUMED_CASES_RERUN=0'
+          Write-Output 'F124BZ_NEW_EXTERNAL_SCIENCE_FIRSTUSE=0'
+  one-complete-Go-source-regression:
+    needs: bounded-binding-sourceblind-mechanism
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One Go test, vet, build only after new focused checks pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BZ_ONE_FINAL_ENGINEERING_REGRESSION=PASS
+          echo F124BZ_SCIENTIFIC_ADMISSION=false
+          echo F124BZ_PROTECTED_FIRSTUSE=false
