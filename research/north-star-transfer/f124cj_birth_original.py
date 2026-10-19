@@ -60,7 +60,7 @@ def main():
          and protocol["fresh_unborn_roster"]["F2"]["dev"]==[931000,931011],
          "UNCHANGED_PREBIRTH_ADMISSION_CONTRACT")
     need(protocol["authority"]["one_time_development_firstuse"]
-         and not protocol["authority"]["protected_firstuse"],
+         and not protocol["authority"]["protected_replication_firstuse"],
          "ONLY_DEVELOPMENT_FIRSTUSE")
     model=load_only_origin()
     complete=[]
