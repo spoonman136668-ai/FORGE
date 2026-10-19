@@ -211,6 +211,58 @@ class OriginalQuarantineTests(unittest.TestCase):
             "SELECT COUNT(*) FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
         ).fetchone()[0], 3)
 
+    def test_d2k_issue_selected_after_d2j_without_manual_queue_or_replay(self):
+        repair.reconcile(self.dbpath, apply=True, api=self.api)
+        for source in ("2"*40,"3"*40,QUALIFIED_SHA):
+            self.db.transition_source(source)
+        provider=FakeGitHub()
+        run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)
+        provider.mode="complete"
+        run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)
+        run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)
+        self.assertEqual(self.db.meta()["head_seq"],23)
+        self.assertEqual(len(provider.dispatches),2)
+
+        def issue(number,lane):
+            body={"schema":"forge.f139.d2k.owner-development.v1",
+                  "source_sha":QUALIFIED_SHA,"lane":lane,
+                  "kind":"model-free-development-advisory",
+                  "scientific_first_use":False,"paid_model_calls":0}
+            digest=hash_bytes(canonical(body))
+            return {
+                "ticket":"f139-d2k-i"+str(number)+"-"+QUALIFIED_SHA[:12]+"-"+digest[:8],
+                "issue_number":number,"issue_id":120000+number,
+                "source_sha":QUALIFIED_SHA,"lane":lane,
+                "kind":"model-free-development-advisory","body_sha256":digest
+            }
+
+        provider.d2k_issues=[issue(1401,"Qualification"),issue(1402,"Wingless")]
+        first=run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)
+        self.assertEqual(first["disposition"],"DEVELOPMENT_DISPATCHED_ONCE")
+        self.assertIn("1401",first["ticket"])
+        self.assertEqual(len(provider.dispatches),3)
+        second=run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)
+        self.assertEqual(second["disposition"],"DEVELOPMENT_DISPATCHED_ONCE")
+        self.assertIn("1402",second["ticket"])
+        self.assertEqual(len(provider.dispatches),4)
+        self.db.close()
+        self.db=Database(self.dbpath)
+        self.assertEqual(run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)[
+            "disposition"],"QUEUE_EMPTY_NO_SCIENCE")
+        for _ in range(3):
+            self.assertEqual(run_once(self.db,provider,self.dbpath,WORKER_KEY,now=WORKER_NOW)[
+                "disposition"],"QUEUE_EMPTY_NO_SCIENCE")
+        self.assertEqual(len(provider.dispatches),4)
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'"
+        ).fetchone()[0],2)
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'"
+        ).fetchone()[0],6)
+        self.assertEqual(self.db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+        ).fetchone()[0],3)
+
     def test_d2j_rejects_wrong_origins_and_no_self_enrollment(self):
         repair.reconcile(self.dbpath, apply=True, api=self.api)
         self.db.transition_source("2" * 40)
