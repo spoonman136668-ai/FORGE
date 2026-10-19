@@ -97,7 +97,7 @@ jobs:
               }
             }
             $jsonPath=Join-Path $scratch 'conversations.json'
-            [IO.File]::WriteAllText($jsonPath,((ConvertTo-Json -InputObject @($fixture) -Depth 100)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText($jsonPath,((ConvertTo-Json -InputObject ([ordered]@{conversations=@($fixture)}) -Depth 100)+[Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
             $inspectText=(& (Join-Path $root 'tools/chat-download-archive-runner.ps1') inspect -ArchivePath $jsonPath -MaxConversations 1 | Out-String).Trim()
             $inspect=$inspectText | ConvertFrom-Json
             Assert ([string]$inspect.schema -ceq 'mind-palace.chat-download-archive-runner.v1' -and [string]$inspect.command -ceq 'inspect' -and [int]$inspect.conversation_count -eq 1 -and [string]$inspect.conversations[0].id -ceq [string]$fixture.id) 'SYNTHETIC_EXPORT_INSPECT'
