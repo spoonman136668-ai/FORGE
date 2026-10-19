@@ -180,7 +180,7 @@ func validate(f Frozen, pin string) error {
 	for _,c:=range f.Candidates {
 		if !validID(c.ID)||experimentIDs[c.ID]||
 			!validHex(c.MechanismSHA256,64)||mechanisms[c.MechanismSHA256]||
-			!validHex(c.SourceSHA,40)||sources[c.SourceSHA]||
+			!validHex(c.SourceSHA,40)||c.SourceSHA==f.SourceSHA||sources[c.SourceSHA]||
 			!validID(c.Family)||!generators[c.Generator]||
 			c.ComputeUnits<1||c.ComputeUnits>f.ComputeBudget||
 			c.ExpectedTransferBP>10000||c.ExpectedTransferGainBP>10000||
@@ -233,6 +233,7 @@ func measure(f Frozen, c Candidate) Ranked {
 	priorH:=entropy(priordist)
 	uncertaintyBP:=int64(0)
 	if priorH>0{uncertaintyBP=int64(math.Round(info/priorH*10000))}
+	if uncertaintyBP>10000{uncertaintyBP=10000}
 	expectedTransfer:=int64(c.ExpectedTransferBP)*int64(c.ExpectedTransferGainBP)/10000
 	limitationBP:=int64(math.Round(prob[2]*10000))
 	// Every weight and forecast is frozen before observation. The score is a
