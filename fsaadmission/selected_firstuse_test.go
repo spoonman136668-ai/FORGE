@@ -1,63 +1,78 @@
 package fsaadmission
 
-import (
+import(
  "crypto/ed25519"
  "crypto/rand"
  "encoding/hex"
- "encoding/json"
+ "strings"
  "testing"
 
  "github.com/spoonman136668-ai/forge/eligibility"
+ "github.com/spoonman136668-ai/forge/fsahead"
 )
-func makeSigned(t *testing.T)(SignedSelection,SignedBirth,IndependentPins,eligibility.Frozen){
+func h(c string)string{return strings.Repeat(c,64)}
+func fixture(t *testing.T)(SignedSelection,SignedBirth,SignedFamilySnapshot,IndependentPins,eligibility.Frozen,fsahead.Anchor){
  t.Helper()
- pub1,priv1,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
- pub2,priv2,err:=ed25519.GenerateKey(rand.Reader);if err!=nil{t.Fatal(err)}
- f:=eligibility.Frozen{Schema:eligibility.Schema,Lane:"Wingless",CandidateID:"causal-binding-20261019",
-  SourceSHA:"",PreregSHA256:"",CohortSHA256:"",ProtocolSHA256:"",BudgetUnits:200,SeedIDs:[]string{"Wingless:s01"}}
- f.SourceSHA="a"+"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
- f.PreregSHA256="1"+"111111111111111111111111111111111111111111111111111111111111111"
- f.CohortSHA256="2"+"222222222222222222222222222222222222222222222222222222222222222"
- f.ProtocolSHA256="3"+"333333333333333333333333333333333333333333333333333333333333333"
- x:=Selected{Schema:selectedSchema,Frozen:f,HypothesisSHA256:"4"+"444444444444444444444444444444444444444444444444444444444444444",
- FullyTrainedControlSHA256:"5"+"555555555555555555555555555555555555555555555555555555555555555",
- EqualTrainingProofSHA256:"6"+"666666666666666666666666666666666666666666666666666666666666666",
+ p1,k1,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)}
+ p2,k2,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)}
+ p3,k3,e:=ed25519.GenerateKey(rand.Reader);if e!=nil{t.Fatal(e)}
+ a:=fsahead.Anchor{ArchiveID:h("9"),AuthorityEpoch:7,Sequence:20,HeadSHA256:h("a")}
+ frozen:=eligibility.Frozen{Schema:eligibility.Schema,Lane:"Wingless",CandidateID:"causal-binding-20261019",
+ SourceSHA:strings.Repeat("b",40),PreregSHA256:h("1"),CohortSHA256:h("2"),
+ ProtocolSHA256:h("3"),BudgetUnits:200,SeedIDs:[]string{"Wingless:s01"}}
+ x:=Selected{Schema:selectedSchema,Frozen:frozen,HypothesisSHA256:h("4"),
+ FullyTrainedControlSHA256:h("5"),EqualTrainingProofSHA256:h("6"),
  MaxNativeCPUms:60000,MaxNativePeakRSSBytes:1073741824,MaxWallSeconds:120,
- FrozenSequence:10}
- y:=SourceBirth{Schema:bornSchema,Lane:f.Lane,CandidateID:f.CandidateID,
- SourceSHA:f.SourceSHA,CohortSHA256:f.CohortSHA256,
- IndependentFamilySHA256:[2]string{"7"+"777777777777777777777777777777777777777777777777777777777777777",
- "8"+"888888888888888888888888888888888888888888888888888888888888888"},
- BirthSequence:11,NeverPreviouslyConsumed:true}
- sx,_:=json.Marshal(x);sy,_:=json.Marshal(y)
- return SignedSelection{x,hex.EncodeToString(ed25519.Sign(priv1,append([]byte(selectedDomain),sx...)))},
- SignedBirth{y,hex.EncodeToString(ed25519.Sign(priv2,append([]byte(bornDomain),sy...)))},
- IndependentPins{pub1,pub2},f
+ CustodyEpoch:7,FrozenSequence:10}
+ sx,selectionHash,_:=signedDigest(selectedDomain,x)
+ y:=SourceBirth{Schema:bornSchema,Lane:frozen.Lane,CandidateID:frozen.CandidateID,
+ SourceSHA:frozen.SourceSHA,CohortSHA256:frozen.CohortSHA256,
+ IndependentFamilySHA256:[2]string{h("7"),h("8")},CustodyEpoch:7,
+ FrozenSelectionSHA256:selectionHash,BirthSequence:11,NeverPreviouslyConsumed:true}
+ sy,birthHash,_:=signedDigest(bornDomain,y)
+ z:=FamilySnapshot{Schema:familySchema,ArchiveID:a.ArchiveID,CustodyEpoch:7,
+ Sequence:20,HeadSHA256:a.HeadSHA256,LedgerGeneration:3,CompleteAllLanes:true,
+ FrozenSelectionSHA256:selectionHash,SourceBirthSHA256:birthHash,
+ FrozenSequence:10,BirthSequence:11,
+ ActiveFamilySHA256:[]string{},ConsumedFamilySHA256:[]string{}}
+ sz,_,_:=signedDigest(familyDomain,z)
+ return SignedSelection{x,hex.EncodeToString(ed25519.Sign(k1,sx))},
+ SignedBirth{y,hex.EncodeToString(ed25519.Sign(k2,sy))},
+ SignedFamilySnapshot{z,hex.EncodeToString(ed25519.Sign(k3,sz))},
+ IndependentPins{p1,p2,p3},frozen,a
 }
-func TestSignedScienceStillCannotDispatch(t *testing.T){
- s,b,p,f:=makeSigned(t)
- value,err:=VerifySelected(s,b,p,f)
+func TestThreeIndependentPinnedWitnessesRemainPreflightOnly(t *testing.T){
+ s,b,l,p,e,a:=fixture(t)
+ verdict,err:=verifySelected(s,b,l,p,e,a,3)
  if err!=nil{t.Fatal(err)}
- if value!=SelectedPreflightOnly||value=="AUTHORIZED_TO_DISPATCH"{t.Fatal("scientific authority minted")}
+ if verdict!=SelectedPreflightOnly{t.Fatalf("unexpected science authority: %q",verdict)}
 }
-func TestAuthenticSourceAndFirstUseMustAgree(t *testing.T){
- fresh:=func() (SignedSelection,SignedBirth,IndependentPins,eligibility.Frozen){return makeSigned(t)}
- tests:=[]struct{name string;mutate func(*SignedSelection,*SignedBirth,*IndependentPins,*eligibility.Frozen)}{
- {"changed hypothesis",func(s *SignedSelection,_ *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){s.Selection.HypothesisSHA256="9"+s.Selection.HypothesisSHA256[1:]}},
- {"changed trained control",func(s *SignedSelection,_ *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){s.Selection.FullyTrainedControlSHA256="9"+s.Selection.FullyTrainedControlSHA256[1:]}},
- {"unequal training missing",func(s *SignedSelection,_ *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){s.Selection.EqualTrainingProofSHA256=""}},
- {"unbounded CPU",func(s *SignedSelection,_ *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){s.Selection.MaxNativeCPUms=0}},
- {"unbounded peak RSS",func(s *SignedSelection,_ *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){s.Selection.MaxNativePeakRSSBytes=0}},
- {"missing wall cap",func(s *SignedSelection,_ *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){s.Selection.MaxWallSeconds=0}},
- {"different source",func(_ *SignedSelection,b *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){b.Birth.SourceSHA="b"+b.Birth.SourceSHA[1:]}},
- {"family collision",func(_ *SignedSelection,b *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){b.Birth.IndependentFamilySHA256[0]=b.Birth.IndependentFamilySHA256[1]}},
- {"born before freeze",func(s *SignedSelection,b *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){b.Birth.BirthSequence=s.Selection.FrozenSequence}},
- {"already consumed",func(_ *SignedSelection,b *SignedBirth,_ *IndependentPins,_ *eligibility.Frozen){b.Birth.NeverPreviouslyConsumed=false}},
- {"same attestor cannot self-certify",func(_ *SignedSelection,_ *SignedBirth,p *IndependentPins,_ *eligibility.Frozen){p.SourceBirthSigner=p.FrozenSigner}},
- {"missing independent key",func(_ *SignedSelection,_ *SignedBirth,p *IndependentPins,_ *eligibility.Frozen){p.SourceBirthSigner=nil}},
- {"altered external frozen identity",func(_ *SignedSelection,_ *SignedBirth,_ *IndependentPins,f *eligibility.Frozen){f.CandidateID="different"}},
+func TestChronologyAndFamilyLedgerFailClosed(t *testing.T){
+ tests:=[]struct{name string;alter func(*SignedSelection,*SignedBirth,*SignedFamilySnapshot,*IndependentPins,*eligibility.Frozen,*fsahead.Anchor,*uint64)}{
+ {"tamper hypothesis",func(s *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){s.Selection.HypothesisSHA256=h("f")}},
+ {"strongest control change",func(s *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){s.Selection.FullyTrainedControlSHA256=h("f")}},
+ {"missing equal training proof",func(s *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){s.Selection.EqualTrainingProofSHA256=""}},
+ {"zero CPU",func(s *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){s.Selection.MaxNativeCPUms=0}},
+ {"zero RSS",func(s *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){s.Selection.MaxNativePeakRSSBytes=0}},
+ {"zero wall",func(s *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){s.Selection.MaxWallSeconds=0}},
+ {"unbound birth replay",func(_ *SignedSelection,b *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){b.Birth.FrozenSelectionSHA256=h("f")}},
+ {"source collision",func(_ *SignedSelection,b *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){b.Birth.IndependentFamilySHA256[0]=b.Birth.IndependentFamilySHA256[1]}},
+ {"preselection source",func(_ *SignedSelection,b *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){b.Birth.BirthSequence=10}},
+ {"stale family-ledger head",func(_ *SignedSelection,_ *SignedBirth,f *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){f.Snapshot.HeadSHA256=h("f")}},
+ {"separate counter epoch",func(_ *SignedSelection,b *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){b.Birth.CustodyEpoch=8}},
+ {"replayed journal highwater",func(_ *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,a *fsahead.Anchor,_ *uint64){a.Sequence=21}},
+ {"consumed family",func(_ *SignedSelection,_ *SignedBirth,f *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){f.Snapshot.ConsumedFamilySHA256=[]string{h("7")}}},
+ {"active family",func(_ *SignedSelection,_ *SignedBirth,f *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){f.Snapshot.ActiveFamilySHA256=[]string{h("8")}}},
+ {"partial all lanes",func(_ *SignedSelection,_ *SignedBirth,f *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){f.Snapshot.CompleteAllLanes=false}},
+ {"stale complete ledger generation",func(_ *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,g *uint64){*g=4}},
+ {"missing third pinned key",func(_ *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,p *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){p.FamilyLedgerSigner=nil}},
+ {"identical witness keys",func(_ *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,p *IndependentPins,_ *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){p.FamilyLedgerSigner=p.SourceBirthSigner}},
+ {"altered expected frozen",func(_ *SignedSelection,_ *SignedBirth,_ *SignedFamilySnapshot,_ *IndependentPins,e *eligibility.Frozen,_ *fsahead.Anchor,_ *uint64){e.CandidateID="stale-source"}},
  }
  for _,v:=range tests{
-  t.Run(v.name,func(t *testing.T){s,b,p,f:=fresh();v.mutate(&s,&b,&p,&f);if _,err:=VerifySelected(s,b,p,f);err==nil{t.Fatal("unsigned, stale, or unbounded admission passed")}})
+  t.Run(v.name,func(t *testing.T){s,b,f,p,e,a:=fixture(t);g:=uint64(3)
+   v.alter(&s,&b,&f,&p,&e,&a,&g)
+   if _,err:=verifySelected(s,b,f,p,e,a,g);err==nil{t.Fatal("untrusted or stale source accepted")}
+  })
  }
 }
