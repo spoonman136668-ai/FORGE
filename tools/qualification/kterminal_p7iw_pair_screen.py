@@ -192,20 +192,23 @@ def main():
         disposition = "P7IW_PAIR_PACKAGE_FAILURE_UNCLASSIFIED"
     else:
         remaining = [x for x in names if x not in (OBSERVER, focal)]
-        count = (len(remaining) + 1) // 2
+        # Top-level test names are long; a full half can exceed the Windows
+        # command-line selector bound. Keep a meaningful deterministic prefix
+        # cohort without relaxing the original 18,000-char fail-closed limit.
+        count = min(64, (len(remaining) + 1) // 2)
         selected = remaining[:count]
-        require(len(selected) >= 1 and len(selected) <= 700, "BISECTION_COHORT_UNBOUNDED")
-        subgroup = run_tests([OBSERVER, focal] + selected, "half", 1080)
+        require(len(selected) >= 1 and len(selected) <= 64, "BOUNDED_COHORT_SIZE")
+        subgroup = run_tests([OBSERVER, focal] + selected, "cohort", 1080)
         if not subgroup["complete"]:
-            disposition = "P7IW_FIRST_HALF_INCOMPLETE"
+            disposition = "P7IW_BOUNDED_COHORT_INCOMPLETE"
         elif subgroup["focal_test"]["fail"] or subgroup["observer"]["fail"] or subgroup["observer_nested_fails"]:
-            disposition = "P7IW_FIRST_HALF_CONTEXT_REPRODUCED"
+            disposition = "P7IW_BOUNDED_COHORT_CONTEXT_REPRODUCED"
         elif subgroup["go_exit"] != 0:
-            disposition = "P7IW_FIRST_HALF_OTHER_TEST_FAILURE"
+            disposition = "P7IW_BOUNDED_COHORT_OTHER_TEST_FAILURE"
         else:
-            disposition = "P7IW_FIRST_HALF_PASSED_INTERFERENCE_NOT_YET_REPRODUCED"
+            disposition = "P7IW_BOUNDED_COHORT_PASSED_INTERFERENCE_NOT_YET_REPRODUCED"
     receipt_value = {
-        "schema": "forge.kterminal.p7iw.paired-half-context.v1",
+        "schema": "forge.kterminal.p7iw.paired-bounded-cohort.v1",
         "forge_source_sha": os.environ["GITHUB_SHA"],
         "private_source_sha": KT_SHA,
         "source_test_files_examined": source_count,
@@ -214,7 +217,9 @@ def main():
         "previous_focused_receipt_sha256": FOCUSED_SEAL,
         "registered_original_top_level_tests": len(names),
         "scheduler": "GOMAXPROCS=4; go -p=1; test -parallel=4; count=1",
-        "pair": pair, "first_half": subgroup,
+        "pair": pair, "bounded_cohort": subgroup,
+        "bounded_cohort_max_added": 64,
+        "bounded_cohort_registered_universe": len(names),
         "disposition": disposition,
         "original_full_regression": "FAILED_NOT_WAIVED",
         "product_test_source_modified": False,
@@ -235,16 +240,16 @@ def main():
     print("P7IW_PAIR_FOCAL_FAIL=" + str(pair["focal_test"].get("fail", 0)))
     print("P7IW_PAIR_OBSERVER_PASS=" + str(pair["observer"].get("pass", 0)))
     if subgroup:
-        print("P7IW_FIRST_HALF_COMPLETE=" + str(subgroup["complete"]))
-        print("P7IW_FIRST_HALF_FOCAL_PASS=" + str(subgroup["focal_test"].get("pass", 0)))
-        print("P7IW_FIRST_HALF_FOCAL_FAIL=" + str(subgroup["focal_test"].get("fail", 0)))
+        print("P7IW_BOUNDED_COHORT_COMPLETE=" + str(subgroup["complete"]))
+        print("P7IW_BOUNDED_COHORT_FOCAL_PASS=" + str(subgroup["focal_test"].get("pass", 0)))
+        print("P7IW_BOUNDED_COHORT_FOCAL_FAIL=" + str(subgroup["focal_test"].get("fail", 0)))
     print("P7IW_DISPOSITION=" + disposition)
     print("P7IW_RECEIPT_SHA256=" + h)
     print("P7IW_PRIVATE_NAMES_AND_LOGS_EXPORTED=FALSE")
     if disposition in ("P7IW_PAIR_INCOMPLETE", "P7IW_PAIR_PACKAGE_FAILURE_UNCLASSIFIED",
-                       "P7IW_FIRST_HALF_INCOMPLETE", "P7IW_FIRST_HALF_OTHER_TEST_FAILURE",
+                       "P7IW_BOUNDED_COHORT_INCOMPLETE", "P7IW_BOUNDED_COHORT_OTHER_TEST_FAILURE",
                        "P7IW_PAIR_INTERACTION_FAILURE_REPRODUCED",
-                       "P7IW_FIRST_HALF_CONTEXT_REPRODUCED"):
+                       "P7IW_BOUNDED_COHORT_CONTEXT_REPRODUCED"):
         raise Denied("SCIENTIFIC_TEST_REPRODUCED_OR_INCOMPLETE")
 
 
