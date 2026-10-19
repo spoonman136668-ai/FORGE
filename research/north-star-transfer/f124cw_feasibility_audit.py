@@ -19,8 +19,11 @@ import math
 import os
 from pathlib import Path
 import random
-import resource
 import sys
+try:
+    import resource
+except ImportError:  # Windows has no POSIX resource module
+    resource=None
 import time
 import numpy as np
 
@@ -184,7 +187,8 @@ def neural_diagnostic(regime,epochs):
           "admitted_heldout_full_episodes_exact_of_eight":exact,
           "admitted_fit_full_episodes_exact_of_24":trained_exact,
           "complete_training_OS_CPU_ns":cpu,
-          "full_process_peak_RSS_bytes":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024,
+          "full_process_peak_RSS_bytes":(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024
+              if resource is not None else None),
           "used_consumed_science":False,
           "sourcefree_mechanism_only":True,
           "higher_epochs_are_diagnostic_not_scientific_retuning":epochs>45
