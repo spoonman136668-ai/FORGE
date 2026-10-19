@@ -11,7 +11,7 @@ from f139.audit_d2k_custody import (
     audit, CustodyBlocked, copied_snapshot,
     load_provider_anchor as real_load_provider_anchor,
 )
-from f139.local_controller import Database, canonical, hash_bytes, store_evidence
+from f139.local_controller import Database, canonical, hash_bytes, store_evidence, d2j_plan
 from test_local_controller import SHA, artifact
 
 
@@ -53,8 +53,20 @@ class ReadonlyCustodyTests(unittest.TestCase):
         terminal_indexes=(0,3,17,20)
         with db.transaction():
             for i,kind in enumerate(kinds):
-                payload=(recorded[terminal_indexes.index(i)]
-                         if i in terminal_indexes else {"test_only":True,"iteration":i})
+                if i==14:
+                    plan=d2j_plan(SHA,db.meta()["head_hash"])
+                    manifest_sha256=hash_bytes(canonical(plan))
+                    for task in plan["tasks"]:
+                        db.conn.execute("UPDATE tasks SET manifest_sha=? WHERE ticket=?",
+                            (manifest_sha256,task["ticket"]))
+                    payload={"schema":plan["schema"],"source_sha":SHA,
+                             "prior_event_head_sha256":db.meta()["head_hash"],
+                             "manifest_sha256":manifest_sha256,
+                             "tickets":[task["ticket"] for task in plan["tasks"]],
+                             "new_dispatches":0,"scientific_first_use":False}
+                else:
+                    payload=(recorded[terminal_indexes.index(i)]
+                             if i in terminal_indexes else {"test_only":True,"iteration":i})
                 db.event("PROVIDER_VERIFIED_TERMINAL" if i in terminal_indexes
                          else kind,payload)
         self.head=db.meta()["head_hash"]
@@ -74,8 +86,26 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.assertEqual(result["archive_count"],8)
         self.assertEqual(result["external_provider_anchor_records"],4)
         self.assertEqual(result["external_provider_artifacts_checked"],8)
+        self.assertEqual(result["d2j_task_bindings_verified"],2)
         self.assertEqual(result["controller_actions"],0)
         self.assertEqual(result["original_database_writes"],0)
+
+    def test_mutable_d2j_manifest_drift_rejected_even_with_same_sealed_head(self):
+        original_head=self.head
+        original_manifest=self.provider_anchor
+        with sqlite3.connect(self.dbpath) as conn:
+            conn.execute("UPDATE tasks SET manifest_sha=? WHERE ticket LIKE 'f139-d2j-%'",
+                         ("0"*64,))
+        with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
+            audit(self.dbpath,SHA,self.head)
+        self.assertEqual(self.head,original_head)
+        self.assertIs(self.provider_anchor,original_manifest)
+
+    def test_d2j_lane_or_source_row_drift_rejected(self):
+        with sqlite3.connect(self.dbpath) as conn:
+            conn.execute("UPDATE tasks SET lane='Qualification' WHERE ticket LIKE 'f139-d2j-yggdrasil-%'")
+        with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
+            audit(self.dbpath,SHA,self.head)
 
     def test_wrong_sealed_head_or_source_rejected(self):
         with self.assertRaisesRegex(CustodyBlocked,"SEALED_METADATA_NOT_MATCHED"):

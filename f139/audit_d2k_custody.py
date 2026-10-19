@@ -15,7 +15,7 @@ import sqlite3
 import tempfile
 
 from f139.local_controller import (
-    ZERO, MAX_ZIP_BYTES, canonical, hash_bytes, receipt_from_zip,
+    ZERO, MAX_ZIP_BYTES, canonical, hash_bytes, receipt_from_zip, d2j_plan,
 )
 
 SHA40=re.compile(r"[a-f0-9]{40}\Z")
@@ -151,6 +151,49 @@ def verify_chain(events, expected_head: str):
     return {x["ticket"]:x for x in terminals}
 
 
+def verify_d2j_task_bindings(events, tasks):
+    """Verify native-controller D2J manifest/rows without writing to SQLite.
+
+    A head-sealed event proves only immutable event bytes; mutable task rows
+    must still match the admitted manifest. Use the controller's frozen planner
+    instead of constructing a second, less strict manifest definition.
+    """
+    admissions=[row for row in events if row["kind"]=="UNATTENDED_SUCCESSION_ADMITTED"]
+    check(len(admissions)==1 and admissions[0]["seq"]==15,
+          "D2J_ADMISSION_EVENT_ABSENT")
+    event=admissions[0]
+    try:
+        doc=json.loads(event["payload"])
+    except (TypeError,ValueError) as exc:
+        raise CustodyBlocked("F139_D2K_CUSTODY_D2J_ADMISSION_INVALID_JSON") from exc
+    check(isinstance(doc,dict) and set(doc)=={
+        "schema","source_sha","prior_event_head_sha256","manifest_sha256",
+        "tickets","new_dispatches","scientific_first_use"},
+        "D2J_ADMISSION_FIELDS_INVALID")
+    source=doc["source_sha"]
+    check(isinstance(source,str) and SHA40.fullmatch(source)
+          and doc["schema"]=="forge.f139.d2j-once-only-succession.v1"
+          and doc["prior_event_head_sha256"]==event["prior_sha"]
+          and type(doc["new_dispatches"]) is int and doc["new_dispatches"]==0
+          and doc["scientific_first_use"] is False,
+          "D2J_ADMISSION_INVALID")
+    plan=d2j_plan(source,event["prior_sha"])
+    manifest_sha256=hash_bytes(canonical(plan))
+    expected_items={task["ticket"]:task for task in plan["tasks"]}
+    check(doc["manifest_sha256"]==manifest_sha256
+          and doc["tickets"]==[task["ticket"] for task in plan["tasks"]],
+          "D2J_ADMISSION_MANIFEST_DRIFT")
+    actual={task["ticket"]:task for task in tasks}
+    check(set(expected_items).issubset(actual)
+          and len(expected_items)==2
+          and all(actual[ticket]["lane"]==planned["lane"]
+                  and actual[ticket]["source_sha"]==planned["source_sha"]
+                  and actual[ticket]["manifest_sha"]==manifest_sha256
+                  for ticket,planned in expected_items.items()),
+          "D2J_ADMISSION_TASK_BINDING_DRIFT")
+    return manifest_sha256
+
+
 def verify_evidence(root: Path, row: dict, epoch: int, anchor: dict):
     check(row["stage"]=="VERIFIED" and type(row["run_id"]) is int
           and row["run_id"]>0 and isinstance(row["evidence_sha"],str)
@@ -230,6 +273,7 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
             events=connection.execute("SELECT * FROM events ORDER BY seq").fetchall()
             terminals=verify_chain(events,expected_head)
             tasks=[dict(row) for row in connection.execute("SELECT * FROM tasks ORDER BY ticket")]
+            admitted_manifest=verify_d2j_task_bindings(events,tasks)
             check(len(tasks)==4
                   and sum(t["ticket"].startswith("f139-d2c-") for t in tasks)==2
                   and sum(t["ticket"].startswith("f139-d2j-") for t in tasks)==2,
@@ -248,6 +292,8 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
             "expected_source_sha":expected_source,"sealed_event_head_sha256":expected_head,
             "external_provider_anchor_records":4,
             "external_provider_artifacts_checked":8,
+            "d2j_admission_manifest_sha256":admitted_manifest,
+            "d2j_task_bindings_verified":2,
             "original_database_writes":0,"controller_actions":0,
             "scientific_first_use":False,"receipts":reports}
 
