@@ -81,6 +81,7 @@ def child(arm):
     import resource
     t0=time.process_time_ns()
     pairs,yes,no,identity=graph_and_public()
+    sys.path.insert(0,str(NATIVE))
     import f124az_joint_public_inverse as az
     import f124ag_transition_models as native
     import f124aj_example_operator_learner as parser
