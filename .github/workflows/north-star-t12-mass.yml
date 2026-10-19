@@ -1,0 +1,57 @@
+name: T12 mass learned causal evidence frozen original
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t12-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: northstar-t12-mass-first-new-source
+  cancel-in-progress: false
+jobs:
+  exact-science-source-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 65
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original science freeze before new mechanism and unchanged control
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T12_EXACT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t12-freeze.json').Trim() -cne '83b7640ec139fad570fefbdd0f06512e7e47ecd7'){throw 'T12_ORIGINAL_PREREG_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t12-freeze.json').Trim() -cne '054ded2798150bcec14f530efde6c657d55d8ca2'){throw 'T12_FREEZE_NOT_FIRST'}
+          git merge-base --is-ancestor 054ded2798150bcec14f530efde6c657d55d8ca2 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T12_SOURCE_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t12-mechanism.py').Trim() -cne '5268dc077dfa394039ecbb5b4b54ec400f3a7f47'){throw 'T12_ORIGINAL_MECHANISM_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t11-mechanism.py').Trim() -cne '7a5dd7c215e74f97d2511e345968bc9b89e6adcd'){throw 'T12_STRONGEST_CONTROL_DRIFT'}
+          Write-Output 'T12_MASS_SOURCE_AND_FREEZE=PASS'
+      - name: Measure new public causal mechanism; no accepted science promotion
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261019-mass-t12-mechanism.py' | Tee-Object 't12-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T12_MASS_MECHANISM_FAILED'}
+          $out=Get-Content 't12-mass-original.json' -Raw | ConvertFrom-Json
+          if($out.'science_accepted' -ne $false){throw 'T12_UNAUTHORIZED_SCIENCE_ADMISSION'}
+          if($out.'protected_or_consumed_original_MNS_used' -ne $false -and $out.'protected_or_consumed_original_MNS_used' -ne 0){throw 'T12_PROTECTED_OR_CONSUMED_SOURCE'}
+          Write-Output 'T12_MASS_SOURCE_NEUTRAL_EVIDENCE=PASS'
+          Write-Output 'T12_MASS_INDEPENDENT_SCIENTIFIC_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t12-mass-new-source-${{ matrix.os }}-${{ github.sha }}
+          path: t12-mass-original.json
+          retention-days: 90
+          if-no-files-found: warn

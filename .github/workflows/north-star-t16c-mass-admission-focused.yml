@@ -1,0 +1,84 @@
+name: T16C Mass independent source admission contract focused
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t16c-mass-admission-focused.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t16c-mass-custody-contract
+  cancel-in-progress: false
+jobs:
+  custody-and-resource-gate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original identity and prereg frozen before nonconsuming tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T16C_HEAD_DRIFT'}
+          if((git hash-object 'sourcebirth/verify.go').Trim() -cne '2ea04d5ff4e81b2dc153dac8b18cd883c3a395c1'){throw 'T16C_FROZEN_SOURCE_DRIFT: sourcebirth/verify.go'}
+          if((git hash-object 'sourcebirth/mass_t16c_test.go').Trim() -cne 'e9fa2d46fb88748e91a067bacbaa470cbeab682d'){throw 'T16C_FROZEN_SOURCE_DRIFT: sourcebirth/mass_t16c_test.go'}
+          if((git hash-object 'originalclaim/claim.go').Trim() -cne '1fa988f298a7703389fa9abde4f11083ddd1f76a'){throw 'T16C_FROZEN_SOURCE_DRIFT: originalclaim/claim.go'}
+          if((git hash-object 'originalclaim/mass_t16c_test.go').Trim() -cne '1e89f0ad7df7f4bfa1e303095d221495e1dd0fbe'){throw 'T16C_FROZEN_SOURCE_DRIFT: originalclaim/mass_t16c_test.go'}
+          if((git hash-object 'workerreconcile/receipt.go').Trim() -cne '266ba81d60a5ebd27b4adb1b2e8c4f80f84d407a'){throw 'T16C_FROZEN_SOURCE_DRIFT: workerreconcile/receipt.go'}
+          if((git hash-object 'workerreconcile/mass_t16c_test.go').Trim() -cne '9924aa99b1c7e5c3fc9eadc87cd92e0fd8de1259'){throw 'T16C_FROZEN_SOURCE_DRIFT: workerreconcile/mass_t16c_test.go'}
+          if((git hash-object 'evidencegate/original.go').Trim() -cne '1451187c7661fbb67903a9739540b7d0f221c30f'){throw 'T16C_FROZEN_SOURCE_DRIFT: evidencegate/original.go'}
+          if((git hash-object 'evidencegate/mass_t16c_test.go').Trim() -cne 'c011e21afc1816d4e90a1e390433db35f91272e7'){throw 'T16C_FROZEN_SOURCE_DRIFT: evidencegate/mass_t16c_test.go'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16c-complete-resource-claims.py').Trim() -cne '96ec4246e28d02f76b4d2553c741ca066e9e81eb'){throw 'T16C_FROZEN_SOURCE_DRIFT: research/north-star-transfer/20261019-t16c-complete-resource-claims.py'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16c-complete-resource-claims_test.py').Trim() -cne '1ad2bccc9ea20014be23f2f7e6cc453e0341a7b2'){throw 'T16C_FROZEN_SOURCE_DRIFT: research/north-star-transfer/20261019-t16c-complete-resource-claims_test.py'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16c-mass-prospective-admission-freeze.json').Trim() -cne '474384fc935f2f37196f42de91e58faf622dd4c9'){throw 'T16C_FROZEN_SOURCE_DRIFT: research/north-star-transfer/20261019-t16c-mass-prospective-admission-freeze.json'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16-source.py').Trim() -cne 'b6b7a38f936043434b5d92b821bfe5d70dbb65fa'){throw 'T16C_FROZEN_SOURCE_DRIFT: research/north-star-transfer/20261019-mass-t16-source.py'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16-freeze.json').Trim() -cne 'ab1b39be468b62aa204e9b0336f49f373d1bbd5b'){throw 'T16C_FROZEN_SOURCE_DRIFT: research/north-star-transfer/20261019-mass-t16-freeze.json'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16b-learned-relation-grammar.py').Trim() -cne 'bca0ca39ed11a080fb565b47b1804afac4a19caa'){throw 'T16C_FROZEN_SOURCE_DRIFT: research/north-star-transfer/20261019-mass-t16b-learned-relation-grammar.py'}
+          git merge-base --is-ancestor c8a472a83a71d6ab6fb5d873fc3fbfea23a0e686 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T16C_SOURCE_FREEZE_NOT_ANCESTOR'}
+          Write-Output 'T16C_EXACT_MASS_CUSTODY_AND_COST_SOURCE=PASS'
+      - name: One focused native custody regression per platform
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 -timeout 10m ./sourcebirth ./originalclaim ./workerreconcile ./evidencegate
+          if($LASTEXITCODE -ne 0){throw 'T16C_GO_CUSTODY_FOCUSED_FAIL'}
+          go vet ./sourcebirth ./originalclaim ./workerreconcile ./evidencegate
+          if($LASTEXITCODE -ne 0){throw 'T16C_GO_VET_FAIL'}
+          go build ./sourcebirth ./originalclaim ./workerreconcile ./evidencegate
+          if($LASTEXITCODE -ne 0){throw 'T16C_GO_BUILD_FAIL'}
+          Write-Output 'T16C_EXISTING_NATIVE_CUSTODY_COMPATIBILITY=PASS'
+      - name: Full-cost strongest-trained and symbolic controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python research/north-star-transfer/20261019-t16c-complete-resource-claims_test.py
+          if($LASTEXITCODE -ne 0){throw 'T16C_CPU_RSS_QUERY_CONTRACT_FAIL'}
+          python research/north-star-transfer/20261019-t16c-complete-resource-claims.py > t16c-mass-source-admission-blocked.json
+          if($LASTEXITCODE -ne 0){throw 'T16C_DEFAULT_CONTRACT_FAIL'}
+          python -c "import json; d=json.load(open('t16c-mass-source-admission-blocked.json')); assert d['status']=='NO_PROSPECTIVE_EVIDENCE_ADMITTED' and d['original_execution_authorized'] is False and d['scientific_accepted'] is False and d['optimizer_admitted'] is False; print('T16C_NO_EXTERNAL_EVIDENCE_NO_FIRST_USE=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'T16C_SOURCE_PROVENANCE_HOLD_BYPASS'}
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: t16c-mass-source-admission-readonly
+          path: t16c-mass-source-admission-blocked.json
+          if-no-files-found: ignore
+          retention-days: 90

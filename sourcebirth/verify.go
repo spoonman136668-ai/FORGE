@@ -77,6 +77,7 @@ func validID(s string)bool{
 }
 func repo(lane string)string{
  if lane=="Wingless"||lane=="Yggdrasil"{return "spoonman136668-ai/"+lane}
+ if lane=="MassResearch"{return "spoonman136668-ai/FORGE"}
  return ""
 }
 func signedPayload(domain string,s Statement)[]byte{

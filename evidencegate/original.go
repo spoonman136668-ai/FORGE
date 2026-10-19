@@ -29,7 +29,7 @@ func hex64(s string)bool{
 // VerifyOriginal authenticates bytes against a frozen original manifest.
 // A hash match alone never confers scientific validity or custody authority.
 func VerifyOriginal(m Manifest, path string)error{
- if (m.Lane!="Wingless"&&m.Lane!="Yggdrasil")||
+ if (m.Lane!="Wingless"&&m.Lane!="Yggdrasil"&&m.Lane!="MassResearch")||
  m.ExperimentID==""||m.OriginalRunID==""||!hex64(m.FrozenSHA256)||
  !hex64(m.OriginalSHA256)||m.OriginalBytes<=0||
  m.OriginalBytes>MaxOriginalBytes||

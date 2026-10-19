@@ -1,0 +1,44 @@
+name: T15 mass source-only nonconsuming cross-platform preflight
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t15-mass-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  no-source-birth-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact model, source and control-preregistration identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T15_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-source.py').Trim() -cne '16ea3a38bc694f6229654281471b449c3d60ea8e'){throw 'T15_SOURCE_BLOB_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-preimplementation-freeze.json').Trim() -cne '733349fcedf9dffb88baad7af71b7275d6eae442'){throw 'T15_ASSAY_BLOB_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-mechanism.py').Trim() -cne '259cdbfd53308d810eb85fcc29359243aa2af2dd'){throw 'T15_MODEL_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t15-source.py').Trim() -cne '3448058f03c7c39324adfe45b71c038acf68c8d4'){throw 'T15_SOURCE_NOT_FROZEN'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t15-preimplementation-freeze.json').Trim() -cne '99306990f22caebbd56dae21ef5a5d02e993c443'){throw 'T15_ASSAY_NOT_FROZEN'}
+          git merge-base --is-ancestor 99306990f22caebbd56dae21ef5a5d02e993c443 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T15_PREREG_NOT_ANCESTOR'}
+          Write-Output 'T15_MASS_SOURCE_MODEL_ASSAY_FROZEN=PASS'
+      - name: Python syntax and inert module import without source birth
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile 'research/north-star-transfer/20261019-mass-t15-source.py' 'research/north-star-transfer/20261019-mass-t15-mechanism.py'
+          if($LASTEXITCODE -ne 0){throw 'T15_SYNTAX_FAIL'}
+          python -c "import importlib.util; p='research/north-star-transfer/20261019-mass-t15-source.py'; s=importlib.util.spec_from_file_location('t15_inert_source',p); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); assert len(set(m.TRAIN)&set(m.OPEN))==0; assert all(i<0 for i in m.TRAIN+m.OPEN); print('T15_NO_ORIGINAL_SOURCE_BORN=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'T15_INERT_SOURCE_BAD'}

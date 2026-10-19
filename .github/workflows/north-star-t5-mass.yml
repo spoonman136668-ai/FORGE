@@ -1,0 +1,55 @@
+name: T5 mass actual learning-mechanism qualification
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t5-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t5-mass-nonprotected-original-source
+  cancel-in-progress: false
+jobs:
+  prospective-open-source-mechanism:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze-before-code and unaltered original baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T5_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t5-frozen.json').Trim() -cne '05f28b0264542e2d5b469d6c9f76ce2338dfe997'){throw 'T5_FROZEN_SOURCE_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-mass-t5-frozen.json').Trim() -cne '75133e26f467f359c5f9da080c5ff2e0dd9b69bd'){throw 'T5_SOURCE_NOT_FROZEN_FIRST'}
+          git merge-base --is-ancestor 75133e26f467f359c5f9da080c5ff2e0dd9b69bd HEAD
+          if($LASTEXITCODE -ne 0){throw 'T5_PREIMPLEMENTATION_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t5-learning.py').Trim() -cne '12e474e4a89c708e8166e7c9c68d1dff89b8837c'){throw 'T5_LEARNER_SOURCE_IDENTITY_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t3-learned-sbox.py').Trim() -cne '4ae82a1c4a052da9c61f84bf1bd91b46d303c6eb'){throw 'T5_PREVIOUS_BASELINE_CHANGED'}
+          Write-Output 'T5_MASS_SOURCE_FROZEN_AND_CONTROLS=PASS'
+      - name: One first-use on fresh nonprotected TRAIN and OPEN source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $python=if($IsWindows){'python'}else{'python3'}
+          & $python -B 'research/north-star-transfer/20261018-mass-t5-learning.py' | Tee-Object 't5-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T5_MASS_PUBLIC_LEARNING_FAIL'}
+          $r=Get-Content 't5-mass-original.json' -Raw | ConvertFrom-Json
+          if($r.'strict_protected_transfer_accepted' -ne $false -or $r.'science_first_use' -ne $false){throw 'T5_SCIENTIFIC_ADMISSION_NOT_AUTHORIZED'}
+          Write-Output 'T5_MASS_ACTUAL_PUBLIC_LEARNING_RECORDED=PASS'
+          Write-Output 'T5_MASS_PROTECTED_ORIGINAL_COHORTS_CONSUMED=0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t5-mass-unprotected-original-${{ matrix.os }}-${{ github.sha }}
+          path: t5-mass-original.json
+          retention-days: 90
+          if-no-files-found: error

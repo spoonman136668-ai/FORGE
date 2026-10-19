@@ -1,0 +1,57 @@
+name: T10 mass learned cognition source-neutral qualification
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t10-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t10-mass-frozen-new-nonprotected
+  cancel-in-progress: false
+jobs:
+  focused-learned-mechanism:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 60
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen prior protocol and exact original controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T10_SOURCE_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t10-preregister.json').Trim() -cne '9425574d7d267885f25b337463080c5742c0f099'){throw 'T10_FROZEN_PROTOCOL_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t10-preregister.json').Trim() -cne 'a3bd46c652c5dac970b072147bfbf9c56715c8f3'){throw 'T10_PROTOCOL_NOT_FROZEN_FIRST'}
+          git merge-base --is-ancestor a3bd46c652c5dac970b072147bfbf9c56715c8f3 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T10_FROZEN_COMMIT_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t10-shared-map.py').Trim() -cne '6de0d21b786189499dcc5c25f5d7ea17ede66162'){throw 'T10_ACTUAL_LEARNER_CODE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t3-learned-sbox.py').Trim() -cne '4ae82a1c4a052da9c61f84bf1bd91b46d303c6eb'){throw 'T10_ORIGINAL_STRONG_CONTROL_DRIFT'}
+          Write-Output 'T10_MASS_PREREG_AND_ORIGINAL_CONTROL=PASS'
+      - name: Execute frozen nonprotected learning and original resource comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261019-mass-t10-shared-map.py' | Tee-Object 't10-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T10_MASS_TRAIN_EVALUATION_FAILED'}
+          $v=Get-Content 't10-mass-original.json' -Raw | ConvertFrom-Json
+          if($v.'science_accepted' -ne $false){throw 'T10_SCIENCE_UNAUTHORIZED'}
+          if($v.'protected_ORIGINAL_MNS_used' -ne 0 -and $v.'protected_ORIGINAL_MNS_used' -ne $false){throw 'T10_PROTECTED_SOURCE_REPLAY'}
+          Write-Output 'T10_MASS_FOCUSED_EVIDENCE=PASS'
+          Write-Output 'T10_MASS_SCIENTIFIC_ADMISSION=false'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t10-mass-new-nonprotected-${{ matrix.os }}-${{ github.sha }}
+          path: t10-mass-original.json
+          retention-days: 90
+          if-no-files-found: warn

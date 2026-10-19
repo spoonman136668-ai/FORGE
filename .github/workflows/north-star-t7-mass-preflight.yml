@@ -1,0 +1,43 @@
+name: T7 mass independent source nonconsuming preflight
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t7-mass-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t7-mass-source-neutral-preflight
+  cancel-in-progress: false
+jobs:
+  frozen-source-preflight:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently check immutable source and only source-neutral fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T7_EXACT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t7-preregister.json').Trim() -cne 'e9d30a66358c05953a2991717b2cd4c820ca5a8f'){throw 'T7_PREIMPLEMENTATION_SOURCE_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-mass-t7-preregister.json').Trim() -cne 'cc03111a004177e1878bf1d202c96f3bd1514da8'){throw 'T7_FIRST_FREEZE_COMMIT_DRIFT'}
+          git merge-base --is-ancestor cc03111a004177e1878bf1d202c96f3bd1514da8 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T7_SOURCE_FIRST_USE_ORDER_FAIL'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t7-independent.py').Trim() -cne '81e11d574790bb6e3a40238de3d4e44de0ed20d3'){throw 'T7_GENERATOR_SOURCE_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t6-learning.py').Trim() -cne '2befffb1c0117a73bf70c1f39d0d6618e037599d'){throw 'T7_T6_FROZEN_CONTROL_CHANGED'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-mass-t7-independent.py' --mode preflight
+          if($LASTEXITCODE -ne 0){throw 'T7_NONCONSUMING_GENERATOR_FAIL'}
+          Write-Output 'T7_MASS_FROZEN_SOURCE_READINESS=PASS'
+          Write-Output 'T7_MASS_PROSPECTIVE_A_OR_B_SOURCE_BORN=0'
+          Write-Output 'T7_MASS_PROTECTED_ORIGINAL_COHORT_BORN=0'

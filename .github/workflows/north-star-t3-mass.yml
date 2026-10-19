@@ -1,0 +1,44 @@
+name: T3 mass learned-cognition correction nonconsuming
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t3-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t3-mass-frozen-readiness-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  exact-source-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 35
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify preimplementation T3 freeze and run only source-neutral math/native checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T3_EXACT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t3-mechanism-freeze.json').Trim() -cne '22e1ab185fa6934f595759e4e701a2b657f40af0'){throw 'T3_SOURCE_FROZEN_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-mass-t3-mechanism-freeze.json').Trim() -cne 'd6947e63ef056ef49c3dee5a3961ef037870da37'){throw 'T3_SOURCE_FREEZE_AFTER_IMPLEMENTATION'}
+          git merge-base --is-ancestor 'd6947e63ef056ef49c3dee5a3961ef037870da37' HEAD
+          if($LASTEXITCODE -ne 0){throw 'T3_FREEZE_NOT_ANCESTOR'}
+          if((git hash-object 'nativeevidence/f124az_joint_public_inverse.py').Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'T3_UNCHANGED_HISTORICAL_BASELINE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t3-learned-sbox.py').Trim() -cne '4ae82a1c4a052da9c61f84bf1bd91b46d303c6eb'){throw 'T3_NEW_CORRECTION_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-mass-t3-learned-sbox.py'
+          if($LASTEXITCODE -ne 0){throw 'T3_FROZEN_FOCUSED_NONCONSUMING_FAIL'}
+          Write-Output 'T3_MASS_FOCUSED_SOURCE_QUALIFICATION=PASS'
+          Write-Output 'T3_MASS_ORIGINAL_PROTECTED_COHORTS_CONSUMED=0'
+          Write-Output 'T3_MASS_FULL_RESOURCE_PARITY_NOT_ASSUMED=true'
+          Write-Output 'T3_MASS_SCIENTIFIC_TRANSFER_ACCEPTANCE=false'

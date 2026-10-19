@@ -1,0 +1,73 @@
+name: T7 mass ONE original prospective source first-use
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t7-mass-original.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: t7-mass-single-original-source-custody
+  cancel-in-progress: false
+jobs:
+  one-original-prospective-first-use:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 60
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original source freeze, both independent preflight jobs, and no previous first-use attempt
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object research/north-star-transfer/20261018-mass-t7-preregister.json)" = "e9d30a66358c05953a2991717b2cd4c820ca5a8f"
+          test "$(git log -1 --format=%H -- research/north-star-transfer/20261018-mass-t7-preregister.json)" = "cc03111a004177e1878bf1d202c96f3bd1514da8"
+          git merge-base --is-ancestor cc03111a004177e1878bf1d202c96f3bd1514da8 HEAD
+          test "$(git hash-object research/north-star-transfer/20261018-mass-t7-independent.py)" = "81e11d574790bb6e3a40238de3d4e44de0ed20d3"
+          test "$(git hash-object research/north-star-transfer/20261018-mass-t6-learning.py)" = "2befffb1c0117a73bf70c1f39d0d6618e037599d"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39178952791" --jq '[.head_sha,.conclusion,.event] | join(" ")')" = "7ba27add81354f568827f56cc38b407efe4224dc success push"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/39178952791/jobs?per_page=100" --jq '[.total_count,([.jobs[]|select(.conclusion=="success")]|length)]|join(" ")')" = "2 2"
+          other=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/north-star-transfer-mass-20261018&per_page=100" --jq '[.workflow_runs[] | select(.path==".github/workflows/north-star-t7-mass-original.yml") | select(.id != (env.GITHUB_RUN_ID|tonumber))] | length')
+          test "$other" = "0" || { echo T7_ORIGINAL_SOURCE_ALREADY_ATTEMPTED; exit 1; }
+          python3 -B research/north-star-transfer/20261018-mass-t7-independent.py --mode preflight
+          echo T7_MASS_BEFORE_FIRST_USE_ADMISSION=PASS
+      - name: Consume one frozen original source cohort, replica only if admitted
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B research/north-star-transfer/20261018-mass-t7-independent.py --mode original > "$RUNNER_TEMP/t7-mass-original.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          f=pathlib.Path(os.environ["RUNNER_TEMP"],"t7-mass-original.json")
+          d=json.loads(f.read_text())
+          assert d["schema"]=="mass.t7.first-novel-operation-public-transfer.v1"
+          assert d["A_original_source_cases_born"]==8
+          assert d["original_MNS_protected_source_used"]==0
+          assert d["B_created"]==d["A_eligible"]
+          assert d["B_source_cases_born"]==(8 if d["A_eligible"] else 0)
+          assert d["scientific_transfer_accepted"] is False and d["optimizer_promoted"] is False
+          print("T7_MASS_FIRST_USE_SOURCE_CUSTODY=PASS")
+          print("T7_MASS_SCIENTIFIC_ACCEPTANCE=false")
+          print("T7_MASS_ORIGINAL_PROTECTED_COHORTS_UNTOUCHED=true")
+          print("T7_MASS_FIRST_USE_RESULT="+json.dumps(d,sort_keys=True))
+          PY
+          (cd "$RUNNER_TEMP" && sha256sum "t7-mass-original.json" > "t7-mass-original.json.sha256")
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t7-mass-first-original-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/t7-mass-original.json
+            ${{ runner.temp }}/t7-mass-original.json.sha256
+          retention-days: 90
+          if-no-files-found: warn

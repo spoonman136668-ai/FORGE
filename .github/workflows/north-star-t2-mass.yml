@@ -1,0 +1,49 @@
+name: T2 mass genuine transfer readiness (nonconsuming)
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t2-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t2-mass-nonconsuming-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  independent-source-and-native-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 40
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify exact prereg source and run only synthetic readiness fixtures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T2_EXACT_BRANCH_HEAD_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t2-source-freeze.json').Trim() -cne '29bd302deadca4780c5886b328257be0f0f0846a'){throw 'T2_FROZEN_BIRTH_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261018-mass-t2-source-freeze.json').Trim() -cne '273b24def9ca3e1309dcf4f69f172bc27eec6165'){throw 'T2_PROTOCOL_NOT_FROZEN_BEFORE_SOURCE'}
+          git merge-base --is-ancestor '273b24def9ca3e1309dcf4f69f172bc27eec6165' HEAD
+          if($LASTEXITCODE -ne 0){throw 'T2_FROZEN_COMMIT_NOT_ANCESTOR'}
+          if((git hash-object 'nativeevidence/f124az_joint_public_inverse.py').Trim() -cne '0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'){throw 'T2_PREVIOUS_CONTROL_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t2-source.py').Trim() -cne 'cb0f94beed0e3b084196a11322e6536b42a93246'){throw 'T2_MASS_SOURCE_CODE_DRIFT'}
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261018-mass-t2-source.py'
+          if($LASTEXITCODE -ne 0){throw 'T2_MASS_READINESS_FAIL'}
+          & $py -B 'research/north-star-transfer/20261018-mass-learned-kernel.py'
+          if($LASTEXITCODE -ne 0){throw 'T2_MASS_READINESS_FAIL'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t2-resource.py').Trim() -cne '96867e5cb104b2eb99024025a99cf06331512e71'){throw 'T2_MASS_RESOURCE_CODE_DRIFT'}
+          & $py -B 'research/north-star-transfer/20261018-mass-t2-resource.py'
+          if($LASTEXITCODE -ne 0){throw 'T2_MASS_MATCHED_PUBLIC_RESOURCE_DIAGNOSTIC_FAIL'}
+          Write-Output 'T2_MASS_SOURCE_AND_NATIVE_READINESS=PASS'
+          Write-Output 'T2_MASS_PROTECTED_COHORTS_CONSUMED=0'
+          Write-Output 'T2_MASS_SCIENCE_PROTECTED_ADMISSION=false'
+          Write-Output 'T2_MASS_FULL_RESOURCE_PARITY_NOT_ASSUMED=true'

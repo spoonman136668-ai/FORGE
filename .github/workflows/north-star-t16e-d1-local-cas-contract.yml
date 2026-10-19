@@ -1,0 +1,40 @@
+name: T16E D1 firstuse local atomic contract nondeployed
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t16e-d1-local-cas-contract.yml']
+permissions:
+  contents: read
+jobs:
+  hermetic-sqlite-cas:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact nondeployed SQL/CAS and source custodial freeze
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T16E_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16e-d1-atomic-firstuse-notdeployed.sql').Trim() -cne '0b0db4b339ce0a4734e111a146f9e9365867efdd'){throw 'T16E_SQL_IDENTITY_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16e-d1-atomic-firstuse-notdeployed_test.py').Trim() -cne '93e7558d1e715c4173dbcc1eb35bc2baa1c4a427'){throw 'T16E_CAS_TEST_IDENTITY_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16c-mass-prospective-admission-freeze.json').Trim() -cne '474384fc935f2f37196f42de91e58faf622dd4c9'){throw 'T16E_ORIGINAL_SOURCE_CUSTODY_CHANGED'}
+          Write-Output 'T16E_UNDEPLOYED_CAS_SOURCE=PASS'
+      - name: Bounded local SQLite concurrent firstuse and anti-replay tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python research/north-star-transfer/20261019-t16e-d1-atomic-firstuse-notdeployed_test.py
+          if($LASTEXITCODE -ne 0){throw 'T16E_CAS_LOCAL_CONCURRENCY_FAIL'}
+          Write-Output 'T16E_LOCAL_SQLITE_SINGLE_WINNER=PASS'
+          Write-Output 'T16E_CLOUDFLARE_D1_NOT_DEPLOYED_EXTERNAL_CUSTODY_UNVERIFIED=PASS'

@@ -1,0 +1,50 @@
+name: T16B mass nonconsuming novel representation checks
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t16b-mass-focused.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t16b-mass-sourceblind-focussed
+  cancel-in-progress: false
+jobs:
+  math-and-serialization:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact frozen prior source and novel representation identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T16B_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16b-learned-relation-grammar.py').Trim() -cne 'bca0ca39ed11a080fb565b47b1804afac4a19caa'){throw 'T16B_REPRESENTATION_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16b-learned-relation-grammar_test.py').Trim() -cne '7df6b17c3a71f5ee2097962df1cf7d0ef1f09e82'){throw 'T16B_TEST_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16-source.py').Trim() -cne 'b6b7a38f936043434b5d92b821bfe5d70dbb65fa'){throw 'T16B_ORIGINAL_SOURCE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t16-freeze.json').Trim() -cne 'ab1b39be468b62aa204e9b0336f49f373d1bbd5b'){throw 'T16B_PREIMPLEMENTATION_DRIFT'}
+          Write-Output 'T16B_FROZEN_SOURCE_MODEL_AND_TEST_SHA=PASS'
+      - name: Nonconsuming cross-platform focused tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'research/north-star-transfer/20261019-mass-t16b-learned-relation-grammar_test.py'
+          if($LASTEXITCODE -ne 0){throw 'T16B_NOVEL_REPRESENTATION_FOCUSED_FAIL'}
+          Write-Output 'T16B_MATH_SERIALIZATION_FOCUSED_PASS'
+      - name: No first-use or scientific authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Write-Output 'T16_ORIGINAL_PROSPECTIVE_COHORTS_USED=0'
+          Write-Output 'T16_INDEPENDENT_SCIENTIFIC_ACCEPTANCES=0'
+          Write-Output 'T16_OPTIMIZER_DISPATCH=0'

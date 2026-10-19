@@ -1,0 +1,25 @@
+name: Research transfer kernel qualification
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+permissions:
+  contents: read
+jobs:
+  source-bound-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source identity and nonconsuming kernel test
+        run: |
+          set -euo pipefail
+          test "$(git hash-object research/north-star-transfer/20261018-mass-research-precode.json)" = "2359c97b14a34d28881895713235f7fe9cee8a73"
+          test "$(git hash-object nativeevidence/f124az_joint_public_inverse.py)" = "0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7"
+          python3 -B research/north-star-transfer/20261018-mass-learned-kernel.py
+          echo TRANSFER_SOURCE_BOUND_SYNTHETIC_ONLY=PASS
+          echo UNSEEN_COHORT_CONSUMED=false
+          echo EQUAL_COST_QUALIFIED=false

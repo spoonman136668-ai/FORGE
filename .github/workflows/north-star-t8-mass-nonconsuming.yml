@@ -1,0 +1,57 @@
+name: T8 mass causal learning source-and-resource proof
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t8-mass-nonconsuming.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t8-mass-nonconsuming-source-proof
+  cancel-in-progress: false
+jobs:
+  true-causal-constraint-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest,windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enforce frozen source before T8 code and exact unchanged historical control
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T8_GIT_HEAD_MISMATCH'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t8-source-freeze.json').Trim() -cne '982325809540e0eb65e45dbe18abe90f7bee9dfc'){throw 'T8_PREREG_SOURCE_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t8-source-freeze.json').Trim() -cne '07d4ed6fe08cbf348697d58dd197db2a2710c165'){throw 'T8_FREEZE_CHANGED_AFTER_IMPLEMENTATION'}
+          git merge-base --is-ancestor 07d4ed6fe08cbf348697d58dd197db2a2710c165 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T8_SOURCE_BORN_BEFORE_FREEZE'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t8-streaming.py').Trim() -cne '8e4d38f4de1b77960682922b3e772309d7a80377'){throw 'T8_NEW_SOURCE_IDENTITY_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261018-mass-t7-independent.py').Trim() -cne '81e11d574790bb6e3a40238de3d4e44de0ed20d3'){throw 'T8_HISTORICAL_CONTROL_CHANGED'}
+          Write-Output 'T8_MASS_PREREG_AND_SOURCE_IDENTITY=PASS'
+      - name: Test one source-neutral theorem/source or public TRAIN cost
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261019-mass-t8-streaming.py' | Tee-Object 't8-mass-nonconsuming.json'
+          if($LASTEXITCODE -ne 0){throw 'T8_MASS_SOURCE_NEUTRAL_FAILED'}
+          $j=Get-Content 't8-mass-nonconsuming.json' -Raw | ConvertFrom-Json
+          if($j.'protected_prospective_first_use' -ne $false){throw 'T8_SOURCE_FIRST_USE_FORBIDDEN'}
+          if($j.'T7_A_or_B_original_recreated' -ne $false){throw 'T8_MASS_CONSUMED_COHORT_REPLAY'}
+          Write-Output 'T8_MASS_NONCONSUMING_ENGINEERING=PASS'
+          Write-Output 'T8_MASS_ORIGINAL_PROTECTED_FIRST_USE=false'
+          Write-Output 'T8_MASS_SCIENTIFIC_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t8-mass-nonconsuming-${{ matrix.os }}-${{ github.sha }}
+          path: t8-mass-nonconsuming.json
+          retention-days: 90
+          if-no-files-found: error
