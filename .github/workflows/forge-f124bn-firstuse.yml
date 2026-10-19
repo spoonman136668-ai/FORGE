@@ -1,0 +1,111 @@
+name: F124-BN single original causal-discrimination FIT, no heldout
+on:
+  push:
+    branches: [research/f124bn-firstuse-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bn-one-only-original-fit
+  cancel-in-progress: false
+jobs:
+  exact-original-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require qualified immutable original source, original first attempt only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/research/f124bn-learned-causal-identity-20261018" \
+            > "$RUNNER_TEMP/frozen-source-ref.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bn-firstuse-20261018&per_page=100" \
+            > "$RUNNER_TEMP/original-fitscreen-runs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bn-learned-causal-identity-20261018&per_page=40" \
+            > "$RUNNER_TEMP/original-preuse-runs.json"
+          python3 -B - "$RUNNER_TEMP" <<'PY'
+          import json,os,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          source=json.loads((root/'frozen-source-ref.json').read_text())
+          once=json.loads((root/'original-fitscreen-runs.json').read_text())
+          qualified=json.loads((root/'original-preuse-runs.json').read_text())
+          assert source['object']['sha']==os.environ['GITHUB_SHA'], 'BN_SOURCE_REWRITTEN'
+          fits=[r for r in once['workflow_runs']
+                if r['path']=='.github/workflows/forge-f124bn-firstuse.yml'
+                and r['event']=='push']
+          assert len(fits)==1 and fits[0]['id']==int(os.environ['GITHUB_RUN_ID'])
+          eligible=[r for r in qualified['workflow_runs']
+                    if r['path']=='.github/workflows/forge-f124bn-preuse.yml'
+                    and r['head_sha']==os.environ['GITHUB_SHA']
+                    and r['status']=='completed' and r['conclusion']=='success']
+          assert eligible, 'BN_NO_IDENTICAL_SOURCE_PREUSE_PASS'
+          print('F124BN_QUALIFIED_SINGLE_PROSPECTIVE_DEVELOPMENT_RUN=PASS')
+          PY
+          python3 -B research/north-star-transfer/f124bn_source_witness.py \
+            --provider --output "$RUNNER_TEMP/last-before-first-use-witness.json"
+  original-firstuse-task-measure:
+    needs: exact-original-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original 12 new A and 12 new B causal pairs; persist each arm immediately
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bn-original-dev"
+          python3 -B research/north-star-transfer/f124bn_dev_eval.py \
+            --output "$RUNNER_TEMP/f124bn-original-dev/aggregated-original-FIT.json"
+      - name: Verify exact original negative or positive without changing frozen gates
+        shell: bash
+        if: success()
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bn-original-dev"
+          python3 -B - "$root/aggregated-original-FIT.json" <<'PY'
+          import json,sys
+          j=json.load(open(sys.argv[1]))['summary']
+          assert j['cases_consumed']==24 and j['original_arm_records']==48
+          assert j['old_BM_source_reused'] is False
+          assert j['original_BH_U_R_holdout_used'] is False
+          assert j['new_BN_128_holdout_used'] is False
+          assert j['original_consumed_TRAIN_replayed'] is False
+          assert j['complete_train_amortized_CPU_memory_scientific_parity'] is False
+          assert j['scientific_accepted'] is False
+          for group in ('mix','word'):
+              r=j['families'][group]
+              print('F124BN_'+group+'_CANDIDATE_POS='+str(r['learner_positive_count']))
+              print('F124BN_'+group+'_HARD_FP='+str(len(r['learner_FP_case_ids'])))
+              print('F124BN_'+group+'_LOST_BASELINE_POS='+str(len(r['baseline_positive_lost_ids'])))
+              print('F124BN_'+group+'_CORRECT_PAIRS='+str(r['correctly_classified_learned_pairs']))
+              print('F124BN_'+group+'_FIT_GATE='+str(r['FIT_gate_met']))
+          print('F124BN_DEVELOPMENT_JOINT_GATE='+str(j['joint_FIT_gate']))
+          print('F124BN_SCIENTIFIC_OOD_ACCEPTANCE=false')
+          PY
+          (cd "$root" && sha256sum ./*.json > original-firstuse-sha256.txt && sha256sum -c original-firstuse-sha256.txt)
+      - name: Always archive original and incomplete observations; no reruns
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bn-new-firstuse-causal-dev-not-protected-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bn-original-dev/
+          if-no-files-found: warn
+          retention-days: 90
