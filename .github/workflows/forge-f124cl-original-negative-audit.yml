@@ -1,0 +1,190 @@
+name: F124-CL read-only authentic internal E2F2 prospective negative custody
+on:
+  push:
+    branches: [research/f124cl-original-internal-negative-custody-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124cl-original-negative-never-replay
+  cancel-in-progress: false
+jobs:
+  independently-reconcile-original-provider-24-firstuses-and-840-costs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Source changes limited to read-only audit and one original negative receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=6a8fd5b29e831da6c8c2d3dfbe052bb74367f596
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$parent" HEAD
+          mapfile -t changed < <(git diff --name-only "$parent" HEAD | sort)
+          expected=(.github/workflows/forge-f124cl-original-negative-audit.yml research/north-star-transfer/f124cl-original-prospective-negative-custody.json)
+          test "${changed[*]}" = "${expected[*]}"
+          for path in research/north-star-transfer/f124cj_birth_original.py \
+            research/north-star-transfer/f124cj_internal_source.py \
+            research/north-star-transfer/f124cj_prospective_eval.py \
+            research/north-star-transfer/f124cb_dual_link_learner.py \
+            research/north-star-transfer/f124cc_trained_two_link_control.py \
+            nativeevidence/f124az_joint_public_inverse.py; do
+            test "$(git rev-parse HEAD:"$path")" = "$(git rev-parse "$parent":"$path")"
+          done
+          echo F124CL_ORIGINAL_LEARNED_MODELS_SOURCE_AND_EVALUATOR_UNCHANGED=PASS
+      - name: Fetch provider-original signed-by-GitHub run metadata and BOTH immutable artifacts (read-only, no source import)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124cl-original-audit"
+          mkdir -p "$root"/{source,measurements}
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39283278717" > "$root/run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/118162353517" > "$root/source-job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/118162454401" > "$root/evaluation-job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12200914649" > "$root/source-artifact.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12201828696" > "$root/evaluation-artifact.json"
+          gh run download 39283278717 --repo "$GITHUB_REPOSITORY" \
+            --name f124ck-original-one-time-sealed-24-sources --dir "$root/source"
+          gh run download 39283278717 --repo "$GITHUB_REPOSITORY" \
+            --name f124ck-original-all-24-decisions-native-CPU-RSS-6a8fd5b29e831da6c8c2d3dfbe052bb74367f596 --dir "$root/measurements"
+          (cd "$root/source" && sha256sum -c ORIGINAL_SHA256SUMS)
+          (cd "$root/measurements" && sha256sum -c ORIGINAL_SHA256SUMS)
+          python3 -B - "$root" <<'PY'
+          from collections import Counter
+          from pathlib import Path
+          import hashlib,json,sys
+          folder=Path(sys.argv[1])
+          contract=json.loads(Path('research/north-star-transfer/f124cl-original-prospective-negative-custody.json').read_text())
+          orig=contract['original_source']
+          run=json.loads((folder/'run.json').read_text())
+          birthjob=json.loads((folder/'source-job.json').read_text())
+          scorejob=json.loads((folder/'evaluation-job.json').read_text())
+          bmeta=json.loads((folder/'source-artifact.json').read_text())
+          emeta=json.loads((folder/'evaluation-artifact.json').read_text())
+          assert run['id']==orig['run_id'] and run['head_sha']==orig['head']
+          assert run['status']=='completed' and run['conclusion']=='success'
+          assert run['run_attempt']==1
+          assert birthjob['id']==orig['birth_job_id'] and birthjob['conclusion']=='success'
+          assert scorejob['id']==orig['scorer_job_id'] and scorejob['conclusion']=='success'
+          assert birthjob['run_id']==scorejob['run_id']==run['id']
+          for meta,idkey,digestkey in [
+             (bmeta,'birth_artifact_id','birth_zip_digest'),
+             (emeta,'outcome_artifact_id','outcome_zip_digest')]:
+              assert meta['id']==orig[idkey]
+              assert meta['digest']==orig[digestkey]
+              assert meta['expired'] is False
+              assert meta['workflow_run']['id']==run['id']
+          source=json.loads((folder/'source/original-24-E2F2-firstuse-birth.json').read_text())
+          ev=json.loads((folder/'measurements/original-24-E2F2-science-outcomes.json').read_text())
+          assert source['schema']=='mass.f124cj.original-sealed-internal-E2F2-birth.v1'
+          assert source['original_source_git_head']==orig['head']
+          assert source['original_source_identity']=='INTERNALLY_AUTHORED_NOT_EXTERNAL'
+          assert source['case_birth_before_evaluation'] is True
+          assert source['model_or_native_scoring_executed'] is False
+          assert source['new_EF_replication_cohorts_created'] is False
+          assert len(source['original_all_24_firstuse_cases'])==24
+          ids=[p['task_identity'] for p in source['original_all_24_firstuse_cases']]
+          assert ids==list(range(930000,930012))+list(range(931000,931012))
+          assert ev['original_birth_Git_head']==orig['head']
+          assert ev['original_birth_manifest_SHA256']==source['original_all_case_packet_sha256']
+          assert ev['original_birth_source_blob']==contract['frozen_source']['source_parser_compatible_git_blob']
+          assert ev['original_birth_verified_before_scorer'] is True
+          assert ev['schema']=='mass.f124cj.original-internal-prospective-E2F2-840-OS-process.v1'
+          pre=ev['original_168_native_preflights']
+          samples=ev['original_840_full_OS_process_measurements']
+          assert len(pre)==168 and len(samples)==840
+          assert len(ev['all_24_prospective_case_outcomes'])==24
+          arms=('AZ','BQ','BX','BZ','CA','CB','CC')
+          a={(v['case'],v['arm']):v for v in pre}
+          assert len(a)==168
+          for identity in ids:
+              case=[p for p in source['original_all_24_firstuse_cases'] if p['task_identity']==identity][0]
+              assert case['public_task_sha256']
+              family=ev['all_24_prospective_case_outcomes'][str(identity)]
+              for arm in arms:
+                  p=a[identity,arm]
+                  assert p['private_oracle_passed_to_model'] is False
+                  assert p['protected_128_cohorts_opened'] is False
+                  rows=[s for s in samples if s['case']==identity and s['arm']==arm]
+                  assert len(rows)==5
+                  assert all(s['source_task_sha256']==p['source_task_sha256']
+                             and s['natural_route']==p['natural_route']
+                             and s['actual_native_calls']==p['actual_native_calls']
+                             and s['positive_accepted']==p['positive_accepted']
+                             and s['hard_false_positive']==p['hard_false_positive']
+                             and s['complete_process_cpu_ns']>0
+                             and s['complete_OS_peak_RSS_bytes']>0
+                             for s in rows)
+                  assert len(family['all_trained_arm_original_metrics'][arm]['complete_CPU_samples_ns'])==5
+              assert family['actual_CB_CC_native_work_identical'] is False
+              assert family['all_fully_trained_same_native_controls']==[]
+          failures=ev['all_original_failures_including_unmatched_and_abstained']
+          expected=contract['original_outcome']
+          assert len(failures['CB_hard_false_positives'])==expected['CB_hard_false_positives']==0
+          assert len(failures['loss_of_trained_or_AZ_accepted_positive'])==expected['previously_accepted_positive_losses']==0
+          assert len(failures['CB_CC_unmatched_actual_native_work'])==24
+          assert len(failures['no_fully_trained_eligible_equal_native_control'])==24
+          assert len(failures['some_original_controls_abstained'])==24
+          assert len(failures['full_CPU_or_peak_RSS_regression'])==0
+          for fam in ('E2','F2'):
+              summary=ev['E2_F2_full_family_summaries'][fam]
+              assert summary['CB_correct_paired_cases']==0
+              assert summary['strongest_trained_control_correct_pairs']==0
+              assert summary['CB_net_correct_pairs_over_strongest_trained_control']==0
+              assert summary['all_CB_CC_actual_native_work_matched'] is False
+              assert summary['all_complete_CPU_RSS_nonregressing'] is False
+          journalpath=folder/'measurements/original-append-native-and-OS-receipts.jsonl'
+          counts=Counter()
+          for line in journalpath.open():
+              record=json.loads(line)
+              assert record['schema']=='mass.f124cj.original-append-only-process-receipt.v1'
+              receipt=record['original_complete_process_measurement']
+              counts[(receipt['case'],receipt['arm'],bool(record['is_original_native_preflight']))]+=1
+          assert sum(counts.values())==1008
+          assert all(counts[identity,arm,True]==1 and counts[identity,arm,False]==5
+                     for identity in ids for arm in arms)
+          assert ev['frozen_scientific_development_gate_passed'] is False
+          assert ev['source_origin_internally_authored_not_external'] is True
+          assert ev['independent_research_group_replication_claimed'] is False
+          assert ev['old_BV_924_925_and_CE_926_927_firstuse'] is False
+          assert ev['new_E_F_128x2_protected_cohorts_opened'] is False
+          assert ev['science_accepted'] is False
+          assert ev['optimizer_or_production_promoted'] is False
+          # Never copy birth private seeds/oracle, case payloads, or original
+          # model measurements into the new audit artifact.
+          audit={'schema':'mass.f124cl.readonly-independent-provider-negative.v1',
+             'provider_run':run['id'],'original_git_source':run['head_sha'],
+             'source_artifact_digest':bmeta['digest'],
+             'measurement_artifact_digest':emeta['digest'],
+             'source_firstuses':24,'native_preflights':168,
+             'whole_process_receipts':840,'journal_receipts':1008,
+             'CB_correct_pairs_E2':0,'CB_correct_pairs_F2':0,
+             'CB_hard_false_positives':0,'baseline_positive_losses':0,
+             'same_native_work_ineligible_cases':24,
+             'scientific_development_accepted':False,
+             'protected_cohorts_opened':False,'source_origin':'INTERNAL',
+             'any_external_reproduction_claimed':False,
+             'source_or_model_reexecuted':False}
+          out=folder/'read-only-negative-audit.json'
+          out.write_text(json.dumps(audit,sort_keys=True,indent=2)+'\n')
+          print('F124CL_PROVIDER_ORIGINAL_24_168_840_AND_JOURNAL=PASS')
+          print('F124CL_UNFAMILIAR_CAUSAL_TRANSFER_NEGATIVE=PASS')
+          print('F124CL_SOURCE_AND_MODEL_REEXECUTED=FALSE')
+          print('F124CL_PROTECTED_REPLICATION=FALSE')
+          PY
+          mkdir -p "$RUNNER_TEMP/f124cl-only-public"
+          cp "$root/read-only-negative-audit.json" "$RUNNER_TEMP/f124cl-only-public/audit.json"
+          (cd "$RUNNER_TEMP/f124cl-only-public" && sha256sum audit.json > audit.sha256 && sha256sum -c audit.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124cl-original-negative-provider-custody-${{ github.sha }}
+          path: ${{ runner.temp }}/f124cl-only-public/
+          retention-days: 90
+          if-no-files-found: warn
