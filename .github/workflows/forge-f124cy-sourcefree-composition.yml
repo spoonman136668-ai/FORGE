@@ -1,0 +1,87 @@
+name: F124-CY learned compositional causal binding versus fully trained controls
+on:
+  push:
+    branches: [research/f124cy-compositional-variable-binding-20261019]
+    paths: [.github/workflows/forge-f124cy-sourcefree-composition.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124cy-one-sourcefree-compositional-feasibility
+  cancel-in-progress: false
+jobs:
+  sourcefree-mechanism-preflight:
+    name: sourcefree-mechanism-preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen NumPy independent trained gated reference
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CY_NUMPY_PIN_FAIL' }
+      - name: Verify this gate was preregistered BEFORE source-free law implementation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CY_GITHUB_SHA_DRIFT' }
+          & git merge-base --is-ancestor f8b117c782280e1963fd02fa0f79577c1607d42f HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CY_HYPOTHESIS_NOT_BEFORE_SOURCE' }
+          & git merge-base --is-ancestor a2b1d03407a2985c67cdec35e611cb7c132d879b HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CY_COMPLETE_F124C_RESEARCH_CHAIN_MISSING' }
+          $x=Get-Content -Raw research/north-star-transfer/f124cy-frozen-compositional-gate.json | ConvertFrom-Json
+          if ($x.schema -cne 'mass.f124cy.sourcefree-compositional-causal-equivalence-prereg.v1') { throw 'CY_FREEZE_CHANGED' }
+          if (!$x.guardrails.no_consumed_924_through_937_family_reuse -or !$x.guardrails.no_new_scientific_source_birth -or !$x.guardrails.no_scientific_acceptance -or !$x.guardrails.no_automatic_merge) { throw 'CY_UNAUTHORIZED_FIRSTUSE_OR_PROMOTION' }
+          Write-Host 'F124CY_ORIGINAL_FROZEN_PRIOR_TO_FIXTURE=PASS'
+      - name: Test shared learned causal operator, independent controls and role-binding invariance
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cy_compositional_binding.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CY_CAUSAL_BINDING_QUALIFICATION_FAILED' }
+          Write-Host 'F124CY_SOURCEFREE_COMPOSITION_AND_FULL_TRAINED_CONTROLS=PASS'
+  measured-original-sourcefree-trial:
+    name: measured-original-sourcefree-trial
+    needs: sourcefree-mechanism-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze CPU dependencies
+        run: python -m pip install --disable-pip-version-check numpy==2.3.5
+      - name: Record all 24 full-process native measurements without any original science source
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cy_hosted_whole_os.py \
+            --out "$RUNNER_TEMP/f124cy-sourcefree-original"
+      - name: Retain all 24 native receipts and independent comparison summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cy-sourcefree-compositional-full-native-evidence
+          path: ${{ runner.temp }}/f124cy-sourcefree-original/
+          retention-days: 90
+          if-no-files-found: error
