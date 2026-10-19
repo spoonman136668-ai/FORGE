@@ -149,5 +149,45 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(self.attempt(), [])
 
 
+    def test_append_only_reservation_rejects_update_delete_and_replace(self):
+        self.assertEqual(len(self.attempt()), 1)
+        with closing(self.open()) as db:
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("UPDATE original_firstuse SET cohort_sha256=? "
+                           "WHERE cohort_sha256=?", (H("1"), H("a")))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute("DELETE FROM original_firstuse WHERE cohort_sha256=?",
+                           (H("a"),))
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "INSERT OR REPLACE INTO original_firstuse "
+                    "SELECT * FROM original_firstuse WHERE cohort_sha256=?",
+                    (H("a"),))
+            self.assertEqual(
+                db.execute("SELECT cohort_sha256,state FROM original_firstuse").fetchall(),
+                [(H("a"), "RESERVED_PENDING_INDEPENDENT_WITNESS")],
+            )
+
+    def test_digest_encodings_are_canonical_lowerhex_only(self):
+        for index, value in [
+            (0, H("A")), (1, H("B")), (2, H("C")), (0, H("g")),
+        ]:
+            with self.subTest(index=index, value=value[:3]):
+                bad = list(CLAIM)
+                bad[index] = value
+                self.assertEqual(self.attempt(tuple(bad)),
+                                 "INTEGRITY_CONFLICT_NO_RETRY")
+        with closing(self.open()) as db:
+            for bad in [H("D"), H("G")]:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute(
+                        "UPDATE authority_state SET archive_id=? "
+                        "WHERE singleton=1", (bad,))
+            self.assertEqual(
+                db.execute("SELECT reservation_open,reservation_sequence "
+                           "FROM authority_state").fetchone(), (1, 0))
+
+
+
 if __name__ == "__main__":
     unittest.main()
