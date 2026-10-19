@@ -1,0 +1,118 @@
+name: KTRADE R25-C63 retained structured-data parse on FORGE owner runner
+# Confined offline read-only test of selected JSON in the separately restored
+# R25-C49 copy. No browser databases, no broker connection, no values logged.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c63-structured-data.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-r25-c63-owner-syntax-review
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Parse only selected restored JSON and print aggregate outcomes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'R25_C63_NOT_OWNER_FORGE_RUNNER'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          $snapshot=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          $recovery=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          foreach($root in @($snapshot,$recovery,(Join-Path $recovery 'Application'),(Join-Path $recovery 'Application\data'))){
+            try{
+              $item=Get-Item -LiteralPath $root -Force -ErrorAction Stop
+              if(!$item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+                throw 'nonplain'
+              }
+            }catch{throw 'R25_C63_ROOT_ACCESS_OR_TYPE_REJECTED'}
+          }
+          $manifest=Join-Path $snapshot 'R25-C47-private-manifest.json'
+          $raw=[IO.File]::ReadAllBytes($manifest)
+          if($raw.Length -le 0 -or $raw.Length -gt 2097152){throw 'R25_C63_METADATA_OVERSIZE'}
+          $m=([Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xfeff)|ConvertFrom-Json -Depth 12)
+          if($m.schema -cne 'ktrade.r25-c47.selected-user-data-snapshot.v1' -or
+             [int]$m.copied_file_count -ne 695 -or
+             [int64]$m.copied_bytes -ne 164194320){
+             throw 'R25_C63_SELECTED_MANIFEST_DRIFT'
+          }
+          $selected=@($m.source_files)
+          $target=@($selected | Where-Object {
+            $path=[string]$_.path
+            $path -cmatch '^Application/data/[^/]+\.json(\.bak)?$' -and
+            ($path -cmatch '^Application/data/(config|trading_pairs|strategy_(settings|state)_|tradeguard-risk-continuity|broker-order-observations)')
+          })
+          $parsed=0
+          $invalid=0
+          $skipped=0
+          $totalBytes=[long]0
+          $configValid=$false
+          $pairsValid=$false
+          $strategyFiles=0
+          $riskFiles=0
+          $brokerFiles=0
+          foreach($entry in $target) {
+            $path=[string]$entry.path
+            [long]$size=[long]$entry.bytes
+            if($size -le 0 -or $size -gt 2097152 -or
+                $totalBytes -gt (16MB-$size)){
+                $skipped++;continue
+            }
+            $full=Join-Path $recovery ($path.Replace('/',[IO.Path]::DirectorySeparatorChar))
+            $readOK=$false;$valid=$false
+            try {
+              $info=Get-Item -LiteralPath $full -Force -ErrorAction Stop
+              if($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                 [long]$info.Length -ne $size){throw 'bad-identity'}
+              $b=[IO.File]::ReadAllBytes($full)
+              if($b.Length -ne $size){throw 'changed-size'}
+              $readOK=$true
+              $text=[Text.Encoding]::UTF8.GetString($b).TrimStart([char]0xfeff)
+              $doc=[Text.Json.JsonDocument]::Parse($text)
+              try { $valid=$true } finally {$doc.Dispose()}
+            }catch{
+              if(!$readOK){throw 'R25_C63_SELECTED_FILE_IDENTITY_OR_READ_FAILED'}
+              $valid=$false
+            }
+            $totalBytes+=$size
+            if($valid){$parsed++}else{$invalid++}
+            if($path -ceq 'Application/data/config.json'){$configValid=$valid}
+            if($path -ceq 'Application/data/trading_pairs.json'){$pairsValid=$valid}
+            if($path -cmatch '^Application/data/strategy_(settings|state)_'){$strategyFiles++}
+            if($path -cmatch '^Application/data/tradeguard-risk-continuity'){$riskFiles++}
+            if($path -cmatch '^Application/data/broker-order-observations'){$brokerFiles++}
+          }
+          if($parsed+$invalid+$skipped -ne $target.Count -or
+             $totalBytes -gt 16777216){
+            throw 'R25_C63_BOUNDED_VALIDATION_CONSERVATION_FAILED'
+          }
+          Write-Host 'R25_C63_AUTHENTIC_ISOLATED_COPY_READ_ONLY=PASS'
+          Write-Host ('R25_C63_SELECTED_JSON_CANDIDATES='+$target.Count)
+          Write-Host ('R25_C63_JSON_PARSED='+$parsed)
+          Write-Host ('R25_C63_JSON_INVALID='+$invalid)
+          Write-Host ('R25_C63_TOO_LARGE_OR_EMPTY='+$skipped)
+          Write-Host ('R25_C63_BYTES_READ='+$totalBytes)
+          Write-Host ('R25_C63_CONFIG_JSON_VALID='+$configValid.ToString().ToUpperInvariant())
+          Write-Host ('R25_C63_TRADING_PAIRS_JSON_VALID='+$pairsValid.ToString().ToUpperInvariant())
+          Write-Host ('R25_C63_STRATEGY_JSON_FILES_EXAMINED='+$strategyFiles)
+          Write-Host ('R25_C63_RISK_JSON_FILES_EXAMINED='+$riskFiles)
+          Write-Host ('R25_C63_BROKER_OBSERVATION_JSON_FILES_EXAMINED='+$brokerFiles)
+          Write-Host 'R25_C63_BROWSER_CONTENT_READ=FALSE'
+          Write-Host 'R25_C63_PRIVATE_VALUES_FILENAMES_OR_HASHES_EXPORTED=FALSE'
+          Write-Host 'R25_C63_PRIVATE_FILE_ARTIFACT_UPLOADED=FALSE'
+          Write-Host 'R25_C63_CUSTODY_OR_RESTORE_MODIFIED=FALSE'
+          Write-Host 'R25_C63_APPLICATION_RESTART_VERIFIED=FALSE'
+          Write-Host 'R25_C63_MIGRATION_AUTHORIZED=FALSE'
+          Write-Host 'R25_C63_RELEASE_AUTHORIZED=FALSE'
+          if(!$configValid -or !$pairsValid){throw 'R25_C63_CRITICAL_JSON_NOT_RECOVERABLE'}
