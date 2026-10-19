@@ -1,0 +1,182 @@
+name: R25-C70 classify recovered operational vs canonical financial coverage
+# Bounded metadata/financial aggregate comparison on original owner context.
+# Zero value or ID export; no app startup, network broker, modifications, secrets.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c70-accounting-coverage.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-r25-c70-original-user-coverage
+  cancel-in-progress: false
+jobs:
+  classify:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Confirm isolated owner context
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar') {
+             throw 'R25_C70_OWNER_RUNNER_REQUIRED'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          Write-Host 'R25_C70_OWNER_ACCOUNT=PASS'
+      - name: Compare source identities and classify missing historical facts without exporting values
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Number($d,[string]$key){
+            if($null -eq $d -or !$d.Contains($key)){return [double]0}
+            $v=$d[$key]
+            if($v -isnot [int] -and $v -isnot [long] -and
+               $v -isnot [double] -and $v -isnot [decimal]){
+               throw 'R25_C70_NONNUMERIC_ACCOUNTING_FACT'
+            }
+            $n=[double]$v
+            if([double]::IsNaN($n) -or [double]::IsInfinity($n)){
+               throw 'R25_C70_NONFINITE_ACCOUNTING_FACT'
+            }
+            return $n
+          }
+          function Near([double]$x,[double]$y){
+            $tol=[Math]::Max(0.000001,[Math]::Abs($y)*0.00000001)
+            return [Math]::Abs($x-$y) -le $tol
+          }
+          $custody=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          $recovery=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          foreach($path in @($custody,$recovery,(Join-Path $recovery 'Application'),(Join-Path $recovery 'Application\data'))){
+            $node=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if(!$node.PSIsContainer -or ($node.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+              throw 'R25_C70_ROOT_DRIFT'
+            }
+          }
+          $manifestPath=Join-Path $custody 'R25-C47-private-manifest.json'
+          $mi=Get-Item -LiteralPath $manifestPath -Force -ErrorAction Stop
+          if($mi.Length -le 0 -or $mi.Length -gt 2097152 -or
+             ($mi.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+            throw 'R25_C70_INVALID_METADATA_FILE'
+          }
+          $rawM=[IO.File]::ReadAllBytes($manifestPath)
+          $receipt=Join-Path $custody 'R25-C47-receipt.json'
+          $receiptInfo=Get-Item -LiteralPath $receipt -Force -ErrorAction Stop
+          if($receiptInfo.Length -le 0 -or $receiptInfo.Length -gt 16384){throw 'R25_C70_RECEIPT_SCOPE'}
+          $r=[IO.File]::ReadAllText($receipt)|ConvertFrom-Json -AsHashtable -Depth 10
+          $sha=([Security.Cryptography.SHA256]::HashData($rawM)|ForEach-Object{$_.ToString('x2')}) -join ''
+          $m=[Text.Encoding]::UTF8.GetString($rawM).TrimStart([char]0xfeff)|ConvertFrom-Json -AsHashtable -Depth 15
+          if($m['schema'] -cne 'ktrade.r25-c47.selected-user-data-snapshot.v1' -or
+             [int]$m['copied_file_count'] -ne 695 -or
+             [long]$m['copied_bytes'] -ne 164194320 -or
+             [string]$r['manifest_sha256'] -cne $sha){
+            throw 'R25_C70_MANIFEST_RECEIPT_DRIFT'
+          }
+          $files=@($m['source_files']|Where-Object{
+            [string]$_['path'] -cmatch '^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$'
+          })
+          if($files.Count -ne 2){throw 'R25_C70_STATE_COUNT_DRIFT'}
+          $tradeRows=0;$canonicalRows=0;$unmatchedTrade=0;$missingTradeFillID=0
+          $unmatchedCanonical=0;$unmatchedSell=0;$matchedSell=0;$tradeDuplicateIDs=0
+          $stateVsTradeFeeMismatch=0;$stateVsCanonicalFeeMismatch=0
+          $stateVsSellPnlMismatch=0;$matchedTradeVsCanonicalFeeMismatch=0
+          $stateFiles=0;$recordBytes=0L
+          foreach($entry in $files){
+            $rel=[string]$entry['path']
+            [long]$size=[long]$entry['bytes']
+            if($size -lt 1 -or $size -gt 4194304 -or $recordBytes -gt (8388608-$size)){
+              throw 'R25_C70_FILE_LIMIT'
+            }
+            $full=Join-Path $recovery ($rel.Replace('/',[IO.Path]::DirectorySeparatorChar))
+            try{
+              $info=Get-Item -LiteralPath $full -Force -ErrorAction Stop
+              if($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                 $info.Length -ne $size){throw 'bad-file'}
+              $raw=[IO.File]::ReadAllBytes($full)
+              if($raw.Length -ne $size){throw 'size'}
+              $hash=([Security.Cryptography.SHA256]::HashData($raw)|ForEach-Object{$_.ToString('x2')}) -join ''
+              if($hash -cne [string]$entry['sha256']){throw 'hash'}
+              $recordBytes+=$raw.Length
+              $state=[Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xfeff)|ConvertFrom-Json -AsHashtable -Depth 64
+              $canon=@();$trades=@()
+              if($state.Contains('canonical_fills')){$canon=@($state['canonical_fills'])}
+              if($state.Contains('trade_history')){$trades=@($state['trade_history'])}
+              if($canon.Count -gt 20000 -or $trades.Count -gt 50000){throw 'too-many-rows'}
+              $cMap=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+              $tMap=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+              [double]$cFees=0
+              foreach($c in $canon){
+                if($c -isnot [Collections.IDictionary]){throw 'canonical-type'}
+                $id=[string]$c['fill_id']
+                if([string]::IsNullOrWhiteSpace($id) -or !$cMap.Add($id)){throw 'canonical-identity-duplicate'}
+                $cFees+=Number $c 'fee'
+              }
+              [double]$tFees=0
+              [double]$cMatchedFees=0
+              [double]$tMatchedFees=0
+              [double]$sellPnL=0
+              foreach($t in $trades){
+                if($t -isnot [Collections.IDictionary]){throw 'trade-type'}
+                $id=[string]$t['fill_id']
+                $fee=Number $t 'fee'
+                $tFees+=$fee
+                $isSell=([string]$t['side'] -ieq 'SELL')
+                if($isSell){$sellPnL+=Number $t 'pnl'}
+                if([string]::IsNullOrWhiteSpace($id)){
+                  $missingTradeFillID++
+                  if($isSell){$unmatchedSell++}
+                }elseif(!$tMap.Add($id)){
+                  $tradeDuplicateIDs++
+                }elseif(!$cMap.Contains($id)){
+                  $unmatchedTrade++
+                  if($isSell){$unmatchedSell++}
+                }else{
+                  $tMatchedFees+=$fee
+                  if($isSell){$matchedSell++}
+                }
+              }
+              foreach($c in $canon){
+                $id=[string]$c['fill_id']
+                if(!$tMap.Contains($id)){$unmatchedCanonical++}
+                else{$cMatchedFees+=(Number $c 'fee')}
+              }
+              if(!(Near (Number $state 'total_fees_usd') $tFees)){$stateVsTradeFeeMismatch++}
+              if(!(Near (Number $state 'total_fees_usd') $cFees)){$stateVsCanonicalFeeMismatch++}
+              if(!(Near (Number $state 'realized_pnl') $sellPnL)){$stateVsSellPnlMismatch++}
+              if(!(Near $tMatchedFees $cMatchedFees)){$matchedTradeVsCanonicalFeeMismatch++}
+              $canonicalRows+=$canon.Count;$tradeRows+=$trades.Count
+              $stateFiles++
+            }catch{
+              throw 'R25_C70_PRIVATE_STATE_AUDIT_ABORTED'
+            }finally{
+              $raw=$null;$state=$null;$canon=$null;$trades=$null
+            }
+          }
+          Write-Host 'R25_C70_OWNER_CUSTODY_AND_STATE_HASHES=PASS'
+          Write-Host ('R25_C70_STATE_FILES='+$stateFiles)
+          Write-Host ('R25_C70_CANONICAL_FILLS='+$canonicalRows)
+          Write-Host ('R25_C70_RETAINED_TRADE_ROWS='+$tradeRows)
+          Write-Host ('R25_C70_RETAINED_TRADE_MISSING_FILL_ID='+$missingTradeFillID)
+          Write-Host ('R25_C70_RETAINED_TRADE_WITHOUT_CANONICAL='+$unmatchedTrade)
+          Write-Host ('R25_C70_CANONICAL_WITHOUT_RETAINED_TRADE='+$unmatchedCanonical)
+          Write-Host ('R25_C70_DUPLICATE_TRADE_FILL_IDS='+$tradeDuplicateIDs)
+          Write-Host ('R25_C70_MATCHED_SELL_TRADE_ROWS='+$matchedSell)
+          Write-Host ('R25_C70_UNMATCHED_SELL_TRADE_ROWS='+$unmatchedSell)
+          Write-Host ('R25_C70_STATE_VS_RETAINED_TRADE_FEE_MISMATCH_FILES='+$stateVsTradeFeeMismatch)
+          Write-Host ('R25_C70_STATE_VS_CANONICAL_FEE_MISMATCH_FILES='+$stateVsCanonicalFeeMismatch)
+          Write-Host ('R25_C70_STATE_VS_RETAINED_SELL_PNL_MISMATCH_FILES='+$stateVsSellPnlMismatch)
+          Write-Host ('R25_C70_MATCHED_TRADE_VS_CANONICAL_FEES_MISMATCH_FILES='+$matchedTradeVsCanonicalFeeMismatch)
+          Write-Host 'R25_C70_CANONICAL_HISTORY_COVERAGE_EXAMINED=TRUE'
+          Write-Host 'R25_C70_FULL_ACCOUNTING_PARITY_CERTIFIED=FALSE'
+          Write-Host 'R25_C70_PRIVATE_AMOUNTS_IDENTITIES_HASHES_EXPORTED=FALSE'
+          Write-Host 'R25_C70_SOURCE_OR_RECOVERY_MODIFIED=FALSE'
+          Write-Host 'R25_C70_BROKER_APP_STRATEGY_STARTED=FALSE'
+          Write-Host 'R25_C70_RELEASE_OR_MIGRATION_AUTHORIZED=FALSE'
+          Write-Host 'R25_C70_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+          if($tradeDuplicateIDs -gt 0){throw 'R25_C70_DUPLICATE_FILL_IDS_REQUIRE_REVIEW'}
