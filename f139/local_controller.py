@@ -198,7 +198,8 @@ class Database:
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "source_sha", "ticket", "issue_number", "issue_id",
                     "lane", "kind", "body_sha256", "manifest_sha256",
-                    "prior_event_head_sha256", "scientific_first_use"},
+                    "prior_event_head_sha256", "scientific_first_use",
+                    "admitted_day"},
                     "D2K_ADMISSION_FIELDS")
                 require(doc["schema"] == "forge.f139.d2k.issue-work.v1"
                         and SHA.fullmatch(doc["source_sha"]) is not None
@@ -210,7 +211,10 @@ class Database:
                         and re.fullmatch(r"[a-f0-9]{64}", doc["body_sha256"]) is not None
                         and re.fullmatch(r"[a-f0-9]{64}", doc["manifest_sha256"]) is not None
                         and doc["prior_event_head_sha256"] == row["prior_sha"]
-                        and doc["scientific_first_use"] is False,
+                        and doc["scientific_first_use"] is False
+                        and isinstance(doc["admitted_day"],str)
+                        and re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}",
+                                         doc["admitted_day"]) is not None,
                         "D2K_ADMISSION_INVALID")
                 task = self.conn.execute(
                     "SELECT lane,source_sha,manifest_sha FROM tasks WHERE ticket=?",
@@ -225,6 +229,7 @@ class Database:
                     "issue_id":doc["issue_id"], "lane":doc["lane"],
                     "kind":doc["kind"], "body_sha256":doc["body_sha256"],
                     "prior_event_head_sha256":doc["prior_event_head_sha256"],
+                    "admitted_day":doc["admitted_day"],
                     "scientific_first_use":False,
                 }))
                 require(digest == doc["manifest_sha256"],"D2K_MANIFEST_DIGEST_DRIFT")
@@ -461,8 +466,7 @@ class Database:
                 "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
             admitted_today = sum(
                 json.loads(row["payload"])["admitted_day"] == today
-                for row in rows
-                if "admitted_day" in json.loads(row["payload"]))
+                for row in rows)
             require(admitted_today < D2K_MAX_DAILY,"D2K_DAILY_ADMISSION_LIMIT")
             exists = self.conn.execute("SELECT 1 FROM tasks WHERE ticket=?",
                                        (ticket,)).fetchone()
@@ -475,7 +479,8 @@ class Database:
                 "issue_number":issue["issue_number"], "issue_id":issue["issue_id"],
                 "lane":issue["lane"], "kind":issue["kind"],
                 "body_sha256":issue["body_sha256"],
-                "prior_event_head_sha256":prior, "scientific_first_use":False,
+                "prior_event_head_sha256":prior,
+                "admitted_day":today, "scientific_first_use":False,
             }
             digest = hash_bytes(canonical(manifest))
             self.event("DEVELOPMENT_WORK_ADMITTED", {
