@@ -88,6 +88,30 @@ jobs:
           if($prefs.mode -cne 'PAPER'){throw 'P7JA_PACKAGE_NOT_PAPER_BY_DEFAULT'}
           $manifest=Get-Content (Join-Path $root 'K-Terminal-BUILD-MANIFEST.json') -Raw | ConvertFrom-Json
           if($manifest.source_commit -cne '5995c1eb85b8fef551d246ca60b2119a9e2b612d' -or @($manifest.files|Where-Object{$_.path -like '*.exe'}).Count -ne 8){throw 'P7JA_MANIFEST_SOURCE_OR_EXECUTABLE_DRIFT'}
+          # Launch only the freshly source-built desktop supervisor against a
+          # synthetic, never-broker-enabled child. The complete GUI is not started.
+          $smoke=Join-Path $env:RUNNER_TEMP 'p7ja-owned-desktop-smoke'
+          if(Test-Path $smoke){throw 'P7JA_SYNTHETIC_DIR_REUSE'}
+          [void][IO.Directory]::CreateDirectory($smoke)
+          Copy-Item -LiteralPath (Join-Path $root 'K-Terminal.exe') -Destination (Join-Path $smoke 'K-Terminal.exe')
+          $stub=@'
+          Set-Content -LiteralPath (Join-Path $PSScriptRoot 'started.marker') -Value 'P7JA_DISARMED' -Encoding Ascii
+          exit 0
+          '@
+          [IO.File]::WriteAllText((Join-Path $smoke 'launch-kterminal.ps1'),$stub,[Text.UTF8Encoding]::new($false))
+          $owner=Start-Process -FilePath (Join-Path $smoke 'K-Terminal.exe') -WorkingDirectory $smoke -PassThru
+          if(-not $owner.WaitForExit(25000)){
+            try{$owner.Kill()}catch{}
+            throw 'P7JA_NESTED_SUPERVISOR_STALLED'
+          }
+          if($owner.ExitCode -ne 0){throw ('P7JA_NESTED_SUPERVISOR_EXIT_'+$owner.ExitCode)}
+          if(-not(Test-Path (Join-Path $smoke 'started.marker') -PathType Leaf)){throw 'P7JA_OWNED_DISARMED_CHILD_NOT_STARTED'}
+          if((Get-Content (Join-Path $smoke 'started.marker') -Raw).Trim() -cne 'P7JA_DISARMED'){throw 'P7JA_DISARMED_MARKER_INVALID'}
+          $lifecycle=Join-Path $smoke 'data/logs/launcher.log'
+          if(-not(Test-Path $lifecycle -PathType Leaf)){throw 'P7JA_NESTED_LIFECYCLE_NOT_RECORDED'}
+          $lifecycleEvents=@(Get-Content -LiteralPath $lifecycle)
+          if(@($lifecycleEvents | Where-Object {$_ -match 'STARTED' -and $_ -match 'nested job-owned desktop session'}).Count -ne 1 -or
+             @($lifecycleEvents | Where-Object {$_ -match 'ENDED' -and $_ -match 'exit=0'}).Count -ne 1){throw 'P7JA_NESTED_SUPERVISOR_NOT_QUALIFIED'}
           $checks=@()
           foreach($file in @($manifest.files)){
             $actual=Join-Path $root ([string]$file.path).Replace('/','\')
@@ -103,12 +127,13 @@ jobs:
             zip_sha256=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
             launcher_sha256=(Get-FileHash -LiteralPath (Join-Path $root 'K-Terminal.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
             original_wpf_assets_present=$true
+            nested_job_owned_disarmed_child_pass=$true
             paper_default=$true
             real_data_accessed=$false
             private_source_or_binary_uploaded=$false
             original_full_regression='FAILED_NOT_WAIVED'
             genuine_owner_desktop='NOT_VERIFIED'
-            disposition='P7JA_CANONICAL_SOURCE_BUILD_AND_PORTABLE_MANIFEST_VERIFIED'
+            disposition='P7JA_CANONICAL_BUILD_NESTED_DISARMED_LAUNCHER_VERIFIED'
           }
           $proof=Join-Path $env:RUNNER_TEMP 'p7ja-sanitized'
           [void][IO.Directory]::CreateDirectory($proof)
@@ -119,6 +144,7 @@ jobs:
           Write-Host 'P7JA_CANONICAL_SOURCE_WINDOWS_BUILD=PASS'
           Write-Host 'P7JA_ORIGINAL_EIGHT_BINARIES=PASS'
           Write-Host 'P7JA_RUNTIME_UI_ASSETS=PASS'
+          Write-Host 'P7JA_DISARMED_NESTED_LAUNCHER=PASS'
           Write-Host ('P7JA_RECEIPT_SHA256='+$sha)
           Write-Host 'P7JA_PRIVATE_BINARIES_NOT_EXPORTED=TRUE'
       - name: Upload only sanitized build evidence, never K-Terminal source or binaries
