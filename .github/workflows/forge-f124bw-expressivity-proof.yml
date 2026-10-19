@@ -1,0 +1,75 @@
+name: F124-BW original learned representation expressivity proof
+on:
+  push:
+    branches: [research/f124bw-exact-representation-boundary-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bw-mathematical-proof-no-science-firstuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-program-universal-obstruction:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check unchanged original scientific boundary and exact source scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='7b42981b06a859eee34f0f94875f752da0fd941f'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BW_QUALIFIED_HEAD_DRIFT' }
+          & git merge-base --is-ancestor $root HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BW_NOT_PROVENANT_FROM_F124BV' }
+          $only=@(
+            '.github/workflows/forge-f124bw-expressivity-proof.yml',
+            'research/north-star-transfer/f124bw-frozen-proof.json',
+            'research/north-star-transfer/f124bw_expressivity_proof.py',
+            'research/north-star-transfer/test_f124bw_representation_bound.py'
+          )
+          $changed=@(& git diff --name-only $root HEAD | Where-Object { $_ })
+          if ((@($changed | Sort-Object) -join '|') -cne (@($only | Sort-Object) -join '|')) { throw 'BW_UNQUALIFIED_MODEL_OR_DATA_EDIT' }
+          $old=@{
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($p in $old.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $old[$p]) { throw "BW_BQ_OR_AZ_SCIENCE_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bw_representation_bound.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BW_UNIVERSAL_PROOF_COUNTEREXAMPLE_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BW_ORIGINAL_GOVERNANCE_ISOLATION_FAILED' }
+          Write-Output 'F124BW_FOCUSED_CROSSPLATFORM_THEOREM=PASS'
+          Write-Output 'F124BW_OLDER_AND_PROSPECTIVE_CASES_CONSUMED=0'
+      - name: Preserve source-bound mathematical proof receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dest=Join-Path $env:RUNNER_TEMP 'f124bw-proof'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          & python -B research/north-star-transfer/f124bw_expressivity_proof.py --output (Join-Path $dest 'full-domain-and-symbolic-proof.json')
+          if ($LASTEXITCODE -ne 0) { throw 'BW_ANALYTIC_EXECUTION_FAILED' }
+          $hash=(Get-FileHash (Join-Path $dest 'full-domain-and-symbolic-proof.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "source=$env:GITHUB_SHA" | Set-Content (Join-Path $dest 'source-and-proof.sha256.txt')
+          "sha256=$hash" | Add-Content (Join-Path $dest 'source-and-proof.sha256.txt')
+          "SCIENTIFIC_ACCEPTANCE=false" | Add-Content (Join-Path $dest 'source-and-proof.sha256.txt')
+          "F124BV_SOURCE_FIRSTUSE=false" | Add-Content (Join-Path $dest 'source-and-proof.sha256.txt')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bw-exact-unchanged-32bit-structural-proof-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bw-proof/
+          retention-days: 90
+          if-no-files-found: error
