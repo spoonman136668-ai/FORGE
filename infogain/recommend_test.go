@@ -15,7 +15,7 @@ func uninformative() [][4]uint16 {
 	return [][4]uint16{{5000,5000,0,0},{5000,5000,0,0}}
 }
 func fixture() Frozen {
-	return Frozen{
+	f:=Frozen{
 		Schema:FrozenSchema,Lane:"Wingless",SourceSHA:hex(40,"f"),Epoch:1,
 		Weights:Weights{InformationBP:7000,TransferBP:2000,LimitationBP:1000},
 		ComputeBudget:200, MinInformationMicrobits:10000, MaxSelected:3,MaxPerFamily:2,
@@ -38,6 +38,8 @@ func fixture() Frozen {
 				ExpectedTransferBP:10000,ExpectedTransferGainBP:10000,ComputeUnits:1},
 		},
 	}
+	f.HistorySHA256=HistoryDigest(f.History)
+	return f
 }
 func TestInformationPerComputeBeatsCheapUninformativeThroughput(t *testing.T){
 	f:=fixture()
@@ -75,6 +77,7 @@ func TestHistoricalNegativeAndConsumedSourceRetainedNeverRedispatched(t *testing
 		{MechanismSHA256:hex(64,"e"),SourceSHA:hex(40,"5"),
 			EvidenceSHA256:hex(64,"9"),Classification:"CONSUMED_INDETERMINATE"},
 	}
+	f.HistorySHA256=HistoryDigest(f.History)
 	got,err:=Recommend(f,Digest(f))
 	if err!=nil{t.Fatal(err)}
 	if got.NegativeCount!=1||got.IndeterminateCount!=1||
@@ -92,6 +95,9 @@ func TestFrozenSourceAndPreOutcomeIdentityTamperingDenied(t *testing.T){
 	pin:=Digest(f)
 	f.Candidates[0].ComputeUnits++
 	if _,err:=Recommend(f,pin);err!=ErrFrozen{t.Fatalf("unfrozen compute changed: %v",err)}
+	f=fixture()
+	f.HistorySHA256=hex(64,"0")
+	if _,err:=Recommend(f,Digest(f));err!=ErrFrozen{t.Fatalf("hidden archive tampering accepted: %v",err)}
 	f=fixture()
 	f.Hypotheses[0].PriorBP=9000
 	if _,err:=Recommend(f,Digest(f));err!=ErrFrozen{t.Fatalf("broken hypothesis prior accepted: %v",err)}
