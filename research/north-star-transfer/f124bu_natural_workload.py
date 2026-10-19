@@ -15,7 +15,6 @@ import importlib.util
 import json
 import math
 from pathlib import Path
-import resource
 import statistics
 import subprocess
 import sys
@@ -61,6 +60,7 @@ def bitvec(x):
 
 def run_child(case,arm,capture=False):
     need(sys.platform=="linux","ORIGINAL_LINUX_PROCESS")
+    import resource
     need(case in CASES and arm in ARMS,"EXACT_TWO_SYNTHETIC_IDS")
     tic=time.process_time_ns()
     source=load("BU_nonregistered_source_crossover",FIXTURE)
