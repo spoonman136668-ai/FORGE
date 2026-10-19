@@ -1,0 +1,63 @@
+name: T16 Research Optimizer Mechanism Diversity Focused Qualification
+on:
+  push:
+    branches: [research/north-star-transfer-optimizer-20261018]
+    paths: ['.github/workflows/north-star-t16-optimizer-focused.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t16-optimizer-diverse-advisory-focused
+  cancel-in-progress: false
+jobs:
+  nonconsuming-protocol-and-selector:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen optimizer exact source and original negatives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T16_GIT_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16-northstar-optimizer-pivot-freeze.json').Trim() -cne '00fe5e88996f552a4f7a5ab97c8e6addd7424bcb'){throw 'T16_FREEZE_IDENTITY_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-optimizer-t16-diverse-shadow.py').Trim() -cne '8bcfd8b442053a7bb9e2203435eb40c1bddc86ce'){throw 'T16_CODE_IDENTITY_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-optimizer-t16-diverse-shadow_test.py').Trim() -cne 'e0d1cf643c9b183a5266e502019233bd1f795148'){throw 'T16_TEST_IDENTITY_DRIFT'}
+          if((git hash-object 'optimizerbridge/priority.go').Trim() -cne '9b22f41b0386be4e4545eb878e7f8550d12b0085'){throw 'T16_OPTIMIZER_FROZEN_PRIORITY_DRIFT'}
+          if((git hash-object 'optimizerbridge/admission.go').Trim() -cne 'fd0ba2533a65d464ef6e78b3970996d1a0b224b0'){throw 'T16_OPTIMIZER_FROZEN_ADMISSION_DRIFT'}
+          if((git hash-object 'optimizerbridge/selection_audit.go').Trim() -cne '48810d9935b0cfd119991b22300cbaa783bd9adb'){throw 'T16_SIGNED_ASSIGNMENT_AUDIT_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t15-provider-negative-intake-nonadmitted.json').Trim() -cne '92f845418c6f36ac0eb001f0705b1c5ae16f0001'){throw 'T16_HISTORICAL_NEGATIVE_IDENTITY_DRIFT'}
+          git merge-base --is-ancestor 0277b4106c39028ef354d84a4fde5d4ca3c88f78 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T16_FREEZE_NOT_ANCESTOR'}
+          Write-Output 'T16_FROZEN_DIVERSE_OPTIMIZER_IDENTITIES=PASS'
+      - name: Focused deterministic policy tests (no source birth)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'research/north-star-transfer/20261019-optimizer-t16-diverse-shadow_test.py'
+          if($LASTEXITCODE -ne 0){throw 'T16_FOCUSED_TEST_FAILURE'}
+          Write-Output 'T16_DETERMINISTIC_FOCUSED_TESTS=PASS'
+      - name: Zero-proposal fail-closed runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'research/north-star-transfer/20261019-optimizer-t16-diverse-shadow.py' > t16-readonly-advisory.json
+          if($LASTEXITCODE -ne 0){throw 'T16_READONLY_FAILED'}
+          python -c "import json; o=json.load(open('t16-readonly-advisory.json',encoding='utf-8-sig')); assert o['advisory_designs']==[] and not o['optimizer_admission'] and not o['scientific_acceptance'] and not o['experiment_dispatch_authorized'] and not o['source_witness_cryptographically_verified']; print('T16_NO_SCIENCE_OR_EXECUTION_AUTHORITY=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'T16_AUTO_ADMISSION_FORBIDDEN'}
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: t16-optimizer-inert-advisory-stdout
+          path: t16-readonly-advisory.json
+          if-no-files-found: ignore
+          retention-days: 90

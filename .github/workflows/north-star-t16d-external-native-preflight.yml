@@ -1,0 +1,58 @@
+name: T16D External CLUTRR Source-Neutral Native Admission Preflight
+on:
+  push:
+    branches: [research/north-star-transfer-optimizer-20261018]
+    paths: ['.github/workflows/north-star-t16d-external-native-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t16d-external-kinship-preflight-only
+  cancel-in-progress: false
+jobs:
+  external-compatibility-nonconsuming:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact preimplementation external authorship and mapping identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T16D_WORKFLOW_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16d-clutrr-structural-compatibility-freeze.json').Trim() -cne '1261960698c6b6f82640136109b390298b1086be'){throw 'T16D_SOURCE_PIN_DRIFT: 20261019-t16d-clutrr-structural-compatibility-freeze.json'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16d-clutrr-native-compatibility.py').Trim() -cne '9edaba3e15a7cb5a973b63e6fbdd06a66bf90488'){throw 'T16D_SOURCE_PIN_DRIFT: 20261019-t16d-clutrr-native-compatibility.py'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16d-clutrr-native-compatibility_test.py').Trim() -cne '6c212add460da3ccdd0d4d6fbb80015998e4892b'){throw 'T16D_SOURCE_PIN_DRIFT: 20261019-t16d-clutrr-native-compatibility_test.py'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16c-external-origin-and-crosslane-admission-screen.json').Trim() -cne '4a565c5e68f11a8aa93df72c0248171783becc91'){throw 'T16D_SOURCE_PIN_DRIFT: 20261019-t16c-external-origin-and-crosslane-admission-screen.json'}
+          if((git hash-object 'research/north-star-transfer/20261019-t16b-independent-source-readiness-failclosed.json').Trim() -cne 'd1260010b81170f1177e8dfda1aa989452d4abad'){throw 'T16D_SOURCE_PIN_DRIFT: 20261019-t16b-independent-source-readiness-failclosed.json'}
+          git merge-base --is-ancestor e6fc669c028b562c5c09b034df431e0c21ddb121 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T16D_FROZEN_SOURCE_NOT_ANCESTOR'}
+          Write-Output 'T16D_EXTERNAL_SOURCE_PINNED=PASS'
+      - name: Synthetic structural semantics and independent custody rejection checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile 'research/north-star-transfer/20261019-t16d-clutrr-native-compatibility.py' 'research/north-star-transfer/20261019-t16d-clutrr-native-compatibility_test.py'
+          if($LASTEXITCODE -ne 0){throw 'T16D_PYTHON_SYNTAX_FAILED'}
+          python 'research/north-star-transfer/20261019-t16d-clutrr-native-compatibility_test.py'
+          if($LASTEXITCODE -ne 0){throw 'T16D_LOSSLESS_NATIVE_ADMISSION_FAILED'}
+          python 'research/north-star-transfer/20261019-t16d-clutrr-native-compatibility.py' > t16d-external-native-rejection.json
+          if($LASTEXITCODE -ne 0){throw 'T16D_DEFAULT_REJECTION_ERROR'}
+          python -c "import json; x=json.load(open('t16d-external-native-rejection.json',encoding='utf-8-sig')); assert x['original_execution_authorized'] is False and x['dataset_opened'] is False and x['independent_scientific_firstuse_proven'] is False and all(not y['eligible'] for y in x['per_lane'].values()); print('T16D_INCOMPATIBLE_UNSIGNED_SOURCE_ADMISSION=BLOCKED_EXPECTED')"
+          if($LASTEXITCODE -ne 0){throw 'T16D_ORIGINAL_ADMISSION_BYPASS'}
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: t16d-external-clutrr-readonly-nonadmission
+          path: t16d-external-native-rejection.json
+          if-no-files-found: ignore
+          retention-days: 90
