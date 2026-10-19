@@ -1,0 +1,150 @@
+name: F124-BT independent provider original two-run native cost preservation
+on:
+  push:
+    branches: [research/f124bt-durable-native-cost-evidence-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bt-readonly-original-two-successful-runs
+  cancel-in-progress: false
+jobs:
+  provider-original-two-run-independent-recount:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact immutable original model, scorer, allocator, workflow and evidence-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor c45c187fd9b2f51339661dc27c9176d6ca872c3d HEAD
+          mapfile -t changed < <(git diff --name-only c45c187fd9b2f51339661dc27c9176d6ca872c3d HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/forge-f124bt-evidence.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124bt-original-two-run-resource-evidence.json'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bq_program_learner.py)" = '91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124br_native_view.py)" = '56427a3a685e442505e7f4b760863ce4d4cefc72'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124br_native_cost.py)" = 'ae03ba15f31b4c309ac87cefe94f50359339f2d3'
+          test "$(git rev-parse HEAD:nativeevidence/f124ag_transition_models.py)" = '94d2ae8266da792d254ac54baf3056bbd9b49412'
+          echo F124BT_PROVIDER_RECOUNT_READONLY_NO_SCIENCE_FIRSTUSE=PASS
+      - name: Read provider original successful runs, digest and final integration evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bt-provider-evidence"
+          mkdir -p "$root/first" "$root/second"
+          for n in 39216736047 39216974901; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$n" > "$root/provider-run-$n.json"
+          done
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12168984304" > "$root/artifact-12168984304.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12169199120" > "$root/artifact-12169199120.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39216974901/jobs?per_page=40" > "$root/second-source-integration-jobs.json"
+          gh run download 39216736047 --repo "$GITHUB_REPOSITORY" \
+            --name f124bt-original-malloc-15-process-OS-cost-4f81ac4186ee61dd620cd1a01109906d04475c1c \
+            --dir "$root/first"
+          gh run download 39216974901 --repo "$GITHUB_REPOSITORY" \
+            --name f124bt-independent-original-second-15-process-c45c187fd9b2f51339661dc27c9176d6ca872c3d \
+            --dir "$root/second"
+          python3 -B - "$root" <<'PY'
+          import json,pathlib,hashlib,statistics,sys
+          p=pathlib.Path(sys.argv[1])
+          sealed=json.loads(pathlib.Path(
+            'research/north-star-transfer/f124bt-original-two-run-resource-evidence.json').read_text())
+          assert sealed['strict_source_neutral_cpu_rss_noregression_reproduced_twice'] is True
+          assert sealed['source_neutral_and_native_workload_same_between_arms'] is False
+          assert sealed['real_scientific_resource_admission'] is False
+          assert sealed['prospective_924xxx_925xxx_source_born'] is False
+          assert sealed['protected_U_R_128_used'] is False
+          assert sealed['scientific_acceptance'] is False
+          assert sealed['optimizer_promotion'] is False
+          jobs=json.loads((p/'second-source-integration-jobs.json').read_text())['jobs']
+          assert any(j['name']=='one-final-source-integration-regression'
+                     and j['status']=='completed' and j['conclusion']=='success'
+                     for j in jobs), 'NO_GENUINE_FULL_REGRESSION'
+          source_sha='089fab2a1044ac825c6da875bdc28dd7491dedf63588cada3a095930a7c7621a'
+          original_dirnames=('first','second')
+          filename=('real-native-original-15.json','second-same-source-original-15.json')
+          manifest=('native-original.sha256','evidence.sha256')
+          recounts=[]
+          for original,index in zip(sealed['independent_original_provider_runs'],range(2)):
+              runid=original['run']; head=original['head']; aid=original['artifact']
+              run=json.loads((p/f'provider-run-{runid}.json').read_text())
+              art=json.loads((p/f'artifact-{aid}.json').read_text())
+              assert run['id']==runid and run['head_sha']==head
+              assert run['status']=='completed' and run['conclusion']=='success'
+              assert art['id']==aid and art['workflow_run']['id']==runid
+              assert art['expired'] is False
+              assert art['digest']=='sha256:'+original['zip']
+              folder=p/original_dirnames[index]
+              raw=(folder/filename[index]).read_bytes()
+              assert hashlib.sha256(raw).hexdigest()==original['json']
+              receipt=(folder/manifest[index]).read_text().splitlines()
+              assert len(receipt)==1 and receipt[0].split()[0]==original['json']
+              trial=json.loads(raw)
+              outcome=trial['summary']
+              rows=trial['original_fresh_process_samples']
+              assert len(rows)==15 and outcome['sample_count']==15
+              assert outcome['legacy_and_lean_native_score_work_exact'] is True
+              assert outcome['legacy_and_lean_causal_decisions_exact'] is True
+              assert outcome['AZ_scientific_abstention_preserved'] is True
+              assert outcome['AZ_and_candidate_native_work_not_equivalent'] is True
+              assert outcome['full_scientific_resource_parity'] is False
+              assert outcome['new_prospective_or_protected_cases_used'] is False
+              assert outcome['old_BM_BN_BO_BP_BQ_cases_replayed'] is False
+              assert outcome['lean_source_neutral_os_nonregression_vs_original_AZ'] is True
+              assert outcome['lean_os_nonregression_vs_original_BQ_legacy'] is True
+              for arm in ('AZ','legacy','lean'):
+                  measured=[x for x in rows if x['arm']==arm]
+                  assert len(measured)==5
+                  assert all(x['source_neutral_graph_SHA256']==source_sha for x in measured)
+                  assert all(x['python_small_object_allocator']==original['allocators'][arm]
+                             for x in measured)
+                  cpu=[x['process_CPU_ns'] for x in measured]
+                  rss=[x['whole_process_peak_RSS_bytes'] for x in measured]
+                  assert cpu==original[arm]['cpu'], arm
+                  assert rss==original[arm]['rss'], arm
+                  assert statistics.median(cpu)==original['medians'][arm]['cpu_ns']
+                  assert statistics.median(rss)==original['medians'][arm]['peak_rss_bytes']
+                  assert max(rss)==original['max_rss'][arm]
+                  assert outcome['arms'][arm]['CPU_ns']==cpu
+                  assert outcome['arms'][arm]['RSS_bytes']==rss
+              recounts.append({'run':runid,'head':head,'artifact':aid,
+                               'source_sha256':source_sha,'sample_count':15,
+                               'strict_source_neutral_screen':True,
+                               'original_json_sha256':original['json']})
+          receipt={'schema':'mass.f124bt.original-provider-two-independent-OS-screen.v1',
+                   'originals':recounts,
+                   'reconciliation_executed_model_or_source':False,
+                   'original_learning_mechanism_untouched':True,
+                   'full_go_regression_witnessed':True,
+                   'scientific_matched_workload_parity':False,
+                   'protected_firstuse':False,
+                   'optimizer_promotion':False,
+                   'science_accepted':False,
+                   'disposition':'TWO_ORIGINAL_SOURCE_NEUTRAL_RESOURCE_PASSES_NOT_SCIENCE'}
+          (p/'independent-original-provider-recount.json').write_text(
+              json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          print('F124BT_ORIGINAL_PROVIDER_TWO_SEPARATE_RUNS_VERIFIED=PASS')
+          print('F124BT_GENUINE_FINAL_FULL_REGRESSION_VERIFIED=PASS')
+          print('F124BT_ORIGINAL_THIRTY_PROCESS_SAMPLES_RECOUNTED=PASS')
+          print('F124BT_TRUE_MATCHED_SCIENTIFIC_RESOURCE_PARITY=false')
+          print('F124BT_NEW_SCIENTIFIC_SOURCE_BORN=false')
+          PY
+          (cd "$root" && sha256sum provider-run-*.json artifact-*.json second-source-integration-jobs.json independent-original-provider-recount.json > provider-custody.sha256 && sha256sum -c provider-custody.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bt-independent-original-provider-two-resource-runs-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bt-provider-evidence/
+          retention-days: 90
+          if-no-files-found: warn
