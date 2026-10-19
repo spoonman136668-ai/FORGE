@@ -1,0 +1,90 @@
+name: T15 mass original source-only developmental comparison
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t15-mass-original.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t15-mass-single-original-source
+  cancel-in-progress: false
+jobs:
+  cross-platform-nonconsuming:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Immutable scientific preimplementation controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T15_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-source.py').Trim() -cne '16ea3a38bc694f6229654281471b449c3d60ea8e'){throw 'T15_SOURCE_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-preimplementation-freeze.json').Trim() -cne '733349fcedf9dffb88baad7af71b7275d6eae442'){throw 'T15_ASSAY_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-mechanism.py').Trim() -cne '259cdbfd53308d810eb85fcc29359243aa2af2dd'){throw 'T15_MODEL_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t15-source.py').Trim() -cne '3448058f03c7c39324adfe45b71c038acf68c8d4'){throw 'T15_SOURCE_FIRST_USE_NOT_FROZEN'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t15-preimplementation-freeze.json').Trim() -cne '99306990f22caebbd56dae21ef5a5d02e993c443'){throw 'T15_FREEZE_NOT_PREIMPLEMENTATION'}
+          git merge-base --is-ancestor 99306990f22caebbd56dae21ef5a5d02e993c443 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T15_ASSAY_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t14-mechanism.py').Trim() -cne 'ac9855a710b1e687ae97baf1bb09bf11855511af'){throw 'T15_FROZEN_CONTROL_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t13-mechanism.py').Trim() -cne 'ea53da037c0504c509c8204d1033fad6c5476849'){throw 'T15_FROZEN_CONTROL_CHANGED'}
+          Write-Output 'T15_MASS_EXACT_HEAD_AND_CONTROLS=PASS'
+      - name: Nonconsuming syntax check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile 'research/north-star-transfer/20261019-mass-t15-source.py' 'research/north-star-transfer/20261019-mass-t15-mechanism.py'
+          if($LASTEXITCODE -ne 0){throw 'T15_SYNTAX_FAILED_BEFORE_SOURCE_BIRTH'}
+          Write-Output 'T15_NO_NEW_SOURCE_BORN_IN_PREFLIGHT=PASS'
+  original:
+    needs: [cross-platform-nonconsuming]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original execution identity and frozen controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T15_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-source.py').Trim() -cne '16ea3a38bc694f6229654281471b449c3d60ea8e'){throw 'T15_SOURCE_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-preimplementation-freeze.json').Trim() -cne '733349fcedf9dffb88baad7af71b7275d6eae442'){throw 'T15_ASSAY_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t15-mechanism.py').Trim() -cne '259cdbfd53308d810eb85fcc29359243aa2af2dd'){throw 'T15_MODEL_CHANGED'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t15-source.py').Trim() -cne '3448058f03c7c39324adfe45b71c038acf68c8d4'){throw 'T15_SOURCE_FIRST_USE_NOT_FROZEN'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t15-preimplementation-freeze.json').Trim() -cne '99306990f22caebbd56dae21ef5a5d02e993c443'){throw 'T15_FREEZE_NOT_PREIMPLEMENTATION'}
+          git merge-base --is-ancestor 99306990f22caebbd56dae21ef5a5d02e993c443 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T15_ASSAY_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t14-mechanism.py').Trim() -cne 'ac9855a710b1e687ae97baf1bb09bf11855511af'){throw 'T15_FROZEN_CONTROL_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t13-mechanism.py').Trim() -cne 'ea53da037c0504c509c8204d1033fad6c5476849'){throw 'T15_FROZEN_CONTROL_CHANGED'}
+          Write-Output 'T15_MASS_EXACT_HEAD_AND_CONTROLS=PASS'
+      - name: One original nonprotected TRAIN and OPEN, no replay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'research/north-star-transfer/20261019-mass-t15-mechanism.py' > t15-mass-original.json
+          if($LASTEXITCODE -ne 0){throw 'T15_ORIGINAL_FAILED_SOURCE_IDS_CONSUMED_NO_REPLAY'}
+          python -c "import json; z=json.load(open('t15-mass-original.json',encoding='utf-8-sig')); assert z['schema']=='mass.t15.sourceonly-unseen-three-role-composition.v1'; assert z['signed_scientific_acceptance'] is False and z['optimizer_admission'] is False; print('T15_ORIGINAL_SOURCE_VERIFIED_NOT_ADMITTED=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'T15_ORIGINAL_RECEIPT_INVALID_SOURCE_IDS_CONSUMED'}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t15-mass-original-nonadmitted
+          path: t15-mass-original.json
+          if-no-files-found: ignore
+          retention-days: 90
