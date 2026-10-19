@@ -1,0 +1,159 @@
+name: F124-BL equal native scorer workload and original TRAIN custody quarantine
+on:
+  push:
+    branches: [research/f124bl-equal-native-diagnostic-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bl-engineering-only-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-exact-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source boundary, genuine AZ abstention and real native scorer diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BL_EXACT_HEAD' }
+          & git merge-base --is-ancestor '1c8fc426a29d166ba52c8f6811c546ed48c01be2' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BL_QUALIFIED_PARENT_DRIFT' }
+          $wanted=@(
+            '.github/workflows/forge-f124bl-equal-native.yml',
+            'research/north-star-transfer/f124bl-workload-freeze.json',
+            'research/north-star-transfer/f124bl-original-train-custody-disposition.json',
+            'research/north-star-transfer/f124bl_equal_native.py',
+            'research/north-star-transfer/f124bl_measure.py',
+            'research/north-star-transfer/test_f124bl_equal_native.py'
+          )
+          $changed=@(& git diff --name-only '1c8fc426a29d166ba52c8f6811c546ed48c01be2' HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($wanted|Sort-Object) -join '|')) { throw 'BL_OUT_OF_SCOPE' }
+          & git merge-base --is-ancestor '3d97bbdd6bd649e1c131ec159d546819094489ff' HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BL_FROZEN_BEFORE_IMPLEMENTATION' }
+          $objects=@{
+            'research/north-star-transfer/f124bl-workload-freeze.json'='405d8675936c4e8b17832e976d7f06a4989e480b'
+            'research/north-star-transfer/f124bk_native_graph.py'='748819e1898235be179bf8f29847e034559f3fab'
+            'research/north-star-transfer/f124bk_measure.py'='ba35f12da2ffb7916c7104b5876d50ce1bfd6216'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'research/north-star-transfer/20261018-mass-learned-kernel.py'='bf81ed56cc0daa2c413ad7d9c698969f92befe3d'
+          }
+          foreach ($path in $objects.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $objects[$path]) { throw "BL_FROZEN_ORIGINAL_DRIFT:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bl_equal_native.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BL_EQUIVALENT_NATIVE_SCIENCE_SAFETY' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bk_native.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BL_INHERITED_NATIVE_REGRESSION' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BL_CROSS_PROJECT_ISOLATION' }
+          Write-Output 'F124BL_NATIVE_EQUIVALENT_WORKLOAD_FOCUSED=PASS'
+          Write-Output 'F124BL_ORIGINAL_AZ_SCIENTIFIC_ABSTENTION_PRESERVED=true'
+          Write-Output 'F124BL_PROTECTED_FIRST_USE=false'
+  same-graph-resource-receipt:
+    needs: focused-exact-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run two actually executing native graph arms on identical public synthetic fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124bl"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124bl_measure.py \
+            --output "$root/equal-native-workload-negative-fixtures.json"
+          python3 -B - "$root/equal-native-workload-negative-fixtures.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          q=d['summary']
+          assert q['samples']==12
+          assert q['same_native_graph_executed_both_arms'] is True
+          assert q['AZ_original_scientific_abstention_preserved'] is True
+          assert q['AZ_forced_diagnostic_is_eligible_baseline'] is False
+          assert q['original_train_complete_firstuse_record_published'] is False
+          assert q['original_train_replayed'] is False
+          assert q['protected_U_R_cases_generated']==0
+          assert q['full_scientific_resource_parity'] is False
+          for fixture in ('U','R'):
+              arms=q['paired'][fixture]
+              assert arms['learned']['graph_sha256']==arms['AZ_forced_diagnostic']['graph_sha256']
+              assert len(arms['AZ_forced_diagnostic']['CPU_ns_samples'])==3
+          print('F124BL_EQUAL_NATIVE_SCORING_CPU_RSS=PASS')
+          print('F124BL_FULL_SCIENCE_PARITY=false')
+          PY
+          cp research/north-star-transfer/f124bl-original-train-custody-disposition.json \
+             "$root/original-firstuse-custody-quarantine.json"
+          sha256sum "$root/equal-native-workload-negative-fixtures.json" \
+            "$root/original-firstuse-custody-quarantine.json" \
+            > "$root/measurement-sha256.txt"
+          (cd "$root" && sha256sum --check measurement-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bl-diagnostic-native-resource-not-science-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bl/
+          retention-days: 90
+          if-no-files-found: error
+  one-consolidated-regression:
+    needs: same-graph-resource-receipt
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One full regression, vet and build after native resource receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bl"
+          sha256sum research/north-star-transfer/f124bl-workload-freeze.json \
+            research/north-star-transfer/f124bl-original-train-custody-disposition.json \
+            research/north-star-transfer/f124bl_equal_native.py \
+            research/north-star-transfer/f124bl_measure.py \
+            research/north-star-transfer/test_f124bl_equal_native.py \
+            .github/workflows/forge-f124bl-equal-native.yml \
+            > "$RUNNER_TEMP/f124bl/source-sha256.txt"
+          printf 'EXACT_HEAD=%s\nEQUIVALENT_NATIVE_WORKLOAD=true\nORIGINAL_AZ_POLICY_ABSTAIN_PRESERVED=true\nORIGINAL_TRAIN_REPLAY=false\nORIGINAL_TRAIN_CUSTODY_INCOMPLETE=true\nPROTECTED_U_R_FIRST_USE=false\nSCIENTIFIC_ACCEPTANCE=false\nOPTIMIZER_PROMOTION=false\n' "$GITHUB_SHA" \
+            > "$RUNNER_TEMP/f124bl/disposition.txt"
+          echo F124BL_COMPLETE_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bl-exact-source-integration-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bl/
+          retention-days: 90
+          if-no-files-found: error
