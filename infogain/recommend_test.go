@@ -130,7 +130,7 @@ func TestAllExistingOptimizersAreAdvisoryAndLanesIsolated(t *testing.T){
 			c:=Candidate{
 				ID:"candidate-"+generator,
 				MechanismSHA256:repHex(64,string(rune('a'+i))),
-				SourceSHA:repHex(40,string(rune('g'+i))),
+				SourceSHA:repHex(40,string(rune('0'+i))),
 				Family:"mechanism-"+generator,Generator:generator,
 				OutcomeGivenHypothesis:informative(),ComputeUnits:int64(1+i),
 			}
