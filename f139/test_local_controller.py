@@ -261,7 +261,7 @@ class D2KCatalogTests(unittest.TestCase):
                     F139Error, "D2K_ISSUE"):
                 self.provider([variant]).d2k_eligible_issues(SHA)
 
-    def test_development_admission_is_append_only_and_never_repeats(self):
+    def test_d2k_never_admits_on_unqualified_fresh_database(self):
         with tempfile.TemporaryDirectory(prefix="f139-d2k-catalog-") as tmp:
             dbpath=Path(tmp)/"state.sqlite"
             db=Database.initialize(dbpath,SHA)
@@ -269,22 +269,13 @@ class D2KCatalogTests(unittest.TestCase):
                 db.enable(legacy_suspended=True)
                 issue=self.provider([self.issue()]).d2k_eligible_issues(SHA)[0]
                 original=list(db.conn.execute("SELECT seq,sha FROM events"))
-                self.assertTrue(db.admit_d2k_issue(issue))
+                with self.assertRaisesRegex(F139Error,"AUTHENTIC_SUCCESSION_REQUIRED"):
+                    db.admit_d2k_issue(issue)
                 self.assertEqual(list(db.conn.execute(
-                    "SELECT seq,sha FROM events ORDER BY seq LIMIT 1")),original)
-                self.assertEqual(db.meta()["head_seq"],3)
-                self.assertFalse(db.admit_d2k_issue(issue))
-                self.assertEqual(db.meta()["head_seq"],3)
-                events=list(db.conn.execute(
-                    "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'"))
-                self.assertEqual(len(events),1)
-                self.assertEqual(json.loads(events[0]["payload"])["ticket"],
-                                 issue["ticket"])
-                self.assertEqual(db.status()["tasks"][0]["stage"],"READY")
-                db.conn.execute("UPDATE tasks SET manifest_sha=?",
-                                ("a"*64,))
-                with self.assertRaisesRegex(F139Error,"D2K_ADMISSION_TASK_DRIFT"):
-                    db.verify()
+                    "SELECT seq,sha FROM events ORDER BY seq")),original)
+                self.assertEqual(db.meta()["head_seq"],1)
+                self.assertEqual(db.conn.execute(
+                    "SELECT COUNT(*) FROM tasks").fetchone()[0],0)
             finally:db.close()
 
 
