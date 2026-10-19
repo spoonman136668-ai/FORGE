@@ -16,6 +16,42 @@ This PR replaces the earlier draft Cloudflare Worker/D1 controller design with a
 
 The implementation supports a bounded frozen queue, dynamic next-task selection within that approved queue, successive verified development jobs, per-attempt quarantine, full source identity checks, local signed-by-hash evidence, failure recovery with no blind redispatch and safe startup after power loss. Full independent scientific policy/custody authority is a **future extension**, not claimed here.
 
+## F139-D2J: frozen development succession tranche
+
+The post-D2I controller does not reinitialize its SQLite queue. Instead, the
+D2J source defines an **exactly once** source-bound two-ticket tranche, admitted
+by the existing controller after the immutable historical record has been
+promoted to the qualified new protected main. Admission requires exactly the
+two authentic D2C verified historical runs, the two adjudications, and three
+append-only source transitions. The third transition is the guarded D2J
+production cutover, which brings the event ledger to 14 entries before any
+new ticket can be admitted.
+
+When an idle tick sees that frozen state and GitHub protected-main identity
+matches local SQLite, the controller commits one
+`UNATTENDED_SUCCESSION_ADMITTED` event plus two `TASK_INTAKE` events in one
+transaction, then dispatches the first model-free development ticket. It
+automatically reconciles both GitHub-hosted Windows and Ubuntu receipts,
+moves to the second ticket, and stops after exactly two new developments.
+A crashed or ambiguous attempt is not re-dispatched. No second scheduler
+or owner is introduced; worker dispatch still uses existing signed HMAC
+tickets, source pinning and quotas.
+
+**Boundary:** this is an authenticated, **finite** proof of new-work admission
+and consecutive autonomous development executions, *not* an endless work
+selector and not a scientific cognition advancement. GitHub workers still
+run synthetic model-free advisories. No sealed experimental originals,
+first-use authority, optimizer policy promotion, branch modification,
+Cloudflare controller, CKB-plane integration or paid inference is authorized.
+New classes of work require separately qualified source-bound policies.
+
+Existing F139-D2I production checkout, source-bound 13-event SQLite and
+Windows task must not be changed by GitHub PR CI. After protected GitHub
+merge, the workstation requires a guarded one-event source transition and
+hidden task rebind before any new worker dispatch can pass the SHA check.
+Do not silently merge with the old controller running and assume admission
+has started: an unmatched main SHA correctly fails closed.
+
 ## Safeguards
 
 - Default-off and empty queue. No arbitrary scripts, API endpoints, shell commands or new scientific first-use or broker privileges are accepted as queue entries. Before dispatch, both protected `main` SHA and enabled/suspended authority are checked.
