@@ -49,8 +49,8 @@ jobs:
             Assert ($LASTEXITCODE -eq 0 -and $actualSource -ceq $sourceSha) 'SOURCE_COMMIT_DRIFT'
             $subject=(& git.exe -C $forge log -1 --format=%s HEAD | Out-String).Trim()
             Assert ($LASTEXITCODE -eq 0 -and $subject -ceq 'ci: UQ65 fixture emit actual newline, not PowerShell literal backslash-n') 'SOURCE_SUBJECT_DRIFT'
-            $changed=@(& git.exe -C $forge diff-tree --no-commit-id --name-only -r HEAD)
-            Assert ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/uq65-future-source-review-only.yml') 'SOURCE_SCOPE_DRIFT'
+            $sourceBlob=(& git.exe -C $forge rev-parse 'HEAD:.github/workflows/uq65-future-source-review-only.yml' | Out-String).Trim()
+            Assert ($LASTEXITCODE -eq 0 -and $sourceBlob -ceq '56cae970c50f29cc73f4b12701e65abf432b5259') 'SOURCE_WORKFLOW_BLOB_DRIFT'
             Write-Host 'UQ66_REAL_GITHUB_COMMIT_SOURCE_AUTHENTICATED=PASS'
 
             & git.exe clone --quiet --depth 1 --single-branch --branch main $mpRepo $mp
