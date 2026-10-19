@@ -1,0 +1,179 @@
+name: F124-CO ONE original internal prospective firstuse and independent custody
+on:
+  push:
+    branches: [research/f124co-prospective-once-20261019]
+    paths: [.github/workflows/forge-f124co-firstuse-once.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124co-932-933-one-original-firstuse
+  cancel-in-progress: false
+jobs:
+  frozen-original-prebirth:
+    if: github.run_attempt == 1
+    name: frozen-original-prebirth
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Bind original provider SHA, preregistered models and all exact source blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CO_ORIGINAL_HEAD_DRIFT' }
+          & git merge-base --is-ancestor c956013ff7d7adbab99e66f22a54593581b8a0bc HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CO_PREBIRTH_CONTRACT_MISSING' }
+          & git merge-base --is-ancestor f7eaeabe4b70e60c80eb949d487476a3cf471871 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CO_OPERATOR_FROZEN_ADMISSION_MISSING' }
+          $a=Get-Content -Raw research/north-star-transfer/f124co-original-admission.json | ConvertFrom-Json
+          if ($a.schema -cne 'mass.f124co.original-firstuse-admission.v1' -or !$a.authorization.development_once -or !$a.authorization.operator_directive_received) { throw 'CO_NOT_AUTHORIZED_FOR_ONE_DEVELOPMENT' }
+          if ($a.authorization.protected_replication -or $a.authorization.scientific_acceptance -or $a.authorization.automatic_merge -or $a.authorization.automatic_retune) { throw 'CO_BROADER_AUTHORITY_DENIED' }
+          foreach ($p in $a.exact_source_blobs.PSObject.Properties) {
+            $actual=(& git rev-parse "HEAD:$($p.Name)").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $p.Value) { throw "CO_EXACT_SOURCE_DRIFT $($p.Name)" }
+          }
+          Write-Host 'F124CO_EXACT_FROZEN_ORIGINAL_SOURCE_ADMISSION=PASS'
+      - name: No-entropy source-only original prebirth qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124co_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CO_ORIGINAL_SOURCE_GUARD_FAIL' }
+          python -B research/north-star-transfer/test_f124cn_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CO_ORIGINAL_PUBLIC_NATIVE_GUARD_FAIL' }
+          python -B research/north-star-transfer/test_f124cn_resource_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CO_ORIGINAL_FULL_PROCESS_COST_GUARD_FAIL' }
+          Write-Host 'F124CO_PREBIRTH_FROZEN_TESTS=PASS'
+
+  original-firstuse-source-birth:
+    name: original-firstuse-source-birth
+    needs: frozen-original-prebirth
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Birth exactly 24 NEW original internal OS-entropy cases, source-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124co_birth_once.py \
+            --head "$GITHUB_SHA" --out "$RUNNER_TEMP/f124co-birth"
+      - name: Seal private hidden-seed and oracle evidence (never to evaluator)
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124co-original-sealed-source
+          path: ${{ runner.temp }}/f124co-birth/sealed-private-birth.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Seal source-blind ORIGINAL public inputs before evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124co-original-public-source
+          path: |
+            ${{ runner.temp }}/f124co-birth/birth-public-manifest.json
+            ${{ runner.temp }}/f124co-birth/public-cases/
+          if-no-files-found: error
+          retention-days: 90
+
+  original-public-blinded-evaluation:
+    name: original-public-blinded-evaluation
+    needs: original-firstuse-source-birth
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ONLY redacted original public cases, never private seed/oracle
+        uses: actions/download-artifact@v4
+        with:
+          name: f124co-original-public-source
+          path: ${{ runner.temp }}/f124co-public
+      - name: One original natural-route 72 preflights and 360 actual Linux OS samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124co_eval_once.py \
+            --public-dir "$RUNNER_TEMP/f124co-public" \
+            --out "$RUNNER_TEMP/f124co-original-evidence"
+      - name: Preserve complete original positive, negative, costs and 432 append receipts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124co-original-scientific-evidence
+          path: |
+            ${{ runner.temp }}/f124co-original-evidence/original-full-evidence.json
+            ${{ runner.temp }}/f124co-original-evidence/original-public-summary.json
+            ${{ runner.temp }}/f124co-original-evidence/original-append-only.jsonl
+          if-no-files-found: error
+          retention-days: 90
+
+  independent-original-readonly-custody:
+    name: independent-original-readonly-custody
+    needs: [original-firstuse-source-birth, original-public-blinded-evaluation]
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently retrieve sealed ORIGINAL private birth for read-only hashes
+        uses: actions/download-artifact@v4
+        with:
+          name: f124co-original-sealed-source
+          path: ${{ runner.temp }}/f124co-independent-birth
+      - name: Independently retrieve ORIGINAL public birth
+        uses: actions/download-artifact@v4
+        with:
+          name: f124co-original-public-source
+          path: ${{ runner.temp }}/f124co-independent-birth
+      - name: Independently retrieve ORIGINAL complete measurement evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: f124co-original-scientific-evidence
+          path: ${{ runner.temp }}/f124co-independent-evidence
+      - name: Authenticate provider run/jobs, original sealed first-use and all 432 receipts without source/model replay
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124co_readonly_audit.py \
+            --birth-dir "$RUNNER_TEMP/f124co-independent-birth" \
+            --result-dir "$RUNNER_TEMP/f124co-independent-evidence" \
+            --out "$RUNNER_TEMP/f124co-audit-safe" --head "$GITHUB_SHA"
+      - name: Retain only redacted independent audit and original provider SHA references
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124co-independent-original-readonly-custody
+          path: ${{ runner.temp }}/f124co-audit-safe/independent-safe-custody.json
+          if-no-files-found: error
+          retention-days: 90
