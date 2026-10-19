@@ -87,8 +87,7 @@ class AggregatorRejectsShortcuts(unittest.TestCase):
         x[0]["positive_accepted"]=False
         x[0]["hard_negative_accepted"]=True
         y=eval.aggregate(x)
-        self.assertIn(914000,y["families"]["GF2"]["baseline_positive_lost_ids"]
-                      if False else []) if False else None
+        self.assertIn(914000,y["families"]["GF2"]["baseline_positive_lost_ids"])
         self.assertIn(914000,y["families"]["GF2"]["candidate_hard_false_positive_ids"])
         self.assertFalse(y["FIT_gain_and_FP_constraints_met_in_both"])
 
