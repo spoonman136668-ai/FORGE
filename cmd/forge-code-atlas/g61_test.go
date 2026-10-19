@@ -36,6 +36,16 @@ func TestG61HTMLNotAuthority(t *testing.T) {
 }
 func TestG61PinnedSourceAndCoverage(t *testing.T) {
  root,e:=rootPath();if e!=nil{t.Fatal(e)}
+ // Standing full regression intentionally uses fetch-depth=2. Do not expand
+ // that checkout: the dedicated G29/G61 qualification uses fetch-depth=0
+ // and must prove the complete immutable source chain on both operating systems.
+ if _,e=git(root,"cat-file","-e",g61Target+"^{commit}");e!=nil{
+  shallow,se:=git(root,"rev-parse","--is-shallow-repository")
+  if se==nil&&strings.TrimSpace(string(shallow))=="true"{
+   t.Skip("G61 frozen history is qualified on the deep-history G29 hosted lane")
+  }
+  t.Fatalf("G61 frozen source unavailable in complete history: %v",e)
+ }
  a,s,e:=g61Build(root);if e!=nil{t.Fatal(e)}
  if s.Reused!=747||s.Modified!=16||s.Added!=18||s.CSharp!=1||a.Counts.Files!=781 {t.Fatalf("scope drift %+v %+v",s,a.Counts)}
  found:=false
