@@ -195,7 +195,7 @@ def one(case,arm,capture):
         if capture:sys.setprofile(None)
     if capture:need(calls==len(observed),"UNFORCED_NATIVE_PROFILER_ACCOUNTING")
     receipt={
-        "schema":"mass.f124cj.original-prospective-internal-EF-native-v1",
+        "schema":"mass.f124cj.original-prospective-internal-E2F2-native-v1",
         "case":case,"arm":arm,"source_task_sha256":graph_sha,
         "natural_route":route,"actual_native_calls":calls,
         "positive_accepted":bool(decisions[0]),
@@ -382,7 +382,7 @@ def overview(pre,samples):
            and v["all_complete_CPU_RSS_nonregressing"]
            for v in family_summary.values()))
     return {
-        "schema":"mass.f124cj.original-internal-prospective-EF-840-OS-process.v1",
+        "schema":"mass.f124cj.original-internal-prospective-E2F2-840-OS-process.v1",
         "original_168_native_preflights":pre,
         "original_840_full_OS_process_measurements":samples,
         "all_24_prospective_case_outcomes":cases,
@@ -398,7 +398,7 @@ def overview(pre,samples):
 
 def validate_born_packet(path):
     born=json.loads(path.read_text())
-    need(born["schema"]=="mass.f124cj.original-sealed-internal-EF-birth.v1"
+    need(born["schema"]=="mass.f124cj.original-sealed-internal-E2F2-birth.v1"
          and len(born["original_all_24_firstuse_cases"])==24
          and born["original_source_identity"]=="INTERNALLY_AUTHORED_NOT_EXTERNAL"
          and born["case_birth_before_evaluation"] is True
