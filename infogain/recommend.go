@@ -70,6 +70,9 @@ type Frozen struct {
 	Hypotheses []Hypothesis `json:"hypotheses"`
 	Candidates []Candidate `json:"candidates"`
 	History []HistoryRecord `json:"history"`
+	// Bound to a separately supplied historical record corpus. Equality is
+	// local integrity, not a claim of completeness or independent custody.
+	HistorySHA256 string `json:"history_sha256"`
 	Weights Weights `json:"weights"`
 	ComputeBudget int64 `json:"compute_budget"`
 	MinInformationMicrobits int64 `json:"min_information_microbits"`
@@ -103,6 +106,7 @@ type Decision struct {
 	Selected []Ranked `json:"selected"`
 	Excluded []Excluded `json:"excluded"`
 	HistoryPreserved []HistoryRecord `json:"history_preserved"`
+	HistorySHA256 string `json:"history_sha256"`
 	NegativeCount int `json:"negative_count"`
 	InvalidCount int `json:"invalid_count"`
 	IndeterminateCount int `json:"indeterminate_count"`
@@ -137,6 +141,11 @@ func validClass(s string) bool {
 func validLane(s string) bool {
 	return s=="Wingless"||s=="Yggdrasil"||s=="MassResearch"
 }
+func HistoryDigest(h []HistoryRecord) string {
+	raw,_:=json.Marshal(h)
+	sum:=sha256.Sum256(append([]byte("FORGE-INFOGAIN-HISTORY-V1\n"),raw...))
+	return hex.EncodeToString(sum[:])
+}
 func Digest(f Frozen) string {
 	raw,_:=json.Marshal(f)
 	data:=append([]byte(Domain),raw...)
@@ -149,6 +158,7 @@ func validate(f Frozen, pin string) error {
 		f.Epoch==0||!validHex(pin,64)||pin!=Digest(f)||
 		f.ComputeBudget<1||f.ComputeBudget>1_000_000_000||
 		f.MinInformationMicrobits<1||f.MinInformationMicrobits>2_000_000||
+		!validHex(f.HistorySHA256,64)||HistoryDigest(f.History)!=f.HistorySHA256||
 		f.MaxSelected<1||f.MaxSelected>8||f.MaxPerFamily<1||f.MaxPerFamily>2||
 		len(f.Hypotheses)<2||len(f.Hypotheses)>6||
 		len(f.Candidates)<1||len(f.Candidates)>40||len(f.History)>200||
@@ -252,7 +262,7 @@ func Recommend(f Frozen, independentPin string)(Decision,error){
 		Schema:DecisionSchema,Lane:f.Lane,FrozenSHA256:independentPin,
 		Selected:[]Ranked{},Excluded:[]Excluded{},
 		HistoryPreserved:append([]HistoryRecord{},f.History...),
-		EstimatedOnly:true,
+		HistorySHA256:f.HistorySHA256,EstimatedOnly:true,
 	}
 	consumedMechanisms:=map[string]bool{}
 	consumedSources:=map[string]bool{}
