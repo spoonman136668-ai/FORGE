@@ -1,0 +1,58 @@
+name: F124-BQ source-neutral learned algebraic composition qualification
+on:
+  push:
+    branches: [research/f124bq-learned-algebraic-composition-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bq-no-source-prebirth-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  prebirth-crossplatform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen exact original protocol, no new source and source-neutral unit proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BQ_EXACT_HEAD' }
+          & git merge-base --is-ancestor 713f15cfadb9d0f4cacc746b9343e2fcaf70e501 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BQ_ORIGINAL_BP_SOURCE_DRIFT' }
+          & git merge-base --is-ancestor 96cf1f76e586a4e015cb217221c32a00d2bd583b HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BQ_PRECODE_FROZEN_PROTOCOL_MISSING' }
+          $only=@(
+            '.github/workflows/forge-f124bq-prebirth.yml',
+            'research/north-star-transfer/f124bq-frozen-program.json',
+            'research/north-star-transfer/f124bq_program_learner.py',
+            'research/north-star-transfer/test_f124bq_prebirth.py'
+          )
+          $diff=@(& git diff --name-only 713f15cfadb9d0f4cacc746b9343e2fcaf70e501 HEAD | Where-Object { $_ })
+          if ((@($diff|Sort-Object) -join '|') -cne (@($only|Sort-Object) -join '|')) { throw 'BQ_UNAUTHORIZED_OR_REGISTERED_SOURCE_FILE' }
+          foreach ($p in @(
+            'nativeevidence/f124az_joint_public_inverse.py',
+            'nativeevidence/f124ag_transition_models.py',
+            'research/north-star-transfer/f124bp-original-frozen-outcome.json'
+          )) {
+            $sha=(& git rev-parse ('HEAD:'+$p)).Trim()
+            $orig=(& git rev-parse ('713f15cfadb9d0f4cacc746b9343e2fcaf70e501:'+$p)).Trim()
+            if ($sha -cne $orig) { throw "BQ_FROZEN_ORIGINAL_WITNESS_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bq_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BQ_CROSS_MODE_LEARNING_TESTS_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BQ_REPOSITORY_ISOLATION_FAILED' }
+          Write-Output 'F124BQ_PREBIRTH_LEARNED_COMPOSITION=PASS'
+          Write-Output 'F124BQ_PROTECTED_AND_PROSPECTIVE_SOURCE_USED=0'
+          Write-Output 'F124BQ_REAL_OS_RESOURCE_PARITY=NOT_YET_QUALIFIED'
