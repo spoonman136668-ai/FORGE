@@ -1,0 +1,116 @@
+name: F124-CD authenticated live source birth read-only admission
+on:
+  push:
+    branches: [research/f124cd-live-external-source-readonly-20261019]
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: f124cd-authenticated-github-original-source-review
+  cancel-in-progress: false
+jobs:
+  exact-model-and-source-absence-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: No model/source change, original frozen BV distinct from CC, adversarial default-deny tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fd2204c9f39910e95de19ab21b730b3a380a25c2'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CD_QUALIFIED_SOURCE_IDENTITY' }
+          & git merge-base --is-ancestor $parent HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CD_ORIGINAL_CC_CUSTODY_MISSING' }
+          & git merge-base --is-ancestor 7acb24f61348f7d4fba6fcc375cb83103ff7e722 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CD_PRECODE_SOURCE_ADMISSION_FREEZE_MISSING' }
+          $allowed=@(
+            '.github/workflows/forge-f124cd-live-source.yml',
+            'research/north-star-transfer/f124cd-frozen-source-intake.json',
+            'research/north-star-transfer/f124cd_live_issue_intake.py',
+            'research/north-star-transfer/test_f124cd_live_issue_intake.py'
+          )
+          $changed=@(& git diff --name-only $parent HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($allowed|Sort-Object) -join '|')) { throw 'CD_SOURCE_OR_MODEL_NOT_ONLY_READONLY' }
+          $frozen=@{
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'research/north-star-transfer/f124bv_origin_admission.py'='c9cce188545dddcfc394e7881b6547ed8d49891a'
+            'research/north-star-transfer/f124cb_dual_link_learner.py'='8a10bf8cec12afc7d8703e3586d8eba91ebfdc7c'
+            'research/north-star-transfer/f124cc_trained_two_link_control.py'='29c0c02f54ea539bed0910fe82adcc86d3aff94d'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($path in $frozen.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $frozen[$path]) { throw "CD_PROTECTED_SOURCE_DRIFT:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124cd_live_issue_intake.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CD_DEFAULT_DENY_TESTS_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CD_PROTECTED_GOVERNANCE_BOUNDARY' }
+          Write-Output 'F124CD_FROZEN_BV_ORIGINAL_AND_CB_CC_SEPARATE=PASS'
+          Write-Output 'F124CD_CROSS_PLATFORM_REAL_PROVIDER_ROUTE_FOCUSED=PASS'
+          Write-Output 'F124CD_SCIENTIFIC_FIRSTUSE=0'
+  actual-github-issue-provider-source-readiness:
+    needs: exact-model-and-source-absence-boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fetch real GitHub issue and current original external provider references read-only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124cd-external-provider-readonly"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124cd_live_issue_intake.py \
+            --output "$root/actual-github-issue-source-readiness.json"
+          python3 -B - "$root/actual-github-issue-source-readiness.json" <<'PY'
+          import json,sys
+          a=json.load(open(sys.argv[1]))
+          assert a['schema']=='mass.f124cd.real-original-independent-source-intake.v1'
+          assert a['original_F124_BV_protocol']=='BQ_versus_AZ_ONLY'
+          assert a['source_and_oracle_executed'] is False
+          assert a['old_consumed_science_replayed'] is False
+          assert a['BQ_BV_reserved_development_firstuse'] is False
+          assert a['BQ_BV_reserved_128x2_replication_opened'] is False
+          assert a['CB_CC_scientific_protocol_substituted'] is False
+          assert a['CB_CC_prospective_science_admitted'] is False
+          assert a['scientific_novelty_authenticated_by_signature'] is False
+          assert a['independent_science_accepted'] is False
+          assert a['optimizer_policy_promoted'] is False
+          assert a['automatic_source_firstuse_or_merge'] is False
+          if a['original_source_registration_count']!=2:
+              assert a['status'].startswith('BLOCKED_')
+          else:
+              assert a['status']=='SOURCE_CUSTODY_VERIFIED_SCIENTIFIC_NOVELTY_REVIEW_REQUIRED'
+          print('F124CD_AUTHENTIC_REAL_ISSUE_ORIGINAL_SOURCE_STATUS='+a['status'])
+          print('F124CD_CANDIDATE_CC_NOT_AUTO_ADMITTED=true')
+          print('F124CD_DEV_AND_PROTECTED_SCIENCE_CASES_USED=0')
+          PY
+          (cd "$root" && sha256sum actual-github-issue-source-readiness.json > exact-source-readiness.sha256 && sha256sum -c exact-source-readiness.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124cd-authenticated-original-issue-source-readiness-${{ github.sha }}
+          path: ${{ runner.temp }}/f124cd-external-provider-readonly/
+          retention-days: 90
+          if-no-files-found: error
