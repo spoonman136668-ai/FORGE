@@ -32,9 +32,21 @@ try {
   if (!(Test-Path -LiteralPath $jobSource -PathType Leaf)) { throw 'F139_WINDOWS_JOB_SOURCE_MISSING' }
   Add-Type -Path $jobSource -ErrorAction Stop
   Add-Content -LiteralPath $log -Value ("$(Get-Date -Format o) F139_PROCESS_LIFETIME=KILL_ON_JOB_CLOSE") -Encoding UTF8
-  $pythonExit = [F139WindowsJobSupervisor]::Run(
-    $PythonExe, $RepositoryRoot, $Database, $PollSeconds, $log
-  )
+  try {
+    $pythonExit = [F139WindowsJobSupervisor]::Run(
+      $PythonExe, $RepositoryRoot, $Database, $PollSeconds, $log
+    )
+  } catch {
+    $failure = $_.Exception
+    # Diagnostic metadata only; never print the inherited HMAC secret.
+    $errorType = $failure.GetType().FullName
+    $message = $failure.Message
+    if ($env:F139_WORKER_HMAC_KEY) {
+      $message = $message.Replace($env:F139_WORKER_HMAC_KEY, '[REDACTED]')
+    }
+    Add-Content -LiteralPath $log -Value ("$(Get-Date -Format o) F139_JOB_SUPERVISOR_BLOCKED=$errorType $message") -Encoding UTF8
+    throw
+  }
   if ($pythonExit -ne 0) { throw 'F139_CONTROLLER_EXITED' }
 } finally {
   Remove-Item Env:F139_WORKER_HMAC_KEY -ErrorAction SilentlyContinue
