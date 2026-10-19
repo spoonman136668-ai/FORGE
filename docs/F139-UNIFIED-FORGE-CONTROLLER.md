@@ -77,15 +77,16 @@ new admissions per UTC day and 80 lifetime total tasks, including history.
 The controller examines only qualified issues and idles when none exist; it
 does not manufacture synthetic tickets to appear autonomous.
 
-**Substantive limitation:** This initial selector still dispatches the
-existing *model-free development advisory* worker, not a task-specific code
-change, genuine original scientific experiment, new trained cognitive model,
-or independently generated issue. A true useful-work autonomy claim needs a
-separately qualified worker adapter that consumes source-bound issue context,
-produces a measurable issue-specific engineering outcome and authenticates
-that outcome in the receipt. A continuing supply of qualified issues is
-also needed. Fully unattended research planning/scientific first-use remains
-separate and unauthorized.
+**Substantive limitation:** D2K now signs the issue identity and runs only
+an allowlisted Go package test on GitHub-hosted Windows/Linux workers. A
+bounded package diagnostic, including authentic nonzero test failure or timeout,
+is retained alongside an issue-bound receipt and independently verified from
+the exact provider artifact. This is **task-specific diagnosis, not code repair**.
+No real owner-issued task has yet completed this new adapter; fixture-based
+regressions alone are not live-source acceptance. No scientific original,
+trained-model discovery, policy promotion, issue synthesis or automatic source
+transition is authorized. A continuing supply of genuine owner-authorized
+issues and separate engineering-outcome qualification remain necessary.
 
 ## Safeguards
 

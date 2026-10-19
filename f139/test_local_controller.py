@@ -299,6 +299,36 @@ class D2KCatalogTests(unittest.TestCase):
                     F139Error, "D2K_ISSUE"):
                 self.provider([variant]).d2k_eligible_issues(SHA)
 
+    def test_d2k_receipt_binds_diagnostic_bytes_to_issue(self):
+        from verify_ticket import signature
+        digest="a"*64
+        fields={"issue_number":"1401","issue_id":"91401",
+                "body_sha256":digest,"target_package":"./planner"}
+        ticket="f139-d2k-i1401-"+SHA[:12]+"-"+digest[:8]
+        task={"ticket":ticket,"lane":"Qualification","source_sha":SHA}
+        blob=artifact(task,123,"ubuntu-latest",issue=fields)
+        meta={"digest":"sha256:"+hash_bytes(blob),"size_in_bytes":len(blob)}
+        result=receipt_from_zip(blob,meta,task,123,"ubuntu-latest",d2k_fields=fields)
+        self.assertEqual(result["outcome"],"PASS")
+        self.assertEqual(result["target_package"],"./planner")
+        modified={**fields,"target_package":"./dreamrsi"}
+        with self.assertRaisesRegex(F139Error,"D2K_RECEIPT_IDENTITY_OR_DIGEST"):
+            receipt_from_zip(blob,meta,task,123,"ubuntu-latest",d2k_fields=modified)
+        altered=io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(blob)) as original, zipfile.ZipFile(altered,"w") as out:
+            for member in original.namelist():
+                body=original.read(member)
+                if member=="f139-diagnostic.json":
+                    obj=json.loads(body);obj["outcome"]="TEST_FAILURE"
+                    body=canonical(obj)
+                out.writestr(member,body)
+        rewritten=altered.getvalue()
+        rewritten_meta={"digest":"sha256:"+hash_bytes(rewritten),
+                        "size_in_bytes":len(rewritten)}
+        with self.assertRaisesRegex(F139Error,"D2K_RECEIPT_IDENTITY_OR_DIGEST"):
+            receipt_from_zip(rewritten,rewritten_meta,task,123,"ubuntu-latest",
+                             d2k_fields=fields)
+
     def test_d2k_never_admits_on_unqualified_fresh_database(self):
         with tempfile.TemporaryDirectory(prefix="f139-d2k-catalog-") as tmp:
             dbpath=Path(tmp)/"state.sqlite"
