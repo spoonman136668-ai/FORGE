@@ -1,0 +1,232 @@
+name: R25-C67 authentic restored financial invariant audit
+# Historical financial compatibility: bounded private read only on owner machine.
+# Never uploads private records; no builds, broker calls, state updates or app start.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c67-financial-invariants.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r25-c67-financial-invariants-owner-readonly
+  cancel-in-progress: false
+jobs:
+  local-financial-audit:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Account, runner, paper-only and original custody checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'R25_C67_WRONG_LOCAL_OWNER_CONTEXT'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          Write-Host 'R25_C67_OWNER_ORIGINAL_WINDOWS_IDENTITY=PASS'
+          Write-Host 'R25_C67_BROKER_AND_KTRADE_APP_LAUNCH=FALSE'
+          Write-Host 'R25_C67_RESEARCH_SERVICES_TOUCHED=FALSE'
+      - name: Inspect immutable restored state with donor accounting tolerances
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function AsNumber($doc,[string]$key){
+            if($null -eq $doc -or !$doc.Contains($key)){return [double]0}
+            $v=$doc[$key]
+            if($v -isnot [double] -and $v -isnot [decimal] -and
+               $v -isnot [int] -and $v -isnot [long]){
+              throw 'R25_C67_ACCOUNTING_NUMBER_TYPE_REJECTED'
+            }
+            $n=[double]$v
+            if([double]::IsNaN($n) -or [double]::IsInfinity($n)){
+              throw 'R25_C67_ACCOUNTING_NONFINITE_REJECTED'
+            }
+            return $n
+          }
+          function QuoteTol([double]$v){return [Math]::Max(0.000001,[Math]::Abs($v)*0.00000001)}
+          function QtyTol([double]$v){return [Math]::Max(0.0000000001,[Math]::Abs($v)*0.00000001)}
+          $custody=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          $recovery=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          foreach($root in @($custody,$recovery,(Join-Path $recovery 'Application'),(Join-Path $recovery 'Application\data'))){
+            $node=Get-Item -LiteralPath $root -Force -ErrorAction Stop
+            if(!$node.PSIsContainer -or ($node.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+              throw 'R25_C67_ROOT_NOT_VERIFIED_ORDINARY_DIRECTORY'
+            }
+          }
+          $manifestPath=Join-Path $custody 'R25-C47-private-manifest.json'
+          $meta=Get-Item -LiteralPath $manifestPath -Force -ErrorAction Stop
+          if($meta.PSIsContainer -or ($meta.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+             $meta.Length -le 0 -or $meta.Length -gt 2097152){
+            throw 'R25_C67_MANIFEST_METADATA_BOUNDARY_REJECTED'
+          }
+          $manifest=[IO.File]::ReadAllText($manifestPath)|ConvertFrom-Json -AsHashtable -Depth 16
+          if([string]$manifest['schema'] -cne 'ktrade.r25-c47.selected-user-data-snapshot.v1' -or
+             [int]$manifest['copied_file_count'] -ne 695 -or
+             [long]$manifest['copied_bytes'] -ne 164194320){
+            throw 'R25_C67_MANIFEST_IDENTITY_DRIFT'
+          }
+          $entries=@($manifest['source_files']|Where-Object {
+            [string]$_['path'] -cmatch '^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$'
+          })
+          if($entries.Count -lt 1 -or $entries.Count -gt 8){
+            throw 'R25_C67_STATE_FILE_COUNT_OUT_OF_SCOPE'
+          }
+          $stateFiles=0;$filesHashed=0;$schemaValid=0
+          $lotsChecked=0;$lotBasisIssues=0;$qtyIssues=0;$sumBasisIssues=0;$feeBucketIssues=0
+          $tradeRows=0;$tradeSellRows=0;$tradePnLIssues=0;$tradeLegacyNetWarnings=0
+          $retainedPnLCoverageWarnings=0;$receiptCount=0;$pendingCount=0
+          $canonicalFillCount=0;$canonicalCashCount=0;$actualBytes=0L
+          foreach($record in $entries){
+            $relative=[string]$record['path']
+            [long]$size=[long]$record['bytes']
+            if($relative -cnotmatch '^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$' -or
+               $size -lt 1 -or $size -gt 4194304 -or
+               $actualBytes -gt (8388608-$size)){
+              throw 'R25_C67_INVALID_BOUNDED_PRIVATE_RECORD'
+            }
+            $full=Join-Path $recovery $relative.Replace('/',[IO.Path]::DirectorySeparatorChar)
+            try {
+              $info=Get-Item -LiteralPath $full -Force -ErrorAction Stop
+              if($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                 $info.Length -ne $size){throw 'bad-file'}
+              $raw=[IO.File]::ReadAllBytes($full)
+              if($raw.Length -ne $size){throw 'bad-size'}
+              $digest=([Security.Cryptography.SHA256]::HashData($raw)|
+                ForEach-Object{$_.ToString('x2')}) -join ''
+              if($digest -cne [string]$record['sha256']){throw 'bad-hash'}
+              $filesHashed++
+              $actualBytes+=$raw.Length
+              $state=[Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xfeff)|ConvertFrom-Json -AsHashtable -Depth 64
+              if($state -isnot [Collections.IDictionary] -or
+                 (AsNumber $state 'schema_version') -ne 9){
+                throw 'unrecognized-state-version'
+              }
+              $schemaValid++
+              $lots=@()
+              if($state.Contains('lots')){$lots=@($state['lots'])}
+              $trades=@()
+              if($state.Contains('trade_history')){$trades=@($state['trade_history'])}
+              $pending=@()
+              if($state.Contains('pending_orders')){$pending=@($state['pending_orders'])}
+              $receipts=@()
+              if($state.Contains('settlement_receipts')){$receipts=@($state['settlement_receipts'])}
+              if($lots.Count -gt 20000 -or $trades.Count -gt 50000 -or
+                 $pending.Count -gt 20000 -or $receipts.Count -gt 20000){
+                throw 'overlarge-evidence-array'
+              }
+              $pendingCount+=$pending.Count
+              $receiptCount+=$receipts.Count
+              if($state.Contains('canonical_fills')){$canonicalFillCount+=@($state['canonical_fills']).Count}
+              if($state.Contains('canonical_cash_events')){$canonicalCashCount+=@($state['canonical_cash_events']).Count}
+              [double]$sumQty=0
+              [double]$sumBasis=0
+              foreach($lot in $lots){
+                if($lot -isnot [Collections.IDictionary]){throw 'lot-not-object'}
+                [double]$sizeLot=AsNumber $lot 'size'
+                [double]$entry=AsNumber $lot 'entry'
+                [double]$gross=AsNumber $lot 'gross_value'
+                [double]$buyFee=AsNumber $lot 'buy_fee'
+                [double]$basis=AsNumber $lot 'cost_basis'
+                if($sizeLot -le 0 -or $entry -lt 0 -or
+                   $gross -lt 0 -or $buyFee -lt 0 -or $basis -lt 0){
+                  throw 'lot-negative'
+                }
+                $lotsChecked++
+                if($basis -gt 0){$effective=$basis}
+                elseif($gross -gt 0 -or $buyFee -gt 0){$effective=[Math]::Max(0,$gross+$buyFee)}
+                else{$effective=[Math]::Max(0,$entry*$sizeLot)}
+                if($gross -gt 0){$expectedGross=$gross}
+                else{$expectedGross=[Math]::Max(0,$entry*$sizeLot)}
+                if($gross -gt 0 -or $buyFee -gt 0 -or $basis -gt 0){
+                  if([Math]::Abs($effective-($expectedGross+$buyFee)) -gt (QuoteTol $effective)){
+                    $lotBasisIssues++
+                  }
+                }
+                $sumQty+=$sizeLot
+                $sumBasis+=$effective
+              }
+              if([Math]::Abs((AsNumber $state 'sum_qty')-$sumQty) -gt (QtyTol $sumQty)){
+                $qtyIssues++
+              }
+              if([Math]::Abs((AsNumber $state 'sum_cost')-$sumBasis) -gt (QuoteTol $sumBasis)){
+                $sumBasisIssues++
+              }
+              [double]$totalFees=AsNumber $state 'total_fees_usd'
+              [double]$buckets=(AsNumber $state 'maker_fees_usd')+(AsNumber $state 'taker_fees_usd')+
+                (AsNumber $state 'unknown_fees_usd')
+              if([Math]::Abs($totalFees-$buckets) -gt (QuoteTol $totalFees)){
+                $feeBucketIssues++
+              }
+              [double]$retainedNet=0
+              foreach($trade in $trades){
+                if($trade -isnot [Collections.IDictionary]){throw 'trade-not-object'}
+                $tradeRows++
+                if([string]$trade['side'] -ieq 'SELL'){
+                  $tradeSellRows++
+                  [double]$pnl=AsNumber $trade 'pnl'
+                  [double]$net=AsNumber $trade 'net_value'
+                  [double]$cost=AsNumber $trade 'cost_basis'
+                  $retainedNet+=$pnl
+                  if($net -eq 0 -and
+                     [string]$trade['accounting_source'] -ine 'COINBASE_FILL_EXACT'){
+                    $tradeLegacyNetWarnings++
+                  }elseif([Math]::Abs($pnl-($net-$cost)) -gt (QuoteTol $pnl)){
+                    $tradePnLIssues++
+                  }
+                }
+              }
+              [double]$realized=AsNumber $state 'realized_pnl'
+              if([Math]::Abs($realized-$retainedNet) -gt (QuoteTol $realized)){
+                $retainedPnLCoverageWarnings++
+              }
+              $stateFiles++
+            } catch {
+              # Untrusted exception details may contain private identifiers;
+              # publish no raw path, value, product, or user data.
+              throw 'R25_C67_PRIVATE_ACCOUNTING_REVIEW_ABORTED'
+            } finally {
+              $raw=$null;$state=$null;$lots=$null;$trades=$null
+              $pending=$null;$receipts=$null
+            }
+          }
+          if($filesHashed -ne $entries.Count -or $schemaValid -ne $entries.Count){
+            throw 'R25_C67_MISSING_VERIFIED_STATE_FILE'
+          }
+          Write-Host 'R25_C67_ORIGINAL_DONOR_TOLERANCES_SOURCE_REFERENCED=PASS'
+          Write-Host 'R25_C67_MANIFEST_BOUND_FILE_HASHES=PASS'
+          Write-Host ('R25_C67_STATE_FILES='+$stateFiles)
+          Write-Host ('R25_C67_LOTS_CHECKED='+$lotsChecked)
+          Write-Host ('R25_C67_LOT_BASIS_MISMATCHES='+$lotBasisIssues)
+          Write-Host ('R25_C67_STATE_QUANTITY_MISMATCHES='+$qtyIssues)
+          Write-Host ('R25_C67_STATE_COST_BASIS_MISMATCHES='+$sumBasisIssues)
+          Write-Host ('R25_C67_STATE_FEE_BUCKET_MISMATCHES='+$feeBucketIssues)
+          Write-Host ('R25_C67_RETAINED_TRADE_ROWS='+$tradeRows)
+          Write-Host ('R25_C67_RETAINED_SELL_ROWS='+$tradeSellRows)
+          Write-Host ('R25_C67_RETAINED_SELL_PNL_MISMATCHES='+$tradePnLIssues)
+          Write-Host ('R25_C67_LEGACY_NET_VALUE_WARNINGS='+$tradeLegacyNetWarnings)
+          Write-Host ('R25_C67_REALIZED_PNL_HISTORY_COVERAGE_WARNINGS='+$retainedPnLCoverageWarnings)
+          Write-Host ('R25_C67_SETTLEMENT_RECEIPT_COUNT='+$receiptCount)
+          Write-Host ('R25_C67_PENDING_ORDER_COUNT='+$pendingCount)
+          Write-Host ('R25_C67_CANONICAL_FILL_COUNT='+$canonicalFillCount)
+          Write-Host ('R25_C67_CANONICAL_CASH_EVENT_COUNT='+$canonicalCashCount)
+          Write-Host 'R25_C67_CRYPTOGRAPHIC_RECEIPT_CHAIN_VALIDATED=FALSE'
+          Write-Host 'R25_C67_DONOR_ACCOUNTING_CODE_EXECUTED=FALSE'
+          Write-Host 'R25_C67_PNL_COMPLETENESS_CERTIFIED=FALSE'
+          Write-Host 'R25_C67_ONLY_LOCAL_RECOVERED_FINANCIAL_BYTES_READ=TRUE'
+          Write-Host 'R25_C67_ORIGINAL_USER_INSTALLATION_MODIFIED=FALSE'
+          Write-Host 'R25_C67_CUSTODY_AND_RECOVERY_MODIFIED=FALSE'
+          Write-Host 'R25_C67_NO_PRIVATE_VALUES_OR_DIGESTS_EXPORTED=TRUE'
+          Write-Host 'R25_C67_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+          Write-Host 'R25_C67_STRATEGY_ORDER_OR_APP_STARTED=FALSE'
+          Write-Host 'R25_C67_MIGRATION_AND_RELEASE_AUTHORIZED=FALSE'
+          if($lotBasisIssues+$qtyIssues+$sumBasisIssues+$feeBucketIssues+$tradePnLIssues -gt 0){
+            throw 'R25_C67_ACTUAL_FINANCIAL_INVARIANT_MISMATCH'
+          }
