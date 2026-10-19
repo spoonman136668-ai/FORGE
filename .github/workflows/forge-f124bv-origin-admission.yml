@@ -1,0 +1,134 @@
+name: F124-BV independent source origination admission — nonconsuming
+on:
+  push:
+    branches: [research/f124bv-independent-origin-admission-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bv-never-consume-source-before-provider-custody
+  cancel-in-progress: false
+jobs:
+  signed-source-gate-synthetic-negative-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require exact frozen protocol and unchanged original AZ, BQ learner, native scorer and resource evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $original='f2eb8343cb9085f397527595a66cd9a75d50e178'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BV_EXACT_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor $original HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BV_PROTECTED_PREVIOUS_EVIDENCE_DRIFT' }
+          & git merge-base --is-ancestor be7e9c2b91970ec2585a499a77e7b3369617fc1a HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BV_PROTOCOL_NOT_PRECODE' }
+          $only=@(
+            '.github/workflows/forge-f124bv-origin-admission.yml',
+            'research/north-star-transfer/f124bv-frozen-independent-science.json',
+            'research/north-star-transfer/f124bv_origin_admission.py',
+            'research/north-star-transfer/test_f124bv_origin_admission.py'
+          )
+          $changed=@(& git diff --name-only $original HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($only|Sort-Object) -join '|')) { throw 'BV_UNQUALIFIED_NEW_SOURCE_OR_MODEL_MUTATION' }
+          $frozen=@{
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'research/north-star-transfer/f124br_native_view.py'='56427a3a685e442505e7f4b760863ce4d4cefc72'
+            'research/north-star-transfer/f124br_native_cost.py'='ae03ba15f31b4c309ac87cefe94f50359339f2d3'
+            'research/north-star-transfer/f124bu-original-natural-native-resource-evidence.json'='4c15fed5776e5f01843ad8dfc3aa09a1f07e6086'
+          }
+          foreach ($p in $frozen.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $frozen[$p]) { throw "BV_ORIGINAL_MODEL_OR_PRECODE_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bv_origin_admission.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BV_SOURCE_CUSTODY_OR_NEGATIVE_RETENTION_TEST_FAIL' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BV_GOVERNANCE_ISOLATION_FAILURE' }
+          Write-Output 'F124BV_SOURCEBIRTH_DATA_ONLY_GUARDS=PASS'
+          Write-Output 'F124BV_REAL_NEW_SOURCE_CASES_CONSUMED=0'
+          Write-Output 'F124BV_UNSEEN_128_COHORTS_CONSUMED=0'
+  empty-independent-source-admission-must-block:
+    needs: signed-source-gate-synthetic-negative-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fail closed, preserve absence of independently original new source witnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bv-original-source-admission"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124bv_origin_admission.py \
+            --output "$root/pending-original-source-disposition.json"
+          python3 -B - "$root/pending-original-source-disposition.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['schema']=='mass.f124bv.readiness-original-source-absent.v1'
+          assert x['status']=='BLOCKED_INDEPENDENT_SOURCE_BIRTH_NOT_PRESENT'
+          assert x['two_signed_distinct_original_GitHub_source_repos'] is False
+          assert x['new_development_FIT_cases_consumed']==0
+          assert x['new_protected_128x2_cases_consumed']==0
+          assert x['source_or_original_learner_executed'] is False
+          assert x['science_accepted'] is False and x['optimizer_policy_promoted'] is False
+          print('F124BV_INDEPENDENT_NEW_SOURCE_PROVIDER_AVAILABLE=false')
+          print('F124BV_ADMISSION_FAIL_CLOSED=PASS')
+          print('F124BV_NEW_SCIENTIFIC_FIRSTUSE=0')
+          print('F124BV_SCIENTIFIC_ACCEPTANCE=false')
+          PY
+          (cd "$root" && sha256sum pending-original-source-disposition.json > source-admission.sha256 && sha256sum -c source-admission.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bv-frozen-protocol-unborn-sources-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bv-original-source-admission/
+          retention-days: 90
+          if-no-files-found: error
+  one-final-unaffected-Go-regression:
+    needs: empty-independent-source-admission-must-block
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One complete original Go source regression, vet and build; no scientific first use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124BV_ONE_FULL_REGRESSION=PASS
+          echo F124BV_PROVIDER_INDEPENDENT_SOURCE_NOT_YET_ADMITTED=true
+          echo F124BV_PROTECTED_FIRSTUSE=false
+          echo F124BV_OPTIMIZER_PROMOTION=false
