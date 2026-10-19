@@ -1,0 +1,101 @@
+name: F124-BU independent original natural-native eligibility and matched OS cost custody
+on:
+  push:
+    branches: [research/f124bu-original-evidence-custody-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bu-readonly-original-unforced-AZ-native-resource-custody
+  cancel-in-progress: false
+jobs:
+  exact-original-provider-native-workload-recount:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original candidate and 2 nonregistered source IDs unchanged; only independent evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor c3e2d62115225932842727ed7dbb6881c85b66de HEAD
+          mapfile -t changed < <(git diff --name-only c3e2d62115225932842727ed7dbb6881c85b66de HEAD | sort)
+          test "${#changed[@]}" -eq 3
+          test "${changed[0]}" = '.github/workflows/forge-f124bu-evidence.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124bu-original-natural-native-resource-evidence.json'
+          test "${changed[2]}" = 'research/north-star-transfer/f124bu_readonly_reconcile.py'
+          for file in research/north-star-transfer/f124bu-frozen-natural-parity.json \
+            research/north-star-transfer/f124bu_synthetic_crossover.py \
+            research/north-star-transfer/f124bu_natural_workload.py \
+            research/north-star-transfer/f124bq_program_learner.py \
+            research/north-star-transfer/f124br_native_view.py \
+            nativeevidence/f124az_joint_public_inverse.py \
+            nativeevidence/f124ag_transition_models.py; do
+            test "$(git rev-parse HEAD:"$file")" =                  "$(git rev-parse c3e2d62115225932842727ed7dbb6881c85b66de:"$file")"
+          done
+          python3 -B -m py_compile research/north-star-transfer/f124bu_readonly_reconcile.py
+          echo F124BU_FROZEN_ORIGINAL_SOURCE_UNTOUCHED=PASS
+      - name: Authenticate GitHub original successful run, both artifact digests and required job conclusions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bu-independent-audit"
+          mkdir -p "$root/eligibility" "$root/resource"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39219037991" > "$root/provider-original-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39219037991/jobs?per_page=30" > "$root/provider-original-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12170259576" > "$root/provider-original-native-preflight.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12170369413" > "$root/provider-original-matched-cost.json"
+          python3 -B - "$root" <<'PY'
+          import json,sys,pathlib
+          p=pathlib.Path(sys.argv[1])
+          run=json.loads((p/'provider-original-run.json').read_text())
+          jobs=json.loads((p/'provider-original-jobs.json').read_text())['jobs']
+          assert run['id']==39219037991
+          assert run['head_sha']=='c3e2d62115225932842727ed7dbb6881c85b66de'
+          assert run['status']=='completed' and run['conclusion']=='success'
+          expected={
+             'source-neutral-no-forced-route (ubuntu-latest)',
+             'source-neutral-no-forced-route (windows-latest)',
+             'original-natural-AZ-eligibility',
+             'actual-native-matched-OS-resource',
+             'final-one-full-source-regression'
+          }
+          for name in expected:
+              hits=[j for j in jobs if j['name']==name]
+              assert len(hits)==1 and hits[0]['status']=='completed'
+              assert hits[0]['conclusion']=='success',name
+          for aid,digest,name in (
+            (12170259576,'c5e8fb5edb97f322f752244a78959cc32c4c954a812851a0a7e036ee1e2facb5','provider-original-native-preflight.json'),
+            (12170369413,'dc3d24246d5235a4dafab6e17fbbf45cb71c6ee6e2a4c9c7e748d303c033a6ca','provider-original-matched-cost.json')
+          ):
+              a=json.loads((p/name).read_text())
+              assert a['id']==aid and a['workflow_run']['id']==run['id']
+              assert a['expired'] is False and a['digest']=='sha256:'+digest
+          print('F124BU_PROVIDER_RUN_JOB_AND_TWO_ARCHIVE_DIGESTS=PASS')
+          PY
+          gh run download 39219037991 --repo "$GITHUB_REPOSITORY" \
+            --name f124bu-authentic-natural-AZ-and-BQ-native-matching-c3e2d62115225932842727ed7dbb6881c85b66de \
+            --dir "$root/eligibility"
+          gh run download 39219037991 --repo "$GITHUB_REPOSITORY" \
+            --name f124bu-unforced-matched-native-20-process-OS-c3e2d62115225932842727ed7dbb6881c85b66de \
+            --dir "$root/resource"
+          python3 -B research/north-star-transfer/f124bu_readonly_reconcile.py \
+            --pre "$root/eligibility" --cost "$root/resource" \
+            --out "$root/independently-recounted-original-native-cost.json"
+          (cd "$root" && sha256sum provider-original-*.json independently-recounted-original-native-cost.json > audit-sha256.txt && sha256sum -c audit-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bu-original-unforced-workload-resource-custody-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bu-independent-audit/
+          retention-days: 90
+          if-no-files-found: warn
