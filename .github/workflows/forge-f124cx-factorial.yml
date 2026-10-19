@@ -1,0 +1,133 @@
+name: F124-CX sourcefree 2x2 causal memory-by-optimizer factorial
+on:
+  push:
+    branches: [research/f124cx-memory-optimizer-factorial-20261019]
+    paths: [.github/workflows/forge-f124cx-factorial.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124cx-complete-sourcefree-factorial-single-original
+  cancel-in-progress: false
+jobs:
+  frozen-sourcefree-preflight:
+    name: frozen-sourcefree-preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin one-thread NumPy CPU-only research dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CX_NUMPY_PIN_REQUIRED' }
+      - name: Validate frozen 2x2 preregistration and exact original learned source blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CX_EXACT_SOURCE_HEAD' }
+          & git merge-base --is-ancestor 848778a0105528bd7234bf13d829a2da95a0dc54 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CX_PRECODE_2x2_FACTORIAL_FREEZE_MISSING' }
+          & git merge-base --is-ancestor b5cbacbfcb3c9c52ea0bcd25d6545c0694e101c9 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CX_ORIGINAL_LEARNABILITY_NEGATIVE_CUSTODY_NOT_ANCESTOR' }
+          $x=Get-Content -Raw research/north-star-transfer/f124cx-frozen-factorial.json | ConvertFrom-Json
+          if ($x.schema -cne 'mass.f124cx.sourcefree-memory-by-budget-factorial-freeze.v1' -or $x.factors.total_cells -ne 64) { throw 'CX_64_ORIGINAL_FACTORIAL_IDENTITY' }
+          foreach ($p in @(@($x.frozen_code.candidate.path,$x.frozen_code.candidate.blob),@($x.frozen_code.gated_control.path,$x.frozen_code.gated_control.blob),@($x.frozen_code.protocol.path,$x.frozen_code.protocol.blob),@($x.frozen_code.sourcefree_fixture.path,$x.frozen_code.sourcefree_fixture.blob))) {
+            $now=(& git rev-parse "HEAD:$($p[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $now -cne $p[1]) { throw "CX_FROZEN_LEARNER_OR_SOURCEFREE_FIXTURE_DRIFT:$($p[0])" }
+          }
+          if (!$x.guards.no_scientific_acceptance -or !$x.guards.no_consumed_924_through_937_source_read -or !$x.guards.no_source_born -or !$x.guards.no_automatic_merge) { throw 'CX_NO_SCIENCE_ADMISSION' }
+          Write-Host 'F124CX_EXACT_2x2_SOURCEFREE_PREREGISTRATION=PASS'
+      - name: Reproduce 8D 45-epoch frozen models and validate 16D architecture source-only
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cx_factorial_preflight.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CX_FROZEN_MODEL_TRAINING_OR_FACTORIAL_PRETEST_FAIL' }
+          Write-Host 'F124CX_STRONG_RECURRENT_EQUAL_INFORMATION_PREFLIGHT=PASS'
+
+  original-sourcefree-factorial-shards:
+    name: sourcefree-factorial (${{ matrix.regime }}, seeds ${{ matrix.first_seed }}+${{ matrix.first_seed }}+1)
+    needs: frozen-sourcefree-preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        regime: [dense, sparse]
+        first_seed: [0, 2]
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact CPU-only NumPy
+        run: python -m pip install --disable-pip-version-check numpy==2.3.5
+      - name: Run all 16 independent whole-Linux-OS factorial cells per shard
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cx_whole_os_shard.py \
+            --regime "${{ matrix.regime }}" \
+            --first-seed "${{ matrix.first_seed }}" \
+            --out "$RUNNER_TEMP/f124cx-sourcefree-16-original"
+      - name: Retain complete preregistered paired whole-process evidence without source science
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cx-sourcefree-shard-${{ matrix.regime }}-${{ matrix.first_seed }}
+          path: ${{ runner.temp }}/f124cx-sourcefree-16-original/shard-*.json
+          if-no-files-found: error
+          retention-days: 90
+
+  original-readonly-paired-analysis:
+    name: original-readonly-paired-analysis
+    needs: original-sourcefree-factorial-shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ALL four independent original-shard receipts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124cx-sourcefree-shard-*
+          path: ${{ runner.temp }}/f124cx-all-four
+          merge-multiple: true
+      - name: Strict read-only 64-cell audit and paired differences (no model execution)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cx_readonly_factorial.py \
+            --shards "$RUNNER_TEMP/f124cx-all-four" \
+            --out "$RUNNER_TEMP/f124cx-aggregate"
+      - name: Preserve full all-cell source-free data and separate safe summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cx-original-complete-sourcefree-factorial
+          path: ${{ runner.temp }}/f124cx-aggregate/
+          if-no-files-found: error
+          retention-days: 90
