@@ -1,0 +1,70 @@
+name: F124-BQ source-neutral native-process parity feasibility
+on:
+  push:
+    branches: [research/f124bq-os-budget-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bq-source-neutral-resource-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  original-AZ-versus-learned-program:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Confirm exact unchanged model, original AZ and no source-first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 16de3f548f9edb0a9889a4b2c9fdab75c899051b HEAD
+          mapfile -t changed < <(git diff --name-only 16de3f548f9edb0a9889a4b2c9fdab75c899051b HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/forge-f124bq-resource.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124bq_resource_prebirth.py'
+          for file in research/north-star-transfer/f124bq-frozen-program.json \
+            research/north-star-transfer/f124bq_program_learner.py \
+            nativeevidence/f124az_joint_public_inverse.py \
+            nativeevidence/f124ag_transition_models.py; do
+            test "$(git rev-parse HEAD:"$file")" =                  "$(git rev-parse 16de3f548f9edb0a9889a4b2c9fdab75c899051b:"$file")"
+          done
+          echo F124BQ_FROZEN_LEARNER_AND_CONTROL_UNCHANGED=PASS
+      - name: Read-only nonregistered source-neutral OS CPU RSS task comparison, six fresh processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f124bq"
+          python3 -B research/north-star-transfer/f124bq_resource_prebirth.py \
+            --output "$RUNNER_TEMP/f124bq/native-synthetic-resource.json"
+          python3 -B - "$RUNNER_TEMP/f124bq/native-synthetic-resource.json" <<'PY'
+          import json,sys
+          o=json.load(open(sys.argv[1]))['summary']
+          assert o['samples']==6
+          assert o['AZ_original_may_abstain_no_forced_scoring']
+          assert o['equivalent_native_workload_not_claimed']
+          assert o['preregistered_resource_admission'] is False
+          assert o['prospective_source_firstuse'] is False
+          print('BQ_AZ_CPU_NS_MEDIAN='+str(o['per_arm']['AZ']['CPU_ns_median']))
+          print('BQ_MODEL_CPU_NS_MEDIAN='+str(o['per_arm']['compact']['CPU_ns_median']))
+          print('BQ_AZ_OS_RSS_MEDIAN='+str(o['per_arm']['AZ']['RSS_bytes_median']))
+          print('BQ_MODEL_OS_RSS_MEDIAN='+str(o['per_arm']['compact']['RSS_bytes_median']))
+          if not o['both_resource_screens']:
+              raise SystemExit('F124BQ_NEW_SOURCE_ORIGINATION_BLOCKED_BY_OS_RESOURCE_SCREEN')
+          print('F124BQ_SOURCE_NEUTRAL_OS_RESOURCE_SCREEN=PASS')
+          PY
+          (cd "$RUNNER_TEMP/f124bq" && sha256sum native-synthetic-resource.json > original-screen.sha256 && sha256sum -c original-screen.sha256)
+      - name: Always preserve actual passed or failed prebirth measurements
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bq-unconsumed-os-resource-measurement-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bq/
+          retention-days: 90
+          if-no-files-found: warn
