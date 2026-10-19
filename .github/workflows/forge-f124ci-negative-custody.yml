@@ -1,0 +1,95 @@
+name: F124-CI read-only original internal E/F failed-firstuse custody
+on:
+  push:
+    branches: [research/f124ci-sealed-role-grammar-negative-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ci-no-replay-frozen-negative-only
+  cancel-in-progress: false
+jobs:
+  original-source-and-failure-reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check immutable source and scientific programs unchanged; never execute models or source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          original=df7be129dab5bcd5b3d9c7ac0ba3e133d38f3ab3
+          git merge-base --is-ancestor "$original" HEAD
+          mapfile -t changed < <(git diff --name-only "$original" HEAD | sort)
+          expected=(.github/workflows/forge-f124ci-negative-custody.yml research/north-star-transfer/f124ci-original-EF-firstuse-failclosed-negative.json)
+          test "${changed[*]}" = "${expected[*]}"
+          for file in research/north-star-transfer/f124ch-frozen-internal-prospective-EF.json \
+                      research/north-star-transfer/f124ch_internal_source.py \
+                      research/north-star-transfer/f124ch_prospective_eval.py \
+                      research/north-star-transfer/f124cb_dual_link_learner.py \
+                      research/north-star-transfer/f124cc_trained_two_link_control.py \
+                      nativeevidence/f124az_joint_public_inverse.py; do
+            test "$(git rev-parse HEAD:"$file")" = "$(git rev-parse "$original":"$file")"
+          done
+          echo F124CI_NO_SCIENTIFIC_SOURCE_OR_MODEL_REEXECUTION=PASS
+      - name: Authenticate failed original evaluation and birth-provider receipts without scientific replay
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/f124ci-original-negative-provider"
+          mkdir -p "$dir"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39275464400" > "$dir/first-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39275464400/jobs?per_page=20" > "$dir/first-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39276176474" > "$dir/recovery-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39276176474/jobs?per_page=20" > "$dir/recovery-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12197975706" > "$dir/source-artifact.json"
+          python3 -B - "$dir" <<'PY'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          seal=json.loads(pathlib.Path('research/north-star-transfer/f124ci-original-EF-firstuse-failclosed-negative.json').read_text())
+          first=json.loads((root/'first-run.json').read_text())
+          recovery=json.loads((root/'recovery-run.json').read_text())
+          first_jobs=json.loads((root/'first-jobs.json').read_text())['jobs']
+          recovery_jobs=json.loads((root/'recovery-jobs.json').read_text())['jobs']
+          artifact=json.loads((root/'source-artifact.json').read_text())
+          assert first['id']==39275464400 and first['conclusion']=='failure'
+          assert first['head_sha']==seal['original_source_birth']['source_git_head']
+          assert recovery['id']==39276176474 and recovery['conclusion']=='failure'
+          assert recovery['head_sha']==seal['original_recovery_partial_firstuse']['qualified_git_head']
+          def one(jobs,id,name,conclusion):
+              got=[x for x in jobs if x['id']==id]
+              assert len(got)==1 and got[0]['name']==name and got[0]['conclusion']==conclusion
+          one(first_jobs,118138665064,'first-original-internal-source-birth','success')
+          one(first_jobs,118138739737,'actual-one-time-blinded-native-and-whole-process-comparison','failure')
+          one(recovery_jobs,118140946513,'original-sealed-source-recovery-preflight','success')
+          one(recovery_jobs,118141046682,'continue-existing-original-source-without-rebirth','failure')
+          assert artifact['id']==12197975706 and not artifact['expired']
+          assert artifact['workflow_run']['id']==first['id']
+          assert artifact['digest']==seal['original_source_birth']['original_provider_artifact_digest']
+          assert seal['original_recovery_partial_firstuse']['first_case_exposed']==928000
+          assert seal['original_recovery_partial_firstuse']['first_arm_exposed']=='AZ'
+          assert seal['original_recovery_partial_firstuse']['AZ_public_FIT_model_train_started'] is True
+          assert seal['original_recovery_partial_firstuse']['native_preflights_completed']==0
+          assert seal['original_recovery_partial_firstuse']['whole_OS_process_measurements_completed']==0
+          assert not seal['preservation']['reuse_exact_928xxx_929xxx_source_ids_for_a_fresh_development_comparison']
+          assert seal['preservation']['new_EF_928_929_protected_128x2_unopened']
+          print('F124CI_SOURCE_PROVIDER_ORIGINAL_BIRTH_24_AND_EXACT_FAILURE_RUNS=PASS')
+          print('F124CI_PARTIAL_FIRSTUSE_CONSUMED_NO_SCIENCE_ACCEPTANCE=PASS')
+          print('F124CI_NO_SOURCE_OR_MODEL_REPLAY=PASS')
+          PY
+          (cd "$dir" && sha256sum *.json > provider-metadata-sha256.txt && sha256sum -c provider-metadata-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ci-original-firstuse-native-grammar-negative-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ci-original-negative-provider/
+          retention-days: 90
+          if-no-files-found: error
