@@ -1,0 +1,56 @@
+name: F124-BP compact nonlinear state source-neutral qualification
+on:
+  push:
+    branches: [research/f124bp-compact-composition-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bp-source-neutral-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-no-firstuse:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze source identity and strict synthetic-only learned memory proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BP_EXACT_HEAD' }
+          & git merge-base --is-ancestor 086ecf9437a45b3e10a4557b2dab35e7a8ed247c HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BP_BO_SOURCE_DRIFT' }
+          & git merge-base --is-ancestor 8fac42d2cf0afb4a2c1ea37806df468662e7a037 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BP_FROZEN_PROTOCOL_BEFORE_CODE' }
+          $expected=@(
+            '.github/workflows/forge-f124bp-synthetic.yml',
+            'research/north-star-transfer/f124bp-frozen-composition.json',
+            'research/north-star-transfer/f124bp_compact_learner.py',
+            'research/north-star-transfer/test_f124bp_compact_prebirth.py'
+          )
+          $changed=@(& git diff --name-only 086ecf9437a45b3e10a4557b2dab35e7a8ed247c HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($expected|Sort-Object) -join '|')) { throw 'BP_SOURCE_BIRTH_ALREADY_OCCURRED_OR_UNFROZEN_FILES' }
+          $control=@{
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($f in $control.Keys) {
+            if ((& git rev-parse ('HEAD:'+$f)).Trim() -cne $control[$f]) { throw "BP_ORIGINAL_FROZEN_CONTROL_DRIFT:$f" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bp_compact_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BP_NONCONSUMING_SYNTHETIC_FAILED' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BP_REPOSITORY_ISOLATION' }
+          Write-Output 'F124BP_COMPACT_NONLINEAR_STATE_NONCONSUMING=PASS'
+          Write-Output 'F124BP_REGISTERED_SOURCE_CASES_USED=0'
+          Write-Output 'F124BP_PROTECTED_FIRSTUSE=false'
