@@ -206,7 +206,8 @@ class Database:
                         and doc["issue_number"] > 0 and type(doc["issue_number"]) is int
                         and doc["issue_id"] > 0 and type(doc["issue_id"]) is int
                         and doc["ticket"] == "f139-d2k-i" +
-                            str(doc["issue_number"]) + "-" + doc["source_sha"][:12]
+                            str(doc["issue_number"]) + "-" + doc["source_sha"][:12] +
+                            "-" + doc["body_sha256"][:8]
                         and doc["lane"] in LANES and doc["kind"] == D2K_KIND
                         and re.fullmatch(r"[a-f0-9]{64}", doc["body_sha256"]) is not None
                         and re.fullmatch(r"[a-f0-9]{64}", doc["manifest_sha256"]) is not None
@@ -454,7 +455,7 @@ class Database:
         ticket = issue["ticket"]
         require(isinstance(ticket, str) and TICKET.fullmatch(ticket)
                 and ticket == "f139-d2k-i" + str(issue["issue_number"]) + "-" +
-                  meta["source_sha"][:12], "D2K_TICKET_IDENTITY_INVALID")
+                  meta["source_sha"][:12] + "-" + issue["body_sha256"][:8], "D2K_TICKET_IDENTITY_INVALID")
         with self.transaction():
             self.verify()
             require(self.active() is None and self.ready() is None,
@@ -470,7 +471,13 @@ class Database:
             require(admitted_today < D2K_MAX_DAILY,"D2K_DAILY_ADMISSION_LIMIT")
             exists = self.conn.execute("SELECT 1 FROM tasks WHERE ticket=?",
                                        (ticket,)).fetchone()
-            if exists is not None:
+            already_admitted = any(
+                json.loads(row["payload"])["issue_id"] == issue["issue_id"]
+                or json.loads(row["payload"])["issue_number"] == issue["issue_number"]
+                for row in self.conn.execute(
+                    "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
+            )
+            if exists is not None or already_admitted:
                 return False
             prior = meta["head_hash"]
             manifest = {
@@ -635,7 +642,8 @@ class GitHub:
                     and record["paid_model_calls"]==0,
                     "D2K_ISSUE_POLICY_INVALID")
                 accepted.append({
-                    "ticket":"f139-d2k-i"+str(raw["number"])+"-"+source[:12],
+                    "ticket":"f139-d2k-i"+str(raw["number"])+"-"+source[:12]+
+                             "-"+hash_bytes(canonical(record))[:8],
                     "issue_number":raw["number"],"issue_id":raw["id"],
                     "source_sha":source,"lane":record["lane"],
                     "kind":D2K_KIND,
@@ -839,11 +847,17 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         # Only issue-authorized development tasks; never invent work to stay busy.
         # Reuse the existing SQLite mutex, source check, and daily dispatch budget.
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
+        seen_issue_numbers = {
+            json.loads(row["payload"])["issue_number"]
+            for row in db.conn.execute(
+                "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
+        }
         for item in api.d2k_eligible_issues(meta["source_sha"]):
-            if item["ticket"] not in known:
-                if db.admit_d2k_issue(item):
-                    ready=db.ready()
-                break
+            if item["ticket"] in known or item["issue_number"] in seen_issue_numbers:
+                continue
+            if db.admit_d2k_issue(item):
+                ready=db.ready()
+            break
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
