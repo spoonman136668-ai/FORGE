@@ -116,7 +116,7 @@ func TestLegacyFamilySignatureCannotDowngradeLedgerBinding(t *testing.T){
  if err!=nil{t.Fatal(err)}
  p.FamilyLedgerSigner=pub
  f.Snapshot.Schema="forge.science.complete-family-ledger.v1"
- message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\\n",f.Snapshot)
+ message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\n",f.Snapshot)
  if err!=nil{t.Fatal(err)}
  f.SignatureHex=hex.EncodeToString(ed25519.Sign(priv,message))
  if _,err:=verifySelected(s,b,f,p,e,a,3,h("d"));err==nil{
