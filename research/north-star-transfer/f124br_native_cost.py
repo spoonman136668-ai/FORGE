@@ -141,6 +141,8 @@ def one(arm):
     need(cpu>0 and rss>0,"ACTUAL_OS_COST")
     return {"schema":"mass.f124br.native-process-real-OS-sample.v1",
             "arm":arm,"source_neutral_graph_SHA256":identity,
+      "python_small_object_allocator":(__import__("os").environ.get(
+          "PYTHONMALLOC") or "default"),
             "process_CPU_ns":cpu,"whole_process_peak_RSS_bytes":rss,
             "original_scientific_policy":arm=="AZ",
             "trace":trace,"original_source_case_replayed":False,
@@ -156,6 +158,9 @@ def summarize(rows):
         need(len(records)==REPS
              and len({r["source_neutral_graph_SHA256"] for r in records})==1,
              "EQUAL_ORIGINAL_GRAPH_AND_FRESH_PROCESSES")
+        need(all(r["python_small_object_allocator"]==
+                 ("malloc" if arm=="lean" else "default")
+                 for r in records),"EXACT_FROZEN_ALLOCATOR_PER_ARM")
         out[arm]={
             "CPU_ns":[r["process_CPU_ns"] for r in records],
             "RSS_bytes":[r["whole_process_peak_RSS_bytes"] for r in records],
@@ -215,9 +220,15 @@ def main():
         cycle=list(ARMS)
         cycle=cycle[replicate%3:]+cycle[:replicate%3]
         for arm in cycle:
+            # A single frozen packaging/runtime allocator variant is tested.
+            # All other arm processes retain their exact baseline allocator.
+            import os
+            runtime_env=(dict(os.environ,PYTHONMALLOC="malloc")
+                         if arm=="lean" else None)
             x=subprocess.run([sys.executable,"-B",str(Path(__file__).resolve()),
                               "--child","--arm",arm],cwd=ROOT,
-                             capture_output=True,text=True,timeout=150)
+                             capture_output=True,text=True,timeout=150,
+                             env=runtime_env)
             need(x.returncode==0,
                  "SOURCE_NEUTRAL_FRESH_PROCESS_"+arm+":"+x.stderr[-2500:])
             rows.append(json.loads(x.stdout))
