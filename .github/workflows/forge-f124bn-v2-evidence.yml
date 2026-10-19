@@ -1,0 +1,91 @@
+name: F124-BN read-only original 49-file causal FIT evidence acceptance
+on:
+  push:
+    branches: [research/f124bn-readonly-v2-evidence-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bn-v2-original-negative-observer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  reconcile-authentic-firstuse-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify only read-only source and outcome, never scientific retesting
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor ed9c52c495fe65307cd3077959d257d1f4990914 HEAD
+          mapfile -t diff < <(git diff --name-only ed9c52c495fe65307cd3077959d257d1f4990914 HEAD | sort)
+          test "${#diff[@]}" -eq 3
+          test "${diff[0]}" = '.github/workflows/forge-f124bn-v2-evidence.yml'
+          test "${diff[1]}" = 'research/north-star-transfer/f124bn-v2-original-development-result.json'
+          test "${diff[2]}" = 'research/north-star-transfer/f124bn_v2_readonly_reconcile.py'
+          python3 -B -m py_compile research/north-star-transfer/f124bn_v2_readonly_reconcile.py
+          for f in research/north-star-transfer/f124bn_v2_learner.py \
+            research/north-star-transfer/f124bn_v2_triangular_source.py \
+            research/north-star-transfer/f124bn_v2_coupled_source.py \
+            research/north-star-transfer/f124bn_v2_dev_eval.py \
+            nativeevidence/f124az_joint_public_inverse.py \
+            nativeevidence/f124ag_transition_models.py; do
+            test "$(git rev-parse HEAD:"$f")" = \
+                 "$(git rev-parse ed9c52c495fe65307cd3077959d257d1f4990914:"$f")"
+          done
+          echo F124BN_V2_RECONCILE_SCOPE_READ_ONLY=PASS
+      - name: Independently witness original provider task step, reporting error and archived original ZIP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bn-v2-evidence"
+          mkdir -p "$root/source"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39183174503" > "$root/original-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/117840112601" > "$root/original-job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12156554495" > "$root/original-artifact.json"
+          python3 -B - "$root" <<'PY'
+          import json,sys,pathlib
+          p=pathlib.Path(sys.argv[1])
+          run=json.loads((p/'original-run.json').read_text())
+          job=json.loads((p/'original-job.json').read_text())
+          art=json.loads((p/'original-artifact.json').read_text())
+          assert run['id']==39183174503
+          assert run['head_sha']=='ed9c52c495fe65307cd3077959d257d1f4990914'
+          assert run['status']=='completed' and run['conclusion']=='failure'
+          assert job['run_id']==39183174503 and job['conclusion']=='failure'
+          step={s['name']:s['conclusion'] for s in job['steps']}
+          assert step['Original 12 new A and 12 new B causal pairs; persist each arm immediately']=='success'
+          assert step['Verify exact original negative or positive without changing frozen gates']=='failure'
+          assert step['Always archive original and incomplete observations; no reruns']=='success'
+          assert art['id']==12156554495 and not art['expired']
+          assert art['workflow_run']['id']==run['id']
+          assert art['digest']=='sha256:6026b4767a6b70b7f6c124934c966823973cdc8c30ed6688e58b883ea285cf0b'
+          print('F124BN_ORIGINAL_PROVIDER_PROSPECTIVE_FIT_CUSTODY=PASS')
+          print('F124BN_REPORT_FAILURE_SEPARATE_FROM_COMPLETED_EVALUATION=true')
+          PY
+          gh run download 39183174503 --repo "$GITHUB_REPOSITORY" \
+            --name f124bn-new-firstuse-causal-dev-not-protected-ed9c52c495fe65307cd3077959d257d1f4990914 \
+            --dir "$root/source"
+          python3 -B research/north-star-transfer/f124bn_v2_readonly_reconcile.py \
+            --original "$root/source" --output "$root/reconciled-authentic-new-source-FIT.json"
+          sha256sum "$root/reconciled-authentic-new-source-FIT.json" \
+            "$root/original-run.json" "$root/original-job.json" \
+            "$root/original-artifact.json" > "$root/immutable-custody-sha256.txt"
+          (cd "$root" && sha256sum --check immutable-custody-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bn-v2-original-learned-causal-partial-positive-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bn-v2-evidence/
+          retention-days: 90
+          if-no-files-found: warn
