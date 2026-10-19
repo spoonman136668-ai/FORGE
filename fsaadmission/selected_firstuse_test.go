@@ -31,7 +31,7 @@ func fixture(t *testing.T)(SignedSelection,SignedBirth,SignedFamilySnapshot,Inde
  FrozenSelectionSHA256:selectionHash,BirthSequence:11,NeverPreviouslyConsumed:true}
  sy,birthHash,_:=signedDigest(bornDomain,y)
  z:=FamilySnapshot{Schema:familySchema,ArchiveID:a.ArchiveID,CustodyEpoch:7,
- Sequence:20,HeadSHA256:a.HeadSHA256,LedgerGeneration:3,CompleteAllLanes:true,
+ Sequence:20,HeadSHA256:a.HeadSHA256,LedgerGeneration:3,LedgerSnapshotSHA256:h("d"),CompleteAllLanes:true,
  FrozenSelectionSHA256:selectionHash,SourceBirthSHA256:birthHash,
  FrozenSequence:10,BirthSequence:11,
  ActiveFamilySHA256:[]string{},ConsumedFamilySHA256:[]string{}}
@@ -43,7 +43,7 @@ func fixture(t *testing.T)(SignedSelection,SignedBirth,SignedFamilySnapshot,Inde
 }
 func TestThreeIndependentPinnedWitnessesRemainPreflightOnly(t *testing.T){
  s,b,l,p,e,a:=fixture(t)
- verdict,err:=verifySelected(s,b,l,p,e,a,3)
+ verdict,err:=verifySelected(s,b,l,p,e,a,3,h("d"))
  if err!=nil{t.Fatal(err)}
  if verdict!=SelectedPreflightOnly{t.Fatalf("unexpected science authority: %q",verdict)}
 }
@@ -72,7 +72,54 @@ func TestChronologyAndFamilyLedgerFailClosed(t *testing.T){
  for _,v:=range tests{
   t.Run(v.name,func(t *testing.T){s,b,f,p,e,a:=fixture(t);g:=uint64(3)
    v.alter(&s,&b,&f,&p,&e,&a,&g)
-   if _,err:=verifySelected(s,b,f,p,e,a,g);err==nil{t.Fatal("untrusted or stale source accepted")}
+   if _,err:=verifySelected(s,b,f,p,e,a,g,h("d"));err==nil{t.Fatal("untrusted or stale source accepted")}
   })
+ }
+}
+
+\n// A valid third-party signature over a DIFFERENT all-lane ledger must still
+// fail: an authenticated family inventory is not proof of the exact global
+// cohort ledger independently recovered by FSA.
+func TestSignedFamilySnapshotMustMatchIndependentGlobalLedgerPin(t *testing.T){
+ s,b,f,p,e,a:=fixture(t)
+ pub,priv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ p.FamilyLedgerSigner=pub
+ resign:=func(){
+  t.Helper()
+  bytes,_,err:=signedDigest(familyDomain,f.Snapshot)
+  if err!=nil{t.Fatal(err)}
+  f.SignatureHex=hex.EncodeToString(ed25519.Sign(priv,bytes))
+ }
+ f.Snapshot.LedgerSnapshotSHA256=h("e")
+ resign()
+ if _,err:=verifySelected(s,b,f,p,e,a,3,h("d"));err==nil{
+  t.Fatal("independently signed inventory from a different cohort ledger accepted")
+ }
+ f.Snapshot.LedgerSnapshotSHA256=h("d")
+ resign()
+ result,err:=verifySelected(s,b,f,p,e,a,3,h("d"))
+ if err!=nil||result!=SelectedPreflightOnly{
+  t.Fatalf("matching separately signed ledger preflight rejected: %q %v",result,err)
+ }
+ if _,err:=verifySelected(s,b,f,p,e,a,3,h("e"));err==nil{
+  t.Fatal("caller-repinned ledger without same family attestation accepted")
+ }
+ if _,err:=verifySelected(s,b,f,p,e,a,3,"");err==nil{
+  t.Fatal("missing independent ledger pin accepted")
+ }
+}
+
+func TestLegacyFamilySignatureCannotDowngradeLedgerBinding(t *testing.T){
+ s,b,f,p,e,a:=fixture(t)
+ pub,priv,err:=ed25519.GenerateKey(rand.Reader)
+ if err!=nil{t.Fatal(err)}
+ p.FamilyLedgerSigner=pub
+ f.Snapshot.Schema="forge.science.complete-family-ledger.v1"
+ message,_,err:=signedDigest("FORGE-SCIENCE-FAMILY-LEDGER-V1\\n",f.Snapshot)
+ if err!=nil{t.Fatal(err)}
+ f.SignatureHex=hex.EncodeToString(ed25519.Sign(priv,message))
+ if _,err:=verifySelected(s,b,f,p,e,a,3,h("d"));err==nil{
+  t.Fatal("old family schema accepted after cryptographic contract change")
  }
 }
