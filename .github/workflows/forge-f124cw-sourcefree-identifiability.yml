@@ -1,0 +1,81 @@
+name: F124-CW source-free causal information and sequence-learning feasibility
+on:
+  push:
+    branches: [research/f124cw-sourcefree-learnability-audit-20261019]
+    paths:
+      - research/north-star-transfer/f124cw_*
+      - research/north-star-transfer/f124cw-*
+      - research/north-star-transfer/test_f124cw_feasibility.py
+      - .github/workflows/forge-f124cw-sourcefree-identifiability.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124cw-sourcefree-original-diagnostic
+  cancel-in-progress: false
+jobs:
+  sourcefree-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned CPU-only sequence training dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CW_NUMPY_PIN_FAILED' }
+      - name: Verify original negative custody ancestry, prespecified audit and frozen sequence learner identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor 9434a35c363510b87f6a2964197053319e42d09b HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CW_ORIGINAL_NEGATIVE_CUSTODY_DRIFT' }
+          & git merge-base --is-ancestor 69d7ac22c8e869075e60df6c36562e152ec4a19b HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CW_PREREGISTRATION_WAS_NOT_FROZEN_BEFORE_FIXTURE' }
+          $s=Get-Content -Raw research/north-star-transfer/f124cw-frozen-identifiability-protocol.json | ConvertFrom-Json
+          if ($s.schema -cne 'mass.f124cw.sourcefree-causal-identifiability-preanalysis.v1') { throw 'CW_SOURCEFREE_HYPOTHESIS_IDENTITY' }
+          foreach ($p in @(@($s.comparators.candidate.path,$s.comparators.candidate.blob),@($s.comparators.strong_sequence_control.path,$s.comparators.strong_sequence_control.blob),@($s.comparators.protocol.path,$s.comparators.protocol.blob))) {
+            $current=(& git rev-parse "HEAD:$($p[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $current -cne $p[1]) { throw "CW_FROZEN_STRONG_CONTROL_DRIFT:$($p[0])" }
+          }
+          if (!$s.restrictions.no_firstuse_new_case_birth -or !$s.restrictions.no_original_private_source_read -or !$s.restrictions.no_consumed_924_through_937_science_read -or !$s.restrictions.no_scientific_acceptance) { throw 'CW_UNAUTHORIZED_ORIGINAL_SCIENCE' }
+          Write-Host 'F124CW_PRESCIENCE_FROZEN_NO_FIRSTUSE=PASS'
+      - name: Source-free exact causal information unit qualification
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cw_feasibility.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CW_INFORMATION_IDENTIFIABILITY_TESTS_FAILED' }
+          Write-Host 'F124CW_EXACT_HYPOTHESIS_CLASS_IDENTIFIABILITY_ENGINEERING=PASS'
+      - name: Qualify actual 24-episode BPTT models against prespecified diagnostic (Linux original)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cw_feasibility_audit.py \
+            --out "$RUNNER_TEMP/f124cw-sourcefree-report"
+          echo 'F124CW_NO_SCIENTIFIC_FIRSTUSE=PASS'
+      - name: Preserve complete source-free information and training diagnostics
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cw-sourcefree-feasibility-complete
+          path: ${{ runner.temp }}/f124cw-sourcefree-report/feasibility-full.json
+          retention-days: 90
+          if-no-files-found: error
