@@ -118,9 +118,10 @@ def require_stopped_controller(db_path):
             "REPAIR_F139_CONTROLLER_NOT_STOPPED")
 
 def reconcile(db_path: Path, *, apply=False, api=None):
+    db_path = Path(db_path)
+    require(not db_path.is_symlink(), "REPAIR_PRODUCTION_DB_SYMLINK")
     db_path = db_path.resolve()
     require(db_path.is_file(), "REPAIR_PRODUCTION_DB_ABSENT")
-    require(not db_path.is_symlink(), "REPAIR_PRODUCTION_DB_SYMLINK")
     api = api or GitHub()
     with SingleOwner(db_path.with_suffix(".lock")):
         if apply:
