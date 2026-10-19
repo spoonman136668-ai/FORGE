@@ -258,7 +258,7 @@ class ReadonlyCustodyTests(unittest.TestCase):
                 audit(self.dbpath,target,current_head)
 
     def test_integrated_suffix_and_mutable_task_manifest_drift(self):
-        target="e8166b1ef2f52ad935029ee583a5a0827b8a25d8"
+        target="365e5eb8b888c11716376973ad2551523a869bab"
         self.append_source_transition(target)
         with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
             record=audit(self.dbpath,target,self.head)
@@ -272,11 +272,22 @@ class ReadonlyCustodyTests(unittest.TestCase):
                 audit(self.dbpath,target,self.head)
 
     def test_integrated_unpinned_event_head_never_accepted(self):
-        target="e8166b1ef2f52ad935029ee583a5a0827b8a25d8"
+        target="365e5eb8b888c11716376973ad2551523a869bab"
         self.append_source_transition(target)
         with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
             with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
                 audit(self.dbpath,target,"0"*64)
+
+    def test_monotonic_jump_to_latest_qualified_main(self):
+        first="e8166b1ef2f52ad935029ee583a5a0827b8a25d8"
+        final="365e5eb8b888c11716376973ad2551523a869bab"
+        self.append_source_transition(first)
+        self.append_source_transition(final,from_source=first)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA):
+            record=audit(self.dbpath,final,self.head)
+        self.assertEqual(record["source_only_suffix_count"],2)
+        self.assertEqual(record["event_count"],25)
+        self.assertEqual(record["d2j_task_bindings_verified"],2)
 
     def test_absent_sealed_authority_fails_closed(self):
         with self.assertRaisesRegex(CustodyBlocked,"EXPECTED_PREFIX_NOT_SUPPLIED"):
