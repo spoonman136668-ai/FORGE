@@ -69,7 +69,7 @@ def dummy(family):
         "parents":[{"sha":"f"*40}],
         "tree":{"sha":format(identity+1,"x")*40},
         "verification":{"verified":True}},
-      "original_tree":{"sha":str(identity+1)*40,
+      "original_tree":{"sha":format(identity+1,"x")*40,
         "truncated":False,"tree":[
           {"path":item["path"],"type":"blob","sha":item["blob_sha"]}
           for item in files.values()]},
