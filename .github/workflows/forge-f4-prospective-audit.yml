@@ -1,0 +1,228 @@
+name: FORGE F4 prospective protocol audit
+on:
+  push:
+    branches: [engineering/f4-prospective-sensor-set-reallocation-r1]
+    paths:
+      - 'research/f4_sensor_reallocation/**'
+      - 'f4preflight/**'
+      - '.github/workflows/forge-f4-prospective-audit.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/f4_sensor_reallocation/**'
+      - 'f4preflight/**'
+      - '.github/workflows/forge-f4-prospective-audit.yml'
+permissions:
+  contents: read
+jobs:
+  proposal-admission:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate F4 prospective-only source identity and nonauthorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/f4_sensor_reallocation -p 'test_*.py' -v
+          go test ./f4preflight -count=1 -v
+          python -B - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("research/f4_sensor_reallocation/prospective_protocol.json").read_text())
+          assert p["status"]=="PROPOSED_NOT_FROZEN_NO_SCIENTIFIC_AUTHORITY"
+          assert p["source_requirements"]["implementation_source_sha"]=="UNRESOLVED_REQUIRED_BEFORE_FREEZE"
+          assert p["selection_and_gate"]["no_scientific_original_created_by_this_proposal"] is True
+          print("F4_PROSPECTIVE_ONLY=PASS")
+          print("F4_SCIENTIFIC_EXECUTIONS=ZERO")
+          print("F4_FIRST_USE_CLAIMS=ZERO")
+          PY
+  equal-decoder-engineering-fixture:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute real matched-decoder development-only engineering fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f4_sensor_reallocation/run_matched_fixture.py --yggdrasil-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-matched-fixture.json"
+          python -B research/f4_sensor_reallocation/verify_matched_fixture.py --record "$RUNNER_TEMP/f4-matched-fixture.json" --yggdrasil-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-matched-fixture-witness.json"
+          python -B - "$RUNNER_TEMP/f4-matched-fixture.json" "$RUNNER_TEMP/f4-matched-fixture-witness.json" <<'PY'
+          import json,sys,copy
+          sys.path.insert(0,"research/f4_sensor_reallocation")
+          from verify_matched_fixture import replay
+          record=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert witness["status"]=="EQUAL_DECODER_AND_SENSOR_ORDER_ABLATION_REPLAY_PASS"
+          assert witness["replayed"]==36
+          assert record["new_f4_dev_seeds_used"]==0 and record["sealed_first_use_claims"]==0
+          assert record["new_scientific_originals"]==0
+          assert witness["scientific_original"] is False
+          changed=copy.deepcopy(record)
+          changed["records"][0]["public_sensor_trace"][3]=[8,11]
+          try:replay(changed,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_SENSOR_TRACE_TAMPER_ACCEPTED")
+          poisoned=copy.deepcopy(record)
+          poisoned["historical_training"]["learned_physical_sensors"]=[2,4]
+          try:replay(poisoned,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_TRAINED_SENSOR_TAMPER_ACCEPTED")
+          leaked=copy.deepcopy(record)
+          leaked["historical_training"]["training_seed_ids"][-1]=67640
+          try:replay(leaked,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_FRESH_SEALED_SEED_LEAKAGE_ACCEPTED")
+          forged=copy.deepcopy(record)
+          forged["historical_training_sha256"]="0"*64
+          try:replay(forged,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_MODEL_DIGEST_TAMPER_ACCEPTED")
+          print("F4_NEGATIVE_ENFORCEMENT=PASS")
+          print("F4_COHORT_ELIGIBILITY=UNVERIFIED_NOT_AUTHORIZED")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f4-equal-decoder-engineering-fixture
+          path: |
+            ${{ runner.temp }}/f4-matched-fixture.json
+            ${{ runner.temp }}/f4-matched-fixture-witness.json
+          if-no-files-found: error
+          retention-days: 90
+
+  historical-three-arm-ablation:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Source-pinned historical F3 development ablation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f4_sensor_reallocation/run_historical_ablation.py --yggdrasil-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-historical-ablation.json"
+          python -B research/f4_sensor_reallocation/verify_historical_ablation.py --record "$RUNNER_TEMP/f4-historical-ablation.json" --yggdrasil-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-historical-ablation-witness.json"
+          python -B - "$RUNNER_TEMP/f4-historical-ablation.json" "$RUNNER_TEMP/f4-historical-ablation-witness.json" <<'PY'
+          import json,copy,sys
+          sys.path.insert(0,"research/f4_sensor_reallocation")
+          from verify_historical_ablation import verify
+          report=json.load(open(sys.argv[1]))
+          witness=json.load(open(sys.argv[2]))
+          assert witness["status"]=="HISTORICAL_ABLATION_REPLAY_QUALIFIED_NOT_NEW_SCIENCE"
+          assert witness["records_replayed"]==576
+          assert witness["new_f4_cohorts_used"]==0 and witness["new_originals"]==0
+          assert witness["scientific_admission"] is False
+          wrong=copy.deepcopy(report)
+          wrong["records"][0]["pre"]+=1
+          try:verify(wrong,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_HISTORICAL_SCORE_TAMPER_ACCEPTED")
+          modified=copy.deepcopy(report)
+          modified["historical_validation_seed_ids"][0]=67640
+          try:verify(modified,"pinned-yggdrasil-source")
+          except ValueError:pass
+          else:raise AssertionError("F4_PROSPECTIVE_SEED_INJECTION_ACCEPTED")
+          print("F4_HISTORICAL_NEGATIVE_ENFORCEMENT=PASS")
+          print("F4_FRESH_FIRST_USE_CLAIMS=ZERO")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f4-f3-reused-three-arm-historical-replay
+          path: |
+            ${{ runner.temp }}/f4-historical-ablation.json
+            ${{ runner.temp }}/f4-historical-ablation-witness.json
+          if-no-files-found: error
+          retention-days: 90
+
+  prospective-source-feasibility:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 5797a257a75fe139313e8486cd1a1ae79c44b148
+          path: pinned-yggdrasil-source
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove sensor identity boundary without new cohort access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C pinned-yggdrasil-source rev-parse HEAD)" = 5797a257a75fe139313e8486cd1a1ae79c44b148
+          test "$(git -C pinned-yggdrasil-source status --porcelain)" = ""
+          python -B research/f4_sensor_reallocation/structural_feasibility.py --pinned-source-root pinned-yggdrasil-source --out "$RUNNER_TEMP/f4-source-feasibility.json"
+          python -B - "$RUNNER_TEMP/f4-source-feasibility.json" <<'PY'
+          import json,sys
+          from pathlib import Path
+          data=json.loads(Path(sys.argv[1]).read_bytes())
+          assert data["status"]=="UNOBSERVABLE_PROSPECTIVE_SWAPS_SOURCE_LEVEL_NO_SCIENCE"
+          assert data["f4_original_feasibility"]=="BLOCKED_AS_PROPOSED"
+          assert data["historically_learned_sensors"]==[8,11]
+          assert set(data["source_only_pair_checks"])=={"6_9","12_14"}
+          assert all(not arm["publicly_observable_by_schedule"]
+                     for arms in data["source_only_pair_checks"].values() for arm in arms.values())
+          assert data["candidate_retrained_after_inspecting_novel_pair_labels"] is False
+          assert data["f4_development_cohort_accesses"]==0
+          assert data["f4_sealed_cohort_accesses"]==0
+          assert data["scientific_originals_executed"]==0
+          assert data["first_use_claims_consumed"]==0
+          assert data["scientific_dispatch_authorized"] is False
+          print("F4_PROSPECTIVE_SOURCE_IDENTITY_GATE=NEGATIVE_PASS")
+          print("F4_FIRST_USES_CONSUMED=ZERO")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forge-f4-prospective-source-observability-negative
+          path: ${{ runner.temp }}/f4-source-feasibility.json
+          if-no-files-found: error
+          retention-days: 90
