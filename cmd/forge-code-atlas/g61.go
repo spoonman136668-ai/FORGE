@@ -96,6 +96,10 @@ func g61Build(root string)(Atlas,g61Stats,error){
   "cmd/forge-code-atlas/g61_test.go":true,
   ".github/workflows/forge-g29-source-atlas.yml":true,
   "docs/G61-SOURCE-COVERAGE.md":true,
+  "cmd/forge-code-atlas/g62.go":true,
+  "cmd/forge-code-atlas/g62_test.go":true,
+  "scripts/test_g62_navigator.js":true,
+  "docs/G62-NAVIGATION-CLOSURE.md":true,
  }
  for _,p:=range strings.Split(strings.TrimSpace(string(diff)),string([]byte{10})){
   if p!=""&&!allowed[p]{return empty,stats,fmt.Errorf("G61_UNAUTHORIZED_HEAD_DELTA %s",p)}
@@ -170,7 +174,7 @@ func g61Run(root,out string)error{
  a,s,e:=g61Build(root);if e!=nil{return e}
  if out!=""{
   if e=os.MkdirAll(out,0700);e!=nil{return e}
-  rendered,e:=render(a);if e!=nil{return e}
+  rendered,e:=renderG62(a);if e!=nil{return e}
   names:=map[string]string{jsonFile:"G61_SOURCE_ATLAS.json",htmlFile:"G61_SOURCE_ATLAS.html",iceFile:"G61_SOURCE_ATLAS.ice"}
   for src,data:=range rendered{
    if e=os.WriteFile(filepath.Join(out,names[src]),data,0600);e!=nil{return e}
