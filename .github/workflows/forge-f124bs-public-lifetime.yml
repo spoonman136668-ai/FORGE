@@ -1,0 +1,78 @@
+name: F124-BS bounded public buffer lifetime original process RSS qualification
+on:
+  push:
+    branches: [research/f124bs-public-buffer-lifetime-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bs-original-buffer-retention-OS-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-neutral-unchanged-program-original-resource:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Original model/native/source unchanged, just extra buffer lifetime scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 992c549a78b8457fec6ae102756e302629be729f HEAD
+          mapfile -t changes < <(git diff --name-only 992c549a78b8457fec6ae102756e302629be729f HEAD | sort)
+          test "${#changes[@]}" -eq 3
+          test "${changes[0]}" = '.github/workflows/forge-f124bs-public-lifetime.yml'
+          test "${changes[1]}" = 'research/north-star-transfer/f124br_native_cost.py'
+          test "${changes[2]}" = 'research/north-star-transfer/f124bs-frozen-buffer-lifetime.json'
+          for f in research/north-star-transfer/f124bq_program_learner.py \
+            research/north-star-transfer/f124bq-frozen-program.json \
+            research/north-star-transfer/f124br_native_view.py \
+            nativeevidence/f124ag_transition_models.py \
+            nativeevidence/f124az_joint_public_inverse.py; do
+            test "$(git rev-parse HEAD:"$f")" =                  "$(git rev-parse 992c549a78b8457fec6ae102756e302629be729f:"$f")"
+          done
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124br_native_parity.py -v
+          python3 -B isolationguard/check.py
+          echo F124BS_UNCHANGED_NATIVE_SEMANTICS=PASS
+      - name: Real 15 original fresh-process CPU and RSS, strict gate on source-neutral identical task
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f124bs-original-process"
+          python3 -B research/north-star-transfer/f124br_native_cost.py \
+            --output "$RUNNER_TEMP/f124bs-original-process/native-15-process-resource.json"
+          python3 -B - "$RUNNER_TEMP/f124bs-original-process/native-15-process-resource.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))['summary']
+          assert d['sample_count']==15
+          assert d['legacy_and_lean_native_score_work_exact'] is True
+          assert d['legacy_and_lean_causal_decisions_exact'] is True
+          assert d['AZ_scientific_abstention_preserved'] is True
+          assert d['AZ_and_candidate_native_work_not_equivalent'] is True
+          assert d['full_scientific_resource_parity'] is False
+          assert d['old_BM_BN_BO_BP_BQ_cases_replayed'] is False
+          assert d['new_prospective_or_protected_cases_used'] is False
+          for arm in ('AZ','legacy','lean'):
+              a=d['arms'][arm]
+              print('F124BS_'+arm.upper()+'_CPU_NS='+str(a['CPU_median_ns']))
+              print('F124BS_'+arm.upper()+'_RSS_MEDIAN_BYTES='+str(a['RSS_median_bytes']))
+              print('F124BS_'+arm.upper()+'_RSS_MAX_BYTES='+str(a['RSS_max_bytes']))
+          if not (d['lean_source_neutral_os_nonregression_vs_original_AZ']
+                  and d['lean_os_nonregression_vs_original_BQ_legacy']):
+              raise SystemExit('F124BS_RSS_NONREGRESSION_BLOCKS_PROSPECTIVE_SOURCE')
+          print('F124BS_SOURCE_NEUTRAL_PROCESS_NONREGRESSION=PASS')
+          PY
+          (cd "$RUNNER_TEMP/f124bs-original-process" && sha256sum native-15-process-resource.json > original-sha256.txt && sha256sum -c original-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bs-real-15-process-public-buffer-lifetime-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bs-original-process/
+          retention-days: 90
+          if-no-files-found: warn
