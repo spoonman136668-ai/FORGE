@@ -33,6 +33,15 @@ LIMIT_PER_DAY = 48
 MAX_ZIP_BYTES = 2_000_000
 MAX_RECEIPT_BYTES = 8192
 
+# D2J is a single bounded, source-bound development-only succession tranche.
+# Do not infer a science grant or evergreen self-authority from these two tickets.
+D2J_FROZEN_ORIGINALS = {
+    "f139-d2c-qualification-659bb1f4d751": ("Qualification", 39178196331),
+    "f139-d2c-wingless-659bb1f4d751": ("Wingless", 39178299792),
+}
+D2J_TRANCHE = (("Wingless", "wingless"), ("Yggdrasil", "yggdrasil"))
+
+
 
 class F139Error(RuntimeError):
     pass
@@ -158,6 +167,27 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "UNATTENDED_SUCCESSION_ADMITTED":
+                require(isinstance(doc, dict) and set(doc) == {
+                    "schema", "source_sha", "prior_event_head_sha256",
+                    "manifest_sha256", "tickets", "new_dispatches",
+                    "scientific_first_use"}, "D2J_ADMISSION_FIELDS_INVALID")
+                require(doc["schema"] == "forge.f139.d2j-once-only-succession.v1"
+                        and SHA.fullmatch(doc["source_sha"]) is not None
+                        and doc["prior_event_head_sha256"] == row["prior_sha"]
+                        and re.fullmatch(r"[a-f0-9]{64}",doc["manifest_sha256"]) is not None
+                        and isinstance(doc["tickets"], list) and len(doc["tickets"]) == 2
+                        and doc["tickets"] == [
+                            "f139-d2j-" + lane + "-" + doc["source_sha"][:12]
+                            for _,lane in D2J_TRANCHE]
+                        and doc["new_dispatches"] == 0
+                        and doc["scientific_first_use"] is False,
+                        "D2J_ADMISSION_INVALID")
+                require(row["seq"] == 15 and
+                        sum(1 for previous in self.conn.execute(
+                            "SELECT kind FROM events WHERE seq < ?", (row["seq"],))
+                            if previous["kind"] == "SOURCE_TRANSITION_ADMITTED") == 3,
+                        "D2J_ADMISSION_HISTORY_INVALID")
             if row["kind"] == "SOURCE_TRANSITION_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "from_source_sha", "to_source_sha", "prior_event_head_sha256",
@@ -278,6 +308,70 @@ class Database:
                 self.conn.execute("INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) VALUES(?,?,?,'READY',?)",
                                   (ticket,lane,source,freeze_sha))
                 self.event("TASK_INTAKE",{"ticket":ticket,"lane":lane,"manifest_sha":freeze_sha})
+
+    def admit_d2j_succession(self):
+        """One source-frozen two-ticket tranche after the authentic D2I history.
+
+        This is a finite development successor, NOT a general science originator
+        or permission to enroll tasks from untrusted GitHub issues.
+        Caller must hold SingleOwner and verify protected main before invoking.
+        """
+        with self.transaction():
+            self.verify()
+            meta = self.meta()
+            if meta["head_seq"] != 14:
+                return False
+            require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1,
+                    "D2J_OWNER_NOT_ENABLED")
+            history = list(self.conn.execute("SELECT kind FROM events ORDER BY seq"))
+            require(len(history) == 14 and
+                    [row["kind"] for row in history[9:11]] ==
+                    ["QUARANTINE_ORIGINAL_RECONCILED"] * 2 and
+                    [row["kind"] for row in history[11:14]] ==
+                    ["SOURCE_TRANSITION_ADMITTED"] * 3,
+                    "D2J_FROZEN_EVENT_HISTORY_DRIFT")
+            original = {row["ticket"]: dict(row) for row in
+                        self.conn.execute("SELECT * FROM tasks")}
+            require(set(original) == set(D2J_FROZEN_ORIGINALS),
+                    "D2J_FROZEN_TASK_SET_DRIFT")
+            for ticket, (lane, run_id) in D2J_FROZEN_ORIGINALS.items():
+                row = original[ticket]
+                require(row["lane"] == lane and row["stage"] == "VERIFIED"
+                        and row["run_id"] == run_id
+                        and row["source_sha"] != meta["source_sha"]
+                        and row["evidence_dir"] and row["evidence_sha"]
+                        and row["quarantine_reason"] == "PROVIDER_SOURCE_EVENT_SPOOFED",
+                        "D2J_ORIGINAL_CUSTODY_NOT_QUALIFIED")
+            tickets = ["f139-d2j-" + label + "-" + meta["source_sha"][:12]
+                       for _, label in D2J_TRANCHE]
+            manifest = {
+                "schema": "forge.f139.d2j-once-only-succession.v1",
+                "source_sha": meta["source_sha"],
+                "prior_event_head_sha256": meta["head_hash"],
+                "tasks": [
+                    {"ticket": ticket, "lane": lane, "source_sha": meta["source_sha"]}
+                    for ticket, (lane, _) in zip(tickets, D2J_TRANCHE)
+                ],
+                "scientific_first_use": False,
+                "paid_model_calls": 0,
+                "max_new_development_tickets": 2,
+            }
+            digest = hash_bytes(canonical(manifest))
+            self.event("UNATTENDED_SUCCESSION_ADMITTED", {
+                "schema": manifest["schema"], "source_sha":meta["source_sha"],
+                "prior_event_head_sha256": meta["head_hash"],
+                "manifest_sha256": digest, "tickets": tickets,
+                "new_dispatches": 0, "scientific_first_use": False,
+            })
+            for item in manifest["tasks"]:
+                self.conn.execute(
+                    "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) "
+                    "VALUES(?,?,?,'READY',?)",
+                    (item["ticket"],item["lane"],item["source_sha"],digest))
+                self.event("TASK_INTAKE", {
+                    "ticket": item["ticket"], "lane":item["lane"],"manifest_sha":digest})
+            self.verify()
+            return True
 
     def active(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 1").fetchone()
@@ -557,6 +651,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 db.quarantine(active["ticket"],code if re.fullmatch(r"[A-Z_]{3,72}",code) else "UNCLASSIFIED_REJECTION")
             raise
     ready=db.ready()
+    if ready is None and db.admit_d2j_succession():
+        ready=db.ready()
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
