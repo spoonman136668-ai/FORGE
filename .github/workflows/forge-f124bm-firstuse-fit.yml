@@ -36,11 +36,11 @@ jobs:
           d=json.load(open(sys.argv[1]))
           assert d['object']['sha']==os.environ['GITHUB_SHA'], 'BM_SOURCE_CHANGED_AFTER_PREFLIGHT'
           PY
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-f124bm-firstuse-fit.yml/runs?branch=research/f124bm-firstuse-20261018&per_page=30" > "$RUNNER_TEMP/single-use-runs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bm-firstuse-20261018&per_page=30" > "$RUNNER_TEMP/single-use-runs.json"
           python3 -B - "$RUNNER_TEMP/single-use-runs.json" <<'PY'
           import json,sys,os
           d=json.load(open(sys.argv[1]))
-          runs=d['workflow_runs']
+          runs=[r for r in d['workflow_runs'] if r['path']=='.github/workflows/forge-f124bm-firstuse-fit.yml' and r['event']=='push']
           assert len(runs)==1, 'BM_FIRSTUSE_MORE_THAN_ONE_RUN'
           assert runs[0]['id']==int(os.environ['GITHUB_RUN_ID'])
           assert runs[0]['head_sha']==os.environ['GITHUB_SHA']
@@ -62,12 +62,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/forge-f124bm-source-preflight.yml/runs?branch=research/f124bm-causal-transfer-fitscreen-20261018&per_page=10" > "$RUNNER_TEMP/preuse-runs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bm-causal-transfer-fitscreen-20261018&per_page=30" > "$RUNNER_TEMP/preuse-runs.json"
           python3 -B - "$RUNNER_TEMP/preuse-runs.json" <<'PY'
           import json,sys,os
           data=json.load(open(sys.argv[1]))
           eligible=[run for run in data['workflow_runs']
-                    if run['head_sha']==os.environ['GITHUB_SHA'] and
+                    if run['path']=='.github/workflows/forge-f124bm-source-preflight.yml' and run['head_sha']==os.environ['GITHUB_SHA'] and
                        run['status']=='completed' and run['conclusion']=='success']
           assert eligible, 'BM_NO_COMPLETED_EXACT_HEAD_ORIGINAL_SOURCE_QUALIFICATION'
           print('F124BM_ORIGINAL_PRE_FIRSTUSE_FULL_REGRESSION_WITNESSED=PASS')
