@@ -95,7 +95,12 @@ jobs:
             foreach ($i in 1..25) {
               Start-Sleep -Seconds 1
               $child.Refresh()
-              if ($child.HasExited) { throw ('F139_NATIVE_LAUNCHER_PREMATURE_EXIT=' + $child.ExitCode) }
+              if ($child.HasExited) {
+                if (Test-Path -LiteralPath $log) {
+                  Write-Host ('F139_LAUNCHER_DIAGNOSTIC_LOG=' + [IO.File]::ReadAllText($log))
+                }
+                throw ('F139_NATIVE_LAUNCHER_PREMATURE_EXIT=' + $child.ExitCode)
+              }
               if (Test-Path -LiteralPath $log) {
                 $body = [IO.File]::ReadAllText($log)
                 if ($body -match 'F139_CONTROLLER_INACTIVE_OR_LEGACY_RUNNING' -and
