@@ -58,6 +58,10 @@ jobs:
               $dryRun -notmatch 'F139_INSTALL=DRY_RUN_NO_CHANGES') {
             throw 'F139_BATTERY_POWER_POLICY_NOT_QUALIFIED'
           }
+          # Compile the Windows P/Invoke helper in actual PowerShell 5.1 before
+          # starting the hidden launcher, so any native errors are diagnostic.
+          Add-Type -Path (Resolve-Path 'scripts/F139WindowsJobSupervisor.cs').Path -ErrorAction Stop
+          Write-Host 'F139_WINDOWS_JOB_HELPER_NATIVE_COMPILE=PASS'
           Write-Host 'F139_BATTERY_POWER_POLICY_WINDOWS_51=PASS'
           $after = @(Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue)
           if ($before.Count -ne $after.Count) { throw 'F139_WINDOWS_TASK_MUTATED_BY_DRY_RUN' }
