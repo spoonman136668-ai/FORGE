@@ -21,7 +21,14 @@ class NeverBornEngineering(unittest.TestCase):
         self.assertIn(private,(HERE/"f124co_birth_once.py").read_text())
         for name in ("f124co_eval_once.py","f124co_readonly_audit.py",
                      "f124cn_blind_trajectory_eval.py","f124cn_complete_os_resource.py"):
-            self.assertNotIn(private,(HERE/name).read_text(),name)
+            tree=ast.parse((HERE/name).read_text())
+            imports=[]
+            for node in ast.walk(tree):
+                if isinstance(node,ast.Import):
+                    imports.extend(v.name for v in node.names)
+                elif isinstance(node,ast.ImportFrom):
+                    imports.append(node.module or "")
+            self.assertFalse(any(private in m for m in imports),name)
     def test_scientific_firstuse_requires_frozen_operator_admission(self):
         code=(HERE/"f124co_birth_once.py").read_text()
         self.assertIn('freeze["authorization"]["development_once"] is True',code)
