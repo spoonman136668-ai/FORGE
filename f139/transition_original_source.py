@@ -86,9 +86,10 @@ def verify_inactive_owners(api, db_path):
             "TRANSITION_F137_OWNER_ACTIVE")
 
 def reconcile_source(db_path, new_sha, *, apply=False, api=None):
-    db_path = Path(db_path).resolve()
-    require(db_path.is_file() and not db_path.is_symlink(),
-            "TRANSITION_DB_ABSENT_OR_SYMLINK")
+    db_path = Path(db_path)
+    require(not db_path.is_symlink(), "TRANSITION_DB_ABSENT_OR_SYMLINK")
+    db_path = db_path.resolve()
+    require(db_path.is_file(), "TRANSITION_DB_ABSENT_OR_SYMLINK")
     require(isinstance(new_sha, str) and len(new_sha) == 40 and
             all(ch in "0123456789abcdef" for ch in new_sha) and
             new_sha != SOURCE, "TRANSITION_NEW_SHA_INVALID")
