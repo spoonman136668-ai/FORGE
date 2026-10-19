@@ -1,0 +1,104 @@
+name: FORGE hosted read-only K-Terminal P7IS
+on:
+  push:
+    branches: [qualification/kterminal-p7is-private-readonly-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-readonly-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  private-source-qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_NATIVE_TIMING: '0'
+      K_TERMINAL_P5_LATENCY: '0'
+    steps:
+      - name: Checkout only the public FORGE qualification workflow
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify FORGE hosted, exact branch and one workflow only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7is-private-readonly-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor e8166b1ef2f52ad935029ee583a5a0827b8a25d8 HEAD
+          test "$(git diff --name-only e8166b1ef2f52ad935029ee583a5a0827b8a25d8 HEAD)" = .github/workflows/forge-kterminal-p7is-readonly-qualify.yml
+          test -z "$(git status --porcelain)"
+          echo FORGE_KTERM_HOSTED_SOURCE_GUARD=PASS
+      - name: Read one exact commit of K-Terminal privately using FORGE_KTERM_QUAL
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 55487b9c791a7cef5844a1234c1f2424c5632c6e
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Verify exact private source and run only synthetic P5 safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd kterminal-private
+          test "$(git rev-parse HEAD)" = 55487b9c791a7cef5844a1234c1f2424c5632c6e
+          test "$(git rev-parse HEAD:pkg/p5-runtime-latency-observer.go)" = b9d3a64b8334a2f674cea35fe2ae1b397ce52d31
+          test "$(git rev-parse HEAD:tools/qualification/p7is_safe_p5_aggregate.py)" = 08c10fe209cff2ea70f4298a5ea651953e394d96
+          test -z "$(git status --porcelain)"
+          python -B - <<'PY'
+          import hashlib, importlib.util, json, os, pathlib
+          path = pathlib.Path("tools/qualification/p7is_safe_p5_aggregate.py")
+          spec = importlib.util.spec_from_file_location("private_p7is_frozen", path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          summary = module.self_test()
+          assert summary["synthetic_self_test"] is True
+          assert summary["adversarial_rejections"] >= 17
+          assert summary["disposition"] == "P7IS_P5_SUMMARY_PARSER_QUALIFIED_NO_REAL_FIELD_TELEMETRY"
+          receipt = {
+            "schema":"forge.kterminal.private-readonly-p7is.v1",
+            "forge_qual_sha":os.environ["GITHUB_SHA"],
+            "kterminal_source_sha":"55487b9c791a7cef5844a1234c1f2424c5632c6e",
+            "p7is_source_blob":"08c10fe209cff2ea70f4298a5ea651953e394d96",
+            "runner_os":os.environ["RUNNER_OS"],
+            "adversarial_rejections":summary["adversarial_rejections"],
+            "disposition":"P7IS_FROZEN_SYNTHETIC_P5_QUALIFIED",
+            "private_source_uploaded":False,
+            "user_data_accessed":False,
+            "research_runner_used":False,
+            "workstation_used":False,
+            "broker_orders":0,
+            "full_original_regression":"FAILED_NOT_WAIVED",
+            "installed_desktop_verified":False
+          }
+          blob = json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
+          dest = pathlib.Path(os.environ["RUNNER_TEMP"])/"forge-kterminal-safe-receipt"
+          dest.mkdir(exist_ok=False)
+          (dest/"receipt.json").write_bytes(blob)
+          (dest/"receipt.sha256").write_text(hashlib.sha256(blob).hexdigest(),encoding="ascii")
+          print("FORGE_KTERM_READONLY_SOURCE_AUTHENTICATED=PASS")
+          print("FORGE_KTERM_P7IS_SYNTHETIC=PASS")
+          print("FORGE_KTERM_RECEIPT_SHA256="+hashlib.sha256(blob).hexdigest())
+          PY
+      - name: Upload only sanitized synthetic receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7is-${{ matrix.os }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/forge-kterminal-safe-receipt/receipt.json
+            ${{ runner.temp }}/forge-kterminal-safe-receipt/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
