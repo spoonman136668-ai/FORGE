@@ -31,7 +31,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
             db.executescript(SCHEMA)
             # TEST FIXTURE ONLY: these identities are not production attestations.
             db.execute(
-                "INSERT INTO authority_state "
+                "INSERT INTO forge_fsa_authority_state "
                 "(singleton,archive_id,head_sha256,owner_epoch,"
                 "ledger_generation,ledger_sha256,reservation_open)"
                 " VALUES (1,?,?,?,?,?,1)", (H("d"), H("e"), 7, 11, H("f"))
@@ -59,7 +59,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
             self.assertEqual(row, rows[0])
             self.assertEqual(
                 db.execute("SELECT reservation_open,reservation_sequence "
-                           "FROM authority_state").fetchone(), (0, 1)
+                           "FROM forge_fsa_authority_state").fetchone(), (0, 1)
             )
 
     def test_global_slot_prevents_other_lane_on_stale_ledger(self):
@@ -68,7 +68,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(self.attempt(other), [])
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
-                "SELECT count(*) FROM original_firstuse").fetchone()[0], 1)
+                "SELECT count(*) FROM forge_fsa_original_firstuse").fetchone()[0], 1)
 
     def test_frozen_authority_drift_never_reserves(self):
         for index, value in (
@@ -81,10 +81,10 @@ class AtomicPendingFirstUse(unittest.TestCase):
                 self.assertEqual(self.attempt(tuple(c)), [])
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
-                "SELECT count(*) FROM original_firstuse").fetchone()[0], 0)
+                "SELECT count(*) FROM forge_fsa_original_firstuse").fetchone()[0], 0)
             self.assertEqual(db.execute(
                 "SELECT reservation_open,reservation_sequence "
-                "FROM authority_state").fetchone(), (1, 0))
+                "FROM forge_fsa_authority_state").fetchone(), (1, 0))
 
     def test_concurrent_claims_across_both_lanes_only_one_wins(self):
         barrier = threading.Barrier(16)
@@ -100,9 +100,9 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(sum(x == [] for x in outcomes), 15)
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
-                "SELECT count(*) FROM original_firstuse").fetchone()[0], 1)
+                "SELECT count(*) FROM forge_fsa_original_firstuse").fetchone()[0], 1)
             self.assertEqual(db.execute(
-                "SELECT reservation_sequence FROM authority_state").fetchone()[0], 1)
+                "SELECT reservation_sequence FROM forge_fsa_authority_state").fetchone()[0], 1)
 
     def test_reopening_with_new_test_epoch_cannot_reuse_consumed_cohort(self):
         self.assertEqual(len(self.attempt()), 1)
@@ -110,7 +110,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
             # TEST FIXTURE ONLY. Actual state refresh requires independent FSA
             # authentication and external signed ledger reconciliation.
             db.execute(
-                "UPDATE authority_state SET reservation_open=1,"
+                "UPDATE forge_fsa_authority_state SET reservation_open=1,"
                 "ledger_generation=12,head_sha256=?,ledger_sha256=?",
                 (H("1"), H("2"))
             )
@@ -120,9 +120,9 @@ class AtomicPendingFirstUse(unittest.TestCase):
                          "INTEGRITY_CONFLICT_NO_RETRY")
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
-                "SELECT count(*) FROM original_firstuse").fetchone()[0], 1)
+                "SELECT count(*) FROM forge_fsa_original_firstuse").fetchone()[0], 1)
             self.assertEqual(db.execute(
-                "SELECT reservation_open FROM authority_state").fetchone()[0], 1)
+                "SELECT reservation_open FROM forge_fsa_authority_state").fetchone()[0], 1)
 
     def test_unknown_lane_or_bad_identity_is_never_committed(self):
         for index, value, expected in [
@@ -137,13 +137,13 @@ class AtomicPendingFirstUse(unittest.TestCase):
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT reservation_open,reservation_sequence "
-                "FROM authority_state").fetchone(), (1, 0))
+                "FROM forge_fsa_authority_state").fetchone(), (1, 0))
 
     def test_reopened_file_preserves_pending_claim_after_disconnect(self):
         self.assertEqual(len(self.attempt()), 1)
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
-                "SELECT state FROM original_firstuse WHERE cohort_sha256=?",
+                "SELECT state FROM forge_fsa_original_firstuse WHERE cohort_sha256=?",
                 (H("a"),)).fetchone()[0],
                 "RESERVED_PENDING_INDEPENDENT_WITNESS")
         self.assertEqual(self.attempt(), [])
@@ -153,18 +153,18 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(len(self.attempt()), 1)
         with closing(self.open()) as db:
             with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("UPDATE original_firstuse SET cohort_sha256=? "
+                db.execute("UPDATE forge_fsa_original_firstuse SET cohort_sha256=? "
                            "WHERE cohort_sha256=?", (H("1"), H("a")))
             with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("DELETE FROM original_firstuse WHERE cohort_sha256=?",
+                db.execute("DELETE FROM forge_fsa_original_firstuse WHERE cohort_sha256=?",
                            (H("a"),))
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute(
-                    "INSERT OR REPLACE INTO original_firstuse "
-                    "SELECT * FROM original_firstuse WHERE cohort_sha256=?",
+                    "INSERT OR REPLACE INTO forge_fsa_original_firstuse "
+                    "SELECT * FROM forge_fsa_original_firstuse WHERE cohort_sha256=?",
                     (H("a"),))
             self.assertEqual(
-                db.execute("SELECT cohort_sha256,state FROM original_firstuse").fetchall(),
+                db.execute("SELECT cohort_sha256,state FROM forge_fsa_original_firstuse").fetchall(),
                 [(H("a"), "RESERVED_PENDING_INDEPENDENT_WITNESS")],
             )
 
@@ -181,11 +181,11 @@ class AtomicPendingFirstUse(unittest.TestCase):
             for bad in [H("D"), H("G")]:
                 with self.assertRaises(sqlite3.IntegrityError):
                     db.execute(
-                        "UPDATE authority_state SET archive_id=? "
+                        "UPDATE forge_fsa_authority_state SET archive_id=? "
                         "WHERE singleton=1", (bad,))
             self.assertEqual(
                 db.execute("SELECT reservation_open,reservation_sequence "
-                           "FROM authority_state").fetchone(), (1, 0))
+                           "FROM forge_fsa_authority_state").fetchone(), (1, 0))
 
 
 
