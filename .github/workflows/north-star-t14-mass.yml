@@ -1,0 +1,65 @@
+name: T14 mass exact-source original scientific diagnostic
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t14-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t14-mass-original-first-source
+  cancel-in-progress: false
+jobs:
+  source-pinned-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fail-closed exact source and original assay provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T14_HEAD_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t14-source.py').Trim() -cne 'c9979d6e0ed2fbcaadb9179fdd8640b1ffede002'){throw 'T14_SOURCE_DEFINITION_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t14-mechanism.py').Trim() -cne 'ac9855a710b1e687ae97baf1bb09bf11855511af'){throw 'T14_LEARNER_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t14-complete-source-and-assay-freeze.json').Trim() -cne 'c9f4f4d9c70da1797672b2d90d813fa9ec2e9bb3'){throw 'T14_ASSAY_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t14-complete-source-and-assay-freeze.json').Trim() -cne '79ef0bdc305ba0ef400eb49fdf1dba856f8ee88c'){throw 'T14_FREEZE_NOT_BEFORE_MECHANISM'}
+          git merge-base --is-ancestor 311e796da5386e4d0ccb330ec9160e5d2c23ce04 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T14_SOURCE_NOT_ANCESTOR'}
+          git merge-base --is-ancestor 79ef0bdc305ba0ef400eb49fdf1dba856f8ee88c HEAD
+          if($LASTEXITCODE -ne 0){throw 'T14_ASSAY_NOT_ANCESTOR'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t13-mechanism.py').Trim() -cne 'ea53da037c0504c509c8204d1033fad6c5476849'){throw 'T14_CONTROL_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t10-shared-map.py').Trim() -cne '6de0d21b786189499dcc5c25f5d7ea17ede66162'){throw 'T14_CONTROL_DRIFT'}
+          Write-Output 'T14_MASS_ORIGINAL_PROVENANCE_PREFLIGHT=PASS'
+      - name: Nonconsuming Python structural preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m py_compile 'research/north-star-transfer/20261019-mass-t14-source.py' 'research/north-star-transfer/20261019-mass-t14-mechanism.py'
+          if($LASTEXITCODE -ne 0){throw 'T14_STATIC_COMPILE_FAILED'}
+          Write-Output 'T14_NONCONSUMING_IMPORT_AND_SYNTAX=PASS'
+      - name: First original nonprotected TRAIN and OPEN qualification (Linux ONLY)
+        if: runner.os == 'Linux'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python 'research/north-star-transfer/20261019-mass-t14-mechanism.py' > t14-mass-original.json
+          if($LASTEXITCODE -ne 0){throw 'T14_ORIGINAL_FAILED_IDS_CONSUMED_NO_REPLAY'}
+          python -c "import json; d=json.load(open('t14-mass-original.json',encoding='utf-8-sig')); assert d['schema']=='mass.t14.original-sourceonly-novel-composition-diagnostic.v1' and d['scientific_acceptance'] is False and d['optimizer_admission'] is False; print('T14_SOURCE_VERIFIED_NOT_SCIENTIFICALLY_ADMITTED=PASS')"
+          if($LASTEXITCODE -ne 0){throw 'T14_RESULT_ASSERTION_FAILED_IDS_CONSUMED_NO_REPLAY'}
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: t14-mass-original-source-stdout
+          path: t14-mass-original.json
+          if-no-files-found: ignore
+          retention-days: 90
