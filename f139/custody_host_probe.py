@@ -10,8 +10,8 @@ import os
 import re
 import sys
 
-HEX40 = re.compile(r"[0-9a-f]{40}\\Z")
-HEX64 = re.compile(r"[0-9a-f]{64}\\Z")
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 REPO = "spoonman136668-ai/FORGE"
 RUNNER = "FORGE-CODEX-REMOTE"
 MAIN_REF = "refs/heads/main"
