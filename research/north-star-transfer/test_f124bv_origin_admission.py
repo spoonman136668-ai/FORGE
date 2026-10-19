@@ -67,7 +67,12 @@ def dummy(family):
       "provider_api_authenticated":True,
       "git_commit":{"sha":sha,"author":{"date":"2026-10-20T00:00:00Z"},
         "parents":[{"sha":"f"*40}],
+        "tree":{"sha":str(identity+1)*40},
         "verification":{"verified":True}},
+      "original_tree":{"sha":str(identity+1)*40,
+        "truncated":False,"tree":[
+          {"path":item["path"],"type":"blob","sha":item["blob_sha"]}
+          for item in files.values()]},
       "rest_commit":{"sha":sha,"author":{"login":author}},
       "original_blobs":blobs
     }
@@ -127,7 +132,7 @@ class ProspectiveIndependentBirthAndNegativeAcceptance(unittest.TestCase):
         x=copy.deepcopy(manifest);x["repository"]=bv.FORGE_OWNER+"/FORGE";cases.append((x,witness))
         x=copy.deepcopy(manifest);x["fit_case_ids"]=[924000];cases.append((x,witness))
         x=copy.deepcopy(manifest);x["precode_frozen_at"]="2022-01-01T00:00:00Z";cases.append((x,witness))
-        x=copy.deepcopy(manifest);x["source"]="unknown";cases.append((x,witness))
+        x=copy.deepcopy(manifest);x["files"]["source"]["path"]="../escape.py";cases.append((x,witness))
         y=copy.deepcopy(witness);y["git_commit"]["verification"]["verified"]=False;cases.append((manifest,y))
         y=copy.deepcopy(witness);y["git_commit"]["author"]["date"]="2026-10-19T08:09:59Z";cases.append((manifest,y))
         y=copy.deepcopy(witness);y["rest_commit"]["author"]["login"]="model-author";cases.append((manifest,y))
