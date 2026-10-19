@@ -152,6 +152,7 @@ class OriginalQuarantineTests(unittest.TestCase):
         self.assertEqual(self.db.meta()["source_sha"], replacement)
         with self.assertRaisesRegex(F139Error, "OWNER_OR_IDENTITY"):
             self.db.transition_source(replacement)
+        self.db.close()  # Explicitly release SQLite handles before Windows TempDirectory cleanup
 
     def test_transition_disallowed_for_quarantined_attempts(self):
         with self.assertRaisesRegex(F139Error, "UNVERIFIED_OR_PENDING"):
