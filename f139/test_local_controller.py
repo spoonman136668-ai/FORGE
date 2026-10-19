@@ -218,6 +218,75 @@ class SQLiteControllerTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):self.db.conn.execute('DELETE FROM tasks')
 
 
+class D2KCatalogTests(unittest.TestCase):
+    def issue(self, number=1401, source=SHA, lane="Qualification"):
+        return {
+            "number":number, "id":90000 + number, "state":"open",
+            "user":{"login":"spoonman136668-ai"},
+            "author_association":"OWNER",
+            "labels":[{"name":"f139-development-eligible"}],
+            "body":json.dumps({
+                "schema":"forge.f139.d2k.owner-development.v1",
+                "source_sha":source, "lane":lane,
+                "kind":"model-free-development-advisory",
+                "scientific_first_use":False, "paid_model_calls":0
+            },sort_keys=True)
+        }
+
+    def provider(self, issues):
+        return GitHub(runner=lambda args: json.dumps(issues).encode())
+
+    def test_owner_issue_catalog_accepts_only_exact_source_and_kind(self):
+        first=self.issue()
+        items=self.provider([first]).d2k_eligible_issues(SHA)
+        self.assertEqual(len(items),1)
+        self.assertEqual(items[0]["ticket"],"f139-d2k-i1401-"+SHA[:12])
+        self.assertEqual(items[0]["lane"],"Qualification")
+        self.assertEqual(items[0]["source_sha"],SHA)
+        for variant in (
+            {**first,"author_association":"CONTRIBUTOR"},
+            {**first,"user":{"login":"someone-else"}},
+            {**first,"pull_request":{"url":"http://pr"}},
+            {**first,"labels":[{"name":"anything-else"}]},
+            {**first,"body":json.dumps({"schema":"forged"})},
+            {**first,"body":json.dumps({
+                **json.loads(first["body"]), "scientific_first_use":True
+            })},
+            {**first,"body":json.dumps({
+                **json.loads(first["body"]), "source_sha":"0"*40
+            })},
+        ):
+            with self.subTest(variant=variant),self.assertRaisesRegex(
+                    F139Error, "D2K_ISSUE"):
+                self.provider([variant]).d2k_eligible_issues(SHA)
+
+    def test_development_admission_is_append_only_and_never_repeats(self):
+        with tempfile.TemporaryDirectory(prefix="f139-d2k-catalog-") as tmp:
+            dbpath=Path(tmp)/"state.sqlite"
+            db=Database.initialize(dbpath,SHA)
+            try:
+                db.enable(legacy_suspended=True)
+                issue=self.provider([self.issue()]).d2k_eligible_issues(SHA)[0]
+                original=list(db.conn.execute("SELECT seq,sha FROM events"))
+                self.assertTrue(db.admit_d2k_issue(issue))
+                self.assertEqual(list(db.conn.execute(
+                    "SELECT seq,sha FROM events ORDER BY seq LIMIT 1")),original)
+                self.assertEqual(db.meta()["head_seq"],3)
+                self.assertFalse(db.admit_d2k_issue(issue))
+                self.assertEqual(db.meta()["head_seq"],3)
+                events=list(db.conn.execute(
+                    "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'"))
+                self.assertEqual(len(events),1)
+                self.assertEqual(json.loads(events[0]["payload"])["ticket"],
+                                 issue["ticket"])
+                self.assertEqual(db.status()["tasks"][0]["stage"],"READY")
+                db.conn.execute("UPDATE tasks SET manifest_sha=?",
+                                ("a"*64,))
+                with self.assertRaisesRegex(F139Error,"D2K_ADMISSION_TASK_DRIFT"):
+                    db.verify()
+            finally:db.close()
+
+
 class ProviderProofTests(unittest.TestCase):
     def test_zip_receipt_exact_identity(self):
         task=TASKS[0]
