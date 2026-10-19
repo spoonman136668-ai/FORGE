@@ -1,0 +1,57 @@
+name: T11 mass source-frozen learned causal mechanism qualification
+on:
+  push:
+    branches: [research/north-star-transfer-mass-20261018]
+    paths: ['.github/workflows/north-star-t11-mass.yml']
+permissions:
+  contents: read
+concurrency:
+  group: t11-mass-new-synthetic-source-only
+  cancel-in-progress: false
+jobs:
+  focused-independent-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 60
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze-before-code and original baseline source identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'T11_HEAD_CHANGED'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t11-freeze.json').Trim() -cne 'e0faa70f68bec81a346f9fc22c1f556683635152'){throw 'T11_PREIMPLEMENTATION_BLOB_DRIFT'}
+          if((git log -1 --format=%H -- 'research/north-star-transfer/20261019-mass-t11-freeze.json').Trim() -cne '56f1ea038d0a41dbdca74e6a0584e3f3aa4e1248'){throw 'T11_FROZEN_PROTOCOL_NOT_ORIGINAL'}
+          git merge-base --is-ancestor 56f1ea038d0a41dbdca74e6a0584e3f3aa4e1248 HEAD
+          if($LASTEXITCODE -ne 0){throw 'T11_PROTOCOL_NOT_BEFORE_MODEL'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t11-mechanism.py').Trim() -cne '7a5dd7c215e74f97d2511e345968bc9b89e6adcd'){throw 'T11_LEARNER_SOURCE_DRIFT'}
+          if((git hash-object 'research/north-star-transfer/20261019-mass-t10-shared-map.py').Trim() -cne '6de0d21b786189499dcc5c25f5d7ea17ede66162'){throw 'T11_ORIGINAL_CONTROL_MODIFIED'}
+          Write-Output 'T11_MASS_IMMUTABLE_PROTOCOL_AND_CONTROLS=PASS'
+      - name: Execute new source-neutral causal mechanism and report negatives faithfully
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=if($IsWindows){'python'}else{'python3'}
+          & $py -B 'research/north-star-transfer/20261019-mass-t11-mechanism.py' | Tee-Object -FilePath 't11-mass-original.json'
+          if($LASTEXITCODE -ne 0){throw 'T11_MASS_MECHANISM_OR_SOURCE_FAILED'}
+          $j=Get-Content 't11-mass-original.json' -Raw | ConvertFrom-Json
+          if($j.'science_accepted' -ne $false){throw 'T11_SCIENTIFIC_PROMOTION_NOT_AUTHORIZED'}
+          if($j.'consumed_MNS_or_T10_original_source_replayed' -ne $false -and $j.'consumed_MNS_or_T10_original_source_replayed' -ne 0){throw 'T11_PROTECTED_FIRST_USE_OR_REPLAY'}
+          Write-Output 'T11_MASS_NONPROTECTED_SCIENTIFIC_DIAGNOSTIC=PASS'
+          Write-Output 'T11_MASS_SIGNED_SCIENTIFIC_ACCEPTANCE=false'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t11-mass-original-${{ matrix.os }}-${{ github.sha }}
+          path: t11-mass-original.json
+          if-no-files-found: warn
+          retention-days: 90
