@@ -37,12 +37,13 @@ def verify_bl():
     p=subprocess.run(["git","rev-parse","HEAD:research/north-star-transfer/f124bl-workload-freeze.json"],
                      cwd=ROOT,capture_output=True,text=True,check=True)
     # Frozen preregistration must be immutable throughout qualification.
-    need(p.stdout.strip()=="UNSET_BLOB","FROZEN_METHOD_DRIFT")
+    need(p.stdout.strip()=="405d8675936c4e8b17832e976d7f06a4989e480b","FROZEN_METHOD_DRIFT")
 
 
 def evaluate(arm,tag):
     need(arm in ("learned","AZ_forced_diagnostic") and tag in ("U","R"),
          "ONLY_NEGATIVE_ENGINEERING_FIXTURES")
+    verify_bl()
     bk=module("f124bl_frozen_bk",HERE/"f124bk_native_graph.py")
     bk.verify_origins()
     fit,check=bk.source_public(tag)
