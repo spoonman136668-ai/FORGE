@@ -6,7 +6,11 @@ import sqlite3
 import tempfile
 import unittest
 
-from f139.audit_d2k_custody import audit, CustodyBlocked, copied_snapshot
+from unittest import mock
+from f139.audit_d2k_custody import (
+    audit, CustodyBlocked, copied_snapshot,
+    load_provider_anchor as real_load_provider_anchor,
+)
 from f139.local_controller import Database, canonical, hash_bytes, store_evidence
 from test_local_controller import SHA, artifact
 
@@ -26,11 +30,18 @@ class ReadonlyCustodyTests(unittest.TestCase):
             ("f139-d2j-wingless-"+SHA[:12],"Wingless"),
             ("f139-d2j-yggdrasil-"+SHA[:12],"Yggdrasil")]
         recorded=[]
+        self.provider_anchor={}
         for i,(ticket,lane) in enumerate(items,1):
             task={"ticket":ticket,"lane":lane,"source_sha":SHA}
             archives={label:artifact(task,i,label)
                       for label in ("ubuntu-latest","windows-latest")}
             folder,digest=store_evidence(self.root,ticket,i,archives)
+            self.provider_anchor[ticket]={
+                "ticket":ticket,"run_id":i,"source_sha":SHA,
+                "artifacts":{label:{
+                    "artifact_id":i*100+(1 if label=="ubuntu-latest" else 2),
+                    "sha256":hash_bytes(raw),"size_in_bytes":len(raw)}
+                    for label,raw in archives.items()}}
             db.conn.execute(
                 "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
                 "run_id,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?)",
@@ -48,6 +59,10 @@ class ReadonlyCustodyTests(unittest.TestCase):
                          else kind,payload)
         self.head=db.meta()["head_hash"]
         db.close()
+        patcher=mock.patch("f139.audit_d2k_custody.load_provider_anchor",
+                          return_value=self.provider_anchor)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_exact_sealed_23_event_chain_eight_archives_no_original_writes(self):
         before={p.name:p.read_bytes() for p in self.root.iterdir() if p.is_file()}
@@ -57,6 +72,8 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.assertEqual(result["event_count"],23)
         self.assertEqual(result["task_count"],4)
         self.assertEqual(result["archive_count"],8)
+        self.assertEqual(result["external_provider_anchor_records"],4)
+        self.assertEqual(result["external_provider_artifacts_checked"],8)
         self.assertEqual(result["controller_actions"],0)
         self.assertEqual(result["original_database_writes"],0)
 
@@ -88,6 +105,29 @@ class ReadonlyCustodyTests(unittest.TestCase):
             with mock.patch.object(Path,"read_bytes",changed):
                 with self.assertRaisesRegex(CustodyBlocked,"DATABASE_CHANGED_DURING_COPY"):
                     copied_snapshot(p,dest)
+
+    def test_exact_real_provider_manifest_has_four_source_pinned_runs(self):
+        anchor=real_load_provider_anchor()
+        self.assertEqual(set(anchor),{
+            "f139-d2c-qualification-659bb1f4d751",
+            "f139-d2c-wingless-659bb1f4d751",
+            "f139-d2j-wingless-4a5665d9d01b",
+            "f139-d2j-yggdrasil-4a5665d9d01b"})
+        self.assertEqual(len([x for r in anchor.values()
+                              for x in r["artifacts"].values()]),8)
+
+    def test_locally_rehashed_archive_rejected_by_independent_provider_anchor(self):
+        ticket="f139-d2j-wingless-"+SHA[:12]
+        local=self.provider_anchor[ticket]["artifacts"]["windows-latest"]
+        local["sha256"]="a"*64
+        with self.assertRaisesRegex(CustodyBlocked,"EXTERNAL_PROVIDER_ARTIFACT_DRIFT"):
+            audit(self.dbpath,SHA,self.head)
+
+    def test_provider_run_and_source_drift_rejected(self):
+        ticket="f139-d2j-yggdrasil-"+SHA[:12]
+        self.provider_anchor[ticket]["run_id"]=293
+        with self.assertRaisesRegex(CustodyBlocked,"EXTERNAL_PROVIDER_RUN_OR_SOURCE_DRIFT"):
+            audit(self.dbpath,SHA,self.head)
 
     def test_absent_sealed_authority_fails_closed(self):
         with self.assertRaisesRegex(CustodyBlocked,"EXPECTED_PREFIX_NOT_SUPPLIED"):

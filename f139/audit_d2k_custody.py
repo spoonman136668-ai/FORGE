@@ -32,6 +32,61 @@ def check(condition, reason):
     if not condition:
         raise CustodyBlocked("F139_D2K_CUSTODY_"+reason)
 
+# Exact authenticated GitHub provider metadata, fixed by the reviewed source commit.
+# The provider manifest is not an independently signed Windows SQLite head.
+D2C_SOURCE = "f569b827aeeddcbb2865bec49c062d2a7e523886"
+D2J_SOURCE = "4a5665d9d01b6e68effc00be244ac39b6794a222"
+EXPECTED_RUNS = {
+    "f139-d2c-qualification-659bb1f4d751": (39178196331, D2C_SOURCE),
+    "f139-d2c-wingless-659bb1f4d751": (39178299792, D2C_SOURCE),
+    "f139-d2j-wingless-4a5665d9d01b": (39221544338, D2J_SOURCE),
+    "f139-d2j-yggdrasil-4a5665d9d01b": (39221731257, D2J_SOURCE),
+}
+
+
+def load_provider_anchor():
+    """Load source-pinned GitHub metadata; never substitute a local DB export."""
+    anchor_path = Path(__file__).with_name("d2k_provider_anchor.json")
+    check(anchor_path.is_file() and not anchor_path.is_symlink()
+          and anchor_path.stat().st_size <= 8192, "EXTERNAL_ANCHOR_MISSING")
+    try:
+        value=json.loads(anchor_path.read_bytes())
+    except (ValueError,OSError) as exc:
+        raise CustodyBlocked("F139_D2K_CUSTODY_EXTERNAL_ANCHOR_INVALID") from exc
+    check(isinstance(value,dict)
+          and set(value)=={"schema","repository","workflow_id","provenance","records"}
+          and value["schema"]=="forge.f139.d2k-custody.provider-anchor.v1"
+          and value["repository"]=="spoonman136668-ai/FORGE"
+          and value["workflow_id"]==388797257
+          and isinstance(value["provenance"],str)
+          and isinstance(value["records"],list)
+          and len(value["records"])==4, "EXTERNAL_ANCHOR_SCHEMA")
+    by_ticket={}
+    for record in value["records"]:
+        check(isinstance(record,dict) and set(record)=={
+            "ticket","run_id","source_sha","artifacts"},"EXTERNAL_ANCHOR_RECORD_FIELDS")
+        ticket=record["ticket"]
+        check(isinstance(ticket,str) and ticket in EXPECTED_RUNS
+              and record["run_id"]==EXPECTED_RUNS[ticket][0]
+              and record["source_sha"]==EXPECTED_RUNS[ticket][1]
+              and ticket not in by_ticket
+              and isinstance(record["artifacts"],dict)
+              and set(record["artifacts"])==set(OS_LABELS),
+              "EXTERNAL_ANCHOR_RUN_SOURCE")
+        for label in OS_LABELS:
+            artifact=record["artifacts"][label]
+            check(isinstance(artifact,dict)
+                  and set(artifact)=={"artifact_id","sha256","size_in_bytes"}
+                  and type(artifact["artifact_id"]) is int and artifact["artifact_id"]>0
+                  and isinstance(artifact["sha256"],str)
+                  and SHA64.fullmatch(artifact["sha256"])
+                  and type(artifact["size_in_bytes"]) is int
+                  and 0<artifact["size_in_bytes"]<MAX_ZIP_BYTES,
+                  "EXTERNAL_ANCHOR_ARTIFACT_FIELDS")
+        by_ticket[ticket]=record
+    check(set(by_ticket)==set(EXPECTED_RUNS),"EXTERNAL_ANCHOR_INCOMPLETE")
+    return by_ticket
+
 
 def copied_snapshot(source: Path, scratch: Path):
     """Copy DB/WAL/SHM bytes; fail if any source file changes during the copy."""
@@ -96,11 +151,14 @@ def verify_chain(events, expected_head: str):
     return {x["ticket"]:x for x in terminals}
 
 
-def verify_evidence(root: Path, row: dict, epoch: int):
+def verify_evidence(root: Path, row: dict, epoch: int, anchor: dict):
     check(row["stage"]=="VERIFIED" and type(row["run_id"]) is int
           and row["run_id"]>0 and isinstance(row["evidence_sha"],str)
           and SHA64.fullmatch(row["evidence_sha"]), "RECEIPT_ROW_NOT_VERIFIED")
     ticket=row["ticket"]
+    check(ticket in anchor and row["run_id"]==anchor[ticket]["run_id"]
+          and row["source_sha"]==anchor[ticket]["source_sha"],
+          "EXTERNAL_PROVIDER_RUN_OR_SOURCE_DRIFT")
     check(isinstance(ticket,str) and ticket.startswith("f139-d2")
           and isinstance(row["source_sha"],str)
           and SHA40.fullmatch(row["source_sha"]),"RECEIPT_SOURCE_INVALID")
@@ -135,8 +193,12 @@ def verify_evidence(root: Path, row: dict, epoch: int):
         check(p.is_file() and not p.is_symlink()
               and 0<p.stat().st_size<MAX_ZIP_BYTES,"ARCHIVE_UNTRUSTED")
         blob=p.read_bytes()
+        provider=anchor[ticket]["artifacts"][oslabel]
         check(hash_bytes(blob)==manifest["sha256"][oslabel],
               "ARCHIVE_SHA_CHANGED")
+        check(len(blob)==provider["size_in_bytes"]
+              and hash_bytes(blob)==provider["sha256"],
+              "EXTERNAL_PROVIDER_ARTIFACT_DRIFT")
         receipt_from_zip(blob,{"digest":"sha256:"+hash_bytes(blob),
                                "size_in_bytes":len(blob)},
                          row,row["run_id"],oslabel,epoch)
@@ -149,6 +211,7 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
           "EXPECTED_SOURCE_INVALID")
     check(isinstance(expected_head,str) and SHA64.fullmatch(expected_head),
           "EXPECTED_PREFIX_NOT_SUPPLIED")
+    provider_anchor=load_provider_anchor()
     dbpath=Path(dbpath)
     with tempfile.TemporaryDirectory(prefix="f139-d2l-readonly-") as tmp:
         local=copied_snapshot(dbpath,Path(tmp))
@@ -176,13 +239,15 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
                           and terminals[t["ticket"]]["evidence_sha"]==t["evidence_sha"]
                           for t in tasks),
                   "TERMINAL_EVENT_TASK_OR_RECEIPT_DRIFT")
-            reports=[verify_evidence(dbpath.parent,t,meta["epoch"]) for t in tasks]
+            reports=[verify_evidence(dbpath.parent,t,meta["epoch"],provider_anchor) for t in tasks]
         finally:
             connection.close()
     return {"schema":"forge.f139.d2k-custody.readonly-audit.v1",
             "disposition":"LOCAL_CUSTODY_SNAPSHOT_VERIFIED_NOT_SOURCE_TRANSITION",
             "event_count":23,"task_count":4,"archive_count":8,
             "expected_source_sha":expected_source,"sealed_event_head_sha256":expected_head,
+            "external_provider_anchor_records":4,
+            "external_provider_artifacts_checked":8,
             "original_database_writes":0,"controller_actions":0,
             "scientific_first_use":False,"receipts":reports}
 
