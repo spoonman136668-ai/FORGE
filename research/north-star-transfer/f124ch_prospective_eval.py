@@ -248,6 +248,17 @@ def measure_process(case,arm,capture=False):
     obj["allocator"]=env.get("PYTHONMALLOC","default")
     need(obj["complete_process_cpu_ns"]>0 and
          obj["complete_OS_peak_RSS_bytes"]>0,"VALID_FULL_PROCESS_COST")
+    journal=os.environ.get("F124CH_ORIGINAL_APPEND_JOURNAL")
+    need(type(journal) is str and bool(journal),
+         "REQUIRED_DURABLE_ORIGINAL_RESULT_JOURNAL")
+    with open(journal,"a",encoding="utf8") as handle:
+        handle.write(json.dumps({
+            "schema":"mass.f124ch.original-append-only-process-receipt.v1",
+            "is_original_native_preflight":bool(capture),
+            "original_complete_process_measurement":obj
+        },sort_keys=True)+"\\n")
+        handle.flush()
+        os.fsync(handle.fileno())
     return obj
 
 
