@@ -46,8 +46,12 @@ class FakeGitHub:
         self.fail_launch=False
         self.corrupt=False
         self.stalled=False
+        self.d2k_issues=[]
 
     def protected_main(self): return self.head
+    def d2k_eligible_issues(self, source):
+        if source != self.head:raise F139Error('F139_D2K_SOURCE_DRIFT')
+        return list(self.d2k_issues)
     def dispatch(self,ticket,lane,source,epoch,signature):
         self.dispatches.append((ticket,lane,source,epoch,signature))
         if self.fail_launch: raise F139Error('F139_GITHUB_API_TIMEOUT')
