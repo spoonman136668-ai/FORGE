@@ -78,7 +78,7 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.assertEqual(result["original_database_writes"],0)
 
     def test_wrong_sealed_head_or_source_rejected(self):
-        with self.assertRaisesRegex(CustodyBlocked,"SEALED_METADATA_NOT_MATCHED"):
+        with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
             audit(self.dbpath,SHA,"0"*64)
         with self.assertRaisesRegex(CustodyBlocked,"SEALED_METADATA_NOT_MATCHED"):
             audit(self.dbpath,"0"*40,self.head)
