@@ -43,6 +43,7 @@ def fixture(family,creator):
            "attestation":"source/claim.json"}
     # Role bytes differ, and C/D different original external SOURCE too.
     values["source"]+=("# TEST FAMILY "+family+"\n").encode()
+    values["oracle"]+=("# TEST FAMILY "+family+"\n").encode()
     files={role:{"path":names[role],"blob_sha":v.git_object(raw)}
            for role,raw in values.items()}
     sha=("a" if family=="C" else "b")*40
