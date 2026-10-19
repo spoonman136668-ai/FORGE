@@ -1,0 +1,63 @@
+name: F124-BP prebirth native CPU RSS eligibility
+on:
+  push:
+    branches: [research/f124bp-native-resource-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124bp-no-new-sources-resource-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-neutral-true-os-process-cost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Same-public native-graph source-neutral CPU/RSS against original AZ, 6 fresh processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 4ec5d41a0568c812533af2a85f7f8a0f351a064a HEAD
+          mapfile -t changed < <(git diff --name-only 4ec5d41a0568c812533af2a85f7f8a0f351a064a HEAD | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = '.github/workflows/forge-f124bp-resource.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124bp_resource_prebirth.py'
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bp_compact_learner.py)" =             "$(git rev-parse 4ec5d41a0568c812533af2a85f7f8a0f351a064a:research/north-star-transfer/f124bp_compact_learner.py)"
+          mkdir -p "$RUNNER_TEMP/f124bp-resource"
+          python3 -B research/north-star-transfer/f124bp_resource_prebirth.py \
+            --output "$RUNNER_TEMP/f124bp-resource/synthetic-native-cost-original.json"
+          python3 -B - "$RUNNER_TEMP/f124bp-resource/synthetic-native-cost-original.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          x=d['summary']
+          assert len(d['raw_samples'])==6 and x['samples']==6
+          assert x['AZ_original_may_abstain_no_forced_scoring']
+          assert x['equivalent_native_workload_not_claimed']
+          assert not x['prospective_source_firstuse']
+          assert not x['preregistered_resource_admission']
+          assert not x['old_BM_BN_BO_source_reused']
+          a=x['per_arm']['AZ']; b=x['per_arm']['compact']
+          print('BP_AZ_MEDIAN_OS_RSS='+str(a['RSS_bytes_median']))
+          print('BP_COMPACT_MEDIAN_OS_RSS='+str(b['RSS_bytes_median']))
+          print('BP_AZ_MEDIAN_OS_CPU='+str(a['CPU_ns_median']))
+          print('BP_COMPACT_MEDIAN_OS_CPU='+str(b['CPU_ns_median']))
+          if not x['both_resource_screens']:
+              raise SystemExit('F124BP_PREBIRTH_COST_INELIGIBLE_KEEP_NEW_SOURCES_UNBORN')
+          print('F124BP_NONPROTECTED_OS_COST_SCREEN=PASS')
+          PY
+          sha256sum "$RUNNER_TEMP/f124bp-resource/synthetic-native-cost-original.json" > "$RUNNER_TEMP/f124bp-resource/source-neutral-sha256.txt"
+          (cd "$RUNNER_TEMP/f124bp-resource" && sha256sum -c source-neutral-sha256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bp-source-neutral-resource-before-any-new-source-${{ github.sha }}
+          if: always()
+          path: ${{ runner.temp }}/f124bp-resource/
+          retention-days: 90
+          if-no-files-found: warn
