@@ -66,3 +66,40 @@ The existing Linux/Windows full FORGE PR workflow runs this same test and
 the full Go regression. These tests prove SQLite statement behavior ONLY,
 not a remote Cloudflare D1 deployment, independent signing custody,
 physical durable high-water or a genuine first-use.
+
+## F139 additive compatibility with existing Cloudflare D1
+
+The existing live FORGE D1 contains historical `forge_research_*` archive
+objects and may contain unrelated user tables. The FSA reservation DDL uses
+an exclusively `forge_fsa_*` namespace to avoid colliding with ordinary
+`authority_state` or `original_firstuse` user tables. All table and trigger
+names are explicit and no historical `forge_research_*` object is altered.
+
+`test_migration_isolation.py` validates a six-original/six-seal archival
+fixture with an existing foreign table, snapshots every previously installed
+object and row, applies the FSA DDL, and proves preserved bytes and an empty,
+closed FSA reservation state. Reapplication or a preexisting FSA namespace
+must fail rather than silently reinterpret an existing table. These tests
+are local SQLite compatibility only: they neither execute on the real D1
+nor attest a production backup, signature, all-lane first-use history, or
+start permission.
+
+### No partial D1 schema is acceptable
+
+A collision on a *later* trigger or table must never leave earlier FSA DDL
+committed without its guards. `migration_contract.statements()` checks that
+all six DDL objects exist in the exact frozen order. Production installation
+must use **one atomic Cloudflare `D1Database.batch(...)`** containing all six
+prepared statements, with the provider's all-or-nothing rollback on any error.
+Do **not** install this DDL as sequential standalone REST calls, as an
+unqualified `exec()` multi-statement script, or via a CLI whose transactional
+rollback has not been independently demonstrated. D1 does not permit a manual
+SQL `BEGIN TRANSACTION` in its Worker binding.
+
+The `migration_contract.qualify_atomic_sqlite` helper is **test-only**, using
+one explicit transaction against local SQLite. Its regression injects
+collisions at both table names and all four trigger names and proves rollback
+of the *whole* namespace while preserving all existing rows and DDL. This is
+not evidence that a live D1 migration has occurred or that a future remote
+caller used the required provider batch. Remote writer deployment and verified
+backup/independent FSA custody remain blocked.
