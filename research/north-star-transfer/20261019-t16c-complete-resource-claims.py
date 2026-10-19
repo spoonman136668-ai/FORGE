@@ -16,10 +16,6 @@ REQUIRED_FIELDS=(
     "public_train_sha256","public_open_sha256","measurement_environment_sha256",
     "correct_held_outputs","baseline_positive_regressions","hard_false_positives"
 )
-METRIC_FIELDS=REQUIRED_FIELDS[1:12]+(
-    "correct_held_outputs","baseline_positive_regressions","hard_false_positives"
-)
-
 def valid_sha(d):
     return type(d) is str and len(d)==64 and all(c in "0123456789abcdef" for c in d)
 
@@ -47,7 +43,7 @@ class Cost:
     def parse(cls,raw):
         if type(raw) is not dict or set(raw)!=set(REQUIRED_FIELDS):
             raise ValueError("T16C_COMPLETE_COST_SCHEMA_REQUIRED")
-        numeric=REQUIRED_FIELDS[1:12]+REQUIRED_FIELDS[-3:]
+        numeric=REQUIRED_FIELDS[1:11]+REQUIRED_FIELDS[-3:]
         if any(type(raw[x]) is not int or raw[x]<0 for x in numeric):
             raise ValueError("T16C_NONNEGATIVE_INT_METRICS_REQUIRED")
         for fld in ("public_train_sha256","public_open_sha256","measurement_environment_sha256"):
