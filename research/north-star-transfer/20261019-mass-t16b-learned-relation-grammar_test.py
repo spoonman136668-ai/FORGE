@@ -56,8 +56,9 @@ class RelationalGrammarTests(unittest.TestCase):
                          m.infer_word(trained["maps"],("ALPHA","BETA","GAMMA")))
 
     def test_ordered_noncommutative_composition(self):
-        self.assertNotEqual(m.infer_word({"a":self.p,"b":self.r},("a","b")),
-                            m.infer_word({"a":self.p,"b":self.r},("b","a")))
+        other=tuple(random.Random(327).sample(range(16),16))
+        self.assertNotEqual(m.infer_word({"a":self.p,"b":other},("a","b")),
+                            m.infer_word({"a":self.p,"b":other},("b","a")))
 
     def test_no_hidden_private_held_output_required(self):
         cases=[witnesses("A",self.p),witnesses("B",self.q)]
