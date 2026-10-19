@@ -2,11 +2,12 @@
 import hashlib
 import os
 import subprocess
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from f139.issue_diagnostic import diagnose, MAX_OUTPUT, TIMEOUT_SEC
+from f139.issue_diagnostic import diagnose, bounded_run, MAX_OUTPUT, TIMEOUT_SEC
 from f139.verify_ticket import signature, Untrusted, REPO
 
 SOURCE = "e1b16d0a4097e9fd3d61c9ee635486a72395cf4b"
@@ -65,6 +66,22 @@ class D2KPackageDiagnosticTests(unittest.TestCase):
         report=diagnose(authorized(),command_runner=runner)
         self.assertEqual(report["outcome"],"TIMEOUT")
         self.assertEqual(report["returncode"],-1)
+
+    def test_real_subprocess_output_limit_kills_and_retains_negative(self):
+        outcome = bounded_run(
+            [sys.executable, "-c", "import sys; sys.stdout.write('X' * 400000); sys.stdout.flush()"],
+            env=os.environ.copy(),timeout=10)
+        self.assertEqual(outcome.returncode,125)
+        self.assertLessEqual(len(outcome.stdout),MAX_OUTPUT)
+        self.assertIn(b"F139_D2K_OUTPUT_LIMIT_EXCEEDED",outcome.stdout[:100])
+
+    def test_real_subprocess_timeout_retains_bounded_prefix(self):
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            bounded_run(
+                [sys.executable,"-c", "import sys,time; print('begin',flush=True);time.sleep(20)"],
+                env=os.environ.copy(),timeout=0.5)
+        self.assertIn(b"begin",caught.exception.output)
+        self.assertLessEqual(len(caught.exception.output),MAX_OUTPUT)
 
     def test_wrong_signature_invalid_package_and_oversize_fail_closed(self):
         item=authorized();item["target_package"]="../private"
