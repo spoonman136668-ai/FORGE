@@ -1,0 +1,78 @@
+name: KTRADE R25-C61 FORGE runner guarded admission
+# One-shot read-only execution venue qualification. Never schedules itself,
+# accesses user's protected profile, launches KTRADE or invokes Codex.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c61-forge-runner.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-r25-c61-forge-runner-admission
+  cancel-in-progress: false
+jobs:
+  venue:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    env:
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+      KTRADE_SOURCE_READ_TOKEN: ${{ secrets.KTRADE_SOURCE_READ_TOKEN }}
+    steps:
+      - name: Admit exact FORGE remote runner and noninterference boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+              $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+              $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+              $env:KTRADE_CI_PROMOTION_ALLOWED -cne '0') {
+            throw 'R25_C61_WRONG_RUNNER_OR_AUTHORITY'
+          }
+          Write-Host 'R25_C61_FORGE_RUNNER_IDENTITY=PASS'
+          Write-Host 'R25_C61_CKB_RUNNER_USED=FALSE'
+          Write-Host 'R25_C61_LOCAL_KTRADE_INSTALLED_APP_LAUNCHED=FALSE'
+          Write-Host 'R25_C61_RESEARCH_DISPATCH_OR_SERVICE_MUTATION=FALSE'
+          Write-Host 'R25_C61_CURRENT_RESOURCE_NONINTERFERENCE_VERIFIED=FALSE'
+      - name: Probe KTRADE source read authority without checking out source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $token=$env:KTRADE_SOURCE_READ_TOKEN
+          if ([string]::IsNullOrWhiteSpace($token)) {
+            Write-Host 'R25_C61_FORGE_KTRADE_PRIVATE_SOURCE_READ=NOT_CONFIGURED'
+          } else {
+            $headers=@{
+              Authorization=('Bearer '+$token)
+              Accept='application/vnd.github+json'
+              'X-GitHub-Api-Version'='2022-11-28'
+            }
+            $url='https://api.github.com/repos/spoonman136668-ai/ktrade/contents/go.mod?ref=9e994de60e1aec5e4698665d367f2e1a398583be'
+            $response=$null
+            try {
+              $response=Invoke-RestMethod -Method Get -Uri $url -Headers $headers -TimeoutSec 10
+              if ($response.type -cne 'file' -or
+                  [string]::IsNullOrWhiteSpace($response.sha)) {
+                throw 'Invalid public-independent source response'
+              }
+              Write-Host 'R25_C61_FORGE_KTRADE_PRIVATE_SOURCE_READ=PASS'
+            } catch {
+              # Do not disclose repo source, token, path metadata, or exceptions.
+              Write-Host 'R25_C61_FORGE_KTRADE_PRIVATE_SOURCE_READ=BLOCKED'
+            } finally {
+              Remove-Variable token,headers,response -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Host 'R25_C61_REAL_CUSTODY_FILES_READ=FALSE'
+          Write-Host 'R25_C61_PRIVATE_DATA_UPLOADED=FALSE'
+          Write-Host 'R25_C61_APPLICATION_RECOVERY_VERIFIED=FALSE'
+          Write-Host 'R25_C61_INSTALLED_MIGRATION_AUTHORIZED=FALSE'
+          Write-Host 'R25_C61_RELEASE_AUTHORIZED=FALSE'
