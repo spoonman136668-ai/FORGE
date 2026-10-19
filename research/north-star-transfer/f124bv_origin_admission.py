@@ -145,6 +145,15 @@ def original_witness_one(source,witness):
     need(born_at>freeze_at,"SIGNED_ORIGINAL_BIRTH_AFTER_FREEZE")
     need(source.get("future_firstuse_timestamp") is None,
          "NO_FABRICATED_FUTURE_FIRSTUSE")
+    # Blob existence by itself is insufficient. The original Git tree
+    # MUST contain the exact attestation, oracle, and generator path/blob.
+    tree=witness.get("original_tree")
+    need(type(tree) is dict
+         and type(commit.get("tree")) is dict
+         and tree.get("sha")==commit["tree"].get("sha")
+         and tree.get("truncated") is False
+         and type(tree.get("tree")) is list,
+         "GITHUB_ORIGINAL_COMMIT_TREE_BOUNDARY")
     files=source.get("files")
     witness_files=witness.get("original_blobs")
     need(type(files) is dict and type(witness_files) is dict
@@ -156,6 +165,11 @@ def original_witness_one(source,witness):
         need(type(obj) is dict and is_original_path(obj.get("path"))
              and bool(SHA40.fullmatch(obj.get("blob_sha",""))),
              "FILE_NAME_AND_GIT_OBJECT_"+label_name)
+        matches=[entry for entry in tree["tree"]
+                 if entry.get("path")==obj["path"]]
+        need(len(matches)==1 and matches[0].get("type")=="blob"
+             and matches[0].get("sha")==obj["blob_sha"],
+             "IMMUTABLE_COMMIT_TREE_CONTAINS_SIGNED_SOURCE_"+label_name)
         proof=witness_files[label_name]
         need(type(proof) is dict and proof.get("path")==obj["path"],
              "PATH_CUSTODY_"+label_name)
@@ -358,25 +372,74 @@ def pending_disposition():
             "optimizer_policy_promoted":False}
 
 
+def live_original_provider_witness(source):
+    """Get original GitHub HTTPS API responses, never trust caller's flag.
+
+    GH_TOKEN must grant read access to each independently originated repo.
+    This function does NOT download/run/compile any source in the local tree.
+    """
+    import os
+    import subprocess
+    need(bool(os.environ.get("GH_TOKEN")),
+         "ORIGINAL_GITHUB_PROVIDER_AUTH_REQUIRED")
+    repo=source["repository"]
+    commit_sha=source["commit_sha"]
+    need(type(repo) is str and bool(NAME.fullmatch(repo.split("/")[0]))
+         and repo.count("/")==1
+         and bool(SHA40.fullmatch(commit_sha)),
+         "EXTERNAL_GITHUB_SOURCE_LOCATOR")
+    def api(path):
+        q=subprocess.run(["gh","api","repos/"+repo+"/"+path],
+                         text=True,capture_output=True,timeout=60)
+        need(q.returncode==0,
+             "GITHUB_ORIGINAL_API_UNAVAILABLE_OR_UNAUTHENTICATED")
+        return json.loads(q.stdout)
+    git_commit=api("git/commits/"+commit_sha)
+    rest_commit=api("commits/"+commit_sha)
+    need(git_commit.get("sha")==commit_sha
+         and rest_commit.get("sha")==commit_sha
+         and type(git_commit.get("tree")) is dict,
+         "GITHUB_ORIGINAL_COMMIT_AUTHENTIC")
+    tree=api("git/trees/"+git_commit["tree"]["sha"]+"?recursive=1")
+    original={}
+    for role in ("source","oracle","attestation"):
+        exact=source["files"][role]
+        obj=api("git/blobs/"+exact["blob_sha"])
+        original[role]={"path":exact["path"],"blob":obj}
+    return {
+      "repo":repo,"commit_sha":commit_sha,
+      "provider_api_authenticated":True,
+      "git_commit":git_commit,
+      "rest_commit":rest_commit,
+      "original_tree":tree,
+      "original_blobs":original
+    }
+
+
 def main():
     import argparse
     from pathlib import Path
     p=argparse.ArgumentParser()
     p.add_argument("--manifest",type=Path)
-    p.add_argument("--witnesses",type=Path)
+    p.add_argument("--live-provider",action="store_true",
+                   help="Required for any real source custody: fresh GH API")
     p.add_argument("--results",type=Path)
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
-    need(a.manifest is None or a.witnesses is not None,
-         "EXTERNAL_MANIFEST_REQUIRES_ORIGINAL_PROVIDER_WITNESSES")
     if a.manifest is None:
-        need(a.witnesses is None and a.results is None,
+        need(not a.live_provider and a.results is None,
              "NO_RESULT_WITHOUT_INDEPENDENT_ORIGIN")
         result=pending_disposition()
     else:
-        receipt=original_birth_admission(
-            json.loads(a.manifest.read_text()),
-            json.loads(a.witnesses.read_text()))
+        need(a.live_provider,
+             "REAL_EXTERNAL_SOURCE_REQUIRES_FRESH_LIVE_GITHUB_PROVIDER")
+        manifest=json.loads(a.manifest.read_text())
+        need(type(manifest) is dict and
+             type(manifest.get("families")) is list,
+             "EXACT_SOURCE_MANIFEST")
+        witnesses={family["family"]:live_original_provider_witness(family)
+                   for family in manifest["families"]}
+        receipt=original_birth_admission(manifest,witnesses)
         result=(assess_development(json.loads(a.results.read_text()),receipt)
                 if a.results else receipt)
     a.output.parent.mkdir(parents=True,exist_ok=True)
