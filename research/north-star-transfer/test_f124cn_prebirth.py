@@ -85,6 +85,18 @@ class PrebirthEngineering(unittest.TestCase):
     def test_no_synthetic_as_authentic_firstuse(self):
         with self.assertRaises(ValueError):
             evaluator.evaluate(engineering_fixture(),"CANDIDATE")
+    def test_out_of_family_FIT_is_a_natural_abstention_not_a_rerun(self):
+        t=engineering_fixture()
+        # Public FIT labels with a contradiction in the frozen learner's
+        # 25-dimensional class; no source generator or original science.
+        for i,row in enumerate(t["FIT"]):
+            row[3]=(row[3]+i%7)&15
+        observed=evaluator.evaluate(t,"CANDIDATE",synthetic=True)
+        self.assertFalse(observed["natural_admission"])
+        self.assertEqual(observed["native_graph_score_calls"],0)
+        self.assertEqual(observed["native_event_transition_calls"],0)
+        self.assertFalse(observed["science_accepted"])
+        self.assertTrue(observed["training"]["natural_FIT_inconsistent_abstention"])
     def test_no_earlier_born_case_identity(self):
         t=engineering_fixture();t["case_id"]=930000
         with self.assertRaises(ValueError):evaluator.evaluate(t,"CANDIDATE")
