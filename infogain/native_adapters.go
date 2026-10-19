@@ -32,8 +32,7 @@ type NativeOrigin struct {
 }
 func nativeHash(kind string,result any)string {
 	raw,_:=json.Marshal(result)
-	data:=append([]byte("FORGE-INFOGAIN-NATIVE-"+kind+"
-"),raw...)
+	data:=append([]byte("FORGE-INFOGAIN-NATIVE-"+kind+"\n"),raw...)
 	sum:=sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
