@@ -1,0 +1,238 @@
+name: R25-C67D exact original Go settlement receipt chain, isolated owner
+# Read-only owner-context review. Tiny standard-library Go checker executes on
+# local runner at low priority ONLY because private state cannot leave device.
+# No original KTRADE startup, broker, service changes or research scheduling.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c67d-source-go-chain.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r25-c67d-real-go-chain-owner-readonly
+  cancel-in-progress: false
+jobs:
+  exact-go-validation:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Admit only verified owner, low-priority isolated execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+             throw 'R25_C67D_ORIGINAL_OWNER_REQUIRED'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          $go=Get-Command go -ErrorAction SilentlyContinue
+          if($null -eq $go){throw 'R25_C67D_GO_TOOLCHAIN_UNAVAILABLE'}
+          Write-Host 'R25_C67D_AUTHENTIC_OWNER_LOW_PRIORITY=PASS'
+      - name: Compile stdlib-only exact donor receipt core and audit restored user state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source=@'
+          package main
+          import (
+            "crypto/sha256"
+            "encoding/hex"
+            "encoding/json"
+            "errors"
+            "fmt"
+            "os"
+            "path/filepath"
+            "regexp"
+            "strings"
+            "time"
+          )
+          // Exact historical donor terminalSettlementReceiptCore field order,
+          // JSON omitempty semantics and sha256(json.Marshal(core)).
+          // Original blob: 773e5acf5cfb5f0d61b96e30f2a60bd06c76b79e
+          // from original CKB frozen SHA 912294dc27e52901f8b62b9b920758ccf2442b56
+          type Core struct{
+            SchemaVersion int `json:"schema_version"`
+            Sequence uint64 `json:"sequence"`
+            OrderID string `json:"order_id"`
+            ClientOrderID string `json:"client_order_id,omitempty"`
+            ProductID string `json:"product_id"`
+            Side string `json:"side"`
+            TerminalStatus string `json:"terminal_status"`
+            SettledAt string `json:"settled_at"`
+            FillSetDigest string `json:"fill_set_digest"`
+            FillAccountingDigest string `json:"fill_accounting_digest"`
+            ReservationBeforeDigest string `json:"reservation_before_digest"`
+            PortfolioAfterDigest string `json:"portfolio_after_digest"`
+            PreviousReceiptHash string `json:"previous_receipt_hash,omitempty"`
+          }
+          type Receipt struct{
+            Core
+            ReceiptHash string `json:"receipt_hash"`
+          }
+          // Embedded fields are flattened by encoding/json and the core
+          // separately includes only its donor source fields.
+          type Record struct {
+            Path string `json:"path"`
+            Bytes int64 `json:"bytes"`
+            SHA256 string `json:"sha256"`
+          }
+          type Manifest struct {
+            Schema string `json:"schema"`
+            CopiedFileCount int `json:"copied_file_count"`
+            CopiedBytes int64 `json:"copied_bytes"`
+            SourceFiles []Record `json:"source_files"`
+          }
+          type CustodyReceipt struct{
+            ManifestSHA256 string `json:"manifest_sha256"`
+          }
+          type State struct{
+            SettlementReceipts []Receipt `json:"settlement_receipts"`
+          }
+          var selected=regexp.MustCompile(`^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$`)
+          var digest=regexp.MustCompile(`^[a-f0-9]{64}$`)
+          func ordinaryDir(p string)bool{
+            st,e:=os.Lstat(p)
+            return e==nil&&st.IsDir()&&st.Mode()&os.ModeSymlink==0
+          }
+          func exactFile(p string,max int64)([]byte,error){
+            st,e:=os.Lstat(p)
+            if e!=nil||!st.Mode().IsRegular()||st.Mode()&os.ModeSymlink!=0||st.Size()<1||st.Size()>max{
+              return nil,errors.New("file identity")
+            }
+            raw,e:=os.ReadFile(p)
+            if e!=nil||int64(len(raw))!=st.Size(){return nil,errors.New("read identity")}
+            return raw,nil
+          }
+          func sumString(raw []byte)string{
+            h:=sha256.Sum256(raw)
+            return hex.EncodeToString(h[:])
+          }
+          func checkReceipt(r Receipt,i int,prev string)bool{
+            c:=r.Core
+            if c.SchemaVersion!=1||c.Sequence!=uint64(i+1)||
+              c.OrderID==""||strings.TrimSpace(c.OrderID)!=c.OrderID||
+              c.ProductID==""||strings.ToUpper(strings.TrimSpace(c.ProductID))!=c.ProductID||
+              (c.Side!="BUY"&&c.Side!="SELL")||
+              (c.TerminalStatus!="FILLED"&&c.TerminalStatus!="CANCELLED"&&
+               c.TerminalStatus!="EXPIRED"&&c.TerminalStatus!="FAILED"&&c.TerminalStatus!="REJECTED")||
+              c.PreviousReceiptHash!=prev||
+              !digest.MatchString(c.FillSetDigest)||!digest.MatchString(c.FillAccountingDigest)||
+              !digest.MatchString(c.ReservationBeforeDigest)||!digest.MatchString(c.PortfolioAfterDigest)||
+              !digest.MatchString(r.ReceiptHash){
+                return false
+            }
+            if _,e:=time.Parse(time.RFC3339Nano,c.SettledAt);e!=nil{return false}
+            marshaled,e:=json.Marshal(c)
+            return e==nil&&sumString(marshaled)==r.ReceiptHash
+          }
+          func audit()error{
+            if len(os.Args)!=3{return errors.New("arguments")}
+            custody,recovery:=os.Args[1],os.Args[2]
+            for _,p:=range []string{custody,recovery,filepath.Join(recovery,"Application"),
+                   filepath.Join(recovery,"Application","data")}{
+              if !ordinaryDir(p){return errors.New("directory")}
+            }
+            mb,e:=exactFile(filepath.Join(custody,"R25-C47-private-manifest.json"),2<<20)
+            if e!=nil{return e}
+            rb,e:=exactFile(filepath.Join(custody,"R25-C47-receipt.json"),16<<10)
+            if e!=nil{return e}
+            var m Manifest
+            var receipt CustodyReceipt
+            if e=json.Unmarshal(mb,&m);e!=nil{return errors.New("manifest")}
+            if e=json.Unmarshal(rb,&receipt);e!=nil{return errors.New("receipt")}
+            if m.Schema!="ktrade.r25-c47.selected-user-data-snapshot.v1"||
+              m.CopiedFileCount!=695||m.CopiedBytes!=164194320||
+              len(m.SourceFiles)!=695||receipt.ManifestSHA256!=sumString(mb){
+              return errors.New("custody identity")
+            }
+            files,receipts,links:=0,0,0
+            used:=int64(0)
+            for _,f:=range m.SourceFiles{
+              if !selected.MatchString(f.Path){continue}
+              if f.Bytes<=0||f.Bytes>4<<20||used>8<<20-f.Bytes||!digest.MatchString(f.SHA256){
+                return errors.New("selected file limit")
+              }
+              file:=filepath.Join(recovery,filepath.FromSlash(f.Path))
+              raw,e:=exactFile(file,4<<20)
+              if e!=nil||int64(len(raw))!=f.Bytes||sumString(raw)!=f.SHA256{
+                return errors.New("selected file hash")
+              }
+              used+=f.Bytes
+              files++
+              var st State
+              if e=json.Unmarshal(raw,&st);e!=nil{return errors.New("state syntax")}
+              if len(st.SettlementReceipts)>20000{return errors.New("receipt limit")}
+              prev:=""
+              seen:=make(map[string]bool,len(st.SettlementReceipts))
+              for i,r:=range st.SettlementReceipts{
+                receipts++
+                if !checkReceipt(r,i,prev){return errors.New("core hash chain")}
+                order:=strings.ToLower(strings.TrimSpace(r.OrderID))
+                if seen[order]{return errors.New("duplicate order")}
+                seen[order]=true
+                links++
+                prev=r.ReceiptHash
+              }
+            }
+            if files!=2||receipts!=102||links!=receipts{
+              return errors.New("source count drift")
+            }
+            fmt.Println("R25_C67D_SOURCE_GO_RECEIPT_CORE_HASH_CHAIN=PASS")
+            fmt.Printf("R25_C67D_RESTORED_STATE_FILES=%d\n",files)
+            fmt.Printf("R25_C67D_GO_CORE_RECEIPTS_VERIFIED=%d\n",receipts)
+            fmt.Printf("R25_C67D_GO_PREVIOUS_LINKS_VERIFIED=%d\n",links)
+            fmt.Println("R25_C67D_EXTERNAL_BROKER_PROOF_OR_PNL_RECOMPUTED=FALSE")
+            fmt.Println("R25_C67D_CANONICAL_FILL_CHAIN_VALIDATED=FALSE")
+            fmt.Println("R25_C67D_INSTALLED_APP_OR_AUTORESUME_STARTED=FALSE")
+            fmt.Println("R25_C67D_USER_VALUES_OR_HASHES_EXPORTED=FALSE")
+            fmt.Println("R25_C67D_PRIVATE_ARTIFACT_UPLOAD=FALSE")
+            fmt.Println("R25_C67D_CUSTODY_AND_RECOVERY_MODIFIED=FALSE")
+            fmt.Println("R25_C67D_RELEASE_OR_MIGRATION_AUTHORIZED=FALSE")
+            return nil
+          }
+          func main(){
+            if e:=audit();e!=nil{
+              // No private identifiers, paths or values in output.
+              fmt.Fprintln(os.Stderr,"R25_C67D_GO_RECEIPT_CHAIN_UNQUALIFIED")
+              os.Exit(1)
+            }
+          }
+          '@
+          $scratch=Join-Path $env:RUNNER_TEMP ('r25c67d-'+[Guid]::NewGuid().ToString('N'))
+          $null=New-Item -ItemType Directory -Path $scratch
+          $ownerRoot=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          $restored=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          $goPath=Join-Path $scratch 'audit.go'
+          $exe=Join-Path $scratch 'ktrade-r25c67d.exe'
+          $buildLog=Join-Path $scratch 'build-private.txt'
+          try{
+            [IO.File]::WriteAllText($goPath,$source,[Text.UTF8Encoding]::new($false))
+            $env:GOMAXPROCS='1'
+            $env:GOFLAGS='-p=1'
+            $env:GO111MODULE='off'
+            $env:GOCACHE=Join-Path $scratch 'go-cache'
+            & go build -trimpath -o $exe $goPath *> $buildLog
+            if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){
+              throw 'R25_C67D_LOCAL_SOURCE_ONLY_GO_BUILD_BLOCKED'
+            }
+            $out=@(& $exe $ownerRoot $restored)
+            if($LASTEXITCODE -ne 0 -or
+               @($out|Where-Object{$_ -ceq 'R25_C67D_SOURCE_GO_RECEIPT_CORE_HASH_CHAIN=PASS'}).Count -ne 1){
+              throw 'R25_C67D_GO_SOURCE_CHAIN_CHECK_FAILED'
+            }
+            $out|ForEach-Object{Write-Host $_}
+            Write-Host 'R25_C67D_LOCAL_STD_LIB_ONLY_CHECKER_BUILD=PASS'
+            Write-Host 'R25_C67D_CODEx_OR_RESEARCH_COMPUTE_DISPATCHED=FALSE'
+          }finally{
+            Remove-Item Env:\GOCACHE -ErrorAction SilentlyContinue
+            Remove-Item Env:\GOFLAGS -ErrorAction SilentlyContinue
+            Remove-Item Env:\GO111MODULE -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
