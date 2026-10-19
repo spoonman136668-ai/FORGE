@@ -1,5 +1,6 @@
 """D2K-CUSTODY hosted qualification of the nonintrusive custody snapshot and fail-closed audit."""
 import hashlib
+from contextlib import closing
 import os
 from pathlib import Path
 import sqlite3
@@ -93,7 +94,7 @@ class ReadonlyCustodyTests(unittest.TestCase):
     def test_mutable_d2j_manifest_drift_rejected_even_with_same_sealed_head(self):
         original_head=self.head
         original_manifest=self.provider_anchor
-        with sqlite3.connect(self.dbpath) as conn:
+        with closing(sqlite3.connect(self.dbpath)) as conn, conn:
             conn.execute("UPDATE tasks SET manifest_sha=? WHERE ticket LIKE 'f139-d2j-%'",
                          ("0"*64,))
         with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
@@ -102,7 +103,7 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.assertIs(self.provider_anchor,original_manifest)
 
     def test_d2j_lane_or_source_row_drift_rejected(self):
-        with sqlite3.connect(self.dbpath) as conn:
+        with closing(sqlite3.connect(self.dbpath)) as conn, conn:
             conn.execute("UPDATE tasks SET lane='Qualification' WHERE ticket LIKE 'f139-d2j-yggdrasil-%'")
         with self.assertRaisesRegex(CustodyBlocked,"D2J_ADMISSION_TASK_BINDING_DRIFT"):
             audit(self.dbpath,SHA,self.head)
