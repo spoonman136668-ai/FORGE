@@ -55,10 +55,28 @@ def artifact(task, run_id, oslabel, epoch=1, issue=None):
     digest=(hash_bytes(payload)+'  f139-receipt.json\n').encode()
     mem=io.BytesIO()
     with zipfile.ZipFile(mem,'w',zipfile.ZIP_DEFLATED) as z:
-        z.writestr('f139-receipt.json',payload)
-        z.writestr('f139-receipt.sha256',digest)
-        if diagnostic is not None: z.writestr('f139-diagnostic.json',diagnostic)
+        # Freeze synthetic ZIP metadata: repeated provider reads after a restart
+        # must represent identical bytes, even when wall-clock seconds advance.
+        # Production ZIP and receipt verification remain unchanged.
+        for name, body in (
+            ('f139-receipt.json', payload),
+            ('f139-receipt.sha256', digest),
+            *((('f139-diagnostic.json', diagnostic),) if diagnostic is not None else ()),
+        ):
+            entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            z.writestr(entry, body, compress_type=zipfile.ZIP_DEFLATED)
     return mem.getvalue()
+
+
+class DeterministicFixtureTests(unittest.TestCase):
+    def test_archive_metadata_stable_across_regeneration(self):
+        task = TASKS[0]
+        first = artifact(task, 1000, 'windows-latest')
+        second = artifact(task, 1000, 'windows-latest')
+        self.assertEqual(first, second)
+        with zipfile.ZipFile(io.BytesIO(first)) as bundle:
+            self.assertTrue(all(member.date_time == (1980, 1, 1, 0, 0, 0)
+                                for member in bundle.infolist()))
 
 
 class FakeGitHub:
