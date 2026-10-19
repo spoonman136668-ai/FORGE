@@ -60,6 +60,27 @@ def hash_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def d2j_plan(source_sha: str, previous_head_sha256: str) -> dict:
+    """Source-frozen one-shot development plan; no user-provided code or science."""
+    require(isinstance(source_sha, str) and SHA.fullmatch(source_sha) is not None
+            and isinstance(previous_head_sha256, str)
+            and re.fullmatch(r"[a-f0-9]{64}", previous_head_sha256) is not None,
+            "D2J_PLAN_IDENTITY_INVALID")
+    return {
+        "schema": "forge.f139.d2j-once-only-succession.v1",
+        "source_sha": source_sha,
+        "prior_event_head_sha256": previous_head_sha256,
+        "tasks": [
+            {"ticket":"f139-d2j-" + label + "-" + source_sha[:12],
+             "lane": lane, "source_sha": source_sha}
+            for lane, label in D2J_TRANCHE
+        ],
+        "scientific_first_use": False,
+        "paid_model_calls": 0,
+        "max_new_development_tickets": 2,
+    }
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -183,11 +204,23 @@ class Database:
                         and doc["new_dispatches"] == 0
                         and doc["scientific_first_use"] is False,
                         "D2J_ADMISSION_INVALID")
-                require(row["seq"] == 15 and
-                        sum(1 for previous in self.conn.execute(
-                            "SELECT kind FROM events WHERE seq < ?", (row["seq"],))
-                            if previous["kind"] == "SOURCE_TRANSITION_ADMITTED") == 3,
+                require(row["seq"] == 15 and len(source_transitions) == 3
+                        and source_transitions[-1]["to_source_sha"] == doc["source_sha"]
+                        and source_transitions[-1]["verified_historical_tasks"] == 2,
                         "D2J_ADMISSION_HISTORY_INVALID")
+                expected_plan = d2j_plan(doc["source_sha"],row["prior_sha"])
+                require(doc["manifest_sha256"] == hash_bytes(canonical(expected_plan))
+                        and doc["tickets"] == [item["ticket"] for item in expected_plan["tasks"]],
+                        "D2J_ADMISSION_MANIFEST_CHANGED")
+                for item in expected_plan["tasks"]:
+                    task = self.conn.execute(
+                        "SELECT lane,source_sha,manifest_sha FROM tasks WHERE ticket=?",
+                        (item["ticket"],)).fetchone()
+                    require(task is not None
+                            and task["lane"] == item["lane"]
+                            and task["source_sha"] == item["source_sha"]
+                            and task["manifest_sha"] == doc["manifest_sha256"],
+                            "D2J_ADMISSION_TASK_RECORD_CHANGED")
             if row["kind"] == "SOURCE_TRANSITION_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "from_source_sha", "to_source_sha", "prior_event_head_sha256",
@@ -342,20 +375,8 @@ class Database:
                         and row["evidence_dir"] and row["evidence_sha"]
                         and row["quarantine_reason"] == "PROVIDER_SOURCE_EVENT_SPOOFED",
                         "D2J_ORIGINAL_CUSTODY_NOT_QUALIFIED")
-            tickets = ["f139-d2j-" + label + "-" + meta["source_sha"][:12]
-                       for _, label in D2J_TRANCHE]
-            manifest = {
-                "schema": "forge.f139.d2j-once-only-succession.v1",
-                "source_sha": meta["source_sha"],
-                "prior_event_head_sha256": meta["head_hash"],
-                "tasks": [
-                    {"ticket": ticket, "lane": lane, "source_sha": meta["source_sha"]}
-                    for ticket, (lane, _) in zip(tickets, D2J_TRANCHE)
-                ],
-                "scientific_first_use": False,
-                "paid_model_calls": 0,
-                "max_new_development_tickets": 2,
-            }
+            manifest = d2j_plan(meta["source_sha"], meta["head_hash"])
+            tickets = [item["ticket"] for item in manifest["tasks"]]
             digest = hash_bytes(canonical(manifest))
             self.event("UNATTENDED_SUCCESSION_ADMITTED", {
                 "schema": manifest["schema"], "source_sha":meta["source_sha"],
