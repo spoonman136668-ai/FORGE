@@ -56,7 +56,7 @@ jobs:
             $fileName='uq65-unfamiliar-synthetic.extraction.json'
             $rel='pilots/chat-history/'+$fileName
             $file=Join-Path $root $rel
-            [IO.File]::WriteAllText($file,((ConvertTo-Json -InputObject $candidate -Depth 32)+'\n'),(New-Object Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText($file,((ConvertTo-Json -InputObject $candidate -Depth 32) + [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
             $blob=(& git.exe -C $root hash-object -- $file | Out-String).Trim()
             if ($LASTEXITCODE -ne 0 -or $blob -cnotmatch '^[a-f0-9]{40}$') { throw 'UQ65_FIXTURE_BLOB_INVALID' }
             $queue=@{
@@ -72,7 +72,7 @@ jobs:
               })
             }
             $queuePath=Join-Path $root 'policies/guarded-chat-source-queue.json'
-            [IO.File]::WriteAllText($queuePath,((ConvertTo-Json -InputObject $queue -Depth 10)+'\n'),(New-Object Text.UTF8Encoding($false)))
+            [IO.File]::WriteAllText($queuePath,((ConvertTo-Json -InputObject $queue -Depth 10) + [Environment]::NewLine),(New-Object Text.UTF8Encoding($false)))
             $resultText=(& pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tools/guarded-unattended-intake.ps1') inspect -QueuePath $queuePath -MaxSources 1 | Out-String).Trim()
             if ($LASTEXITCODE -ne 0) { throw 'UQ65_INSPECT_FAILED' }
             $result=$resultText | ConvertFrom-Json
