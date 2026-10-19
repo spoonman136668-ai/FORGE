@@ -1,0 +1,233 @@
+name: R25-C66C owner-local recovered strategy consistency (read-only)
+# ONE small read-only owner-context inspection. DO NOT checkout source,
+# upload private data, run or restart applications, or touch research services.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c66c-owner-state.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r25-c66c-owner-private-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Verify exact original account before any protected file access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'R25_C66C_ORIGINAL_OWNER_CONTEXT_REQUIRED'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          Write-Host 'R25_C66C_OWNER_ACCOUNT_AND_ORIGINAL_MACHINE=PASS'
+          Write-Host 'R25_C66C_APP_OR_RESEARCH_PROCESSES_LAUNCHED=FALSE'
+      - name: Authenticate isolated strategy JSON against retained manifest locally
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $base=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          $custody=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          foreach($path in @($base,$custody,(Join-Path $base 'Application'),(Join-Path $base 'Application\data'))){
+            $di=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if(!$di.PSIsContainer -or ($di.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+              throw 'R25_C66C_ROOT_BOUNDARY_DRIFT'
+            }
+          }
+          $manifestFile=Join-Path $custody 'R25-C47-private-manifest.json'
+          $mf=Get-Item -LiteralPath $manifestFile -Force -ErrorAction Stop
+          if($mf.Length -gt 2097152 -or $mf.Length -le 0 -or
+             ($mf.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+            throw 'R25_C66C_MANIFEST_BOUNDARY_INVALID'
+          }
+          $m=([IO.File]::ReadAllText($manifestFile)|ConvertFrom-Json -Depth 16)
+          if($m.schema -cne 'ktrade.r25-c47.selected-user-data-snapshot.v1' -or
+             [int]$m.copied_file_count -ne 695 -or
+             [int64]$m.copied_bytes -ne 164194320){
+            throw 'R25_C66C_MANIFEST_IDENTITY_CHANGED'
+          }
+          $records=@($m.source_files | Where-Object {
+            [string]$_.path -cmatch '^Application/data/strategy_(settings|state)_[A-Za-z0-9_]+\.json(\.bak)?$'
+          })
+          if($records.Count -eq 0 -or $records.Count -gt 16){
+            throw 'R25_C66C_NO_BOUNDED_STRATEGY_RECORDS'
+          }
+          function Assert-UniqueJsonProperties([Text.Json.JsonElement]$value,[int]$depth){
+            if($depth -gt 32){throw 'R25_C66C_JSON_DEPTH_LIMIT'}
+            if($value.ValueKind -eq [Text.Json.JsonValueKind]::Object){
+              $names=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+              foreach($property in $value.EnumerateObject()){
+                if(!$names.Add($property.Name)){throw 'R25_C66C_DUPLICATE_JSON_FIELD'}
+                Assert-UniqueJsonProperties $property.Value ($depth+1)
+              }
+            }elseif($value.ValueKind -eq [Text.Json.JsonValueKind]::Array){
+              foreach($entry in $value.EnumerateArray()){
+                Assert-UniqueJsonProperties $entry ($depth+1)
+              }
+            }
+          }
+          $group=@{}
+          $hashChecked=0
+          $schemaLegacy=0
+          $schemaFuture=0
+          $productDrift=0
+          $quoteDrift=0
+          $lotInvalid=0
+          $financialInvalid=0
+          $anyPending=$false
+          $anyReceipt=$false
+          $anyEnableField=$false
+          [long]$bytesRead=0
+          foreach($entry in $records){
+            $rel=[string]$entry.path
+            $size=[long]$entry.bytes
+            if($rel -cnotmatch '^Application/data/strategy_(settings|state)_([A-Za-z0-9_]+)\.json(\.bak)?$' -or
+               $size -le 0 -or $size -gt 4194304 -or
+               $bytesRead -gt (8388608-$size)) {
+              throw 'R25_C66C_UNSAFE_FILE_SCOPE_OR_LIMIT'
+            }
+            $kind=$Matches[1]
+            $slug=$Matches[2]
+            $bak=!!$Matches[3]
+            $file=Join-Path $base ($rel.Replace('/',[IO.Path]::DirectorySeparatorChar))
+            try{
+              $fi=Get-Item -LiteralPath $file -Force -ErrorAction Stop
+              if($fi.PSIsContainer -or ($fi.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                 [long]$fi.Length -ne $size){
+                throw 'R25_C66C_PRIVATE_FILE_IDENTITY'
+              }
+              $bytes=[IO.File]::ReadAllBytes($file)
+              if($bytes.Length -ne $size){throw 'R25_C66C_PRIVATE_SIZE_CHANGED'}
+              $digest=([Security.Cryptography.SHA256]::HashData($bytes)|
+                ForEach-Object{$_.ToString('x2')}) -join ''
+              if($digest -cne [string]$entry.sha256){
+                throw 'R25_C66C_PRIVATE_HASH_CHANGED'
+              }
+              $hashChecked++
+              $bytesRead+=$bytes.Length
+              $text=[Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xfeff)
+              $json=[Text.Json.JsonDocument]::Parse($text)
+              try{
+                Assert-UniqueJsonProperties $json.RootElement 0
+              }finally{$json.Dispose()}
+              $doc=$text|ConvertFrom-Json -AsHashtable -Depth 64
+              if($doc -isnot [System.Collections.IDictionary]){
+                throw 'R25_C66C_DOCUMENT_NOT_OBJECT'
+              }
+              if($doc.Contains('schema_version')){
+                $sv=$doc['schema_version']
+                if($sv -isnot [int] -and $sv -isnot [long]){
+                  throw 'R25_C66C_BAD_SCHEMA_TYPE'
+                }
+                if($sv -lt 0 -or $sv -gt 9){$schemaFuture++}
+                if($sv -lt 9){$schemaLegacy++}
+              }else{$schemaLegacy++}
+              if(!$group.ContainsKey($slug)){
+                $group[$slug]=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+              }
+              $member=$kind
+              if($bak){$member+='_bak'}
+              if(!$group[$slug].Add($member)){throw 'R25_C66C_DUPLICATE_FAMILY'}
+              if($slug -match '^[A-Za-z0-9]+_[A-Za-z0-9]+$'){
+                $product=$slug.Replace('_','-')
+                $quote=($product -split '-')[-1]
+                if($kind -ceq 'settings'){
+                  if($doc.Contains('product_id') -and [string]$doc['product_id'] -cne $product){$productDrift++}
+                  foreach($key in @('enabled','auto_resume')){
+                    if($doc.Contains($key)){
+                      if($doc[$key] -isnot [bool]){throw 'R25_C66C_ACTIVATION_TYPE_DRIFT'}
+                      $anyEnableField=$true
+                    }
+                  }
+                }
+                if($doc.Contains('quote_currency') -and
+                   [string]$doc['quote_currency'] -cne $quote){$quoteDrift++}
+              }else{$productDrift++}
+              if($kind -ceq 'state'){
+                foreach($key in @('cash_usd','sum_cost','sum_qty','realized_pnl','total_fees_usd')){
+                  if($doc.Contains($key)){
+                    $v=$doc[$key]
+                    if($v -isnot [double] -and $v -isnot [decimal] -and
+                       $v -isnot [int] -and $v -isnot [long]){
+                      $financialInvalid++;continue
+                    }
+                    if([double]::IsInfinity([double]$v) -or [double]::IsNaN([double]$v)){
+                      $financialInvalid++
+                    }
+                  }
+                }
+                if($doc.Contains('lots')){
+                  if($doc['lots'] -isnot [array]){$lotInvalid++}
+                  else {
+                    foreach($lot in $doc['lots']){
+                      if($lot -isnot [System.Collections.IDictionary]){
+                        $lotInvalid++;continue
+                      }
+                      foreach($key in @('entry','size','gross_value','buy_fee','cost_basis')){
+                        if($lot.Contains($key)){
+                          $v=$lot[$key]
+                          if(($v -isnot [double] -and $v -isnot [decimal] -and
+                               $v -isnot [int] -and $v -isnot [long]) -or
+                             [double]::IsInfinity([double]$v) -or
+                             [double]::IsNaN([double]$v) -or [double]$v -lt 0){
+                            $lotInvalid++
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                if($doc.Contains('pending_orders') -and
+                   $doc['pending_orders'] -is [array] -and
+                   $doc['pending_orders'].Count -gt 0){$anyPending=$true}
+                if($doc.Contains('settlement_receipts') -and
+                   $doc['settlement_receipts'] -is [array] -and
+                   $doc['settlement_receipts'].Count -gt 0){$anyReceipt=$true}
+              }
+            }catch{
+              throw 'R25_C66C_BOUNDED_PRIVATE_DOCUMENT_OR_HASH_REJECTED'
+            }finally{
+              $text=$null;$doc=$null;$json=$null;$bytes=$null
+            }
+          }
+          $primary=0;$missing=0
+          foreach($slug in $group.Keys){
+            $members=$group[$slug]
+            if($members.Contains('settings') -and $members.Contains('state')){$primary++}
+            else{$missing++}
+          }
+          Write-Host 'R25_C66C_AUTHENTIC_RECOVERED_STRATEGY_READ=PASS'
+          Write-Host ('R25_C66C_STRATEGY_FILE_HASHES_VERIFIED='+$hashChecked)
+          Write-Host ('R25_C66C_PRIMARY_SETTINGS_STATE_PAIRS='+$primary)
+          Write-Host ('R25_C66C_INCOMPLETE_PRIMARY_PAIRS='+$missing)
+          Write-Host ('R25_C66C_SCHEMA_LEGACY_RECORDS='+$schemaLegacy)
+          Write-Host ('R25_C66C_SCHEMA_FUTURE_RECORDS='+$schemaFuture)
+          Write-Host ('R25_C66C_PRODUCT_MISMATCHES='+$productDrift)
+          Write-Host ('R25_C66C_QUOTE_MISMATCHES='+$quoteDrift)
+          Write-Host ('R25_C66C_LOT_NUMBER_REJECTIONS='+$lotInvalid)
+          Write-Host ('R25_C66C_FINANCIAL_NUMBER_REJECTIONS='+$financialInvalid)
+          Write-Host 'R25_C66C_PRIVATE_VALUES_PRODUCT_IDS_HASHES_EXPORTED=FALSE'
+          Write-Host 'R25_C66C_PRIVATE_JSON_CONTENT_READ=TRUE'
+          Write-Host 'R25_C66C_BROKER_OBSERVATION_OR_RISK_FILES_READ=FALSE'
+          Write-Host 'R25_C66C_ORIGINAL_DONOR_RECEIPT_CHAIN_VERIFIED=FALSE'
+          Write-Host 'R25_C66C_FINANCIAL_PNL_EQUIVALENCE_VERIFIED=FALSE'
+          Write-Host 'R25_C66C_STRATEGY_AUTORESTART=FALSE'
+          Write-Host 'R25_C66C_CUSTODY_OR_RECOVERY_FILE_MODIFIED=FALSE'
+          Write-Host 'R25_C66C_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+          Write-Host 'R25_C66C_MIGRATION_AUTHORIZED=FALSE'
+          Write-Host 'R25_C66C_RELEASE_AUTHORIZED=FALSE'
+          if($missing -gt 0 -or $schemaFuture -gt 0 -or $productDrift -gt 0 -or
+             $quoteDrift -gt 0 -or $lotInvalid -gt 0 -or $financialInvalid -gt 0){
+            throw 'R25_C66C_AUTHENTIC_STATE_NEEDS_RECONCILIATION'
+          }
