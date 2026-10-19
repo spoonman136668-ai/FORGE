@@ -61,7 +61,7 @@ class Fake:
         self.calls = []
         self.candidate = pr()
         self.pages = {
-            "/pulls?state=open&per_page=100": [self.candidate],
+            "/pulls?state=open&per_page=20": [self.candidate],
             "/pulls/311": self.candidate,
             "/branches/main": {"protected": True, "commit": {"sha": BASE}},
             "/pulls/311/files?per_page=100": [
@@ -86,7 +86,7 @@ class Fake:
         items = copy.deepcopy(self.pages[path])
         if not isinstance(items, list):
             raise Blocked("MISSING_OR_UNBOUNDED_GITHUB_PAGE")
-        return items, len(items) == 100
+        return items, len(items) == 20
 
     def get(self, path):
         self.calls.append(path)
@@ -181,7 +181,7 @@ class SourceAuditTests(unittest.TestCase):
 
     def test_no_candidates_is_no_action(self):
         f = Fake()
-        f.pages["/pulls?state=open&per_page=100"] = []
+        f.pages["/pulls?state=open&per_page=20"] = []
         r = run(f)
         self.assertEqual(r["Count"], 0)
         self.assertEqual(r["Candidates"], [])
@@ -190,52 +190,56 @@ class SourceAuditTests(unittest.TestCase):
 
     def test_duplicate_open_prs_fail_closed_not_partial(self):
         f = Fake()
-        f.pages["/pulls?state=open&per_page=100"] = [pr() for _ in range(100)]
+        f.pages["/pulls?state=open&per_page=20"] = [pr() for _ in range(20)]
         with self.assertRaisesRegex(Blocked, "DUPLICATE"):
             run(f)
 
     def test_101_open_prs_paginates_without_missing_eligible_candidate(self):
         f = Fake()
-        first = []
-        for num in range(1, 101):
-            item = pr()
-            item["number"] = num
-            item["draft"] = True
-            first.append(item)
-        f.pages["/pulls?state=open&per_page=100"] = first
-        f.pages["/pulls?state=open&per_page=100&page=2"] = [f.candidate]
+        # The same 101 identities must all be examined across six *small*
+        # GitHub Link-announced pages: no truncation or sampling.
+        for page in range(1, 6):
+            rows = []
+            for num in range((page - 1) * 20 + 1, page * 20 + 1):
+                item = pr()
+                item["number"] = num
+                item["draft"] = True
+                rows.append(item)
+            f.pages["/pulls?state=open&per_page=20" +
+                    ("&page=" + str(page) if page > 1 else "")] = rows
+        f.pages["/pulls?state=open&per_page=20&page=6"] = [f.candidate]
         r = run(f)
         self.assertEqual(r["Count"], 1)
         self.assertEqual(r["Candidates"][0]["PR"], 311)
-        self.assertIn("/pulls?state=open&per_page=100&page=2", f.calls)
+        self.assertIn("/pulls?state=open&per_page=20&page=6", f.calls)
         self.assertFalse(r["MergeAuthorized"])
         self.assertFalse(r["ScientificAuthority"])
 
     def test_pagination_page_missing_or_swapped_identity_denied(self):
         f = Fake()
         first = []
-        for num in range(1, 101):
+        for num in range(1, 21):
             item = pr()
             item["number"] = num
             item["draft"] = True
             first.append(item)
-        f.pages["/pulls?state=open&per_page=100"] = first
+        f.pages["/pulls?state=open&per_page=20"] = first
         with self.assertRaisesRegex(Blocked, "MISSING_OR_UNBOUNDED"):
             run(f)
-        f.pages["/pulls?state=open&per_page=100&page=2"] = [first[0]]
+        f.pages["/pulls?state=open&per_page=20&page=2"] = [first[0]]
         with self.assertRaisesRegex(Blocked, "DUPLICATE"):
             run(f)
 
     def test_hard_page_ceiling_does_not_scan_or_authorize_partially(self):
         f = Fake()
-        for page in range(1, 11):
+        for page in range(1, 51):
             items = []
-            for offset in range(100):
+            for offset in range(20):
                 item = pr()
-                item["number"] = (page - 1) * 100 + offset + 1
+                item["number"] = (page - 1) * 20 + offset + 1
                 item["draft"] = True
                 items.append(item)
-            path = "/pulls?state=open&per_page=100"
+            path = "/pulls?state=open&per_page=20"
             if page > 1:
                 path += "&page=" + str(page)
             f.pages[path] = items
@@ -263,15 +267,53 @@ class SourceAuditTests(unittest.TestCase):
             ("/repos/other/FORGE/pulls",False),
         ):
             link = "<https://api.github.com" + suffix + \
-                   "?state=open&per_page=100&page=2>; rel=\"next\""
+                   "?state=open&per_page=20&page=2>; rel=\"next\""
             with patch("urllib.request.urlopen",return_value=HTTP(link)):
                 if should_accept:
-                    page,next_page=g.get_page("/pulls?state=open&per_page=100")
+                    page,next_page=g.get_page("/pulls?state=open&per_page=20")
                     self.assertEqual(len(page),1)
                     self.assertTrue(next_page)
                 else:
                     with self.assertRaisesRegex(Blocked, "UNTRUSTED_PAGINATION_NEXT_ROUTE"):
-                        g.get_page("/pulls?state=open&per_page=100")
+                        g.get_page("/pulls?state=open&per_page=20")
+
+    def test_oversized_single_response_remains_fail_closed(self):
+        from unittest.mock import patch
+        class HTTP:
+            headers = {"Link": ""}
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, count):
+                self_read_limit = count
+                return b"x" * self_read_limit
+        with patch("urllib.request.urlopen",return_value=HTTP()):
+            with self.assertRaisesRegex(Blocked,"RESPONSE_TOO_LARGE"):
+                GitHub(token="fixture").get_page("/pulls?state=open&per_page=20")
+
+    def test_non_inventory_page_size_is_rejected(self):
+        with self.assertRaisesRegex(Blocked,"UNSAFE_OPEN_PR_PAGINATION"):
+            GitHub(token="fixture").get_page("/pulls?state=open&per_page=100")
+
+    def test_partial_first_page_with_unexpected_next_is_denied(self):
+        from unittest.mock import patch
+        import json
+        class HTTP:
+            headers = {"Link": "<https://api.github.com/repos/spoonman136668-ai/FORGE/pulls?state=open&per_page=20&page=2>; rel=\"next\""}
+            def __enter__(self):
+                return self
+            def __exit__(self,*args):
+                return False
+            def read(self,n):
+                return json.dumps([{"number":1}]).encode()
+        with patch("urllib.request.urlopen",return_value=HTTP()):
+            g=GitHub(token="fixture")
+            with self.assertRaisesRegex(Blocked,"INCOMPLETE_OPEN_PR_PAGINATION"):
+                # The Link-announced continuation must never conceal a
+                # short page or let a partial census pass.
+                from fsa_source_audit import list_open_prs
+                list_open_prs(g)
 
     def test_unqualified_workflow_run_attempt(self):
         f = Fake()
