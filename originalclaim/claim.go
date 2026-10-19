@@ -47,7 +47,7 @@ func valid(s string)bool{
  return true
 }
 func validate(c Claim)bool{
- return c.Schema==Schema&&(c.Lane=="Wingless"||c.Lane=="Yggdrasil")&&
+ return c.Schema==Schema&&(c.Lane=="Wingless"||c.Lane=="Yggdrasil"||c.Lane=="MassResearch")&&
  valid(c.ExperimentID)&&valid(c.OriginalRunID)&&valid(c.WorkerID)&&
  hexN(c.FrozenSHA256,64)&&hexN(c.IntentSHA256,64)&&hexN(c.SourceCommitSHA,40)&&
  c.OwnerEpoch>0&&c.FirstUseConsumed
