@@ -77,7 +77,7 @@ func TestChronologyAndFamilyLedgerFailClosed(t *testing.T){
  }
 }
 
-\n// A valid third-party signature over a DIFFERENT all-lane ledger must still
+// A valid third-party signature over a DIFFERENT all-lane ledger must still
 // fail: an authenticated family inventory is not proof of the exact global
 // cohort ledger independently recovered by FSA.
 func TestSignedFamilySnapshotMustMatchIndependentGlobalLedgerPin(t *testing.T){
