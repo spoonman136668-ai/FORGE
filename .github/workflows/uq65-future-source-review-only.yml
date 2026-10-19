@@ -1,0 +1,111 @@
+name: UQ65 isolated future-source review boundary
+on:
+  push:
+    branches:
+      - qualification/uq65-readonly-future-source-boundary
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Single synthetic unfamiliar chat source, inspect only
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'UQ65_WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $sha='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq65-source-review-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          if (Test-Path $scratch) { throw 'UQ65_SCRATCH_ALREADY_PRESENT' }
+          try {
+            $r=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            if ($LASTEXITCODE -ne 0 -or $r.Count -ne 1 -or ([string]$r[0] -split '\s+')[0] -cne $sha) { throw 'UQ65_MIND_PALACE_MAIN_DRIFT' }
+            & git.exe clone --quiet --single-branch --branch main $remote $root
+            if ($LASTEXITCODE -ne 0 -or ((& git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $sha) { throw 'UQ65_SOURCE_CLONE_DRIFT' }
+            $before=@{}
+            foreach ($p in $protected) {
+              $before[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $oldRecord=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json)
+            $oldLedger=[IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json
+            if ($oldRecord.Count -ne 263 -or @($oldLedger.entries).Count -ne 104) { throw 'UQ65_BASELINE_COUNTS_NOT_FROZEN' }
+            # Synthetic source exists ONLY in the disposable checkout. This is
+            # a hypothetical statement for mechanism qualification, not evidence
+            # of a real operator decision or a memory-ingestion proposal.
+            $template=Join-Path $root 'pilots/chat-history/2026-10-17-pr58-authorization.extraction.json'
+            $candidate=[IO.File]::ReadAllText($template) | ConvertFrom-Json
+            $candidate.conversation.ref='chat:uq65-hypothetical-future-source-review-only'
+            $candidate.conversation.title='Synthetic UQ65 one-source review boundary test'
+            $candidate.conversation.version='uq65-synthetic-unfamiliar-v1'
+            $candidate.conversation.observed_at='2026-10-19T00:00:00Z'
+            $candidate.candidates[0].kind='decision'
+            $candidate.candidates[0].key='uq65-synthetic-future-source-review-only'
+            $candidate.candidates[0].statement='Synthetic test only: a future project decision would require independent operator review before admission.'
+            $candidate.candidates[0].details.source_class='synthetic-test-not-real-source'
+            $candidate.candidates[0].details.authorization_scope='none; never admit'
+            $candidate.candidates[0].corroborating_ids=@()
+            $candidate.corroborating_sources=@()
+            $candidate.candidates[0].source_turn_ids=@('uq65-synthetic-one-turn')
+            $candidate.turns[0].id='uq65-synthetic-one-turn'
+            $fileName='uq65-unfamiliar-synthetic.extraction.json'
+            $rel='pilots/chat-history/'+$fileName
+            $file=Join-Path $root $rel
+            [IO.File]::WriteAllText($file,((ConvertTo-Json -InputObject $candidate -Depth 32)+'\n'),(New-Object Text.UTF8Encoding($false)))
+            $blob=(& git.exe -C $root hash-object -- $file | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $blob -cnotmatch '^[a-f0-9]{40}$') { throw 'UQ65_FIXTURE_BLOB_INVALID' }
+            $queue=@{
+              schema='mind-palace.guarded-chat-source-queue.v1'
+              allow_unbounded_discovery=$false
+              allow_production_memory_writes=$false
+              sources=@(@{
+                path=$rel
+                git_blob=$blob
+                source_ref=$candidate.conversation.ref
+                source_version=$candidate.conversation.version
+                authorized_for_preparation=$false
+              })
+            }
+            $queuePath=Join-Path $root 'policies/guarded-chat-source-queue.json'
+            [IO.File]::WriteAllText($queuePath,((ConvertTo-Json -InputObject $queue -Depth 10)+'\n'),(New-Object Text.UTF8Encoding($false)))
+            $resultText=(& pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tools/guarded-unattended-intake.ps1') inspect -QueuePath $queuePath -MaxSources 1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'UQ65_INSPECT_FAILED' }
+            $result=$resultText | ConvertFrom-Json
+            if ([string]$result.schema -cne 'mind-palace.guarded-chat-source-queue-result.v1' -or
+                [int]$result.inspected_count -ne 1 -or
+                [string]$result.items[0].disposition -cne 'ready_for_authorized_preparation' -or
+                [int]$result.production_memory_writes -ne 0 -or
+                [int]$result.source_ledger_writes -ne 0 -or
+                -not [bool]$result.durable_state_unchanged -or
+                [bool]$result.automatic_production_updates -or
+                [bool]$result.automatic_background_discovery -or
+                [int]$result.paid_model_invocations -ne 0) {
+              throw ('UQ65_UNEXPECTED_REVIEW_DISPOSITION '+$resultText)
+            }
+            Write-Host 'UQ65_ONE_UNFAMILIAR_SOURCE_REPORTED_FOR_REVIEW_ONLY=PASS'
+            foreach($p in $protected) {
+              $after=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($after -cne $before[$p]) { throw ('UQ65_PROTECTED_FILE_CHANGED '+$p) }
+            }
+            $newCount=@([IO.File]::ReadAllText((Join-Path $root '.ice/records.json')) | ConvertFrom-Json).Count
+            $ledgerCount=@(([IO.File]::ReadAllText((Join-Path $root '.ice/source-ledger.json')) | ConvertFrom-Json).entries).Count
+            if ($newCount -ne 263 -or $ledgerCount -ne 104) { throw 'UQ65_DURABLE_COUNTS_CHANGED' }
+            Write-Host 'UQ65_ALL_NINE_PROTECTED_HASHES_AND_263_104_PRESERVED=PASS'
+            $invalid=@([IO.File]::ReadAllText($queuePath) | ConvertFrom-Json)
+            # Confirm the reviewed candidate still lacks preparation approval.
+            if ($invalid[0].sources[0].authorized_for_preparation) { throw 'UQ65_PREPARATION_AUTHORITY_WIDENED' }
+            $tracked=@(& git.exe -C $root diff --name-only)
+            if (@($tracked).Count -ne 1 -or $tracked[0] -cne 'policies/guarded-chat-source-queue.json') { throw 'UQ65_UNEXPECTED_TRACKED_SOURCE_CHANGE' }
+            Write-Host 'UQ65_REVIEW_QUEUE_UNAUTHORIZED_FOR_PREPARATION=PASS'
+            Write-Host 'UQ65_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ65_NO_CODEX_NO_PAID_MODEL_NO_GIT_PUSH=PASS'
+          } finally {
+            if (Test-Path $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+            if (Test-Path $scratch) { throw 'UQ65_PRIVATE_SCRATCH_NOT_CLEANED' }
+            Write-Host 'UQ65_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
