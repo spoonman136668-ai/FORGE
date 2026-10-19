@@ -1,0 +1,146 @@
+name: F124-BM nonconsuming independent causal source qualification
+on:
+  push:
+    branches: [research/f124bm-causal-transfer-fitscreen-20261018]
+permissions:
+  contents: read
+concurrency:
+  group: f124bm-source-preflight-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  local-nonconsuming:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check exact unchanged native and source, no FIT generation or protected first-use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BM_EXACT_HEAD' }
+          & git merge-base --is-ancestor cd28b84817aa8fead064c7218889218cb6deea9f HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BM_ORIGINAL_NATIVE_FOUNDATION_DRIFT' }
+          $wanted=@(
+            '.github/workflows/forge-f124bm-source-preflight.yml',
+            '.github/workflows/forge-f124bm-firstuse-fit.yml',
+            'research/north-star-transfer/f124bm-frozen-fitscreen.json',
+            'research/north-star-transfer/f124bm_gf2_source.py',
+            'research/north-star-transfer/f124bm_arx_source.py',
+            'research/north-star-transfer/f124bm_source_witness.py',
+            'research/north-star-transfer/f124bm_fit_eval.py',
+            'research/north-star-transfer/test_f124bm_preflight.py'
+          )
+          $actual=@(& git diff --name-only cd28b84817aa8fead064c7218889218cb6deea9f HEAD | Where-Object { $_ })
+          if ((@($actual|Sort-Object) -join '|') -cne (@($wanted|Sort-Object) -join '|')) { throw 'BM_WIDENED_PATCH' }
+          $expected=@{
+            'research/north-star-transfer/f124bm-frozen-fitscreen.json'='4743eb3119064bf8f6f26ca2d23b9588292f8a78'
+            'research/north-star-transfer/f124bm_gf2_source.py'='e7df91c7270567d56ce62243196d8f67aa09c024'
+            'research/north-star-transfer/f124bm_arx_source.py'='f3fbb5d04bff86d51a5a9ddb0c52979bb67924fe'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+            'research/north-star-transfer/20261018-mass-learned-kernel.py'='bf81ed56cc0daa2c413ad7d9c698969f92befe3d'
+          }
+          foreach ($p in $expected.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $expected[$p]) { throw "BM_FROZEN_BLOB_DRIFT:$p" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bm_preflight.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BM_PRE_USE_BOUNDARY' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124bl_equal_native.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'BM_NATIVE_FOUNDATION' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BM_REPO_ISOLATION' }
+          Write-Output 'F124BM_NONCONSUMING_LOCAL_PREFLIGHT=PASS'
+          Write-Output 'F124BM_SOURCE_FIT_CONSUMED=0'
+  github-provider-before-firstuse:
+    needs: local-nonconsuming
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently witness source birth chronology and original provider Git blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bm"
+          python3 -B research/north-star-transfer/f124bm_source_witness.py \
+            --provider --output "$RUNNER_TEMP/f124bm/original-github-source-birth.json"
+          python3 -B - "$RUNNER_TEMP/f124bm/original-github-source-birth.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['provider_authentication'] is True
+          assert len(d['birth_receipts'])==3
+          assert d['FIT_or_protected_records_generated']==0
+          assert d['external_thirdparty_scientific_origin'] is False
+          assert d['scientific_acceptance'] is False
+          print('F124BM_GITHUB_PROVIDER_BIRTH=PASS')
+          PY
+          (cd "$RUNNER_TEMP/f124bm" && sha256sum original-github-source-birth.json > custody.sha256 && sha256sum --check custody.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bm-source-custody-before-original-firstuse-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bm/
+          retention-days: 90
+          if-no-files-found: error
+  one-final-prefirstuse-regression:
+    needs: github-provider-before-firstuse
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One consolidated regression and source seal before any first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          mkdir -p "$RUNNER_TEMP/f124bm"
+          sha256sum research/north-star-transfer/f124bm-frozen-fitscreen.json \
+            research/north-star-transfer/f124bm_gf2_source.py \
+            research/north-star-transfer/f124bm_arx_source.py \
+            research/north-star-transfer/f124bm_source_witness.py \
+            research/north-star-transfer/f124bm_fit_eval.py \
+            research/north-star-transfer/test_f124bm_preflight.py \
+            .github/workflows/forge-f124bm-source-preflight.yml \
+            .github/workflows/forge-f124bm-firstuse-fit.yml \
+            > "$RUNNER_TEMP/f124bm/source-sha256.txt"
+          printf 'HEAD=%s\nINDEPENDENT_GITHUB_SOURCE_CUSTODY=true\nFIT_FIRST_USE=0\nPROTECTED_COHORT_FIRST_USE=0\nEXTERNAL_ORIGINALITY_CERTIFIED=false\nFULL_SCIENCE_ADMISSION=false\n' "$GITHUB_SHA" > "$RUNNER_TEMP/f124bm/prior-to-firstuse.txt"
+          echo F124BM_PREUSE_FINAL_REGRESSION=PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124bm-nonconsuming-final-preuse-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bm/
+          retention-days: 90
+          if-no-files-found: error
