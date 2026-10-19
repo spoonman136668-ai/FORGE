@@ -1,0 +1,130 @@
+name: F124-BM one original public FIT screen, no protected holdout
+on:
+  push:
+    branches: [research/f124bm-firstuse-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bm-original-fit-firstuse-singleton
+  cancel-in-progress: false
+jobs:
+  authenticate-unconsumed-source-first:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Require exact originally qualified preuse tree and no repeated run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          # The first-use branch MUST be the identical already qualified
+          # source/preflight commit, not new code or rewritten source.
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/research/f124bm-causal-transfer-fitscreen-20261018" > "$RUNNER_TEMP/preflight-ref.json"
+          python3 -B - "$RUNNER_TEMP/preflight-ref.json" <<'PY'
+          import json,sys,os
+          d=json.load(open(sys.argv[1]))
+          assert d['object']['sha']==os.environ['GITHUB_SHA'], 'BM_SOURCE_CHANGED_AFTER_PREFLIGHT'
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bm-firstuse-20261018&per_page=30" > "$RUNNER_TEMP/single-use-runs.json"
+          python3 -B - "$RUNNER_TEMP/single-use-runs.json" <<'PY'
+          import json,sys,os
+          d=json.load(open(sys.argv[1]))
+          runs=[r for r in d['workflow_runs'] if r['path']=='.github/workflows/forge-f124bm-firstuse-fit.yml' and r['event']=='push']
+          assert len(runs)==1, 'BM_FIRSTUSE_MORE_THAN_ONE_RUN'
+          assert runs[0]['id']==int(os.environ['GITHUB_RUN_ID'])
+          assert runs[0]['head_sha']==os.environ['GITHUB_SHA']
+          print('F124BM_GUARDED_FIRST_PROSPECTIVE_FIT_RUN=PASS')
+          PY
+          # Independently repeat original GitHub blob provenance witness, no source use.
+          python3 -B research/north-star-transfer/f124bm_source_witness.py \
+            --provider --output "$RUNNER_TEMP/bm-before-firstuse-provider.json"
+          python3 -B - "$RUNNER_TEMP/bm-before-firstuse-provider.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['provider_authentication'] is True
+          assert d['FIT_or_protected_records_generated']==0
+          print('F124BM_PRE_FIRSTUSE_GITHUB_SOURCE_ORIGINALITY=PASS')
+          PY
+      - name: Verify qualified original preuse run completed successfully
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bm-causal-transfer-fitscreen-20261018&per_page=30" > "$RUNNER_TEMP/preuse-runs.json"
+          python3 -B - "$RUNNER_TEMP/preuse-runs.json" <<'PY'
+          import json,sys,os
+          data=json.load(open(sys.argv[1]))
+          eligible=[run for run in data['workflow_runs']
+                    if run['path']=='.github/workflows/forge-f124bm-source-preflight.yml' and run['head_sha']==os.environ['GITHUB_SHA'] and
+                       run['status']=='completed' and run['conclusion']=='success']
+          assert eligible, 'BM_NO_COMPLETED_EXACT_HEAD_ORIGINAL_SOURCE_QUALIFICATION'
+          print('F124BM_ORIGINAL_PRE_FIRSTUSE_FULL_REGRESSION_WITNESSED=PASS')
+          PY
+  first-and-only-original-fit:
+    needs: authenticate-unconsumed-source-first
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Issue exactly 16 new GF2 and 16 ARX public FIT pairs and append observations before aggregation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bm-original-fit"
+          python3 -B research/north-star-transfer/f124bm_fit_eval.py \
+            --output "$RUNNER_TEMP/f124bm-original-fit/aggregated-prospective-FIT.json"
+      - name: Read-only FIT disposition and immutable source identity
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bm-original-fit"
+          python3 -B - "$root/aggregated-prospective-FIT.json" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))['summary']
+          assert data['total_pair_count']==32
+          assert data['total_task_arm_evaluations']==64
+          assert not data['original_BH_U_R_protected_used']
+          assert not data['BM_protected_128pair_cohorts_used']
+          assert not data['original_192_TRAIN_replayed']
+          assert not data['scientific_out_of_distribution_accepted']
+          assert not data['optimizer_policy_update']
+          for family in ('GF2','ARX'):
+              s=data['families'][family]
+              print(f"F124BM_{family}_ORIGINAL_AZ_BASELINE_POS={s['baseline_positive_count']}")
+              print(f"F124BM_{family}_LEARNED_POS={s['candidate_positive_count']}")
+              print(f"F124BM_{family}_LEARNED_HARD_FP={len(s['candidate_hard_false_positive_ids'])}")
+              print(f"F124BM_{family}_LOST_BASELINE_POS={len(s['baseline_positive_lost_ids'])}")
+              print(f"F124BM_{family}_PREDECLARED_FIT_SCREEN={s['FIT_mechanistic_gate']}")
+          print('F124BM_FIT_CONSUMED_UNSEEN_PROTECTED_RETAINED=true')
+          print('F124BM_INDEPENDENT_EXTERNAL_NOVELTY_CERTIFIED=false')
+          PY
+          sha256sum "$root/"*.json > "$root/firstuse-records.sha256"
+          (cd "$root" && sha256sum --check firstuse-records.sha256)
+      - name: Seal original records even if evaluation fails (partial observation custody)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124bm-original-public-fit-firstuse-not-protected-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bm-original-fit/
+          if-no-files-found: warn
+          retention-days: 90
