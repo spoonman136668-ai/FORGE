@@ -33,7 +33,8 @@ LIMIT_PER_DAY = 48
 MAX_ZIP_BYTES = 2_000_000
 MAX_RECEIPT_BYTES = 8192
 D2K_WORK_LABEL = "f139-development-eligible"
-D2K_KIND = "model-free-development-advisory"
+D2K_KIND = "go-package-test-diagnostic"
+D2K_ALLOWED_PACKAGES = ("./planner", "./dreamrsi", "./optimizerstages")
 D2K_MAX_DAILY = 4
 D2K_MAX_TOTAL = 80
 D2K_OWNER = "spoonman136668-ai"
@@ -197,7 +198,7 @@ class Database:
             if row["kind"] == "DEVELOPMENT_WORK_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "source_sha", "ticket", "issue_number", "issue_id",
-                    "lane", "kind", "body_sha256", "manifest_sha256",
+                    "lane", "kind", "target_package", "body_sha256", "manifest_sha256",
                     "prior_event_head_sha256", "scientific_first_use",
                     "admitted_day"},
                     "D2K_ADMISSION_FIELDS")
@@ -209,6 +210,7 @@ class Database:
                             str(doc["issue_number"]) + "-" + doc["source_sha"][:12] +
                             "-" + doc["body_sha256"][:8]
                         and doc["lane"] in LANES and doc["kind"] == D2K_KIND
+                        and doc["target_package"] in D2K_ALLOWED_PACKAGES
                         and re.fullmatch(r"[a-f0-9]{64}", doc["body_sha256"]) is not None
                         and re.fullmatch(r"[a-f0-9]{64}", doc["manifest_sha256"]) is not None
                         and doc["prior_event_head_sha256"] == row["prior_sha"]
@@ -228,7 +230,8 @@ class Database:
                     "schema":doc["schema"], "source_sha":doc["source_sha"],
                     "ticket":doc["ticket"], "issue_number":doc["issue_number"],
                     "issue_id":doc["issue_id"], "lane":doc["lane"],
-                    "kind":doc["kind"], "body_sha256":doc["body_sha256"],
+                    "kind":doc["kind"], "target_package":doc["target_package"],
+                    "body_sha256":doc["body_sha256"],
                     "prior_event_head_sha256":doc["prior_event_head_sha256"],
                     "admitted_day":doc["admitted_day"],
                     "scientific_first_use":False,
@@ -466,9 +469,10 @@ class Database:
                 "D2K_AUTHENTIC_SUCCESSION_REQUIRED")
         require(isinstance(issue, dict) and set(issue) == {
                     "ticket", "issue_number", "issue_id", "source_sha",
-                    "lane", "kind", "body_sha256"
+                    "lane", "kind", "target_package", "body_sha256"
                 } and issue["source_sha"] == meta["source_sha"]
-                and issue["lane"] in LANES and issue["kind"] == D2K_KIND,
+                and issue["lane"] in LANES and issue["kind"] == D2K_KIND
+                and issue["target_package"] in D2K_ALLOWED_PACKAGES,
                 "D2K_ISSUE_IDENTITY_INVALID")
         ticket = issue["ticket"]
         require(isinstance(ticket, str) and TICKET.fullmatch(ticket)
@@ -503,6 +507,7 @@ class Database:
                 "source_sha":meta["source_sha"], "ticket":ticket,
                 "issue_number":issue["issue_number"], "issue_id":issue["issue_id"],
                 "lane":issue["lane"], "kind":issue["kind"],
+                "target_package":issue["target_package"],
                 "body_sha256":issue["body_sha256"],
                 "prior_event_head_sha256":prior,
                 "admitted_day":today, "scientific_first_use":False,
@@ -649,12 +654,13 @@ class GitHub:
                 except ValueError as exc:
                     raise F139Error("F139_D2K_ISSUE_NOT_JSON") from exc
                 require(isinstance(record,dict) and set(record)=={
-                    "schema","source_sha","lane","kind",
+                    "schema","source_sha","lane","kind","target_package",
                     "scientific_first_use","paid_model_calls"
                 } and record["schema"]=="forge.f139.d2k.owner-development.v1"
                     and record["source_sha"]==source
                     and record["lane"] in LANES
                     and record["kind"]==D2K_KIND
+                    and record["target_package"] in D2K_ALLOWED_PACKAGES
                     and record["scientific_first_use"] is False
                     and type(record["paid_model_calls"]) is int
                     and record["paid_model_calls"]==0,
@@ -664,7 +670,7 @@ class GitHub:
                              "-"+hash_bytes(canonical(record))[:8],
                     "issue_number":raw["number"],"issue_id":raw["id"],
                     "source_sha":source,"lane":record["lane"],
-                    "kind":D2K_KIND,
+                    "kind":D2K_KIND, "target_package":record["target_package"],
                     "body_sha256":hash_bytes(canonical(record)),
                 })
             if len(items)<100:
