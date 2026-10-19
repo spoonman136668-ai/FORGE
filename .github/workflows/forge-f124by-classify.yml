@@ -1,0 +1,67 @@
+name: F124-BY predeclared compositional panel all outcomes
+on:
+  push:
+    branches: [research/f124by-predeclared-compositional-transfer-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124by-original-12-no-firstuse-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  frozen-36-arm-source-neutral-panel:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Immutable source/model identifiers and all 12 original frozen seeds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'BY_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor f26b56a75d3d70060d15f79f62085a7ad68dc923 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'BY_PRECODE_FREEZE_MISSING' }
+          $exact=@{
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'research/north-star-transfer/f124bx_learned_flag.py'='74b907aba821678d5f8a59b06f85f5e87cb05002'
+            'research/north-star-transfer/f124bv-frozen-independent-science.json'='5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($p in $exact.Keys) {
+            if ((& git rev-parse ('HEAD:'+$p)).Trim() -cne $exact[$p]) { throw "BY_FROZEN_SOURCE_DRIFT:$p" }
+          }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'BY_GOVERNANCE_ISOLATION' }
+          Write-Output 'F124BY_ORIGINAL_SCIENCE_SOURCE_AND_HYPOTHESIS_FROZEN=PASS'
+      - name: Original 12-case three-arm exhaustive panel; preserve failures, abstentions and every native outcome
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dest=Join-Path $env:RUNNER_TEMP 'f124by-original-all-cases'
+          New-Item -Force -ItemType Directory -Path $dest | Out-Null
+          & python -B research/north-star-transfer/f124by_classify.py --out (Join-Path $dest 'all-12-three-arm-original.json')
+          if ($LASTEXITCODE -ne 0) { throw 'BY_ORIGINAL_PANEL_CUSTODY_ERROR_NO_SCIENCE_PROMOTION' }
+          & python -B -c "import json,sys; d=json.load(open(sys.argv[1])); assert len(d['cases'])==12 and len(d['original_all_36_arm_results'])==36 and d['scientific_transfer_accepted'] is False and d['original_development_924xxx_925xxx_consumed'] is False and d['protected_128x2_used'] is False; print('F124BY_ALL_12_CASES_NO_CHERRYPICK=PASS')" (Join-Path $dest 'all-12-three-arm-original.json')
+          if ($LASTEXITCODE -ne 0) { throw 'BY_REQUIRED_ALL_12_CASES_MISSING' }
+          $hash=(Get-FileHash (Join-Path $dest 'all-12-three-arm-original.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+          "sha256=$hash" | Set-Content (Join-Path $dest 'source-receipt.txt')
+          "git_head=$env:GITHUB_SHA" | Add-Content (Join-Path $dest 'source-receipt.txt')
+          Write-Output 'F124BY_ORIGINAL_36_ARM_COMPOSITION_OBSERVATIONS=PASS'
+          Write-Output 'F124BY_INDEPENDENT_SOURCE_BIRTH=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124by-original-12-case-all-controls-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/f124by-original-all-cases/
+          retention-days: 90
+          if-no-files-found: warn
