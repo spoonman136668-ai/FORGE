@@ -78,6 +78,15 @@ jobs:
           $db = Join-Path $scratch 'state.sqlite'
           $key = Join-Path $scratch 'probe.dpapi.xml'
           $log = Join-Path $scratch 'logs\controller.log'
+          function Read-F139SharedLog([string]$Path) {
+            $share = [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete
+            $stream = New-Object IO.FileStream($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,$share)
+            try {
+              $reader = New-Object IO.StreamReader($stream)
+              try { return $reader.ReadToEnd() }
+              finally { $reader.Dispose() }
+            } finally { $stream.Dispose() }
+          }
           $sha = (& git rev-parse HEAD).Trim()
           if ($sha -notmatch '^[0-9a-f]{40}$') { throw 'F139_PROBE_SOURCE_INVALID' }
           & python -B -m f139.local_controller --db $db init --source-sha $sha
@@ -101,12 +110,12 @@ jobs:
               $child.Refresh()
               if ($child.HasExited) {
                 if (Test-Path -LiteralPath $log) {
-                  Write-Host ('F139_LAUNCHER_DIAGNOSTIC_LOG=' + [IO.File]::ReadAllText($log))
+                  Write-Host ('F139_LAUNCHER_DIAGNOSTIC_LOG=' + Read-F139SharedLog $log)
                 }
                 throw ('F139_NATIVE_LAUNCHER_PREMATURE_EXIT=' + $child.ExitCode)
               }
               if (Test-Path -LiteralPath $log) {
-                $body = [IO.File]::ReadAllText($log)
+                $body = Read-F139SharedLog $log
                 if ($body -match 'F139_CONTROLLER_INACTIVE_OR_LEGACY_RUNNING' -and
                     $body -match 'F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS') {
                   $observed = $true
