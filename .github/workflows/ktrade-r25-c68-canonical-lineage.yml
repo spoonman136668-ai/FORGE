@@ -1,0 +1,268 @@
+name: R25-C68 exact Go canonical fill and provenance integrity
+# Owner-local, read-only, low-priority. Uses exact pinned original CKB
+# canonical ledger JSON field layouts and hash validation semantics.
+# No GitHub upload of historical state, app start, orders or profile mutation.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c68-canonical-lineage.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r25-c68-private-canonical-go
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Admit exact owner and low-priority read-only scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+            throw 'R25_C68_UNQUALIFIED_MACHINE_OR_OWNER'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          if($null -eq (Get-Command go -ErrorAction SilentlyContinue)){
+            throw 'R25_C68_GO_NOT_AVAILABLE'
+          }
+          Write-Host 'R25_C68_OWNER_ACCOUNT_BOUNDARY=PASS'
+          Write-Host 'R25_C68_RESEARCH_CONTROL_OR_APP_ACTIVITY=FALSE'
+      - name: Validate owner-retained canonical fill chain with exact donor Go JSON
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $program=@'
+          package main
+          import (
+            "crypto/sha256"
+            "encoding/hex"
+            "encoding/json"
+            "errors"
+            "fmt"
+            "math"
+            "os"
+            "path/filepath"
+            "regexp"
+            "strings"
+            "time"
+          )
+          // Exact original CKB canonical structures and event hash semantics
+          // pkg/accounting.go at immutable donor SHA
+          // 912294dc27e52901f8b62b9b920758ccf2442b56.
+          type Commission struct {
+            Total float64 `json:"total"`
+            GST float64 `json:"gst,omitempty"`
+            Withholding float64 `json:"withholding,omitempty"`
+            Client float64 `json:"client,omitempty"`
+            Venue float64 `json:"venue,omitempty"`
+            Regulatory float64 `json:"regulatory,omitempty"`
+            Clearing float64 `json:"clearing,omitempty"`
+          }
+          type Fill struct {
+            SchemaVersion int `json:"schema_version"`
+            Sequence uint64 `json:"sequence"`
+            FillID string `json:"fill_id"`
+            TradeID string `json:"trade_id,omitempty"`
+            OrderID string `json:"order_id"`
+            ProductID string `json:"product_id"`
+            Side string `json:"side"`
+            Quantity float64 `json:"quantity"`
+            Price float64 `json:"price"`
+            GrossValue float64 `json:"gross_value"`
+            Fee float64 `json:"fee"`
+            RawSize string `json:"raw_size"`
+            RawPrice string `json:"raw_price"`
+            RawCommission string `json:"raw_commission"`
+            SizeInQuote bool `json:"size_in_quote"`
+            BrokerTimestamp string `json:"broker_timestamp"`
+            BrokerTimestampSource string `json:"broker_timestamp_source"`
+            SequenceTimestamp string `json:"sequence_timestamp,omitempty"`
+            Liquidity string `json:"liquidity"`
+            Commission Commission `json:"commission"`
+            PreviousEventHash string `json:"previous_event_hash,omitempty"`
+            EventHash string `json:"event_hash"`
+          }
+          type Provenance struct{
+            SchemaVersion int `json:"schema_version"`
+            Sequence uint64 `json:"sequence"`
+            FillID string `json:"fill_id"`
+            ClientOrderID string `json:"client_order_id,omitempty"`
+            Provenance string `json:"provenance"`
+            Evidence string `json:"evidence"`
+            RecordedAt string `json:"recorded_at"`
+            PreviousEventHash string `json:"previous_event_hash,omitempty"`
+            EventHash string `json:"event_hash"`
+          }
+          type State struct{
+            CanonicalFills []Fill `json:"canonical_fills"`
+            CanonicalFillProvenance []Provenance `json:"canonical_fill_provenance"`
+            CanonicalCashEvents []json.RawMessage `json:"canonical_cash_events"`
+          }
+          type File struct{Path string `json:"path"`; Bytes int64 `json:"bytes"`; SHA256 string `json:"sha256"`}
+          type Manifest struct{Schema string `json:"schema"`; CopiedFileCount int `json:"copied_file_count"`; CopiedBytes int64 `json:"copied_bytes"`;SourceFiles []File `json:"source_files"`}
+          type Receipt struct{ManifestSHA256 string `json:"manifest_sha256"`}
+          var selected=regexp.MustCompile(`^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$`)
+          var dig=regexp.MustCompile(`^[0-9a-f]{64}$`)
+          func sum(data []byte)string{h:=sha256.Sum256(data);return hex.EncodeToString(h[:])}
+          func ordinaryDir(p string)bool{st,e:=os.Lstat(p);return e==nil&&st.IsDir()&&st.Mode()&os.ModeSymlink==0}
+          func fileRead(p string,limit int64)([]byte,error){
+            st,e:=os.Lstat(p)
+            if e!=nil||!st.Mode().IsRegular()||st.Mode()&os.ModeSymlink!=0||st.Size()<1||st.Size()>limit{return nil,errors.New("file boundary")}
+            raw,e:=os.ReadFile(p);if e!=nil||int64(len(raw))!=st.Size(){return nil,errors.New("file changed")}
+            return raw,nil
+          }
+          func finitePositive(v float64)bool{return v>0&&!math.IsNaN(v)&&!math.IsInf(v,0)}
+          func finiteNonnegative(v float64)bool{return v>=0&&!math.IsNaN(v)&&!math.IsInf(v,0)}
+          func fillHash(f Fill)(string,error){f.EventHash="";b,e:=json.Marshal(f);if e!=nil{return "",e};return sum(b),nil}
+          func provenanceHash(p Provenance)(string,error){p.EventHash="";b,e:=json.Marshal(p);if e!=nil{return "",e};return sum(b),nil}
+          func validate(s State)(int,int,int,int,error){
+            prior:=""
+            seen:=make(map[string]struct{},len(s.CanonicalFills))
+            product:=""
+            hashes,links,grossErrors,commissionErrors:=0,0,0,0
+            for i,f:=range s.CanonicalFills{
+              if f.SchemaVersion!=1||f.Sequence!=uint64(i+1)||
+                strings.TrimSpace(f.FillID)==""||strings.TrimSpace(f.OrderID)==""||strings.TrimSpace(f.ProductID)==""||
+                (f.Side!="BUY"&&f.Side!="SELL")||!finitePositive(f.Quantity)||!finitePositive(f.Price)||
+                !finitePositive(f.GrossValue)||!finiteNonnegative(f.Fee)||
+                !dig.MatchString(f.EventHash)||f.PreviousEventHash!=prior{
+                return 0,0,0,0,errors.New("canonical event scope")
+              }
+              if _,e:=time.Parse(time.RFC3339Nano,f.BrokerTimestamp);e!=nil{return 0,0,0,0,errors.New("timestamp")}
+              if product==""{product=f.ProductID}
+              if f.ProductID!=product{return 0,0,0,0,errors.New("mixed products")}
+              if _,ok:=seen[f.FillID];ok{return 0,0,0,0,errors.New("duplicate fill")}
+              seen[f.FillID]=struct{}{}
+              expected,e:=fillHash(f)
+              if e!=nil||expected!=f.EventHash{return 0,0,0,0,errors.New("event digest")}
+              hashes++;links++
+              grossWant:=f.Quantity*f.Price
+              if math.Abs(f.GrossValue-grossWant)>math.Max(1e-9,math.Abs(grossWant)*1e-12){grossErrors++}
+              if math.Abs(f.Commission.Total-f.Fee)>math.Max(1e-9,math.Max(math.Abs(f.Commission.Total),math.Abs(f.Fee))*1e-9){commissionErrors++}
+              prior=f.EventHash
+            }
+            prior=""
+            known:=make(map[string]string)
+            clients:=make(map[string]string)
+            pv:=0
+            for i,p:=range s.CanonicalFillProvenance{
+              if p.SchemaVersion!=1||p.Sequence!=uint64(i+1)||
+                p.PreviousEventHash!=prior||!dig.MatchString(p.EventHash){
+                return 0,0,0,0,errors.New("provenance chain")
+              }
+              if _,ok:=seen[strings.TrimSpace(p.FillID)];!ok{return 0,0,0,0,errors.New("unknown referenced fill")}
+              switch p.Provenance {
+              case "CKB_STRATEGY","CKB_MANUAL","EXTERNAL_COINBASE","UNKNOWN":
+              default:return 0,0,0,0,errors.New("unknown provenance")
+              }
+              expected,e:=provenanceHash(p)
+              if e!=nil||expected!=p.EventHash{return 0,0,0,0,errors.New("provenance hash")}
+              if p.Provenance!="UNKNOWN" {
+                if old:=known[p.FillID];old!=""&&old!=p.Provenance{return 0,0,0,0,errors.New("provenance conflict")}
+                known[p.FillID]=p.Provenance
+              }
+              if p.ClientOrderID!=""{
+                if old:=clients[p.FillID];old!=""&&old!=p.ClientOrderID{return 0,0,0,0,errors.New("client identity drift")}
+                clients[p.FillID]=p.ClientOrderID
+              }
+              pv++;prior=p.EventHash
+            }
+            if grossErrors+commissionErrors>0{return 0,0,0,0,errors.New("immutable financial gross/commission mismatch")}
+            return hashes,links,pv,len(s.CanonicalCashEvents),nil
+          }
+          func audit()error{
+            if len(os.Args)!=3{return errors.New("args")}
+            custody,recovery:=os.Args[1],os.Args[2]
+            for _,p:=range []string{custody,recovery,filepath.Join(recovery,"Application"),filepath.Join(recovery,"Application","data")}{
+              if !ordinaryDir(p){return errors.New("directory")}
+            }
+            mraw,e:=fileRead(filepath.Join(custody,"R25-C47-private-manifest.json"),2<<20)
+            if e!=nil{return e}
+            rraw,e:=fileRead(filepath.Join(custody,"R25-C47-receipt.json"),16<<10)
+            if e!=nil{return e}
+            var m Manifest;var r Receipt
+            if json.Unmarshal(mraw,&m)!=nil||json.Unmarshal(rraw,&r)!=nil||
+              m.Schema!="ktrade.r25-c47.selected-user-data-snapshot.v1"||
+              m.CopiedFileCount!=695||m.CopiedBytes!=164194320||
+              len(m.SourceFiles)!=695||r.ManifestSHA256!=sum(mraw){
+              return errors.New("custody identity")
+            }
+            files,fills,links,pv,cash:=0,0,0,0,0
+            used:=int64(0)
+            for _,file:=range m.SourceFiles{
+              if !selected.MatchString(file.Path){continue}
+              if file.Bytes<=0||file.Bytes>4<<20||used>8<<20-file.Bytes||!dig.MatchString(file.SHA256){
+                return errors.New("selection limit")
+              }
+              raw,e:=fileRead(filepath.Join(recovery,filepath.FromSlash(file.Path)),4<<20)
+              if e!=nil||int64(len(raw))!=file.Bytes||sum(raw)!=file.SHA256{
+                return errors.New("file integrity")
+              }
+              used+=file.Bytes;files++
+              var state State
+              if json.Unmarshal(raw,&state)!=nil||len(state.CanonicalFills)>20000||
+                len(state.CanonicalFillProvenance)>40000||len(state.CanonicalCashEvents)>20000 {
+                return errors.New("source ledger resource limit")
+              }
+              fh,lh,ph,ch,e:=validate(state)
+              if e!=nil{return e}
+              fills+=fh;links+=lh;pv+=ph;cash+=ch
+            }
+            if files!=2||fills!=120||links!=fills{return errors.New("historical identity count drift")}
+            fmt.Println("R25_C68_CANONICAL_SOURCE_GO_FILL_HASH_CHAIN=PASS")
+            fmt.Printf("R25_C68_AUTHENTIC_STATE_FILES=%d\n",files)
+            fmt.Printf("R25_C68_CANONICAL_FILL_HASHES_VERIFIED=%d\n",fills)
+            fmt.Printf("R25_C68_CANONICAL_FILL_LINKS_VERIFIED=%d\n",links)
+            fmt.Printf("R25_C68_CANONICAL_PROVENANCE_EVENTS_VERIFIED=%d\n",pv)
+            fmt.Printf("R25_C68_CANONICAL_CASH_EVENTS_PRESENT=%d\n",cash)
+            fmt.Println("R25_C68_FINANCIAL_GROSS_AND_COMMISSION_FIELDS=PASS")
+            fmt.Println("R25_C68_CANONICAL_FIFO_PNL_PROJECTION_VERIFIED=FALSE")
+            fmt.Println("R25_C68_EXTERNAL_BROKER_RECORDS_REVERIFIED=FALSE")
+            fmt.Println("R25_C68_PRIVATE_SOURCE_VALUES_OR_HASHES_EXPORTED=FALSE")
+            fmt.Println("R25_C68_APP_BROKER_ORDERS_OR_AUTORESTART=FALSE")
+            fmt.Println("R25_C68_RELEASE_AND_MIGRATION_AUTHORIZED=FALSE")
+            return nil
+          }
+          func main(){if audit()!=nil{
+            fmt.Fprintln(os.Stderr,"R25_C68_CANONICAL_LINEAGE_UNQUALIFIED")
+            os.Exit(1)
+          }}
+          '@
+          $scratch=Join-Path $env:RUNNER_TEMP ('r25c68-'+[Guid]::NewGuid().ToString('N'))
+          $null=New-Item -ItemType Directory -Path $scratch
+          try{
+            $path=Join-Path $scratch 'audit.go'
+            $exe=Join-Path $scratch 'audit.exe'
+            [IO.File]::WriteAllText($path,$program,[Text.UTF8Encoding]::new($false))
+            $env:GOMAXPROCS='1'
+            $env:GOFLAGS='-p=1'
+            $env:GO111MODULE='off'
+            $env:GOCACHE=Join-Path $scratch 'go-cache'
+            & go build -trimpath -o $exe $path *> (Join-Path $scratch 'build-private.txt')
+            if($LASTEXITCODE -ne 0){throw 'R25_C68_STD_LIB_GO_BUILD_NOT_QUALIFIED'}
+            $original=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+            $isolated=Join-Path $env:USERPROFILE 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+            $out=@(& $exe $original $isolated)
+            if($LASTEXITCODE -ne 0 -or
+               @($out|Where-Object{$_ -ceq 'R25_C68_CANONICAL_SOURCE_GO_FILL_HASH_CHAIN=PASS'}).Count -ne 1){
+               throw 'R25_C68_AUTHENTIC_LEDGER_REVIEW_UNQUALIFIED'
+            }
+            $out|ForEach-Object{Write-Host $_}
+            Write-Host 'R25_C68_LOCAL_STD_LIB_ONLY_BUILD=PASS'
+            Write-Host 'R25_C68_SNAPSHOT_OR_RECOVERY_MODIFIED=FALSE'
+            Write-Host 'R25_C68_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+            Write-Host 'R25_C68_RESEARCH_RUNNER_OR_CODEx_TASK_DISPATCH=FALSE'
+          }finally{
+            Remove-Item Env:\GOCACHE -ErrorAction SilentlyContinue
+            Remove-Item Env:\GOFLAGS -ErrorAction SilentlyContinue
+            Remove-Item Env:\GO111MODULE -ErrorAction SilentlyContinue
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+          }
