@@ -22,10 +22,10 @@ import(
 const(
  selectedSchema="forge.science.selected-firstuse.v2"
  bornSchema="forge.science.independent-source-birth.v2"
- familySchema="forge.science.complete-family-ledger.v1"
+ familySchema="forge.science.complete-family-ledger.v2"
  selectedDomain="FORGE-SCIENCE-SELECTED-FROZEN-V2\n"
  bornDomain="FORGE-SCIENCE-INDEPENDENT-BIRTH-V2\n"
- familyDomain="FORGE-SCIENCE-FAMILY-LEDGER-V1\n"
+ familyDomain="FORGE-SCIENCE-FAMILY-LEDGER-V2\n"
  SelectedPreflightOnly="FSA_SIGNED_SELECTION_PREFLIGHT_ONLY_NO_START_OR_DISPATCH"
 )
 type Selected struct{
@@ -62,6 +62,10 @@ type FamilySnapshot struct{
  Sequence uint64 `json:"sequence"`
  HeadSHA256 string `json:"head_sha256"`
  LedgerGeneration uint64 `json:"ledger_generation"`
+ // Independently pinned eligibility ledger digest: cohort identities and
+ // source-family identities are separate namespaces, so bind the complete
+ // cohort ledger by exact authenticated fingerprint rather than equating them.
+ LedgerSnapshotSHA256 string `json:"ledger_snapshot_sha256"`
  CompleteAllLanes bool `json:"complete_all_lanes"`
  FrozenSelectionSHA256 string `json:"frozen_selection_sha256"`
  SourceBirthSHA256 string `json:"source_birth_sha256"`
@@ -129,7 +133,7 @@ func completeFamilyInventory(snapshot FamilySnapshot,first,second string)bool{
 // AssessSelectedArchived can pass an independently recovered archive head.
 func verifySelected(s SignedSelection,b SignedBirth,f SignedFamilySnapshot,
  pins IndependentPins,expected eligibility.Frozen,
- head fsahead.Anchor,ledgerGeneration uint64)(string,error){
+ head fsahead.Anchor,ledgerGeneration uint64,ledgerPinSHA256 string)(string,error){
  fail:=func(reason string)(string,error){return "",fmt.Errorf("%w: signed first-use: %s",ErrBlocked,reason)}
  if len(pins.FrozenSigner)!=ed25519.PublicKeySize||
  len(pins.SourceBirthSigner)!=ed25519.PublicKeySize||
@@ -170,6 +174,7 @@ func verifySelected(s SignedSelection,b SignedBirth,f SignedFamilySnapshot,
  if err!=nil||!signatureValid(pins.SourceBirthSigner,b.SignatureHex,bm){return fail("unsigned independent postfreeze birth")}
  if z.ArchiveID!=head.ArchiveID||z.HeadSHA256!=head.HeadSHA256||
  z.Sequence!=head.Sequence||z.LedgerGeneration!=ledgerGeneration||
+ !hex64(ledgerPinSHA256)||z.LedgerSnapshotSHA256!=ledgerPinSHA256||
  z.FrozenSelectionSHA256!=sh||z.SourceBirthSHA256!=bh||
  z.FrozenSequence!=x.FrozenSequence||z.BirthSequence!=y.BirthSequence||
  !z.CompleteAllLanes||!completeFamilyInventory(z,y.IndependentFamilySHA256[0],y.IndependentFamilySHA256[1]){
@@ -190,5 +195,5 @@ func AssessSelectedArchived(ctx context.Context,backend fsatrust.Authority,
  pins IndependentPins)(string,error){
  decision,head,err:=assessArchivedAnchor(ctx,backend,archive,identity,evidence)
  if err!=nil||decision!=PreflightOnly{return "",fmt.Errorf("%w: authentic FSA archive required: %v",ErrBlocked,err)}
- return verifySelected(signed,birth,family,pins,evidence.Frozen,head,evidence.ExperimentGeneration)
+ return verifySelected(signed,birth,family,pins,evidence.Frozen,head,evidence.ExperimentGeneration,evidence.LedgerPinSHA256)
 }
