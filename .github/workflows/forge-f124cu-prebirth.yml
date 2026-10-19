@@ -1,0 +1,61 @@
+name: F124-CU new sequence source and full-BPTT PREBIRTH
+on:
+  push:
+    branches: [research/f124cu-sequence-prospective-20261019]
+    paths:
+      - research/north-star-transfer/f124cu_*
+      - research/north-star-transfer/f124cu-*
+      - research/north-star-transfer/test_f124cu_prebirth.py
+      - .github/workflows/forge-f124cu-prebirth.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124cu-prebirth-sourcefree-engineering
+  cancel-in-progress: false
+jobs:
+  original-prebirth:
+    name: sourcefree-prebirth (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pinned CPU-only NumPy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CU_PINNED_NUMPY_MISSING' }
+      - name: Original immutable F124-CT learned BPTT model hashes and pre-source hypothesis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor 3402932e98144aeeade83b86826d6bae54f8aa67 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CU_PREREG_BEFORE_SOURCE_NOT_PROVEN' }
+          $a=Get-Content -Raw research/north-star-transfer/f124cu-frozen-new-sequence-prereg.json | ConvertFrom-Json
+          if ($a.schema -cne 'mass.f124cu.unfamiliar-causal-sequence-prebirth-prereg.v1') { throw 'CU_PREREG_SCHEMA_CHANGED' }
+          foreach ($p in @(@($a.candidate.path,$a.candidate.blob),@($a.trained_peer.path,$a.trained_peer.blob),@($a.protocol.path,$a.protocol.blob))) {
+            $actual=(& git rev-parse "HEAD:$($p[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $p[1]) { throw "CU_SOURCE_BLOB_DRIFT:$($p[0])" }
+          }
+          if ($a.authority.protected_firstuse -or $a.authority.scientific_acceptance -or $a.authority.automatic_merge) { throw 'CU_UNAUTHORIZED_SOURCE_RELEASE' }
+          Write-Host 'F124CU_FROZEN_LEARNED_MODELS_AND_PRE_SOURCE_HYPOTHESIS=PASS'
+      - name: Qualify only synthetic original read-only native and whole OS costs
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cu_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CU_SOURCE_NEUTRAL_PREBIRTH_FAILED' }
+          Write-Host 'F124CU_PUBLIC_NATIVE_AND_WHOLE_OS_PREBIRTH=PASS'
