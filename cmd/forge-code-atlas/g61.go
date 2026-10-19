@@ -41,7 +41,7 @@ func g61Tree(root,rev string)(map[string]string,error){
  out:=map[string]string{}
  for _,line:=range bytes.Split(raw,[]byte{0}){
   if len(line)==0{continue}
-  parts:=bytes.SplitN(line,[]byte{'	'},2)
+  parts:=bytes.SplitN(line,[]byte{9},2)
   if len(parts)!=2{return nil,errors.New("G61_BAD_TREE_RECORD")}
   meta:=strings.Fields(string(parts[0]));if len(meta)!=3{return nil,errors.New("G61_BAD_TREE_METADATA")}
   if meta[1]!="blob"{continue}
@@ -52,7 +52,7 @@ func g61Tree(root,rev string)(map[string]string,error){
  return out,nil
 }
 func g61Source(root,rev,path,sha string)([]byte,error){
- if filepath.IsAbs(path)||strings.Contains(path,"..")||strings.Contains(path,"\"){return nil,errors.New("G61_UNSAFE_PATH")}
+ if filepath.IsAbs(path)||strings.Contains(path,"..")||strings.ContainsRune(path,92){return nil,errors.New("G61_UNSAFE_PATH")}
  raw,e:=git(root,"show",rev+":"+path);if e!=nil{return nil,e}
  if blobGitSHA(raw)!=sha{return nil,fmt.Errorf("G61_SOURCE_BLOB_DRIFT %s",path)}
  return raw,nil
@@ -65,8 +65,7 @@ func g61Extract(path,url string,raw []byte)([]Symbol,error){
   for _,m:=range re.FindAllSubmatchIndex(raw,-1){
    start,end:=m[nameGroup*2],m[nameGroup*2+1]
    if start<0||end<0{continue}
-   line:=bytes.Count(raw[:m[0]],[]byte{'
-'})+1
+   line:=bytes.Count(raw[:m[0]],[]byte{10})+1
    out=append(out,symbol(path,kind,string(raw[start:end]),"lexical-locator-only",url,line,line))
   }
  }
@@ -98,8 +97,7 @@ func g61Build(root string)(Atlas,g61Stats,error){
   ".github/workflows/forge-g29-source-atlas.yml":true,
   "docs/G61-SOURCE-COVERAGE.md":true,
  }
- for _,p:=range strings.Split(strings.TrimSpace(string(diff)),"
-"){
+ for _,p:=range strings.Split(strings.TrimSpace(string(diff)),string([]byte{10})){
   if p!=""&&!allowed[p]{return empty,stats,fmt.Errorf("G61_UNAUTHORIZED_HEAD_DELTA %s",p)}
  }
  blob,e:=git(root,"rev-parse",current+":"+jsonFile);if e!=nil{return empty,stats,e}
@@ -178,11 +176,9 @@ func g61Run(root,out string)error{
    if e=os.WriteFile(filepath.Join(out,names[src]),data,0600);e!=nil{return e}
   }
   evidence,e:=json.MarshalIndent(s,"","  ");if e!=nil{return e}
-  if e=os.WriteFile(filepath.Join(out,"G61_DELTA_PROVENANCE.json"),append(evidence,'
-'),0600);e!=nil{return e}
+  if e=os.WriteFile(filepath.Join(out,"G61_DELTA_PROVENANCE.json"),append(evidence,byte(10)),0600);e!=nil{return e}
  }
- fmt.Printf("FORGE_G61_EXACT_SOURCE_PASS target=%s reused=%d modified=%d added=%d csharp=%d files=%d symbols=%d
-",
+ fmt.Printf("FORGE_G61_EXACT_SOURCE_PASS target=%s reused=%d modified=%d added=%d csharp=%d files=%d symbols=%d\n",
   s.Target,s.Reused,s.Modified,s.Added,s.CSharp,a.Counts.Files,a.Counts.Symbols)
  return nil
 }
