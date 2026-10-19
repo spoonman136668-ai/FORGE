@@ -83,3 +83,23 @@ must fail rather than silently reinterpret an existing table. These tests
 are local SQLite compatibility only: they neither execute on the real D1
 nor attest a production backup, signature, all-lane first-use history, or
 start permission.
+
+### No partial D1 schema is acceptable
+
+A collision on a *later* trigger or table must never leave earlier FSA DDL
+committed without its guards. `migration_contract.statements()` checks that
+all six DDL objects exist in the exact frozen order. Production installation
+must use **one atomic Cloudflare `D1Database.batch(...)`** containing all six
+prepared statements, with the provider's all-or-nothing rollback on any error.
+Do **not** install this DDL as sequential standalone REST calls, as an
+unqualified `exec()` multi-statement script, or via a CLI whose transactional
+rollback has not been independently demonstrated. D1 does not permit a manual
+SQL `BEGIN TRANSACTION` in its Worker binding.
+
+The `migration_contract.qualify_atomic_sqlite` helper is **test-only**, using
+one explicit transaction against local SQLite. Its regression injects
+collisions at both table names and all four trigger names and proves rollback
+of the *whole* namespace while preserving all existing rows and DDL. This is
+not evidence that a live D1 migration has occurred or that a future remote
+caller used the required provider batch. Remote writer deployment and verified
+backup/independent FSA custody remain blocked.
