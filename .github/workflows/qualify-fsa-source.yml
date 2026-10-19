@@ -53,12 +53,16 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           python3 - <<'PY'
-          import json,os,re,subprocess
+          import json,os,re,subprocess,sys
+          # One established, exact Link-announced, bounded GitHub inventory,
+          # shared with the protected-main read-only source auditor (R21).
+          # Never infer absence or source authorization from page one.
+          sys.path.insert(0,'scripts')
+          from fsa_source_audit import GitHub, list_open_prs
           repo=os.environ['REPO'];ref=os.environ['SOURCE_BRANCH'];sha=os.environ['EXPECTED_SHA']
           assert re.fullmatch(r'proposal/fsa[a-zA-Z0-9/_-]*',ref)
           assert re.fullmatch(r'[0-9a-f]{40}',sha)
-          prs=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/pulls?state=open&per_page=100'],text=True))
-          if len(prs)>=100:raise SystemExit('TRUNCATED_PR_DISCOVERY')
+          prs=list_open_prs(GitHub())
           matches=[pr for pr in prs if pr['head']['ref']==ref and
                    pr['head']['sha']==sha and pr['head']['repo']['full_name']==repo and
                    pr['base']['ref']=='main' and pr['user']['login']=='spoonman136668-ai' and
