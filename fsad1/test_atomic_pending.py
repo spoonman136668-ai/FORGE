@@ -45,7 +45,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
     def attempt(self, claim=CLAIM):
         with closing(self.open()) as db:
             try:
-                return db.execute(RESERVE, claim).fetchall()
+                return db.execute(RESERVE, {str(i+1): v for i, v in enumerate(claim)}).fetchall()
             except sqlite3.IntegrityError:
                 return "INTEGRITY_CONFLICT_NO_RETRY"
 
@@ -55,7 +55,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(rows[0][-1], "RESERVED_PENDING_INDEPENDENT_WITNESS")
         self.assertEqual(self.attempt(), [])
         with closing(self.open()) as db:
-            row = db.execute(READBACK, (H("a"),)).fetchone()
+            row = db.execute(READBACK, {"1": H("a")}).fetchone()
             self.assertEqual(row, rows[0])
             self.assertEqual(
                 db.execute("SELECT reservation_open,reservation_sequence "
@@ -125,13 +125,15 @@ class AtomicPendingFirstUse(unittest.TestCase):
                 "SELECT reservation_open FROM authority_state").fetchone()[0], 1)
 
     def test_unknown_lane_or_bad_identity_is_never_committed(self):
-        for change in [
-            (3, "Qualification"), (0, "not-a-hash"), (6, 0)
+        for index, value, expected in [
+            (3, "Qualification", "INTEGRITY_CONFLICT_NO_RETRY"),
+            (0, "not-a-hash", "INTEGRITY_CONFLICT_NO_RETRY"),
+            # A mismatched epoch fails the atomic WHERE clause without a row.
+            (6, 0, []),
         ]:
             modified = list(CLAIM)
-            modified[change[0]] = change[1]
-            self.assertEqual(self.attempt(tuple(modified)),
-                             "INTEGRITY_CONFLICT_NO_RETRY")
+            modified[index] = value
+            self.assertEqual(self.attempt(tuple(modified)), expected)
         with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT reservation_open,reservation_sequence "
