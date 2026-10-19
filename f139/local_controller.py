@@ -452,14 +452,18 @@ class Database:
             row["ticket"]:row for row in self.conn.execute(
                 "SELECT ticket,stage,run_id,evidence_sha FROM tasks")
         }
+        authenticated = {
+            name: row for name,row in verified.items()
+            if name.startswith("f139-d2j-") or name.startswith("f139-d2c-")
+        }
         require(meta["head_seq"] >= 23
-                and len(verified) >= 4
+                and len(authenticated) == 4
                 and all(t["stage"]=="VERIFIED" and t["run_id"] is not None
                         and t["evidence_sha"] is not None
-                        for t in verified.values())
-                and sum(name.startswith("f139-d2j-") for name in verified) == 2
-                and sum(name.startswith("f139-d2c-") for name in verified) == 2,
-                "D2K_AUTHENTIC_SUCCESSSION_REQUIRED")
+                        for t in authenticated.values())
+                and sum(name.startswith("f139-d2j-") for name in authenticated) == 2
+                and sum(name.startswith("f139-d2c-") for name in authenticated) == 2,
+                "D2K_AUTHENTIC_SUCCESSION_REQUIRED")
         require(isinstance(issue, dict) and set(issue) == {
                     "ticket", "issue_number", "issue_id", "source_sha",
                     "lane", "kind", "body_sha256"
