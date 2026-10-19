@@ -1,0 +1,127 @@
+name: F124-DA sourcefree learned causal-operator vocabulary
+on:
+  push:
+    branches: [research/f124da-learned-operator-lexicon-20261019]
+    paths: [.github/workflows/forge-f124da-operator-discovery.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124da-first-frozen-operator-lexicon-sourcefree
+  cancel-in-progress: false
+jobs:
+  frozen-operator-preflight:
+    name: frozen-operator-preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pin unchanged strong recurrent dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'DA_PINNED_CPU_DEP' }
+      - name: Verify source-free operator vocabulary experiment was frozen BEFORE generator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'DA_REPO_SOURCE_IDENTITY_CHANGED' }
+          & git merge-base --is-ancestor e7cbd957560320e01ba9b301a7f19ce92b2d6a28 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DA_PRE_SOURCE_PREREGISTRATION_NOT_PROVEN' }
+          & git merge-base --is-ancestor a7ae38a68a296753c92ba81a40de7c17fe9cb31a HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DA_PARENT_QUALIFIED_NEGATIVE_MISSING' }
+          $x=Get-Content -Raw research/north-star-transfer/f124da-frozen-operator-induction.json | ConvertFrom-Json
+          if ($x.schema -cne 'mass.f124da.sourcefree-learned-operator-vocabulary-prereg.v1') { throw 'DA_FROZEN_OPERATOR_SCHEMA' }
+          if (!$x.no_original_924_through_937_replay -or !$x.no_firstuse -or !$x.no_scientific_acceptance -or !$x.no_auto_merge) { throw 'DA_FORBIDDEN_SCIENCE_OR_AUTOPROMOTION' }
+          foreach ($p in @(@('research/north-star-transfer/f124cz_shared_quadratic_model.py','4f1f4d85eaa8a7785048116486debb09b3a83d67'),@('research/north-star-transfer/f124ct_gated_sequence_control.py','3ef0cc31ce78eee8a5a1bbde71c31b8364108325'))) {
+            $actual=(& git rev-parse "HEAD:$($p[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $p[1]) { throw "DA_FROZEN_STRONG_CONTROL_SOURCE_DRIFT:$($p[0])" }
+          }
+          Write-Host 'F124DA_EXACT_PREGENERATOR_FREEZE_AND_NO_FIRSTUSE=PASS'
+      - name: Qualify learned truth tables, independent full search and causal online inference
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124da_operator_induction.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'DA_OPERATOR_LEXICON_SAFETY_OR_LEARNING_FAIL' }
+          Write-Host 'F124DA_LEARNED_OPERATOR_INDUCTION_PREFLIGHT=PASS'
+  full-linux-sourcefree-comparisons:
+    name: full-linux-sourcefree-comparisons (${{ matrix.family }}, ${{ matrix.first_seed }})
+    needs: frozen-operator-preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [unseen_boolean_operator_lexicon, fourbit_carry_outside_lexicon]
+        first_seed: [51, 53]
+    runs-on: ubuntu-latest
+    timeout-minutes: 27
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pinned CPU-only reference
+        run: python -m pip install --disable-pip-version-check numpy==2.3.5
+      - name: Execute 50 source-free whole-process native trials without any first-use source
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124da_whole_os_shard.py \
+            --family "${{ matrix.family }}" \
+            --first-seed "${{ matrix.first_seed }}" \
+            --out "$RUNNER_TEMP/f124da-shard"
+      - name: Retain all original complete OS child receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124da-sourcefree-shard-${{ matrix.family }}-${{ matrix.first_seed }}
+          path: ${{ runner.temp }}/f124da-shard/shard-*.json
+          if-no-files-found: error
+          retention-days: 90
+  independent-sourcefree-reconciliation:
+    name: independent-sourcefree-reconciliation
+    needs: full-linux-sourcefree-comparisons
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve all original independent 50-process shard evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124da-sourcefree-shard-*
+          path: ${{ runner.temp }}/f124da-original-shards
+          merge-multiple: true
+      - name: Verify all 200 sourcefree full OS receipts without replaying models
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124da_readonly_audit.py \
+            --shards "$RUNNER_TEMP/f124da-original-shards" \
+            --out "$RUNNER_TEMP/f124da-reviewed"
+      - name: Retain complete sourcefree original evidence and safe summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124da-original-complete-200-operator-study
+          path: ${{ runner.temp }}/f124da-reviewed/
+          if-no-files-found: error
+          retention-days: 90
