@@ -1,0 +1,218 @@
+name: F124-CK exact pre-entropy repair and FIRST 930 931 E2 F2 source birth
+on:
+  push:
+    branches: [research/f124ck-prebirth-schema-repair-20261019]
+    paths: [.github/workflows/forge-f124ck-one-firstuse.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ck-only-original-930-931-unborn-source-once
+  cancel-in-progress: false
+jobs:
+  original-zero-birth-and-frozen-source-only-tests:
+    if: github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original source SHA, qualified role parser, only corrected pre-entropy key
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $original='5d77880fec127cceef3494fef9c7a60c5745fa38'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CK_PREBIRTH_HEAD_DRIFT' }
+          & git merge-base --is-ancestor $original HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CK_ORIGINAL_PREBIRTH_ANCESTOR_MISSING' }
+          & git merge-base --is-ancestor 88933fb367a68c8c19d4fb2f9388d886ff9162b4 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CK_NEGATIVE_PRECODE_FREEZE_NOT_ANCESTOR' }
+          $expected=@(
+            '.github/workflows/forge-f124ck-one-firstuse.yml',
+            'research/north-star-transfer/f124cj_birth_original.py',
+            'research/north-star-transfer/f124ck-frozen-prebirth-repair.json',
+            'research/north-star-transfer/test_f124ck_prebirth_schema.py'
+          )
+          $changed=@(& git diff --name-only $original HEAD | Where-Object { $_ })
+          if ((@($changed|Sort-Object) -join '|') -cne (@($expected|Sort-Object) -join '|')) { throw 'CK_UNQUALIFIED_SCIENCE_SOURCE_DIFF' }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124ck_prebirth_schema.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CK_PRE_ENTROPY_KEY_AND_FROZEN_CONTRACT_FAIL' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CK_SOURCE_OR_GOVERNANCE_INVALID' }
+          Write-Output 'F124CK_ONLY_ONE_FIELD_CHANGED_BEFORE_OS_ENTROPY=PASS'
+          Write-Output 'F124CK_UNCHANGED_E2_F2_SOURCE_CB_CC_AZ_PARSER=PASS'
+          Write-Output 'F124CK_NO_OLD_CASES_OR_PROTECTED_FIRSTUSE=PASS'
+  original-previous-failure-zero-artifact-provider-assurance:
+    needs: original-zero-birth-and-frozen-source-only-tests
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Independently check ORIGINAL first attempt failed before entropy; no source birth artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39278833649" > "$RUNNER_TEMP/previous-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39278833649/artifacts?per_page=100" > "$RUNNER_TEMP/previous-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/118149720031" > "$RUNNER_TEMP/previous-birth-job.json"
+          python3 -B - "$RUNNER_TEMP/previous-run.json" "$RUNNER_TEMP/previous-artifacts.json" "$RUNNER_TEMP/previous-birth-job.json" <<'PY'
+          import json,sys
+          run,arts,job=[json.load(open(p)) for p in sys.argv[1:]]
+          assert run['id']==39278833649
+          assert run['head_sha']=='5d77880fec127cceef3494fef9c7a60c5745fa38'
+          assert run['run_attempt']==1
+          assert run['conclusion']=='failure' and run['status']=='completed'
+          assert arts['total_count']==0 and arts['artifacts']==[]
+          assert job['id']==118149720031 and job['conclusion']=='failure'
+          assert job['run_id']==run['id']
+          fail=[s for s in job['steps'] if s.get('conclusion')=='failure']
+          assert len(fail)==1
+          assert 'Originate exactly 24' in fail[0]['name']
+          print('F124CK_ORIGINAL_FAILED_BEFORE_ANY_SEED_OR_SOURCE_ARTIFACT=PASS')
+          print('F124CK_PRIOR_RUN_NO_CASE_OR_MODEL_FIRSTUSE=PASS')
+          PY
+  first-original-sealed-new-source-E2F2-birth:
+    needs: original-previous-failure-zero-artifact-provider-assurance
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Originate 24 UNBORN 930 931 seeds once; no scorer, no previous source reuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          root="$RUNNER_TEMP/f124ck-original-source-birth"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124cj_birth_original.py \
+            --git-head "$GITHUB_SHA" \
+            --out "$root/original-24-E2F2-firstuse-birth.json"
+          python3 -B - "$root/original-24-E2F2-firstuse-birth.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1]))
+          assert p['schema']=='mass.f124cj.original-sealed-internal-E2F2-birth.v1'
+          assert len(p['original_all_24_firstuse_cases'])==24
+          assert len(set(p['original_all_24_task_digests']))==24
+          assert [x['task_identity'] for x in p['original_all_24_firstuse_cases']]==list(range(930000,930012))+list(range(931000,931012))
+          assert p['original_source_identity']=='INTERNALLY_AUTHORED_NOT_EXTERNAL'
+          assert p['source_module_has_no_learned_model_import']
+          assert not p['model_or_native_scoring_executed']
+          assert not p['new_EF_replication_cohorts_created']
+          print('F124CK_FIRST_REAL_24_NEW_OS_RANDOM_SOURCE_BIRTHS_SEALED=PASS')
+          print('F124CK_LEARNED_MODEL_AND_NATIVE_SCORER_NOT_RUN=PASS')
+          PY
+          (cd "$root" && sha256sum original-24-E2F2-firstuse-birth.json > ORIGINAL_SHA256SUMS && sha256sum -c ORIGINAL_SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: f124ck-original-one-time-sealed-24-sources
+          path: ${{ runner.temp }}/f124ck-original-source-birth/
+          retention-days: 90
+          if-no-files-found: error
+  prospective-once-all-24-original-native-and-complete-costs:
+    needs: first-original-sealed-new-source-E2F2-birth
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      scientific_development_pass: ${{ steps.science.outputs.scientific_development_pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124ck-original-one-time-sealed-24-sources
+          path: ${{ runner.temp }}/f124ck-original-source-birth/
+      - name: Consume original one-time birth; retain all 168 actual native and 840 whole-process OS receipts or fail closed
+        id: science
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          birth="$RUNNER_TEMP/f124ck-original-source-birth"
+          (cd "$birth" && sha256sum -c ORIGINAL_SHA256SUMS)
+          root="$RUNNER_TEMP/f124ck-complete-science-evidence"
+          mkdir -p "$root"
+          export F124CJ_ORIGINAL_APPEND_JOURNAL="$root/original-append-native-and-OS-receipts.jsonl"
+          python3 -B research/north-star-transfer/f124cj_prospective_eval.py \
+            --birth "$birth/original-24-E2F2-firstuse-birth.json" \
+            --out "$root/original-24-E2F2-science-outcomes.json"
+          python3 -B - "$root/original-24-E2F2-science-outcomes.json" "$GITHUB_OUTPUT" <<'PY'
+          import json,sys
+          v=json.load(open(sys.argv[1]))
+          assert v['schema']=='mass.f124cj.original-internal-prospective-E2F2-840-OS-process.v1'
+          assert len(v['original_168_native_preflights'])==168
+          assert len(v['original_840_full_OS_process_measurements'])==840
+          assert len(v['all_24_prospective_case_outcomes'])==24
+          assert v['source_origin_internally_authored_not_external']
+          assert not v['new_E_F_128x2_protected_cohorts_opened']
+          assert not v['old_BV_924_925_and_CE_926_927_firstuse']
+          assert not v['optimizer_or_production_promoted']
+          assert not v['science_accepted']
+          qualified=v['frozen_scientific_development_gate_passed']
+          with open(sys.argv[2],'a') as f:
+              f.write('scientific_development_pass='+str(qualified).lower()+'\n')
+          print('F124CK_24_SOURCE_FIRSTUSES_168_NATIVE_840_PROCESS=PASS')
+          print('F124CK_STRICT_SCIENTIFIC_DEVELOPMENT_PASS='+str(qualified))
+          PY
+          (cd "$root" && sha256sum original-24-E2F2-science-outcomes.json original-append-native-and-OS-receipts.jsonl > ORIGINAL_SHA256SUMS && sha256sum -c ORIGINAL_SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124ck-original-all-24-decisions-native-CPU-RSS-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ck-complete-science-evidence/
+          retention-days: 90
+          if-no-files-found: warn
+  one-full-Go-regression-only-on-actual-science-gate-success:
+    needs: prospective-once-all-24-original-native-and-complete-costs
+    if: needs.prospective-once-all-24-original-native-and-complete-costs.outputs.scientific_development_pass == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: One regression on scientifically eligible original source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124CK_SINGLE_COMPLETE_REGRESSION=PASS
