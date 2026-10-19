@@ -105,6 +105,9 @@ func TestFrozenSourceAndPreOutcomeIdentityTamperingDenied(t *testing.T){
 	f.Candidates[0].OutcomeGivenHypothesis[0][0]=9000
 	if _,err:=Recommend(f,Digest(f));err!=ErrFrozen{t.Fatalf("non-normalized probability accepted: %v",err)}
 	f=fixture()
+	f.Candidates[0].SourceSHA=f.SourceSHA
+	if _,err:=Recommend(f,Digest(f));err!=ErrFrozen{t.Fatalf("parent source reused as novel proposal: %v",err)}
+	f=fixture()
 	f.Candidates[0].Generator="github-execution-authority"
 	if _,err:=Recommend(f,Digest(f));err!=ErrFrozen{t.Fatalf("unsafe optimizer accepted: %v",err)}
 	f=fixture()
@@ -127,7 +130,7 @@ func TestAllExistingOptimizersAreAdvisoryAndLanesIsolated(t *testing.T){
 			c:=Candidate{
 				ID:"candidate-"+generator,
 				MechanismSHA256:repHex(64,string(rune('a'+i))),
-				SourceSHA:repHex(40,string(rune('a'+i))),
+				SourceSHA:repHex(40,string(rune('g'+i))),
 				Family:"mechanism-"+generator,Generator:generator,
 				OutcomeGivenHypothesis:informative(),ComputeUnits:int64(1+i),
 			}
