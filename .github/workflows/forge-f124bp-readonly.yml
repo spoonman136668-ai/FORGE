@@ -1,0 +1,94 @@
+name: F124-BP original nonlinear transfer source-independent evidence audit
+on:
+  push:
+    branches: [research/f124bp-readonly-evidence-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bp-original-causal-evidence-readonly-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  provider-original-firstuse-readonly-recount:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fail closed if source, original model, control or frozen protocol changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 0a4a271a91fda97bc4c810553d047e6620e7b1eb HEAD
+          mapfile -t changed < <(git diff --name-only 0a4a271a91fda97bc4c810553d047e6620e7b1eb HEAD | sort)
+          test "${#changed[@]}" -eq 3
+          test "${changed[0]}" = '.github/workflows/forge-f124bp-readonly.yml'
+          test "${changed[1]}" = 'research/north-star-transfer/f124bp-original-frozen-outcome.json'
+          test "${changed[2]}" = 'research/north-star-transfer/f124bp_readonly_reconcile.py'
+          for file in \
+            research/north-star-transfer/f124bp-frozen-composition.json \
+            research/north-star-transfer/f124bp_compact_learner.py \
+            research/north-star-transfer/f124bp_procedural_source.py \
+            research/north-star-transfer/f124bp_feedback_source.py \
+            research/north-star-transfer/f124bp_fit_eval.py \
+            nativeevidence/f124az_joint_public_inverse.py \
+            nativeevidence/f124ag_transition_models.py; do
+            test "$(git rev-parse HEAD:"$file")" =                  "$(git rev-parse 0a4a271a91fda97bc4c810553d047e6620e7b1eb:"$file")"
+          done
+          python3 -B -m py_compile research/north-star-transfer/f124bp_readonly_reconcile.py
+          echo F124BP_ORIGINAL_MODEL_AND_SOURCE_NOT_REEXECUTED=PASS
+      - name: Independently authenticate original provider exact head, original step and original archive digest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bp-original-reconciliation"
+          mkdir -p "$root/original-archive"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39186562655" > "$root/provider-original-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/117850160595" > "$root/provider-original-firstuse-job.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12158670755" > "$root/provider-original-artifact.json"
+          python3 -B - "$root" <<'PY'
+          import json,sys,pathlib
+          root=pathlib.Path(sys.argv[1])
+          run=json.loads((root/'provider-original-run.json').read_text())
+          job=json.loads((root/'provider-original-firstuse-job.json').read_text())
+          art=json.loads((root/'provider-original-artifact.json').read_text())
+          assert run['id']==39186562655
+          assert run['head_sha']=='0a4a271a91fda97bc4c810553d047e6620e7b1eb'
+          assert run['status']=='completed' and run['conclusion']=='success'
+          assert job['run_id']==run['id'] and job['conclusion']=='success'
+          steps={s['name']:s['conclusion'] for s in job['steps']}
+          assert steps['Consume only 12 procedural and 12 feedback brand-new FIT cases once; append each arm receipt']=='success'
+          assert steps['Verify frozen result without model calibration or science promotion']=='success'
+          assert steps['Seal immutable original/partial receipts even after an exception; no retries']=='success'
+          assert art['id']==12158670755 and not art['expired']
+          assert art['workflow_run']['id']==39186562655
+          assert art['digest']=='sha256:4a431c86dcbd325c2fbb3c4fcecf18196e3491b64a2ad74c1a4cee6478da6f1a'
+          print('F124BP_PROVIDER_ORIGINAL_FIRSTUSE=PASS')
+          PY
+          gh run download 39186562655 --repo "$GITHUB_REPOSITORY" \
+            --name f124bp-original-public-24-case-firstuse-0a4a271a91fda97bc4c810553d047e6620e7b1eb \
+            --dir "$root/original-archive"
+          python3 -B research/north-star-transfer/f124bp_readonly_reconcile.py \
+            --original "$root/original-archive" \
+            --output "$root/reconciled-49-real-original-receipts.json"
+          sha256sum "$root/reconciled-49-real-original-receipts.json" \
+            "$root/provider-original-run.json" \
+            "$root/provider-original-firstuse-job.json" \
+            "$root/provider-original-artifact.json" \
+            > "$root/read-only-provider-receipt.sha256"
+          (cd "$root" && sha256sum -c read-only-provider-receipt.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124bp-permanent-original-sourceborn-negative-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bp-original-reconciliation/
+          retention-days: 90
+          if-no-files-found: warn
