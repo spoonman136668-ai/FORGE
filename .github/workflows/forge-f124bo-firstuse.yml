@@ -1,0 +1,110 @@
+name: F124-BO single original nonlinear-causal FIT, no protected holdout
+on:
+  push:
+    branches: [research/f124bo-firstuse-20261018]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124bo-one-only-original-develop-firstuse
+  cancel-in-progress: false
+jobs:
+  exact-original-once-only-source-admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exact qualified preuse SHA, no replayed first-use and GitHub source-birth custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/research/f124bo-nonlinear-confidence-20261018" \
+            > "$RUNNER_TEMP/source-identity.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bo-firstuse-20261018&per_page=100" \
+            > "$RUNNER_TEMP/original-run-list.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=research/f124bo-nonlinear-confidence-20261018&per_page=50" \
+            > "$RUNNER_TEMP/preuse-run-list.json"
+          python3 -B - "$RUNNER_TEMP" <<'PY'
+          import json,os,sys,pathlib
+          p=pathlib.Path(sys.argv[1])
+          original=json.loads((p/'source-identity.json').read_text())
+          attempts=json.loads((p/'original-run-list.json').read_text())['workflow_runs']
+          prepared=json.loads((p/'preuse-run-list.json').read_text())['workflow_runs']
+          head=os.environ['GITHUB_SHA']
+          assert original['object']['sha']==head, 'BO_SOURCE_CHANGED_AFTER_QUALIFICATION'
+          first=[r for r in attempts
+                 if r['path']=='.github/workflows/forge-f124bo-firstuse.yml'
+                 and r['event']=='push']
+          assert len(first)==1 and first[0]['id']==int(os.environ['GITHUB_RUN_ID'])
+          valid=[r for r in prepared
+                 if r['path']=='.github/workflows/forge-f124bo-preuse.yml'
+                 and r['head_sha']==head and r['status']=='completed'
+                 and r['conclusion']=='success']
+          assert valid, 'BO_NO_MATCHING_SUCCESSFUL_PREUSE_QUALIFICATION'
+          print('F124BO_SAME_HEAD_FIRST_ONLY_DEVELOPMENT=PASS')
+          PY
+          python3 -B research/north-star-transfer/f124bo_source_witness.py \
+            --provider --output "$RUNNER_TEMP/source-original-preuse.json"
+  sourceblind-prospective-public-development:
+    needs: exact-original-once-only-source-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Originate 12+12 brand-new task pairs once and archive each arm immediately
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/f124bo-original-new-FIT"
+          python3 -B research/north-star-transfer/f124bo_fit_eval.py \
+            --output "$RUNNER_TEMP/f124bo-original-new-FIT/aggregate-original-FIT.json"
+      - name: Read original FIT without science admission
+        shell: bash
+        if: success()
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124bo-original-new-FIT"
+          python3 -B - "$root/aggregate-original-FIT.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))['summary']
+          assert x['new_source_pairs']==24 and x['original_arm_records']==48
+          assert not x['original_192_TRAIN_replayed']
+          assert not x['BM_BN_development_replayed']
+          assert not x['old_BH_U_R_protected_used']
+          assert not x['BO_128_case_replication_used']
+          assert not x['scientific_accepted']
+          for k in ('mod','feistel'):
+              d=x['families'][k]
+              print('F124BO_'+k+'_CORRECT_PAIRS='+str(d['learned_correct_pair_count']))
+              print('F124BO_'+k+'_HARD_FP='+str(len(d['learned_false_positive_ids'])))
+              print('F124BO_'+k+'_BASELINE_POS_LOSS='+str(len(d['baseline_positive_losses'])))
+              print('F124BO_'+k+'_COST_PARITY='+str(d['equal_or_lower_measured_per_case_CPU_RSS']))
+              print('F124BO_'+k+'_FROZEN_FIT_GATE='+str(d['frozen_FIT_gate']))
+          print('F124BO_FIRST_USE_FIT_ONLY_SCIENCE_PROMOTION=false')
+          PY
+          (cd "$root" && sha256sum ./*.json > original-records-sha256.txt && sha256sum --check original-records-sha256.txt)
+      - name: Always seal original/partial first-use without retries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124bo-firstuse-prospective-development-not-protected-${{ github.sha }}
+          path: ${{ runner.temp }}/f124bo-original-new-FIT/
+          retention-days: 90
+          if-no-files-found: warn
