@@ -24,7 +24,7 @@ def dummy(family):
     owner="external-lab-"+family.lower()
     author="independent-scientist-"+family.lower()
     repo=owner+"/new-causal-source"
-    sha=str(identity)*40
+    sha=format(identity,"x")*40
     original={
         "source":b"import math\ndef source_private_transform(x):\n return (x+13)%65536\n",
         "oracle":b"def oracle_private_causal(graph):\n return True\n",
@@ -67,7 +67,7 @@ def dummy(family):
       "provider_api_authenticated":True,
       "git_commit":{"sha":sha,"author":{"date":"2026-10-20T00:00:00Z"},
         "parents":[{"sha":"f"*40}],
-        "tree":{"sha":str(identity+1)*40},
+        "tree":{"sha":format(identity+1,"x")*40},
         "verification":{"verified":True}},
       "original_tree":{"sha":str(identity+1)*40,
         "truncated":False,"tree":[
