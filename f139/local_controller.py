@@ -458,8 +458,6 @@ class Database:
                   meta["source_sha"][:12] + "-" + issue["body_sha256"][:8], "D2K_TICKET_IDENTITY_INVALID")
         with self.transaction():
             self.verify()
-            require(self.active() is None and self.ready() is None,
-                    "D2K_PENDING_WORK_NOT_EMPTY")
             require(self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
                     < D2K_MAX_TOTAL, "D2K_WORK_TOTAL_LIMIT")
             today = utc_now()[:10]
@@ -479,6 +477,8 @@ class Database:
             )
             if exists is not None or already_admitted:
                 return False
+            require(self.active() is None and self.ready() is None,
+                    "D2K_PENDING_WORK_NOT_EMPTY")
             prior = meta["head_hash"]
             manifest = {
                 "schema":"forge.f139.d2k.issue-work.v1",
