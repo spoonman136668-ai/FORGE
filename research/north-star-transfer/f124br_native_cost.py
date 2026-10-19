@@ -71,9 +71,13 @@ def one(arm):
     samples,pos,neg,identity,known=original_task(lean=(arm=="lean"))
     base=[0.4,0.9,0.65,0.75,0.8,0.2,-0.5]
     delta=[0.,0.]
-    demos=[{"input_bits":[(x>>j)&1 for j in range(16)],
-            "output_bits":[(y>>j)&1 for j in range(16)]}
-           for x,y in samples]
+    # The original AZ and BR legacy paths retain their exact buffer layout.
+    # The lean runtime consumes integer public FIT/CHECK directly and graph
+    # demos already contain exactly the required 24 public bit vectors.
+    # Do NOT materialize an unused second set of 48 expanded bit vectors.
+    demos=([{"input_bits":[(x>>j)&1 for j in range(16)],
+             "output_bits":[(y>>j)&1 for j in range(16)]}
+            for x,y in samples] if arm!="lean" else None)
     sys.path.insert(0,str(NATIVE))
     trace={}
     if arm=="AZ":
@@ -102,6 +106,11 @@ def one(arm):
              and fit_receipt["learned_from_FIT_only"]
              and fit_receipt["CHECK_can_only_veto"],
              "FROZEN_SOURCEBLIND_BQ_LEARN")
+        if arm=="lean":
+            # Native graph already embeds its original 24 demonstrations.
+            # After frozen fitting/confidence checks the full 48 integer
+            # support rows are no longer needed while native scorer runs.
+            del samples
         decisions=[
             model.causal_consensus(g,program,plausible)[0]
             for g in (pos,neg)]
