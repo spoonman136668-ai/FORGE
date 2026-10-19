@@ -1,0 +1,111 @@
+name: F124-CB original native six-arm complete CPU RSS comparison
+on:
+  push:
+    branches: [research/f124cb-two-link-causal-binding-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124cb-original-60-process-once
+  cancel-in-progress: false
+jobs:
+  original-sourcebound-native-cpu-rss:
+    if: github.sha == '10feea47f469bad06f5ef7302a686eefb8e23a0c'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      resource_admitted: ${{ steps.evidence.outputs.resource_admitted }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Freeze exact CB precode, original BQ BX BZ CA AZ native and only qualifying changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor b8afdd4d706b7e872c557db6ebf6f6335dc7e046 HEAD
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bz_binding_candidate.py)" = 8f24a4aab3e880d7ba5f89a2af6ab210912d865c
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bx_learned_flag.py)" = 74b907aba821678d5f8a59b06f85f5e87cb05002
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bq_program_learner.py)" = 91ad02a4f3893e3537dddc2390666e3c2d2db5d1
+          test "$(git rev-parse HEAD:nativeevidence/f124az_joint_public_inverse.py)" = 0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7
+          test "$(git rev-parse HEAD:nativeevidence/f124ag_transition_models.py)" = 94d2ae8266da792d254ac54baf3056bbd9b49412
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124by-frozen-panel.json)" = d546a7cfd9aee45ddbad18bba099ad8ceb5b4a55
+          mapfile -t changed < <(git diff --name-only eb3e1f2a35bd19786195bc9d1583e6841c5eba33 HEAD | sort)
+          expected=(
+             '.github/workflows/forge-f124cb-dual-link.yml'
+             '.github/workflows/forge-f124cb-resource.yml'
+             'research/north-star-transfer/f124cb-frozen-two-link-hypothesis.json'
+             'research/north-star-transfer/f124cb_dual_link_learner.py'
+             'research/north-star-transfer/f124cb_frozen_engineering_source.py'
+             'research/north-star-transfer/f124cb_native_resource.py'
+             'research/north-star-transfer/test_f124cb_two_links.py'
+          )
+          test "${changed[*]}" = "${expected[*]}"
+          python3 -B -m unittest discover -s research/north-star-transfer -p test_f124cb_two_links.py -v
+          python3 -B isolationguard/check.py
+          echo F124CB_SCIENTIFIC_SOURCE_BIRTH_BLOCKED_AND_FROZEN=PASS
+      - name: Collect 12 unforced native preflights and exactly 60 original full process OS costs; retain negative
+        id: evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/f124cb-original-evidence"
+          mkdir -p "$root"
+          python3 -B research/north-star-transfer/f124cb_native_resource.py --out "$root/sourcebound-native-and-whole-process.json"
+          python3 -B - "$root/sourcebound-native-and-whole-process.json" "$GITHUB_OUTPUT" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          assert r['schema']=='mass.f124cb.12-preflight-60-real-process-source-neutral.v1'
+          assert len(r['original_twelve_arm_preflights'])==12
+          assert len(r['original_sixty_whole_OS_process_measurements'])==60
+          assert len(r['both_frozen_cases'])==2
+          assert r['new_external_independent_source_authenticated'] is False
+          assert r['science_firstuse_924xxx_925xxx'] is False
+          assert r['protected_128x2_opened'] is False
+          assert r['scientific_transfer_accepted'] is False
+          assert r['optimizer_promoted'] is False
+          admitted=r['all_six_arm_native_and_resource_science_gate']
+          with open(sys.argv[2],'a') as f:
+              f.write('resource_admitted='+str(admitted).lower()+'\n')
+          print('F124CB_ORIGINAL_SIXTY_WHOLE_OS_PROCESS_SOURCE_RECORDED=PASS')
+          print('F124CB_COMPLETE_NATIVE_PARITY='+str(admitted))
+          print('F124CB_UNREGISTERED_TEST_ONLY=true')
+          PY
+          (cd "$root" && sha256sum sourcebound-native-and-whole-process.json > original-sourcebound.sha256 && sha256sum -c original-sourcebound.sha256)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124cb-original-12-native-60-whole-process-${{ github.sha }}
+          path: ${{ runner.temp }}/f124cb-original-evidence/
+          if-no-files-found: warn
+          retention-days: 90
+  one-final-regression-only-if-matched-native-full-cost-admitted:
+    needs: original-sourcebound-native-cpu-rss
+    if: needs.original-sourcebound-native-cpu-rss.outputs.resource_admitted == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124CB_ONE_FULL_INTEGRATION_PASS
+        shell: bash

@@ -1,0 +1,53 @@
+name: F124-CB source-blind dual causal-link first-use engineering qualification
+on:
+  push:
+    branches: [research/f124cb-two-link-causal-binding-20261019]
+permissions:
+  contents: read
+concurrency:
+  group: f124cb-frozen-two-disposable-sources-one-firstuse
+  cancel-in-progress: false
+jobs:
+  preregistered-dual-link-sourceblind:
+    if: github.sha == '10feea47f469bad06f5ef7302a686eefb8e23a0c'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify precode freeze, original learned controls, and protected source untouched
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CB_EXACT_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor eb3e1f2a35bd19786195bc9d1583e6841c5eba33 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CB_NEGATIVE_CUSTODY_ANCESTOR_MISSING' }
+          & git merge-base --is-ancestor b8afdd4d706b7e872c557db6ebf6f6335dc7e046 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CB_CORRECTED_PRECODE_BEFORE_FIRSTUSE_MISSING' }
+          $prior=@{
+            'research/north-star-transfer/f124bz_binding_candidate.py'='8f24a4aab3e880d7ba5f89a2af6ab210912d865c'
+            'research/north-star-transfer/f124bx_learned_flag.py'='74b907aba821678d5f8a59b06f85f5e87cb05002'
+            'research/north-star-transfer/f124bq_program_learner.py'='91ad02a4f3893e3537dddc2390666e3c2d2db5d1'
+            'nativeevidence/f124az_joint_public_inverse.py'='0122190aa3a0972ffb4a709bc1bdd8179c8ba6c7'
+            'nativeevidence/f124ag_transition_models.py'='94d2ae8266da792d254ac54baf3056bbd9b49412'
+          }
+          foreach ($path in $prior.Keys) {
+            if ((& git rev-parse ('HEAD:'+$path)).Trim() -cne $prior[$path]) { throw "CB_ORIGINAL_CONTROLS_MUTATED:$path" }
+          }
+          & python -B -m unittest discover -s research/north-star-transfer -p test_f124cb_two_links.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CB_FROZEN_DUAL_LINK_FIRSTUSE_NEGATIVE' }
+          & python -B isolationguard/check.py
+          if ($LASTEXITCODE -ne 0) { throw 'CB_PROTECTED_AUTHORITY_BOUNDARY' }
+          Write-Output 'F124CB_FROZEN_TWO_LINK_MECHANISM=PASS'
+          Write-Output 'F124CB_OLD_CONSUMED_CASES_RERUN=0'
+          Write-Output 'F124CB_NEW_AUTHENTIC_SCIENTIFIC_SOURCE_FIRSTUSE=0'
+          Write-Output 'F124CB_COMPLETE_RESOURCE_PARITY=NOT_YET_MEASURED'
