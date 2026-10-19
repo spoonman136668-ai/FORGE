@@ -1,0 +1,172 @@
+name: KTRADE R25-C62 authentic custody metadata on FORGE owner runner
+# Read-only one-shot audit. No code checkout, no credential access,
+# no historical file-content reads, no upload, no background controller.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c62-authentic-custody.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-r25-c62-authentic-local-admission
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Check historical manifest and selected migration classifications privately
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              [Environment]::MachineName -ine 'LINKDEADKB' -or
+              [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar') {
+            throw 'R25_C62_UNQUALIFIED_OWNER_CONTEXT'
+          }
+          # A metadata-only read is small: voluntarily lower this script
+          # process priority and never start a build, child, or test order.
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          $root=Join-Path $env:USERPROFILE 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          if(!(Test-Path -LiteralPath $root -PathType Container)) {
+            throw 'R25_C62_SNAPSHOT_ROOT_UNAVAILABLE'
+          }
+          $rootInfo=Get-Item -LiteralPath $root -Force
+          if($rootInfo.Attributes -band [IO.FileAttributes]::ReparsePoint){
+            throw 'R25_C62_REPARSE_ROOT'
+          }
+          $manifest=Join-Path $root 'R25-C47-private-manifest.json'
+          $receipt=Join-Path $root 'R25-C47-receipt.json'
+          foreach($f in @($manifest,$receipt)){
+            $i=Get-Item -LiteralPath $f -Force -ErrorAction Stop
+            if($i.PSIsContainer -or ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+               $i.Length -le 0 -or $i.Length -gt 2097152){
+              throw 'R25_C62_PRIVATE_METADATA_BOUNDARY_REJECTED'
+            }
+          }
+          $mRaw=[IO.File]::ReadAllBytes($manifest)
+          $rRaw=[IO.File]::ReadAllBytes($receipt)
+          if($mRaw.Length -gt 2097152 -or $rRaw.Length -gt 16384) {
+            throw 'R25_C62_PRIVATE_METADATA_SIZE_DRIFT'
+          }
+          $mText=[Text.Encoding]::UTF8.GetString($mRaw).TrimStart([char]0xfeff)
+          $rText=[Text.Encoding]::UTF8.GetString($rRaw).TrimStart([char]0xfeff)
+          $m=$mText|ConvertFrom-Json -Depth 12
+          $r=$rText|ConvertFrom-Json -Depth 12
+          $sha=([Security.Cryptography.SHA256]::HashData($mRaw)|
+            ForEach-Object{$_.ToString('x2')}) -join ''
+          if($m.schema -cne 'ktrade.r25-c47.selected-user-data-snapshot.v1' -or
+             $r.schema -cne 'ktrade.r25-c47.selected-receipt.v1' -or
+             $r.manifest_sha256 -cne $sha -or
+             $m.source -cne 'CKB/Application' -or
+             $m.application_version -cne '1.5.7' -or
+             [int]$m.copied_file_count -ne 695 -or
+             [int64]$m.copied_bytes -ne 164194320 -or
+             [int]$r.snapshot_file_count -ne 695 -or
+             [int64]$r.snapshot_bytes -ne 164194320 -or
+             [int]$r.source_inventory_files -ne 708 -or
+             [int64]$r.source_inventory_bytes -ne 197522226 -or
+             $r.snapshot_sha256_file_verification -cne 'PASS' -or
+             $m.complete_historical_preservation -ne $false -or
+             $m.migration_authorized -ne $false -or
+             $r.release_authorized -ne $false -or
+             $r.migration_authorized -ne $false){
+             throw 'R25_C62_MANIFEST_RECEIPT_DRIFT'
+          }
+          $records=@($m.source_files)
+          if($records.Count -ne 695){throw 'R25_C62_RECORD_COUNT_DRIFT'}
+          $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          $portable=0;$browser=0;$nonportable=0;$sidecars=0
+          [long]$portableBytes=0;[long]$browserBytes=0
+          [long]$nonportableBytes=0;[long]$sidecarBytes=0;[long]$sum=0
+          $config=$false;$pairs=$false;$pineIndex=$false;$risk=$false;$orders=$false
+          $portableFiles=@('client_id','config.json','config.json.bak',
+             'execution.journal.jsonl','runtime-resilience.json',
+             'secrets.dpapi','trading_pairs.json')
+          $evidence=@('current-release-probe.jsonl','current-release-probe-summary.json',
+             'eight-hour-soak.jsonl','eight-hour-soak-summary.json',
+             'live-broker-evidence-summary.json','upgrade-rollback-summary.json',
+             'state-schema-migration-summary.json','disaster-recovery-summary.json',
+             'full-custody-reconciliation-summary.json','product-rule-precision-summary.json',
+             'credential-lifecycle-summary.json','execution-quality-summary.json',
+             'controlled-live-readiness-summary.json','manual-order-review-ui-summary.json')
+          foreach($record in $records){
+            $path=[string]$record.path
+            $size=[int64]$record.bytes
+            $filehash=[string]$record.sha256
+            if([string]::IsNullOrWhiteSpace($path) -or $size -lt 0 -or
+               $size -gt 2147483648 -or $filehash -cnotmatch '^[0-9a-f]{64}$' -or
+               $path -cmatch '[\\:*?"<>|]' -or $path -cmatch '(^/|//|/\.\.?(/|$))' -or
+               !$seen.Add($path)){
+              throw 'R25_C62_PRIVATE_ENTRY_INVALID'
+            }
+            $sum+=$size
+            if($path -ceq 'Application/INSTALLATION_IDENTITY.json' -or
+               $path -ceq 'Application/MANIFEST.sha256'){
+              $sidecars++;$sidecarBytes+=$size;continue
+            }
+            if(!$path.StartsWith('Application/data/',[StringComparison]::Ordinal)){
+              throw 'R25_C62_UNEXPECTED_CUSTODY_PATH'
+            }
+            $relative=$path.Substring(17)
+            if($relative.StartsWith('logs/',[StringComparison]::OrdinalIgnoreCase) -or
+               $relative.StartsWith('runtime/',[StringComparison]::OrdinalIgnoreCase)){
+              throw 'R25_C62_EXCLUDED_RUNTIME_OR_LOG'
+            }
+            if($relative -ceq 'config.json'){$config=$true}
+            if($relative -ceq 'trading_pairs.json'){$pairs=$true}
+            if($relative -ceq 'pine-library/index.json'){$pineIndex=$true}
+            if($relative.StartsWith('tradeguard-risk-continuity.',[StringComparison]::OrdinalIgnoreCase)){$risk=$true}
+            if($relative.StartsWith('broker-order-observations.',[StringComparison]::OrdinalIgnoreCase)){$orders=$true}
+            if($relative.StartsWith('browser/',[StringComparison]::Ordinal) -or
+               $relative.StartsWith('browser-profile/',[StringComparison]::Ordinal) -or
+               $relative.StartsWith('BraveSoftware/',[StringComparison]::Ordinal)){
+              $browser++;$browserBytes+=$size;continue
+            }
+            $allowed=$relative -cin $portableFiles
+            if(!$allowed -and ($relative -cmatch '^(accounting_epochs|history|market_history|migrations)/.+$' -or
+                               $relative -cmatch '^strategy_(settings|state)_.+\.json(\.bak)?$' -or
+                               $relative -cmatch '^pine-library/(index\.json|index\.recovery\.json|revisions/[^/.][^/]*/(source\.pine|metadata\.json))$')){
+              $allowed=$true
+            }
+            if(!$allowed -and $relative -cmatch '^v[0-9]+-(.+\.(json|jsonl))$'){
+              $allowed=($Matches[1] -cin $evidence)
+            }
+            if($allowed){$portable++;$portableBytes+=$size}
+            else {$nonportable++;$nonportableBytes+=$size}
+          }
+          if($sum -ne 164194320 -or
+             ($portable+$browser+$nonportable+$sidecars) -ne 695 -or
+             ($portableBytes+$browserBytes+$nonportableBytes+$sidecarBytes) -ne 164194320 -or
+             $browser -ne 552 -or $sidecars -ne 2){
+            throw 'R25_C62_AUTHENTIC_COVERAGE_CONSERVATION_FAILED'
+          }
+          Write-Host 'R25_C62_OWNER_CONTEXT=PASS'
+          Write-Host 'R25_C62_REAL_MANIFEST_RECEIPT_SHA256=PASS'
+          Write-Host 'R25_C62_METADATA_CONSERVATION=PASS'
+          Write-Host ('R25_C62_PORTABLE_FILES='+$portable)
+          Write-Host ('R25_C62_PORTABLE_BYTES='+$portableBytes)
+          Write-Host ('R25_C62_BROWSER_FILES='+$browser)
+          Write-Host ('R25_C62_BROWSER_BYTES='+$browserBytes)
+          Write-Host ('R25_C62_NONPORTABLE_FILES='+$nonportable)
+          Write-Host ('R25_C62_NONPORTABLE_BYTES='+$nonportableBytes)
+          Write-Host ('R25_C62_IDENTITY_SIDECARS='+$sidecars)
+          Write-Host ('R25_C62_CONFIG_PRESENT='+$config.ToString().ToUpperInvariant())
+          Write-Host ('R25_C62_TRADING_PAIRS_PRESENT='+$pairs.ToString().ToUpperInvariant())
+          Write-Host ('R25_C62_PINE_INDEX_PRESENT='+$pineIndex.ToString().ToUpperInvariant())
+          Write-Host ('R25_C62_RISK_CONTINUITY_PRESENT='+$risk.ToString().ToUpperInvariant())
+          Write-Host ('R25_C62_BROKER_OBSERVATIONS_PRESENT='+$orders.ToString().ToUpperInvariant())
+          Write-Host 'R25_C62_PRIVATE_MANIFEST_READ=TRUE'
+          Write-Host 'R25_C62_SELECTED_FILE_CONTENT_READ=FALSE'
+          Write-Host 'R25_C62_SOURCE_GO_CLASSIFIER_EXECUTED=FALSE'
+          Write-Host 'R25_C62_PRIVATE_PATHS_OR_HASHES_LOGGED=FALSE'
+          Write-Host 'R25_C62_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+          Write-Host 'R25_C62_CUSTODY_SOURCE_OR_RECOVERY_MUTATED=FALSE'
+          Write-Host 'R25_C62_APPLICATION_RESTART_VERIFIED=FALSE'
+          Write-Host 'R25_C62_REAL_MIGRATION_AUTHORIZED=FALSE'
+          Write-Host 'R25_C62_RELEASE_AUTHORIZED=FALSE'
