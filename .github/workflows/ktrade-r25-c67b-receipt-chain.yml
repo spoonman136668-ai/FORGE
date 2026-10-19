@@ -1,0 +1,193 @@
+name: R25-C67B original receipt-chain hashing, owner isolated recovery
+# Never runs original application, loads broker credentials or uploads user data.
+# Replays only the donor's receipt-core SHA-256 validation rules with ordered
+# JSON fields. Unsupported serialization is INCONCLUSIVE, not corrupted data.
+on:
+  push:
+    branches: [qualification/ktrade-r25-c61-forge-runner-20261019]
+    paths: [.github/workflows/ktrade-r25-c67b-receipt-chain.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r25-c67b-authentic-owner-receipt-chain
+  cancel-in-progress: false
+jobs:
+  review:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Verify exact authenticated original account and runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+             [Environment]::MachineName -ine 'LINKDEADKB' -or
+             [Security.Principal.WindowsIdentity]::GetCurrent().Name -ine 'LINKDEADKB\camar'){
+             throw 'R25_C67B_OWNER_RUNNER_NOT_QUALIFIED'
+          }
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          Write-Host 'R25_C67B_OWNER_ACCOUNT_AND_RUNNER=PASS'
+          Write-Host 'R25_C67B_RESEARCH_OR_APP_PROCESSES_TOUCHED=FALSE'
+      - name: Replay original terminal receipt chain with exact field-order SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $home=[Environment]::GetFolderPath('UserProfile')
+          $custody=Join-Path $home 'KTRADE-Historical-Custody\R25-C47-20261019T090358Z-26dafa4ceb'
+          $recovery=Join-Path $home 'KTRADE-Isolated-Recovery\R25-C49-20261019T093437Z-9e46c66892'
+          foreach($p in @($custody,$recovery,(Join-Path $recovery 'Application'),
+                           (Join-Path $recovery 'Application\data'))){
+            $d=Get-Item -LiteralPath $p -Force -ErrorAction Stop
+            if(!$d.PSIsContainer -or ($d.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+              throw 'R25_C67B_ROOT_IDENTITY_DRIFT'
+            }
+          }
+          $manifestPath=Join-Path $custody 'R25-C47-private-manifest.json'
+          $mf=Get-Item -LiteralPath $manifestPath -Force -ErrorAction Stop
+          if($mf.Length -le 0 -or $mf.Length -gt 2097152 -or
+             ($mf.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+             throw 'R25_C67B_MANIFEST_BOUNDARY_REJECTED'
+          }
+          $m=[IO.File]::ReadAllText($manifestPath)|ConvertFrom-Json -AsHashtable -Depth 18
+          if($m['schema'] -cne 'ktrade.r25-c47.selected-user-data-snapshot.v1' -or
+             [int]$m['copied_file_count'] -ne 695 -or
+             [long]$m['copied_bytes'] -ne 164194320){
+             throw 'R25_C67B_MANIFEST_IDENTITY_DRIFT'
+          }
+          $files=@($m['source_files']|Where-Object {
+            [string]$_['path'] -cmatch '^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$'
+          })
+          if($files.Count -lt 1 -or $files.Count -gt 8){throw 'R25_C67B_FILE_SCOPE_CHANGED'}
+          $checked=0;$receipts=0;$hashVerified=0;$linkVerified=0;$sequenceErrors=0
+          $malformed=0;$digestErrors=0;$unsupportedSerialization=0;$duplicateOrders=0
+          [long]$readTotal=0
+          $digestPattern='^[0-9a-f]{64}$'
+          $terminal=@('FILLED','CANCELLED','EXPIRED','FAILED','REJECTED')
+          $jsonOptions=$null
+          foreach($entry in $files){
+            $relative=[string]$entry['path']
+            [long]$size=[long]$entry['bytes']
+            if($size -le 0 -or $size -gt 4194304 -or $readTotal -gt (8388608-$size) -or
+               $relative -cnotmatch '^Application/data/strategy_state_[A-Za-z0-9_]+\.json(\.bak)?$'){
+              throw 'R25_C67B_UNSAFE_PRIVATE_FILE_SCOPE'
+            }
+            $path=Join-Path $recovery ($relative.Replace('/',[IO.Path]::DirectorySeparatorChar))
+            try {
+              $info=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+              if($info.PSIsContainer -or ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                 $info.Length -ne $size){throw 'unsafe-file'}
+              $raw=[IO.File]::ReadAllBytes($path)
+              if($raw.Length -ne $size){throw 'size-drift'}
+              $actual=([Security.Cryptography.SHA256]::HashData($raw) |
+                ForEach-Object{$_.ToString('x2')}) -join ''
+              if($actual -cne [string]$entry['sha256']){throw 'hash-drift'}
+              $readTotal+=$raw.Length
+              $checked++
+              $state=[Text.Encoding]::UTF8.GetString($raw).TrimStart([char]0xfeff)|ConvertFrom-Json -AsHashtable -Depth 64
+              $list=@()
+              if($state.Contains('settlement_receipts') -and $null -ne $state['settlement_receipts']){
+                 $list=@($state['settlement_receipts'])
+              }
+              if($list.Count -gt 20000){throw 'receipt-resource-limit'}
+              $prior=''
+              $seen=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+              $seq=0
+              foreach($r in $list){
+                $seq++;$receipts++
+                if($r -isnot [Collections.IDictionary]){$malformed++;continue}
+                if($r['schema_version'] -ne 1 -or $r['sequence'] -ne $seq -or
+                   [string]$r['previous_receipt_hash'] -cne $prior){
+                  $sequenceErrors++
+                }
+                $order=[string]$r['order_id']
+                if([string]::IsNullOrWhiteSpace($order) -or !$seen.Add($order)){
+                  $duplicateOrders++
+                }
+                $side=[string]$r['side']
+                $status=[string]$r['terminal_status']
+                if($side -cnotin @('BUY','SELL') -or $status -cnotin $terminal -or
+                   $order -cne $order.Trim() -or
+                   [string]$r['product_id'] -cne ([string]$r['product_id']).ToUpperInvariant()){
+                   $malformed++
+                }
+                foreach($key in @('fill_set_digest','fill_accounting_digest',
+                     'reservation_before_digest','portfolio_after_digest','receipt_hash')){
+                  if([string]$r[$key] -cnotmatch $digestPattern){$digestErrors++}
+                }
+                if($prior -ne '' -and $prior -cnotmatch $digestPattern){$digestErrors++}
+                $strKeys=@('order_id','client_order_id','product_id','side','terminal_status',
+                  'settled_at','fill_set_digest','fill_accounting_digest',
+                  'reservation_before_digest','portfolio_after_digest','previous_receipt_hash')
+                $unsupported=$false
+                foreach($key in $strKeys) {
+                  $value=[string]$r[$key]
+                  # ASCII excluding HTML characters ensures PowerShell's
+                  # compact JSON serializer matches Go's json.Marshal escapes.
+                  if($value -cmatch '[^\x20-\x7E]|[<>&]'){
+                     $unsupported=$true
+                  }
+                }
+                if($unsupported){$unsupportedSerialization++;$prior=[string]$r['receipt_hash'];continue}
+                $core=[ordered]@{
+                  schema_version=[int]$r['schema_version']
+                  sequence=[long]$r['sequence']
+                  order_id=$order
+                }
+                if(![string]::IsNullOrEmpty([string]$r['client_order_id'])){
+                  $core['client_order_id']=[string]$r['client_order_id']
+                }
+                $core['product_id']=[string]$r['product_id']
+                $core['side']=$side
+                $core['terminal_status']=$status
+                $core['settled_at']=[string]$r['settled_at']
+                $core['fill_set_digest']=[string]$r['fill_set_digest']
+                $core['fill_accounting_digest']=[string]$r['fill_accounting_digest']
+                $core['reservation_before_digest']=[string]$r['reservation_before_digest']
+                $core['portfolio_after_digest']=[string]$r['portfolio_after_digest']
+                if(![string]::IsNullOrEmpty([string]$r['previous_receipt_hash'])){
+                  $core['previous_receipt_hash']=[string]$r['previous_receipt_hash']
+                }
+                $canonical=ConvertTo-Json -InputObject $core -Depth 6 -Compress
+                $bytes=[Text.Encoding]::UTF8.GetBytes($canonical)
+                $digest=([Security.Cryptography.SHA256]::HashData($bytes)|
+                   ForEach-Object{$_.ToString('x2')}) -join ''
+                if($digest -cne [string]$r['receipt_hash']){$digestErrors++}
+                else{$hashVerified++}
+                if([string]$r['previous_receipt_hash'] -ceq $prior){$linkVerified++}
+                $prior=[string]$r['receipt_hash']
+              }
+            } catch {
+              throw 'R25_C67B_PROTECTED_RECEIPT_READ_OR_COMPUTE_FAILED'
+            } finally {
+              $raw=$null;$state=$null;$list=$null;$core=$null;$bytes=$null
+            }
+          }
+          Write-Host 'R25_C67B_MANIFEST_BOUND_RECOVERY_SHA256=PASS'
+          Write-Host ('R25_C67B_STATE_FILES_CHECKED='+$checked)
+          Write-Host ('R25_C67B_RECEIPT_RECORDS='+$receipts)
+          Write-Host ('R25_C67B_ORIGINAL_DONOR_CORE_HASH_MATCHES='+$hashVerified)
+          Write-Host ('R25_C67B_PREVIOUS_HASH_LINK_MATCHES='+$linkVerified)
+          Write-Host ('R25_C67B_SEQUENCE_ERRORS='+$sequenceErrors)
+          Write-Host ('R25_C67B_DUPLICATE_ORDER_IDS='+$duplicateOrders)
+          Write-Host ('R25_C67B_MALFORMED_RECEIPTS='+$malformed)
+          Write-Host ('R25_C67B_DIGEST_MISMATCHES='+$digestErrors)
+          Write-Host ('R25_C67B_UNSUPPORTED_SERIALIZATION='+$unsupportedSerialization)
+          Write-Host 'R25_C67B_RECEIPT_CHAIN_CHECK_ALGORITHM=SOURCE_ORDERED_JSON_SHA256'
+          Write-Host 'R25_C67B_ORIGINAL_DONOR_GO_BINARY_EXECUTED=FALSE'
+          Write-Host 'R25_C67B_EXTERNAL_BROKER_FACTS_REVERIFIED=FALSE'
+          Write-Host 'R25_C67B_PRIVATE_VALUES_HASHES_IDS_EXPORTED=FALSE'
+          Write-Host 'R25_C67B_PRIVATE_ARTIFACT_UPLOAD=FALSE'
+          Write-Host 'R25_C67B_CUSTODY_AND_RECOVERY_MODIFIED=FALSE'
+          Write-Host 'R25_C67B_APP_ORDERS_MIGRATION_RELEASE_AUTHORIZED=FALSE'
+          if($unsupportedSerialization -gt 0){
+            throw 'R25_C67B_INCONCLUSIVE_JSON_SERIALIZATION_REQUIRE_GO_DONOR'
+          }
+          if($sequenceErrors+$duplicateOrders+$malformed+$digestErrors -gt 0 -or
+             $hashVerified -ne $receipts -or $linkVerified -ne $receipts){
+            throw 'R25_C67B_RECEIPT_CHAIN_DID_NOT_VALIDATE'
+          }
