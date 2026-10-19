@@ -64,7 +64,8 @@ def host_observation(data):
     observed=hashlib.sha256(hostname.upper().encode("utf-8")).hexdigest()
     require(observed==data.get("pinned_machine"), "MACHINE_WITNESS_MISMATCH")
     require(bool(HEX40.fullmatch(data.get("main","")))
-            and data["main"]==data.get("pinned_source"),
+            and data["main"]==data.get("pinned_source")
+            and data["main"]==data.get("request_source"),
             "HOST_SOURCE_DRIFT")
     require(bool(HEX64.fullmatch(data.get("request_head","")))
             and data.get("request_head")==data.get("pinned_head"),
