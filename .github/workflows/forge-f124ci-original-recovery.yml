@@ -1,0 +1,167 @@
+name: F124-CI original E/F source-bound first-use recovery
+on:
+  push:
+    branches: [research/f124ci-original-EF-firstuse-recovery-20261019]
+    paths: [.github/workflows/forge-f124ci-original-recovery.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124ch-source-birth-then-firstuse-original-928-929-once
+  cancel-in-progress: false
+jobs:
+  original-sealed-source-recovery-preflight:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove original 24 source cases born exactly once, NO scorer ever started in original aborted job, unchanged model/source Git blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          previous=4fedc7c66bccbf6656d1f44dc2a59ce06d775b6f
+          git merge-base --is-ancestor "$previous" HEAD
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124ch_internal_source.py)" = b014c0c80c2278618adf21e4da085b05d1129cf7
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124ch-frozen-internal-prospective-EF.json)" = aff8e38e55a503c1656316e551425ad3c7b7e266
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124cb_dual_link_learner.py)" = 8a10bf8cec12afc7d8703e3586d8eba91ebfdc7c
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124cc_trained_two_link_control.py)" = 29c0c02f54ea539bed0910fe82adcc86d3aff94d
+          test "$(git rev-parse HEAD:nativeevidence/f124ag_transition_models.py)" = 94d2ae8266da792d254ac54baf3056bbd9b49412
+          test "$(git rev-parse HEAD:research/north-star-transfer/f124bv-frozen-independent-science.json)" = 5a509951aacb3de7cbec0c0e895d3b9c8ce4dce5
+          mapfile -t changed < <(git diff --name-only "$previous" HEAD | sort)
+          expected=(.github/workflows/forge-f124ci-original-recovery.yml research/north-star-transfer/f124ch_prospective_eval.py)
+          test "${changed[*]}" = "${expected[*]}"
+          python3 -B -m py_compile research/north-star-transfer/f124ch_prospective_eval.py
+          python3 -B - <<'PY'
+          from pathlib import Path
+          repaired=Path('research/north-star-transfer/f124ch_prospective_eval.py').read_text()
+          assert '"--child","--case",str(case),"--arm",arm]' in repaired
+          assert '"REAL_PROCESS_"+str(case)+"_"+arm+":"+' in repaired
+          assert '},sort_keys=True)+"\\n")' in repaired
+          assert 'SOURCE_PUBLIC_ENV="F124CH_PUBLIC_CASE_DIRECTORY"' in repaired
+          assert 'CASES=tuple(range(928000,928012))+tuple(range(929000,929012))' in repaired
+          assert 'f124ch_internal_source' not in repaired
+          print('F124CI_ONLY_ORIGINAL_PROCESS_ARGUMENT_AND_JOURNAL_RECOVERY=PASS')
+          PY
+          python3 -B isolationguard/check.py
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39275464400" > "$RUNNER_TEMP/first-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/39275464400/jobs?per_page=20" > "$RUNNER_TEMP/first-jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12197975706" > "$RUNNER_TEMP/first-source-artifact.json"
+          python3 -B - "$RUNNER_TEMP" <<'PY'
+          import json,sys,pathlib
+          root=pathlib.Path(sys.argv[1])
+          run=json.loads((root/'first-run.json').read_text())
+          jobs=json.loads((root/'first-jobs.json').read_text())['jobs']
+          art=json.loads((root/'first-source-artifact.json').read_text())
+          assert run['id']==39275464400
+          assert run['head_sha']=='4fedc7c66bccbf6656d1f44dc2a59ce06d775b6f'
+          assert run['status']=='completed' and run['conclusion']=='failure'
+          assert run['run_attempt']==1
+          birth=[j for j in jobs if j['name']=='first-original-internal-source-birth']
+          assert len(birth)==1 and birth[0]['conclusion']=='success'
+          original=[j for j in jobs if j['name']=='actual-one-time-blinded-native-and-whole-process-comparison']
+          assert len(original)==1 and original[0]['conclusion']=='failure'
+          assert art['id']==12197975706 and not art['expired']
+          assert art['workflow_run']['id']==run['id']
+          assert art['digest']=='sha256:f7646cea3470d1cb488090887255cd6a7e6f11f089d9b05149072408d91fb1bd'
+          print('F124CI_ORIGINAL_ONCE_ONLY_SOURCE_ARTIFACT_AUTHENTIC=PASS')
+          print('F124CI_ORIGINAL_FIRST_EVALUATOR_FAILED_BEFORE_MODEL_SPAWN=VERIFIED_FROM_ORIGINAL_LOG')
+          PY
+  continue-existing-original-source-without-rebirth:
+    if: github.run_attempt == 1
+    needs: original-sealed-source-recovery-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    outputs:
+      scientific_development_pass: ${{ steps.evaluate.outputs.scientific_development_pass }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: f124ch-original-source-birth-before-scoring
+          run-id: 39275464400
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          path: ${{ runner.temp }}/f124ci-same-original-24-case-birth/
+      - name: Consume EXACT original immutable birth not a new source, measure all 168 natural native and 840 full process originals
+        id: evaluate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          birth="$RUNNER_TEMP/f124ci-same-original-24-case-birth"
+          (cd "$birth" && sha256sum -c original-source-birth.sha256)
+          root="$RUNNER_TEMP/f124ci-original-all-24-outcomes"
+          mkdir -p "$root"
+          export F124CH_ORIGINAL_APPEND_JOURNAL="$root/append-original-168-native-840-process.jsonl"
+          python3 -B research/north-star-transfer/f124ch_prospective_eval.py \
+            --birth "$birth/original-24-case-birth.json" \
+            --out "$root/first-original-EF-all-results.json"
+          python3 -B - "$root/first-original-EF-all-results.json" "$GITHUB_OUTPUT" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1]))
+          assert x['schema']=='mass.f124ch.original-internal-prospective-EF-840-OS-process.v1'
+          assert len(x['original_168_native_preflights'])==168
+          assert len(x['original_840_full_OS_process_measurements'])==840
+          assert len(x['all_24_prospective_case_outcomes'])==24
+          assert x['original_birth_Git_head']=='4fedc7c66bccbf6656d1f44dc2a59ce06d775b6f'
+          assert x['original_birth_source_blob']=='b014c0c80c2278618adf21e4da085b05d1129cf7'
+          assert x['source_origin_internally_authored_not_external'] is True
+          assert not x['independent_research_group_replication_claimed']
+          assert not x['old_BV_924_925_and_CE_926_927_firstuse']
+          assert not x['new_E_F_128x2_protected_cohorts_opened']
+          assert not x['optimizer_or_production_promoted']
+          assert not x['science_accepted']
+          with open(sys.argv[2],'a') as f:
+              f.write('scientific_development_pass='+str(x['frozen_scientific_development_gate_passed']).lower()+'\n')
+          print('F124CI_SAME_UNCHANGED_FIRST_BIRTH_AND_ALL_ORIGINAL_RESULTS=PASS')
+          print('F124CI_INTERNAL_DEVELOPMENT_SCIENCE_GATE='+str(x['frozen_scientific_development_gate_passed']))
+          PY
+          (cd "$root" && sha256sum first-original-EF-all-results.json append-original-168-native-840-process.jsonl > ORIGINAL_SHA256SUMS && sha256sum -c ORIGINAL_SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f124ci-original-sealed-EF-24-native-and-wholeprocess-${{ github.sha }}
+          path: ${{ runner.temp }}/f124ci-original-all-24-outcomes/
+          retention-days: 90
+          if-no-files-found: warn
+  one-full-regression-only-if-predeclared-success:
+    if: needs.continue-existing-original-source-without-rebirth.outputs.scientific_development_pass == 'true'
+    needs: continue-existing-original-source-without-rebirth
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B isolationguard/check.py
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F124CI_ONE_COMPLETE_GO_INTEGRATION_PASS
