@@ -32,6 +32,12 @@ ALLOWED_STAGES = {"READY", "START_RISK", "WAIT_PROVIDER", "VERIFIED", "QUARANTIN
 LIMIT_PER_DAY = 48
 MAX_ZIP_BYTES = 2_000_000
 MAX_RECEIPT_BYTES = 8192
+D2K_WORK_LABEL = "f139-development-eligible"
+D2K_KIND = "model-free-development-advisory"
+D2K_MAX_DAILY = 4
+D2K_MAX_TOTAL = 80
+D2K_OWNER = "spoonman136668-ai"
+
 
 # D2J is a single bounded, source-bound development-only succession tranche.
 # Do not infer a science grant or evergreen self-authority from these two tickets.
@@ -188,6 +194,40 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "DEVELOPMENT_WORK_ADMITTED":
+                require(isinstance(doc, dict) and set(doc) == {
+                    "schema", "source_sha", "ticket", "issue_number", "issue_id",
+                    "lane", "kind", "body_sha256", "manifest_sha256",
+                    "prior_event_head_sha256", "scientific_first_use"},
+                    "D2K_ADMISSION_FIELDS")
+                require(doc["schema"] == "forge.f139.d2k.issue-work.v1"
+                        and SHA.fullmatch(doc["source_sha"]) is not None
+                        and doc["issue_number"] > 0 and type(doc["issue_number"]) is int
+                        and doc["issue_id"] > 0 and type(doc["issue_id"]) is int
+                        and doc["ticket"] == "f139-d2k-i" +
+                            str(doc["issue_number"]) + "-" + doc["source_sha"][:12]
+                        and doc["lane"] in LANES and doc["kind"] == D2K_KIND
+                        and re.fullmatch(r"[a-f0-9]{64}", doc["body_sha256"]) is not None
+                        and re.fullmatch(r"[a-f0-9]{64}", doc["manifest_sha256"]) is not None
+                        and doc["prior_event_head_sha256"] == row["prior_sha"]
+                        and doc["scientific_first_use"] is False,
+                        "D2K_ADMISSION_INVALID")
+                task = self.conn.execute(
+                    "SELECT lane,source_sha,manifest_sha FROM tasks WHERE ticket=?",
+                    (doc["ticket"],)).fetchone()
+                require(task is not None and task["lane"] == doc["lane"]
+                        and task["source_sha"] == doc["source_sha"]
+                        and task["manifest_sha"] == doc["manifest_sha256"],
+                        "D2K_ADMISSION_TASK_DRIFT")
+                digest = hash_bytes(canonical({
+                    "schema":doc["schema"], "source_sha":doc["source_sha"],
+                    "ticket":doc["ticket"], "issue_number":doc["issue_number"],
+                    "issue_id":doc["issue_id"], "lane":doc["lane"],
+                    "kind":doc["kind"], "body_sha256":doc["body_sha256"],
+                    "prior_event_head_sha256":doc["prior_event_head_sha256"],
+                    "scientific_first_use":False,
+                }))
+                require(digest == doc["manifest_sha256"],"D2K_MANIFEST_DIGEST_DRIFT")
             if row["kind"] == "UNATTENDED_SUCCESSION_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "source_sha", "prior_event_head_sha256",
@@ -394,6 +434,62 @@ class Database:
             self.verify()
             return True
 
+    def admit_d2k_issue(self, issue: dict):
+        """Atomic issue-bound work intake: never interpret free-form issue text."""
+        self.verify()
+        meta = self.meta()
+        require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1,
+                "D2K_OWNER_NOT_ACTIVE")
+        require(isinstance(issue, dict) and set(issue) == {
+                    "ticket", "issue_number", "issue_id", "source_sha",
+                    "lane", "kind", "body_sha256"
+                } and issue["source_sha"] == meta["source_sha"]
+                and issue["lane"] in LANES and issue["kind"] == D2K_KIND,
+                "D2K_ISSUE_IDENTITY_INVALID")
+        ticket = issue["ticket"]
+        require(isinstance(ticket, str) and TICKET.fullmatch(ticket)
+                and ticket == "f139-d2k-i" + str(issue["issue_number"]) + "-" +
+                  meta["source_sha"][:12], "D2K_TICKET_IDENTITY_INVALID")
+        with self.transaction():
+            self.verify()
+            require(self.active() is None and self.ready() is None,
+                    "D2K_PENDING_WORK_NOT_EMPTY")
+            require(self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+                    < D2K_MAX_TOTAL, "D2K_WORK_TOTAL_LIMIT")
+            today = utc_now()[:10]
+            rows = self.conn.execute(
+                "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")
+            admitted_today = sum(
+                json.loads(row["payload"])["admitted_day"] == today
+                for row in rows
+                if "admitted_day" in json.loads(row["payload"]))
+            require(admitted_today < D2K_MAX_DAILY,"D2K_DAILY_ADMISSION_LIMIT")
+            exists = self.conn.execute("SELECT 1 FROM tasks WHERE ticket=?",
+                                       (ticket,)).fetchone()
+            if exists is not None:
+                return False
+            prior = meta["head_hash"]
+            manifest = {
+                "schema":"forge.f139.d2k.issue-work.v1",
+                "source_sha":meta["source_sha"], "ticket":ticket,
+                "issue_number":issue["issue_number"], "issue_id":issue["issue_id"],
+                "lane":issue["lane"], "kind":issue["kind"],
+                "body_sha256":issue["body_sha256"],
+                "prior_event_head_sha256":prior, "scientific_first_use":False,
+            }
+            digest = hash_bytes(canonical(manifest))
+            self.event("DEVELOPMENT_WORK_ADMITTED", {
+                **manifest, "manifest_sha256":digest
+            })
+            self.conn.execute(
+                "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) "
+                "VALUES(?,?,?,'READY',?)",
+                (ticket,issue["lane"],meta["source_sha"],digest))
+            self.event("TASK_INTAKE", {
+                "ticket":ticket,"lane":issue["lane"],"manifest_sha":digest})
+            self.verify()
+            return True
+
     def active(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 1").fetchone()
 
@@ -488,6 +584,66 @@ class GitHub:
             require(not any(x.get("status") in ("queued","in_progress","requested","waiting","pending")
                             for x in runs),"LEGACY_DISPATCH_STILL_IN_FLIGHT")
         return True
+
+    def d2k_eligible_issues(self, source: str) -> list[dict]:
+        """Authenticated owner-labeled, source-bound, fixed-kind issue catalog.
+
+        The issue body is only declarative data. It cannot supply commands,
+        source paths, arbitrary prompts, or science authorization.
+        """
+        require(isinstance(source,str) and SHA.fullmatch(source) is not None,
+                "D2K_SOURCE_INVALID")
+        accepted = []
+        for page in (1, 2):
+            items = self.get(
+                "repos/" + REPO + "/issues?state=open&labels=" +
+                D2K_WORK_LABEL + "&per_page=100&page=" + str(page))
+            require(isinstance(items,list) and len(items)<=100,
+                    "D2K_ISSUE_INDEX_INVALID")
+            for raw in items:
+                require(isinstance(raw,dict) and raw.get("state") == "open"
+                        and "pull_request" not in raw
+                        and isinstance(raw.get("number"),int) and raw["number"]>0
+                        and isinstance(raw.get("id"),int) and raw["id"]>0
+                        and isinstance(raw.get("user"),dict)
+                        and raw["user"].get("login") == D2K_OWNER
+                        and raw.get("author_association") == "OWNER"
+                        and D2K_WORK_LABEL in [x.get("name") for x in
+                                               raw.get("labels",[]) if isinstance(x,dict)],
+                        "D2K_ISSUE_NOT_OWNER_QUALIFIED")
+                body = raw.get("body")
+                require(isinstance(body,str) and len(body)<2048,
+                        "D2K_ISSUE_BODY_INVALID")
+                try:
+                    record=json.loads(body)
+                except ValueError as exc:
+                    raise F139Error("F139_D2K_ISSUE_NOT_JSON") from exc
+                require(isinstance(record,dict) and set(record)=={
+                    "schema","source_sha","lane","kind",
+                    "scientific_first_use","paid_model_calls"
+                } and record["schema"]=="forge.f139.d2k.owner-development.v1"
+                    and record["source_sha"]==source
+                    and record["lane"] in LANES
+                    and record["kind"]==D2K_KIND
+                    and record["scientific_first_use"] is False
+                    and type(record["paid_model_calls"]) is int
+                    and record["paid_model_calls"]==0,
+                    "D2K_ISSUE_POLICY_INVALID")
+                accepted.append({
+                    "ticket":"f139-d2k-i"+str(raw["number"])+"-"+source[:12],
+                    "issue_number":raw["number"],"issue_id":raw["id"],
+                    "source_sha":source,"lane":record["lane"],
+                    "kind":D2K_KIND,
+                    "body_sha256":hash_bytes(canonical(record)),
+                })
+            if len(items)<100:
+                break
+        else:
+            raise F139Error("F139_D2K_ISSUE_CATALOG_TRUNCATED")
+        require(len({x["ticket"] for x in accepted})==len(accepted)
+                and len({x["issue_id"] for x in accepted})==len(accepted),
+                "D2K_DUPLICATE_ISSUE_IDENTITY")
+        return sorted(accepted,key=lambda x:x["issue_number"])
 
     def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str):
         require(TICKET.fullmatch(ticket) and lane in LANES and SHA.fullmatch(source)
@@ -674,6 +830,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     ready=db.ready()
     if ready is None and db.admit_d2j_succession():
         ready=db.ready()
+    if ready is None and db.meta()["head_seq"] >= 23:
+        # Only issue-authorized development tasks; never invent work to stay busy.
+        # Reuse the existing SQLite mutex, source check, and daily dispatch budget.
+        known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
+        for item in api.d2k_eligible_issues(meta["source_sha"]):
+            if item["ticket"] not in known:
+                if db.admit_d2k_issue(item):
+                    ready=db.ready()
+                break
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
