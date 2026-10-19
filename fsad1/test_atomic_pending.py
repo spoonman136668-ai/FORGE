@@ -7,6 +7,7 @@ cross-failure-domain authentication, signed receipts or science permission.
 from __future__ import annotations
 
 import concurrent.futures
+from contextlib import closing
 import pathlib
 import sqlite3
 import tempfile
@@ -26,7 +27,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = str(pathlib.Path(self.tmp.name) / "fsa.sqlite")
-        with self.open() as db:
+        with closing(self.open()) as db:
             db.executescript(SCHEMA)
             # TEST FIXTURE ONLY: these identities are not production attestations.
             db.execute(
@@ -42,7 +43,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         return db
 
     def attempt(self, claim=CLAIM):
-        with self.open() as db:
+        with closing(self.open()) as db:
             try:
                 return db.execute(RESERVE, claim).fetchall()
             except sqlite3.IntegrityError:
@@ -53,7 +54,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][-1], "RESERVED_PENDING_INDEPENDENT_WITNESS")
         self.assertEqual(self.attempt(), [])
-        with self.open() as db:
+        with closing(self.open()) as db:
             row = db.execute(READBACK, (H("a"),)).fetchone()
             self.assertEqual(row, rows[0])
             self.assertEqual(
@@ -65,7 +66,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(len(self.attempt()), 1)
         other = (H("1"), H("2"), H("3"), "Yggdrasil", *CLAIM[4:])
         self.assertEqual(self.attempt(other), [])
-        with self.open() as db:
+        with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT count(*) FROM original_firstuse").fetchone()[0], 1)
 
@@ -78,7 +79,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
                 c = list(CLAIM)
                 c[index] = value
                 self.assertEqual(self.attempt(tuple(c)), [])
-        with self.open() as db:
+        with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT count(*) FROM original_firstuse").fetchone()[0], 0)
             self.assertEqual(db.execute(
@@ -97,7 +98,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         self.assertEqual(sum(isinstance(x, list) and len(x) == 1
                              for x in outcomes), 1)
         self.assertEqual(sum(x == [] for x in outcomes), 15)
-        with self.open() as db:
+        with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT count(*) FROM original_firstuse").fetchone()[0], 1)
             self.assertEqual(db.execute(
@@ -105,7 +106,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
 
     def test_reopening_with_new_test_epoch_cannot_reuse_consumed_cohort(self):
         self.assertEqual(len(self.attempt()), 1)
-        with self.open() as db:
+        with closing(self.open()) as db:
             # TEST FIXTURE ONLY. Actual state refresh requires independent FSA
             # authentication and external signed ledger reconciliation.
             db.execute(
@@ -117,7 +118,7 @@ class AtomicPendingFirstUse(unittest.TestCase):
         replay[5], replay[7], replay[8] = H("1"), 12, H("2")
         self.assertEqual(self.attempt(tuple(replay)),
                          "INTEGRITY_CONFLICT_NO_RETRY")
-        with self.open() as db:
+        with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT count(*) FROM original_firstuse").fetchone()[0], 1)
             self.assertEqual(db.execute(
@@ -131,14 +132,14 @@ class AtomicPendingFirstUse(unittest.TestCase):
             modified[change[0]] = change[1]
             self.assertEqual(self.attempt(tuple(modified)),
                              "INTEGRITY_CONFLICT_NO_RETRY")
-        with self.open() as db:
+        with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT reservation_open,reservation_sequence "
                 "FROM authority_state").fetchone(), (1, 0))
 
     def test_reopened_file_preserves_pending_claim_after_disconnect(self):
         self.assertEqual(len(self.attempt()), 1)
-        with self.open() as db:
+        with closing(self.open()) as db:
             self.assertEqual(db.execute(
                 "SELECT state FROM original_firstuse WHERE cohort_sha256=?",
                 (H("a"),)).fetchone()[0],
