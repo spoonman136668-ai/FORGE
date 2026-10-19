@@ -39,7 +39,7 @@ def bits(x):
 
 def _mod():
     spec=importlib.util.spec_from_file_location(
-        "bq_synthetic_algebraic_program",HERE/"f124bq_compact_learner.py")
+        "bq_synthetic_algebraic_program",HERE/"f124bq_program_learner.py")
     obj=importlib.util.module_from_spec(spec)
     spec.loader.exec_module(obj)
     return obj
