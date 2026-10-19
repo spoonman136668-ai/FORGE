@@ -1,0 +1,189 @@
+name: F124-CU ONE original L/M full-sequence prospective firstuse
+on:
+  push:
+    branches: [research/f124cu-sequence-prospective-20261019]
+    paths: [.github/workflows/forge-f124cu-original-firstuse.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124cu-one-original-sequence-birth-936-937
+  cancel-in-progress: false
+jobs:
+  exact-original-prebirth:
+    name: exact-original-prebirth (${{ matrix.os }})
+    if: github.run_attempt == 1
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reproduce frozen source-free original qualification environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+          if ($LASTEXITCODE -ne 0) { throw 'CU_ORIGINAL_NUMPY_PIN' }
+      - name: Verify immutable first-use admission and exact source/git blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CU_ORIGINAL_PROVIDER_HEAD' }
+          & git merge-base --is-ancestor 3402932e98144aeeade83b86826d6bae54f8aa67 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CU_ORIGINAL_HYPOTHESIS_WAS_NOT_PRE_SOURCE_FROZEN' }
+          & git merge-base --is-ancestor 677531c1fe8e5b25d0f2c48b89585a218637afa7 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CU_ORIGINAL_FIRSTUSE_ADMISSION_NOT_FROZEN' }
+          $a=Get-Content -Raw research/north-star-transfer/f124cu-original-admission.json | ConvertFrom-Json
+          if ($a.schema -cne 'mass.f124cu.original-LM-development-once.v1' -or !$a.authority.one_original_development_birth) { throw 'CU_NO_AUTHENTIC_OPERATOR_DEVELOPMENT_ADMISSION' }
+          if ($a.authority.protected_firstuse -or $a.authority.science_accepted -or $a.authority.automatic_merge) { throw 'CU_SCIENCE_OR_PROTECTED_RELEASE_DENIED' }
+          foreach ($p in $a.source_blobs.PSObject.Properties) {
+            $identity=(& git rev-parse "HEAD:$($p.Name)").Trim()
+            if ($LASTEXITCODE -ne 0 -or $identity -cne $p.Value) { throw "CU_ORIGINAL_FROZEN_BLOB_CHANGED:$($p.Name)" }
+          }
+          Write-Host 'F124CU_AUTHENTIC_EXACT_ORIGINAL_SOURCE_ADMISSION=PASS'
+      - name: Original prebirth source-blind smoke without entropy or first-use
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cu_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CU_ORIGINAL_PRESCIENCE_PREBIRTH_FAILED' }
+          Write-Host 'F124CU_ORIGINAL_BEFORE_ANY_SOURCE_BIRTH=PASS'
+
+  original-only-LM-source-birth:
+    name: original-only-LM-source-birth
+    needs: exact-original-prebirth
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Birth once exactly 24 new PRIVATE source-only L/M three-role causal sequences
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cu_birth_once.py \
+            --head "$GITHUB_SHA" --out "$RUNNER_TEMP/f124cu-new-source"
+      - name: Retain independently sealed private source/oracle, NEVER to model job
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cu-original-private-firstuse
+          path: ${{ runner.temp }}/f124cu-new-source/sealed-private-original.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Retain immutable blinded public cases before model evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cu-original-public-cases
+          path: |
+            ${{ runner.temp }}/f124cu-new-source/original-public-manifest.json
+            ${{ runner.temp }}/f124cu-new-source/public-cases/
+          retention-days: 90
+          if-no-files-found: error
+
+  original-public-BPTT-native-evaluation:
+    name: original-public-BPTT-native-evaluation
+    needs: original-only-LM-source-birth
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pinned full sequence training dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check numpy==2.3.5
+      - name: Obtain ONLY source-blind public causal FIT/CHECK and trajectories
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cu-original-public-cases
+          path: ${{ runner.temp }}/f124cu-original-public
+      - name: ONE original complete 24-case 72 preflight plus 360 whole-OS process scientific evaluation
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cu_eval_once.py \
+            --public-dir "$RUNNER_TEMP/f124cu-original-public" \
+            --out "$RUNNER_TEMP/f124cu-original-results"
+      - name: Preserve complete original evidence, negatives and append receipts even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cu-original-full-native-and-whole-OS-evidence
+          path: ${{ runner.temp }}/f124cu-original-results/
+          retention-days: 90
+          if-no-files-found: warn
+
+  independent-original-readonly-custody:
+    name: independent-original-readonly-custody
+    needs: [original-only-LM-source-birth, original-public-BPTT-native-evaluation]
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve private first-use ONLY for immutable read-only source custody
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cu-original-private-firstuse
+          path: ${{ runner.temp }}/f124cu-readonly-private-and-public
+      - name: Independently retrieve original public source
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cu-original-public-cases
+          path: ${{ runner.temp }}/f124cu-readonly-private-and-public
+      - name: Independently retrieve all native source-blind whole-process receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cu-original-full-native-and-whole-OS-evidence
+          path: ${{ runner.temp }}/f124cu-readonly-original-evidence
+      - name: Authenticate provider jobs, all 24 source births, blinded sequences and 432 real processes without replay
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cu_independent_audit.py \
+            --birth "$RUNNER_TEMP/f124cu-readonly-private-and-public" \
+            --evidence "$RUNNER_TEMP/f124cu-readonly-original-evidence" \
+            --head "$GITHUB_SHA" --out "$RUNNER_TEMP/f124cu-safe-only"
+      - name: Retain ONLY original independently reconciled safe aggregate and digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cu-original-independent-readonly-custody
+          path: ${{ runner.temp }}/f124cu-safe-only/independent-safe-custody.json
+          retention-days: 90
+          if-no-files-found: error

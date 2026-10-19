@@ -1,0 +1,50 @@
+name: F124-CR independent source-first PREBIRTH engineering only
+on:
+  push:
+    branches: [research/f124cr-prospective-newcausal-20261019]
+    paths:
+      - research/north-star-transfer/f124cr_*
+      - research/north-star-transfer/test_f124cr_prebirth.py
+      - research/north-star-transfer/f124cr-*
+      - .github/workflows/forge-f124cr-prebirth.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124cr-prebirth-no-private-science
+  cancel-in-progress: false
+jobs:
+  prebirth:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen CQ candidate/peer Git blobs and no scientific release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor b3a18f099b58681a511bfc3205a9a60cb678c8d8 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CR_ORIGINAL_PREREG_NOT_PRE_SOURCE' }
+          $a=Get-Content -Raw research/north-star-transfer/f124cr-frozen-preregistration.json | ConvertFrom-Json
+          if ($a.schema -cne 'mass.f124cr.trajectory-firstuse-preregistration.v1') { throw 'CR_FREEZE_SCHEMA' }
+          $model=(& git rev-parse "HEAD:$($a.frozen_candidate.path)").Trim()
+          $peer=(& git rev-parse "HEAD:$($a.frozen_strong_control.path)").Trim()
+          if ($model -cne $a.frozen_candidate.git_blob -or $peer -cne $a.frozen_strong_control.git_blob) { throw 'CR_FROZEN_LEARNER_BLOB_DRIFT' }
+          if ($a.authority.protected_firstuse -or $a.authority.scientific_acceptance -or $a.authority.auto_merge) { throw 'CR_UNAUTHORIZED_SCIENCE_PROMOTION' }
+          Write-Host 'F124CR_PRESCIENCE_FREEZE=PASS'
+      - name: Qualify source isolation, natural native parity and synthetic whole-OS costs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cr_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'F124CR_SOURCE_ONLY_TEST_FAILED' }
+          Write-Host 'F124CR_SOURCE_NEUTRAL_PREBIRTH_ENGINEERING=PASS'

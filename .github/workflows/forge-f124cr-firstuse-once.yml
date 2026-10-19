@@ -1,0 +1,174 @@
+name: F124-CR ONE source-first J/K original prospective and independent audit
+on:
+  push:
+    branches: [research/f124cr-prospective-newcausal-20261019]
+    paths: [.github/workflows/forge-f124cr-firstuse-once.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124cr-original-JK-934-935-FIRSTUSE-ONCE
+  cancel-in-progress: false
+jobs:
+  exact-prebirth-frozen-check:
+    if: github.run_attempt == 1
+    name: exact-prebirth-frozen-check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Bind exact original admission and ALL source/model blobs before entropy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'CR_ORIGINAL_GITHUB_SHA_CHANGED' }
+          & git merge-base --is-ancestor b3a18f099b58681a511bfc3205a9a60cb678c8d8 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CR_PREREG_BEFORE_SOURCE_NOT_PROVEN' }
+          & git merge-base --is-ancestor 01b253053129524bacd234388d7421e678a0bb31 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CR_INDEPENDENT_ADMISSION_MISSING' }
+          $c=Get-Content -Raw research/north-star-transfer/f124cr-original-admission.json | ConvertFrom-Json
+          if ($c.schema -cne 'mass.f124cr.one-original-internal-JK-admission.v1' -or !$c.authority.original_development_firstuse_once) { throw 'CR_NOT_ADMITTED' }
+          if ($c.authority.protected_firstuse -or $c.authority.scientific_acceptance -or $c.authority.automatic_merge -or $c.authority.model_or_source_retuning) { throw 'CR_UNAUTHORIZED_SCIENCE_RELEASE' }
+          foreach ($p in $c.exact_source_blobs.PSObject.Properties) {
+            $actual=(& git rev-parse "HEAD:$($p.Name)").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $p.Value) { throw "CR_EXACT_IMMUTABLE_MODEL_OR_SOURCE_DRIFT:$($p.Name)" }
+          }
+          Write-Host 'F124CR_EXACT_ORIGINAL_PRESCIENCE_ADMISSION=PASS'
+      - name: Source-neutral original whole-OS prebirth test, no 934/935 first-use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cr_prebirth.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CR_ORIGINAL_PRESCIENCE_TEST_FAILURE' }
+          Write-Host 'F124CR_ORIGINAL_BEFORE_ENTROPY=PASS'
+
+  source-first-original-JK:
+    name: source-first-original-JK
+    needs: exact-prebirth-frozen-check
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Originate exactly 24 NEW J/K OS-entropy sources only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cr_birth_once.py \
+            --head "$GITHUB_SHA" --out "$RUNNER_TEMP/f124cr-born"
+      - name: Seal immutable private seed/source oracle (NOT delivered to model)
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cr-original-private-source
+          path: ${{ runner.temp }}/f124cr-born/sealed-private-birth.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Seal exact original public source BEFORE any evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cr-original-public-source
+          path: |
+            ${{ runner.temp }}/f124cr-born/birth-public-manifest.json
+            ${{ runner.temp }}/f124cr-born/public-cases/
+          if-no-files-found: error
+          retention-days: 90
+
+  blinded-original-complete-measurements:
+    name: blinded-original-complete-measurements
+    needs: source-first-original-JK
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download ONLY the immutable public original source
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cr-original-public-source
+          path: ${{ runner.temp }}/f124cr-public
+      - name: Original frozen learned-candidate versus trained-control 24-case test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cr_eval_once.py \
+            --public-dir "$RUNNER_TEMP/f124cr-public" \
+            --out "$RUNNER_TEMP/f124cr-original-measurement"
+      - name: Retain all authentic 432 preflights, OS costs and append receipts
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cr-original-full-science-evidence
+          path: |
+            ${{ runner.temp }}/f124cr-original-measurement/original-complete-evidence.json
+            ${{ runner.temp }}/f124cr-original-measurement/original-public-summary.json
+            ${{ runner.temp }}/f124cr-original-measurement/original-append-journal.jsonl
+          if-no-files-found: error
+          retention-days: 90
+
+  independent-original-readonly-audit:
+    name: independent-original-readonly-audit
+    needs: [source-first-original-JK, blinded-original-complete-measurements]
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read private source only for independent one-time hash/oracle evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cr-original-private-source
+          path: ${{ runner.temp }}/f124cr-original-independent-birth
+      - name: Retrieve original public birth
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cr-original-public-source
+          path: ${{ runner.temp }}/f124cr-original-independent-birth
+      - name: Retrieve exact original measurement archive, never reexecute
+        uses: actions/download-artifact@v4
+        with:
+          name: f124cr-original-full-science-evidence
+          path: ${{ runner.temp }}/f124cr-original-independent-measurement
+      - name: Independently authenticate provider status, first-use and every original receipt
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124cr_independent_readonly_audit.py \
+            --birth "$RUNNER_TEMP/f124cr-original-independent-birth" \
+            --measurement "$RUNNER_TEMP/f124cr-original-independent-measurement" \
+            --head "$GITHUB_SHA" --out "$RUNNER_TEMP/f124cr-safe-custody"
+      - name: Publish ONLY safe digest/aggregate original audit with no seed/oracle
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124cr-independent-original-readonly-audit
+          path: ${{ runner.temp }}/f124cr-safe-custody/original-safe-audit.json
+          if-no-files-found: error
+          retention-days: 90

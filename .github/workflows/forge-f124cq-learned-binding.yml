@@ -1,0 +1,52 @@
+name: F124-CQ learned nonlinear relational binding engineering
+on:
+  push:
+    branches: [research/f124cq-learned-relational-tree-20261019]
+    paths:
+      - research/north-star-transfer/f124cq_*
+      - research/north-star-transfer/test_f124cq_*
+      - research/north-star-transfer/f124cq-frozen-learned-relational.json
+      - .github/workflows/forge-f124cq-learned-binding.yml
+permissions:
+  contents: read
+concurrency:
+  group: f124cq-learned-relational-engineering-only
+  cancel-in-progress: false
+jobs:
+  learned-mechanism:
+    name: learned-mechanism (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify original F124-CO negative ancestry and frozen model+peer blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git merge-base --is-ancestor ffc200c62cffb5f9bfdeb27d27c068ee2594d799 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'CQ_ORIGINAL_NEGATIVE_CUSTODY_NOT_AN_ANCESTOR' }
+          $c = Get-Content -Raw research/north-star-transfer/f124cq-frozen-learned-relational.json | ConvertFrom-Json
+          if ($c.schema -cne 'mass.f124cq.frozen-new-learned-relational-representation.v1') { throw 'CQ_FROZEN_CONTRACT_IDENTITY' }
+          $model=(& git rev-parse "HEAD:$($c.candidate.path)").Trim()
+          $peer=(& git rev-parse "HEAD:$($c.independently_trained_competitor.path)").Trim()
+          if ($LASTEXITCODE -ne 0 -or $model -cne $c.candidate.git_blob_sha -or $peer -cne $c.independently_trained_competitor.git_blob_sha) { throw 'CQ_LEARNED_SOURCE_DRIFT' }
+          if ($c.authority.source_birth -or $c.authority.science_accepted -or $c.authority.automatic_merge -or $c.authority.optimizer_promotion) { throw 'CQ_NO_PREMATURE_SCIENTIFIC_ACCEPTANCE' }
+          if ($c.candidate.max_nodes -ne 60 -or $c.independently_trained_competitor.max_nodes -ne 60) { throw 'CQ_LEARNED_CAPACITY_DRIFT' }
+          Write-Host 'F124CQ_FROZEN_TWO_LEARNED_REPRESENTATIONS=PASS'
+      - name: Run source-free learned nonlinear role-binding engineering tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124cq_learned_relational.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'CQ_FITTED_MECHANISM_FAILED' }
+          Write-Host 'F124CQ_LEARNED_RELATIONAL_MECHANISM_ENGINEERING=PASS'
