@@ -61,7 +61,7 @@ func g61Extract(path,url string,raw []byte)([]Symbol,error){
  ext:=filepath.Ext(path)
  if ext==".go"{return parseGo(path,url,raw)}
  out:=[]Symbol{}
- appendLocators:=func(re *regexp.Regexp,kind,nameGroup int){
+ appendLocators:=func(re *regexp.Regexp,kind string,nameGroup int){
   for _,m:=range re.FindAllSubmatchIndex(raw,-1){
    start,end:=m[nameGroup*2],m[nameGroup*2+1]
    if start<0||end<0{continue}
