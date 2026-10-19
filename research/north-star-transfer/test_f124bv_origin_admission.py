@@ -26,8 +26,8 @@ def dummy(family):
     repo=owner+"/new-causal-source"
     sha=format(identity,"x")*40
     original={
-        "source":b"import math\ndef source_private_transform(x):\n return (x+13)%65536\n",
-        "oracle":b"def oracle_private_causal(graph):\n return True\n",
+        "source":b"import math\ndef source_private_transform(x):\n return (x+13)%65536\n# FAMILY "+family.encode()+b"\n",
+        "oracle":b"def oracle_private_causal(graph):\n return True\n# FAMILY "+family.encode()+b"\n",
         "attestation":json.dumps({
             "schema":"mass.f124bv.source-independence-attestation.v1",
             "frozen_protocol_blob":bv.PROTOCOL_BLOB,
