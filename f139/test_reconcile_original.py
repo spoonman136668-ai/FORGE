@@ -226,14 +226,16 @@ class OriginalQuarantineTests(unittest.TestCase):
         def issue(number,lane):
             body={"schema":"forge.f139.d2k.owner-development.v1",
                   "source_sha":QUALIFIED_SHA,"lane":lane,
-                  "kind":"model-free-development-advisory",
+                  "kind":"go-package-test-diagnostic",
+                  "target_package":"./planner",
                   "scientific_first_use":False,"paid_model_calls":0}
             digest=hash_bytes(canonical(body))
             return {
                 "ticket":"f139-d2k-i"+str(number)+"-"+QUALIFIED_SHA[:12]+"-"+digest[:8],
                 "issue_number":number,"issue_id":120000+number,
                 "source_sha":QUALIFIED_SHA,"lane":lane,
-                "kind":"model-free-development-advisory","body_sha256":digest
+                "kind":"go-package-test-diagnostic","target_package":"./planner",
+                "body_sha256":digest
             }
 
         provider.d2k_issues=[issue(1401,"Qualification"),issue(1402,"Wingless")]

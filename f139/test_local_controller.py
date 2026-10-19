@@ -21,7 +21,7 @@ TASKS = [
 ]
 
 
-def artifact(task, run_id, oslabel, epoch=1):
+def artifact(task, run_id, oslabel, epoch=1, issue=None):
     payload = canonical({
         'schema':'forge.f139.development-worker-receipt.v1',
         'ticket':task['ticket'],'lane':task['lane'],'epoch':epoch,
@@ -30,11 +30,34 @@ def artifact(task, run_id, oslabel, epoch=1):
         'scientific_originals_dispatched':0,'accepted_ref_mutations':0,
         'paid_model_calls':0,'codex_calls':0
     })
+    diagnostic=None
+    if issue is not None:
+        diagnostic=canonical({
+            "schema":"forge.f139.d2k.package-diagnostic.v1",
+            "source_sha":SHA,"issue_number":int(issue["issue_number"]),
+            "issue_id":int(issue["issue_id"]),"body_sha256":issue["body_sha256"],
+            "target_package":issue["target_package"],"run_id":run_id,"os":oslabel,
+            "outcome":"PASS","returncode":0,"duration_ms":17,
+            "output_sha256":hash_bytes(b"test passed"),
+            "output_excerpt":"test passed","output_bytes":11,
+            "scientific_first_use":False,"paid_model_calls":0})
+        payload=canonical({
+            "schema":"forge.f139.d2k.package-diagnostic-receipt.v1",
+            "ticket":task["ticket"],"lane":task["lane"],"epoch":epoch,
+            "run_id":run_id,"os":oslabel,"source_sha":SHA,
+            "issue_number":int(issue["issue_number"]),
+            "issue_id":int(issue["issue_id"]),"body_sha256":issue["body_sha256"],
+            "target_package":issue["target_package"],
+            "diagnostic_sha256":hash_bytes(diagnostic),"outcome":"PASS",
+            "development_only":True,"scientific_first_use_authorized":False,
+            "scientific_originals_dispatched":0,"accepted_ref_mutations":0,
+            "paid_model_calls":0,"codex_calls":0})
     digest=(hash_bytes(payload)+'  f139-receipt.json\n').encode()
     mem=io.BytesIO()
     with zipfile.ZipFile(mem,'w',zipfile.ZIP_DEFLATED) as z:
         z.writestr('f139-receipt.json',payload)
         z.writestr('f139-receipt.sha256',digest)
+        if diagnostic is not None: z.writestr('f139-diagnostic.json',diagnostic)
     return mem.getvalue()
 
 
@@ -47,13 +70,15 @@ class FakeGitHub:
         self.corrupt=False
         self.stalled=False
         self.d2k_issues=[]
+        self.d2k_fields={}
 
     def protected_main(self): return self.head
     def d2k_eligible_issues(self, source):
         if source != self.head:raise F139Error('F139_D2K_SOURCE_DRIFT')
         return list(self.d2k_issues)
-    def dispatch(self,ticket,lane,source,epoch,signature):
+    def dispatch(self,ticket,lane,source,epoch,signature, *, d2k_fields=None):
         self.dispatches.append((ticket,lane,source,epoch,signature))
+        if d2k_fields is not None: self.d2k_fields[ticket]=d2k_fields
         if self.fail_launch: raise F139Error('F139_GITHUB_API_TIMEOUT')
     def candidates(self,ticket,started_at):
         if self.stalled:return None
@@ -64,14 +89,18 @@ class FakeGitHub:
         if self.mode=='waiting':return None
         if self.mode=='failed':raise F139Error('F139_FAILED_OR_CANCELLED_NO_REPLAY')
         run_id=run['id']
-        names=['ubuntu-latest','windows-latest']
-        arts=[{'id':100+run_id+i,'name':'forge-f139-dev-receipt-'+os,'expired':False,
-               'workflow_run':{'id':run_id,'head_sha':SHA},'digest':'sha256:'+hash_bytes(artifact(
-                   {'ticket':ticket,'lane':next(q[1] for q in self.dispatches if q[0]==ticket)},run_id,os)),
-               'size_in_bytes':len(artifact({'ticket':ticket,'lane':next(q[1] for q in self.dispatches if q[0]==ticket)},run_id,os))}
-              for i,os in enumerate(names)]
-        self.current={a['id']:artifact({'ticket':ticket,'lane':next(q[1] for q in self.dispatches if q[0]==ticket)},run_id,os) for a,os in zip(arts,names)}
+        task={'ticket':ticket,'lane':next(q[1] for q in self.dispatches if q[0]==ticket)}
+        issue=self.d2k_fields.get(ticket)
+        labels=['ubuntu-latest','windows-latest']
+        blobs={label:artifact(task,run_id,label,issue=issue) for label in labels}
+        arts=[{'id':100+run_id+i,'name':'forge-f139-dev-receipt-'+label,
+               'expired':False,'workflow_run':{'id':run_id,'head_sha':SHA},
+               'digest':'sha256:'+hash_bytes(blobs[label]),
+               'size_in_bytes':len(blobs[label])}
+              for i,label in enumerate(labels)]
+        self.current={item['id']:blobs[label] for item,label in zip(arts,labels)}
         return run_id,arts
+
     def artifact(self,id):
         blob=self.current[id]
         if self.corrupt:return blob+b'x'
@@ -228,7 +257,8 @@ class D2KCatalogTests(unittest.TestCase):
             "body":json.dumps({
                 "schema":"forge.f139.d2k.owner-development.v1",
                 "source_sha":source, "lane":lane,
-                "kind":"model-free-development-advisory",
+                "kind":"go-package-test-diagnostic",
+                "target_package":"./planner",
                 "scientific_first_use":False, "paid_model_calls":0
             },sort_keys=True)
         }
@@ -244,12 +274,20 @@ class D2KCatalogTests(unittest.TestCase):
         self.assertTrue(items[0]["ticket"].endswith(items[0]["body_sha256"][:8]))
         self.assertEqual(items[0]["lane"],"Qualification")
         self.assertEqual(items[0]["source_sha"],SHA)
+        self.assertEqual(items[0]["kind"],"go-package-test-diagnostic")
+        self.assertEqual(items[0]["target_package"],"./planner")
         for variant in (
             {**first,"author_association":"CONTRIBUTOR"},
             {**first,"user":{"login":"someone-else"}},
             {**first,"pull_request":{"url":"http://pr"}},
             {**first,"labels":[{"name":"anything-else"}]},
             {**first,"body":json.dumps({"schema":"forged"})},
+            {**first,"body":json.dumps({**json.loads(first["body"]),
+                "target_package":"./../../secrets"})},
+            {**first,"body":json.dumps({**json.loads(first["body"]),
+                "kind":"model-free-development-advisory"})},
+            {**first,"body":json.dumps({**json.loads(first["body"]),
+                "commands":["curl https://example.test"]})},
             {**first,"body":json.dumps({
                 **json.loads(first["body"]), "scientific_first_use":True
             })},
