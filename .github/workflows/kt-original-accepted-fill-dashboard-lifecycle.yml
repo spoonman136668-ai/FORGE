@@ -1,0 +1,209 @@
+name: K-Terminal full mock order fill and dashboard lifecycle
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-accepted-fill-dashboard-lifecycle.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-production-code:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Exercise original accepted BUY to fill ledger PnL and dashboard builder with mock account
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_ACTUAL_CODE_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $original=$roots[0]
+          foreach($name in @('go.mod','go.sum','pkg\native-execution.go','pkg\native-maker-accounting-retry_test.go','pkg\regular-sell-selected-execution_test.go')) {
+            if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)) { throw 'REQUIRED_ORIGINAL_GO_SOURCE_MISSING' }
+          }
+          $fixture=Get-Content -LiteralPath (Join-Path $original 'pkg\native-maker-accounting-retry_test.go') -Raw -ErrorAction Stop
+          if(-not($fixture.Contains('newMakerAccountingFixture') -and $fixture.Contains('makerAccountingAccept') -and $fixture.Contains('lookupRoundTripFunc') -and $fixture.Contains('nativeGuardedTransport'))) { throw 'ORIGINAL_SAFE_MOCK_FIXTURE_INCOMPATIBLE' }
+          Write-Host 'KTERM_MOCKED_NATIVE_FIXTURE_PRESENT=PASS'
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)) { throw 'OFFLINE_GO_COMPILER_NOT_FOUND' }
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-real-order-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)) { throw 'SANDBOX_INSIDE_ORIGINAL_FORBIDDEN' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            foreach($name in @('go.mod','go.sum')) {Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+            foreach($section in @('pkg','internal')) {
+              $src=Join-Path $original $section
+              if(Test-Path -LiteralPath $src -PathType Container) {
+                Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object {
+                  $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+                  $dest=Join-Path $sandbox $rel
+                  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+                  Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+                }
+              }
+            }
+            $embed=Join-Path $original 'pkg\tranche-plans.json'
+            if(-not(Test-Path -LiteralPath $embed -PathType Leaf)) { throw 'ORIGINAL_EMBEDDED_TRANCHES_MISSING' }
+            Copy-Item -LiteralPath $embed -Destination (Join-Path $sandbox 'pkg\tranche-plans.json') -ErrorAction Stop
+            $pkg=Join-Path $sandbox 'pkg'
+            $testSource=Join-Path $pkg 'offline-original-real-order-simulation_test.go'
+            $code=@'
+          package pkg
+          
+          import (
+            "encoding/json"
+            "net/http"
+            "fmt"
+            "math"
+            "os"
+            "strconv"
+            "strings"
+            "testing"
+            "time"
+          )
+          type offlineFullOrderSample struct {
+           ack, handler, fill, dashboard, afterAckToPublished float64
+           historyCount int
+          }
+          func TestOfflineOriginalAcceptedBuyToFillAccountingAndDashboard(t *testing.T) {
+           cases:=[]struct{name string; postAckDelay time.Duration; count int}{
+            {"NORMAL",0,4},
+            {"DELAYED_FILL_950MS",950*time.Millisecond,2},
+            {"DELAYED_FILL_6900MS",6900*time.Millisecond,1},
+           }
+           for _,scenario:=range cases {
+            samples:=[]offlineFullOrderSample{}
+            for i:=0;i<scenario.count;i++ {
+             t.Run(fmt.Sprintf("%s_%02d",scenario.name,i),func(t *testing.T){
+              f:=newMakerAccountingFixture(t)
+              root:=t.TempDir()
+              tracker,err:=newPerformanceTrackerAt("BTC-USDC",root)
+              if err!=nil {t.Fatal(err)}
+              f.pm.SetPerformanceTracker(tracker)
+              acceptedAt:=time.Time{}
+              f.post=func(_ int,req *AdvancedOrderRequest)(*http.Response,error){
+                acceptedAt=time.Now()
+                return makerAccountingAccept(req.ClientOrderID),nil
+              }
+              initial:=f.pm.Snapshot()
+              started:=time.Now()
+              outcome,err:=f.h.ExecuteNativeSignal(f.n,t.TempDir())
+              handlerEnd:=time.Now()
+              if err!=nil || outcome==nil || len(f.posts)!=1 || acceptedAt.IsZero(){t.Fatalf("original order acceptance failed: outcome=%t submissions=%d err=%v",outcome!=nil,len(f.posts),err)}
+              id:="maker-accounting-accepted"
+              client:=f.posts[0].ClientOrderID
+              if client==""{t.Fatal("missing accepted client ID")}
+              // The original BUY handler must have durably linked the accepted order to
+              // its lot before the mocked fill arrives. No order identity is invented.
+              if _,ok:=f.pm.ladderLots.state.Orders[ladderOrderKey(id,client)];!ok {
+                t.Fatal("original accepted BUY did not register its lot/order link")
+              }
+              amountText:=f.posts[0].OrderConfiguration.LimitLimitGTC.BaseSize
+              qty,err:=strconv.ParseFloat(amountText,64)
+              if err!=nil || qty<=0 {t.Fatal("no validated native buy size")}
+              price,err:=strconv.ParseFloat(f.posts[0].OrderConfiguration.LimitLimitGTC.LimitPrice,64)
+              if err!=nil || price<=0 {t.Fatal("no validated native buy limit price")}
+              fillValue:=qty*price
+              fee:=fillValue*.0005
+              fill:=UserOrderUpdate{OrderID:id,ClientOrderID:client,ProductID:"BTC-USDC",Side:"BUY",Status:"FILLED",
+                CumulativeQuantity:qty,FilledValue:fillValue,TotalFees:fee,AveragePrice:price,
+                CreationTime:time.Now().Add(-time.Second),EventTime:time.Now()}
+              if scenario.postAckDelay>0 {time.Sleep(scenario.postAckDelay)}
+              fillStart:=time.Now()
+              f.pm.ladderLots.HandleUserOrder(fill)
+              fillEnd:=time.Now()
+              after:=f.pm.Snapshot()
+              if !after.AccountingVerified || after.BasisEstimated ||
+                  math.Abs(after.Quantity-(initial.Quantity+qty))>1e-9 ||
+                  math.Abs(after.CostBasis-(initial.CostBasis+fillValue+fee))>1e-5 {
+                t.Fatalf("original fill accounting not coherent; verified=%t basis_estimated=%t",after.AccountingVerified,after.BasisEstimated)
+              }
+              // An overlapping REST and WebSocket fill event must remain idempotent.
+              f.pm.ladderLots.HandleUserOrder(fill)
+              repeat:=f.pm.Snapshot()
+              if math.Abs(repeat.Quantity-after.Quantity)>1e-9 || math.Abs(repeat.CostBasis-after.CostBasis)>1e-5{
+                t.Fatal("duplicate fill changed position economics")
+              }
+              raw,err:=os.ReadFile(tracker.historyPath)
+              if err!=nil{t.Fatal(err)}
+              historyCount:=0
+              for _,line:=range strings.Split(strings.TrimSpace(string(raw)),"\n"){
+                var entry PerformanceHistoryRecord
+                if err=json.Unmarshal([]byte(line),&entry);err!=nil{t.Fatal(err)}
+                if entry.Event=="BUY_FILL"{historyCount++}
+              }
+              if historyCount!=1{t.Fatalf("expected exactly one production BUY_FILL reporting record, got %d",historyCount)}
+              // The real snapshot builder is invoked against test-owned, disconnected
+              // in-memory balance observations, never exchange credentials.
+              balance:=NewBalanceChecker(nil,"quote")
+              balance.accountsAt=time.Now()
+              balance.accountsCache=[]Account{
+                dashboardBalanceFixture("quote","USDC",lookupPortfolio,"2000","0"),
+                dashboardBalanceFixture("base","BTC",lookupPortfolio,strconv.FormatFloat(after.Quantity,'f',8,64),"0"),
+              }
+              dashboardStart:=time.Now()
+              screen:=&TerminalDashboard{productID:"BTC-USDC",positionManager:f.pm,ladderLots:f.pm.ladderLots,
+                balanceChecker:balance,productRulesLoaded:true,productRules:f.pm.productRules}
+              snapshot,err:=screen.BuildSnapshot()
+              if err!=nil{t.Fatal(err)}
+              model:=buildDashboardUIModel(snapshot)
+              // Rendered WPF interaction is deliberately not exercised on a runner.
+              _=model
+              dashboardEnd:=time.Now()
+              if !snapshot.PositionAccountingVerified || !snapshot.BasisVerified ||
+                 math.Abs(snapshot.Quantity-after.Quantity)>1e-9 || math.Abs(snapshot.CostBasis-after.CostBasis)>1e-5{
+                 t.Fatal("dashboard snapshot lost original confirmed fill economics")
+              }
+              toMS:=func(v time.Duration)float64{return float64(v.Microseconds())/1000}
+              samples=append(samples,offlineFullOrderSample{
+                ack:toMS(acceptedAt.Sub(started)),handler:toMS(handlerEnd.Sub(started)),
+                fill:toMS(fillEnd.Sub(fillStart)),dashboard:toMS(dashboardEnd.Sub(dashboardStart)),
+                afterAckToPublished:toMS(dashboardEnd.Sub(acceptedAt)),historyCount:historyCount})
+             })
+            }
+            avg:=func(get func(offlineFullOrderSample)float64)float64{
+              sum:=0.0;for _,s:=range samples{sum+=get(s)};return sum/float64(len(samples))
+            }
+            fmt.Printf("KTERM_FULL_LIFECYCLE_%s_COUNT=%d\n",scenario.name,len(samples))
+            fmt.Printf("KTERM_FULL_LIFECYCLE_%s_HANDLER_AVG_MS=%.2f\n",scenario.name,avg(func(x offlineFullOrderSample)float64{return x.handler}))
+            fmt.Printf("KTERM_FULL_LIFECYCLE_%s_FILL_REDUCER_AVG_MS=%.2f\n",scenario.name,avg(func(x offlineFullOrderSample)float64{return x.fill}))
+            fmt.Printf("KTERM_FULL_LIFECYCLE_%s_DASHBOARD_BUILD_AVG_MS=%.2f\n",scenario.name,avg(func(x offlineFullOrderSample)float64{return x.dashboard}))
+            fmt.Printf("KTERM_FULL_LIFECYCLE_%s_ACCEPTED_TO_DASHBOARD_AVG_MS=%.2f\n",scenario.name,avg(func(x offlineFullOrderSample)float64{return x.afterAckToPublished}))
+           }
+           fmt.Println("KTERM_FULL_LIFECYCLE_FAKE_COINBASE_ONLY=TRUE")
+           fmt.Println("KTERM_FULL_LIFECYCLE_PRODUCTION_FILL_AND_DASHBOARD_CODE=TRUE")
+           fmt.Println("KTERM_FULL_LIFECYCLE_WPF_RENDERING_NOT_TESTED=TRUE")
+          }
+          
+          '@
+            [IO.File]::WriteAllText($testSource,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            $env:K_TERMINAL_P5_LATENCY='0'
+            $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+            [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+            Write-Host 'KTERM_ISOLATED_SOURCE_COPY_READY=PASS'
+            Write-Host 'KTERM_OFFLINE_DEPENDENCIES_REQUIRED=TRUE'
+            Push-Location $sandbox
+            try {
+              & $goBin test ./pkg -run '^(TestOfflineOriginalAcceptedBuyToFillAccountingAndDashboard|TestConfirmedOrderPartialUpdatesAndDelayedFeesDoNotDoubleCount|TestConfirmedOrderDashboardUsesConfirmedEconomicsWithScopedEquity)$' -count=1 -timeout=4m -v
+              if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_FULL_LIFECYCLE_TEST_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_FULL_LIFECYCLE_GATE=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_POSTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
