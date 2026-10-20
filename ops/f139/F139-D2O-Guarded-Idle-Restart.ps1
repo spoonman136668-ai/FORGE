@@ -50,7 +50,7 @@ function Identity{
   Need (Test-Path -LiteralPath $fields.PythonExe -PathType Leaf) 'OWNER_PYTHON_MISSING'
   Need (Test-Path -LiteralPath (Join-Path $fields.RepositoryRoot 'f139\audit_d2k_custody.py') -PathType Leaf) 'QUALIFIED_AUDITOR_MISSING'
   Need ((InvokeChecked 'git' @('-C',$fields.RepositoryRoot,'rev-parse','HEAD')) -ceq $Main) 'TASK_SOURCE_NOT_MAIN'
-  Need ([string]::IsNullOrWhiteSpace((InvokeChecked 'git' @('-C',$fields.RepositoryRoot,'status','--porcelain'))) 'TASK_SOURCE_DIRTY'
+  Need ([string]::IsNullOrWhiteSpace((InvokeChecked 'git' @('-C',$fields.RepositoryRoot,'status','--porcelain')))) 'TASK_SOURCE_DIRTY'
   $branch=API ('repos/'+$Repo+'/branches/main')
   Need ($branch.protected -eq $true -and $branch.commit.sha -ceq $Main) 'PROTECTED_MAIN_DRIFT'
   Need ((API 'user').login -ceq 'spoonman136668-ai') 'AUTH_OWNER_DRIFT'
