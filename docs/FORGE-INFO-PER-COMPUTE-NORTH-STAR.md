@@ -9,6 +9,14 @@ throughput, number of positive results, repeated benchmark successes or gate
 counts. Wingless, Yggdrasil and Mass Research remain separate scientific
 lanes: **do not merge their underlying evidence, hypotheses or custody**.
 
+## Architectural alignment constraint (prospective)
+
+Information gained per compute is **an experiment-selection efficiency measure, not the intelligence objective**. FORGE's long-term scientific purpose is to help Wingless and Yggdrasil independently discover and integrate **native, non-transformer, non-next-token-centric cognitive mechanisms** capable of cumulative learning, memory, reasoning, unfamiliar compositional transfer and, eventually, general LLM-class functionality at substantially lower resource cost where possible. Transformer and token-based models remain valid controls, external research tools and language I/O interfaces, not either lane's cognitive foundation.
+
+Before recommending a *new* scientific mechanism, describe which **working native substrate** would incorporate it, which higher-level capability it would plausibly improve, and which matched trained/symbolic baseline and ablation could falsify that claim. Favor direct integration and demonstrable transfer, not indefinitely repeated isolated synthetic puzzle gains. Neither an information-theoretic score, an optimizer win, an infrastructure milestone nor LCRM by itself establishes progress toward functioning intelligence.
+
+Do not rewrite frozen candidate inputs, historical outcomes, calculation code, sealed first-use custody, or existing score/acceptance rules to implement this advisory clarification. The operator's durable source is Mind-Palace `boundary/wingless-yggdrasil-nontransformer-nontoken-northstar-20261020` at `5e7414966bdcb6e75776ea3422b98422b20c9025`; retrieval is commit-pinned, read-only and advisory, with FORGE/CKB-plane isolation intact.
+
 ## Existing FORGE optimizations retained
 
 The proposal selector recognizes existing FORGE-native candidate mechanisms:
