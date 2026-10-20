@@ -55,24 +55,71 @@ def calculate(original, candidate, shards, max_regex_bytes):
         raise ValueError("CANDIDATE_ADDITIONS_NOT_EXACTLY_EXPECTED")
     if set(original) - set(candidate):
         raise ValueError("ORIGINAL_TEST_REMOVED")
-    output = [[] for _ in range(shards)]
-    for test in candidate:
-        index = int(hashlib.sha256(test.encode("utf-8")).hexdigest()[:8], 16) % shards
-        output[index].append(test)
-    if any(not group for group in output):
+    # Prefix-free radix partition: substantially shorter than passing the
+    # entire Go test inventory as alternatives through Windows command lines.
+    groups = []
+    for root in ("Test", "Example", "Fuzz"):
+        subset = [name for name in candidate if name.startswith(root)]
+        if subset:
+            groups.append({"prefix": root, "exact": False, "names": subset})
+    def split_group(g):
+        if g["exact"] or len(g["names"]) < 2:
+            return None
+        prefix = g["prefix"]
+        buckets = {}
+        for name in g["names"]:
+            token = ("", True) if len(name) == len(prefix) else (name[len(prefix)], False)
+            buckets.setdefault(token, []).append(name)
+        if len(buckets) < 2:
+            # A common next character extends the prefix, preserving the set.
+            child = list(buckets.keys())[0]
+            if child[1]:
+                return None
+            return [{"prefix": prefix + child[0], "exact": False, "names": g["names"]}]
+        return [{"prefix": prefix + c, "exact": exact, "names": names}
+                for (c, exact), names in sorted(buckets.items())]
+    desired_peak = max(1, (len(candidate) * 3 + (2 * shards - 1)) // (2 * shards))
+    steps = 0
+    while len(groups) < shards or max(len(g["names"]) for g in groups) > desired_peak:
+        ordered = sorted(range(len(groups)), key=lambda i: -len(groups[i]["names"]))
+        replacement = None
+        at = None
+        for i in ordered:
+            candidate_split = split_group(groups[i])
+            if candidate_split is not None:
+                replacement = candidate_split
+                at = i
+                break
+        if replacement is None:
+            raise ValueError("PREFIX_PARTITION_CANNOT_REACH_EXPECTED_BALANCE")
+        groups = groups[:at] + replacement + groups[at+1:]
+        steps += 1
+        if steps > 10000 or len(groups) > 4000:
+            raise ValueError("PREFIX_PARTITION_NONTERMINATING")
+    buckets = [{"names": [], "groups": []} for _ in range(shards)]
+    for group in sorted(groups, key=lambda x: -len(x["names"])):
+        target = min(buckets, key=lambda x: len(x["names"]))
+        target["names"].extend(group["names"])
+        target["groups"].append(group)
+    if any(not item["names"] for item in buckets):
         raise ValueError("EMPTY_SHARD")
-    if sorted(x for group in output for x in group) != candidate:
+    if sorted(name for bucket in buckets for name in bucket["names"]) != candidate:
         raise ValueError("SHARD_COVERAGE_OR_DUPLICATION")
     plans = []
-    for index, group in enumerate(output):
-        # Exact top-level names, with /subtests inherited automatically.
-        regex = "^(" + "|".join(re.escape(x) for x in group) + ")$"
+    for index, bucket in enumerate(buckets):
+        names = sorted(bucket["names"])
+        parts = [re.escape(g["prefix"]) + ("" if g["exact"] else ".*")
+                 for g in bucket["groups"]]
+        regex = "^(?:" + "|".join(parts) + ")$"
         if len(regex.encode("utf-8")) > max_regex_bytes:
             raise ValueError("COMMAND_LINE_LIMIT_SHARD_" + str(index))
-        plans.append({"id": index, "top_level_count": len(group),
+        plans.append({"id": index, "top_level_count": len(names),
                       "run_regex": regex,
-                      "top_level_names_sha256": fingerprint(group),
-                      "exact_names": group})
+                      "top_level_names_sha256": fingerprint(names),
+                      "exact_names": names})
+    for name in candidate:
+        if sum(1 for shard in plans if re.fullmatch(shard["run_regex"], name)) != 1:
+            raise ValueError("ACTUAL_SELECTOR_OVERLAP_OR_MISSING_TEST")
     return {
         "schema": "kterminal.rc2h.go-pkg-test-shard-plan.v1",
         "original_count": len(original),
