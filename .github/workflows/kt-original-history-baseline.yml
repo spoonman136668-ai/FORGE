@@ -1,0 +1,100 @@
+name: K-Terminal original history read-only baseline
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-history-baseline.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Profile history metadata and public timing fields only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'KTERM_RUNNER_IDENTITY_MISMATCH'}
+          Write-Host 'KTERM_RUNNER_IDENTITY=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if($roots.Count -ne 1){ throw 'KTERM_ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $root=$roots[0]
+          if(-not(Test-Path -LiteralPath (Join-Path $root 'K-Terminal-Engine.exe') -PathType Leaf)){throw 'KTERM_ORIGINAL_ENGINE_MISSING'}
+          if(-not(Test-Path -LiteralPath (Join-Path $root 'K-Terminal-Chart-History.exe') -PathType Leaf)){throw 'KTERM_ORIGINAL_CHART_HISTORY_MISSING'}
+          Write-Host 'KTERM_ORIGINAL_COMPONENTS=PASS'
+          $profiles=@(
+            @{label='DATA_CHART'; path='data\chart'},
+            @{label='DATA_PAPER_CHART'; path='data\paper\chart-cache'},
+            @{label='DATA_PAPER_TEST'; path='data\paper-test'},
+            @{label='DATA_NATIVE_RUNTIME'; path='data\native-runtime'},
+            @{label='DATA_CANDLECACHE'; path='data\candlecache'},
+            @{label='DATA_CHART_CACHE'; path='data\chart\chart-cache'},
+            @{label='DATA_CACHE'; path='data\cache'},
+            @{label='REPORTING'; path='reporting'}
+          )
+          foreach($profile in $profiles){
+            $label=[string]$profile.label
+            $path=Join-Path $root $profile.path
+            if(-not(Test-Path -LiteralPath $path -PathType Container)){Write-Host ("KTERM_$($label)_STATUS=ABSENT");continue}
+            $count=0L; $bytes=0L; $zeroJson=0L; $largest=0L; $old=0L; $truncated=$false
+            $elapsed=[Diagnostics.Stopwatch]::StartNew()
+            try {
+              $files=[IO.Directory]::EnumerateFiles($path,'*',[IO.SearchOption]::AllDirectories)
+              foreach($file in $files){
+                if($count -ge 15000 -or $elapsed.Elapsed.TotalSeconds -ge 18){$truncated=$true;break}
+                $fi=[IO.FileInfo]::new($file)
+                if(-not $fi.Exists){continue}
+                $count++
+                $len=$fi.Length
+                $bytes+=$len
+                if($len -gt $largest){$largest=$len}
+                if($len -eq 0 -and $fi.Extension -ieq '.json'){$zeroJson++}
+                if($fi.LastWriteTimeUtc -lt [DateTime]::UtcNow.AddDays(-30)){$old++}
+              }
+              Write-Host ("KTERM_$($label)_FILES_EXAMINED=" + $count)
+              Write-Host ("KTERM_$($label)_BYTES_EXAMINED=" + $bytes)
+              Write-Host ("KTERM_$($label)_ZERO_BYTE_JSON=" + $zeroJson)
+              Write-Host ("KTERM_$($label)_FILES_OLDER_30D=" + $old)
+              Write-Host ("KTERM_$($label)_MAX_FILE_BYTES=" + $largest)
+              Write-Host ("KTERM_$($label)_SCAN_MS=" + [int]$elapsed.Elapsed.TotalMilliseconds)
+              Write-Host ("KTERM_$($label)_TRUNCATED=" + $truncated)
+            }catch{
+              Write-Host ("KTERM_$($label)_ERROR_TYPE=" + $_.Exception.GetType().Name)
+            }finally{$elapsed.Stop()}
+          }
+          # Source-qualified, numeric diagnostic fields only; never emit
+          # candle frames, product identifiers, account records or private paths.
+          $snapshots=@(
+            @{label='LIVE_CHART';path='data\chart\chart-current.json'},
+            @{label='PAPER_CHART';path='data\paper\chart-current.json'},
+            @{label='PAPER_TEST_CHART';path='data\paper-test\chart-current.json'}
+          )
+          foreach($spec in $snapshots){
+            $label=[string]$spec.label
+            $path=Join-Path $root ([string]$spec.path)
+            if(-not(Test-Path -LiteralPath $path -PathType Leaf)){Write-Host ("KTERM_$($label)_TIMING=ABSENT");continue}
+            $f=[IO.FileInfo]::new($path)
+            Write-Host ("KTERM_$($label)_FRAME_BYTES=" + $f.Length)
+            Write-Host ("KTERM_$($label)_FRAME_AGE_MINUTES=" + [int][Math]::Max(0,([DateTime]::UtcNow-$f.LastWriteTimeUtc).TotalMinutes))
+            if($f.Length -gt 4194304 -or $f.Length -eq 0){Write-Host ("KTERM_$($label)_TIMING=SKIPPED_SIZE");continue}
+            try {
+              $frame=Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -ErrorAction Stop
+              $t=$frame.PSObject.Properties['timing']
+              if($null -eq $t -or $null -eq $t.Value){ Write-Host ("KTERM_$($label)_TIMING=NOT_PRESENT");continue }
+              foreach($field in @('history_fetch_ms','aggregation_ms','indicators_ms','first_snapshot_ms','live_attach_ms','advanced_trade_requests','advanced_trade_rate_limited','last_backfill_ms')){
+                $prop=$t.Value.PSObject.Properties[$field]
+                if($null -ne $prop -and $null -ne $prop.Value){
+                  $numeric=0.0
+                  if([double]::TryParse([string]$prop.Value,[ref]$numeric) -and $numeric -ge 0 -and $numeric -le 1000000000){
+                    Write-Host ("KTERM_$($label)_$field=" + $numeric)
+                  }
+                }
+              }
+              Write-Host ("KTERM_$($label)_TIMING=PARSED")
+            }catch{Write-Host ("KTERM_$($label)_TIMING_ERROR_TYPE=" + $_.Exception.GetType().Name)}
+          }
+          Write-Host 'KTERM_NO_APP_OR_TRADING_EXECUTION=TRUE'
+          Write-Host 'KTERM_DATA_FILES_UNCHANGED=TRUE'
+          Write-Host 'KTERM_ORIGINAL_HISTORY_BASELINE=COMPLETE'
