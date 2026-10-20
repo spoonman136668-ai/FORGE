@@ -5,7 +5,6 @@ An externally sealed 23-event head is mandatory; the local DB is not its own wit
 """
 from __future__ import annotations
 import argparse
-from collections import Counter
 import hashlib
 import json
 import os
@@ -48,6 +47,22 @@ ALLOWED_SOURCE_SUCCESSORS = (
     "296f2784621b92006f3e217012fafa54b8aed1f6",
     "365e5eb8b888c11716376973ad2551523a869bab",
 )
+# Immutable, source-authenticated D2C repair path followed by two original D2J
+# provider terminals. D2C repairs are NOT PROVIDER_VERIFIED_TERMINAL events.
+# Preserve the earlier quarantine decisions; neither a repair nor an audit is
+# a scientific original first-use grant.
+REAL_23_EVENT_KINDS = (
+    "TASK_INTAKE", "TASK_INTAKE", "CUTOVER_ACTIVATED",
+    "BEFORE_DISPATCH_INTENT", "DISPATCH_POST_RETURNED", "ATTEMPT_QUARANTINED",
+    "BEFORE_DISPATCH_INTENT", "DISPATCH_POST_RETURNED", "ATTEMPT_QUARANTINED",
+    "QUARANTINE_ORIGINAL_RECONCILED", "QUARANTINE_ORIGINAL_RECONCILED",
+    "SOURCE_TRANSITION_ADMITTED", "SOURCE_TRANSITION_ADMITTED",
+    "SOURCE_TRANSITION_ADMITTED", "UNATTENDED_SUCCESSION_ADMITTED",
+    "TASK_INTAKE", "TASK_INTAKE",
+    "BEFORE_DISPATCH_INTENT", "DISPATCH_POST_RETURNED", "PROVIDER_VERIFIED_TERMINAL",
+    "BEFORE_DISPATCH_INTENT", "DISPATCH_POST_RETURNED", "PROVIDER_VERIFIED_TERMINAL",
+)
+
 EXPECTED_RUNS = {
     "f139-d2c-qualification-659bb1f4d751": (39178196331, D2C_SOURCE),
     "f139-d2c-wingless-659bb1f4d751": (39178299792, D2C_SOURCE),
@@ -151,11 +166,33 @@ def verify_chain(events, expected_head: str):
         check(digest==row["sha"],"EVENT_HASH_MISMATCH")
         if number<=23:
             kinds.append(row["kind"])
+            check(row["kind"] == REAL_23_EVENT_KINDS[number-1],
+                  "D2J_HISTORY_SHAPE_INVALID")
+            if row["kind"]=="QUARANTINE_ORIGINAL_RECONCILED":
+                # D2C was genuinely quarantined then recovered using the exact
+                # immutable original provider ZIPs. Require this DIFFERENT
+                # payload contract rather than fabricating two terminal events.
+                ticket=list(EXPECTED_RUNS)[number-10]
+                check(isinstance(payload,dict) and set(payload)=={
+                    "ticket","run_id","previous_reason","manifest_sha256",
+                    "original_head_sha256","original_science","replay"}
+                    and payload["ticket"]==ticket
+                    and payload["run_id"]==EXPECTED_RUNS[ticket][0]
+                    and payload["previous_reason"]=="PROVIDER_SOURCE_EVENT_SPOOFED"
+                    and isinstance(payload["manifest_sha256"],str)
+                    and SHA64.fullmatch(payload["manifest_sha256"])
+                    and payload["original_head_sha256"]==events[8]["sha"]
+                    and payload["original_science"] is False
+                    and payload["replay"] is False,
+                    "D2C_ORIGINAL_RECONCILIATION_INVALID")
+                terminals.append({"ticket":ticket,"run_id":payload["run_id"],
+                                  "evidence_sha":payload["manifest_sha256"]})
             if row["kind"]=="PROVIDER_VERIFIED_TERMINAL":
+                ticket=list(EXPECTED_RUNS)[2 if number==20 else 3]
                 check(isinstance(payload,dict) and set(payload)=={
                     "ticket","run_id","evidence_sha"}
-                    and isinstance(payload["ticket"],str)
-                    and type(payload["run_id"]) is int and payload["run_id"]>0
+                    and payload["ticket"]==ticket
+                    and payload["run_id"]==EXPECTED_RUNS[ticket][0]
                     and isinstance(payload["evidence_sha"],str)
                     and SHA64.fullmatch(payload["evidence_sha"]),
                     "TERMINAL_EVENT_FIELDS_INVALID")
@@ -185,14 +222,11 @@ def verify_chain(events, expected_head: str):
             current_source=target
             approved_index=ALLOWED_SOURCE_SUCCESSORS.index(target)
         prior=digest
-    observed=Counter(kinds)
-    check(observed["SOURCE_TRANSITION_ADMITTED"]==3
-          and observed["UNATTENDED_SUCCESSION_ADMITTED"]==1
-          and observed["PROVIDER_VERIFIED_TERMINAL"]==4
-          and kinds[14]=="UNATTENDED_SUCCESSION_ADMITTED",
+    check(tuple(kinds)==REAL_23_EVENT_KINDS,
           "D2J_HISTORY_SHAPE_INVALID")
-    check(len(terminals)==4 and len({x["ticket"] for x in terminals})==4,
-          "FOUR_DISTINCT_TERMINAL_EVENTS_REQUIRED")
+    check(len(terminals)==4 and len({x["ticket"] for x in terminals})==4
+          and {x["ticket"] for x in terminals}==set(EXPECTED_RUNS),
+          "FOUR_DISTINCT_AUTHENTIC_COMPLETION_EVENTS_REQUIRED")
     return {x["ticket"]:x for x in terminals}, prior, current_source
 
 
