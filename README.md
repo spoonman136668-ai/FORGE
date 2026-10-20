@@ -4,7 +4,7 @@
 
 FORGE develops and evaluates frozen scientific portfolios with deterministic state,
 versioned quarantine-only proposal contracts, and content-addressed journal replay.
-It models Wingless and Yggdrasil as independent research lanes. Its planned
+It models Wingless and Yggdrasil as independent research lanes, aimed at two distinct native **non-transformer, non-token-centric cognitive architectures** with persistent learning, memory and reasoning, eventually targeting LLM-class general capability. Conventional models remain comparators or research tools, never the target cognitive foundation. See [standing research directions](AGENTS.md) and [scientific information-per-compute policy](docs/FORGE-INFO-PER-COMPUTE-NORTH-STAR.md). Its planned
 scientific decision-making authority is **FORGE Scientific Authority (FSA)**,
 not CKB-plane. FORGE will own its research controller, isolated queue, runner
 leases, admission and scientific progression after separate qualification.
