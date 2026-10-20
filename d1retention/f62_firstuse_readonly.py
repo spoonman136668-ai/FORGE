@@ -131,6 +131,14 @@ def audit(api) -> dict:
         "'forge_original_preuse_claims_delete_immutable',"
         "'forge_original_preuse_claims_insert_monotonic')")
     require(absent == [], "F62_MIGRATION_ALREADY_PRESENT_STOP")
+    # D2R: classify only the live D1 namespace, not a separately hosted signer.
+    # Unexpected FORGE FSA objects require a different independently pinned audit;
+    # never infer their trust or silently reinterpret the known schema.
+    fsa_objects = cf.sql_query(api,database,
+        "SELECT type,name FROM sqlite_master WHERE "
+        "name GLOB 'forge_fsa_*' OR name GLOB 'forge_original_preuse_*' "
+        "ORDER BY name LIMIT 32")
+    require(fsa_objects == [], "UNRECONCILED_NATIVE_FSA_NAMESPACE")
     # An observation-only bookmark is not a private verified backup or
     # permission to restore. Never print, store or export the bookmark.
     bookmark = cf.recovery_bookmark(api,database)
@@ -144,6 +152,9 @@ def audit(api) -> dict:
         "d1_time_travel_bookmark_readable":True,
         "private_verified_backup_created":False,
         "real_atomic_preuse_table_deployed":False,
+        "native_fsa_namespace_objects_in_bound_d1":0,
+        "independent_witness_and_highwater_authenticated":False,
+        "complete_consumed_active_uncertain_two_lane_ledger_authenticated":False,
         "independently_authenticated_current_owner_and_all_lane_history":False,
         "protected_main_oidc_scientific_issuer_authorized":False,
         "worker_firstuse_cas_performed":False,

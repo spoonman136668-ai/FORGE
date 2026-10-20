@@ -34,7 +34,11 @@ class F62Tests(unittest.TestCase):
         db.assert_called_once_with(api)
         schema.assert_called_once_with(api,"known-deployed-d1")
         backup.assert_called_once_with(api,"known-deployed-d1")
-        self.assertEqual(len(queries),3)
+        self.assertEqual(len(queries),4)
+        self.assertTrue(any("GLOB 'forge_fsa_*'" in q for q in queries))
+        self.assertEqual(result["native_fsa_namespace_objects_in_bound_d1"],0)
+        self.assertFalse(result["independent_witness_and_highwater_authenticated"])
+        self.assertFalse(result["complete_consumed_active_uncertain_two_lane_ledger_authenticated"])
         self.assertEqual(result["disposition"],"BLOCKED_OWNER_CUSTODY_AND_D1_MIGRATION_NOT_DEPLOYED")
         self.assertTrue(result["d1_time_travel_bookmark_readable"])
         self.assertTrue(result["six_previous_original_archives_and_seals_unchanged"])
@@ -51,12 +55,14 @@ class F62Tests(unittest.TestCase):
             ("foreign",{"schema":(m.ORIGINALS,"f"*64)}),
             ("counts",{"count":5}),
             ("new claim table",{"existing":[{"name":"forge_original_preuse_claims","type":"table"}]}),
+            ("unexpected FSA witness namespace",{"fsa":[{"name":"forge_fsa_witness_highwater","type":"table"}]}),
             ("missing bookmark",{"bookmark":None}),
         ]
         for name,overrides in cases:
             with self.subTest(name=name):
                 def reads(a,db,q):
                     if "COUNT(*)" in q:return [{"n":overrides.get("count",6)}]
+                    if "GLOB 'forge_fsa_*'" in q:return overrides.get("fsa",[])
                     return overrides.get("existing",[])
                 with patch.object(m.cf,"single_deployed_database",return_value="real"),                     patch.object(m.cf,"schema_snapshot",return_value=overrides.get(
                          "schema",(m.ORIGINALS,m.witness.BASELINE_SCHEMA_SHA256))),                     patch.object(m.cf,"sql_query",side_effect=reads),                     patch.object(m.cf,"recovery_bookmark",return_value=overrides.get(
