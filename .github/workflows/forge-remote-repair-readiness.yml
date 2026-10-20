@@ -305,3 +305,140 @@ jobs:
           '@ | python -B -
           if ($LASTEXITCODE -ne 0) { throw 'D2Z_PREFLIGHT_BLOCKED' }
           Write-Host 'D2Z_NO_SOURCE_TRANSITION_OR_NEW_DISPATCH=TRUE'
+
+      - name: D3 guarded one-time FORGE development source transition
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $target='5a252f8dde245c67e9a5d9c9dfcd421fd18f5d91'
+          $previous='34ca99c1b5b063225566082aee5aa180a15d093b'
+          $taskName='FORGE-F139-UnifiedController'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if ($task.State.ToString() -cne 'Running') { throw 'D3_CONTROLLER_STATE_NOT_RUNNING' }
+          $action=@($task.Actions)
+          if ($action.Count -ne 1) { throw 'D3_CONTROLLER_ACTION_DRIFT' }
+          if ([string]$action[0].Arguments -notmatch '(?i)-RepositoryRoot\s+["'']?([^"'']+?)["'']?(?=\s+-|$)') { throw 'D3_CONTROLLER_CHECKOUT_UNPINNED' }
+          $root=$Matches[1].Trim()
+          $installed=(& git -C $root rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $installed -cne $previous) { throw 'D3_ORIGINAL_CHECKOUT_IDENTITY_CHANGED' }
+          $dirty=@(& git -C $root status --porcelain)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) { throw 'D3_ORIGINAL_CHECKOUT_DIRTY' }
+          $branch= & gh api 'repos/spoonman136668-ai/FORGE/branches/main' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $branch.commit.sha -cne $target -or $branch.protected -ne $true) { throw 'D3_PROTECTED_MAIN_NOT_PINNED' }
+          foreach($workflow in @('forge-development-succession.yml','forge-integrated-synthetic-cycle.yml')){
+            $w= & gh api ('repos/spoonman136668-ai/FORGE/actions/workflows/'+$workflow) | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $w.state -cne 'disabled_manually') { throw 'D3_LEGACY_WORKFLOW_ACTIVE' }
+          }
+          $f137=Get-ScheduledTask -TaskName 'FORGE-F137-WakeProbe' -ErrorAction SilentlyContinue
+          if ($null -ne $f137 -and $f137.State.ToString() -cne 'Disabled') { throw 'D3_LEGACY_WINDOWS_SCHEDULER_ACTIVE' }
+          # Git object acquisition is preparatory; it does not touch the checkout's files.
+          & git -C $root fetch --no-tags origin $target
+          if ($LASTEXITCODE -ne 0) { throw 'D3_SOURCE_FETCH_FAILED' }
+          $obj=(& git -C $root rev-parse 'FETCH_HEAD').Trim()
+          if ($LASTEXITCODE -ne 0 -or $obj -cne $target) { throw 'D3_SOURCE_FETCH_IDENTITY_DRIFT' }
+          & git -C $root cat-file -e ($target+':f139/dev_learning.py')
+          if ($LASTEXITCODE -ne 0) { throw 'D3_DEVELOPMENT_EXECUTOR_NOT_IN_TARGET' }
+          $db=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $custody=Join-Path $env:LOCALAPPDATA ('FORGE-F139\source-transition-D3-'+$target.Substring(0,12))
+          if (Test-Path -LiteralPath $custody) { throw 'D3_CUSTODY_ALREADY_EXISTS' }
+          $disabled=$false
+          $switched=$false
+          $committed=$false
+          $primaryError=$null
+          try {
+            Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            $disabled=$true
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            for($wait=0;$wait -lt 15;$wait++){
+              if ((Get-ScheduledTask -TaskName $taskName).State.ToString() -ne 'Running') { break }
+              Start-Sleep -Seconds 1
+            }
+            if ((Get-ScheduledTask -TaskName $taskName).State.ToString() -eq 'Running') { throw 'D3_CONTROLLER_DID_NOT_STOP' }
+            New-Item -ItemType Directory -Path $custody -ErrorAction Stop | Out-Null
+            $env:D3_ORIGINAL=$previous
+            $env:D3_TARGET=$target
+            $env:D3_DB=$db
+            $env:D3_ROOT=$root
+            $env:D3_CUSTODY=$custody
+            @'
+          import os,sqlite3,pathlib,urllib.parse,sys
+          root=pathlib.Path(os.environ['D3_ROOT']); db=pathlib.Path(os.environ['D3_DB'])
+          store=pathlib.Path(os.environ['D3_CUSTODY'])
+          backup=store/'pre-transition.sqlite'
+          uri='file:'+urllib.parse.quote(db.as_posix(),safe='/:')+'?mode=ro'
+          source=sqlite3.connect(uri,uri=True,timeout=2)
+          try:
+              dest=sqlite3.connect(str(backup),timeout=2)
+              try: source.backup(dest)
+              finally:dest.close()
+          finally: source.close()
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,SingleOwner
+          with SingleOwner(db.with_suffix('.lock')):
+              copy=Database(backup)
+              try:
+                  copy.verify()
+                  m=copy.meta()
+                  assert m['source_sha']==os.environ['D3_ORIGINAL'] and m['head_seq']==29
+                  assert m['head_hash']=='2648e4164fdfa95044a7280d133b5257d2de20820d2ea9c5cbbccbb752cc7344'
+                  assert copy.conn.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+                  assert copy.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]==5
+                  print('D3_PRETRANSITION_BACKUP=PASS_5_TASKS_29_EVENTS')
+              finally:copy.close()
+          '@ | python -B -
+            if ($LASTEXITCODE -ne 0) { throw 'D3_BACKUP_OR_LOCK_VALIDATION_FAILED' }
+            & git -C $root checkout --detach $target
+            if ($LASTEXITCODE -ne 0) { throw 'D3_CHECKOUT_SOURCE_FAILED' }
+            $switched=$true
+            @'
+          import os,pathlib,sys
+          root=pathlib.Path(os.environ['D3_ROOT']);db=pathlib.Path(os.environ['D3_DB'])
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,GitHub,SingleOwner
+          api=GitHub()
+          assert api.protected_main()==os.environ['D3_TARGET']
+          assert api.legacy_dispatchers_disabled() is True
+          with SingleOwner(db.with_suffix('.lock')):
+              state=Database(db)
+              try:
+                  state.verify()
+                  prev=state.meta()
+                  assert prev['source_sha']==os.environ['D3_ORIGINAL']
+                  assert prev['head_seq']==29 and prev['head_hash']=='2648e4164fdfa95044a7280d133b5257d2de20820d2ea9c5cbbccbb752cc7344'
+                  tasks=[dict(t) for t in state.conn.execute('SELECT * FROM tasks ORDER BY ticket')]
+                  assert len(tasks)==5 and all(t['stage']=='VERIFIED' for t in tasks)
+                  state.transition_source(os.environ['D3_TARGET'])
+                  new=state.meta()
+                  assert new['source_sha']==os.environ['D3_TARGET'] and new['head_seq']==30
+                  assert state.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]==5
+                  state.verify()
+                  print('D3_APPEND_ONLY_SOURCE_TRANSITION=PASS')
+                  print('D3_OLD_TASKS_REWRITTEN=ZERO')
+                  print('D3_SCIENTIFIC_FIRSTUSE=FALSE')
+              finally:state.close()
+          '@ | python -B -
+            if ($LASTEXITCODE -ne 0) { throw 'D3_TRANSACTIONAL_SOURCE_TRANSITION_FAILED' }
+            $committed=$true
+            Write-Host 'D3_GUARDED_SOURCE_TRANSITION=PASS'
+          } catch {
+            $primaryError=$_.Exception.Message
+            if ($switched -and -not $committed) {
+              # Only return to old source if the database transaction never committed.
+              $env:D3_CHECK_DB=$db
+              $metaSha=& python -B -c "import os,sqlite3; x=sqlite3.connect(os.environ['D3_CHECK_DB']); print(x.execute('SELECT source_sha FROM meta WHERE id=1').fetchone()[0]); x.close()"
+              if ($LASTEXITCODE -eq 0 -and ([string]$metaSha).Trim() -ceq $previous) {
+                & git -C $root checkout --detach $previous
+                if ($LASTEXITCODE -ne 0) { Write-Host 'D3_CHECKOUT_ROLLBACK_FAILED' }
+              }
+            }
+          } finally {
+            if ($disabled) {
+              Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              Write-Host 'D3_CONTROLLER_RESTART_REQUESTED=TRUE'
+            }
+          }
+          if ($primaryError) { throw ('D3_BLOCKED_'+$primaryError) }
+          $current=(& git -C $root rev-parse HEAD).Trim()
+          if ($current -cne $target) { throw 'D3_POST_TRANSITION_CHECKOUT_DRIFT' }
+          Write-Host 'D3_SOURCE_TRANSITION_COMPLETE_AWAIT_AUTHENTIC_DISPATCH'
