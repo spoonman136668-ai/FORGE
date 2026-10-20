@@ -188,7 +188,15 @@ def verify_chain(events, expected_head: str):
                 terminals.append({"ticket":ticket,"run_id":payload["run_id"],
                                   "evidence_sha":payload["manifest_sha256"]})
             if row["kind"]=="PROVIDER_VERIFIED_TERMINAL":
-                ticket=list(EXPECTED_RUNS)[2 if number==20 else 3]
+                # D2J ticket identity is derived from the authenticated
+                # admission at event 15; the provider-anchor check later
+                # requires the exact production run ID and source SHA.
+                admission=json.loads(events[14]["payload"])
+                admitted_source=admission.get("source_sha") if isinstance(admission,dict) else None
+                check(isinstance(admitted_source,str) and SHA40.fullmatch(admitted_source),
+                      "D2J_SOURCE_ADMISSION_INVALID")
+                lane_suffix="wingless" if number==20 else "yggdrasil"
+                ticket="f139-d2j-"+lane_suffix+"-"+admitted_source[:12]
                 check(isinstance(payload,dict) and set(payload)=={
                     "ticket","run_id","evidence_sha"}
                     and payload["ticket"]==ticket
@@ -224,8 +232,15 @@ def verify_chain(events, expected_head: str):
         prior=digest
     check(tuple(kinds)==REAL_23_EVENT_KINDS,
           "D2J_HISTORY_SHAPE_INVALID")
+    admission=json.loads(events[14]["payload"])
+    source=admission.get("source_sha") if isinstance(admission,dict) else None
+    check(isinstance(source,str) and SHA40.fullmatch(source),
+          "D2J_SOURCE_ADMISSION_INVALID")
+    expected_tickets=set(list(EXPECTED_RUNS)[:2]) | {
+        "f139-d2j-wingless-"+source[:12],
+        "f139-d2j-yggdrasil-"+source[:12]}
     check(len(terminals)==4 and len({x["ticket"] for x in terminals})==4
-          and {x["ticket"] for x in terminals}==set(EXPECTED_RUNS),
+          and {x["ticket"] for x in terminals}==expected_tickets,
           "FOUR_DISTINCT_AUTHENTIC_COMPLETION_EVENTS_REQUIRED")
     return {x["ticket"]:x for x in terminals}, prior, current_source
 
