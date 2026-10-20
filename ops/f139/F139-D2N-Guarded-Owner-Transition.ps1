@@ -137,7 +137,7 @@ try{
   CheckPath $DB
   $binding=CheckController @('Ready','Disabled')
   StopGate ((InvokeNative 'git' @('-C',$binding.arguments.RepositoryRoot,'rev-parse','HEAD')) -ceq $Prior) 'INSTALLED_PREDECESSOR_SOURCE_DRIFT'
-  StopGate ([string]::IsNullOrWhiteSpace((InvokeNative 'git' @('-C',$binding.arguments.RepositoryRoot,'status','--porcelain'))) 'INSTALLED_PREDECESSOR_TREE_DIRTY'
+  StopGate ([string]::IsNullOrWhiteSpace((InvokeNative 'git' @('-C',$binding.arguments.RepositoryRoot,'status','--porcelain')))) 'INSTALLED_PREDECESSOR_TREE_DIRTY'
   if($Apply){
     StopGate ($binding.ownerSid -ceq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) 'OWNER_ACCOUNT_REQUIRED_FOR_WRITE'
   }
@@ -152,7 +152,7 @@ try{
     $null=InvokeNative 'git' @('-C',$NewTree,'-c','advice.detachedHead=false','checkout','--quiet','--detach',$Next)
   }
   StopGate ((InvokeNative 'git' @('-C',$NewTree,'rev-parse','HEAD')) -ceq $Next) 'NEW_TREE_SHA_DRIFT'
-  StopGate ([string]::IsNullOrWhiteSpace((InvokeNative 'git' @('-C',$NewTree,'status','--porcelain'))) 'NEW_TREE_NOT_CLEAN'
+  StopGate ([string]::IsNullOrWhiteSpace((InvokeNative 'git' @('-C',$NewTree,'status','--porcelain')))) 'NEW_TREE_NOT_CLEAN'
   CheckPath $NewTree
   StopGate (Test-Path -LiteralPath (Join-Path $NewTree 'scripts\Install-FORGE-F139.ps1') -PathType Leaf) 'NEW_INSTALLER_MISSING'
   $pre=NativeAudit $Prior $false
