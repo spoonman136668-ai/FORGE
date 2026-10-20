@@ -92,7 +92,7 @@ def main():
     cli = argparse.ArgumentParser()
     cli.add_argument("--original", required=True, type=pathlib.Path)
     cli.add_argument("--candidate", required=True, type=pathlib.Path)
-    cli.add_argument("--shards", type=int, choices=(2, 3, 4), default=4)
+    cli.add_argument("--shards", type=int, choices=(2, 3, 4, 6, 8, 12, 16), default=8)
     cli.add_argument("--max-regex-bytes", type=int, default=6200)
     cli.add_argument("--original-sha", required=True)
     cli.add_argument("--candidate-sha", required=True)
