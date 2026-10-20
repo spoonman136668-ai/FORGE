@@ -1,0 +1,111 @@
+name: K-Terminal original dashboard evidence acceptance
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-dashboard-acceptance.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify original PAPER dashboard evidence without starting programs
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') {
+            throw 'KTERM_DASHBOARD_WRONG_RUNNER'
+          }
+          Write-Host 'KTERM_RUNNER=PASS'
+          $roots = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object {
+            Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal'
+          } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { Write-Host ('KTERM_INSTALL_MATCHES=' + $roots.Count); throw 'KTERM_DASHBOARD_INSTALL_NOT_UNIQUE' }
+          $root = $roots[0]
+          foreach ($file in @('K-Terminal.exe','K-Terminal-Launch-Fixed.exe','dashboard-ui.ps1','desktop-session.ps1','KTerminal.UI.dll')) {
+            $present = Test-Path -LiteralPath (Join-Path $root $file) -PathType Leaf
+            Write-Host ('KTERM_COMPONENT_' + $file.Replace('.','_').Replace('-','_').ToUpperInvariant() + '=' + $present)
+          }
+          $manifestPath = Join-Path $root 'ui-runtime-manifest.json'
+          $dllPath = Join-Path $root 'KTerminal.UI.dll'
+          if ((Test-Path -LiteralPath $manifestPath -PathType Leaf) -and (Test-Path -LiteralPath $dllPath -PathType Leaf)) {
+            $m = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            $digest = (Get-FileHash -LiteralPath $dllPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('KTERM_ORIGINAL_UI_DLL_IDENTITY=' + $(if ([string]$m.sha256 -ceq $digest) {'PASS'} else {'FAIL'}))
+          }
+          $repairBoundary = [datetime]::Parse('2026-10-20T01:42:00Z').ToUniversalTime()
+          $sessionPath = Join-Path $root 'data\.application-launch-session.json'
+          $sessionPaper = $false
+          if (Test-Path -LiteralPath $sessionPath -PathType Leaf) {
+            $info = [IO.FileInfo]::new($sessionPath)
+            if ($info.Length -gt 2 -and $info.Length -le 1048576) {
+              try {
+                $session = Get-Content -LiteralPath $sessionPath -Raw | ConvertFrom-Json -ErrorAction Stop
+                $mode = [string]$session.mode
+                Write-Host ('KTERM_LATEST_SESSION_MODE=' + $(if ($mode -eq 'PAPER') {'PAPER'} elseif ($mode -eq 'LIVE') {'LIVE'} else {'UNKNOWN'}))
+                Write-Host ('KTERM_LATEST_SESSION_DISARMED=' + ([string]$session.execution_state -ceq 'DISARMED'))
+                $sessionPaper = ($mode -ceq 'PAPER' -and [string]$session.execution_state -ceq 'DISARMED')
+                Write-Host ('KTERM_LATEST_SESSION_AFTER_REPAIR=' + ($info.LastWriteTimeUtc -ge $repairBoundary))
+              } catch { Write-Host ('KTERM_SESSION_PARSE_ERROR_TYPE=' + $_.Exception.GetType().Name) }
+            } else { Write-Host 'KTERM_SESSION_METADATA=SKIPPED_SIZE' }
+          } else { Write-Host 'KTERM_LATEST_SESSION_MODE=ABSENT' }
+          $history = Join-Path $root 'data\logs\dashboard-exceptions.log'
+          $renderCount = 0
+          $startedCount = 0
+          $endedCount = 0
+          $errorCount = 0
+          $renderSinceRepair = 0
+          $startedSinceRepair = 0
+          $latestRender = [datetime]::MinValue
+          if (Test-Path -LiteralPath $history -PathType Leaf) {
+            $file = [IO.FileInfo]::new($history)
+            if ($file.Length -gt 0 -and $file.Length -le 16777216) {
+              foreach ($line in [IO.File]::ReadLines($history)) {
+                if ($line -notmatch '^(?<when>\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) (?<kind>SESSION_STARTED|DASHBOARD_RENDERED|SESSION_ENDED|UNHANDLED_SCRIPT_EXCEPTION|UNHANDLED_RUNTIME_EXCEPTION|DASHBOARD_REFRESH_ERROR)(?:\s|$)') { continue }
+                $at = [datetime]::Parse($Matches.when, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal)
+                $kind = $Matches.kind
+                if ($kind -eq 'SESSION_STARTED') {
+                  $startedCount++
+                  if ($at -ge $repairBoundary) { $startedSinceRepair++ }
+                } elseif ($kind -eq 'DASHBOARD_RENDERED') {
+                  $renderCount++
+                  if ($at -gt $latestRender) { $latestRender = $at }
+                  if ($at -ge $repairBoundary) { $renderSinceRepair++ }
+                } elseif ($kind -eq 'SESSION_ENDED') {
+                  $endedCount++
+                } else {
+                  if ($at -ge $repairBoundary) { $errorCount++ }
+                }
+              }
+              Write-Host ('KTERM_DASHBOARD_SESSIONS_STARTED=' + $startedCount)
+              Write-Host ('KTERM_DASHBOARD_RENDERS_TOTAL=' + $renderCount)
+              Write-Host ('KTERM_DASHBOARD_SESSIONS_ENDED=' + $endedCount)
+              Write-Host ('KTERM_DASHBOARD_STARTS_AFTER_DLL_REPAIR=' + $startedSinceRepair)
+              Write-Host ('KTERM_DASHBOARD_RENDERS_AFTER_DLL_REPAIR=' + $renderSinceRepair)
+              Write-Host ('KTERM_DASHBOARD_EXCEPTION_EVENTS_AFTER_REPAIR=' + $errorCount)
+              if ($renderCount -gt 0) { Write-Host ('KTERM_LATEST_RENDER_UTC=' + $latestRender.ToString('yyyy-MM-ddTHH:mm:ssZ')) }
+            } else { Write-Host 'KTERM_DASHBOARD_LOG=SKIPPED_SIZE' }
+          } else { Write-Host 'KTERM_DASHBOARD_LOG=ABSENT' }
+          foreach ($item in @(
+            @{ name='PAPER_UI'; path='data\paper-test\ui-dashboard.json' },
+            @{ name='PAPER_CHART'; path='data\paper-test\chart-current.json' },
+            @{ name='PAPER_SIGNAL'; path='data\paper-test\vwap-signal-current.json' }
+          )) {
+            $name = [string]$item.name
+            $path = Join-Path $root $item.path
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Write-Host ('KTERM_' + $name + '=ABSENT'); continue }
+            $info = [IO.FileInfo]::new($path)
+            Write-Host ('KTERM_' + $name + '_PRESENT=TRUE')
+            Write-Host ('KTERM_' + $name + '_AFTER_DLL_REPAIR=' + ($info.LastWriteTimeUtc -ge $repairBoundary))
+            Write-Host ('KTERM_' + $name + '_SIZE_VALID=' + ($info.Length -gt 0 -and $info.Length -lt 10000000))
+          }
+          if ($sessionPaper -and $renderSinceRepair -gt 0 -and $startedSinceRepair -gt 0) {
+            Write-Host 'KTERM_ORIGINAL_PAPER_DASHBOARD_EVIDENCE=PRESENT'
+          } else {
+            Write-Host 'KTERM_ORIGINAL_PAPER_DASHBOARD_EVIDENCE=NOT_YET_CONFIRMED'
+          }
+          Write-Host 'KTERM_INTERACTIVE_VISUAL_ACCEPTANCE=REQUIRES_OWNER_CONFIRMATION'
+          Write-Host 'KTERM_NO_PROGRAM_STARTED_OR_DATA_MODIFIED=TRUE'
