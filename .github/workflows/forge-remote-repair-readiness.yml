@@ -76,3 +76,26 @@ jobs:
           Write-Output 'D2S_OFF_CLOUD_WINDOWS_HOST=OBSERVED_NOT_INDEPENDENTLY_ATTESTED'
           Write-Output 'D2S_SIGNING_KEY_CREATED=FALSE'
           Write-Output 'D2S_FIRSTUSE_AUTHORIZED=FALSE'
+      - name: D2T enumerate existing Windows runner principals, no secret reads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'D2T_WRONG_RUNNER' }
+          $current = [Security.Principal.WindowsIdentity]::GetCurrent()
+          if (-not $current -or -not $current.User) { throw 'D2T_NO_IDENTITY' }
+          $services = @(Get-CimInstance -ClassName Win32_Service -ErrorAction Stop | Where-Object {
+            $_.Name -match '(?i)actions\\.runner|github.actions.runner' -or
+            $_.DisplayName -match '(?i)actions.runner|github actions runner'
+          })
+          $withIdentity = @($services | Where-Object { -not [string]::IsNullOrWhiteSpace($_.StartName) })
+          if ($services.Count -ne $withIdentity.Count) { throw 'D2T_MISSING_SERVICE_ACCOUNT' }
+          $identities = @($withIdentity | ForEach-Object { $_.StartName.ToLowerInvariant() } |
+            Sort-Object -Unique)
+          $self = $current.Name.ToLowerInvariant()
+          $matching = @($withIdentity | Where-Object { $_.StartName.ToLowerInvariant() -eq $self }).Count
+          Write-Output "D2T_INSTALLED_RUNNER_SERVICES=$($services.Count)"
+          Write-Output "D2T_DISTINCT_SERVICE_PRINCIPALS=$($identities.Count)"
+          Write-Output "D2T_CURRENT_PRINCIPAL_SERVICE_MATCHES=$matching"
+          Write-Output 'D2T_PRIVILEGE_AND_HOST_INDEPENDENCE=NOT_PROVEN'
+          Write-Output 'D2T_READONLY_NO_KEYS_ACCESSED=TRUE'
+          Write-Output 'D2T_WITNESS_PROVISIONING=NOT_ATTEMPTED'
