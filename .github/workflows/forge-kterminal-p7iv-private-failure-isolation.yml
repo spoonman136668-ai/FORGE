@@ -1,0 +1,223 @@
+name: FORGE K-Terminal P7-I/V isolate non-observer failure
+on:
+  push:
+    branches: [qualification/kterminal-p7iv-identity-focused-20261019]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: forge-kterminal-p7iv-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  private-one-test-windows:
+    runs-on: windows-2022
+    timeout-minutes: 24
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '4'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout public FORGE control only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prove only the authorized qualification workflow differs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/qualification/kterminal-p7iv-identity-focused-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 6842e97126ebb31790681e86c54dc01d0aae652f HEAD
+          test "$(git diff --name-only 6842e97126ebb31790681e86c54dc01d0aae652f HEAD)" = .github/workflows/forge-kterminal-p7iv-private-failure-isolation.yml
+          test -z "$(git status --porcelain)"
+          test "$GOMAXPROCS" = 4
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$K_TERMINAL_NATIVE_TIMING" = 0
+          test "$K_TERMINAL_P5_LATENCY" = 0
+          echo P7IV_FORGE_HOSTED_SCOPE=PASS
+      - name: Checkout exact private K-Terminal source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ba11a398586df9fe5233624d9cf115aeec76d11a
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Retrieve only previous FORGE sanitized result
+        uses: actions/download-artifact@v4
+        with:
+          name: forge-kterminal-p7iu-39301561797
+          run-id: 39301561797
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/p7iu-source
+      - name: Provision historically matched Go on Windows
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Map hashed failed test to exact private source and execute focused test
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Windows
+          test "$(git rev-parse HEAD)" = ba11a398586df9fe5233624d9cf115aeec76d11a
+          test "$(git rev-parse HEAD:pkg/stage3-original-observer-forced-cuts_test.go)" = bee85ee3441b0f66399ab6c42f8b09635ba44c6b
+          test "$(git rev-parse HEAD:go.mod)" = b3ede0d8444c08b3e7b23f1396374359b54134c6
+          test -z "$(git status --porcelain)"
+          go version | grep 'go1.26.5 windows/amd64' > /dev/null
+          for key in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            if [[ -n "$(printenv "$key" 2>/dev/null || true)" ]]; then
+              echo P7IV_BROKER_CREDENTIAL_ENV_PRESENT
+              exit 2
+            fi
+          done
+          export K_TERMINAL_TEST_WORKSPACE="$RUNNER_TEMP/p7iv-owned"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$RUNNER_TEMP/p7iv-owned/tail"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$RUNNER_TEMP/p7iv-owned/post"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$RUNNER_TEMP/p7iv-owned/private"
+          mkdir -p "$KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT" "$KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT" "$KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT"
+          python -B - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess, sys, time
+
+          def require(x,code):
+              if not x: raise ValueError(code)
+
+          temp=pathlib.Path(os.environ["RUNNER_TEMP"])
+          evidence=temp/"p7iu-source"
+          original=evidence/"receipt.json"
+          seal=evidence/"receipt.sha256"
+          require(original.is_file() and seal.is_file(), "PREVIOUS_RECEIPT_NOT_FOUND")
+          data=original.read_bytes()
+          require(len(data)<30000, "PREVIOUS_RECEIPT_OVERSIZED")
+          sha=hashlib.sha256(data).hexdigest()
+          require(sha=="7fb89a178e5b13489c8037b6f759ce75e30f00a0f7646f5893aa73e340041dfa",
+                  "PREVIOUS_RECEIPT_CUSTODY_DRIFT")
+          require(seal.read_text(encoding="ascii").strip()==sha, "PREVIOUS_SEAL_MISMATCH")
+          d=json.loads(data)
+          require(d["disposition"]=="P7IU_OBSERVER_PASS_OTHER_PACKAGE_FAILURE", "WRONG_PREDECESSOR")
+          require(d["exact_kterminal_source_sha"]=="ba11a398586df9fe5233624d9cf115aeec76d11a",
+                  "PREVIOUS_SOURCE_DRIFT")
+          require(d["observer_top_level"]["run"]==1 and d["observer_top_level"]["pass"]==1
+                  and d["observer_top_level"]["fail"]==0 and d["observer_failed_subtests"]==0,
+                  "OBSERVER_PREDECESSOR_NOT_PASS")
+          hashes=d["other_failed_test_name_hash_prefixes"]
+          require(isinstance(hashes,list) and len(hashes)==1 and
+                  all(re.fullmatch(r"[0-9a-f]{16}",s) for s in hashes),
+                  "PREVIOUS_FAILED_TEST_NOT_UNIQUE")
+          target=hashes[0]
+          matches=[]
+          testfiles=sorted(pathlib.Path("pkg").glob("*_test.go"))
+          require(len(testfiles)>0, "NO_TEST_FILES")
+          for path in testfiles:
+              txt=path.read_text(encoding="utf-8",errors="replace")
+              for mat in re.finditer(r"(?m)^func\s+(Test[A-Za-z0-9_]+)\s*\(",txt):
+                  name=mat.group(1)
+                  if hashlib.sha256(name.encode()).hexdigest()[:16]==target:
+                      matches.append((name,str(path),txt.count("\n",0,mat.start())+1))
+          require(len(matches)==1,"FAILED_TEST_IDENTITY_NOT_UNIQUE_OR_MISSING")
+          name,source_path,line=matches[0]
+          require(name!="TestStage3OriginalObserverForcedBoundaries","OBSERVER_TEST_NOT_EXPECTED")
+          # Never print the private function name, path, source or raw test output.
+          output=temp/"p7iv-private-test.jsonl"
+          error=temp/"p7iv-private-stderr.txt"
+          t0=time.monotonic()
+          with output.open("wb") as fout, error.open("wb") as ferr:
+              try:
+                  child=subprocess.run(
+                      ["go","test","-json","-count=1","-p=1","-parallel=4","-timeout=15m",
+                       "-run=^"+name+"$","./pkg"],
+                      stdout=fout,stderr=ferr,timeout=1000,check=False
+                  )
+                  exit_code=child.returncode
+                  bounded_timeout=False
+              except subprocess.TimeoutExpired:
+                  exit_code=124
+                  bounded_timeout=True
+          seconds=round(time.monotonic()-t0)
+          events={"run":0,"pass":0,"fail":0}
+          malformed=0
+          package_fail=0
+          if output.stat().st_size<=45000000:
+              for row in output.read_text(encoding="utf-8-sig",errors="replace").splitlines():
+                  try: e=json.loads(row)
+                  except ValueError:
+                      malformed+=1
+                      continue
+                  if not isinstance(e,dict):
+                      malformed+=1
+                      continue
+                  if e.get("Test")==name and e.get("Action") in events:
+                      events[e["Action"]]+=1
+                  if e.get("Action")=="fail" and e.get("Test") is None:
+                      package_fail+=1
+          else: malformed+=1
+          complete=events["run"]==1 and events["pass"]+events["fail"]==1 and malformed==0
+          disposition=("P7IV_INCOMPLETE_OR_TIMEOUT" if not complete or bounded_timeout else
+                       "P7IV_FAILED_TEST_REPRODUCED_ALONE" if exit_code or events["fail"] else
+                       "P7IV_FAILED_TEST_PASSED_ALONE_SUITE_INTERFERENCE_SUSPECTED")
+          receipt={
+            "schema":"forge.kterminal.p7iv.private-test-identity.v1",
+            "forge_sha":os.environ["GITHUB_SHA"],
+            "kterminal_pinned_sha":"ba11a398586df9fe5233624d9cf115aeec76d11a",
+            "previous_suite_run":39301561797,
+            "previous_receipt_sha256":sha,
+            "one_failed_test_hash_prefix":target,
+            "private_source_function_verified":True,
+            "private_source_file_count_scanned":len(testfiles),
+            "private_function_name_disclosed":False,
+            "scheduler":"GOMAXPROCS=4; -p=1; -parallel=4",
+            "single_test_events":events,
+            "package_fail_events":package_fail,
+            "go_exit":exit_code,
+            "elapsed_seconds":seconds,
+            "malformed_event_rows":malformed,
+            "disposition":disposition,
+            "original_full_regression":"FAILED_NOT_WAIVED",
+            "original_source_modified":False,
+            "private_test_source_or_logs_uploaded":False,
+            "broker_orders":0,
+            "workstation_or_research_runner_used":False,
+            "actual_latency_measured":False
+          }
+          folder=temp/"p7iv-public"
+          folder.mkdir(exist_ok=False)
+          body=json.dumps(receipt,sort_keys=True,separators=(",",":")).encode()
+          (folder/"receipt.json").write_bytes(body)
+          (folder/"receipt.sha256").write_text(hashlib.sha256(body).hexdigest(),encoding="ascii")
+          print("P7IV_PREDECESSOR_RECEIPT_AUTHENTICATED=PASS")
+          print("P7IV_PRIVATE_FAILED_TEST_IDENTIFIED=TRUE")
+          print("P7IV_SINGLE_TEST_RUN="+str(events["run"]))
+          print("P7IV_SINGLE_TEST_PASS="+str(events["pass"]))
+          print("P7IV_SINGLE_TEST_FAIL="+str(events["fail"]))
+          print("P7IV_DISPOSITION="+disposition)
+          print("P7IV_RECEIPT_SHA256="+hashlib.sha256(body).hexdigest())
+          print("P7IV_PRIVATE_SOURCE_AND_OUTPUT_UPLOADED=FALSE")
+          if disposition not in ("P7IV_FAILED_TEST_REPRODUCED_ALONE",
+                                 "P7IV_FAILED_TEST_PASSED_ALONE_SUITE_INTERFERENCE_SUSPECTED"):
+              sys.exit(2)
+          PY
+      - name: Upload sanitized conclusion only, no original test source or output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-kterminal-p7iv-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/p7iv-public/receipt.json
+            ${{ runner.temp }}/p7iv-public/receipt.sha256
+          retention-days: 30
+          if-no-files-found: warn
