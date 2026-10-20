@@ -43,6 +43,26 @@ def doc(repo,sha,path):
  obj=json.loads(raw)
  need(isinstance(obj,dict),"SOURCE_DOC_INVALID")
  return obj
+def run_head_is_ancestor(repo,main_sha,run_sha):
+ """Only a real prior main-line ancestor can authenticate a historical run."""
+ need(bool(HEX40.fullmatch(run_sha)),"RUN_HEAD_SHA_INVALID")
+ pending=[main_sha]
+ seen=set()
+ while pending:
+  need(len(seen)<64,"RUN_ANCESTRY_BOUND_EXCEEDED")
+  sha=pending.pop()
+  if sha==run_sha:return True
+  if sha in seen:continue
+  seen.add(sha)
+  commit=get(repo,"/git/commits/"+sha)
+  parents=commit.get("parents")
+  need(commit.get("sha")==sha and isinstance(parents,list) and
+       len(parents)<=2 and all(isinstance(p,dict) and
+       isinstance(p.get("sha"),str) and HEX40.fullmatch(p["sha"]) for p in parents),
+       "RUN_ANCESTRY_UNTRUSTED")
+  pending.extend(p["sha"] for p in reversed(parents) if p["sha"] not in seen)
+ raise Denied("F74_RUN_HEAD_NOT_ANCESTOR_OF_CURRENT_MAIN")
+
 def audit():
  summary=[]
  for name,repo in LANES:
@@ -76,13 +96,18 @@ def audit():
   run=get(repo,"/actions/runs/"+str(last_id))
   need(run.get("id")==last_id and run.get("name")==name+" research continuation launcher" and
        run.get("status")=="completed" and run.get("conclusion")=="success" and
-       run.get("head_sha")==sha,"RESEARCH_RUN_SOURCE_UNCONFIRMED")
+       run.get("head_branch")=="main" and
+       isinstance(run.get("head_sha"),str) and
+       HEX40.fullmatch(run["head_sha"]),"RESEARCH_RUN_SOURCE_UNCONFIRMED")
+  run_head_is_ancestor(repo,sha,run["head_sha"])
   again=get(repo,"/branches/"+urllib.parse.quote(active,safe="/"))
   need(again.get("commit",{}).get("sha")==active_sha,"SOURCE_MOVED_DURING_READ")
   summary.append({
    "lane":name,"repository":repo,"main_sha":sha,"active_research_head":active_sha,
    "reported_last_completed_experiment":state["experiment"],
    "last_continuation_run_confirmed":last_id,
+   "last_continuation_source_sha":run["head_sha"],
+   "last_run_head_ancestor_of_current_main":True,
    "repo_local_research_workflow_confirmed":True,
    "full_original_seed_lease_ledger_independently_observed":False,
    "current_scientific_owner_independently_authorized":False,
