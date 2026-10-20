@@ -128,3 +128,39 @@ jobs:
           Write-Output 'D2U_NO_WITNESS_SIGNER_ADMITTED=TRUE'
           Write-Output 'D2U_REQUIRES_DEDICATED_NONRUNNER_WITNESS_IDENTITY=TRUE'
           Write-Output 'D2U_KEYS_READ_OR_CREATED=ZERO'
+
+      - name: D2V F139 existing controller read-only development readiness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'D2V_WRONG_RUNNER' }
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue
+          if ($null -eq $task) {
+            Write-Output 'D2V_F139_TASK=NOT_VISIBLE'
+          } else {
+            Write-Output ("D2V_F139_TASK="+$task.State.ToString().ToUpperInvariant())
+          }
+          $db = Join-Path $env:LOCALAPPDATA 'FORGE-F139\\state.sqlite'
+          if (-not (Test-Path -LiteralPath $db -PathType Leaf)) {
+            Write-Output 'D2V_F139_DATABASE=NOT_VISIBLE_TO_RUNNER_PROFILE'
+          } else {
+            @'
+          import json,os,pathlib,sqlite3,urllib.parse
+          p=pathlib.Path(os.environ["LOCALAPPDATA"])/"FORGE-F139"/"state.sqlite"
+          conn=sqlite3.connect("file:"+urllib.parse.quote(p.as_posix(),safe="/:")+"?mode=ro",uri=True,timeout=4)
+          try:
+              conn.execute("PRAGMA query_only=ON")
+              row=conn.execute("SELECT source_sha,epoch,enabled,legacy_suspended,head_seq,starts FROM meta WHERE id=1").fetchone()
+              if row is None: raise RuntimeError("D2V_F139_META_MISSING")
+              print("D2V_F139_SOURCE_SHA="+str(row[0]))
+              print("D2V_F139_EPOCH="+str(row[1]))
+              print("D2V_F139_ENABLED="+str(row[2]))
+              print("D2V_F139_LEGACY_SUSPENDED="+str(row[3]))
+              print("D2V_F139_HEAD_SEQ="+str(row[4]))
+              print("D2V_F139_STARTS="+str(row[5]))
+              print("D2V_CONTROLLER_DB_READONLY=PASS")
+          finally: conn.close()
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw 'D2V_F139_LOCAL_DB_READONLY_FAILED' }
+          }
+          Write-Output 'D2V_NO_CONTROLLER_OR_SCIENCE_MUTATIONS=TRUE'
