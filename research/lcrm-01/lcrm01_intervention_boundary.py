@@ -26,6 +26,10 @@ def digest(receipt: dict) -> str:
                                      ensure_ascii=True).encode("utf8")).hexdigest()
 
 
+def public_history_digest(observations: tuple[tuple[int, int, int], ...]) -> str:
+    return digest({"public_observations": observations})
+
+
 def fail(reason: str, *, versions: tuple[str, ...] = MODELS) -> dict:
     return {"status": reason, "models": list(versions), "science_admitted": False,
             "new_first_use": 0, "counterfactual_acceptance": False}
@@ -79,12 +83,13 @@ def assess(receipt: Mapping[str, object] | None, *,
     # A trust pin is a supplied trusted *input* from the independent authority,
     # not a claim that the receipt itself creates an independent witness.
     keys = {"provider_ref", "source_commit", "receipt_sha256",
-            "causal_assignment_witness", "public_split"}
+            "public_history_sha256", "causal_assignment_witness", "public_split"}
     if set(trusted_pin) != keys or trusted_pin.get("public_split") != "FIT":
         return fail("INCOMPLETE_INDEPENDENT_TRUST_PIN")
     if (trusted_pin.get("provider_ref") != receipt["provider_ref"]
         or trusted_pin.get("source_commit") != receipt["source_commit"]
-        or trusted_pin.get("receipt_sha256") != digest(dict(receipt))):
+        or trusted_pin.get("receipt_sha256") != digest(dict(receipt))
+        or trusted_pin.get("public_history_sha256") != public_history_digest(observations)):
         return fail("UNPINNED_OR_TAMPERED_PUBLIC_RECEIPT")
     if trusted_pin.get("causal_assignment_witness") != "INDEPENDENTLY_VERIFIED_PAIRED_EXOGENOUS":
         return fail("CAUSAL_ASSIGNMENT_NOT_INDEPENDENTLY_VERIFIED")
@@ -118,6 +123,7 @@ def analytic_fixture(model: str) -> tuple[dict, dict]:
            "capture_id":"SOURCEFREE_NO_REAL_WITNESS"}
     pin = {"provider_ref":row["provider_ref"], "source_commit":row["source_commit"],
            "receipt_sha256":digest(row),
+           "public_history_sha256":public_history_digest(tuple((u, u, u) for u in (0,1,0,1,1,0,0,1))),
            "causal_assignment_witness":"INDEPENDENTLY_VERIFIED_PAIRED_EXOGENOUS",
            "public_split":"FIT"}
     return row, pin
