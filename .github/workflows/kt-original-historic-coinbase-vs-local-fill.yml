@@ -132,13 +132,16 @@ jobs:
            if(-not[string]::Equals([string]$meta.product_id,$product,[StringComparison]::OrdinalIgnoreCase)){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=PRODUCT_SCOPE_MISMATCH';continue}
            if([int]$meta.record_count -lt 0 -or [int]$meta.record_count -gt 200000){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=RECORD_COUNT_OUT_OF_BOUNDS';continue}
            $cacheScoped++
-           $metaVerified=([bool]$meta.replay_verified -and -not[bool]$meta.order_scope_invalidated -and -not[string]::IsNullOrEmpty([string]$meta.scope_certificate_sha256))
+           $scopeInvalidatedProperty=$meta.PSObject.Properties['order_scope_invalidated']
+           $scopeInvalidated=($null-ne$scopeInvalidatedProperty -and [bool]$scopeInvalidatedProperty.Value)
+           $metaVerified=([bool]$meta.replay_verified -and -not$scopeInvalidated -and -not[string]::IsNullOrEmpty([string]$meta.scope_certificate_sha256))
            if($metaVerified){$cacheVerified++}
            $age=([datetime]::UtcNow-$file.LastWriteTimeUtc).TotalMinutes
            Write-Host ('KTERM_COINBASE_CACHE_SCOPED_RECORDS_EXPECTED='+[int]$meta.record_count)
            Write-Host ('KTERM_COINBASE_CACHE_LAST_FILE_UPDATE_AGE_MIN='+[int][math]::Max(0,$age))
            Write-Host ('KTERM_COINBASE_CACHE_VERIFIED_CERTIFIED='+[bool]$metaVerified)
            $recordsRead=0
+           $journalTimer=[Diagnostics.Stopwatch]::StartNew()
            $stream=$null;$reader=$null
            try{
             $stream=[IO.File]::Open($journal,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
@@ -146,17 +149,20 @@ jobs:
             while(($line=$reader.ReadLine()) -ne $null){
              if($line.Length -lt 2){continue}
              if($line.Length -gt 200000){throw 'Oversized archive record'}
-             $record=$line|ConvertFrom-Json -ErrorAction Stop
              $recordsRead++
              if($recordsRead -gt 200000){throw 'Archive record bound exceeded'}
-             if(-not$metaVerified){continue}
-             if([string]$record.source_type -ne 'advanced_trade_fill'){continue}
+             if(-not$metaVerified -or -not$line.Contains('"source_type":"advanced_trade_fill"')){continue}
+             $record=$line|ConvertFrom-Json -ErrorAction Stop
              if(-not[string]::Equals([string]$record.product_id,$product,[StringComparison]::OrdinalIgnoreCase)){continue}
              $trade=Parse-Time $record.trade_time
              if($null-eq$trade){continue}
              $id=[string]$record.order_id
              if($id.Length -lt 3 -or $id.Length -gt 160){continue}
-             $side=if([bool]$record.acquisition -and -not[bool]$record.disposition){'BUY'}elseif([bool]$record.disposition -and -not[bool]$record.acquisition){'SELL'}else{'UNKNOWN'}
+             $acqProp=$record.PSObject.Properties['acquisition']
+             $dispProp=$record.PSObject.Properties['disposition']
+             $acq=($null-ne$acqProp -and [bool]$acqProp.Value)
+             $disp=($null-ne$dispProp -and [bool]$dispProp.Value)
+             $side=if($acq -and -not$disp){'BUY'}elseif($disp -and -not$acq){'SELL'}else{'UNKNOWN'}
              if($side -eq 'UNKNOWN'){continue}
              $scopedRecordCount++
              if(-not$eligibleOrders.ContainsKey($id)){$eligibleOrders[$id]=@{side=$side;earliest=$trade;product=$product}}
@@ -166,8 +172,8 @@ jobs:
               if($trade -lt $p.earliest){$p.earliest=$trade}
              }
             }
-           }catch{$cacheRejected++;$metaVerified=$false}
-           finally {if($null-ne$reader){$reader.Dispose()}elseif($null-ne$stream){$stream.Dispose()}}
+           }catch{$cacheRejected++;$metaVerified=$false;Write-Host ('KTERM_CACHE_JOURNAL_PARSE_ERROR_TYPE='+$_.Exception.GetType().Name)}
+           finally {$journalTimer.Stop();Write-Host ('KTERM_CACHE_JOURNAL_SCAN_MS='+$journalTimer.ElapsedMilliseconds);if($null-ne$reader){$reader.Dispose()}elseif($null-ne$stream){$stream.Dispose()}}
            if($recordsRead -ne [int]$meta.record_count){$cacheRejected++;$metaVerified=$false}
            if(-not$metaVerified){
             foreach($id in @($eligibleOrders.Keys)){
