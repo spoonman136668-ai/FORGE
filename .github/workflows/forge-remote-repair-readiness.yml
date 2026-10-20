@@ -242,3 +242,66 @@ jobs:
           Write-Host ('D2Y_F139_CHECKOUT_DIRTY='+($dirty.Count -gt 0).ToString().ToUpperInvariant())
           Write-Host ('D2Y_F139_ON_MAIN='+($branch -ceq 'main').ToString().ToUpperInvariant())
           Write-Host 'D2Y_NO_FILES_OR_TASKS_MODIFIED=TRUE'
+
+      - name: D2Z source-transition and real dev issue intake preflight, read only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected = '5a252f8dde245c67e9a5d9c9dfcd421fd18f5d91'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $actions=@($task.Actions)
+          if ($actions.Count -ne 1) { throw 'D2Z_MULTIPLE_CONTROLLER_ACTIONS' }
+          $args=[string]$actions[0].Arguments
+          if ($args -notmatch '(?i)-RepositoryRoot\s+["'']?([^"'']+?)["'']?(?=\s+-|$)') { throw 'D2Z_CONTROLLER_ROOT_NOT_PINNED' }
+          $root=$Matches[1].Trim()
+          $installed=(& git -C $root rev-parse HEAD).Trim()
+          if ($installed -cne '34ca99c1b5b063225566082aee5aa180a15d093b') { throw 'D2Z_INSTALLED_SOURCE_UNEXPECTED' }
+          if (@(& git -C $root status --porcelain).Count -ne 0) { throw 'D2Z_WORKTREE_DIRTY' }
+          if ($task.State.ToString() -cne 'Running') { throw 'D2Z_CONTROLLER_NOT_RUNNING' }
+          $db=Join-Path $env:LOCALAPPDATA 'FORGE-F139\\state.sqlite'
+          $snapshot=Join-Path $env:RUNNER_TEMP 'f139-d2z-preflight.sqlite'
+          if (Test-Path -LiteralPath $snapshot) { throw 'D2Z_SNAPSHOT_ALREADY_EXISTS' }
+          $env:D2Z_DB=$db
+          $env:D2Z_SNAPSHOT=$snapshot
+          $env:D2Z_ROOT=$root
+          $env:D2Z_EXPECTED=$expected
+          @'
+          import os,pathlib,sqlite3,sys,urllib.parse
+          root=pathlib.Path(os.environ['D2Z_ROOT'])
+          db=pathlib.Path(os.environ['D2Z_DB'])
+          snapshot=pathlib.Path(os.environ['D2Z_SNAPSHOT'])
+          uri='file:'+urllib.parse.quote(db.as_posix(),safe='/:')+'?mode=ro'
+          src=sqlite3.connect(uri,uri=True,timeout=3)
+          try:
+              src.execute('PRAGMA query_only=ON')
+              dst=sqlite3.connect(str(snapshot),timeout=3)
+              try:src.backup(dst)
+              finally:dst.close()
+          finally:src.close()
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,GitHub
+          state=Database(snapshot)
+          try:
+              state.verify()
+              meta=state.meta()
+              tasks=[dict(r) for r in state.conn.execute('SELECT * FROM tasks')]
+              assert meta['source_sha']=='34ca99c1b5b063225566082aee5aa180a15d093b'
+              assert meta['enabled']==1 and meta['legacy_suspended']==1
+              assert len(tasks)==5 and all(t['stage']=='VERIFIED' and t['run_id'] and t['evidence_sha'] for t in tasks)
+              print('D2Z_SOURCE_TRANSITION_LEDGER=VERIFIED_5_OF_5')
+              print('D2Z_EVENT_HEAD_SEQUENCE='+str(meta['head_seq']))
+              print('D2Z_SNAPSHOT_HASH_HEAD='+str(meta['head_hash']))
+              api=GitHub()
+              protected=api.protected_main()
+              assert protected==os.environ['D2Z_EXPECTED'],'D2Z_REMOTE_PROTECTED_MAIN_DRIFT'
+              eligible=api.d2k_eligible_issues(protected)
+              assert len(eligible)==2 and {r['lane'] for r in eligible}=={'Wingless','Yggdrasil'}
+              print('D2Z_OWNER_AUTHENTICATED_TASKS=2')
+              print('D2Z_PROTECTED_MAIN='+protected)
+              print('D2Z_SOURCE_TRANSITION_PREFLIGHT=PASS_READONLY')
+          finally:state.close()
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw 'D2Z_PREFLIGHT_BLOCKED' }
+          Write-Host 'D2Z_NO_SOURCE_TRANSITION_OR_NEW_DISPATCH=TRUE'
