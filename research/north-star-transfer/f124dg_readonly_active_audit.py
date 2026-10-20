@@ -22,6 +22,23 @@ def require(ok,why):
 def digest(obj):
     return hashlib.sha256(json.dumps(obj,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
+def exact_equal_information_stop(row):
+    """Query allowance is a maximum: finish early ONLY at rank 163."""
+    budget=row["extra_oracle_budget"]
+    consumed=row["new_oracle_queries_consumed"]
+    initial=row["original_FIT_rank"]
+    final=row["final_rank"]
+    dim=row["full_hypothesis_dimension"]
+    return (type(budget) is int and budget in BUDGETS
+            and type(consumed) is int and 0<=consumed<=budget
+            and type(initial) is int and type(final) is int
+            and 0<=initial<=final<=dim==163
+            and (consumed==budget or final==dim)
+            and row["rank_gain_from_extra_information"]==final-initial==consumed
+            and row["rank_saturated_before_query_budget"]==(consumed<budget)
+            and row["queries_distinct"]
+            and row["query_budget_is_MAXIMUM_not_forced_redundant_observations"])
+
 def load(directory):
     names={"shard-"+family+"-"+str(seed)+".json" for family in FAMILIES
            for seed in (201,203)}
@@ -49,17 +66,8 @@ def load(directory):
                     and x["FIT_episodes"]==24 and
                     x["CHECK_veto_episodes"]==8 and
                     x["HELDOUT_positive_episodes"]==8 and
-                    0<=x["new_oracle_queries_consumed"]<=x["extra_oracle_budget"]
-                    and (x["new_oracle_queries_consumed"]==x["extra_oracle_budget"]
-                         or x["final_rank"]==163)
-                    and x["rank_saturated_before_query_budget"]==(
-                         x["new_oracle_queries_consumed"]<x["extra_oracle_budget"])
-                    and x["queries_distinct"] and
-                    x["final_rank"]>=x["original_FIT_rank"] and
-                    x["rank_gain_from_extra_information"]==(
-                        x["final_rank"]-x["original_FIT_rank"])
-                    and x["rank_gain_from_extra_information"]==x["new_oracle_queries_consumed"]
-                    and x["full_hypothesis_dimension"]==163
+                    exact_equal_information_stop(x)
+                    
                     and x["whole_process_includes_import_FIT_extra_oracle_CHECK_HELDOUT"]
                     and x["full_python_OS_user_sys_CPU_ns"]>0
                     and x["full_python_OS_peak_RSS_bytes"]>0
