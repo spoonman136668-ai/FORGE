@@ -47,3 +47,60 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: F139 D2R read-only deployed FSA resource inventory
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): perform D2R read-only provider trust inventory'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'F139_D2R_WRONG_RUNNER'}
+          $main=& gh api -X GET repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $main.commit.sha -cne '34ca99c1b5b063225566082aee5aa180a15d093b' -or
+             $main.protected -ne $true){throw 'F139_D2R_PROTECTED_MAIN_DRIFT'}
+          $controller=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($controller.State -ne 'Running'){throw 'F139_D2R_NATIVE_CONTROLLER_NOT_RUNNING'}
+          $owner=([Security.Principal.NTAccount]::new([string]$controller.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if($owner.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'F139_D2R_NOT_CONTROLLER_OWNER'}
+          Write-Output 'F139_D2R_CONTROLLER_OWNER_AND_SOURCE=PASS'
+          $names=@('CLOUDFLARE_API_TOKEN','CF_API_TOKEN','CLOUDFLARE_ACCOUNT_ID','CF_ACCOUNT_ID','CLOUDFLARE_D1_DATABASE_ID','FSA_D1_DATABASE_ID','FORGE_FSA_AUTHORITY_URL','FORGE_FSA_WITNESS_URL')
+          $present=@($names|Where-Object {-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_))})
+          Write-Output ('F139_D2R_INHERITED_PROVIDER_CREDENTIAL_FIELDS_PRESENT_COUNT='+$present.Count)
+          $githubNames=@(); $githubMetadataAvailable=$false
+          try{
+            $saved=$ErrorActionPreference
+            try{
+              $ErrorActionPreference='Continue'
+              $metaRaw=@(& gh api -X GET 'repos/spoonman136668-ai/FORGE/actions/secrets?per_page=100' 2>&1)
+              $rc=$LASTEXITCODE
+            }finally{$ErrorActionPreference=$saved}
+            if($rc -eq 0){
+              $meta=($metaRaw -join [Environment]::NewLine)|ConvertFrom-Json
+              if($meta.total_count -le 100 -and @($meta.secrets).Count -eq $meta.total_count){
+                $githubNames=@($meta.secrets|ForEach-Object{[string]$_.name})
+                $githubMetadataAvailable=$true
+              }
+            }
+          }catch{}
+          Write-Output ('F139_D2R_GITHUB_SECRET_METADATA_READABLE='+$githubMetadataAvailable.ToString().ToUpperInvariant())
+          if($githubMetadataAvailable){
+            $matching=@($githubNames|Where-Object{$_ -match '^(CF_|CLOUDFLARE_|FORGE_FSA_)'})
+            Write-Output ('F139_D2R_REPOSITORY_PROVIDER_SECRET_NAME_COUNT='+$matching.Count)
+          }
+          $possible=@(
+            (Join-Path $env:LOCALAPPDATA 'FORGE-FSA\owner-ed25519.dpapi'),
+            (Join-Path $env:LOCALAPPDATA 'FORGE-FSA\authority-public-config.json'),
+            (Join-Path $env:LOCALAPPDATA 'FORGE-FSA\witness-public-config.json')
+          )
+          Write-Output ('F139_D2R_OWNER_KEY_FILE_PRESENT='+([bool](Test-Path -LiteralPath $possible[0] -PathType Leaf)).ToString().ToUpperInvariant())
+          Write-Output ('F139_D2R_AUTHORITY_CONFIG_FILE_PRESENT='+([bool](Test-Path -LiteralPath $possible[1] -PathType Leaf)).ToString().ToUpperInvariant())
+          Write-Output ('F139_D2R_WITNESS_CONFIG_FILE_PRESENT='+([bool](Test-Path -LiteralPath $possible[2] -PathType Leaf)).ToString().ToUpperInvariant())
+          $fsaProcesses=@(Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object{$_.Name -match '^forge-fsa-(authority|witness)(\.exe)?$'})
+          Write-Output ('F139_D2R_LOCAL_FSA_HOST_PROCESSES='+$fsaProcesses.Count)
+          Write-Output 'F139_D2R_D1_ARCHIVE_READBACK=NOT_RUN_WITHOUT_PROVEN_PROVIDER_BINDING'
+          Write-Output 'F139_D2R_INDEPENDENT_WITNESS_SIGNATURE=NOT_ATTESTED'
+          Write-Output 'F139_D2R_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2R_DISPOSITION=READONLY_RESOURCE_DISCOVERY_ONLY'
