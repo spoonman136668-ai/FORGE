@@ -47,3 +47,50 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: D2S read-only Cloudflare archive schema introspection
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): inspect D2S actual historic D1 schema without record bytes'
+        shell: pwsh
+        env:
+          F139_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          F139_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_OS -cne 'Windows'){throw 'D2S_WRONG_OWNER_RUNNER'}
+          $m=(& gh api -X GET repos/spoonman136668-ai/FORGE/branches/main)|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $m.protected -ne $true -or $m.commit.sha -cne '34ca99c1b5b063225566082aee5aa180a15d093b'){throw 'D2S_SOURCE_IDENTITY_DRIFT'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($t.State -ne 'Running' -or $t.Principal.LogonType -cne 'Interactive'){throw 'D2S_OWNER_NOT_RUNNING'}
+          $owner=([Security.Principal.NTAccount]::new([string]$t.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if($owner.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'D2S_WRONG_WINDOWS_OWNER'}
+          if([string]::IsNullOrWhiteSpace($env:F139_CF_TOKEN) -or $env:F139_CF_ACCOUNT -notmatch '^[a-f0-9]{32}$'){throw 'D2S_PROVIDER_BINDING_ABSENT'}
+          $base='https://api.cloudflare.com/client/v4/accounts/'+$env:F139_CF_ACCOUNT
+          $headers=@{Authorization=('Bearer '+$env:F139_CF_TOKEN);Accept='application/json'}
+          $dbs=Invoke-RestMethod -Uri ($base+'/d1/database?page=1&per_page=100') -Headers $headers -Method Get -TimeoutSec 30
+          if($dbs.success -ne $true -or $dbs.result_info.total_count -gt 100 -or @($dbs.result).Count -ne $dbs.result_info.total_count){throw 'D2S_INCOMPLETE_D1_LIST'}
+          $found=@($dbs.result | Where-Object{$_.name -match '(?i)forge'})
+          if($found.Count -ne 1 -or [string]$found[0].uuid -notmatch '^[a-f0-9-]{36}$'){throw 'D2S_FORGE_D1_AMBIGUOUS'}
+          $dbid=[string]$found[0].uuid
+          function OnlySelect([string]$sql){
+            if($sql -notmatch '^(?i)SELECT ' -or $sql -match '(?i)\b(INSERT|DELETE|UPDATE|DROP|ALTER|CREATE|REPLACE|PRAGMA|ATTACH|DETACH)\b'){throw 'D2S_NON_SELECT_REJECTED'}
+            $body=@{sql=$sql;params=@()}|ConvertTo-Json -Compress
+            $reply=Invoke-RestMethod -Uri ($base+'/d1/database/'+$dbid+'/query') -Headers $headers -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
+            if($reply.success -ne $true -or @($reply.result).Count -ne 1 -or $reply.result[0].success -ne $true){throw 'D2S_QUERY_FAILED'}
+            if($reply.result[0].meta.changes -ne 0 -or $reply.result[0].meta.rows_written -ne 0){throw 'D2S_UNEXPECTED_SQL_WRITES'}
+            return ,@($reply.result[0].results)
+          }
+          foreach($table in @('forge_research_originals','forge_research_seals','forge_research_chunks')){
+            $sql="SELECT name, type, pk FROM pragma_table_info('$table') ORDER BY cid LIMIT 20"
+            $cols=@(OnlySelect $sql)
+            if($cols.Count -lt 2 -or $cols.Count -ge 20){throw ('D2S_SCHEMA_ABSENT_OR_TOO_LARGE_'+$table)}
+            $names=@($cols|ForEach-Object{[string]$_.name})
+            if(@($names|Select-Object -Unique).Count -ne $cols.Count){throw 'D2S_DUPLICATED_COLUMN_METADATA'}
+            Write-Output ('F139_D2S_TABLE='+$table)
+            Write-Output ('F139_D2S_COLUMN_NAMES='+($names -join ','))
+            Write-Output ('F139_D2S_COLUMN_TYPES='+(@($cols|ForEach-Object{[string]$_.type}) -join ','))
+          }
+          Write-Output 'F139_D2S_HISTORICAL_CONTENT_BYTES=NOT_READ'
+          Write-Output 'F139_D2S_PROVIDER_SQL_CHANGES=0'
+          Write-Output 'F139_D2S_FSA_AUTHORITY=UNVERIFIED'
+          Write-Output 'F139_D2S_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2S_DISPOSITION=SCHEMA_STRUCTURE_ONLY_NO_SCIENCE'
