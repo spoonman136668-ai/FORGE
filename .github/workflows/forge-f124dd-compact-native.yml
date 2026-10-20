@@ -1,0 +1,112 @@
+name: F124-DD new sourcefree compact causal compiler resource comparison
+on:
+  push:
+    branches: [research/f124dd-compact-causal-compiler-20261019]
+    paths: [.github/workflows/forge-f124dd-compact-native.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124dd-sourcefree-compiler-original-once
+  cancel-in-progress: false
+jobs:
+  first-original-frozen-preflight:
+    name: frozen-compact-preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check exact source identity, pre-source frozen hypothesis and no science admission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'DD_EXACT_SOURCE_SHA_DRIFT' }
+          & git merge-base --is-ancestor 1993ca88659e87a3e769cd6239c59d1e0a78deb9 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DD_PRE_SOURCE_FREEZE_MISSING' }
+          & git merge-base --is-ancestor dd29f9d3221888b677d7fb07192b401f13869b2e HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DD_PARENT_QUALIFIED_EVIDENCE_NOT_ANCESTOR' }
+          $freeze=Get-Content -Raw research/north-star-transfer/f124dd-frozen-compact-native-prereg.json | ConvertFrom-Json
+          if ($freeze.schema -cne 'mass.f124dd.sourcefree-compact-learned-operator-prereg.v1') { throw 'DD_FROZEN_PROTOCOL_CHANGED' }
+          if (!$freeze.governance.all_consumed_original_924_through_937_untouched -or !$freeze.governance.all_previous_F124DC_sourcefree_holdouts_excluded_from_NEW_measured_study -or $freeze.governance.original_scientific_firstuse_consumed -ne 0 -or $freeze.governance.scientific_acceptance -or $freeze.governance.protected_firstuse_allowed) { throw 'DD_FORBIDDEN_ORIGINAL_PROSPECTIVE_SCIENCE' }
+          if (!$freeze.governance.no_controller) { throw 'DD_CONTROLLER_BOUNDARY_UNSAFE' }
+          $control=(& git rev-parse "HEAD:research/north-star-transfer/f124dc_independent_anf_meta_peer.py").Trim()
+          if ($LASTEXITCODE -ne 0 -or $control -cne '74b81f73e68ef7cdad0073784e8274c650b78de3') { throw 'DD_FROZEN_SOURCE_PARITY_DRIFT' }
+          Write-Host 'F124DD_NEW_SOURCES_FREEZE_BEFORE_AUTHORSHIP=PASS'
+      - name: Exact bit-parallel semantic correctness and equal meta-training
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124dd_compact_native.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'DD_NEW_CAUSAL_PRIMITIVE_OR_COMPILER_QUALIFICATION_FAIL' }
+          Write-Host 'F124DD_BIT_PARALLEL_LEARNED_SEMANTICS_AND_STRONG_PEER=PASS'
+  full-original-sourcefree-measurement:
+    name: original-full-os (${{ matrix.family }}, seed ${{ matrix.first_seed }})
+    needs: first-original-frozen-preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [fresh-ternary-compiler-sanity, four-input-parity-conjunction, four-input-selector-with-interaction, nibble-addition-carry-out-of-bitwise]
+        first_seed: [81, 83]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compare 30 complete Linux processes against exact new causal inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dd_full_os_shard.py \
+            --family "${{ matrix.family }}" \
+            --first-seed "${{ matrix.first_seed }}" \
+            --out "$RUNNER_TEMP/f124dd-original"
+      - name: Retain exact original whole-process native receipt shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dd-original-${{ matrix.family }}-${{ matrix.first_seed }}
+          path: ${{ runner.temp }}/f124dd-original/shard-*.json
+          if-no-files-found: error
+          retention-days: 90
+  independent-readonly-original-audit:
+    name: independent-readonly-original-audit
+    needs: full-original-sourcefree-measurement
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retrieve all eight complete sourcefree OS original artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124dd-original-*
+          path: ${{ runner.temp }}/f124dd-eight-original
+          merge-multiple: true
+      - name: Verify 240 full OS receipts and strict predeclared CPU cost-vs-peer gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dd_sourcefree_readonly_audit.py \
+            --shards "$RUNNER_TEMP/f124dd-eight-original" \
+            --out "$RUNNER_TEMP/f124dd-original-readonly-review"
+      - name: Retain independent original full receipt audit and safe findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dd-complete-original-240-sourcefree-native-evidence
+          path: ${{ runner.temp }}/f124dd-original-readonly-review/
+          if-no-files-found: error
+          retention-days: 90
