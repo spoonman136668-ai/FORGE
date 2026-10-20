@@ -25,9 +25,9 @@ def intent(lane="Wingless"):
         "dependency_sha256": "d" * 64,
         "qualification_harness_sha256": "e" * 64,
         "training_config_sha256": "f" * 64,
-        "toolchain_identity": "go1.23.12" if wing else "python3.11.11",
+        "toolchain_identity": "go1.25.0" if wing else "python3.11.11",
         "suite_identity_sha256": "1" * 64,
-        "path": "research/native_state.go" if wing else "research/native_state.py",
+        "path": "cognition/native_state.go" if wing else "yggdrasil/native_state.py",
         "before_sha256": ZERO,
         "after_sha256": digest(AFTER),
         "after_base64": base64.b64encode(AFTER).decode(),
@@ -75,10 +75,10 @@ class NativeContractTests(unittest.TestCase):
 
     def test_no_cross_lane_or_arbitrary_repository(self):
         for path in (".github/workflows/bypass.go", "../research/native_state.go",
-                     "research/../tests/bypass.go", "research//bypass.go",
-                     "research\\escape.go", "research/bypass.py", ".git/config",
-                     "research/a;touch-b.go", "/research/native.go",
-                     "research/CON.go", "research/.git/native.go", "research/folder./native.go"):
+                     "cognition/../tests/bypass.go", "cognition//bypass.go",
+                     "cognition\\escape.go", "cognition/bypass.py", ".git/config",
+                     "cognition/a;touch-b.go", "/cognition/native.go",
+                     "cognition/CON.go", "cognition/.git/native.go", "cognition/folder./native.go"):
             with self.subTest(path=path):
                 bad = intent()
                 bad["path"] = path
