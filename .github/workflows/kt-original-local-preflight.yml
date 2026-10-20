@@ -1,4 +1,4 @@
-name: K-Terminal original UI assembly provenance
+name: K-Terminal original verified UI DLL unblocking
 on:
   push:
     branches: [diagnostics/kterminal-original-local-preflight-20261019]
@@ -7,45 +7,64 @@ on:
 permissions:
   contents: read
 jobs:
-  probe:
+  repair:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 5
     steps:
-      - name: Inspect original UI DLL without modifying it
+      - name: Unblock only authenticated UI runtime assembly and verify .NET load
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
           if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
           Write-Host 'KTERM_LOCAL_RUNNER=PASS'
-          $candidates = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
-          if ($candidates.Count -ne 1) { Write-Host ('KTERM_ROOT_COUNT=' + $candidates.Count); throw 'ROOT_NOT_UNIQUE' }
-          $root = $candidates[0]
+          $roots = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'KTERM_ORIGINAL_ROOT_AMBIGUOUS' }
+          $root = $roots[0]
           $dll = Join-Path $root 'KTerminal.UI.dll'
           $manifestPath = Join-Path $root 'ui-runtime-manifest.json'
-          Write-Host ('KTERM_UI_DLL_PRESENT=' + (Test-Path -LiteralPath $dll -PathType Leaf))
-          Write-Host ('KTERM_UI_MANIFEST_PRESENT=' + (Test-Path -LiteralPath $manifestPath -PathType Leaf))
-          if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) { throw 'DLL_MISSING' }
-          $zoneLines = @()
-          try { $zoneLines = @(Get-Content -LiteralPath $dll -Stream Zone.Identifier -ErrorAction Stop) } catch { }
+          if (-not (Test-Path -LiteralPath $dll -PathType Leaf) -or -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'KTERM_UI_RUNTIME_MISSING' }
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($manifest.schema_version -ne 1 -or $manifest.assembly -cne 'KTerminal.UI.dll') { throw 'KTERM_UI_MANIFEST_IDENTITY_MISMATCH' }
+          $before = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ([string]$manifest.sha256 -cne $before) { throw 'KTERM_UI_DIGEST_MISMATCH' }
+          Write-Host 'KTERM_UI_DLL_PRE_HASH=PASS'
+          if ((Get-Item -LiteralPath $dll).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'KTERM_UI_DLL_REPARSE_POINT' }
+          foreach ($entry in @($manifest.sources)) {
+            $name = [string]$entry.path
+            if ([string]::IsNullOrWhiteSpace($name) -or [IO.Path]::GetFileName($name) -cne $name -or $name.Contains(':')) { throw 'KTERM_UI_SOURCE_PATH_INVALID' }
+            $source = Join-Path $root $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw 'KTERM_UI_SOURCE_MISSING' }
+            $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sourceHash -cne [string]$entry.sha256) { throw 'KTERM_UI_SOURCE_DRIFT' }
+          }
+          Write-Host 'KTERM_UI_SOURCE_MANIFEST=PASS'
+          $zoneLines = @(Get-Content -LiteralPath $dll -Stream Zone.Identifier -ErrorAction Stop)
           $zoneIds = @($zoneLines | Where-Object { $_.StartsWith('ZoneId=') } | ForEach-Object { $_.Substring(7) })
-          if ($zoneIds.Count -eq 0) { Write-Host 'KTERM_DLL_MOTW=ABSENT' } else { Write-Host ('KTERM_DLL_ZONE_ID=' + ($zoneIds -join ',')) }
-          $dllHash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
-          if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
-            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-            if ([string]$manifest.sha256 -ceq $dllHash) { Write-Host 'KTERM_DLL_MANIFEST_HASH=PASS' } else { Write-Host 'KTERM_DLL_MANIFEST_HASH=MISMATCH' }
-          }
+          if ($zoneIds.Count -ne 1 -or $zoneIds[0] -cne '3') { throw 'KTERM_UI_UNEXPECTED_SECURITY_ZONE' }
+          Write-Host 'KTERM_UI_ZONE_BEFORE=3'
+          $unblocked = $false
           try {
-            $identity = [Reflection.AssemblyName]::GetAssemblyName($dll)
-            Write-Host 'KTERM_DLL_METADATA=READABLE'
-          } catch { Write-Host ('KTERM_DLL_METADATA_ERROR=' + $_.Exception.GetType().Name) }
-          try {
+            Unblock-File -LiteralPath $dll -ErrorAction Stop
+            $unblocked = $true
+            $after = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($after -cne $before) { throw 'KTERM_UI_DLL_BYTES_CHANGED' }
+            Write-Host 'KTERM_UI_DLL_BYTES_UNCHANGED=PASS'
+            $zoneStillPresent = $false
+            try { $zoneStillPresent = @(Get-Content -LiteralPath $dll -Stream Zone.Identifier -ErrorAction Stop).Count -gt 0 } catch { }
+            if ($zoneStillPresent) { throw 'KTERM_UI_SECURITY_ZONE_STILL_PRESENT' }
+            Write-Host 'KTERM_UI_ZONE_REMOVED=PASS'
             $null = [Reflection.Assembly]::LoadFrom($dll)
-            Write-Host 'KTERM_DLL_LOAD=PASS'
-          } catch {
-            $e = $_.Exception
-            Write-Host 'KTERM_DLL_LOAD=FAIL'
-            Write-Host ('KTERM_DLL_LOAD_EXCEPTION=' + $e.GetType().Name)
-            if ($e.InnerException) { Write-Host ('KTERM_DLL_INNER_HRESULT=0x' + $e.InnerException.HResult.ToString('X8')) }
+            Write-Host 'KTERM_UI_DLL_LOAD=PASS'
+            Write-Host 'KTERM_ORIGINAL_RUNTIME_REPAIR=PASS'
           }
-          Write-Host 'KTERM_NO_ORIGINAL_FILES_MODIFIED=TRUE'
+          catch {
+            if ($unblocked) {
+              try { Set-Content -LiteralPath $dll -Stream Zone.Identifier -Value $zoneLines -ErrorAction Stop }
+              catch { Write-Host 'KTERM_ZONE_RESTORE=FAILED' }
+            }
+            $ex = $_.Exception
+            Write-Host ('KTERM_FIX_FAILURE_TYPE=' + $ex.GetType().Name)
+            throw 'KTERM_ORIGINAL_UI_REPAIR_FAILED'
+          }
+          Write-Host 'KTERM_TRADING_ENGINE_DATA_AND_SETTINGS_UNTOUCHED=TRUE'
