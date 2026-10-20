@@ -1,0 +1,163 @@
+name: LCRM01-K4C preregistered intervention-pair qualification
+on:
+  push:
+    branches: [research/lcrm01-k4c-intervention-pair-20261020]
+    paths: ['.github/workflows/lcrm01-k4c-intervention-pair.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-k4c-paired-intervention
+  cancel-in-progress: false
+jobs:
+  pinned-control-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CW_SHA: 1045277101a92c506db42704da28f6e7227d401b
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Verify frozen K4A inputs and development-only routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo 'a6e97b95fcfa3fc74e9b9fa28ffc22640d99c8fc0f4da31a10336c0f6906e270  research/lcrm01/k4a_control_replay.py' | sha256sum --check -
+          echo '36da03e049722547837e09fffa9e7627188f3c9ce5b4e65067af438dcc8618a5  research/lcrm01/k4a_frozen_protocol.json' | sha256sum --check -
+          python -B - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("research/lcrm01/k4a_frozen_protocol.json").read_text())
+          a=json.loads(Path("research/lcrm01/k4a_development_route_addendum.json").read_text())
+          assert p["research_gate"]=="LCRM01-K4A"
+          assert p["harness"]["sha256"]=="a6e97b95fcfa3fc74e9b9fa28ffc22640d99c8fc0f4da31a10336c0f6906e270"
+          assert p["source"]["commit"]=="1045277101a92c506db42704da28f6e7227d401b"
+          assert a["route"]=="EXISTING_FORGE_GITHUB_HOSTED_DEVELOPMENT_QUALIFICATION"
+          assert a["scientific_first_use"] is False and a["protected_main_change"] is False
+          assert a["frozen_protocol_unchanged"] is True
+          print("K4A_FROZEN_INPUTS=PASS")
+          print("K4A_SCIENTIFIC_FIRST_USE=FALSE")
+          PY
+          python -B -m py_compile research/lcrm01/k4a_control_replay.py
+      - name: Defensively qualify bounded source repair without upstream modification
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '1a6169bba4f77bb28519766184636c89bfcdc5b5ab23485475e64de474ea09bb  research/lcrm01/k4b_replay_state_repair.py' | sha256sum --check -
+          echo '015f21b589f69f36730567e646fc93fd89636babb3fa356b6d77fed08712cb79  research/lcrm01/k4a_overlay/sitecustomize.py' | sha256sum --check -
+          echo 'f89b8d0617cea65abafb7211b808f4029df740c5e35803918c35dd5bafe1704f  research/lcrm01/test_k4b_repair_sourceonly.py' | sha256sum --check -
+          python -B -m unittest discover -s research/lcrm01 -p 'test_k4b_repair_sourceonly.py' -v
+          echo 'K4B_SOURCEONLY_REPAIR_TESTS=PASS'
+      - name: Enforce preregistration and exact K4C implementation identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 983578f8330282b928c6e231a2b39cbb690bdd2a "$GITHUB_SHA"
+          test "$(git hash-object research/lcrm01/k4c_frozen_intervention_pair.json)" = 1539feb0afacf762b46beb6eb532c86ec5da45c3
+          test "$(git hash-object research/lcrm01/k4c_intervention_pair.py)" = 13c2d834edb39b04736ed6a0bba0bf0521b857b3
+          test "$(git hash-object research/lcrm01/test_k4c_sourceonly.py)" = befcc9455486bfb41100dea0abcf2b9f78f7d45b
+          python -B - <<'PY'
+          import json
+          from pathlib import Path
+          f=json.loads(Path("research/lcrm01/k4c_frozen_intervention_pair.json").read_text())
+          assert f["schema"]=="mass.lcrm01.k4c.preregistered-intervention-pair-development.v1"
+          assert f["predecessors"]["unpatched_negative_run_id"]==39497271163
+          assert f["predecessors"]["k4b_positive_run_id"]==39500088457
+          assert f["case"]["seed"]==37 and f["case"]["prefix_steps"]==5 and f["case"]["continuation_steps"]==6
+          assert f["restrictions"]["scientific_firstuse"]==0
+          assert not f["restrictions"]["protected_main_mutation"]
+          print("K4C_PRECODE_IDENTITY_AND_SEQUENCE=PASS")
+          PY
+          python -B -m py_compile research/lcrm01/k4c_intervention_pair.py
+      - name: Install legacy runtime with exact PyBullet 3.2.5 Linux wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
+          mkdir -p "$RUNNER_TEMP/k4a/wheels"
+          python -m pip download --only-binary=:all: --no-deps --dest "$RUNNER_TEMP/k4a/wheels" 'pybullet==3.2.5'
+          test "$(find "$RUNNER_TEMP/k4a/wheels" -maxdepth 1 -type f | wc -l)" -eq 1
+          file=$(find "$RUNNER_TEMP/k4a/wheels" -maxdepth 1 -type f -name 'pybullet-3.2.5-cp39-cp39-manylinux*.whl' -print -quit)
+          test -n "$file"
+          printf '9adcaa00de674a02549949f6f8d51b485bd7a23fbc87a1defb2067e1364f8202  %s\n' "$file" | sha256sum --check -
+          python -m pip install --no-deps "$file"
+          python -m pip install 'numpy==1.23.5' 'scipy==1.10.1' 'gym==0.17.2' 'catkin_pkg==0.5.2' 'matplotlib==3.7.5' 'psutil==5.9.8'
+          python -B - <<'PY'
+          import gym,numpy,pybullet,scipy
+          print("K4A_DEPENDENCIES="+str({"gym":gym.__version__,"numpy":numpy.__version__,"scipy":scipy.__version__,"pybullet_api":pybullet.getAPIVersion()}))
+          PY
+      - name: Run source-only K4C comparator and intervention selection tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01" python -B -m unittest discover -s research/lcrm01 -p 'test_k4c_sourceonly.py' -v
+          echo "K4C_SOURCEONLY_TESTS=PASS"
+      - name: Fetch only exact public CausalWorld source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$RUNNER_TEMP/k4a/CausalWorld"
+          git -C "$RUNNER_TEMP/k4a/CausalWorld" remote add origin https://github.com/rr-learning/CausalWorld.git
+          git -C "$RUNNER_TEMP/k4a/CausalWorld" fetch --no-tags --depth 1 origin "$CW_SHA"
+          git -C "$RUNNER_TEMP/k4a/CausalWorld" checkout --detach --quiet "$CW_SHA"
+          test "$(git -C "$RUNNER_TEMP/k4a/CausalWorld" rev-parse HEAD)" = "$CW_SHA"
+          test -z "$(git -C "$RUNNER_TEMP/k4a/CausalWorld" status --porcelain --untracked-files=no)"
+          test "$(git -C "$RUNNER_TEMP/k4a/CausalWorld" hash-object causal_world/envs/causalworld.py)" = '6169fcd629e5721e889fbcada52c06e9c2a37b0e'
+          echo 'K4A_EXTERNAL_SOURCE_PIN=PASS'
+      - name: Execute unchanged K4A control replay and retain first mismatch
+        shell: bash
+        run: |
+          set -uo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01/k4a_overlay:$GITHUB_WORKSPACE/research/lcrm01" python -B research/lcrm01/k4a_control_replay.py --causalworld-repo "$RUNNER_TEMP/k4a/CausalWorld" --output "$RUNNER_TEMP/k4a/k4b-control-replay.json" 2>&1 | tee "$RUNNER_TEMP/k4a/k4b-control-replay.log"
+          code=${PIPESTATUS[0]}
+          if [ -f "$RUNNER_TEMP/k4a/k4b-control-replay.json" ]; then
+            python -B - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"k4a/k4b-control-replay.json"
+          r=json.loads(p.read_text())
+          assert r["scientific_firstuse"]==0 and not r["intervention_performed"] and not r["trained_models"]
+          print("K4A_CONTROL_REPLAY_RESULT="+r["result"])
+          PY
+          else
+            echo 'K4A_EVIDENCE_MISSING=TRUE'
+            exit 1
+          fi
+          exit "$code"
+      - name: Execute preregistered K4C untreated-treated intervention pair
+        shell: bash
+        run: |
+          set -uo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01/k4a_overlay:$GITHUB_WORKSPACE/research/lcrm01" python -B research/lcrm01/k4c_intervention_pair.py --causalworld-repo "$RUNNER_TEMP/k4a/CausalWorld" --output "$RUNNER_TEMP/k4a/k4c-intervention-pair.json" 2>&1 | tee "$RUNNER_TEMP/k4a/k4c-intervention-pair.log"
+          code=${PIPESTATUS[0]}
+          if [ -f "$RUNNER_TEMP/k4a/k4c-intervention-pair.json" ]; then
+            python -B - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=json.loads((Path(os.environ["RUNNER_TEMP"])/"k4a/k4c-intervention-pair.json").read_text())
+          assert r["scientific_firstuse"]==0
+          assert not r["trained_models"] and not r["scientific_acceptance"]
+          assert not r["counterfactual_oracle_qualified"] and not r["protected_main_mutated"]
+          print("K4C_ACTUAL_RESULT="+r["result"])
+          PY
+          else
+            echo "K4C_NO_REPORT=TRUE"
+            exit 1
+          fi
+          exit "$code"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm01-k4c-paired-intervention-and-prior-control
+          path: |
+            ${{ runner.temp }}/k4a/k4b-control-replay.json
+            ${{ runner.temp }}/k4a/k4c-intervention-pair.json
+          if-no-files-found: warn
+          retention-days: 90

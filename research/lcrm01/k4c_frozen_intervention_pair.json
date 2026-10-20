@@ -1,0 +1,61 @@
+{
+  "schema": "mass.lcrm01.k4c.preregistered-intervention-pair-development.v1",
+  "gate": "LCRM01-K4C",
+  "type": "SOURCE_ONLY_DEVELOPMENT_NOT_FIRSTUSE",
+  "source": {
+    "repository": "rr-learning/CausalWorld",
+    "commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "env_blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e"
+  },
+  "predecessors": {
+    "unpatched_negative_run_id": 39497271163,
+    "k4b_positive_run_id": 39500088457,
+    "k4b_repair_blob": "304ff1e995216b88f4e60cf19ee91637984bd6fd",
+    "k4b_overlay_blob": "f8ebce6ec3a1d438f09804c59b141edb8a747208",
+    "k4a_harness_sha256": "a6e97b95fcfa3fc74e9b9fa28ffc22640d99c8fc0f4da31a10336c0f6906e270"
+  },
+  "case": {
+    "task": "reaching",
+    "seed": 37,
+    "skip_frame": 10,
+    "action_mode": "joint_positions",
+    "observation_mode": "structured",
+    "normalize_actions": false,
+    "normalize_observations": false,
+    "max_episode_length": 40,
+    "prefix_steps": 5,
+    "continuation_steps": 6,
+    "action": "fixed action_space.low copied before checkpoint",
+    "intervention_target": "joint_positions first joint",
+    "selection": "clamp original first joint plus 0.04 rad into bounds with 0.01 margin; no other joints altered",
+    "check_bounds": true
+  },
+  "sequence": [
+    "checkpoint after fixed prefix",
+    "untreated control A",
+    "restore checkpoint and untreated control B (exact)",
+    "restore checkpoint then apply exactly one verified robot joint-position intervention and run treated A",
+    "restore checkpoint, apply same intervention, run treated B (exact)",
+    "restore checkpoint untreated control C (exact and no contamination)"
+  ],
+  "veto": [
+    "pinned input source or repair drift",
+    "state or RNG mismatch immediately after restore",
+    "any bit-level difference between controls A/B/C",
+    "intervention failure, out of bounds or unobserved immediate target difference",
+    "no post-intervention physical trajectory difference",
+    "any difference between repeated treated immediate observations or continuation outputs",
+    "unrecognized snapshot shape or reused/reserved output path",
+    "dirty external CausalWorld checkout"
+  ],
+  "first_difference_report": "preserve first failing phase, step and fields; preserve full original control and treated payload hashes and source identities",
+  "admission": "Pass qualifies state restoration for this one predeclared robotic joint intervention and continuation only. No general counterfactual oracle, no transfer, no real-science first use.",
+  "restrictions": {
+    "scientific_firstuse": 0,
+    "model_training": 0,
+    "protected_main_mutation": false,
+    "no_new_controller": true,
+    "no_CKB_plane": true,
+    "no_paid_API": true
+  }
+}
