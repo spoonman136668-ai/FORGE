@@ -1,0 +1,120 @@
+name: F124-DG sourcefree equal-information causal active identification
+on:
+  push:
+    branches: [research/f124dg-actively-identify-causal-laws-20261019]
+    paths:
+      - .github/workflows/forge-f124dg-active-identifiability.yml
+      - research/north-star-transfer/f124dg_*
+      - research/north-star-transfer/f124dg-*
+      - research/north-star-transfer/test_f124dg_active_identifiability.py
+permissions:
+  contents: read
+concurrency:
+  group: f124dg-sourcefree-original-equal-query-budget
+  cancel-in-progress: false
+jobs:
+  exact-sourcefree-preflight:
+    name: exact-sourcefree-preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove frozen pre-source active-query contract and no original first-use
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'DG_SOURCE_HEAD_DRIFT' }
+          & git merge-base --is-ancestor 03b43f91756135a748abe5a120c9e6d9eaeee639 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DG_PREREG_NOT_FROZEN_BEFORE_SOURCE_ONLY_ORACLE' }
+          & git merge-base --is-ancestor a04d287f8f029d8e5550bb65d391ccdca86a3709 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DG_PARENT_ORIGINAL_NEGATIVE_DRIFT' }
+          $j=Get-Content -Raw research/north-star-transfer/f124dg-frozen-active-identifiability.json | ConvertFrom-Json
+          if ($j.schema -cne 'mass.f124dg.sourcefree-active-identifiability-prereg.v1') { throw 'DG_ORIGINAL_HYPOTHESIS_FREEZE_DRIFT' }
+          if (!$j.no_previous_924_through_937_science_source_replay -or !$j.no_F124DF_consumed_101_through_104_sourcefree_replay -or !$j.no_new_scientific_firstuse -or !$j.no_auto_merge) { throw 'DG_PROTECTED_SOURCE_BOUNDARY' }
+          Write-Host 'F124DG_FROZEN_BEFORE_NEW_SOURCEFREE_LAW=PASS'
+      - name: Prove nullspace witness, equal source access, and no target teacher-forcing
+        shell: pwsh
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124dg_active_identifiability.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'DG_FULL_SOURCEFREE_ACTIVE_IDENTIFIABILITY_TEST_FAIL' }
+          Write-Host 'F124DG_STRONG_INDEPENDENT_EQUAL_BUDGET_CONTROL=PASS'
+  original-sourcefree-active-OS:
+    name: original-sourcefree-active-OS (${{ matrix.family }}, ${{ matrix.first_seed }})
+    needs: exact-sourcefree-preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [sparse_degree4_GF2_unknown, dense_degree4_GF2_unknown]
+        first_seed: [201, 203]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exactly 18 original isolated full OS candidate and control comparisons per shard
+        shell: bash
+        env:
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dg_whole_os_shard.py \
+            --family "${{ matrix.family }}" \
+            --first-seed "${{ matrix.first_seed }}" \
+            --out "$RUNNER_TEMP/f124dg-original-OS-18"
+      - name: Retain every native resource receipt including natural abstentions
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dg-original-sourcefree-${{ matrix.family }}-${{ matrix.first_seed }}
+          path: ${{ runner.temp }}/f124dg-original-OS-18/shard-*.json
+          retention-days: 90
+          if-no-files-found: error
+  original-independent-readonly-review:
+    name: original-independent-readonly-review
+    needs: original-sourcefree-active-OS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read exact four nonoverlapping fixed-family native receipts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124dg-original-sourcefree-*
+          path: ${{ runner.temp }}/f124dg-all-shards
+          merge-multiple: true
+      - name: Independently audit 72 complete process costs, natural vetoes and extra information
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dg_readonly_active_audit.py \
+            --shards "$RUNNER_TEMP/f124dg-all-shards" \
+            --out "$RUNNER_TEMP/f124dg-full-audit"
+      - name: Preserve complete new engineering native receipts and safe negative or positive findings
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dg-original-all-72-sourcefree-active-evidence
+          path: ${{ runner.temp }}/f124dg-full-audit/
+          retention-days: 90
+          if-no-files-found: error
