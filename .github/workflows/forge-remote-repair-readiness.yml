@@ -103,3 +103,23 @@ jobs:
             Write-Output 'F139_D2N_OWNER_MUTATION_ADMISSIBLE=BOUNDARY_ONLY_FURTHER_CUSTODY_REQUIRED'
             Write-Output 'F139_D2N_DISPOSITION=READ_ONLY_IDENTITY_PREFLIGHT_PASS'
           }
+      - name: Checkout exact source for owner-bound D2N read-only preflight
+        if: github.event_name == 'push' && github.ref == 'refs/heads/proposal/forge-remote-repair-r1'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute owner-bound D2N preflight without applying transition
+        if: github.event_name == 'push' && github.ref == 'refs/heads/proposal/forge-remote-repair-r1'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'F139_D2N_RUNNER_DRIFT' }
+          $script = Join-Path $env:GITHUB_WORKSPACE 'ops/f139/F139-D2N-Guarded-Owner-Transition.ps1'
+          if (-not (Test-Path -LiteralPath $script -PathType Leaf)) { throw 'F139_D2N_PINNED_SCRIPT_MISSING' }
+          $hash = (Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -cne '813521f40edac547841c3746c5443eea929aa5b2c15f148b8e9afe1deda6d33b') {
+            throw 'F139_D2N_ACCEPTANCE_SCRIPT_SHA_DRIFT'
+          }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2N_NATIVE_READONLY_PREFLIGHT_BLOCKED' }
+          Write-Output 'F139_D2N_REMOTE_OWNER_READONLY_PREFLIGHT_COMPLETED=PASS'
