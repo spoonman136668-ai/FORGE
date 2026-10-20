@@ -117,3 +117,22 @@ jobs:
           Write-Output 'F139_D2P_ISSUE_671_UNLABELED_OWNER_CANDIDATE=PASS'
           Write-Output 'F139_D2P_SCIENTIFIC_FIRST_USE=BLOCKED'
           Write-Output 'F139_D2P_DISPOSITION=PRE_ADMISSION_READONLY_PASS'
+      - name: Checkout pinned D2P independent observer
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): verify D2P authentic autonomous terminal once'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run D2P read-only provider receipt verification
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): verify D2P authentic autonomous terminal once'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'D2P_WRONG_RUNNER' }
+          $path='ops/f139/F139-D2P-ReadOnly-Provider-Receipt.ps1'
+          $blob=(& git rev-parse ('HEAD:'+$path)).Trim()
+          if ($LASTEXITCODE -ne 0 -or $blob -cne 'd0cdfccc110938e660832711f92408f71263b916') { throw 'D2P_READONLY_SCRIPT_IDENTITY_DRIFT' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $env:GITHUB_WORKSPACE $path)
+          if ($LASTEXITCODE -ne 0) { throw 'D2P_AUTHENTIC_PROVIDER_RECEIPT_NOT_ACCEPTED' }
+          Write-Output 'F139_D2P_AUTHENTIC_PROVIDER_AND_DURABLE_LEDGER=PASS'
