@@ -47,3 +47,59 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: F139 D2N read-only Windows owner and runner boundary
+        if: github.event_name == 'push' && github.ref == 'refs/heads/proposal/forge-remote-repair-r1'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:RUNNER_ENVIRONMENT -cne 'self-hosted' -or
+              $env:RUNNER_OS -cne 'Windows') {
+            throw 'F139_D2N_WRONG_ISOLATED_RUNNER'
+          }
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ($task.Principal.LogonType -cne 'Interactive' -or
+              $task.Principal.RunLevel -cne 'Limited') {
+            throw 'F139_D2N_CONTROLLER_OWNER_POLICY_DRIFT'
+          }
+          if ($task.Principal.UserId -match '^S-1-') {
+            $ownerSID = [Security.Principal.SecurityIdentifier]::new($task.Principal.UserId)
+          } else {
+            $ownerSID = ([Security.Principal.NTAccount]::new(
+              [string]$task.Principal.UserId)).Translate(
+              [Security.Principal.SecurityIdentifier])
+          }
+          $runnerSID = [Security.Principal.WindowsIdentity]::GetCurrent().User
+          if (-not $ownerSID -or -not $runnerSID) {
+            throw 'F139_D2N_WINDOWS_SID_NOT_VERIFIED'
+          }
+          $sameUser = $ownerSID.Value -ceq $runnerSID.Value
+          $profileKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\' + $ownerSID.Value
+          $profileResolved = Test-Path -LiteralPath $profileKey
+          $ownerDbVisible = $false
+          if ($profileResolved) {
+            $p = [string](Get-ItemProperty -LiteralPath $profileKey -ErrorAction Stop).ProfileImagePath
+            if ([IO.Path]::IsPathRooted($p) -and $p -notmatch '%') {
+              $ownerDbVisible = Test-Path -LiteralPath (Join-Path $p 'AppData\Local\FORGE-F139\state.sqlite') -PathType Leaf
+            }
+          }
+          Write-Output 'F139_D2N_RUNNER_IDENTITY=FORGE-CODEX-REMOTE'
+          Write-Output ('F139_D2N_RUNNER_IS_TASK_OWNER=' + $sameUser.ToString().ToUpperInvariant())
+          Write-Output ('F139_D2N_OWNER_PROFILE_RESOLVED=' + $profileResolved.ToString().ToUpperInvariant())
+          Write-Output ('F139_D2N_OWNER_DB_PATH_VISIBLE=' + $ownerDbVisible.ToString().ToUpperInvariant())
+          Write-Output ('F139_D2N_CONTROLLER_TASK_STATE=' + [string]$task.State)
+          Write-Output 'F139_D2N_DATABASE_WRITES=0'
+          Write-Output 'F139_D2N_TASK_MUTATIONS=0'
+          Write-Output 'F139_D2N_CONTROLLER_DISPATCHES=0'
+          Write-Output 'F139_D2N_SCIENTIFIC_FIRST_USE=BLOCKED'
+          if (-not $sameUser) {
+            Write-Output 'F139_D2N_OWNER_MUTATION_ADMISSIBLE=FALSE'
+            Write-Output 'F139_D2N_DISPOSITION=RUNNER_SERVICE_ACCOUNT_NOT_OWNER_NO_TRANSITION'
+          } elseif ($task.State -notin @('Ready','Disabled')) {
+            Write-Output 'F139_D2N_OWNER_MUTATION_ADMISSIBLE=FALSE'
+            Write-Output 'F139_D2N_DISPOSITION=CONTROLLER_NOT_STOPPED_NO_TRANSITION'
+          } else {
+            Write-Output 'F139_D2N_OWNER_MUTATION_ADMISSIBLE=BOUNDARY_ONLY_FURTHER_CUSTODY_REQUIRED'
+            Write-Output 'F139_D2N_DISPOSITION=READ_ONLY_IDENTITY_PREFLIGHT_PASS'
+          }
