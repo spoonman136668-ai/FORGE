@@ -1,0 +1,107 @@
+name: LCRM-01 O2 matched query-blind retention source-free screen
+on:
+  push:
+    branches: [research/lcrm01-o2-retention-matched-20261020]
+    paths: ['.github/workflows/lcrm01-o2-retention-screen.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o2-sourcefree
+  cancel-in-progress: false
+jobs:
+  resource-matched-screen:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify source-free freeze, predecessor and exact blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'LCRM_O2_HEAD_DRIFT' }
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o2-retention-precode.json'='3faa575631cda6698d8ce30b4d16f3302a81ae3c'
+            'research/lcrm01/o2_retention_screen.go'='19ea654094404b9950003b8e09357b34841eeecc'
+            'research/lcrm01/o2_retention_screen_test.go'='79201fb7ca643c6baaf67be6e8bc97365a67c0b5'
+            'research/lcrm01/o2_metrics_linux.go'='8837ce9357302fd4d445eeba9e688f38e43262bb'
+            'research/lcrm01/o2_metrics_windows.go'='53623f7bc980040aeaede52939b7b5276b24a61d'
+            'research/lcrm01/o2_metrics_other.go'='f9d437e68e55205be61c562034f38288ba22b44e'
+            'cmd/lcrm-o2-screen/main.go'='697901385fcdcdd026432852dbbb15f920fa3894'
+            'research/lcrm01/prototype.go'='544a7b6be72214cd580588aa728742df8cf9f1a8'
+            'research/lcrm01/20261020-lcrm01-optimizer-preregistration.json'='e8a73678ba405f9abe572abe896c4d9ac8ec002f'
+          }
+          foreach ($path in $blobs.Keys) {
+            if ((git hash-object -- $path).Trim() -cne $blobs[$path]) { throw "LCRM_O2_BLOB_DRIFT:$path" }
+          }
+          git merge-base --is-ancestor a8a683bc8dc55d83a6c43a3b37c387a9127fa981 fde99fcd01c83e860b5da8062b047b0433db2662
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_O2_WRONG_PREDECESSOR' }
+          git merge-base --is-ancestor fde99fcd01c83e860b5da8062b047b0433db2662 9b7358cc551c034e135090dc53f68e4bff8c10c0
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_O2_CODE_PRECEDES_FREEZE' }
+          git merge-base --is-ancestor 8078fa892124406a2ada89f7946c1cf044b16751 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_O2_RUNNER_NOT_FROZEN' }
+          Write-Output 'LCRM_O2_PRECODE_AND_EXACT_SOURCE_IDENTITIES=PASS'
+      - name: Focused source-free property tests and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./research/lcrm01
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_O2_FOCUSED_TEST_FAILURE' }
+          go vet ./research/lcrm01 ./cmd/lcrm-o2-screen
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_O2_FOCUSED_VET_FAILURE' }
+          Write-Output 'LCRM_O2_SOURCEFREE_FOCUSED_AND_VET=PASS'
+      - name: Five clean whole-process CPU/RSS repetitions per matched arm
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe = Join-Path $PWD 'lcrm-o2-screen'
+          if ($IsWindows) { $exe += '.exe' }
+          go build -o $exe ./cmd/lcrm-o2-screen
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_O2_BUILD_FAILURE' }
+          $arms=@('learned-value','trained-predictive-peer','untrained-same-representation','recency')
+          $out=@{}
+          foreach ($arm in $arms) {
+            $runs=@()
+            for ($rep=0; $rep -lt 5; $rep++){
+              $json = & $exe $arm
+              if ($LASTEXITCODE -ne 0) { throw "LCRM_O2_CHILD_FAILURE:${arm}:$rep" }
+              $r = $json | ConvertFrom-Json
+              if ($r.Episodes -ne 6 -or $r.MaxPhysicalSlots -ne 8 -or
+                  !$r.QueryBlind -or !$r.FullProcessMetricAvailable -or
+                  $r.PeakRSSBytes -le 0 -or $r.ProcessCPUTimeNs -lt 0 -or
+                  $r.ScientificAccepted -or $r.IndependentFirstUse -or $r.OptimizerAdmitted) {
+                    throw "LCRM_O2_CHILD_INVARIANT:${arm}:$rep"
+              }
+              $runs+= $r
+            }
+            $out[$arm]=$runs
+            $cpus=@($runs | ForEach-Object { [long]$_.ProcessCPUTimeNs } | Sort-Object)
+            $rss=@($runs | ForEach-Object { [long]$_.PeakRSSBytes } | Sort-Object)
+            Write-Output "O2_ARM=$arm O2_OLD_RECALL=$($runs[0].OldImportantRetained) O2_MEDIAN_CPU_NS=$($cpus[2]) O2_MAX_RSS_BYTES=$($rss[4])"
+          }
+          if ($out['learned-value'][0].OldImportantRetained -ne 6 -or
+              $out['trained-predictive-peer'][0].OldImportantRetained -ne 6 -or
+              $out['recency'][0].OldImportantRetained -ne 0 -or
+              $out['untrained-same-representation'][0].OldImportantRetained -ne 0) {
+              throw 'LCRM_O2_MATCHED_BEHAVIORAL_SCREEN_FAILED'
+          }
+          $out | ConvertTo-Json -Depth 10 > lcrm-o2-resource-screen.json
+          Write-Output 'LCRM_O2_INTERNAL_SOURCEFREE_MATCHED_SCREEN=PASS'
+          Write-Output 'LCRM_O2_SCIENTIFIC_ACCEPTED=FALSE'
+          Write-Output 'LCRM_O2_OPTIMIZER_ADMITTED=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o2-source-free-${{ matrix.os }}
+          path: lcrm-o2-resource-screen.json
+          if-no-files-found: ignore
+          retention-days: 90
