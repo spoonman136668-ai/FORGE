@@ -1,0 +1,155 @@
+name: K-Terminal offline synthetic order latency on local Windows
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-synthetic-order-benchmark.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-benchmark:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Simulate order persistence and loopback POST outside original installation
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'KTERM_LOCAL_RUNNER_MISMATCH' }
+          Write-Host 'KTERM_SYNTH_LOCAL_RUNNER=PASS'
+          $roots = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'KTERM_ORIGINAL_ROOT_NOT_UNIQUE' }
+          $original = $roots[0]
+          Write-Host ('KTERM_ORIGINAL_GO_SOURCE_PRESENT=' + (Test-Path -LiteralPath (Join-Path $original 'pkg\native-execution.go') -PathType Leaf))
+          Write-Host ('KTERM_ORIGINAL_GOMOD_PRESENT=' + (Test-Path -LiteralPath (Join-Path $original 'go.mod') -PathType Leaf))
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $go = if ($null -ne $goCommand) { $goCommand.Source } else { 'C:\Users\camar\sdk\go1.26.5\bin\go.exe' }
+          if (-not (Test-Path -LiteralPath $go -PathType Leaf)) { throw 'KTERM_GO_COMPILER_NOT_AVAILABLE_FOR_OFFLINE_BENCH' }
+          Write-Host 'KTERM_GO_COMPILER=AVAILABLE'
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-order-synth-' + [guid]::NewGuid().ToString('N'))
+          $rootParent=[IO.Path]::GetFullPath($parent).TrimEnd('\')
+          if ([IO.Path]::GetPathRoot($sandbox) -cne [IO.Path]::GetPathRoot($original)) { throw 'KTERM_SYNTH_NOT_SAME_VOLUME' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            $source=Join-Path $sandbox 'synthetic-order-bench.go'
+            $code=@'
+            package main
+            
+            import (
+              "bytes"
+              "crypto/sha256"
+              "encoding/hex"
+              "encoding/json"
+              "fmt"
+              "io"
+              "net/http"
+              "net/http/httptest"
+              "os"
+              "path/filepath"
+              "sort"
+              "time"
+            )
+            
+            const count = 18
+            func fail(err error) { if err != nil { panic("synthetic order benchmark stage failure") } }
+            func duration(f func()) float64 { t:=time.Now(); f(); return float64(time.Since(t).Microseconds())/1000.0 }
+            func writeSync(path string, contents []byte, exclusive bool) {
+              flags:=os.O_CREATE|os.O_WRONLY|os.O_TRUNC
+              if exclusive { flags=os.O_CREATE|os.O_EXCL|os.O_WRONLY }
+              f,e:=os.OpenFile(path,flags,0600); fail(e)
+              _,e=f.Write(contents);fail(e)
+              e=f.Sync();fail(e)
+              e=f.Close();fail(e)
+            }
+            func appendSync(path string, payload []byte) {
+              f,e:=os.OpenFile(path,os.O_CREATE|os.O_WRONLY|os.O_APPEND,0600);fail(e)
+              _,e=f.Write(append(payload,'\n'));fail(e)
+              e=f.Sync();fail(e)
+              e=f.Close();fail(e)
+            }
+            func stats(title string,a []float64) {
+              sort.Float64s(a)
+              p95:=a[(95*len(a)+99)/100-1]
+              sum:=0.0
+              for _,v:=range a{sum+=v}
+              fmt.Printf("KTERM_SYNTH_%s_COUNT=%d\n",title,len(a))
+              fmt.Printf("KTERM_SYNTH_%s_AVG_MS=%.3f\n",title,sum/float64(len(a)))
+              fmt.Printf("KTERM_SYNTH_%s_P50_MS=%.3f\n",title,a[len(a)/2])
+              fmt.Printf("KTERM_SYNTH_%s_P95_MS=%.3f\n",title,p95)
+              fmt.Printf("KTERM_SYNTH_%s_MAX_MS=%.3f\n",title,a[len(a)-1])
+            }
+            func main(){
+              if len(os.Args)!=2 { panic("expected synthetic sandbox arg") }
+              dir:=os.Args[1]
+              fi,e:=os.Stat(dir);fail(e)
+              if !fi.IsDir(){panic("sandbox must exist")}
+              fake:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
+                if r.Method!="POST" || r.URL.Path!="/api/v3/brokerage/orders" {http.Error(w,"invalid synthetic route",400);return}
+                w.Header().Set("Content-Type","application/json")
+                _,_ = io.WriteString(w,"{\"success\":true,\"success_response\":{\"order_id\":\"synthetic-only\"}}")
+              }))
+              defer fake.Close()
+              client:=&http.Client{Timeout:5*time.Second,Transport:&http.Transport{Proxy:nil}}
+              defer client.CloseIdleConnections()
+              phases:=map[string][]float64{}
+              add:=func(name string,ms float64){phases[name]=append(phases[name],ms)}
+              for i:=0;i<count;i++{
+                seq:=fmt.Sprintf("%02d",i)
+                started:=time.Now()
+                signal:=map[string]interface{}{"environment":"SYNTHETIC","product_id":"FAKE-USDC","event_id":"synthetic-"+seq,"received_at":"SYNTHETIC"}
+                signalBytes,e:=json.Marshal(signal);fail(e)
+                key:=sha256.Sum256(signalBytes)
+                clientID:="synthetic-"+hex.EncodeToString(key[:16])
+                order:=map[string]interface{}{"client_order_id":clientID,"product_id":"FAKE-USDC","side":"BUY","order_configuration":map[string]interface{}{"limit_limit_gtc":map[string]interface{}{"base_size":"0.0001","limit_price":"25000.00","post_only":true}}}
+                receipt:=map[string]interface{}{"client_order_id":clientID,"signal":signal,"state":"RESERVED_NO_REPLAY"}
+                receiptBytes,e:=json.Marshal(receipt);fail(e)
+                add("RECEIPT_SYNC",duration(func(){writeSync(filepath.Join(dir,"receipt-"+seq+".json"),receiptBytes,true)}))
+                reserve:=map[string]interface{}{"client_order_id":clientID,"amount":"2.50","state":"RESERVED","product_id":"FAKE-USDC"}
+                reserveBytes,e:=json.Marshal(reserve);fail(e)
+                add("RESERVATION_SYNC",duration(func(){writeSync(filepath.Join(dir,"tranche-"+seq+".json"),reserveBytes,false)}))
+                evidence:=map[string]interface{}{"state":"PREPARED","client_order_id":clientID,"environment":"SYNTHETIC"}
+                evidenceBytes,e:=json.Marshal(evidence);fail(e)
+                add("EVIDENCE_SYNC",duration(func(){appendSync(filepath.Join(dir,"evidence.jsonl"),evidenceBytes)}))
+                var reqBytes []byte
+                add("REQUEST_SERIALIZE",duration(func(){reqBytes,e=json.Marshal(order);fail(e)}))
+                add("MOCK_LOOPBACK_POST_ACK",duration(func(){
+                  req,err:=http.NewRequest(http.MethodPost,fake.URL+"/api/v3/brokerage/orders",bytes.NewReader(reqBytes));fail(err)
+                  req.Header.Set("Content-Type","application/json")
+                  response,err:=client.Do(req);fail(err)
+                  defer response.Body.Close()
+                  if response.StatusCode!=200 { panic("synthetic mock reject") }
+                  body,err:=io.ReadAll(io.LimitReader(response.Body,8192));fail(err)
+                  var decoded map[string]interface{}
+                  fail(json.Unmarshal(body,&decoded))
+                  if decoded["success"] != true {panic("synthetic response invalid")}
+                }))
+                add("RESULT_SYNC",duration(func(){appendSync(filepath.Join(dir,"evidence.jsonl"),[]byte("{\"state\":\"SYNTHETIC_ACK\"}"))}))
+                add("TOTAL",float64(time.Since(started).Microseconds())/1000.0)
+              }
+              for _,name:=range []string{"RECEIPT_SYNC","RESERVATION_SYNC","EVIDENCE_SYNC","REQUEST_SERIALIZE","MOCK_LOOPBACK_POST_ACK","RESULT_SYNC","TOTAL"}{stats(name,phases[name])}
+              fmt.Println("KTERM_SYNTH_EXTERNAL_COINBASE_REQUESTS=0")
+              fmt.Println("KTERM_SYNTH_ORIGINAL_APPLICATION_FILES_MODIFIED=0")
+              fmt.Println("KTERM_SYNTH_FINISHED=PASS")
+            }
+            
+            '@
+            [IO.File]::WriteAllText($source,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GO111MODULE='off'
+            $env:K_TERMINAL_EXECUTION_MODE='SYNTHETIC'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            Write-Host 'KTERM_SYNTH_SANDBOX_SAME_VOLUME=TRUE'
+            & $go run $source $sandbox
+            if ($LASTEXITCODE -ne 0) { throw 'KTERM_SYNTH_OFFLINE_GO_BENCH_FAILED' }
+            Write-Host 'KTERM_SYNTH_GO_BENCH_EXIT=0'
+          } finally {
+            if ($sandbox.StartsWith($rootParent + '\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Force -Recurse -ErrorAction Stop
+              Write-Host 'KTERM_SYNTH_SANDBOX_CLEANUP=PASS'
+            }
+          }
+          Write-Host 'KTERM_NO_ORIGINAL_ENGINE_OR_BROKER_LAUNCHED=TRUE'
