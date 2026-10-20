@@ -1,7 +1,7 @@
 # NCI-04 — Optimizer pivot toward native, transferable cognition
 
-**Date:** 2026-10-20  
-**Status:** operator-directed research strategy; **source-only draft**, not a deployed optimizer policy, experiment permit or scientific acceptance.  
+**Date:** 2026-10-20
+**Status:** operator-directed research strategy; **source-only draft**, not a deployed optimizer policy, experiment permit or scientific acceptance.
 **Scope:** FORGE's existing Dream-RSI, ThetaEvolve/Theta adaptation, Pareto/evolutionary portfolio, and structural proposal search. FORGE's controller/authority code is out of scope.
 
 ## North Star
