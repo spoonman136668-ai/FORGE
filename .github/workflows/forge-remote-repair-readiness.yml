@@ -99,3 +99,32 @@ jobs:
           Write-Output 'D2T_PRIVILEGE_AND_HOST_INDEPENDENCE=NOT_PROVEN'
           Write-Output 'D2T_READONLY_NO_KEYS_ACCESSED=TRUE'
           Write-Output 'D2T_WITNESS_PROVISIONING=NOT_ATTEMPTED'
+      - name: D2U classify existing service security boundary, no secret access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'D2U_WRONG_RUNNER' }
+          if ($env:OPENAI_API_KEY) { throw 'D2U_PAID_API_REJECTED' }
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if (-not $me -or -not $me.User) { throw 'D2U_UNKNOWN_PRINCIPAL' }
+          $user=[Security.Principal.WindowsPrincipal]::new($me)
+          $admin=$user.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $services=@(Get-CimInstance Win32_Service -ErrorAction Stop | Where-Object {
+            $_.Name -match '(?i)actions\\.runner|github.actions.runner' -or
+            $_.DisplayName -match '(?i)actions.runner|github actions runner'
+          })
+          $accounts=@($services | ForEach-Object { $_.StartName } | Sort-Object -Unique)
+          if ($accounts.Count -lt 1) { throw 'D2U_NO_SERVICE_IDENTITY' }
+          $builtins=@($accounts | Where-Object {
+            $_ -match '(?i)^(LocalSystem|NT AUTHORITY\\(SYSTEM|LOCAL SERVICE|NETWORK SERVICE)|NT AUTHORITY\\LocalService|NT AUTHORITY\\NetworkService)
+          })
+          $other=@($accounts | Where-Object { $builtins -notcontains $_ })
+          $ownerExists=Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'FORGE-FSA\\owner-ed25519.dpapi') -PathType Leaf
+          Write-Output "D2U_UNIQUE_RUNNER_SERVICE_ACCOUNTS=$($accounts.Count)"
+          Write-Output "D2U_BUILTIN_HIGH_PRIVILEGE_OR_SHARED_ACCOUNTS=$($builtins.Count)"
+          Write-Output "D2U_NAMED_SERVICE_ACCOUNTS=$($other.Count)"
+          Write-Output "D2U_JOB_PRINCIPAL_ADMINISTRATOR=$($admin.ToString().ToUpperInvariant())"
+          Write-Output "D2U_JOB_PRINCIPAL_OWNER_KEY_PATH_VISIBLE=$($ownerExists.ToString().ToUpperInvariant())"
+          Write-Output 'D2U_NO_WITNESS_SIGNER_ADMITTED=TRUE'
+          Write-Output 'D2U_REQUIRES_DEDICATED_NONRUNNER_WITNESS_IDENTITY=TRUE'
+          Write-Output 'D2U_KEYS_READ_OR_CREATED=ZERO'
