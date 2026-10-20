@@ -1,0 +1,65 @@
+name: K-Terminal RC2-H isolated focused serial-vs-parallel equivalence
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2h-focused-equivalence.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-rc2h-focused-equivalence-20261020
+  cancel-in-progress: false
+jobs:
+  focused-execution-parity:
+    runs-on: windows-latest
+    timeout-minutes: 32
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOFLAGS: '-p=1'
+      GOMAXPROCS: '2'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Checkout FORGE qualification tooling read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout exact K-Terminal private candidate read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kterminal-candidate
+          persist-credentials: false
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Use original pinned Go Windows toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify source isolation and reject broker credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git -C kterminal-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kterminal-candidate status --porcelain)"
+          test -z "$(git status --porcelain)"
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for k in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            test -z "${!k:-}"
+          done
+          echo KTERM_RC2H_ISOLATED_FOCUSED_ENV=PASS
+      - name: Execute exact focused serial and two independent shard processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2h_focused_equivalence.py              kterminal-candidate "$RUNNER_TEMP/rc2h-focused-compare"
+          echo KTERM_RC2H_FOCUSED_PARALLEL=QUALIFIED_ONLY_FOR_SELECTED_TESTS
+          echo KTERM_RC2H_ALL_TESTS_AND_FINANCIAL_REGRESSION=NOT_WAIVED
