@@ -98,6 +98,21 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $folder 'advisory.json'), (($data -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
           python -B f139/verify_ticket.py --advisory (Join-Path $folder 'advisory.json') --output-dir $folder
           if ($LASTEXITCODE -ne 0) { throw 'F139_DEVELOPMENT_RECEIPT_REJECTED' }
+          # An authenticated ticket now also performs genuine bounded
+          # development-data training; existing source-only receipt stays intact.
+          $generation = [int](([long]$env:GITHUB_RUN_ID % 100000) + 1)
+          python -B -m f139.dev_learning --lane $env:F139_LANE --generation $generation --source-sha $env:GITHUB_SHA --output (Join-Path $folder 'f139-dev-learning.json')
+          if ($LASTEXITCODE -ne 0) { throw 'F139_PRIVATE_DEV_LEARNING_FAILED' }
+          $proof = Get-Content -LiteralPath (Join-Path $folder 'f139-dev-learning.json') -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.f139.private-cognition-development.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or
+              -not $proof.real_cpu_training_executed -or
+              $proof.protected_first_use -or $proof.scientific_originals_dispatched -ne 0 -or
+              $proof.optimizer_policy_mutations -ne 0 -or $proof.paid_api_calls -ne 0 -or
+              $proof.autonomous_code_generation -or $proof.persistent_accepted_model_updated) {
+              throw 'F139_PRIVATE_DEV_INVALID_OR_FALSE_SCIENCE'
+          }
+          Write-Host 'F139_BOUNDED_REAL_CPU_DEVELOPMENT=PASS'
           Write-Host 'F139_AUTONOMOUS_DEV_EXECUTION_POINT=PASS'
           Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
       - name: Execute bounded authenticated D2K package diagnostic
@@ -124,3 +139,13 @@ jobs:
             ${{ runner.temp }}/f139-development/f139-diagnostic.json
           if-no-files-found: error
           retention-days: 90
+
+      # Separate preliminary development telemetry; NOT accepted by the
+      # old F139 receipt parser, and not represented as signed research science.
+      - uses: actions/upload-artifact@v4
+        if: ${{ success() && !startsWith(inputs.ticket, 'f139-d2k-') }}
+        with:
+          name: forge-f139-cpu-development-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-development/f139-dev-learning.json
+          if-no-files-found: error
+          retention-days: 21

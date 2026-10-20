@@ -29,6 +29,8 @@ on:
       - 'nativeevidence/**'
       - 'cmd/forge-model-free-loop/**'
       - 'nativeevidence/f118_*.py'
+      - 'f139/dev_learning.py'
+      - 'f139/test_dev_learning.py'
       - 'reference/research-intake/f118-autonomous-feedback-freeze.json'
       - '.github/workflows/forge-integrated-synthetic-cycle.yml'
   schedule:
@@ -36,6 +38,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'f139/dev_learning.py'
+      - 'f139/test_dev_learning.py'
       - 'cmd/forge-research-cycle/**'
       - 'cmd/forge-model-free-loop/**'
       - 'promptlineage/**'
@@ -199,6 +203,40 @@ jobs:
           Write-Host 'FORGE_MODEL_FREE_FROZEN_TWO_LANE_ADVISORY=PASS'
           Write-Host 'MODEL_EXECUTION_AND_NEW_ORIGINAL_SCIENCE=ZERO'
           Write-Host 'PROPOSALS_ARE_SYNTHETIC_AND_UNTESTED=TRUE'
+      - name: Execute real two-lane private cognition development on existing schedule
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $python = if ($IsWindows) { 'python' } else { 'python3' }
+          & $python -B -m unittest f139.test_dev_learning -v
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_DEV_MODEL_TEST_FAILED' }
+          $root = Join-Path $env:RUNNER_TEMP 'forge-private-dev-learning'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          $generation = [int](([long]$env:GITHUB_RUN_ID % 100000) + 1)
+          & $python -B -m f139.dev_learning --lane Qualification --generation $generation --source-sha $env:GITHUB_SHA --output (Join-Path $root 'development.json')
+          if ($LASTEXITCODE -ne 0) { throw 'FORGE_DEV_MODEL_EXECUTION_FAILED' }
+          $proof = Get-Content -LiteralPath (Join-Path $root 'development.json') -Raw | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.f139.private-cognition-development.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or $proof.lanes.Count -ne 2 -or
+              -not $proof.real_cpu_training_executed -or $proof.protected_first_use -or
+              $proof.scientific_originals_dispatched -ne 0 -or
+              $proof.accepted_ref_mutations -ne 0 -or $proof.optimizer_policy_mutations -ne 0 -or
+              $proof.paid_api_calls -ne 0 -or $proof.autonomous_code_generation) {
+              throw 'FORGE_PRIVATE_DEVELOPMENT_FALSE_EVIDENCE'
+          }
+          foreach ($item in $proof.lanes) {
+              Write-Host ('F139_REAL_DEV_ONLY '+$item.lane+' '+$item.classification+
+                ' learned='+$item.trained_candidate.transfer_correct+
+                ' control='+$item.trained_control.transfer_correct)
+          }
+          Write-Host 'FORGE_REAL_DEVELOPMENT_MECHANISM_TRAINING=PASS_NOT_SCIENTIFIC_ADMISSION'
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: forge-f139-private-learning-${{ matrix.os }}
+          path: ${{ runner.temp }}/forge-private-dev-learning/development.json
+          if-no-files-found: error
+          retention-days: 21
       - name: F118 autonomy-first bounded decision and evidence feedback
         shell: pwsh
         env:

@@ -56,12 +56,40 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'F139D_REHEARSAL_VALIDATION_FAILED' }
           Write-Host 'F139D_ACTUAL_HOSTED_OS=${{ matrix.os }}'
           Write-Host 'F139D_GENUINE_CONTROLLER_DISPATCH=FALSE'
+      - name: Train real development-only mechanisms and matched controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest f139.test_dev_learning -v
+          if ($LASTEXITCODE -ne 0) { throw 'F139_REAL_DEV_ADVERSARIAL_REGRESSION_FAILED' }
+          $head = '${{ github.event.pull_request.head.sha }}'
+          $actual = (& git rev-parse HEAD).Trim()
+          if ($head -cne $actual) { throw 'F139_REAL_DEV_SOURCE_DRIFT' }
+          $generation = [int](([long]$env:GITHUB_RUN_ID % 100000) + 1)
+          $original = $env:GITHUB_SHA
+          try {
+            $env:GITHUB_SHA = $head
+            python -B -m f139.dev_learning --lane Qualification --generation $generation --source-sha $head --output (Join-Path $env:RUNNER_TEMP 'f139d/learned-development.json')
+          } finally {
+            $env:GITHUB_SHA = $original
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'F139_REAL_CPU_DEVELOPMENT_FAILED' }
+          $report = Get-Content -Raw -LiteralPath (Join-Path $env:RUNNER_TEMP 'f139d/learned-development.json') | ConvertFrom-Json
+          if ($report.schema -cne 'forge.f139.private-cognition-development.v1' -or
+              $report.source_sha -cne $head -or $report.lanes.Count -ne 2 -or
+              -not $report.real_cpu_training_executed -or
+              $report.autonomous_code_generation -or $report.protected_first_use -or
+              $report.optimizer_policy_mutations -ne 0 -or $report.paid_api_calls -ne 0) {
+            throw 'F139_REAL_DEVELOPMENT_REPORT_REJECTED'
+          }
+          Write-Host 'F139_TWO_LANE_ACTUAL_CPU_LEARNING=PASS_NO_SCIENTIFIC_ADMISSION'
       - uses: actions/upload-artifact@v4
         if: success()
         with:
           name: f139d-rehearsal-only-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/f139d/advisory.json
+            ${{ runner.temp }}/f139d/learned-development.json
             ${{ runner.temp }}/f139d/rehearsal-only/f139d-rehearsal.json
             ${{ runner.temp }}/f139d/rehearsal-only/f139d-synthetic-receipt.json
           if-no-files-found: error
