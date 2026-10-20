@@ -1,0 +1,112 @@
+name: F124-DF sourcefree rotation identifiability forensic experiment
+on:
+  push:
+    branches: [research/f124df-rotation-identifiability-20261019]
+    paths: [.github/workflows/forge-f124df-identifiability.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124df-frozen-new-synthetic-rotation-once
+  cancel-in-progress: false
+jobs:
+  mathematics-and-exact-source-preflight:
+    name: source-free-math-preflight (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify F124-DF protocol was frozen before source generator, and old model blobs exactly unchanged
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'DF_HEAD_SHA_CHANGED' }
+          & git merge-base --is-ancestor 82311825a07b0f6862f507df4d56b29ce05256a6 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DF_FROZEN_BEFORE_ANY_NEW_SOURCE_MISSING' }
+          & git merge-base --is-ancestor e303206dc14babe6b2244ed3339fda683d73a93f HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DF_F124DE_ORIGINAL_NEGATIVE_CUSTODY_NOT_PARENT' }
+          $freeze=Get-Content -Raw research/north-star-transfer/f124df-frozen-identifiability.json | ConvertFrom-Json
+          if ($freeze.schema -cne 'mass.f124df.frozen-sourcefree-rotation-identifiability.v1' -or !$freeze.governance.sourcefree_only -or $freeze.governance.original_scientific_firstuse_consumed -ne 0 -or $freeze.governance.scientific_acceptance -or $freeze.governance.auto_merge -or $freeze.governance.new_controller) { throw 'DF_UNAUTHORIZED_SOURCE_OR_SCIENCE' }
+          foreach ($pair in @(@('research/north-star-transfer/f124de_sparse_crossbit_learner.py','3cdd48f963c27af9f479bea851186bf54932e247'),@('research/north-star-transfer/f124de_independent_full_anf.py','9fc7a6766893a06f721c18666c04edbd99b3291d'))) {
+            $actual=(& git rev-parse "HEAD:$($pair[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw "DF_ORIGINAL_FROZEN_MODEL_OR_PEER_DRIFT:$($pair[0])" }
+          }
+          Write-Host 'F124DF_FROZEN_ORIGINAL_PEERS_AND_PRIVATE_SOURCE_ISOLATION=PASS'
+      - name: Prove 256-input algebraic degree and construct mathematically verified FIT nullspace witness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124df_identifiability.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'DF_COMPLETE_MATHEMATICAL_REPRESENTABILITY_PROOF_FAILED' }
+          Write-Host 'F124DF_ROTATE_ADD_REPRESENTABILITY_AND_SOURCEFREE_INFORMATION_BOUND=PASS'
+  original-whole-linux-forensic:
+    name: original-whole-OS (${{ matrix.family }}, ${{ matrix.first_seed }})
+    needs: mathematics-and-exact-source-preflight
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [rotated-modular-add-unfamiliar, rotated-modular-add-role-switch, plain-modular-add-control, three-register-arithmetic-out-of-class]
+        first_seed: [101, 103]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute 12 original complete Linux OS model/sourcefree diagnostic comparisons without original scientific firstuse
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124df_os_shard.py \
+            --family "${{ matrix.family }}" \
+            --first-seed "${{ matrix.first_seed }}" \
+            --out "$RUNNER_TEMP/f124df-original"
+      - name: Retain every independently measured full CPU/RSS/process and postmodel source identity
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124df-original-${{ matrix.family }}-${{ matrix.first_seed }}
+          path: ${{ runner.temp }}/f124df-original/shard-*.json
+          retention-days: 90
+          if-no-files-found: error
+  independent-readonly-forensic-audit:
+    name: independent-readonly-forensic-audit
+    needs: original-whole-linux-forensic
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read all eight original separate sourcefree source-bound native OS shard archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124df-original-*
+          path: ${{ runner.temp }}/f124df-original-shards
+          merge-multiple: true
+      - name: Reconcile 96 exact native CPU/RSS receipts and sourcefree rank/pair-selection causes without replaying models
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124df_readonly_audit.py \
+            --shards "$RUNNER_TEMP/f124df-original-shards" \
+            --out "$RUNNER_TEMP/f124df-readonly-audit"
+      - name: Retain complete mathematical sourcefree evidence and small safe aggregate
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124df-original-complete-96-forensic-OS-evidence
+          path: ${{ runner.temp }}/f124df-readonly-audit/
+          retention-days: 90
+          if-no-files-found: error
