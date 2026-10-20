@@ -78,6 +78,12 @@ jobs:
            if(-not $orders.ContainsKey($key)){$orders[$key]=@{}}
            $o=$orders[$key]
            if(-not $o.ContainsKey($state) -or $instant -lt $o[$state]){$o[$state]=$instant}
+          if($state -in @('TRACKED','TRACKED HISTORICAL') -and $details -match '(?:^|\s|\|)coinbase_order_fill_first_at=(\d{4}-\d{2}-\d{2}T[^\s|]+)'){
+            $receiptAt=[datetimeoffset]::MinValue
+            if([datetimeoffset]::TryParse([string]$Matches[1],[ref]$receiptAt)){
+              if(-not $o.ContainsKey('_FILL_SOURCE_FIRST') -or $receiptAt -lt $o['_FILL_SOURCE_FIRST']){$o['_FILL_SOURCE_FIRST']=$receiptAt}
+            }
+          }
           }
           Write-Host ('KTERM_OPERATOR_EVENTS_SCANNED='+$valid)
           Write-Host ('KTERM_OPERATOR_EVENTS_WITH_CORRELATION_KEY='+$withIdentity)
@@ -100,6 +106,8 @@ jobs:
           $submitTracked=[Collections.Generic.List[double]]::new()
           $fillTracked=[Collections.Generic.List[double]]::new()
           $submitFailed=[Collections.Generic.List[double]]::new()
+          $acceptedFilled=[Collections.Generic.List[double]]::new()
+          $fillReceiptObserved=[Collections.Generic.List[double]]::new()
           foreach($k in $orders.Keys){
            $o=$orders[$k]
            Add-Delta $submitAccepted $o 'SUBMITTED' 'ACCEPTED'
@@ -107,6 +115,8 @@ jobs:
            Add-Delta $submitTracked $o 'SUBMITTED' 'TRACKED'
            Add-Delta $fillTracked $o 'FILLED' 'TRACKED'
            Add-Delta $submitFailed $o 'SUBMITTED' 'FAILED'
+          Add-Delta $acceptedFilled $o 'ACCEPTED' 'FILLED'
+          Add-Delta $fillReceiptObserved $o '_FILL_SOURCE_FIRST' 'TRACKED'
           }
           function Show-Stats($label,$collection){
            $data=@($collection | Sort-Object)
@@ -125,6 +135,9 @@ jobs:
           Show-Stats 'KTERM_EVENT_SUBMITTED_TO_TRACKED' $submitTracked
           Show-Stats 'KTERM_EVENT_FILLED_TO_TRACKED' $fillTracked
           Show-Stats 'KTERM_EVENT_SUBMITTED_TO_FAILED' $submitFailed
+          Show-Stats 'KTERM_EVENT_ACCEPTED_TO_FILLED' $acceptedFilled
+          Show-Stats 'KTERM_EVENT_COINBASE_RECEIPT_TO_TRACKED' $fillReceiptObserved
+          Write-Host ('KTERM_COINBASE_FILL_TIME_CORRELATED_MATCHES='+$fillReceiptObserved.Count)
           Write-Host 'KTERM_ACCEPTED_DISPLAY_HOLDBACK_SECONDS=2'
           Write-Host 'KTERM_OPERATOR_TIMESTAMP_PRECISION=ONE_SECOND'
           Write-Host 'KTERM_COINBASE_TRANSPORT_TIMING_FROM_EVENT_LOG=NOT_AVAILABLE'
