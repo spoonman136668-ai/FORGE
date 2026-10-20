@@ -1,0 +1,71 @@
+name: LCRM O7 source-free exogenous port grounding and two-hop exact composition
+on:
+  push:
+    branches: [research/lcrm01-o7-grounded-ports-compose-20261020]
+    paths: ['.github/workflows/lcrm01-o7-grounded-ports.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o7-port-grounding
+  cancel-in-progress: false
+jobs:
+  exact-grounded-counterfactual:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify frozen O7 preregistration chronology and exact source identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'O7_HEAD_DRIFT'}
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o7-grounded-port-precode.json'='4082db699331e968213cef0255c07afc681e9dd0'
+            'research/lcrm01/o7_grounded_ports_compose.go'='00fe2b40dd9d2fa59faff135340a61ea50e68756'
+            'research/lcrm01/o7_grounded_ports_compose_test.go'='29dddcf63c733b0db71f12d729d192d865e46d8f'
+            'research/lcrm01/o6_binary_relational_anf.go'='4dcc0e07fa3e71b2661331ba9da489cb9568d522'
+            'research/lcrm01/originals/20261020-lcrm01-o6-binary-anf-nonlinear-latent-binding.json'='04bb15f3fa39d2d2bfefa03c28aae2d9a6c5650e'
+          }
+          foreach($p in $blobs.Keys){
+            if((git hash-object -- $p).Trim() -cne $blobs[$p]){throw "O7_EXACT_BLOB_DRIFT:$p"}
+          }
+          git merge-base --is-ancestor 47cc6d8a18425b05d6b9b4d30d8886a72cee118b 48dfb4bad43fc7946d04ce8df751f3ac9d640701
+          if($LASTEXITCODE -ne 0){throw 'O7_PREDECESSOR_NOT_O6_ORIGINAL'}
+          git merge-base --is-ancestor 48dfb4bad43fc7946d04ce8df751f3ac9d640701 edcf9dbbd7b6f0ceb8557c30d803577104d1ed4d
+          if($LASTEXITCODE -ne 0){throw 'O7_CODE_PRECEDED_FREEZE'}
+          git merge-base --is-ancestor edcf9dbbd7b6f0ceb8557c30d803577104d1ed4d 3b6c634cbff9c3be773a9ba16bc2f7d441de7811
+          if($LASTEXITCODE -ne 0){throw 'O7_TESTS_PRECEDED_CODE'}
+          git merge-base --is-ancestor 3b6c634cbff9c3be773a9ba16bc2f7d441de7811 HEAD
+          if($LASTEXITCODE -ne 0){throw 'O7_PINNED_TESTS_NOT_INCLUDED'}
+          Write-Output 'O7_PRECODE_BEFORE_MECHANISM_BEFORE_TESTS=PASS'
+      - name: Exact anchored and unanchored binary causal parity, Go vet and package regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01 -run '^TestO7' -count=1 -v > o7-public-mathematical.log
+          if($LASTEXITCODE -ne 0){Get-Content o7-public-mathematical.log;throw 'O7_SOURCEFREE_ALGEBRA_FAIL'}
+          Get-Content o7-public-mathematical.log
+          go vet ./research/lcrm01
+          if($LASTEXITCODE -ne 0){throw 'O7_VET_FAIL'}
+          go test ./research/lcrm01 -count=1
+          if($LASTEXITCODE -ne 0){throw 'O7_LCRM_PACKAGE_REGRESSION_FAIL'}
+          Write-Output 'O7_SOURCEFREE_ORIGINAL_CASES_CONSUMED=0'
+          Write-Output 'O7_SCIENTIFIC_ADMISSION=FALSE'
+          Write-Output 'O7_OPTIMIZER_ADMISSION=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o7-sourcefree-port-grounding-${{ matrix.os }}
+          path: o7-public-mathematical.log
+          if-no-files-found: ignore
+          retention-days: 90
