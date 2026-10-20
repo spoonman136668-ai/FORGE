@@ -1,0 +1,153 @@
+name: K-Terminal original native order with fake Coinbase
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-real-code-order-simulation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-production-code:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Run original native BUY and SELL code using test-owned Coinbase fixtures
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_ACTUAL_CODE_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $original=$roots[0]
+          foreach($name in @('go.mod','go.sum','pkg\native-execution.go','pkg\native-maker-accounting-retry_test.go','pkg\regular-sell-selected-execution_test.go')) {
+            if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)) { throw 'REQUIRED_ORIGINAL_GO_SOURCE_MISSING' }
+          }
+          $fixture=Get-Content -LiteralPath (Join-Path $original 'pkg\native-maker-accounting-retry_test.go') -Raw -ErrorAction Stop
+          if(-not($fixture.Contains('newMakerAccountingFixture') -and $fixture.Contains('makerAccountingAccept') -and $fixture.Contains('lookupRoundTripFunc') -and $fixture.Contains('nativeGuardedTransport'))) { throw 'ORIGINAL_SAFE_MOCK_FIXTURE_INCOMPATIBLE' }
+          Write-Host 'KTERM_MOCKED_NATIVE_FIXTURE_PRESENT=PASS'
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)) { throw 'OFFLINE_GO_COMPILER_NOT_FOUND' }
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-real-order-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)) { throw 'SANDBOX_INSIDE_ORIGINAL_FORBIDDEN' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            foreach($name in @('go.mod','go.sum')) {Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+            foreach($section in @('pkg','internal')) {
+              $src=Join-Path $original $section
+              if(Test-Path -LiteralPath $src -PathType Container) {
+                Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object {
+                  $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+                  $dest=Join-Path $sandbox $rel
+                  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+                  Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+                }
+              }
+            }
+            $pkg=Join-Path $sandbox 'pkg'
+            $testSource=Join-Path $pkg 'offline-original-real-order-simulation_test.go'
+            $code=@'
+          package pkg
+          
+          import (
+            "fmt"
+            "net/http"
+            "sort"
+            "testing"
+            "time"
+          )
+          
+          type offlineOrderMeasurement struct {
+            elapsed float64
+            ready float64
+            phases map[string]float64
+          }
+          func offlineStats(label string, items []offlineOrderMeasurement) {
+            vals:=make([]float64,0,len(items))
+            ready:=make([]float64,0,len(items))
+            phaseTotals:=map[string]float64{}
+            for _,x:=range items {
+              vals=append(vals,x.elapsed)
+              ready=append(ready,x.ready)
+              for stage,ms:=range x.phases {phaseTotals[stage]+=ms}
+            }
+            if len(vals)==0 {return}
+            sort.Float64s(vals)
+            sort.Float64s(ready)
+            sum:=0.0
+            for _,v:=range vals {sum+=v}
+            ix:=(95*len(vals)+99)/100-1
+            fmt.Printf("KTERM_REAL_CODE_%s_COUNT=%d\n",label,len(vals))
+            fmt.Printf("KTERM_REAL_CODE_%s_AVG_MS=%.3f\n",label,sum/float64(len(vals)))
+            fmt.Printf("KTERM_REAL_CODE_%s_P50_MS=%.3f\n",label,vals[len(vals)/2])
+            fmt.Printf("KTERM_REAL_CODE_%s_P95_MS=%.3f\n",label,vals[ix])
+            fmt.Printf("KTERM_REAL_CODE_%s_MAX_MS=%.3f\n",label,vals[len(vals)-1])
+            fmt.Printf("KTERM_REAL_CODE_%s_READY_P50_MS=%.3f\n",label,ready[len(ready)/2])
+            for _,stage:=range []string{"receipt.required_sync","tranche.required_sync","evidence.required_sync","book.http_get","book.clock_http_get","accounting.confirmed_settlement_wait","post.serialize_transport_ack_body","transport.final_guards"}{
+              if val,ok:=phaseTotals[stage];ok {fmt.Printf("KTERM_REAL_CODE_%s_PHASE_%s_AVG_MS=%.3f\n",label,stage,val/float64(len(items)))}
+            }
+          }
+          func TestOfflineOriginalNativeOrderSimulation(t *testing.T) {
+            const trials=6
+            for _,scenario:=range []struct{name string; acceptsFirst bool; expectedPosts int}{
+              {"ACCEPT_FIRST",true,1},
+              {"REJECT_THEN_ACCEPT",false,2},
+            } {
+              samples:=[]offlineOrderMeasurement{}
+              for i:=0;i<trials;i++{
+                t.Run(fmt.Sprintf("%s_%02d",scenario.name,i),func(t *testing.T){
+                  f:=newMakerAccountingFixture(t)
+                  if scenario.acceptsFirst {
+                    f.post=func(_ int,request *AdvancedOrderRequest)(*http.Response,error){
+                      return makerAccountingAccept(request.ClientOrderID),nil
+                    }
+                  }
+                  started:=time.Now()
+                  result,err:=f.h.ExecuteNativeSignal(f.n,t.TempDir())
+                  elapsed:=float64(time.Since(started).Microseconds())/1000.0
+                  if err!=nil || result==nil || len(f.posts)!=scenario.expectedPosts {
+                    t.Fatalf("original native order simulation rejected: success=%t posts=%d expected=%d err=%v",result!=nil,len(f.posts),scenario.expectedPosts,err)
+                  }
+                  trace:=f.n.timing.snapshot("RESULT",nil,true)
+                  if len(trace.Ready)!=scenario.expectedPosts {t.Fatalf("unexpected guarded transport count %d; expected %d",len(trace.Ready),scenario.expectedPosts)}
+                  sums:=map[string]float64{}
+                  for _,stage:=range trace.Spans {sums[stage.Stage]+=stage.DurationMS}
+                  samples=append(samples,offlineOrderMeasurement{elapsed:elapsed,ready:trace.Ready[0].ConstructionMS,phases:sums})
+                })
+              }
+              offlineStats(scenario.name,samples)
+            }
+            fmt.Println("KTERM_REAL_CODE_FAKE_COINBASE_ONLY=TRUE")
+            fmt.Println("KTERM_REAL_CODE_NO_LIVE_KEYS=TRUE")
+          }
+          
+          '@
+            [IO.File]::WriteAllText($testSource,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            $env:K_TERMINAL_P5_LATENCY='0'
+            $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+            [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+            Write-Host 'KTERM_ISOLATED_SOURCE_COPY_READY=PASS'
+            Write-Host 'KTERM_OFFLINE_DEPENDENCIES_REQUIRED=TRUE'
+            Push-Location $sandbox
+            try {
+              & $goBin test ./pkg -run '^(TestOfflineOriginalNativeOrderSimulation|TestNativeMakerAccountingRetryUsesAllNineAuthorizedAttempts|TestNativeRegularSellSelectedLotPolicyActualExecution)$' -count=1 -timeout=5m -v
+              if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_MOCKED_NATIVE_ORDER_TEST_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_ORIGINAL_NATIVE_ORDER_SIMULATION=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_POSTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
