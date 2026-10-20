@@ -196,3 +196,19 @@ jobs:
           finally: db.close()
           '@ | python -B -
           if ($LASTEXITCODE -ne 0) { throw 'D2W_READONLY_STATE_FAILED' }
+
+      - name: D2X integrated development schedule activation audit (read only)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo=$env:GITHUB_REPOSITORY
+          $target='forge-integrated-synthetic-cycle.yml'
+          $meta=& gh api ("repos/"+$repo+"/actions/workflows/"+$target) 2>&1
+          if ($LASTEXITCODE -ne 0) { throw 'D2X_WORKFLOW_METADATA_UNREADABLE' }
+          $info=$meta | ConvertFrom-Json
+          if ($info.path -cne ('.github/workflows/'+$target)) { throw 'D2X_WORKFLOW_IDENTITY_MISMATCH' }
+          Write-Host ('D2X_INTEGRATED_WORKFLOW_STATE='+$info.state)
+          Write-Host ('D2X_INTEGRATED_WORKFLOW_ID='+$info.id)
+          Write-Host 'D2X_READ_ONLY_NO_SCHEDULER_MUTATION=TRUE'
