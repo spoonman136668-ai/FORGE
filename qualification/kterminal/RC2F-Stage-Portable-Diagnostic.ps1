@@ -70,6 +70,17 @@ try {
     Copy-Item -LiteralPath (Join-Path $source 'KTerminal.UI.dll') -Destination $stage -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $source 'ui-runtime-manifest.json') -Destination $stage -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $source 'edition.json') -Destination $stage -ErrorAction Stop
+    # Original launch entry and static UI image assets are required for a
+    # complete portable directory. Never carry documentation archives or data.
+    Copy-Item -LiteralPath (Join-Path $source 'START K-Terminal.bat') -Destination $stage -ErrorAction Stop
+    $assetRoot = Join-Path $source 'assets'
+    $imageAssets = @(Get-ChildItem -LiteralPath $assetRoot -Filter '*.png' -File -ErrorAction Stop)
+    if ($imageAssets.Count -lt 2) { throw 'ORIGINAL_STATIC_RUNTIME_IMAGE_INVENTORY_MISSING' }
+    $stagedAssetRoot = Join-Path $stage 'assets'
+    [void][IO.Directory]::CreateDirectory($stagedAssetRoot)
+    foreach ($asset in $imageAssets) {
+        Copy-Item -LiteralPath $asset.FullName -Destination $stagedAssetRoot -ErrorAction Stop
+    }
     # Runtime script inventory only: no test, build, update or legacy naming.
     foreach ($file in Get-ChildItem -LiteralPath $source -Filter '*.ps1' -File) {
         if ($file.Name -match '^(BUILD|HEALTH|UPDATE-PROGRAM-FILES|apply-staged-update|launch-ktrade|test-)' ) { continue }
@@ -86,8 +97,8 @@ Original owner's desktop/UI acceptance and field latency measurements remain
 separate requirements. Do not promote, auto-update, or submit live orders.
 '@
     [IO.File]::WriteAllText((Join-Path $stage 'DIAGNOSTIC-READ-ME.txt'),$readme,[Text.UTF8Encoding]::new($false))
-    $entries = @(Get-ChildItem -LiteralPath $stage -File | Sort-Object Name | ForEach-Object {
-        [ordered]@{ file=$_.Name; bytes=$_.Length; sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() }
+    $entries = @(Get-ChildItem -LiteralPath $stage -Recurse -File | Sort-Object FullName | ForEach-Object {
+        [ordered]@{ file=$_.FullName.Substring($stage.Length + 1).Replace('\\','/'); bytes=$_.Length; sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant() }
     })
     $receipt = [ordered]@{
         schema='forge.kterminal.rc2f.portable-diagnostic.v1'
