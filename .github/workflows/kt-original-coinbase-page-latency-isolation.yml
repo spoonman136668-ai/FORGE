@@ -1,0 +1,174 @@
+name: K-Terminal original sequential Coinbase page latency isolation
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-coinbase-page-latency-isolation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-production-code:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Benchmark original GET-only sequential transaction pager with mock network RTT
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_ACTUAL_CODE_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $original=$roots[0]
+          foreach($name in @('go.mod','go.sum','pkg\native-execution.go','pkg\native-maker-accounting-retry_test.go','pkg\regular-sell-selected-execution_test.go')) {
+            if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)) { throw 'REQUIRED_ORIGINAL_GO_SOURCE_MISSING' }
+          }
+          $fixture=Get-Content -LiteralPath (Join-Path $original 'pkg\native-maker-accounting-retry_test.go') -Raw -ErrorAction Stop
+          if(-not($fixture.Contains('newMakerAccountingFixture') -and $fixture.Contains('makerAccountingAccept') -and $fixture.Contains('lookupRoundTripFunc') -and $fixture.Contains('nativeGuardedTransport'))) { throw 'ORIGINAL_SAFE_MOCK_FIXTURE_INCOMPATIBLE' }
+          Write-Host 'KTERM_MOCKED_NATIVE_FIXTURE_PRESENT=PASS'
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)) { throw 'OFFLINE_GO_COMPILER_NOT_FOUND' }
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-real-order-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)) { throw 'SANDBOX_INSIDE_ORIGINAL_FORBIDDEN' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            foreach($name in @('go.mod','go.sum')) {Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+            foreach($section in @('pkg','internal')) {
+              $src=Join-Path $original $section
+              if(Test-Path -LiteralPath $src -PathType Container) {
+                Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object {
+                  $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+                  $dest=Join-Path $sandbox $rel
+                  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+                  Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+                }
+              }
+            }
+            $embed=Join-Path $original 'pkg\tranche-plans.json'
+            if(-not(Test-Path -LiteralPath $embed -PathType Leaf)) { throw 'ORIGINAL_EMBEDDED_TRANCHES_MISSING' }
+            Copy-Item -LiteralPath $embed -Destination (Join-Path $sandbox 'pkg\tranche-plans.json') -ErrorAction Stop
+            $pkg=Join-Path $sandbox 'pkg'
+            $testSource=Join-Path $pkg 'offline-original-real-order-simulation_test.go'
+            $code=@'
+          package pkg
+          import(
+           "bytes"
+           "encoding/json"
+           "fmt"
+           "io"
+           "net/http"
+           "sort"
+           "strconv"
+           "testing"
+           "time"
+          )
+          func synthTransactionPages(t *testing.T,count int)[][]byte{
+           t.Helper()
+           pages:=make([][]byte,0,count)
+           at:=time.Date(2026,time.October,1,10,0,0,0,time.UTC)
+           for page:=0;page<count;page++{
+            p:=coinbaseTransactionPage{Data:make([]coinbaseAccountTransaction,0,100)}
+            for i:=0;i<100;i++{
+             p.Data=append(p.Data,coinbaseAccountTransaction{
+              ID:fmt.Sprintf("synthetic-%d-%d",page,i),Type:"advanced_trade_fill",Status:"completed",
+              Amount:coinbaseMoney{Amount:"0.001",Currency:"BTC"},
+              NativeAmount:coinbaseMoney{Amount:"75.00",Currency:"USD"},
+              CreatedAt:at.Add(-time.Duration(page*100+i)*time.Second),
+              AdvancedTradeFill:&coinbaseAdvancedTradeFill{FillPrice:"75000",ProductID:"BTC-USDC",OrderID:fmt.Sprintf("fake-order-%d-%d",page,i),OrderSide:"BUY"},
+             })
+            }
+            if page+1<count{p.Pagination.NextURI=fmt.Sprintf("/v2/accounts/offline-fixture/transactions?limit=100&order=desc&cursor=%d",page+1)}
+            data,err:=json.Marshal(p);if err!=nil{t.Fatal(err)}
+            pages=append(pages,data)
+           }
+           return pages
+          }
+          func durationStats(key string,values []float64){
+           sort.Float64s(values)
+           sum:=0.0;for _,v:=range values{sum+=v}
+           fmt.Printf("KTERM_PAGES_%s_AVG_MS=%.3f\n",key,sum/float64(len(values)))
+           fmt.Printf("KTERM_PAGES_%s_P50_MS=%.3f\n",key,values[len(values)/2])
+           fmt.Printf("KTERM_PAGES_%s_P95_MS=%.3f\n",key,values[(95*len(values)+99)/100-1])
+           fmt.Printf("KTERM_PAGES_%s_MAX_MS=%.3f\n",key,values[len(values)-1])
+          }
+          func TestOfflineOriginalSequentialHistoryPageLatency(t *testing.T){
+           cases:=[]struct{label string;count int;delay int}{
+            {"FULL_1354_MOCK_0MS",1354,0},
+            {"SAMPLE_30_MOCK_0MS",30,0},
+            {"SAMPLE_30_MOCK_25MS",30,25},
+            {"SAMPLE_30_MOCK_200MS",30,200},
+            {"SAMPLE_12_MOCK_400MS",12,400},
+           }
+           for _,c:=range cases{
+            t.Run(c.label,func(t *testing.T){
+             pages:=synthTransactionPages(t,c.count)
+             key:=lookupFixtureRequest(t)
+             auth:=NewReadOnlyAuthenticator(key.APIKey.KeyName,key.APIKey.KeySecret)
+             if _,err:=auth.GenerateJWT(http.MethodPost,"api.coinbase.com","/v2/accounts/offline-fixture/transactions");err==nil {t.Fatal("readonly signing gate failed")}
+             calls:=0
+             roundTrips:=make([]float64,0,c.count)
+             auth.readTransport=lookupRoundTripFunc(func(req *http.Request)(*http.Response,error){
+              start:=time.Now()
+              if req.Method!=http.MethodGet||req.URL.Scheme!="https"||req.URL.Host!="api.coinbase.com"||req.URL.Path!="/v2/accounts/offline-fixture/transactions"||req.Header.Get("Authorization")==""{
+               return nil,fmt.Errorf("offline fixture blocks unintended request")
+              }
+              if calls>=c.count{return nil,fmt.Errorf("bounded fixture request budget exceeded")}
+              cursor:=""
+              if calls>0 {cursor=strconv.Itoa(calls)}
+              if req.URL.Query().Get("cursor")!=cursor{return nil,fmt.Errorf("out-of-order page cursor")}
+              if c.delay>0 {time.Sleep(time.Duration(c.delay)*time.Millisecond)}
+              body:=pages[calls]
+              calls++
+              roundTrips=append(roundTrips,float64(time.Since(start).Microseconds())/1000)
+              return &http.Response{StatusCode:200,Header:make(http.Header),Body:io.NopCloser(bytes.NewReader(body))},nil
+             })
+             b:=NewBalanceChecker(auth,"offline-fixture")
+             began:=time.Now()
+             tx,err:=b.listAccountTransactions("offline-fixture",time.Time{})
+             wall:=float64(time.Since(began).Microseconds())/1000
+             if err!=nil||calls!=c.count||len(tx)!=c.count*100{t.Fatalf("original page traversal failed: calls=%d records=%d err=%v",calls,len(tx),err)}
+             network:=0.0;for _,x:=range roundTrips{network+=x}
+             fmt.Printf("KTERM_PAGES_%s_PAGES=%d\n",c.label,calls)
+             fmt.Printf("KTERM_PAGES_%s_RECORDS=%d\n",c.label,len(tx))
+             fmt.Printf("KTERM_PAGES_%s_INJECTED_PER_PAGE_MS=%d\n",c.label,c.delay)
+             fmt.Printf("KTERM_PAGES_%s_TOTAL_WALL_MS=%.3f\n",c.label,wall)
+             fmt.Printf("KTERM_PAGES_%s_MOCK_TRANSPORT_TOTAL_MS=%.3f\n",c.label,network)
+             fmt.Printf("KTERM_PAGES_%s_LOCAL_OVERHEAD_MS=%.3f\n",c.label,wall-network)
+             durationStats(c.label+"_TRANSPORT",roundTrips)
+            })
+           }
+           fmt.Println("KTERM_PAGES_MINIMUM_FOR_135318_RECORDS=1354")
+           fmt.Println("KTERM_PAGES_ORIGINAL_PAGINATOR_EXECUTED=TRUE")
+           fmt.Println("KTERM_PAGES_REAL_COINBASE_REQUESTS=0")
+           fmt.Println("KTERM_PAGES_EPHEMERAL_TEST_KEY_ONLY=TRUE")
+          }
+          '@
+            [IO.File]::WriteAllText($testSource,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            $env:K_TERMINAL_P5_LATENCY='0'
+            $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+            [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+            Write-Host 'KTERM_ISOLATED_SOURCE_COPY_READY=PASS'
+            Write-Host 'KTERM_OFFLINE_DEPENDENCIES_REQUIRED=TRUE'
+            Push-Location $sandbox
+            try {
+              & $goBin test ./pkg -run '^TestOfflineOriginalSequentialHistoryPageLatency$' -count=1 -timeout=5m -v
+              if($LASTEXITCODE -ne 0) { throw 'OFFLINE_ORIGINAL_PAGINATOR_GATE_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_ORIGINAL_GET_ONLY_PAGINATION_GATE=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_REQUESTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
