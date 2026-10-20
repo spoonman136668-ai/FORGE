@@ -86,6 +86,15 @@ class SourceOnlyInterventionGate(unittest.TestCase):
         p=copy.deepcopy(self.pin);p["receipt_sha256"]=q.digest(a)
         self.assertEqual(self.result(row=a,pin=p)["status"],"DO_TARGET_MISMATCH")
 
+    def test_public_observation_history_identity_drift_denied(self):
+        changed = tuple((1,1,1) for _ in self.obs)
+        v=q.assess(self.row, trusted_pin=self.pin, observations=changed)
+        self.assertEqual(v["status"],"UNPINNED_OR_TAMPERED_PUBLIC_RECEIPT")
+
+    def test_missing_public_history_digest_denied(self):
+        p=copy.deepcopy(self.pin);del p["public_history_sha256"]
+        self.assertEqual(self.result(pin=p)["status"],"INCOMPLETE_INDEPENDENT_TRUST_PIN")
+
     def test_local_fixture_never_new_first_use(self):
         for model in q.MODELS:
             row,pin=q.analytic_fixture(model)
