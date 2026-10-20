@@ -1,0 +1,215 @@
+name: K-Terminal native Coinbase full history pagination latency profile
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-coinbase-pagination-latency-profile.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-production-code:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Profile original serial Coinbase history pagination with fully mocked GET pages
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_ACTUAL_CODE_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $original=$roots[0]
+          foreach($name in @('go.mod','go.sum','pkg\native-execution.go','pkg\native-maker-accounting-retry_test.go','pkg\regular-sell-selected-execution_test.go')) {
+            if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)) { throw 'REQUIRED_ORIGINAL_GO_SOURCE_MISSING' }
+          }
+          $fixture=Get-Content -LiteralPath (Join-Path $original 'pkg\native-maker-accounting-retry_test.go') -Raw -ErrorAction Stop
+          if(-not($fixture.Contains('newMakerAccountingFixture') -and $fixture.Contains('makerAccountingAccept') -and $fixture.Contains('lookupRoundTripFunc') -and $fixture.Contains('nativeGuardedTransport'))) { throw 'ORIGINAL_SAFE_MOCK_FIXTURE_INCOMPATIBLE' }
+          Write-Host 'KTERM_MOCKED_NATIVE_FIXTURE_PRESENT=PASS'
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)) { throw 'OFFLINE_GO_COMPILER_NOT_FOUND' }
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-real-order-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)) { throw 'SANDBOX_INSIDE_ORIGINAL_FORBIDDEN' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            foreach($name in @('go.mod','go.sum')) {Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+            foreach($section in @('pkg','internal')) {
+              $src=Join-Path $original $section
+              if(Test-Path -LiteralPath $src -PathType Container) {
+                Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object {
+                  $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+                  $dest=Join-Path $sandbox $rel
+                  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+                  Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+                }
+              }
+            }
+            $embed=Join-Path $original 'pkg\tranche-plans.json'
+            if(-not(Test-Path -LiteralPath $embed -PathType Leaf)) { throw 'ORIGINAL_EMBEDDED_TRANCHES_MISSING' }
+            Copy-Item -LiteralPath $embed -Destination (Join-Path $sandbox 'pkg\tranche-plans.json') -ErrorAction Stop
+            $pkg=Join-Path $sandbox 'pkg'
+            $testSource=Join-Path $pkg 'offline-original-pagination-profile_test.go'
+            $code=@'
+          package pkg
+          
+          import (
+           "bytes"
+           "encoding/json"
+           "fmt"
+           "io"
+           "math"
+           "net/http"
+           "net/url"
+           "strconv"
+           "sync/atomic"
+           "testing"
+           "time"
+          )
+          
+          type offlinePageMeasurement struct {
+           name string
+           totalRecords int
+           pages int
+           latencyMS int
+           elapsedMS float64
+           concurrentMax int32
+          }
+          
+          func offlineAccountPages(t *testing.T,name string,recordCount int,delay time.Duration) offlinePageMeasurement {
+           t.Helper()
+           if recordCount<1 || recordCount>150000 {t.Fatal("record budget invalid")}
+           expectedPages:=(recordCount+coinbaseTransactionPageSize-1)/coinbaseTransactionPageSize
+           base:=[]coinbaseAccountTransaction{}
+           at:=time.Date(2026,10,12,12,0,0,0,time.UTC)
+           for i:=0;i<coinbaseTransactionPageSize;i++ {
+            base=append(base,coinbaseAccountTransaction{
+             ID:fmt.Sprintf("synthetic-transaction-%d",i),Type:"trade",Status:"completed",
+             CreatedAt:at.Add(-time.Duration(i)*time.Minute),
+             Amount:coinbaseMoney{Amount:"0.00010000",Currency:"BTC"},
+             NativeAmount:coinbaseMoney{Amount:"7.650",Currency:"USD"},
+             AdvancedTradeFill:&coinbaseAdvancedTradeFill{
+              FillPrice:"76500.00",ProductID:"BTC-USDC",OrderID:"synthetic-order",OrderSide:"BUY",
+             },
+            })
+           }
+           fullData,err:=json.Marshal(base)
+           if err!=nil {t.Fatal(err)}
+           lastData,err:=json.Marshal(base[:recordCount%coinbaseTransactionPageSize])
+           if err!=nil {t.Fatal(err)}
+           if recordCount%coinbaseTransactionPageSize==0 {lastData=fullData}
+           var requests atomic.Int32
+           var inflight atomic.Int32
+           var peak atomic.Int32
+           key:=lookupFixtureRequest(t)
+           auth:=NewReadOnlyAuthenticator(key.APIKey.KeyName,key.APIKey.KeySecret)
+           auth.readTransport=lookupRoundTripFunc(func(r *http.Request)(*http.Response,error){
+            if r.Method!="GET" || r.URL.Host!="api.coinbase.com" || r.URL.Scheme!="https" ||
+               r.URL.Path!="/v2/accounts/synthetic-account/transactions" {
+             return nil,fmt.Errorf("offline fixture blocked nonhistorical request")
+            }
+            current:=inflight.Add(1)
+            defer inflight.Add(-1)
+            for{
+             high:=peak.Load()
+             if current<=high || peak.CompareAndSwap(high,current){break}
+            }
+            query,err:=url.ParseQuery(r.URL.RawQuery)
+            if err!=nil{return nil,err}
+            if query.Get("limit")!="100" || query.Get("order")!="desc" {
+             return nil,fmt.Errorf("source contract changed: unexpected query")
+            }
+            page:=0
+            if c:=query.Get("cursor");c!=""{
+              page,err=strconv.Atoi(c)
+              if err!=nil{return nil,err}
+            }
+            count:=requests.Add(1)
+            if page<0 || page>=expectedPages || int(count)>expectedPages {return nil,fmt.Errorf("extra or repeated page")}
+            if delay>0 {time.Sleep(delay)}
+            next:=""
+            if page+1<expectedPages {
+             next="/v2/accounts/synthetic-account/transactions?limit=100&order=desc&cursor="+strconv.Itoa(page+1)
+            }
+            data:=fullData
+            if page==expectedPages-1{data=lastData}
+            pagination,_:=json.Marshal(map[string]string{"next_uri":next})
+            body:=make([]byte,0,len(data)+len(pagination)+32)
+            body=append(body,[]byte("{\"data\":")...)
+            body=append(body,data...)
+            body=append(body,[]byte(",\"pagination\":")...)
+            body=append(body,pagination...)
+            body=append(body,'}')
+            return &http.Response{StatusCode:200,Header:make(http.Header),Body:io.NopCloser(bytes.NewReader(body)),Request:r},nil
+           })
+           checker:=NewBalanceChecker(auth,"synthetic-quote")
+           start:=time.Now()
+           rows,err:=checker.listAccountTransactions("synthetic-account",time.Time{})
+           elapsed:=float64(time.Since(start).Microseconds())/1000
+           if err!=nil {t.Fatalf("original Track pagination failed closed: %v",err)}
+           if len(rows)!=recordCount || int(requests.Load())!=expectedPages || peak.Load()!=1 {
+            t.Fatalf("wrong record or page count; records=%d/%d pages=%d/%d max_parallel=%d",len(rows),recordCount,requests.Load(),expectedPages,peak.Load())
+           }
+           m:=offlinePageMeasurement{name:name,totalRecords:len(rows),pages:int(requests.Load()),latencyMS:int(delay.Milliseconds()),elapsedMS:elapsed,concurrentMax:peak.Load()}
+           fmt.Printf("KTERM_PAGINATION_%s_PAGES=%d\n",name,m.pages)
+           fmt.Printf("KTERM_PAGINATION_%s_RECORDS=%d\n",name,m.totalRecords)
+           fmt.Printf("KTERM_PAGINATION_%s_INJECTED_RTT_MS=%d\n",name,m.latencyMS)
+           fmt.Printf("KTERM_PAGINATION_%s_TOTAL_MS=%.2f\n",name,m.elapsedMS)
+           fmt.Printf("KTERM_PAGINATION_%s_EFFECTIVE_MS_PER_PAGE=%.3f\n",name,m.elapsedMS/float64(m.pages))
+           fmt.Printf("KTERM_PAGINATION_%s_PEAK_CONCURRENT=%d\n",name,m.concurrentMax)
+           return m
+          }
+          
+          func TestOfflineOriginalFullHistoryPaginationLatencyProfile(t *testing.T){
+           baseline:=offlineAccountPages(t,"FULL_ZERO_RTT",135318,0)
+           faster:=offlineAccountPages(t,"TWELVE_50MS",1200,50*time.Millisecond)
+           slower:=offlineAccountPages(t,"TWELVE_200MS",1200,200*time.Millisecond)
+           pages:=baseline.pages
+           basePerPage:=baseline.elapsedMS/float64(pages)
+           for _,rtt:=range []float64{50,100,150,200,220,250,300} {
+             projectedSeconds:=float64(pages)*(basePerPage+rtt)/1000.0
+             fmt.Printf("KTERM_PAGINATION_PROJECTED_%dMS_RTT_SECONDS=%.1f\n",int(rtt),projectedSeconds)
+           }
+           observed50:=(faster.elapsedMS/float64(faster.pages))-50
+           observed200:=(slower.elapsedMS/float64(slower.pages))-200
+           fmt.Printf("KTERM_PAGINATION_50MS_OBSERVED_NONNETWORK_MS_PER_PAGE=%.2f\n",observed50)
+           fmt.Printf("KTERM_PAGINATION_200MS_OBSERVED_NONNETWORK_MS_PER_PAGE=%.2f\n",observed200)
+           fmt.Printf("KTERM_PAGINATION_BASELINE_NONNETWORK_MS_PER_PAGE=%.2f\n",basePerPage)
+           minNeeded:=300000/float64(pages)-basePerPage
+           fmt.Printf("KTERM_PAGINATION_RTT_REQUIRED_FOR_300S_MS=%.1f\n",minNeeded)
+           if math.IsNaN(minNeeded)||minNeeded<0 {t.Fatal("invalid pagination duration projection")}
+           fmt.Println("KTERM_PAGINATION_ACTUAL_COINBASE_RTT_MEASURED=FALSE")
+           fmt.Println("KTERM_PAGINATION_ALL_HTTP_RESPONSES_SYNTHETIC=TRUE")
+           fmt.Println("KTERM_PAGINATION_PRODUCTION_GO_FUNCTION=TRUE")
+           fmt.Println("KTERM_PAGINATION_OFFLINE_GATE=PASS")
+          }
+          
+          '@
+            [IO.File]::WriteAllText($testSource,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            $env:K_TERMINAL_P5_LATENCY='0'
+            $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+            [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+            Write-Host 'KTERM_ISOLATED_SOURCE_COPY_READY=PASS'
+            Write-Host 'KTERM_OFFLINE_DEPENDENCIES_REQUIRED=TRUE'
+            Push-Location $sandbox
+            try {
+              & $goBin test ./pkg -run '^TestOfflineOriginalFullHistoryPaginationLatencyProfile$' -count=1 -timeout=5m -v
+              if($LASTEXITCODE -ne 0) { throw 'OFFLINE_PAGINATION_PROFILE_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_OFFLINE_PAGINATION_GATE=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_REQUESTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
