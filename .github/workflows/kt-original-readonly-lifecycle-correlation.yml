@@ -78,7 +78,7 @@ jobs:
                 if($x.environment -ne 'LIVE' -or $x.schema_version -ne 1){continue}
                 $wall=Safe-Decimal $x.execution_wall_ms
                 if($null -eq $wall){continue}
-                $r=[pscustomobject]@{ wall=$wall; ready=$null; exchange=$null; evidence=$null; receipt=$null; tranche=$null; accounting=$null; book=$null; clock=$null; start=$x.native_started_at }
+                $r=[pscustomobject]@{ wall=$wall; ready=$null; exchange=$null; evidence=$null; receipt=$null; tranche=$null; accounting=$null; book=$null; clock=$null; start=$x.native_started_at; state=[string]$x.state; diagnostic=[string]$x.diagnostic_kind; side=[string]$x.side }
                 foreach($t in @($x.transport_ready)){
                   if($null -ne $t){
                     $v=Safe-Decimal $t.full_transport_ready_ms
@@ -102,7 +102,18 @@ jobs:
           }else{Write-Host 'KTERM_ORIGINAL_NATIVE_TIMING_FILE=ABSENT'}
           Write-Host ('KTERM_LIVE_TIMING_RECORDS='+$realTiming.Count)
           if($realTiming.Count -gt 0){
-            Show-Stats 'KTERM_REAL_NATIVE_WALL' @($realTiming | ForEach-Object {$_.wall})
+            foreach($state in @('RESULT','BLOCKED','OUTCOME_UNKNOWN','EVIDENCE_FAILED','P5_OBSERVE')) {
+              $c=@($realTiming|Where-Object{$_.state -ceq $state})
+              Write-Host ('KTERM_LIVE_TIMING_STATE_'+$state+'_N='+$c.Count)
+            }
+            $additional=@($realTiming|Where-Object{$_.state -notin @('RESULT','BLOCKED','OUTCOME_UNKNOWN','EVIDENCE_FAILED','P5_OBSERVE')})
+            Write-Host ('KTERM_LIVE_TIMING_STATE_OTHER_N='+$additional.Count)
+            $diagnostic=@($realTiming|Where-Object{$_.diagnostic.Length -gt 0})
+            Write-Host ('KTERM_LIVE_TIMING_DIAGNOSTIC_RECORD_N='+$diagnostic.Count)
+            foreach($side in @('BUY','SELL')){
+              Write-Host ('KTERM_LIVE_TIMING_SIDE_'+$side+'_N='+@($realTiming|Where-Object{$_.side -ceq $side}).Count)
+            }
+                      Show-Stats 'KTERM_REAL_NATIVE_WALL' @($realTiming | ForEach-Object {$_.wall})
             Show-Stats 'KTERM_REAL_NATIVE_FIRST_READY' @($realTiming | Where-Object {$null -ne $_.ready} | ForEach-Object {$_.ready})
             $slow=@($realTiming|Where-Object {$_.wall -ge 5000})
             Write-Host ('KTERM_REAL_NATIVE_OVER_5_SECONDS='+$slow.Count)
@@ -130,7 +141,7 @@ jobs:
             Write-Host 'KTERM_NATIVE_JOURNAL=PRESENT'
             Write-Host ('KTERM_NATIVE_JOURNAL_AGE_MIN='+[int][Math]::Max(0,([datetime]::UtcNow-$info.LastWriteTimeUtc).TotalMinutes))
             $rows=Get-TailLines $journal 12582912
-            $readyCount=0;$resultCount=0
+          $readyCount=0;$resultCount=0;$successCount=0;$skippedCount=0
             foreach($line in $rows){
               if($line.Length -lt 15 -or $line.Length -gt 600000){continue}
               try {
@@ -146,7 +157,13 @@ jobs:
                   $readyCount++
                   $readyByEvent[$event]=$ts
                 } else {
-                  $resultCount++
+          $resultCount++
+          if($null -ne $j.result -and $null -ne $j.result.status){
+            switch([string]$j.result.status){
+              'success' {$successCount++}
+              'skipped' {$skippedCount++}
+            }
+          }
                   if($readyByEvent.ContainsKey($event)){
                     $ms=($ts-$readyByEvent[$event]).TotalMilliseconds
                     if($ms -ge 0 -and $ms -le 86400000){$journalMatches+=,$ms}
@@ -157,6 +174,8 @@ jobs:
             }
             Write-Host ('KTERM_JOURNAL_LIVE_READY_EVENTS='+$readyCount)
             Write-Host ('KTERM_JOURNAL_LIVE_RESULT_EVENTS='+$resultCount)
+          Write-Host ('KTERM_JOURNAL_LIVE_RESULT_SUCCESS_STATES='+$successCount)
+          Write-Host ('KTERM_JOURNAL_LIVE_RESULT_SKIPPED_STATES='+$skippedCount)
             Show-Stats 'KTERM_JOURNAL_READY_TO_RESULT' $journalMatches
           }else{Write-Host 'KTERM_NATIVE_JOURNAL=ABSENT'}
           $logDir=Join-Path $root 'data\logs\debug'
