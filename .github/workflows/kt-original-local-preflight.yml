@@ -1,195 +1,51 @@
-name: K-Terminal original local startup preflight
+name: K-Terminal original UI assembly provenance
 on:
   push:
-    branches:
-      - diagnostics/kterminal-original-local-preflight-20261019
-    paths:
-      - .github/workflows/kt-original-local-preflight.yml
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-local-preflight.yml]
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  original-preflight:
+  probe:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 5
     steps:
-      - name: Isolated read-only original startup preflight
+      - name: Inspect original UI DLL without modifying it
         shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
-          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') {
-            throw 'KTERM_PREFLIGHT_WRONG_RUNNER'
-          }
-          Write-Host 'KTERM_LOCAL_RUNNER_IDENTITY=PASS'
-          # Use an existing owner profile, not the runner service account.
-          # Never print absolute user paths or enumerate private data files.
-          $candidates = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop |
-            ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Container })
-          if ($candidates.Count -ne 1) {
-            Write-Host ('KTERM_ORIGINAL_INSTALL_MATCH_COUNT=' + $candidates.Count)
-            throw 'KTERM_ORIGINAL_INSTALL_NOT_UNIQUELY_VISIBLE_TO_RUNNER'
-          }
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_LOCAL_RUNNER=PASS'
+          $candidates = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($candidates.Count -ne 1) { Write-Host ('KTERM_ROOT_COUNT=' + $candidates.Count); throw 'ROOT_NOT_UNIQUE' }
           $root = $candidates[0]
-          Write-Host 'KTERM_ORIGINAL_INSTALL_VISIBLE=PASS'
-          $required = @(
-            'K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Chart.exe',
-            'K-Terminal-Chart-History.exe','K-Terminal-Account-Lookup.exe',
-            'K-Terminal-Subminute-Chart.exe','K-Terminal-Intelligence.exe',
-            'K-Terminal-Notifications.exe','launch-kterminal.ps1',
-            'desktop-session.ps1','desktop-session-host.cs','desktop-preload.ps1',
-            'application-launch.ps1','dashboard-ui.ps1','ui-runtime-loader.ps1'
-          )
-          $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) })
-          if ($missing.Count -gt 0) {
-            Write-Host ('KTERM_MISSING_COMPONENT_NAMES=' + ($missing -join ','))
-            throw 'KTERM_ORIGINAL_COMPONENTS_MISSING'
+          $dll = Join-Path $root 'KTerminal.UI.dll'
+          $manifestPath = Join-Path $root 'ui-runtime-manifest.json'
+          Write-Host ('KTERM_UI_DLL_PRESENT=' + (Test-Path -LiteralPath $dll -PathType Leaf))
+          Write-Host ('KTERM_UI_MANIFEST_PRESENT=' + (Test-Path -LiteralPath $manifestPath -PathType Leaf))
+          if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) { throw 'DLL_MISSING' }
+          $zoneLines = @()
+          try { $zoneLines = @(Get-Content -LiteralPath $dll -Stream Zone.Identifier -ErrorAction Stop) } catch { }
+          $zoneIds = @($zoneLines | Where-Object { $_.StartsWith('ZoneId=') } | ForEach-Object { $_.Substring(7) })
+          if ($zoneIds.Count -eq 0) { Write-Host 'KTERM_DLL_MOTW=ABSENT' } else { Write-Host ('KTERM_DLL_ZONE_ID=' + ($zoneIds -join ',')) }
+          $dllHash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ([string]$manifest.sha256 -ceq $dllHash) { Write-Host 'KTERM_DLL_MANIFEST_HASH=PASS' } else { Write-Host 'KTERM_DLL_MANIFEST_HASH=MISMATCH' }
           }
-          Write-Host 'KTERM_EIGHT_EXES_AND_LAUNCH_SCRIPTS=PASS'
-          foreach ($name in @('launch-kterminal.ps1','desktop-session.ps1','desktop-preload.ps1','application-launch.ps1','dashboard-ui.ps1','ui-runtime-loader.ps1')) {
-            $tokens = $null
-            $parseErrors = $null
-            $null = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $name), [ref]$tokens, [ref]$parseErrors)
-            if (@($parseErrors).Count -gt 0) {
-              Write-Host ('KTERM_PS_PARSE_FAILED_FILE=' + $name)
-              Write-Host ('KTERM_PS_PARSE_ERROR_COUNT=' + @($parseErrors).Count)
-              throw 'KTERM_POWERSHELL_PARSE_FAILED'
-            }
-          }
-          Write-Host 'KTERM_LAUNCH_PS_PARSE=PASS'
-          $uiDll = Join-Path $root 'KTerminal.UI.dll'
-          $uiManifest = Join-Path $root 'ui-runtime-manifest.json'
-          if (-not (Test-Path -LiteralPath $uiDll -PathType Leaf)) {
-            Write-Host 'KTERM_OPTIONAL_UI_DLL=ABSENT'
-          } else {
-            Write-Host 'KTERM_OPTIONAL_UI_DLL=PRESENT'
-            $zoneInfo = @()
-            try { $zoneInfo = @(Get-Content -LiteralPath $uiDll -Stream Zone.Identifier -ErrorAction Stop) }
-            catch { }
-            $zoneValues = @($zoneInfo | ForEach-Object { if ($_ -match '^ZoneId=(\d+)          # Never run application-launch.ps1, dashboard-ui.ps1, the executable,
-          # a broker worker, updater or any trading path.
-          $runspace = $null
-          $pipeline = $null
-          $prior = [Runspace]::DefaultRunspace
-          $stage = 'ui-runtime'
           try {
-            . (Join-Path $root 'ui-runtime-loader.ps1')
-            Import-KTerminalUIRuntime
-            Write-Host 'KTERM_UI_RUNTIME_IMPORT=PASS'
-            $stage = 'session-host'
-            if (-not ('KTerminal.Launch.SessionHost' -as [type])) {
-              Add-Type -Path (Join-Path $root 'desktop-session-host.cs') -ReferencedAssemblies ([Management.Automation.Host.PSHost].Assembly.Location)
-            }
-            Write-Host 'KTERM_SESSION_HOST_COMPILE=PASS'
-            $stage = 'desktop-preload'
-            $stageHost = [KTerminal.Launch.SessionHost]::new($Host)
-            $runspace = [RunspaceFactory]::CreateRunspace($stageHost)
-            $runspace.ThreadOptions = 'UseCurrentThread'
-            $runspace.ApartmentState = 'STA'
-            $runspace.Open()
-            $pipeline = [PowerShell]::Create()
-            $pipeline.Runspace = $runspace
-            $runspace.SessionStateProxy.SetVariable('desktopStagePath', (Join-Path $root 'desktop-preload.ps1'))
-            $null = $pipeline.AddScript('$ErrorActionPreference="Stop"; . $desktopStagePath', $false)
-            [Runspace]::DefaultRunspace = $runspace
-            $null = $pipeline.Invoke()
-            if ($pipeline.InvocationStateInfo.State -eq 'Failed') { throw $pipeline.InvocationStateInfo.Reason }
-            if ($pipeline.HadErrors) {
-              $streamErrors = @($pipeline.Streams.Error)
-              if ($streamErrors.Count -gt 0) { throw $streamErrors[0].Exception }
-              throw 'Preload pipeline reported an error'
-            }
-            Write-Host 'KTERM_DESKTOP_PRELOAD=PASS'
-            Write-Host 'KTERM_ORIGINAL_STARTUP_PREFLIGHT=PASS'
-            Write-Host 'KTERM_UI_LAUNCH_NOT_EXECUTED=TRUE'
-          }
-          catch {
-            $exception = $_.Exception
-            $detail = [string]$exception.Message
-            # Prevent sensitive local path or credential disclosure to public Actions logs.
-            $detail = $detail -replace '(?i)[a-z]:\\[^\s,;"]+', '[LOCAL_PATH]'
-            if ($detail -match '(?i)api.?key|private.?key|secret|token|password|organizations/|credential|BEGIN .+ PRIVATE KEY') {
-              $detail = '[REDACTED]'
-            }
-            if ($detail.Length -gt 240) { $detail = $detail.Substring(0, 240) }
-            Write-Host ('KTERM_FAILED_STAGE=' + $stage)
-            Write-Host ('KTERM_ERROR_TYPE=' + $exception.GetType().Name)
-            Write-Host ('KTERM_SANITIZED_ERROR=' + $detail)
-            throw 'KTERM_ORIGINAL_STARTUP_PREFLIGHT=FAIL'
-          }
-          finally {
-            [Runspace]::DefaultRunspace = $prior
-            if ($null -ne $pipeline) { $pipeline.Dispose() }
-            if ($null -ne $runspace) { $runspace.Dispose() }
-          }
-) { [int]$Matches[1] } })
-            if ($zoneValues.Count -eq 1) {
-              Write-Host ('KTERM_UI_DLL_ZONE_ID=' + $zoneValues[0])
-              if ($zoneValues[0] -ge 3) { Write-Host 'KTERM_UI_DLL_MARK_OF_WEB=BLOCKING_POSSIBLE' }
-            } else { Write-Host 'KTERM_UI_DLL_ZONE_ID=NO_ZONE_STREAM' }
-            if (Test-Path -LiteralPath $uiManifest -PathType Leaf) {
-              $manifest = Get-Content -LiteralPath $uiManifest -Raw | ConvertFrom-Json -ErrorAction Stop
-              $actualHash = (Get-FileHash -LiteralPath $uiDll -Algorithm SHA256).Hash.ToLowerInvariant()
-              if ($manifest.sha256 -eq $actualHash) { Write-Host 'KTERM_UI_DLL_MANIFEST_DIGEST=PASS' }
-              else { Write-Host 'KTERM_UI_DLL_MANIFEST_DIGEST=MISMATCH'; throw 'KTERM_UI_ASSEMBLY_MANIFEST_MISMATCH' }
-            } else { Write-Host 'KTERM_UI_DLL_MANIFEST=MISSING' }
-          }
-          # Never run application-launch.ps1, dashboard-ui.ps1, the executable,
-          # a broker worker, updater or any trading path.
-          $runspace = $null
-          $pipeline = $null
-          $prior = [Runspace]::DefaultRunspace
-          $stage = 'ui-runtime'
+            $identity = [Reflection.AssemblyName]::GetAssemblyName($dll)
+            Write-Host 'KTERM_DLL_METADATA=READABLE'
+          } catch { Write-Host ('KTERM_DLL_METADATA_ERROR=' + $_.Exception.GetType().Name) }
           try {
-            . (Join-Path $root 'ui-runtime-loader.ps1')
-            Import-KTerminalUIRuntime
-            Write-Host 'KTERM_UI_RUNTIME_IMPORT=PASS'
-            $stage = 'session-host'
-            if (-not ('KTerminal.Launch.SessionHost' -as [type])) {
-              Add-Type -Path (Join-Path $root 'desktop-session-host.cs') -ReferencedAssemblies ([Management.Automation.Host.PSHost].Assembly.Location)
-            }
-            Write-Host 'KTERM_SESSION_HOST_COMPILE=PASS'
-            $stage = 'desktop-preload'
-            $stageHost = [KTerminal.Launch.SessionHost]::new($Host)
-            $runspace = [RunspaceFactory]::CreateRunspace($stageHost)
-            $runspace.ThreadOptions = 'UseCurrentThread'
-            $runspace.ApartmentState = 'STA'
-            $runspace.Open()
-            $pipeline = [PowerShell]::Create()
-            $pipeline.Runspace = $runspace
-            $runspace.SessionStateProxy.SetVariable('desktopStagePath', (Join-Path $root 'desktop-preload.ps1'))
-            $null = $pipeline.AddScript('$ErrorActionPreference="Stop"; . $desktopStagePath', $false)
-            [Runspace]::DefaultRunspace = $runspace
-            $null = $pipeline.Invoke()
-            if ($pipeline.InvocationStateInfo.State -eq 'Failed') { throw $pipeline.InvocationStateInfo.Reason }
-            if ($pipeline.HadErrors) {
-              $streamErrors = @($pipeline.Streams.Error)
-              if ($streamErrors.Count -gt 0) { throw $streamErrors[0].Exception }
-              throw 'Preload pipeline reported an error'
-            }
-            Write-Host 'KTERM_DESKTOP_PRELOAD=PASS'
-            Write-Host 'KTERM_ORIGINAL_STARTUP_PREFLIGHT=PASS'
-            Write-Host 'KTERM_UI_LAUNCH_NOT_EXECUTED=TRUE'
+            $null = [Reflection.Assembly]::LoadFrom($dll)
+            Write-Host 'KTERM_DLL_LOAD=PASS'
+          } catch {
+            $e = $_.Exception
+            Write-Host 'KTERM_DLL_LOAD=FAIL'
+            Write-Host ('KTERM_DLL_LOAD_EXCEPTION=' + $e.GetType().Name)
+            if ($e.InnerException) { Write-Host ('KTERM_DLL_INNER_HRESULT=0x' + $e.InnerException.HResult.ToString('X8')) }
           }
-          catch {
-            $exception = $_.Exception
-            $detail = [string]$exception.Message
-            # Prevent sensitive local path or credential disclosure to public Actions logs.
-            $detail = $detail -replace '(?i)[a-z]:\\[^\s,;"]+', '[LOCAL_PATH]'
-            if ($detail -match '(?i)api.?key|private.?key|secret|token|password|organizations/|credential|BEGIN .+ PRIVATE KEY') {
-              $detail = '[REDACTED]'
-            }
-            if ($detail.Length -gt 240) { $detail = $detail.Substring(0, 240) }
-            Write-Host ('KTERM_FAILED_STAGE=' + $stage)
-            Write-Host ('KTERM_ERROR_TYPE=' + $exception.GetType().Name)
-            Write-Host ('KTERM_SANITIZED_ERROR=' + $detail)
-            throw 'KTERM_ORIGINAL_STARTUP_PREFLIGHT=FAIL'
-          }
-          finally {
-            [Runspace]::DefaultRunspace = $prior
-            if ($null -ne $pipeline) { $pipeline.Dispose() }
-            if ($null -ne $runspace) { $runspace.Dispose() }
-          }
+          Write-Host 'KTERM_NO_ORIGINAL_FILES_MODIFIED=TRUE'
