@@ -1,0 +1,74 @@
+name: F124-DG ORIGINAL 72 OS receipts readonly rank-saturation custody
+on:
+  push:
+    branches: [research/f124dg-original-readonly-reconcile-20261020]
+    paths: [.github/workflows/forge-f124dg-original-readonly-reconcile.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f124dg-original-immutable-39355225322-readonly
+  cancel-in-progress: false
+jobs:
+  original-sourcefree-readonly-reconciliation:
+    name: original-sourcefree-readonly-reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prove original source script and frozen prereg unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 929f582939a631a248b7f83edd690165d2e4a31c HEAD
+          git merge-base --is-ancestor 03b43f91756135a748abe5a120c9e6d9eaeee639 HEAD
+          for file in f124dg_new_sourcefree_oracle.py f124dg_meta_rank_learner.py f124dg_independent_active_control.py f124dg_budgeted_active_trial.py f124dg_whole_os_shard.py; do
+            old="$(git rev-parse 929f582939a631a248b7f83edd690165d2e4a31c:research/north-star-transfer/$file)"
+            now="$(git rev-parse HEAD:research/north-star-transfer/$file)"
+            test "$old" = "$now" || { echo "ORIGINAL_SOURCE_OR_LEARNER_DRIFT:$file"; exit 1; }
+          done
+          echo 'F124DG_ORIGINAL_MODELS_AND_FROZEN_INPUT_UNCHANGED=PASS'
+      - name: Exact full-rank early-stop and no-source-replay regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/test_f124dg_original_budget_audit.py -v
+      - name: Verify six original hosted jobs and exact ZIP provider digests
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          F124DG_READONLY_CUSTODY_PATH: ${{ runner.temp }}/f124dg-original-provider.json
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dg_original_provider_custody.py
+      - name: Download only immutable original 72 whole-process receipts, no source rerun
+        uses: actions/download-artifact@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          run-id: 39355225322
+          github-token: ${{ github.token }}
+          pattern: f124dg-original-sourcefree-*
+          path: ${{ runner.temp }}/f124dg-original-four-shards
+          merge-multiple: true
+      - name: Reconcile all exact 72 original measurements and new information budget parity without any model execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dg_readonly_active_audit.py \
+            --shards "$RUNNER_TEMP/f124dg-original-four-shards" \
+            --out "$RUNNER_TEMP/f124dg-original-complete-audit"
+          cp "$RUNNER_TEMP/f124dg-original-provider.json" "$RUNNER_TEMP/f124dg-original-complete-audit/original-provider.json"
+          echo 'F124DG_ORIGINAL_72_WHOLE_OS_RECONCILIATION=PASS'
+      - name: Retain authenticated original read-only evidence and provider custody
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dg-original-72-process-provider-readonly-reconciliation
+          path: ${{ runner.temp }}/f124dg-original-complete-audit/
+          retention-days: 90
+          if-no-files-found: error
