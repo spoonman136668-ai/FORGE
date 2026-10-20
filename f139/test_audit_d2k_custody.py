@@ -350,5 +350,114 @@ class ReadonlyCustodyTests(unittest.TestCase):
             audit(self.dbpath,"unexpected",self.head)
 
 
+    # F139-D2N: a single final externally authenticated protected-main target
+    # is verification only, never a development or science authorization.
+    def test_d2n_exact_live_protected_main_suffix_is_readonly(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        before={p.relative_to(self.root).as_posix():p.read_bytes()
+                for p in self.root.rglob("*") if p.is_file()}
+        self.append_source_transition(target)
+        frozen={p.relative_to(self.root).as_posix():p.read_bytes()
+                for p in self.root.rglob("*") if p.is_file()}
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA), \
+                mock.patch("f139.local_controller.GitHub.protected_main",
+                           return_value=target):
+            with self.assertRaisesRegex(CustodyBlocked,
+                                        "SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"):
+                audit(self.dbpath,target,self.head)
+            proof=audit(self.dbpath,target,self.head,
+                        qualified_main_sha=target)
+        after={p.relative_to(self.root).as_posix():p.read_bytes()
+               for p in self.root.rglob("*") if p.is_file()}
+        self.assertEqual(before["evidence/f139-d2c-wingless-659bb1f4d751/2/windows-latest.zip"],
+                         after["evidence/f139-d2c-wingless-659bb1f4d751/2/windows-latest.zip"])
+        self.assertEqual(frozen,after)
+        self.assertEqual(proof["historical_prefix_event_count"],23)
+        self.assertEqual(proof["source_only_suffix_count"],1)
+        self.assertEqual(proof["task_count"],4)
+        self.assertEqual(proof["archive_count"],8)
+        self.assertEqual(proof["d2j_task_bindings_verified"],2)
+        self.assertTrue(proof["live_main_source_suffix_verified"])
+        self.assertFalse(proof["scientific_first_use"])
+        self.assertEqual(proof["controller_actions"],0)
+        self.assertEqual(proof["original_database_writes"],0)
+
+    def test_d2n_nonmatching_or_invalid_protected_head_is_rejected(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        self.append_source_transition(target)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA), \
+                mock.patch("f139.local_controller.GitHub.protected_main",
+                           return_value=target):
+            with self.assertRaisesRegex(CustodyBlocked,
+                                        "LIVE_PROTECTED_MAIN_NOT_MATCHED"):
+                audit(self.dbpath,target,self.head,
+                      qualified_main_sha="e"*40)
+            with self.assertRaisesRegex(CustodyBlocked,
+                                        "QUALIFIED_MAIN_SHA_INVALID"):
+                audit(self.dbpath,target,self.head,
+                      qualified_main_sha="not-a-sha")
+
+    def test_d2n_live_main_must_be_the_final_suffix(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        self.append_source_transition(target)
+        self.append_source_transition("365e5eb8b888c11716376973ad2551523a869bab",
+                                      from_source=target)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA), \
+                mock.patch("f139.local_controller.GitHub.protected_main",
+                           return_value=target):
+            with self.assertRaisesRegex(CustodyBlocked,
+                                        "SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"):
+                audit(self.dbpath,"365e5eb8b888c11716376973ad2551523a869bab",
+                      self.head,qualified_main_sha=target)
+
+    def test_d2n_never_admits_science_or_new_dispatch(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        for changes in ({"dispatches":1},{"originals":True}):
+            with self.subTest(changes=changes):
+                with tempfile.TemporaryDirectory() as td:
+                    fresh=Path(td)/"state.sqlite"
+                    with closing(sqlite3.connect(self.dbpath)) as old, closing(
+                            sqlite3.connect(fresh)) as new:
+                        old.backup(new)
+                    original=self.dbpath
+                    self.dbpath=fresh
+                    try:
+                        self.append_source_transition(target,**changes)
+                        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA), \
+                                mock.patch("f139.local_controller.GitHub.protected_main",
+                                           return_value=target):
+                            with self.assertRaisesRegex(CustodyBlocked,
+                                    "SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"):
+                                audit(self.dbpath,target,self.head,
+                                      qualified_main_sha=target)
+                    finally:
+                        self.dbpath=original
+
+    def test_d2n_historical_seal_is_not_replaced_by_later_head(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        self.append_source_transition(target)
+        with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA), \
+                mock.patch("f139.local_controller.GitHub.protected_main",
+                           return_value=target):
+            with self.assertRaisesRegex(CustodyBlocked,"SEALED_EVENT_HEAD_MISMATCH"):
+                audit(self.dbpath,target,"0"*64,qualified_main_sha=target)
+
+    def test_d2n_live_main_readonly_audit_rejects_provider_drift(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        with mock.patch("f139.local_controller.GitHub.protected_main",
+                        return_value="e"*40):
+            with self.assertRaisesRegex(CustodyBlocked,
+                                        "LIVE_PROTECTED_MAIN_NOT_MATCHED"):
+                audit(self.dbpath,SHA,self.head,qualified_main_sha=target)
+
+    def test_d2n_sealed_prefix_without_transition_is_not_transition_proof(self):
+        target="df97a80b00f22c401534470b6470dd4ff29c3597"
+        with mock.patch("f139.local_controller.GitHub.protected_main",
+                        return_value=target):
+            record=audit(self.dbpath,SHA,self.head,qualified_main_sha=target)
+        self.assertEqual(record["event_count"],23)
+        self.assertFalse(record["live_main_source_suffix_verified"])
+
+
 if __name__=="__main__":
     unittest.main()
