@@ -127,7 +127,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_DIAGNOSTIC_FAILED_CLOSED' }
           python -B -m f139.verify_ticket --diagnostic $diagnostic --output-dir $folder
           if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_RECEIPT_FAILED_CLOSED' }
+          # The existing signed issue authorizes this bounded *development* run.
+          # It does not alter the D2K diagnostic receipt or grant scientific use.
+          $generation = [int](([long]$env:GITHUB_RUN_ID % 100000) + 1)
+          python -B -m f139.dev_learning --lane $env:F139_LANE --generation $generation --source-sha $env:GITHUB_SHA --output (Join-Path $folder 'f139-dev-learning.json')
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2K_PRIVATE_DEV_LEARNING_FAILED' }
+          $proof = Get-Content -Raw -LiteralPath (Join-Path $folder 'f139-dev-learning.json') | ConvertFrom-Json
+          if ($proof.schema -cne 'forge.f139.private-cognition-development.v1' -or
+              $proof.source_sha -cne $env:GITHUB_SHA -or
+              -not $proof.real_cpu_training_executed -or
+              $proof.protected_first_use -or $proof.scientific_originals_dispatched -ne 0 -or
+              $proof.optimizer_policy_mutations -ne 0 -or $proof.paid_api_calls -ne 0) {
+              throw 'F139_D2K_DEV_EVIDENCE_INVALID'
+          }
           Write-Host 'F139_D2K_SOURCE_BOUND_DIAGNOSTIC=PASS'
+          Write-Host 'F139_D2K_REAL_DEV_CPU_TRAINING=PASS'
           Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
       - uses: actions/upload-artifact@v4
         if: success()
@@ -143,7 +157,7 @@ jobs:
       # Separate preliminary development telemetry; NOT accepted by the
       # old F139 receipt parser, and not represented as signed research science.
       - uses: actions/upload-artifact@v4
-        if: ${{ success() && !startsWith(inputs.ticket, 'f139-d2k-') }}
+        if: ${{ success() }}
         with:
           name: forge-f139-cpu-development-${{ matrix.os }}
           path: ${{ runner.temp }}/f139-development/f139-dev-learning.json
