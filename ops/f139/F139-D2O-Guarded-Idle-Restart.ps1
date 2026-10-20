@@ -13,9 +13,9 @@ $Key=Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
 $Log=Join-Path $env:LOCALAPPDATA 'FORGE-F139\logs\controller.log'
 $TaskEnabledByUs=$false;$TaskStartedByUs=$false;$Accepted=$false
 function Need([bool]$ok,[string]$why){if(!$ok){throw ('F139_D2O_BLOCKED_'+$why)}}
-function InvokeChecked([string]$program,[string[]]$args){
+function InvokeChecked([string]$program,[string[]]$CommandArguments){
   $prior=$ErrorActionPreference
-  try{$ErrorActionPreference='Continue';$output=@(& $program @args 2>&1);$code=$LASTEXITCODE}
+  try{$ErrorActionPreference='Continue';$output=@(& $program @CommandArguments 2>&1);$code=$LASTEXITCODE}
   finally{$ErrorActionPreference=$prior}
   if($code -ne 0){
     $detail=(@($output|ForEach-Object{[string]$_}) -join ' ')
