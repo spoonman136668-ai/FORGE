@@ -1,0 +1,94 @@
+name: LCRM O8 matched source-free native causal memory cost
+on:
+  push:
+    branches: [research/lcrm01-o8-native-cost-admission-20261020]
+    paths: ['.github/workflows/lcrm01-o8-native-cost.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o8-native-resource
+  cancel-in-progress: false
+jobs:
+  native-matched-resource:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify exact preregistration, O7 foundation and O8 source identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'O8_HEAD_DRIFT'}
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o8-native-cost-precode.json'='cfa957087bbe4723bccbe5f52b9ec1f5b850a839'
+            'research/lcrm01/cmd/o8measure/main.go'='c04784dc76781688de534ca3f5b2d53b91c489e1'
+            'research/lcrm01/o8_native_cost_audit.py'='801f12fcfeea6a73187d68bc629c6b1d7a21bc73'
+            'research/lcrm01/o7_grounded_ports_compose.go'='00fe2b40dd9d2fa59faff135340a61ea50e68756'
+            'research/lcrm01/o7_grounded_ports_compose_test.go'='29dddcf63c733b0db71f12d729d192d865e46d8f'
+            'research/lcrm01/o6_binary_relational_anf.go'='4dcc0e07fa3e71b2661331ba9da489cb9568d522'
+            'research/lcrm01/originals/20261020-lcrm01-o7-anchored-port-twohop-sourcefree.json'='8a09e6336d5158b4e931247de09ae71447101341'
+          }
+          foreach($p in $blobs.Keys){
+            if((git hash-object -- $p).Trim() -cne $blobs[$p]){throw "O8_EXACT_BLOB_DRIFT:$p"}
+          }
+          git merge-base --is-ancestor ef05fda12fdf02c92f8f719f577602ede9f5fce2 dde226c9d16ecebc4c04162ad26c2bc34a3629f8
+          if($LASTEXITCODE -ne 0){throw 'O8_WRONG_SOURCEFREE_PREDECESSOR'}
+          git merge-base --is-ancestor dde226c9d16ecebc4c04162ad26c2bc34a3629f8 6cc9d3288b57f9385cfc34ccf4153677ef1ea5ef
+          if($LASTEXITCODE -ne 0){throw 'O8_CODE_PRECEDED_FREEZE'}
+          git merge-base --is-ancestor 6cc9d3288b57f9385cfc34ccf4153677ef1ea5ef e0e41ae3d86f6db1ca7769e93c6686c7d848db9a
+          if($LASTEXITCODE -ne 0){throw 'O8_AUDITOR_PRECEDED_CODE'}
+          git merge-base --is-ancestor e0e41ae3d86f6db1ca7769e93c6686c7d848db9a HEAD
+          if($LASTEXITCODE -ne 0){throw 'O8_EXACT_AUDITOR_NOT_INCLUDED'}
+          Write-Output 'O8_FROZEN_SOURCEFREE_CHRONOLOGY_AND_O7_BLOBS=PASS'
+      - name: Compile and qualify O8 native process without changing O7 semantics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go vet ./research/lcrm01/...
+          if($LASTEXITCODE -ne 0){throw 'O8_VET_FAIL'}
+          go build -o o8measure.exe ./research/lcrm01/cmd/o8measure
+          if($LASTEXITCODE -ne 0){throw 'O8_NATIVE_BUILD_FAIL'}
+          python -m py_compile research/lcrm01/o8_native_cost_audit.py
+          if($LASTEXITCODE -ne 0){throw 'O8_AUDIT_SYNTAX_FAIL'}
+      - name: Ten independent exact O7 ANF versus symbolic OS-native processes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($arm in @('learned-anf','exact-symbolic')){
+            foreach($i in 0..4){
+              $row = & ./o8measure.exe --arm $arm --rep $i
+              if($LASTEXITCODE -ne 0){throw "O8_ORIGINAL_PROCESS_FAILURE:$arm/$i"}
+              Add-Content -Path o8-native-samples.ndjson -Value $row -Encoding utf8
+            }
+          }
+          python research/lcrm01/o8_native_cost_audit.py o8-native-samples.ndjson > o8-sourcefree-comparison.json
+          if($LASTEXITCODE -ne 0){throw 'O8_EXACT_NATIVE_PEER_PARITY_FAIL'}
+          python -c "import json; d=json.load(open('o8-sourcefree-comparison.json',encoding='utf-8-sig')); assert d['retained_original_process_count']==10 and not d['scientific_acceptance'] and not d['optimizer_admission'] and not d['independent_source_first_use']; print('O8_NATIVE_PEER_PARITY=PASS'); print('O8_TECHNICAL_NONREGRESSION='+str(d['technical_native_admission'])); print('O8_RESOURCE='+json.dumps({k:{'cpu':v['median_cpu_ns'],'rss':v['maximum_peak_rss_bytes'],'cert':v['correct_certificates'],'abstain':v['safe_abstentions']} for k,v in d['arms'].items()},sort_keys=True))"
+          if($LASTEXITCODE -ne 0){throw 'O8_FAIL_CLOSED_AUDIT_INVALID'}
+          Write-Output 'O8_SCIENTIFIC_AND_OPTIMIZER_ADMISSION=FALSE'
+      - name: One complete LCRM package regression after focused native qualification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01/... -count=1
+          if($LASTEXITCODE -ne 0){throw 'O8_FINAL_PACKAGE_REGRESSION_FAIL'}
+          Write-Output 'O8_FINAL_LCRM_PACKAGE_REGRESSION=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o8-native-resource-${{ matrix.os }}
+          path: |
+            o8-native-samples.ndjson
+            o8-sourcefree-comparison.json
+          if-no-files-found: ignore
+          retention-days: 90
