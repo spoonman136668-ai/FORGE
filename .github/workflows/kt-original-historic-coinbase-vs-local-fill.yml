@@ -1,0 +1,205 @@
+name: K-Terminal historical Coinbase account fill vs local display read-only audit
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-historic-coinbase-vs-local-fill.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-history-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Correlate verified saved Coinbase account-fill times to original operator receipts
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'KTERM_LOCAL_RUNNER_MISMATCH'}
+          Write-Host 'KTERM_COINBASE_CACHE_AUDIT_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object {Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal'} | Where-Object {Test-Path -LiteralPath $_ -PathType Container})
+          if($roots.Count -ne 1){throw 'KTERM_ORIGINAL_ROOT_NOT_UNIQUE'}
+          $root=$roots[0]
+          $running=@(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue|Where-Object{
+           try{[string]::Equals([IO.Path]::GetDirectoryName([string]$_.Path),$root,[StringComparison]::OrdinalIgnoreCase)}catch{$false}
+          })
+          Write-Host ('KTERM_ORIGINAL_ENGINE_CURRENT_COUNT='+$running.Count)
+          function Parse-Time([object]$raw){
+           $t=[datetimeoffset]::MinValue
+           if($null -eq $raw){return $null}
+           if([datetimeoffset]::TryParse([string]$raw,[ref]$t) -and $t.Year -ge 2020 -and $t.Year -le 2030){return $t}
+           return $null
+          }
+          function Parse-DurationStats([string]$name,$collection){
+           $values=@($collection|Sort-Object)
+           Write-Host ($name+'_N='+$values.Count)
+           if($values.Count -eq 0){return}
+           $sum=0.0;$above=0;$below=0;$far=0
+           foreach($x in $values){$sum+=$x;if($x -ge 7000){$above++};if($x -lt 0){$below++};if([math]::Abs($x) -gt 120000){$far++}}
+           Write-Host ($name+'_AVG_MS='+[math]::Round($sum/$values.Count,1))
+           Write-Host ($name+'_P50_MS='+[math]::Round([double]$values[[int][math]::Floor($values.Count/2)],1))
+           Write-Host ($name+'_P95_MS='+[math]::Round([double]$values[[int][math]::Min($values.Count-1,[int][math]::Ceiling(.95*$values.Count)-1)],1))
+           Write-Host ($name+'_MAX_MS='+[math]::Round([double]$values[-1],1))
+           Write-Host ($name+'_NEGATIVE_COUNT='+$below)
+           Write-Host ($name+'_GE_7000MS='+$above)
+           Write-Host ($name+'_ABS_GT_120S='+$far)
+          }
+          function Read-SharedTail([string]$path,[long]$maxBytes){
+           $stream=$null;$reader=$null
+           try{
+            $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+            $truncated=$stream.Length -gt $maxBytes
+            if($truncated){$null=$stream.Seek(-$maxBytes,[IO.SeekOrigin]::End)}
+            $reader=[IO.StreamReader]::new($stream)
+            $lines=$reader.ReadToEnd() -split '\r?\n'
+            if($truncated -and $lines.Count -gt 1){$lines=@($lines|Select-Object -Skip 1)}
+            return @{truncated=$truncated;lines=$lines}
+           }finally{
+            if($null-ne$reader){$reader.Dispose()}elseif($null-ne$stream){$stream.Dispose()}
+           }
+          }
+          $log=Join-Path $root 'data\logs\k-terminal-execution.log'
+          $orders=@{}
+          $eventCount=0;$logsWithOrderID=0
+          if(Test-Path -LiteralPath $log -PathType Leaf){
+           $logTail=Read-SharedTail $log 16777216
+           Write-Host 'KTERM_OPERATOR_EXECUTION_LOG=PRESENT'
+           Write-Host ('KTERM_OPERATOR_EXECUTION_LOG_TRUNCATED='+[bool]$logTail.truncated)
+           foreach($line in $logTail.lines){
+            if($line.Length -lt 30 -or $line.Length -gt 50000){continue}
+            if($line -notmatch '^\[(?<ts>[^\]]+)\]\s+(?<label>(BUY|SELL|TP)(?:\s+[^\|]+)?)\s+\|\s+(?<state>[A-Z][A-Z0-9 ]+)(?:\s+\|\s+(?<details>.*))?$'){continue}
+            $eventCount++
+            $ts=Parse-Time $Matches['ts']
+            if($null-eq$ts){continue}
+            $status=[string]$Matches['state']
+            $details=[string]$Matches['details']
+            $label=[string]$Matches['label']
+            if($details -notmatch '(?:^|\s|\|)accepted order\s+([A-Za-z0-9_.:-]{3,160})(?:\s|\||$)'){continue}
+            $id=[string]$Matches[1];$logsWithOrderID++
+            $side=if($label -match '^BUY'){'BUY'}else{'SELL'}
+            if(-not$orders.ContainsKey($id)){$orders[$id]=@{side=$side}}
+            $entry=$orders[$id]
+            if($entry.side -ne $side){$entry.invalid=$true;continue}
+            if(-not$entry.ContainsKey($status) -or $ts -lt $entry[$status]){$entry[$status]=$ts}
+            if($status -in @('TRACKED','TRACKED HISTORICAL')){
+             foreach($pair in @(@('tracked_first_observed_at','LOCAL_FIRST_TRACKED'),@('terminal_observed_at','LOCAL_TERMINAL_OBSERVED'),@('coinbase_order_fill_first_at','VENUE_EXACT_FILL'))){
+              $key=[string]$pair[0];$field=[string]$pair[1]
+              if($details -match ('(?:^|\s|\|)'+[regex]::Escape($key)+'=([0-9TZ.:+-]+)')){
+               $parsed=Parse-Time $Matches[1]
+               if($null-ne$parsed -and (-not$entry.ContainsKey($field) -or $parsed -lt $entry[$field])){$entry[$field]=$parsed}
+              }
+             }
+            }
+           }
+          }else{Write-Host 'KTERM_OPERATOR_EXECUTION_LOG=ABSENT'}
+          Write-Host ('KTERM_OPERATOR_SCOPED_EVENTS_PARSED='+$eventCount)
+          Write-Host ('KTERM_OPERATOR_EVENTS_WITH_VENUE_ORDER_ID='+$logsWithOrderID)
+          Write-Host ('KTERM_OPERATOR_DISTINCT_VENUE_ORDER_IDS='+$orders.Count)
+          $data=Join-Path $root 'data'
+          $files=@()
+          if(Test-Path -LiteralPath $data -PathType Container){
+           $files=@(Get-ChildItem -LiteralPath $data -Filter 'coinbase-performance-history-*.json' -File -ErrorAction Stop)
+          }
+          Write-Host ('KTERM_COINBASE_HISTORICAL_METADATA_FILES='+$files.Count)
+          $cachePresent=0;$cacheScoped=0;$cacheVerified=0;$cacheRejected=0
+          $eligibleOrders=@{}
+          $scopedRecordCount=0;$matchableRecordCount=0
+          foreach($file in $files){
+           $product=$file.Name.Substring('coinbase-performance-history-'.Length)
+           if(-not $product.EndsWith('.json')){continue}
+           $product=$product.Substring(0,$product.Length-'.json'.Length)
+           if($product -notmatch '^[A-Za-z0-9]+-[A-Za-z0-9]+$'){$cacheRejected++;continue}
+           $cachePresent++
+           if($file.Length -gt 2097152 -or $file.Length -lt 2){$cacheRejected++;continue}
+           $journal=Join-Path $data ('coinbase-performance-history-'+$product+'.jsonl')
+           if(-not(Test-Path -LiteralPath $journal -PathType Leaf)){$cacheRejected++;continue}
+           $info=Get-Item -LiteralPath $journal
+           if($info.Length -gt 33554432 -or $info.Length -lt 1){$cacheRejected++;continue}
+           $meta=$null
+           try{$meta=Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop}catch{$cacheRejected++;continue}
+           if([int]$meta.schema_version -ne 2 -or -not[string]::Equals([string]$meta.product_id,$product,[StringComparison]::OrdinalIgnoreCase) -or [int]$meta.record_count -lt 0 -or [int]$meta.record_count -gt 200000){$cacheRejected++;continue}
+           $cacheScoped++
+           $metaVerified=([bool]$meta.replay_verified -and -not[bool]$meta.order_scope_invalidated -and -not[string]::IsNullOrEmpty([string]$meta.scope_certificate_sha256))
+           if($metaVerified){$cacheVerified++}
+           $age=([datetime]::UtcNow-$file.LastWriteTimeUtc).TotalMinutes
+           Write-Host ('KTERM_COINBASE_CACHE_SCOPED_RECORDS_EXPECTED='+[int]$meta.record_count)
+           Write-Host ('KTERM_COINBASE_CACHE_LAST_FILE_UPDATE_AGE_MIN='+[int][math]::Max(0,$age))
+           Write-Host ('KTERM_COINBASE_CACHE_VERIFIED_CERTIFIED='+[bool]$metaVerified)
+           $recordsRead=0
+           $stream=$null;$reader=$null
+           try{
+            $stream=[IO.File]::Open($journal,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+            $reader=[IO.StreamReader]::new($stream)
+            while(($line=$reader.ReadLine()) -ne $null){
+             if($line.Length -lt 2){continue}
+             if($line.Length -gt 200000){throw 'Oversized archive record'}
+             $record=$line|ConvertFrom-Json -ErrorAction Stop
+             $recordsRead++
+             if($recordsRead -gt 200000){throw 'Archive record bound exceeded'}
+             if(-not$metaVerified){continue}
+             if([string]$record.source_type -ne 'advanced_trade_fill'){continue}
+             if(-not[string]::Equals([string]$record.product_id,$product,[StringComparison]::OrdinalIgnoreCase)){continue}
+             $trade=Parse-Time $record.trade_time
+             if($null-eq$trade){continue}
+             $id=[string]$record.order_id
+             if($id.Length -lt 3 -or $id.Length -gt 160){continue}
+             $side=if([bool]$record.acquisition -and -not[bool]$record.disposition){'BUY'}elseif([bool]$record.disposition -and -not[bool]$record.acquisition){'SELL'}else{'UNKNOWN'}
+             if($side -eq 'UNKNOWN'){continue}
+             $scopedRecordCount++
+             if(-not$eligibleOrders.ContainsKey($id)){$eligibleOrders[$id]=@{side=$side;earliest=$trade;product=$product}}
+             else{
+              $p=$eligibleOrders[$id]
+              if($p.side -ne $side -or $p.product -ne $product){$p.invalid=$true}
+              if($trade -lt $p.earliest){$p.earliest=$trade}
+             }
+            }
+           }catch{$cacheRejected++;$metaVerified=$false}
+           finally {if($null-ne$reader){$reader.Dispose()}elseif($null-ne$stream){$stream.Dispose()}}
+           if($recordsRead -ne [int]$meta.record_count){$cacheRejected++;$metaVerified=$false}
+           if(-not$metaVerified){
+            foreach($id in @($eligibleOrders.Keys)){
+             if($eligibleOrders[$id].product -eq $product){$eligibleOrders.Remove($id)}
+            }
+           }
+           Write-Host ('KTERM_COINBASE_CACHE_SCOPED_RECORDS_OBSERVED='+$recordsRead)
+           Write-Host ('KTERM_COINBASE_CACHE_FILE_COUNT_MATCH='+($recordsRead -eq [int]$meta.record_count))
+          }
+          $toFill=[Collections.Generic.List[double]]::new()
+          $toTracked=[Collections.Generic.List[double]]::new()
+          $toFirstTracked=[Collections.Generic.List[double]]::new()
+          $exactVenueToTracked=[Collections.Generic.List[double]]::new()
+          $onlySource=0;$withOperator=0
+          foreach($id in $eligibleOrders.Keys){
+           $c=$eligibleOrders[$id]
+           if($c.ContainsKey('invalid')){continue}
+           if(-not$orders.ContainsKey($id)){$onlySource++;continue}
+           $entry=$orders[$id]
+           if($entry.ContainsKey('invalid') -or $entry.side -ne $c.side){continue}
+           $withOperator++
+           foreach($pair in @(@('FILLED',$toFill),@('TRACKED',$toTracked),@('LOCAL_FIRST_TRACKED',$toFirstTracked))){
+            $field=[string]$pair[0];$list=$pair[1]
+            if($entry.ContainsKey($field)){
+             $elapsed=($entry[$field]-$c.earliest).TotalMilliseconds
+             if([math]::Abs($elapsed) -le 86400000){$list.Add([double]$elapsed)}
+            }
+           }
+           if($entry.ContainsKey('VENUE_EXACT_FILL') -and $entry.ContainsKey('TRACKED')){
+            $delta=($entry['TRACKED']-$entry['VENUE_EXACT_FILL']).TotalMilliseconds
+            if([math]::Abs($delta) -le 86400000){$exactVenueToTracked.Add([double]$delta)}
+           }
+          }
+          Write-Host ('KTERM_COINBASE_ACCOUNT_FILL_RECORDS_SCOPED='+$scopedRecordCount)
+          Write-Host ('KTERM_COINBASE_ACCOUNT_ORDER_IDS_MATCHED='+$withOperator)
+          Write-Host ('KTERM_COINBASE_ACCOUNT_ORDER_IDS_UNMATCHED='+$onlySource)
+          Parse-DurationStats 'KTERM_ACCOUNT_TRANSACTION_TO_LOCAL_FILLED' $toFill
+          Parse-DurationStats 'KTERM_ACCOUNT_TRANSACTION_TO_LOCAL_TRACKED' $toTracked
+          Parse-DurationStats 'KTERM_ACCOUNT_TRANSACTION_TO_FIRST_TRACKED_OBSERVED' $toFirstTracked
+          Parse-DurationStats 'KTERM_EXACT_VENUE_FILL_TO_LOCAL_TRACKED' $exactVenueToTracked
+          Write-Host 'KTERM_SOURCE_TIMESTAMP_KIND=COINBASE_ACCOUNT_TRANSACTION_CREATED_AT'
+          Write-Host 'KTERM_SOURCE_TIMESTAMP_NOT_GUARANTEED_EXACT_FILL=TRUE'
+          Write-Host 'KTERM_OPERATOR_FILLED_TIMESTAMP_PRECISION=ONE_SECOND'
+          Write-Host 'KTERM_NO_COINBASE_API_OR_ENGINE_STARTED=TRUE'
+          Write-Host 'KTERM_NO_ORIGINAL_FILES_MODIFIED=TRUE'
+          Write-Host 'KTERM_NO_IDENTIFIERS_OR_SENSITIVE_VALUES_EXPORTED=TRUE'
+          Write-Host 'KTERM_HISTORIC_FILL_CORRELATION_AUDIT=PASS'
