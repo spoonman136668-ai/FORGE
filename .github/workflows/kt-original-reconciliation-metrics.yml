@@ -1,0 +1,54 @@
+name: K-Terminal original reconciliation metrics review
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-reconciliation-metrics.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Read existing reconciliation timing summary without launching trading
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'KTERM_WRONG_RUNNER'}
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if($roots.Count -ne 1){throw 'KTERM_ORIGINAL_ROOT_AMBIGUOUS'}
+          $root=$roots[0]
+          $p=Join-Path $root 'data\native-runtime\reconciliation-metrics.json'
+          if(-not(Test-Path -LiteralPath $p -PathType Leaf)){Write-Host 'KTERM_RECON_METRICS=ABSENT';exit 0}
+          $f=[IO.FileInfo]::new($p)
+          if($f.Length -lt 2 -or $f.Length -gt 2097152){Write-Host 'KTERM_RECON_METRICS=SKIPPED_SIZE';exit 0}
+          Write-Host ('KTERM_RECON_METRICS_AGE_MIN=' + [int][Math]::Max(0,([DateTime]::UtcNow-$f.LastWriteTimeUtc).TotalMinutes))
+          $m=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+          foreach($k in @('duration_ms','api_requests','pagination_pages','retries','observation_passes','order_reads_reused','local_history_records_parsed','local_history_records_reused','authority_ready_ms','final_identity_ms')){
+            $prop=$m.PSObject.Properties[$k]
+            if($null -ne $prop -and $null -ne $prop.Value){
+              $num=0L
+              if([long]::TryParse([string]$prop.Value,[ref]$num) -and $num -ge 0 -and $num -le 1000000000){
+                Write-Host ('KTERM_RECON_' + $k.ToUpperInvariant() + '=' + $num)
+              }
+            }
+          }
+          $stages=$m.PSObject.Properties['stage_ms']
+          if($null -ne $stages -and $null -ne $stages.Value){
+            $whitelist=@('permissions_and_accounts','checkpoint_validation','local_accounting_validation','manager_bootstrap','reconcile_observations','complete')
+            foreach($k in $whitelist){
+              $v=$stages.Value.PSObject.Properties[$k]
+              if($null -ne $v -and $null -ne $v.Value){
+                $num=0L
+                if([long]::TryParse([string]$v.Value,[ref]$num) -and $num -ge 0 -and $num -le 1000000000){
+                  Write-Host ('KTERM_RECON_STAGE_' + $k.ToUpperInvariant() + '_MS=' + $num)
+                }
+              }
+            }
+          }
+          # Do not expose the failure field, order paths, account IDs, raw logs,
+          # local per-file timing keys, histories or transaction metadata.
+          Write-Host 'KTERM_RECON_SAFE_FIELDS_ONLY=TRUE'
+          Write-Host 'KTERM_NO_TRADING_RUN=TRUE'
