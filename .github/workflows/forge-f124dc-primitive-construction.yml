@@ -1,0 +1,114 @@
+name: F124-DC sourcefree unseen causal primitive synthesis
+on:
+  push:
+    branches: [research/f124dc-heldout-primitive-synthesis-20261019]
+    paths: [.github/workflows/forge-f124dc-primitive-construction.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124dc-sourcefree-three-input-primitive-original
+  cancel-in-progress: false
+jobs:
+  exact-frozen-sourcefree-preflight:
+    name: frozen-sourcefree-preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Enforce original preregistration before structural source code and unchanged old control
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'DC_IMMUTABLE_RUN_HEAD_MISMATCH' }
+          & git merge-base --is-ancestor 6301cf8428ca8ea4cb87ef4b3a427e1acd1b60e1 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DC_FIRST_PREREG_NOT_ANCESTOR' }
+          & git merge-base --is-ancestor 7ca039abbe93ac3200e64bd74ebbd00f700365e4 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DC_DRAFT_F124DB_ORIGINAL_RESEARCH_NOT_ANCESTOR' }
+          $f = Get-Content -Raw research/north-star-transfer/f124dc-frozen-primitive-construction.json | ConvertFrom-Json
+          if ($f.schema -cne 'mass.f124dc.sourcefree-heldout-primitive-compiler-prereg.v1' -or $f.new_scientific_firstuse_cases -ne 0) { throw 'DC_FROZEN_HYPOTHESIS_MISMATCH' }
+          if (!$f.all_sci_sources_924_to_937_untouched -or !$f.protected_firstuse -eq $false) {
+            Write-Host 'F124DC_SOURCE_GUARD_CHECK=PASS'
+          } else { throw 'DC_SOURCE_PRIVACY_GUARD' }
+          if ($f.scientific_acceptance -or $f.no_automatic_merge -ne $true) { throw 'DC_NO_ORIGINAL_SCI_ADMISSION' }
+          $actual = (& git rev-parse "HEAD:research/north-star-transfer/f124da_learned_operator_search.py").Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne 'd5b5d3b087279cbda2f318350a9f50c796c728f3') { throw 'DC_FROZEN_TWO_INPUT_CONTROL_DRIFT' }
+          Write-Host 'F124DC_FROZEN_SOURCEFREE_ORIGINAL_PRIOR_TO_GENERATOR=PASS'
+      - name: Qualify learned gate construction and genuinely heldout three-way structural functions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B research/north-star-transfer/test_f124dc_new_primitive.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'DC_SOURCEFREE_CAUSAL_LEARNING_TEST_FAILED' }
+          Write-Host 'F124DC_EQUAL_META_PEER_AND_UNSEEN_CAUSAL_PRIMITIVES_TESTS=PASS'
+  original-sourcefree-full-os:
+    name: original-full-os (${{ matrix.family }}, seed ${{ matrix.seed_start }})
+    needs: exact-frozen-sourcefree-preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [ternary-majority-unseen, ternary-selector-unseen, quartic-fourway-unseen]
+        seed_start: [71, 73]
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute all 24 whole Python-process causal model and equal-peer comparisons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dc_native_sourcefree_shard.py \
+            --family "${{ matrix.family }}" \
+            --seed-start "${{ matrix.seed_start }}" \
+            --out "$RUNNER_TEMP/f124dc-original-sourcefree"
+      - name: Retain entire original full-OS shard and source-bound results
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dc-original-${{ matrix.family }}-${{ matrix.seed_start }}
+          path: ${{ runner.temp }}/f124dc-original-sourcefree/shard-*.json
+          retention-days: 90
+          if-no-files-found: error
+  independent-original-readonly-reconciliation:
+    name: independent-original-readonly-reconciliation
+    needs: original-sourcefree-full-os
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download all six original source-free whole-OS shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: f124dc-original-*
+          path: ${{ runner.temp }}/f124dc-original-shards
+          merge-multiple: true
+      - name: Exact unselected 144-process native CPU/RSS and strong-peer custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124dc_readonly_sourcefree_audit.py \
+            --shards "$RUNNER_TEMP/f124dc-original-shards" \
+            --out "$RUNNER_TEMP/f124dc-original-review"
+      - name: Retain safe summary and all actual measured original records
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124dc-complete-original-144-sourcefree-native-evidence
+          path: ${{ runner.temp }}/f124dc-original-review/
+          retention-days: 90
+          if-no-files-found: error
