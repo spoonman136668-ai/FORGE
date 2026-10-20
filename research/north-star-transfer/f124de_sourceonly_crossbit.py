@@ -70,3 +70,30 @@ def negative(ep):
     need(sorted(row["observed"] for row in e)==
          sorted(row["observed"] for row in ep["events"]),"INVENTORY_MISMATCH")
     return other
+
+def meta_training():
+    # Extra independent PUBLIC supervision for historical DD control only:
+    # not a source/model label and not any reused DD source cohort.
+    tasks=[]
+    for i in range(12):
+        rng=random.Random(21990000+1297*i)
+        gate=("meta_nand","meta_xor","meta_and")[i%3]
+        wires=((0,2),(1,4),(2,4))[i%3]
+        state_tasks=[]
+        for _ in range(24):
+            state={k:[rng.randrange(16),rng.randrange(16)] for k in ROLES}
+            initial=copy.deepcopy(state);ev=[]
+            for j in range(8):
+                target=rng.choice(ROLES)
+                source=rng.choice([k for k in ROLES if k!=target])
+                event=rng.randrange(16)
+                own=state[target];src=state[source]
+                inputs=(own[0],own[1],src[0],src[1],event)
+                a,bb=(inputs[k] for k in wires)
+                value=(~(a&bb))&15 if gate=="meta_nand" else (
+                      a^bb if gate=="meta_xor" else a&bb)
+                ev.append({"target":target,"source":source,"event":event,"observed":value})
+                state[target]=[value,own[0]]
+            state_tasks.append({"initial":initial,"events":ev})
+        tasks.append(state_tasks)
+    return tasks
