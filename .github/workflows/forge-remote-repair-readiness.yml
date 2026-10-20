@@ -110,3 +110,77 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'D2Q_NATIVE_EVENT_REPLAY_FAILED'}
           } finally {Set-Location -LiteralPath $loc}
           Write-Output 'F139_D2Q_29_EVENT_READONLY_REPLAY=PASS'
+      - name: Checkout GitHub-retained D2Q head witness
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'custody(f139): compare D2Q retained GitHub head against owner SQLite'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify independent GitHub retention and unchanged D2Q owner head
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'custody(f139): compare D2Q retained GitHub head against owner SQLite'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='spoonman136668-ai/FORGE'
+          $witness='ops/f139/custody/f139-d2q-event29-head-commitment.json'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne $repo) {throw 'D2Q_WRONG_RUNNER'}
+          $file=Join-Path $env:GITHUB_WORKSPACE $witness
+          $blob=(& git rev-parse ('HEAD:'+$witness)).Trim()
+          if($LASTEXITCODE -ne 0 -or $blob -cne 'ac1d93b96daa10ba5bd11eaebc8e861d3c0b9ca9'){throw 'D2Q_COMMIT_BLOB_DRIFT'}
+          $external=(& gh api -X GET ('repos/'+$repo+'/contents/'+$witness+'?ref=d1d719c42a5edc0fc38a25860c6b03278ea9afa4'))|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $external.sha -cne $blob -or $external.type -cne 'file'){throw 'D2Q_EXTERNAL_GITHUB_WITNESS_INVALID'}
+          $w=Get-Content -LiteralPath $file -Raw|ConvertFrom-Json
+          if($w.schema -cne 'forge.f139.d2q.external-github-head-commitment.v1' -or
+             $w.observed_event_29_sha256 -cne '2648e4164fdfa95044a7280d133b5257d2de20820d2ea9c5cbbccbb752cc7344' -or
+             $w.original_first_use_authorized -ne $false -or $w.scientific_execution_authorized -ne $false -or
+             $w.d2p_provider_run_id -ne 39414572565){throw 'D2Q_UNQUALIFIED_EXTERNAL_CLAIM'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($t.State -ne 'Running' -or @($t.Actions).Count -ne 1){throw 'D2Q_CONTROLLER_NOT_RUNNING'}
+          $owner=([Security.Principal.NTAccount]::new([string]$t.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if($owner.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'D2Q_WRONG_OWNER'}
+          $p=@{}
+          foreach($n in @('RepositoryRoot','PythonExe','Database')){
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(!$m.Success){throw ('D2Q_TASK_'+$n+'_DRIFT')}
+            $p[$n]=$m.Groups[1].Value
+          }
+          $actual=(& git -C $p.RepositoryRoot rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -cne $w.controller_source_sha){throw 'D2Q_INSTALLED_SOURCE_DRIFT'}
+          $audit=@'
+          import json,hashlib,sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]); target=sys.argv[2]
+          c=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+          c.row_factory=sqlite3.Row
+          try:
+              c.execute('PRAGMA query_only=ON')
+              meta=c.execute('SELECT * FROM meta WHERE id=1').fetchone()
+              events=list(c.execute('SELECT seq,prior_sha,payload,kind,sha FROM events ORDER BY seq'))
+              tasks=list(c.execute('SELECT ticket,stage,run_id FROM tasks ORDER BY ticket'))
+              assert len(events)==29 and len(tasks)==5 and meta['head_seq']==29,'D2Q_COUNT_DRIFT'
+              assert all(t['stage']=='VERIFIED' for t in tasks),'D2Q_PENDING_OR_FAILED_TASK'
+              prior='0'*64
+              for i,e in enumerate(events,1):
+                  assert e['seq']==i and e['prior_sha']==prior,'D2Q_PREDECESSOR_DRIFT'
+                  d=json.loads(e['payload'])
+                  assert json.dumps(d,sort_keys=True,separators=(',',':'),ensure_ascii=True)+'\n'==e['payload'],'D2Q_NONCANONICAL'
+                  raw=json.dumps({'seq':i,'prior_sha':prior,'kind':e['kind'],'payload':d},sort_keys=True,separators=(',',':'),ensure_ascii=True)+'\n'
+                  prior=hashlib.sha256(raw.encode()).hexdigest()
+                  assert e['sha']==prior,'D2Q_EVENT_HASH_DRIFT'
+                  if i==23:assert prior=='eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87','D2Q_SEALED_PREFIX_DRIFT'
+                  if 'scientific_first_use' in d:assert d['scientific_first_use'] is False,'D2Q_SCIENCE_ADMITTED'
+              assert prior==meta['head_hash']==target,'D2Q_EXTERNAL_HEAD_NOT_REPRODUCIBLE'
+              assert tasks[-1]['run_id']==39414572565,'D2Q_PROVIDER_RUN_DRIFT'
+              print('F139_D2Q_GITHUB_WITNESS_MATCH=PASS')
+          finally:c.close()
+          '@
+          $old=(Get-Location).Path
+          try{
+            Set-Location -LiteralPath $p.RepositoryRoot
+            & $p.PythonExe -B -c $audit $p.Database $w.observed_event_29_sha256
+            if($LASTEXITCODE -ne 0){throw 'D2Q_OWNER_READONLY_REPLAY_FAILED'}
+          }finally{Set-Location -LiteralPath $old}
+          Write-Output 'F139_D2Q_EXTERNAL_GITHUB_COMMIT=VERIFIED'
+          Write-Output 'F139_D2Q_FSA_FIRST_USE_PERMISSION=NOT_ESTABLISHED'
+          Write-Output 'F139_D2Q_DISPOSITION=EXTERNAL_HEAD_COMMITMENT_ACCEPTED_SCIENCE_BLOCKED'
