@@ -1,0 +1,84 @@
+name: K-Terminal RC2-L Windows retry timing/order isolation
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2l-retry-deadline-matrix.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterminal-rc2l-exact-retry-window-20261020
+  cancel-in-progress: false
+jobs:
+  bounded-retry-matrix:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Checkout FORGE qualification branch read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout exact frozen original K-Terminal
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout exact unmerged PR73 K-Terminal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Pinned Go for Windows
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify source identity and isolated test-only custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kt-original status --porcelain)"
+          test -z "$(git -C kt-candidate status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            test -z "${!n:-}"
+          done
+          echo KTERM_RC2L_EXACT_READ_ONLY_SOURCE_AND_NO_BROKER=PASS
+      - name: Measure retry under repeated, predecessor and CPU-contention windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2l_retry_deadline_matrix.py \
+            kt-original kt-candidate "$RUNNER_TEMP/kterm-rc2l-timing"
+          echo KTERM_RC2L_FINANCIAL_ASSERTIONS=UNCHANGED
+          echo KTERM_RC2L_HARD_TWO_SECOND_WINDOW=UNCHANGED
+          echo KTERM_RC2L_FULL_REGRESSION=NOT_RUN
+      - name: Retain redacted test classifications and times only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2l-redacted-${{ github.run_id }}
+          path: ${{ runner.temp }}/kterm-rc2l-timing/rc2l-redacted-evidence.json
+          if-no-files-found: warn
+          retention-days: 15
