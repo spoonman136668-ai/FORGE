@@ -73,9 +73,27 @@ def heldout(family,seed):
     else:
         kind="quartic4"
         wires=[(0,1,2,4),(0,1,3,4),(0,2,3,4),(1,2,3,4)][SEEDS.index(seed)]
-    return {"FIT":[episode(rng,kind,wires) for _ in range(24)],
-            "CHECK":[episode(rng,kind,wires) for _ in range(8)],
-            "HELDOUT":[episode(rng,kind,wires) for _ in range(8)]}
+    fit=[episode(rng,kind,wires) for _ in range(24)]
+    check=[episode(rng,kind,wires) for _ in range(8)]
+    # Deterministic SOURCE-ONLY eligibility: hard negatives preserve the
+    # complete observed-token multiset by swapping outputs of different
+    # target roles. Degenerate uniform trajectories cannot admit such a
+    # negative. Take the FIRST eligible trajectory of at most 128 draws.
+    # No learner is consulted; FIT and CHECK distributions are unchanged.
+    heldout=[]
+    for _ in range(8):
+        for attempt in range(128):
+            candidate=episode(rng,kind,wires)
+            ev=candidate["events"]
+            eligible=any(ev[i]["target"]!=ev[j]["target"] and
+                         ev[i]["observed"]!=ev[j]["observed"]
+                         for i in range(8) for j in range(i+1,8))
+            if eligible:
+                heldout.append(candidate)
+                break
+        else:
+            raise RuntimeError("F124DC_SOURCE_NO_ELIGIBLE_MATCHED_NEGATIVE_IN_128")
+    return {"FIT":fit,"CHECK":check,"HELDOUT":heldout}
 
 def hard_negative(ep):
     bad=copy.deepcopy(ep)
