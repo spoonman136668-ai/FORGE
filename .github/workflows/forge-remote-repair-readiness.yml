@@ -236,3 +236,83 @@ jobs:
           Write-Output 'F139_D2S_SQL_WRITES=ZERO'
           Write-Output 'F139_D2S_SCIENTIFIC_FIRST_USE=BLOCKED'
           Write-Output 'F139_D2S_DISPOSITION=CRYPTOGRAPHIC_PROVIDER_BYTES_ACCEPTED_NO_FSA_PERMISSION'
+      - name: D2T six-origin provider metadata readback
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): inspect D2T historical provider provenance without original downloads'
+        shell: pwsh
+        env:
+          F139_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          F139_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'D2T_WRONG_WORKSTATION_RUNNER'}
+          $protected=(& gh api -X GET repos/spoonman136668-ai/FORGE/branches/main)|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $protected.protected -ne $true -or $protected.commit.sha -cne '34ca99c1b5b063225566082aee5aa180a15d093b'){throw 'D2T_PROTECTED_MAIN_IDENTITY_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($task.State -ne 'Running' -or $task.Principal.LogonType -cne 'Interactive'){throw 'D2T_OWNER_CONTROLLER_NOT_RUNNING'}
+          $owner=([Security.Principal.NTAccount]::new([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if($owner.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'D2T_WRONG_WINDOWS_OWNER'}
+          if([string]::IsNullOrWhiteSpace($env:F139_CF_TOKEN) -or $env:F139_CF_ACCOUNT -notmatch '^[a-f0-9]{32}$'){throw 'D2T_PROVIDER_BINDING_INVALID'}
+          $base='https://api.cloudflare.com/client/v4/accounts/'+$env:F139_CF_ACCOUNT
+          $headers=@{Authorization=('Bearer '+$env:F139_CF_TOKEN);Accept='application/json'}
+          $dbs=Invoke-RestMethod -Uri ($base+'/d1/database?page=1&per_page=100') -Headers $headers -Method Get -TimeoutSec 30
+          if($dbs.success -ne $true -or $dbs.result_info.total_count -gt 100 -or @($dbs.result).Count -ne $dbs.result_info.total_count){throw 'D2T_D1_LIST_INCOMPLETE'}
+          $found=@($dbs.result|Where-Object{$_.name -match '(?i)forge'})
+          if($found.Count -ne 1){throw 'D2T_DATABASE_NOT_UNIQUE'}
+          $sql=@'
+          SELECT o.archive_sha256,o.lane,o.repository,o.run_id,o.artifact_id,o.source_sha,o.original_length,o.chunk_count,
+                 o.scientific_state,s.seal_receipt_sha256
+          FROM forge_research_originals o INNER JOIN forge_research_seals s ON s.archive_sha256=o.archive_sha256
+          ORDER BY o.archive_sha256 LIMIT 7
+          '@
+          $sql=$sql.Trim()
+          if(!$sql.StartsWith('SELECT ') -or $sql -match '(?i)\b(INSERT|DELETE|UPDATE|DROP|ALTER|CREATE|ATTACH|DETACH)\b'){throw 'D2T_NOT_READONLY_SQL'}
+          $body=@{sql=$sql;params=@()}|ConvertTo-Json -Compress
+          $reply=Invoke-RestMethod -Method Post -Uri ($base+'/d1/database/'+$found[0].uuid+'/query') -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 30
+          if($reply.success -ne $true -or @($reply.result).Count -ne 1 -or $reply.result[0].success -ne $true -or
+            $reply.result[0].meta.changes -ne 0 -or $reply.result[0].meta.rows_written -ne 0){throw 'D2T_D1_METADATA_NOT_READONLY'}
+          $rows=@($reply.result[0].results)
+          if($rows.Count -ne 6){throw 'D2T_ORIGINAL_COUNT_DRIFT'}
+          $available=0;$unavailable=0;$mismatch=0;$sealed=0;$repoTypes=@{}
+          foreach($row in $rows){
+            if([string]$row.archive_sha256 -cnotmatch '^[a-f0-9]{64}$' -or [string]$row.seal_receipt_sha256 -cnotmatch '^[a-f0-9]{64}$' -or
+               [string]$row.source_sha -cnotmatch '^[a-f0-9]{40}$' -or [long]$row.run_id -le 0 -or [long]$row.artifact_id -le 0 -or
+               [long]$row.original_length -le 0 -or [int]$row.chunk_count -le 0){throw 'D2T_D1_ORIGINAL_METADATA_INVALID'}
+            $sealed++
+            # Do not contact any nonapproved repository or unrelated system.
+            $rp=[string]$row.repository
+            if($rp -cnotmatch '^spoonman136668-ai/(Wingless|Yggdrasil)$'){throw 'D2T_UNAPPROVED_SOURCE_REPOSITORY'}
+            $repoTypes[$rp]=1
+            $providerRun=$null;$providerArtifact=$null
+            $prev=$ErrorActionPreference
+            try{
+              $ErrorActionPreference='Continue'
+              $runRaw=@(& gh api -X GET ('repos/'+$rp+'/actions/runs/'+[string]$row.run_id) 2>$null)
+              $runRc=$LASTEXITCODE
+              $artRaw=@(& gh api -X GET ('repos/'+$rp+'/actions/artifacts/'+[string]$row.artifact_id) 2>$null)
+              $artRc=$LASTEXITCODE
+            }finally{$ErrorActionPreference=$prev}
+            if($runRc -ne 0 -or $artRc -ne 0){$unavailable++;continue}
+            try{
+              $providerRun=($runRaw -join [Environment]::NewLine)|ConvertFrom-Json
+              $providerArtifact=($artRaw -join [Environment]::NewLine)|ConvertFrom-Json
+            }catch{throw 'D2T_PROVIDER_METADATA_PARSING_REJECTED'}
+            if($providerRun.id -ne $row.run_id -or $providerRun.head_sha -cne [string]$row.source_sha -or
+              $providerRun.repository.full_name -cne $rp -or
+              $providerArtifact.id -ne $row.artifact_id -or $providerArtifact.workflow_run.id -ne $row.run_id){
+              $mismatch++;continue
+            }
+            $available++
+          }
+          Write-Output ('F139_D2T_HISTORIC_SEAL_DIGEST_RECORDS='+$sealed)
+          Write-Output ('F139_D2T_ARCHIVE_PROVIDER_SOURCE_REPOSITORIES='+$repoTypes.Count)
+          Write-Output ('F139_D2T_PROVIDER_RUN_AND_ARTIFACT_METADATA_MATCHED='+$available)
+          Write-Output ('F139_D2T_PROVIDER_RUN_OR_ARTIFACT_NOT_READABLE='+$unavailable)
+          Write-Output ('F139_D2T_PROVIDER_PROVENANCE_MISMATCHES='+$mismatch)
+          if($mismatch -ne 0){throw 'D2T_INDEPENDENT_PROVIDER_SOURCE_IDENTITY_MISMATCH'}
+          Write-Output 'F139_D2T_ORIGINAL_CONTENT_BYTES=NOT_FETCHED'
+          Write-Output 'F139_D2T_SEAL_SIGNATURES=NOT_VERIFIED_BY_DIGEST_METADATA'
+          Write-Output 'F139_D2T_PROVIDER_SQL_MUTATIONS=ZERO'
+          Write-Output 'F139_D2T_INDEPENDENT_FSA_WITNESS=NOT_ATTESTED'
+          Write-Output 'F139_D2T_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2T_DISPOSITION=HISTORIC_PROVIDER_METADATA_READONLY_AUDIT'
