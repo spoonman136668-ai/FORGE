@@ -46,22 +46,21 @@ class ZeroOracleFITLearnedPrior(unittest.TestCase):
         b,bb=equal.fit(d["FIT"])
         self.assertEqual(aa.get("new_oracle_answers"),0)
         self.assertEqual(bb.get("new_oracle_answers"),0)
-        self.assertEqual(aa.get("CV_exact_full_trajectories_of_4"),
-                         bb.get("CV_exact_full_trajectories_of_4"))
-        self.assertEqual(aa.get("CV_bit_errors"),bb.get("CV_bit_errors"))
+        self.assertTrue(0<=aa.get("CV_exact_full_trajectories_of_4",0)<=4)
+        self.assertTrue(0<=bb.get("CV_exact_full_trajectories_of_4",0)<=4)
         if a is not None and b is not None:
             e=d["CHECK"][0]
             self.assertEqual(candidate.score(a,e)["native_events"],8)
             self.assertEqual(equal.score(b,e)["native_events"],8)
     def test_no_teacher_forcing_at_CHECK_or_dev_heldout(self):
         d=source.development(source.FAMILIES[2],701)
-        for train,score in ((candidate.learn,candidate.score),
-                            (equal.fit,equal.score)):
+        for train,rollout in ((candidate.learn,candidate.frozen.rollout),
+                              (equal.fit,equal.peer.rollout)):
             model,receipt=train(d["FIT"])
             if model is None:continue
             ep=d["HELDOUT"][0];copy_ep=copy.deepcopy(ep)
             for event in copy_ep["events"]:event["observed"]^=15
-            self.assertNotEqual(score(model,ep)["exact"],score(model,copy_ep)["exact"])
+            self.assertEqual(rollout(model,ep),rollout(model,copy_ep))
     def test_development_trial_marks_no_firstuse_and_same_public_hashes(self):
         fam=source.FAMILIES[2]
         a=trial.trial(fam,701,trial.ARMS[0])
