@@ -212,3 +212,32 @@ jobs:
           Write-Host ('D2X_INTEGRATED_WORKFLOW_STATE='+$info.state)
           Write-Host ('D2X_INTEGRATED_WORKFLOW_ID='+$info.id)
           Write-Host 'D2X_READ_ONLY_NO_SCHEDULER_MUTATION=TRUE'
+
+      - name: D2Y identify exact installed F139 checkout read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $actions=@($task.Actions)
+          if ($actions.Count -ne 1) { throw 'D2Y_UNEXPECTED_TASK_ACTION_CARDINALITY' }
+          $args=[string]$actions[0].Arguments
+          $pattern='(?i)-RepositoryRoot\s+["'']?([^"'']+?)["'']?(?=\s+-|$)'
+          if ($args -notmatch $pattern) {
+            Write-Host 'D2Y_F139_CHECKOUT_PATH=NOT_EXTRACTED_FAIL_CLOSED'
+            return
+          }
+          $root=$Matches[1].Trim()
+          if (-not (Test-Path -LiteralPath (Join-Path $root 'f139/local_controller.py') -PathType Leaf)) {
+            throw 'D2Y_F139_ACTIVE_SOURCE_NOT_FOUND'
+          }
+          $head=(& git -C $root rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cnotmatch '^[a-f0-9]{40}$') { throw 'D2Y_F139_GIT_SOURCE_INVALID' }
+          $dirty=@(& git -C $root status --porcelain)
+          if ($LASTEXITCODE -ne 0) { throw 'D2Y_F139_GIT_STATUS_UNAVAILABLE' }
+          $branch=(& git -C $root branch --show-current).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'D2Y_F139_CHECKOUT_BRANCH_INVALID' }
+          Write-Host 'D2Y_F139_CHECKOUT_PATH=EXTRACTED_VERIFIED'
+          Write-Host ('D2Y_F139_CHECKOUT_HEAD='+$head)
+          Write-Host ('D2Y_F139_CHECKOUT_DIRTY='+($dirty.Count -gt 0).ToString().ToUpperInvariant())
+          Write-Host ('D2Y_F139_ON_MAIN='+($branch -ceq 'main').ToString().ToUpperInvariant())
+          Write-Host 'D2Y_NO_FILES_OR_TASKS_MODIFIED=TRUE'
