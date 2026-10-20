@@ -161,3 +161,78 @@ jobs:
           Write-Output 'F139_D2S_SQL_MUTATIONS=ZERO'
           Write-Output 'F139_D2S_FIRST_USE=BLOCKED'
           Write-Output 'F139_D2S_DISPOSITION=LIVE_ARCHIVE_RELATIONAL_CUSTODY_PASS_ONLY'
+      - name: D2S bounded cryptographic rehash of already-consumed archival chunks
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): rehash D2S consumed D1 chunks in memory with strict size caps'
+        shell: pwsh
+        env:
+          F139_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          F139_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_OS -cne 'Windows'){throw 'D2S_WRONG_RUNNER'}
+          $protected=(& gh api -X GET repos/spoonman136668-ai/FORGE/branches/main)|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $protected.commit.sha -cne '34ca99c1b5b063225566082aee5aa180a15d093b' -or !$protected.protected){throw 'D2S_MAIN_SOURCE_CHANGED'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($task.State -ne 'Running'){throw 'D2S_CONTROLLER_NOT_RUNNING'}
+          $owner=([Security.Principal.NTAccount]::new([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if($owner.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'D2S_OWNER_MISMATCH'}
+          if([string]::IsNullOrWhiteSpace($env:F139_CF_TOKEN) -or $env:F139_CF_ACCOUNT -notmatch '^[a-f0-9]{32}$'){throw 'D2S_D1_CREDENTIAL_BINDING_DRIFT'}
+          $root='https://api.cloudflare.com/client/v4/accounts/'+$env:F139_CF_ACCOUNT
+          $headers=@{Authorization=('Bearer '+$env:F139_CF_TOKEN);Accept='application/json'}
+          $listing=Invoke-RestMethod -Method Get -Uri ($root+'/d1/database?page=1&per_page=100') -Headers $headers -TimeoutSec 25
+          if($listing.success -ne $true -or @($listing.result).Count -ne $listing.result_info.total_count -or $listing.result_info.total_count -gt 100){throw 'D2S_D1_LIST_INCOMPLETE'}
+          $target=@($listing.result|Where-Object{$_.name -match '(?i)forge'})
+          if($target.Count -ne 1){throw 'D2S_FORGE_D1_NOT_UNIQUE'}
+          $dbid=[string]$target[0].uuid
+          function QueryFixed([string]$sql){
+            if(!$sql.StartsWith('SELECT ') -or $sql -match '(?i)\b(UPDATE|DELETE|INSERT|DROP|ALTER|CREATE|ATTACH|DETACH|REPLACE)\b'){throw 'D2S_MUTATING_QUERY_REJECTED'}
+            $body=@{sql=$sql;params=@()}|ConvertTo-Json -Compress
+            $r=Invoke-RestMethod -Method Post -Uri ($root+'/d1/database/'+$dbid+'/query') -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 60
+            if($r.success -ne $true -or @($r.result).Count -ne 1 -or $r.result[0].success -ne $true -or $r.result[0].meta.changes -ne 0 -or $r.result[0].meta.rows_written -ne 0){throw 'D2S_QUERY_OR_READONLY_PROOF_FAILED'}
+            return @($r.result[0].results)
+          }
+          $s=@(QueryFixed 'SELECT COUNT(*) AS count_chunks, COALESCE(MAX(LENGTH(chunk_bytes)),0) AS maximum_chunk_bytes, COALESCE(SUM(LENGTH(chunk_bytes)),0) AS total_chunk_bytes FROM forge_research_chunks')
+          if($s.Count -ne 1 -or $s[0].count_chunks -ne 7){throw 'D2S_CHUNK_COUNT_CHANGED'}
+          $max=[long]$s[0].maximum_chunk_bytes
+          $total=[long]$s[0].total_chunk_bytes
+          Write-Output ('F139_D2S_LARGEST_ARCHIVED_CHUNK_BYTES='+$max)
+          Write-Output ('F139_D2S_TOTAL_ARCHIVED_CHUNK_BYTES='+$total)
+          if($max -gt 2097152 -or $total -gt 8388608 -or $max -le 0 -or $total -le 0){throw 'D2S_UNBOUNDED_OR_EMPTY_ARCHIVE_NO_BYTES_FETCHED'}
+          $origins=@(QueryFixed 'SELECT archive_sha256, original_length, chunk_count FROM forge_research_originals ORDER BY archive_sha256 LIMIT 7')
+          if($origins.Count -ne 6){throw 'D2S_ORIGINAL_COUNT_CHANGED'}
+          # Raw prior-consumed archive bytes are transient in this owner-runner process.
+          # Never print, persist, upload, or include them in an exception message.
+          $chunks=@(QueryFixed 'SELECT archive_sha256, chunk_index, chunk_sha256, HEX(chunk_bytes) AS private_hex FROM forge_research_chunks ORDER BY archive_sha256, chunk_index LIMIT 8')
+          if($chunks.Count -ne 7){throw 'D2S_CHUNK_PROVIDER_ROWS_CHANGED'}
+          $rehashed=0
+          foreach($original in $origins){
+            $part=@($chunks | Where-Object{$_.archive_sha256 -ceq $original.archive_sha256} | Sort-Object -Property chunk_index)
+            if($part.Count -ne [int]$original.chunk_count){throw 'D2S_ARCHIVE_CHUNK_COUNT_CHANGED'}
+            $mem=[IO.MemoryStream]::new()
+            try{
+              $i=0
+              foreach($item in $part){
+                if($item.chunk_index -ne $i){throw 'D2S_CHUNK_SEQUENCE_INVALID'}
+                $hex=[string]$item.private_hex
+                if($hex.Length -gt 4194304 -or $hex.Length%2 -ne 0){throw 'D2S_PRIVATE_BYTES_CAP_INVALID'}
+                $bytes=[Convert]::FromHexString($hex)
+                $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+                if($hash -cne [string]$item.chunk_sha256){throw 'D2S_CHUNK_SHA256_MISMATCH'}
+                $mem.Write($bytes,0,$bytes.Length)
+                $rehashed++;$i++
+              }
+              if($mem.Length -ne [long]$original.original_length){throw 'D2S_ARCHIVED_LENGTH_INVALID'}
+              $full=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($mem.ToArray())).ToLowerInvariant()
+              if($full -cne [string]$original.archive_sha256){throw 'D2S_ORIGINAL_SHA256_MISMATCH'}
+            }finally{$mem.Dispose()}
+          }
+          if($rehashed -ne 7){throw 'D2S_NOT_ALL_CHUNKS_VERIFIED'}
+          Write-Output 'F139_D2S_CHUNK_SHA256_RECOMPUTED=7_OF_7_PASS'
+          Write-Output 'F139_D2S_REASSEMBLED_ARCHIVE_SHA256=6_OF_6_PASS'
+          Write-Output 'F139_D2S_SEAL_RECEIPT_SIGNATURES=NOT_YET_INDEPENDENTLY_VERIFIED'
+          Write-Output 'F139_D2S_RAW_ARCHIVE_CONTENT_LOGGED=FALSE'
+          Write-Output 'F139_D2S_ORIGINALS_EXPORTED=FALSE'
+          Write-Output 'F139_D2S_SQL_WRITES=ZERO'
+          Write-Output 'F139_D2S_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2S_DISPOSITION=CRYPTOGRAPHIC_PROVIDER_BYTES_ACCEPTED_NO_FSA_PERMISSION'
