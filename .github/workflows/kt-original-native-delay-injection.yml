@@ -1,0 +1,207 @@
+name: K-Terminal original native order network latency isolation
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-native-delay-injection.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-production-code:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Inject bounded quote clock and POST delays using original native BUY code
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_ACTUAL_CODE_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $original=$roots[0]
+          foreach($name in @('go.mod','go.sum','pkg\native-execution.go','pkg\native-maker-accounting-retry_test.go','pkg\regular-sell-selected-execution_test.go')) {
+            if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)) { throw 'REQUIRED_ORIGINAL_GO_SOURCE_MISSING' }
+          }
+          $fixture=Get-Content -LiteralPath (Join-Path $original 'pkg\native-maker-accounting-retry_test.go') -Raw -ErrorAction Stop
+          if(-not($fixture.Contains('newMakerAccountingFixture') -and $fixture.Contains('makerAccountingAccept') -and $fixture.Contains('lookupRoundTripFunc') -and $fixture.Contains('nativeGuardedTransport'))) { throw 'ORIGINAL_SAFE_MOCK_FIXTURE_INCOMPATIBLE' }
+          Write-Host 'KTERM_MOCKED_NATIVE_FIXTURE_PRESENT=PASS'
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)) { throw 'OFFLINE_GO_COMPILER_NOT_FOUND' }
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-real-order-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)) { throw 'SANDBOX_INSIDE_ORIGINAL_FORBIDDEN' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            foreach($name in @('go.mod','go.sum')) {Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+            foreach($section in @('pkg','internal')) {
+              $src=Join-Path $original $section
+              if(Test-Path -LiteralPath $src -PathType Container) {
+                Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object {
+                  $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+                  $dest=Join-Path $sandbox $rel
+                  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+                  Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+                }
+              }
+            }
+            $embed=Join-Path $original 'pkg\tranche-plans.json'
+            if(-not(Test-Path -LiteralPath $embed -PathType Leaf)) { throw 'ORIGINAL_EMBEDDED_TRANCHES_MISSING' }
+            Copy-Item -LiteralPath $embed -Destination (Join-Path $sandbox 'pkg\tranche-plans.json') -ErrorAction Stop
+            $pkg=Join-Path $sandbox 'pkg'
+            $testSource=Join-Path $pkg 'offline-original-real-order-simulation_test.go'
+            $code=@'
+          package pkg
+          
+          import (
+           "fmt"
+           "net/http"
+           "sort"
+           "testing"
+           "time"
+          )
+          
+          type syntheticDelayCase struct {
+           label string
+           bookDelay time.Duration
+           clockDelay time.Duration
+           postDelay time.Duration
+           coldBook bool
+           trials int
+          }
+          type syntheticDelaySample struct { total,ready,post,book,clock,receipt,tranche float64 }
+          func syntheticMean(samples []syntheticDelaySample, field func(syntheticDelaySample)float64) float64{
+           v:=0.0
+           for _,s:=range samples {v+=field(s)}
+           return v/float64(len(samples))
+          }
+          func TestOfflineActualNativeOrderInjectedLatency(t *testing.T){
+           cases:=[]syntheticDelayCase{
+            {label:"BASELINE",trials:4},
+            {label:"BOOK_650MS",bookDelay:650*time.Millisecond,coldBook:true,trials:3},
+            {label:"CLOCK_900MS",clockDelay:900*time.Millisecond,coldBook:true,trials:3},
+            {label:"BOOK_650_CLOCK_900",bookDelay:650*time.Millisecond,clockDelay:900*time.Millisecond,coldBook:true,trials:3},
+            {label:"ACK_6900MS",postDelay:6900*time.Millisecond,trials:1},
+           }
+           for _,scenario:=range cases {
+            samples:=make([]syntheticDelaySample,0,scenario.trials)
+            for i:=0;i<scenario.trials;i++ {
+             t.Run(fmt.Sprintf("%s_%02d",scenario.label,i),func(t *testing.T){
+              f:=newMakerAccountingFixture(t)
+              if scenario.coldBook {
+                f.n.Snapshot.QuoteAt=time.Time{}
+                f.cache.value.QuoteAt=time.Time{}
+              }
+              if scenario.bookDelay>0 {
+                f.beforeBook=func(int){time.Sleep(scenario.bookDelay)}
+              }
+              f.post=func(_ int,r *AdvancedOrderRequest)(*http.Response,error){
+                if scenario.postDelay>0 {time.Sleep(scenario.postDelay)}
+                return makerAccountingAccept(r.ClientOrderID),nil
+              }
+              manager:=f.h.advancedOrderManager
+              guarded,ok:=manager.auth.readTransport.(nativeGuardedTransport)
+              if !ok { t.Fatal("expected original native guarded in-memory transport") }
+              mockBase:=guarded.base
+              if _,ok:=mockBase.(lookupRoundTripFunc);!ok {t.Fatal("fixture transport does not fail closed")}
+              guarded.base=lookupRoundTripFunc(func(req *http.Request)(*http.Response,error){
+                if req.URL.Host!="api.coinbase.com" || req.URL.Scheme!="https"{
+                  return nil,fmt.Errorf("unexpected network destination blocked by synthetic fixture")
+                }
+                if req.URL.Path=="/api/v3/brokerage/time" && scenario.clockDelay>0{
+                  time.Sleep(scenario.clockDelay)
+                }
+                return mockBase.RoundTrip(req)
+              })
+              if manager.auth.httpClient==nil {t.Fatal("fixture HTTP client was not initialized")}
+              manager.auth.readTransport=guarded
+              manager.auth.httpClient.Transport=guarded
+              start:=time.Now()
+              result,err:=f.h.ExecuteNativeSignal(f.n,t.TempDir())
+              total:=float64(time.Since(start).Microseconds())/1000.
+              if err!=nil || result==nil || len(f.posts)!=1 {
+                t.Fatalf("mocked production order not accepted; result=%t posts=%d err=%v",result!=nil,len(f.posts),err)
+              }
+              trace:=f.n.timing.snapshot("RESULT",nil,true)
+              if len(trace.Ready)!=1{t.Fatalf("unexpected number of guarded POST boundaries: %d",len(trace.Ready))}
+              s:=syntheticDelaySample{total:total,ready:trace.Ready[0].ConstructionMS}
+              for _,stage:=range trace.Spans{
+                switch stage.Stage{
+                case "post.serialize_transport_ack_body":s.post+=stage.DurationMS
+                case "book.http_get":s.book+=stage.DurationMS
+                case "book.clock_http_get":s.clock+=stage.DurationMS
+                case "receipt.required_sync":s.receipt+=stage.DurationMS
+                case "tranche.required_sync":s.tranche+=stage.DurationMS
+                }
+              }
+              if scenario.coldBook && f.books==0 {t.Fatal("cold-book case bypassed mocked Coinbase quote retrieval")}
+              if scenario.postDelay>0 {
+                if s.total<6500 || s.ready>1000 || s.post<6500{
+                  t.Fatalf("delayed POST attribution wrong; total_ms=%.0f transport_ready_ms=%.0f post_ms=%.0f",s.total,s.ready,s.post)
+                }
+              }
+              if scenario.clockDelay>0 && s.clock<700 {t.Fatalf("clock latency was not observed: %.0fms",s.clock)}
+              if scenario.bookDelay>0 && s.book<500 {t.Fatalf("book latency was not observed: %.0fms",s.book)}
+              samples=append(samples,s)
+             })
+            }
+            values:=make([]float64,0,len(samples))
+            for _,s:=range samples{values=append(values,s.total)}
+            sort.Float64s(values)
+            p95:=values[(95*len(values)+99)/100-1]
+            fmt.Printf("KTERM_DELAY_%s_N=%d\n",scenario.label,len(samples))
+            fmt.Printf("KTERM_DELAY_%s_TOTAL_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.total}))
+            fmt.Printf("KTERM_DELAY_%s_TOTAL_P95_MS=%.1f\n",scenario.label,p95)
+            fmt.Printf("KTERM_DELAY_%s_TRANSPORT_READY_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.ready}))
+            fmt.Printf("KTERM_DELAY_%s_POST_ACK_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.post}))
+            fmt.Printf("KTERM_DELAY_%s_BOOK_HTTP_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.book}))
+            fmt.Printf("KTERM_DELAY_%s_CLOCK_HTTP_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.clock}))
+            fmt.Printf("KTERM_DELAY_%s_RECEIPT_SYNC_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.receipt}))
+            fmt.Printf("KTERM_DELAY_%s_TRANCHE_SYNC_AVG_MS=%.1f\n",scenario.label,syntheticMean(samples,func(s syntheticDelaySample)float64{return s.tranche}))
+           }
+           fmt.Println("KTERM_DELAY_REAL_EXCHANGE_CALLS=0")
+           fmt.Println("KTERM_DELAY_ORIGINAL_NATIVE_CODE=TRUE")
+           fmt.Println("KTERM_DELAY_MOCK_TRANSPORT_ENFORCED=TRUE")
+          }
+          
+          '@
+            [IO.File]::WriteAllText($testSource,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            $env:K_TERMINAL_P5_LATENCY='0'
+            $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+            [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+            Write-Host 'KTERM_ISOLATED_SOURCE_COPY_READY=PASS'
+            Write-Host 'KTERM_OFFLINE_DEPENDENCIES_REQUIRED=TRUE'
+            Push-Location $sandbox
+            try {
+              & $goBin test ./pkg -run '^(TestOfflineActualNativeOrderInjectedLatency|TestNativeMakerAccountingRetryWaitsForConfirmedSettlementWithoutPolling) -count=1 -timeout=4m -v
+              if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_MOCKED_NATIVE_ORDER_TEST_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_ORIGINAL_NATIVE_DELAY_SIMULATION=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_POSTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
+ -count=1 -timeout=5m -v
+              if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_MOCKED_NATIVE_ORDER_TEST_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_ORIGINAL_NATIVE_DELAY_SIMULATION=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_POSTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
