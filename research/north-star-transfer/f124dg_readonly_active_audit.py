@@ -49,11 +49,16 @@ def load(directory):
                     and x["FIT_episodes"]==24 and
                     x["CHECK_veto_episodes"]==8 and
                     x["HELDOUT_positive_episodes"]==8 and
-                    x["new_oracle_queries_consumed"]==x["extra_oracle_budget"]
+                    0<=x["new_oracle_queries_consumed"]<=x["extra_oracle_budget"]
+                    and (x["new_oracle_queries_consumed"]==x["extra_oracle_budget"]
+                         or x["final_rank"]==163)
+                    and x["rank_saturated_before_query_budget"]==(
+                         x["new_oracle_queries_consumed"]<x["extra_oracle_budget"])
                     and x["queries_distinct"] and
                     x["final_rank"]>=x["original_FIT_rank"] and
                     x["rank_gain_from_extra_information"]==(
                         x["final_rank"]-x["original_FIT_rank"])
+                    and x["rank_gain_from_extra_information"]==x["new_oracle_queries_consumed"]
                     and x["full_hypothesis_dimension"]==163
                     and x["whole_process_includes_import_FIT_extra_oracle_CHECK_HELDOUT"]
                     and x["full_python_OS_user_sys_CPU_ns"]>0
@@ -74,6 +79,12 @@ def load(directory):
                 require(len({v[field] for v in vals})==1,
                         "ALL_ARMS_SAME_SOURCE_AND_PUBLIC_INFO_"+field)
             for budget in BUDGETS:
+                # Query budget is a maximum, not a requirement to ask
+                # redundant questions after reaching full rank.
+                counts={rows[f,s,arm,budget]["new_oracle_queries_consumed"]
+                        for arm in ARMS}
+                require(len(counts)==1,
+                        "ALL_ARMS_EQUAL_ACTUALLY_RECEIVED_ORACLE_INFORMATION")
                 a=rows[f,s,"meta_rank",budget]
                 p=rows[f,s,"independent_meta_rank",budget]
                 # If independently specified equal meta rank-greedy cannot
