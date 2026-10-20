@@ -1,0 +1,173 @@
+name: K-Terminal original Coinbase historical load scope replay benchmark
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-historical-source-profile.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  historical-offline-profile:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - name: Copy certified historical archive and profile original Go loader scope validation replay
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'WRONG_LOCAL_RUNNER'}
+          Write-Host 'KTERM_HIST_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object{Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal'} | Where-Object{Test-Path -LiteralPath $_ -PathType Container})
+          if($roots.Count -ne 1){throw 'ORIGINAL_INSTALL_NOT_UNIQUE'}
+          $original=$roots[0]
+          $engines=@(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue | Where-Object {
+            try{[string]::Equals([IO.Path]::GetDirectoryName([string]$_.Path),$original,[StringComparison]::OrdinalIgnoreCase)}catch{$false}
+          })
+          if($engines.Count -ne 0){throw 'ORIGINAL_ENGINE_ACTIVE_DO_NOT_PROFILE'}
+          Write-Host 'KTERM_HIST_ORIGINAL_ENGINE_NOT_RUNNING=PASS'
+          foreach($name in @('go.mod','go.sum','pkg\coinbase-performance-reconciler.go','pkg\historical-pnl-order-scope.go','pkg\tranche-plans.json')){
+           if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)){throw 'ORIGINAL_REPLAY_SOURCE_ABSENT'}
+          }
+          $product='BTC-USDC'
+          $originalMetadata=Join-Path $original ('data\coinbase-performance-history-'+$product+'.json')
+          $originalJournal=Join-Path $original ('data\coinbase-performance-history-'+$product+'.jsonl')
+          foreach($p in @($originalMetadata,$originalJournal)){
+           $item=Get-Item -LiteralPath $p -ErrorAction Stop
+           if(-not $item -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)){throw 'HISTORY_SOURCE_NOT_ORDINARY_FILE'}
+          }
+          $metaSize=(Get-Item -LiteralPath $originalMetadata).Length
+          $journalSize=(Get-Item -LiteralPath $originalJournal).Length
+          if($metaSize -le 0 -or $metaSize -gt 33554432 -or $journalSize -le 0 -or $journalSize -gt 134217728){throw 'HISTORY_SOURCE_SIZE_OUT_OF_BOUND'}
+          Write-Host ('KTERM_HIST_METADATA_BYTES='+$metaSize)
+          Write-Host ('KTERM_HIST_JOURNAL_BYTES='+$journalSize)
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)){throw 'OFFLINE_GO_COMPILER_UNAVAILABLE'}
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-historical-profile-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)){throw 'SANDBOX_LOCATION_INVALID'}
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try{
+           $sourceMetadataHash=(Get-FileHash -LiteralPath $originalMetadata -Algorithm SHA256).Hash
+           $sourceJournalHash=(Get-FileHash -LiteralPath $originalJournal -Algorithm SHA256).Hash
+           foreach($name in @('go.mod','go.sum')){Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+           foreach($section in @('pkg','internal')){
+            $src=Join-Path $original $section
+            if(Test-Path -LiteralPath $src -PathType Container){
+             Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object{
+              $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+              $dest=Join-Path $sandbox $rel
+              [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+              Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+             }
+            }
+           }
+           Copy-Item -LiteralPath (Join-Path $original 'pkg\tranche-plans.json') -Destination (Join-Path $sandbox 'pkg\tranche-plans.json') -ErrorAction Stop
+           $data=Join-Path $sandbox 'data'
+           [void][IO.Directory]::CreateDirectory($data)
+           $copyTimer=[Diagnostics.Stopwatch]::StartNew()
+           $destMetadata=Join-Path $data ('coinbase-performance-history-'+$product+'.json')
+           $destJournal=Join-Path $data ('coinbase-performance-history-'+$product+'.jsonl')
+           Copy-Item -LiteralPath $originalMetadata -Destination $destMetadata -ErrorAction Stop
+           Copy-Item -LiteralPath $originalJournal -Destination $destJournal -ErrorAction Stop
+           $copyTimer.Stop()
+           Write-Host ('KTERM_HIST_ISOLATED_COPY_MS='+$copyTimer.ElapsedMilliseconds)
+           if((Get-FileHash -LiteralPath $destMetadata -Algorithm SHA256).Hash -cne $sourceMetadataHash -or (Get-FileHash -LiteralPath $destJournal -Algorithm SHA256).Hash -cne $sourceJournalHash){throw 'ISOLATED_SOURCE_COPY_IDENTITY_MISMATCH'}
+           Write-Host 'KTERM_HIST_COPIED_HISTORY_SHA256=PASS'
+           $code=@'
+          package pkg
+          
+          import (
+           "fmt"
+           "math"
+           "os"
+           "runtime"
+           "testing"
+           "time"
+          )
+          
+          func TestOfflineOriginalHistoricalLoadScopeAndReplayProfile(t *testing.T) {
+           dir:=os.Getenv("KTERM_HIST_PROFILE_DIRECTORY")
+           product:=os.Getenv("KTERM_HIST_PROFILE_PRODUCT")
+           if dir=="" || product!="BTC-USDC" {t.Fatal("isolated historical source not selected")}
+           start:=time.Now()
+           metadata,records,err:=loadHistoricalPnLEvidenceAt(dir,product)
+           loadMS:=float64(time.Since(start).Microseconds())/1000
+           fmt.Printf("KTERM_HIST_GO_LOAD_MS=%.2f\n",loadMS)
+           if err!=nil {t.Fatal("original source loader rejected historical evidence")}
+           if len(records)!=metadata.RecordCount || metadata.RecordCount<1 || !metadata.ReplayVerified || metadata.OrderScope==nil {
+            t.Fatal("original load, count or previously verified evidence gate failed")
+           }
+           fmt.Printf("KTERM_HIST_GO_RECORDS=%d\n",len(records))
+           fmt.Printf("KTERM_HIST_GO_SCOPE_ORDERS=%d\n",len(metadata.OrderScope.Orders))
+           now:=time.Now()
+           digest,err:=historicalScopeCertificateDigest(metadata.OrderScope)
+           digestMS:=float64(time.Since(now).Microseconds())/1000
+           if err!=nil || digest=="" || digest!=metadata.ScopeCertificateSHA256 {
+            t.Fatal("scope certificate digest mismatch; do not replay unqualified source")
+           }
+           fmt.Printf("KTERM_HIST_SCOPE_CERT_DIGEST_MS=%.2f\n",digestMS)
+           anchor:=historicalPnLAccountAnchor{
+            quantity:metadata.AnchorQuantity,
+            portfolioID:metadata.OrderScope.PortfolioID,
+            accountIDs:append([]string(nil),metadata.OrderScope.AccountIDs...),
+           }
+           now=time.Now()
+           matches:=metadata.OrderScope.matches(metadata.OrderScope.BaseAsset,anchor,records)
+           scopeMS:=float64(time.Since(now).Microseconds())/1000
+           fmt.Printf("KTERM_HIST_GO_SCOPE_MATCH_MS=%.2f\n",scopeMS)
+           fmt.Printf("KTERM_HIST_GO_SCOPE_VALID=%t\n",matches)
+           if !matches {t.Fatal("stored source and historical scope validation failed")}
+           epsilon:=math.Max(0.00000001,math.Abs(anchor.quantity)*0.000000001)
+           now=time.Now()
+           result:=replayFullCoinbaseAverageHistory(records,realizedPnLAnchor{
+            Quantity:metadata.AnchorQuantity,CostBasis:metadata.AnchorCostBasis,Verified:true,
+            AsOf:metadata.AnchorAsOf,
+           },epsilon)
+           replayMS:=float64(time.Since(now).Microseconds())/1000
+           fmt.Printf("KTERM_HIST_GO_REPLAY_MS=%.2f\n",replayMS)
+           fmt.Printf("KTERM_HIST_GO_REPLAY_VERIFIED=%t\n",result.Verified)
+           fmt.Printf("KTERM_HIST_GO_REPLAY_RECORDS=%d\n",result.RecordCount)
+           if !result.Verified || result.RecordCount!=metadata.RecordCount || math.Abs(result.RealizedPnL-metadata.RealizedPnL)>0.01 ||
+              math.Abs(result.SoldCostBasis-metadata.SoldCostBasis)>0.01 ||
+              math.Abs(result.EndingQuantity-metadata.EndingQuantity)>math.Max(0.00000001,epsilon) {
+            t.Fatal("original offline replay diverged from sealed historical evidence")
+           }
+           var mem runtime.MemStats
+           runtime.ReadMemStats(&mem)
+           fmt.Printf("KTERM_HIST_GO_HEAP_LIVE_MIB=%.1f\n",float64(mem.HeapAlloc)/1048576)
+           fmt.Printf("KTERM_HIST_GO_ALLOC_TOTAL_MIB=%.1f\n",float64(mem.TotalAlloc)/1048576)
+           fmt.Printf("KTERM_HIST_GO_GC_CYCLES=%d\n",mem.NumGC)
+           fmt.Println("KTERM_HIST_NO_BROKER_TRANSPORT=TRUE")
+           fmt.Println("KTERM_HIST_ORIGINAL_GO_LOADER_AND_REPLAY=PASS")
+          }
+          '@
+           $testFile=Join-Path $sandbox 'pkg\offline-historical-profile_test.go'
+           [IO.File]::WriteAllText($testFile,$code,[Text.UTF8Encoding]::new($false))
+           $env:GOPROXY='off'
+           $env:GOSUMDB='off'
+           $env:GOTOOLCHAIN='local'
+           $env:GOFLAGS='-mod=readonly'
+           $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+           $env:K_TERMINAL_NATIVE_TIMING='0'
+           $env:K_TERMINAL_P5_LATENCY='0'
+           $env:KTERM_HIST_PROFILE_DIRECTORY=$data
+           $env:KTERM_HIST_PROFILE_PRODUCT=$product
+           $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+           [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+           Push-Location $sandbox
+           try{
+            & $goBin test ./pkg -run '^TestOfflineOriginalHistoricalLoadScopeAndReplayProfile$' -count=1 -timeout=6m -v
+            if($LASTEXITCODE -ne 0){throw 'OFFLINE_ORIGINAL_HISTORY_REPLAY_PROFILING_FAILED'}
+           }finally{Pop-Location}
+           if((Get-FileHash -LiteralPath $originalMetadata -Algorithm SHA256).Hash -cne $sourceMetadataHash -or (Get-FileHash -LiteralPath $originalJournal -Algorithm SHA256).Hash -cne $sourceJournalHash){throw 'ORIGINAL_HISTORY_CHANGED_DURING_TEST'}
+           Write-Host 'KTERM_HIST_ORIGINAL_EVIDENCE_HASH_UNCHANGED=PASS'
+           Write-Host 'KTERM_HIST_ORIGINAL_APPLICATION_NOT_MODIFIED=TRUE'
+           Write-Host 'KTERM_HIST_FULL_GATE=PASS'
+          }finally{
+           if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original){
+            Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+            Write-Host 'KTERM_HIST_SANDBOX_CLEANUP=PASS'
+           }
+          }
