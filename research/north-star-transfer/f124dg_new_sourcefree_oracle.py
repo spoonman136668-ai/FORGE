@@ -64,9 +64,29 @@ def born(family,seed):
     if family not in FAMILIES or seed not in SEEDS:
         raise ValueError("DG_ONLY_FROZEN_NEW_SOURCEFREE_ID")
     rng=random.Random(12377001+seed*997+FAMILIES.index(family)*31133)
-    return {"FIT":[episode(rng,family,seed) for _ in range(24)],
-            "CHECK":[episode(rng,family,seed) for _ in range(8)],
-            "HELDOUT":[episode(rng,family,seed) for _ in range(8)]}
+    fit=[episode(rng,family,seed) for _ in range(24)]
+    check=[episode(rng,family,seed) for _ in range(8)]
+    holdout=[]
+    # A matched hard negative must preserve the exact observed-token
+    # inventory while swapping different-role, DIFFERENT observations.
+    # Before ANY learner/scoring execution, source-only quality-control
+    # admits only heldout episodes for which that counterfactual exists.
+    # No model prediction, FIT/check success or hidden source selection
+    # influences this deterministic validity filter. Explicitly retain
+    # the filter and bounded rejected-source count in the qualified
+    # protocol rather than fabricating impossible hard negatives.
+    for i in range(8):
+        for attempt in range(128):
+            ep=episode(rng,family,seed)
+            e=ep["events"]
+            if any(e[a]["target"]!=e[z]["target"] and
+                   e[a]["observed"]!=e[z]["observed"]
+                   for a in range(8) for z in range(a+1,8)):
+                holdout.append(ep)
+                break
+        else:
+            raise ValueError("DG_SOURCE_ONLY_UNCONSTRUCTIBLE_HARD_NEGATIVE")
+    return {"FIT":fit,"CHECK":check,"HELDOUT":holdout}
 
 def matched_negative(ep):
     neg=copy.deepcopy(ep)
