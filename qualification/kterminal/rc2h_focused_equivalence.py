@@ -59,7 +59,7 @@ def new_workspace(source, temp, suffix):
     return root
 
 def run_case(label, source, path, tests, temp):
-    root=new_workspace(source,temp,label)
+    root=path
     fixture=temp/(label+"-fixture")
     fixture.mkdir(mode=0o700)
     env=dict(os.environ)
@@ -136,13 +136,17 @@ def main():
         groups[index].append(n)
     if any(not g for g in groups) or sorted(groups[0]+groups[1])!=tests:
         raise SystemExit("FAIL_CLOSED:STATIC_SELECTION")
-    serial=run_case("serial",source,source,tests,temp)
+    # Git metadata maintenance is serialized; only test processes overlap.
+    serial_root=new_workspace(source,temp,"serial")
+    shard0_root=new_workspace(source,temp,"shard0")
+    shard1_root=new_workspace(source,temp,"shard1")
+    serial=run_case("serial",source,serial_root,tests,temp)
     print("KTERM_RC2H_FOCUSED_SERIAL="+("PASS" if serial["ok"] else "FAIL"))
     print("KTERM_RC2H_FOCUSED_SERIAL_SECONDS="+str(serial["elapsed_s"]))
     if not serial["ok"]:return 2
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        f0=pool.submit(run_case,"shard0",source,source,groups[0],temp)
-        f1=pool.submit(run_case,"shard1",source,source,groups[1],temp)
+        f0=pool.submit(run_case,"shard0",source,shard0_root,groups[0],temp)
+        f1=pool.submit(run_case,"shard1",source,shard1_root,groups[1],temp)
         p0,p1=f0.result(),f1.result()
     members=(p0,p1)
     combined=sorted(p0["test_names"] | p1["test_names"])
