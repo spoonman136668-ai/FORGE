@@ -1,0 +1,115 @@
+name: K-Terminal RC2-H lossless regression shard inventory
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2h-inventory-validation.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-rc2h-inventory-20261020
+  cancel-in-progress: false
+jobs:
+  inventory-on-windows:
+    runs-on: windows-latest
+    timeout-minutes: 16
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+    steps:
+      - name: Checkout existing FORGE diagnostic branch read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout frozen K-Terminal original
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout frozen K-Terminal candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Go toolchain exactly 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact identity and isolated Go test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kt-original status --porcelain)"
+          test -z "$(git -C kt-candidate status --porcelain)"
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY; do
+            test -z "${!n:-}"
+          done
+          root="$RUNNER_TEMP/kterm-rc2h-workspace"
+          mkdir -p "$root/native-tail" "$root/authenticated-post" "$root/private-v2"
+          {
+            printf 'K_TERMINAL_TEST_WORKSPACE=%s\n' "$root"
+            printf 'KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=%s\n' "$root/native-tail"
+            printf 'KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=%s\n' "$root/authenticated-post"
+            printf 'KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=%s\n' "$root/private-v2"
+          } >> "$GITHUB_ENV"
+          echo KTERM_RC2H_ISOLATED_WINDOWS_INVENTORY=PASS
+      - name: Capture actual original and candidate Go test inventories without execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd kt-original && go test -p=1 -list . ./pkg) > "$RUNNER_TEMP/rc2h-original-inventory.txt"
+          (cd kt-candidate && go test -p=1 -list . ./pkg) > "$RUNNER_TEMP/rc2h-candidate-inventory.txt"
+          echo KTERM_RC2H_INVENTORIES_CAPTURED=PASS
+      - name: Fail closed on removed duplicated or missing tests; build four static shards
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2h_shard_plan.py             --original "$RUNNER_TEMP/rc2h-original-inventory.txt"             --candidate "$RUNNER_TEMP/rc2h-candidate-inventory.txt"             --original-sha eb5d225ae73b698a59c68d840daf1ec678e1a0ec             --candidate-sha b8c2052d530cdff93462dfccc21b28f3824e5531             --shards 4 --output "$RUNNER_TEMP/rc2h-plan.json"
+      - name: Verify Go's actual run selectors against each planned shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json,os,pathlib,subprocess,sys
+          from importlib.machinery import SourceFileLoader
+          lib=SourceFileLoader("plan","qualification/kterminal/rc2h_shard_plan.py").load_module()
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          plan=json.loads((root/"rc2h-plan.json").read_text(encoding="utf-8"))
+          seen=[]
+          for shard in plan["shards"]:
+              cmd=["go","test","-p=1","-list",shard["run_regex"],"./pkg"]
+              check=subprocess.run(cmd,cwd="kt-candidate",capture_output=True,
+                                   text=True,timeout=150,check=False)
+              if check.returncode!=0:
+                  print("KTERM_RC2H_GO_SELECTOR_"+str(shard["id"])+"=FAIL")
+                  sys.exit(2)
+              fname=root/("rc2h-go-list-"+str(shard["id"])+".txt")
+              fname.write_text(check.stdout,encoding="utf-8")
+              found=lib.parse_inventory(fname)
+              if found != shard["exact_names"]:
+                  print("KTERM_RC2H_GO_SELECTOR_"+str(shard["id"])+"=MISMATCH")
+                  sys.exit(2)
+              seen.extend(found)
+              print("KTERM_RC2H_GO_SELECTOR_"+str(shard["id"])+"=PASS_COUNT_"+str(len(found)))
+          if len(seen)!=plan["candidate_count"] or len(seen)!=len(set(seen)):
+              sys.exit("SHARD_DUPLICATION_OR_OMISSION")
+          print("KTERM_RC2H_ORIGINAL_INVENTORY_AND_GO_SELECTOR=PASS")
+          print("KTERM_RC2H_PARALLEL_RUNTIME_EQUIVALENCE=NOT_YET_QUALIFIED")
+          print("KTERM_RC2H_FULL_REGRESSION=NOT_SUBSTITUTED")
+          PY
