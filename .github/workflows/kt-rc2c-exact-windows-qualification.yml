@@ -128,6 +128,93 @@ jobs:
           print("KTERM_RC2C_FOCUSED="+("PASS" if good else "FAILED_NOT_WAIVED"))
           if not good:sys.exit(2)
           PY
+      - name: Diagnose inherited Stage3 fixture failure without exporting private raw logs
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          (cd kterminal-original-baseline && go test -json -count=1 -p=1 -parallel=1 -timeout=8m ./pkg -run '^TestStage3NativeHistoricalHistoryCheckpointV2/BTC-USDC/success        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=38m ./... > "$RUNNER_TEMP/rc2c-full.jsonl" 2> "$RUNNER_TEMP/rc2c-full-stderr.txt"
+          rc=$?
+          set -e
+          export KTERM_RC2C_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,sys
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2c-full.jsonl"
+          passed=failed=errors=0; packages=set(); failures=set()
+          for line in p.open(encoding="utf-8",errors="replace"):
+              try:e=json.loads(line)
+              except ValueError:errors+=1;continue
+              if e.get("Action")=="pass" and e.get("Test"):passed+=1
+              if e.get("Action")=="fail":
+                  if e.get("Test"):failed+=1
+                  failures.add(e.get("Package","unknown"))
+              if e.get("Action")=="pass" and not e.get("Test"):packages.add(e.get("Package","unknown"))
+          good=int(os.environ["KTERM_RC2C_EXIT"])==0 and failed==0 and errors==0 and not failures
+          print("KTERM_RC2C_FULL_PASS_NODES="+str(passed))
+          print("KTERM_RC2C_FULL_FAILED_NODES="+str(failed))
+          print("KTERM_RC2C_FULL_PASS_PACKAGES="+str(len(packages)))
+          print("KTERM_RC2C_FULL_FAILED_PACKAGES="+str(len(failures)))
+          print("KTERM_RC2C_FULL_WINDOWS_REGRESSION="+("PASS" if good else "FAIL_NOT_WAIVED"))
+          if not good:sys.exit(2)
+          PY
+      - name: Original Windows Go build after passing full regression
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          go build -p=1 ./...
+          echo KTERM_RC2C_WINDOWS_GO_BUILD=PASS
+          echo KTERM_RC2C_NO_MERGE_NO_INSTALL_NO_LIVE_BROKER=PASS
+) > "$RUNNER_TEMP/rc2d-isolated-stage3.jsonl" 2> "$RUNNER_TEMP/rc2d-isolated-stage3-stderr.txt"
+          stage3rc=$?
+          set -e
+          export RC2D_STAGE3_RC="$stage3rc"
+          python -B - <<'PY'
+          import json,os,pathlib,re
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2d-isolated-stage3.jsonl"
+          markers=set()
+          test_failures=[]
+          target_run=0
+          first_detail=""
+          loc=re.compile(r'([a-zA-Z0-9_-]+_test\.go):(\d+):')
+          for line in p.open(encoding="utf-8",errors="replace"):
+              try:x=json.loads(line)
+              except ValueError:continue
+              name=x.get("Test","")
+              if name.startswith("TestStage3NativeHistoricalHistoryCheckpointV2"):
+                  if x.get("Action")=="run":target_run+=1
+                  if x.get("Action")=="fail":test_failures.append(name)
+                  if x.get("Action")=="output":
+                      msg=x.get("Output","")
+                      for m in loc.finditer(msg):
+                          markers.add(m.group(1)+":"+m.group(2))
+                      # A fixed marker vocabulary only; never export arbitrary fixture output.
+                      for label,pattern in [
+                          ("FIXTURE_ROOT","owned fixture root"),
+                          ("READY_PREMISE","original READY premise"),
+                          ("COLD_CUTOFF","cold cutoff"),
+                          ("ORIGINAL_HISTORICAL_PRODUCER","historical producer did not qualify"),
+                          ("AUTHORITY_STATE","authority.*(BLOCKED|FAILED)"),
+                          ("CHECKPOINT_IDENTITY","checkpoint"),
+                          ("STARTUP_TIMEOUT","timed out|timeout"),
+                          ("TEST_PANIC","panic:"),
+                          ("GO_COMPILATION","build failed"),
+                          ("TRADING_SCOPE","execution authority"),
+                      ]:
+                          if re.search(pattern,msg,re.I):first_detail=first_detail or label
+          print("RC2D_PREDECESSOR_STAGE3_EXIT="+str(int(os.environ["RC2D_STAGE3_RC"])))
+          print("RC2D_PREDECESSOR_STAGE3_RUN_NODES="+str(target_run))
+          print("RC2D_PREDECESSOR_STAGE3_FAILED_NODES="+str(len(test_failures)))
+          print("RC2D_PREDECESSOR_STAGE3_SOURCE_LOCATIONS="+",".join(sorted(markers)[:25]))
+          print("RC2D_PREDECESSOR_STAGE3_REASON_CLASS="+(first_detail or "UNCLASSIFIED"))
+          print("RC2D_PREDECESSOR_STAGE3_FAIL_CLOSED=TRUE")
+          PY
       - name: One complete original Windows regression
         shell: bash
         working-directory: kterminal-private
