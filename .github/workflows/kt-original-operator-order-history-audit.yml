@@ -1,0 +1,133 @@
+name: K-Terminal existing order lifecycle event correlation
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-operator-order-history-audit.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-readonly-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Correlate historical order event transitions without account identifiers
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'KTERM_LOCAL_RUNNER_MISMATCH'}
+          Write-Host 'KTERM_ORDER_HISTORY_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object {Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal'} | Where-Object {Test-Path -LiteralPath $_ -PathType Container})
+          if($roots.Count -ne 1){throw 'KTERM_ORIGINAL_ROOT_NOT_UNIQUE'}
+          $root=$roots[0]
+          $original=@(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue | Where-Object {
+           try{[string]::Equals([IO.Path]::GetDirectoryName([string]$_.Path),$root,[StringComparison]::OrdinalIgnoreCase)}catch{$false}
+          })
+          Write-Host ('KTERM_ORIGINAL_ENGINE_CURRENT_COUNT='+$original.Count)
+          $path=Join-Path $root 'data\logs\k-terminal-execution.log'
+          if(-not(Test-Path -LiteralPath $path -PathType Leaf)){
+           Write-Host 'KTERM_EXECUTION_LOG=ABSENT'
+           Write-Host 'KTERM_LIFECYCLE_EVENT_EVIDENCE=UNAVAILABLE'
+           Write-Host 'KTERM_OPERATOR_EVENTS_OBSERVED=0'
+           Write-Host 'KTERM_NO_ENGINE_STARTED_OR_ORIGINAL_FILES_MODIFIED=TRUE'
+           Write-Host 'KTERM_PASSIVE_ORDER_CORRELATION=PASS'
+           return
+          }
+          $f=Get-Item -LiteralPath $path -ErrorAction Stop
+          Write-Host 'KTERM_EXECUTION_LOG=PRESENT'
+          Write-Host ('KTERM_EXECUTION_LOG_AGE_MIN='+[long][math]::Max(0,([datetime]::UtcNow-$f.LastWriteTimeUtc).TotalMinutes))
+          Write-Host ('KTERM_EXECUTION_LOG_SIZE_BYTES='+$f.Length)
+          $cap=16777216L
+          $stream=$null;$reader=$null
+          $lines=@()
+          try {
+           $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+           $skipped=$stream.Length -gt $cap
+           if($skipped){$null=$stream.Seek(-$cap,[IO.SeekOrigin]::End)}
+           $reader=[IO.StreamReader]::new($stream)
+           $lines=$reader.ReadToEnd() -split '\r?\n'
+           if($skipped -and $lines.Count -gt 1){$lines=@($lines|Select-Object -Skip 1)}
+           Write-Host ('KTERM_EXECUTION_LOG_TAIL_TRUNCATED='+[bool]$skipped)
+          } finally {
+           if($null -ne $reader){$reader.Dispose()}elseif($null -ne $stream){$stream.Dispose()}
+          }
+          $orders=@{}
+          $counts=@{}
+          $valid=0;$withIdentity=0;$parsed=0
+          $minStamp=[datetimeoffset]::MaxValue;$maxStamp=[datetimeoffset]::MinValue
+          foreach($line in $lines){
+           if($line.Length -lt 35 -or $line.Length -gt 50000){continue}
+           if($line -notmatch '^\[(?<stamp>[^\]]+)\]\s+(?<label>(BUY|SELL|TP)(?:\s+[^\|]+)?)\s+\|\s+(?<state>[A-Z][A-Z0-9 ]+)(?:\s+\|\s+(?<details>.*))?$'){continue}
+           $parsed++
+           $stampString=[string]$Matches['stamp']
+           $state=[string]$Matches['state']
+           $details=[string]$Matches['details']
+           $instant=[datetimeoffset]::MinValue
+           if(-not [datetimeoffset]::TryParse($stampString,[ref]$instant)){continue}
+           $valid++
+           if($instant -lt $minStamp){$minStamp=$instant}
+           if($instant -gt $maxStamp){$maxStamp=$instant}
+           if(-not $counts.ContainsKey($state)){$counts[$state]=0}
+           $counts[$state]++
+           $key=''
+           if($details -match '(?:^|\s|\|)logical_client_id=([A-Za-z0-9_.:-]{3,160})'){$key='L:'+$Matches[1]}
+           elseif($details -match '(?:^|\s|\|)client_order_id=([A-Za-z0-9_.:-]{3,160})'){$key='C:'+$Matches[1]}
+           if($key -eq ''){continue}
+           $withIdentity++
+           if(-not $orders.ContainsKey($key)){$orders[$key]=@{}}
+           $o=$orders[$key]
+           if(-not $o.ContainsKey($state) -or $instant -lt $o[$state]){$o[$state]=$instant}
+          }
+          Write-Host ('KTERM_OPERATOR_EVENTS_SCANNED='+$valid)
+          Write-Host ('KTERM_OPERATOR_EVENTS_WITH_CORRELATION_KEY='+$withIdentity)
+          Write-Host ('KTERM_DISTINCT_CORRELATION_KEYS='+$orders.Count)
+          foreach($state in @('SUBMITTED','ACCEPTED','PARTIAL','FILLED','TRACKED','TRACKED HISTORICAL','CANCELED','FAILED','EXCHANGE REJECTED','LOCAL REJECTED')){
+           $v=0;if($counts.ContainsKey($state)){$v=$counts[$state]}
+           Write-Host ('KTERM_OPERATOR_STATE_'+($state -replace ' ','_')+'_COUNT='+$v)
+          }
+          if($valid -gt 0){
+           Write-Host ('KTERM_OPERATOR_EVENT_TIMESPAN_HOURS='+[math]::Round(($maxStamp-$minStamp).TotalHours,1))
+          }
+          function Add-Delta($target,$order,[string]$from,[string]$to) {
+           if($order.ContainsKey($from) -and $order.ContainsKey($to)){
+             $ms=($order[$to]-$order[$from]).TotalMilliseconds
+             if($ms -ge 0 -and $ms -le 3600000){[void]$target.Add([double]$ms)}
+           }
+          }
+          $submitAccepted=[Collections.Generic.List[double]]::new()
+          $submitFilled=[Collections.Generic.List[double]]::new()
+          $submitTracked=[Collections.Generic.List[double]]::new()
+          $fillTracked=[Collections.Generic.List[double]]::new()
+          $submitFailed=[Collections.Generic.List[double]]::new()
+          foreach($k in $orders.Keys){
+           $o=$orders[$k]
+           Add-Delta $submitAccepted $o 'SUBMITTED' 'ACCEPTED'
+           Add-Delta $submitFilled $o 'SUBMITTED' 'FILLED'
+           Add-Delta $submitTracked $o 'SUBMITTED' 'TRACKED'
+           Add-Delta $fillTracked $o 'FILLED' 'TRACKED'
+           Add-Delta $submitFailed $o 'SUBMITTED' 'FAILED'
+          }
+          function Show-Stats($label,$collection){
+           $data=@($collection | Sort-Object)
+           Write-Host ($label+'_MATCHED='+$data.Count)
+           if($data.Count -eq 0){return}
+           $total=0.0;foreach($x in $data){$total+=$x}
+           $p=[int][math]::Min($data.Count-1,[math]::Ceiling($data.Count*.95)-1)
+           Write-Host ($label+'_AVG_MS='+[math]::Round($total/$data.Count,1))
+           Write-Host ($label+'_P50_MS='+[math]::Round([double]$data[[int][math]::Floor($data.Count/2)],1))
+           Write-Host ($label+'_P95_MS='+[math]::Round([double]$data[$p],1))
+           Write-Host ($label+'_MAX_MS='+[math]::Round([double]$data[-1],1))
+           Write-Host ($label+'_GE_7000MS='+@($data|Where-Object{$_ -ge 7000}).Count)
+          }
+          Show-Stats 'KTERM_EVENT_SUBMITTED_TO_ACCEPTED' $submitAccepted
+          Show-Stats 'KTERM_EVENT_SUBMITTED_TO_FILLED' $submitFilled
+          Show-Stats 'KTERM_EVENT_SUBMITTED_TO_TRACKED' $submitTracked
+          Show-Stats 'KTERM_EVENT_FILLED_TO_TRACKED' $fillTracked
+          Show-Stats 'KTERM_EVENT_SUBMITTED_TO_FAILED' $submitFailed
+          Write-Host 'KTERM_ACCEPTED_DISPLAY_HOLDBACK_SECONDS=2'
+          Write-Host 'KTERM_OPERATOR_TIMESTAMP_PRECISION=ONE_SECOND'
+          Write-Host 'KTERM_COINBASE_TRANSPORT_TIMING_FROM_EVENT_LOG=NOT_AVAILABLE'
+          Write-Host 'KTERM_PRIVATE_KEYS_IDS_TIMES_AND_LINES_EXPORTED=NONE'
+          Write-Host 'KTERM_NO_ENGINE_STARTED_OR_ORIGINAL_FILES_MODIFIED=TRUE'
+          Write-Host 'KTERM_PASSIVE_ORDER_CORRELATION=PASS'
