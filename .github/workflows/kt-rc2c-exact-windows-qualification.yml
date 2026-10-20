@@ -76,62 +76,80 @@ jobs:
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
           echo KTERM_RC2C_EXACT_SOURCE=PASS
           echo KTERM_RC2C_REAL_COINBASE_ACCESS=NONE
-      - name: Confirm exact candidate audit-clock focused test independently
+      - name: Prepare original Stage3 retention workspace with existing custody contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterm-rc2e-workspace"
+          mkdir -p "$root/native-tail" "$root/authenticated-post" "$root/private-v2"
+          test -d "$root/private-v2" && test -d "$root/native-tail"
+          {
+            printf 'K_TERMINAL_TEST_WORKSPACE=%s\n' "$root"
+            printf 'KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=%s\n' "$root/native-tail"
+            printf 'KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=%s\n' "$root/authenticated-post"
+            printf 'KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=%s\n' "$root/private-v2"
+          } >> "$GITHUB_ENV"
+          echo KTERM_RC2E_STAGE3_ORIGINAL_RETENTION_ROOTS=PREPARED
+      - name: Original exact-source Stage3 fixture acceptance
+        shell: bash
+        working-directory: kterminal-original-baseline
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=14m ./pkg -run '^TestStage3NativeHistoricalHistoryCheckpointV2$' > "$RUNNER_TEMP/rc2e-original-stage3.jsonl" 2> "$RUNNER_TEMP/rc2e-original-stage3-stderr.txt"
+          rc=$?
+          set -e
+          export RC2E_GO_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,sys
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2e-original-stage3.jsonl"
+          runs=passes=fails=errors=0
+          for line in p.open(encoding="utf-8",errors="replace"):
+              try:x=json.loads(line)
+              except ValueError:errors+=1;continue
+              name=x.get("Test","")
+              if name.startswith("TestStage3NativeHistoricalHistoryCheckpointV2"):
+                  if x.get("Action")=="run":runs+=1
+                  if x.get("Action")=="pass":passes+=1
+                  if x.get("Action")=="fail":fails+=1
+          good=(int(os.environ["RC2E_GO_EXIT"])==0 and fails==0 and errors==0 and runs>=15 and passes==runs)
+          print("KTERM_RC2E_ORIGINAL_STAGE3_NODES="+str(runs))
+          print("KTERM_RC2E_ORIGINAL_STAGE3_FAIL_NODES="+str(fails))
+          print("KTERM_RC2E_ORIGINAL_STAGE3_FIXTURE="+("PASS" if good else "FAIL_NOT_WAIVED"))
+          if not good:sys.exit(2)
+          PY
+      - name: Exact candidate focused accounting, reporting and restart qualification
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
-          go test -count=1 -p=1 -parallel=1 -timeout=8m ./pkg -run '^TestHistoricalPnLFullAuditClockAndImmutableJournal$'
-          echo RC2D_EXACT_CANDIDATE_AUDIT_CLOCK=PASS
-          echo RC2D_BROADER_FOCUSED_NEGATIVES=INHERITED_NOT_WAIVED
-      - name: Diagnose inherited Stage3 fixture failure with redacted diagnostic markers
-        shell: bash
-        run: |
-          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
           set +e
-          (cd kterminal-original-baseline && go test -json -count=1 -p=1 -parallel=1 -timeout=8m ./pkg -run '^TestStage3NativeHistoricalHistoryCheckpointV2/BTC-USDC/success$') > "$RUNNER_TEMP/rc2d-isolated-stage3.jsonl" 2> "$RUNNER_TEMP/rc2d-isolated-stage3-stderr.txt"
-          stage3rc=$?
+          go test -json -count=1 -p=1 -parallel=1 -timeout=20m ./pkg -run '^(TestHistoricalPnL.*|TestHistoricalOrderScope.*|TestHistoricalScope.*|TestIncrementalRestart.*|TestNativeObservation.*|TestPerformanceDrawdown.*|TestStage3NativeHistoricalHistoryCheckpointV2)$' > "$RUNNER_TEMP/rc2e-focused.jsonl" 2> "$RUNNER_TEMP/rc2e-focused-stderr.txt"
+          rc=$?
           set -e
-          export RC2D_STAGE3_RC="$stage3rc"
+          export RC2E_GO_EXIT="$rc"
           python -B - <<'PY'
-          import json,os,pathlib,re
-          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2d-isolated-stage3.jsonl"
-          markers=set()
-          test_failures=[]
-          target_run=0
-          first_detail=""
-          loc=re.compile(r'([A-Za-z0-9_-]+_test[.]go):([0-9]+):')
+          import json,os,pathlib,sys
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2e-focused.jsonl"
+          passes=fails=errors=0; tested=set(); targets=set()
           for line in p.open(encoding="utf-8",errors="replace"):
               try:x=json.loads(line)
-              except ValueError:continue
+              except ValueError:errors+=1;continue
               name=x.get("Test","")
-              if name.startswith("TestStage3NativeHistoricalHistoryCheckpointV2"):
-                  if x.get("Action")=="run":target_run+=1
-                  if x.get("Action")=="fail":test_failures.append(name)
-                  if x.get("Action")=="output":
-                      msg=x.get("Output","")
-                      for m in loc.finditer(msg):
-                          markers.add(m.group(1)+":"+m.group(2))
-                      for label,pattern in [
-                          ("FIXTURE_ROOT","owned fixture root"),
-                          ("READY_PREMISE","original READY premise"),
-                          ("COLD_CUTOFF","cold cutoff"),
-                          ("ORIGINAL_HISTORICAL_PRODUCER","historical producer did not qualify"),
-                          ("AUTHORITY_STATE","authority.*(BLOCKED|FAILED)"),
-                          ("CHECKPOINT_IDENTITY","checkpoint"),
-                          ("STARTUP_TIMEOUT","timed out|timeout"),
-                          ("TEST_PANIC","panic:"),
-                          ("GO_COMPILATION","build failed"),
-                          ("TRADING_SCOPE","execution authority"),
-                      ]:
-                          if re.search(pattern,msg,re.I):first_detail=first_detail or label
-          print("RC2D_PREDECESSOR_STAGE3_EXIT="+str(int(os.environ["RC2D_STAGE3_RC"])))
-          print("RC2D_PREDECESSOR_STAGE3_RUN_NODES="+str(target_run))
-          print("RC2D_PREDECESSOR_STAGE3_FAILED_NODES="+str(len(test_failures)))
-          print("RC2D_PREDECESSOR_STAGE3_SOURCE_LOCATIONS="+",".join(sorted(markers)[:25]))
-          print("RC2D_PREDECESSOR_STAGE3_REASON_CLASS="+(first_detail or "UNCLASSIFIED"))
-          print("RC2D_PREDECESSOR_STAGE3_FAIL_CLOSED=TRUE")
-          if int(os.environ["RC2D_STAGE3_RC"])!=0: raise SystemExit(2)
+              if name and x.get("Action")=="pass":
+                  passes+=1
+                  targets.add(name)
+              if name and x.get("Action")=="run": tested.add(name)
+              if name and x.get("Action")=="fail":fails+=1
+          required=["TestHistoricalPnLFullAuditClockAndImmutableJournal","TestStage3NativeHistoricalHistoryCheckpointV2"]
+          good=(int(os.environ["RC2E_GO_EXIT"])==0 and fails==0 and errors==0 and all(q in targets for q in required))
+          print("KTERM_RC2E_CANDIDATE_FOCUSED_PASSED="+str(passes))
+          print("KTERM_RC2E_CANDIDATE_FOCUSED_FAILED="+str(fails))
+          print("KTERM_RC2E_CANDIDATE_TARGETS="+str({q:q in targets for q in required}))
+          print("KTERM_RC2E_CANDIDATE_FOCUSED="+("PASS" if good else "FAIL_NOT_WAIVED"))
+          if not good:sys.exit(2)
           PY
       - name: One complete original Windows regression
         shell: bash
