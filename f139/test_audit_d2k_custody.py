@@ -424,8 +424,8 @@ class ReadonlyCustodyTests(unittest.TestCase):
                     try:
                         self.append_source_transition(target,**changes)
                         with mock.patch("f139.audit_d2k_custody.D2J_SOURCE",SHA), \
-                mock.patch("f139.local_controller.GitHub.protected_main",
-                           return_value=target):
+                                mock.patch("f139.local_controller.GitHub.protected_main",
+                                           return_value=target):
                             with self.assertRaisesRegex(CustodyBlocked,
                                     "SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT"):
                                 audit(self.dbpath,target,self.head,
