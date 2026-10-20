@@ -1,0 +1,72 @@
+name: LCRM-01 O4 source-free learned interventional law identifiability
+on:
+  push:
+    branches: [research/lcrm01-o4-interventional-induction-20261020]
+    paths: ['.github/workflows/lcrm01-o4-rule-induction-sourcefree.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o4-sourcefree
+  cancel-in-progress: false
+jobs:
+  exact-public-causal-induction:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify O3 original evidence and exact source-free O4 chronology
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'O4_HEAD_DRIFT'}
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o4-rule-induction-precode.json'='43c8c17bfd651373023f35089fd2f0f8fc368e4a'
+            'research/lcrm01/o4_rule_induction.go'='d11303f0adabfe1331ccf71899e1cf7bfacad10e'
+            'research/lcrm01/o4_rule_induction_test.go'='4e9d618ad4a32378359962b351ce3b77e3946ab6'
+            'research/lcrm01/o3_compositional_memory.go'='2c3465abf0769deccbc932e3129db8f0d574fb4d'
+            'research/lcrm01/originals/20261020-lcrm01-o3-sourcefree-composition-feasibility.json'='cda45aead908d19166334b30a12893e36026d6cf'
+          }
+          foreach($p in $blobs.Keys){
+            $actual=(git hash-object -- $p).Trim()
+            if($actual -cne $blobs[$p]){throw "O4_BLOB_DRIFT:$p"}
+          }
+          git merge-base --is-ancestor 9ab45475a43b6390a407522b9b20f164d8cafce9 cd2ada53356278e80289e682273cee067528a272
+          if($LASTEXITCODE -ne 0){throw 'O4_WRONG_PARENT'}
+          git merge-base --is-ancestor cd2ada53356278e80289e682273cee067528a272 954c9df7bc0868c670469efbac8478e0196d04f3
+          if($LASTEXITCODE -ne 0){throw 'O4_CODE_PRECEDES_FREEZE'}
+          git merge-base --is-ancestor 954c9df7bc0868c670469efbac8478e0196d04f3 51e45bd47d40328bfd158505eebf1699a14792bc
+          if($LASTEXITCODE -ne 0){throw 'O4_TEST_PRECEDES_CODE'}
+          git merge-base --is-ancestor 51e45bd47d40328bfd158505eebf1699a14792bc HEAD
+          if($LASTEXITCODE -ne 0){throw 'O4_TEST_ABSENT'}
+          Write-Output 'O4_FROZEN_SOURCE_FREE_PRECODE_AND_ORIGINAL_O3_IDENTITY=PASS'
+      - name: Full finite unknown-operator learning and independent symbolic-control proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01 -run '^TestO4' -count=1 -v > o4-sourcefree-evidence.log
+          if($LASTEXITCODE -ne 0){Get-Content o4-sourcefree-evidence.log;throw 'O4_PROPERTY_FAILED'}
+          Get-Content o4-sourcefree-evidence.log
+          go vet ./research/lcrm01
+          if($LASTEXITCODE -ne 0){throw 'O4_VET_FAILED'}
+          go test ./research/lcrm01 -count=1
+          if($LASTEXITCODE -ne 0){throw 'O4_PACKAGE_REGRESSION'}
+          Write-Output 'O4_SOURCE_FREE_UNKNOWN_LAW_12288_CHECKS_EXACT_PEER_PARITY=PASS'
+          Write-Output 'O4_NEW_SOURCE_AND_ORIGINAL_FIRST_USE_COUNT=0'
+          Write-Output 'O4_CPU_RSS_PARITY_NOT_MEASURED_SCIENCE_AND_OPTIMIZER_ADMISSION=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o4-sourcefree-evidence-${{ matrix.os }}
+          path: o4-sourcefree-evidence.log
+          if-no-files-found: ignore
+          retention-days: 90
