@@ -47,3 +47,73 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: Checkout D2P source-bound owner admission preflight
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): verify D2P source-bound pending issue intake'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify existing D2P custody and exact owner-issued candidate
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): verify D2P source-bound pending issue intake'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected='34ca99c1b5b063225566082aee5aa180a15d093b'
+          $seal='eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'D2P_WRONG_OWNER_RUNNER' }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ($task.State -ne 'Running' -or $task.Principal.LogonType -ne 'Interactive' -or @($task.Actions).Count -ne 1) { throw 'D2P_CONTROLLER_NOT_RUNNING' }
+          $owner=([Security.Principal.NTAccount]::new([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if ($owner.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value) { throw 'D2P_NOT_CONTROLLER_OWNER' }
+          $a=[string]$task.Actions[0].Arguments
+          $fields=@{}
+          foreach($name in @('RepositoryRoot','Database','PythonExe')){
+            $match=[regex]::Match($a,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if (!$match.Success) { throw ('D2P_TASK_ARGUMENT_ABSENT_'+$name) }
+            $fields[$name]=$match.Groups[1].Value
+          }
+          $sha=(& git -C $fields.RepositoryRoot rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -cne $expected) { throw 'D2P_TASK_SOURCE_DRIFT' }
+          $ghMain=(& gh api -X GET repos/spoonman136668-ai/FORGE/branches/main) | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$ghMain.protected -or $ghMain.commit.sha -cne $expected) { throw 'D2P_PROTECTED_MAIN_DRIFT' }
+          $issue=(& gh api -X GET repos/spoonman136668-ai/FORGE/issues/671) | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $issue.number -ne 671 -or $issue.id -ne 5940729559 -or
+              $issue.user.login -cne 'spoonman136668-ai' -or $issue.author_association -cne 'OWNER' -or
+              $issue.state -cne 'open' -or @($issue.labels).Count -ne 0) { throw 'D2P_ISSUE_NOT_STAGED_UNLABELED' }
+          $payload=$issue.body|ConvertFrom-Json
+          if ($payload.schema -cne 'forge.f139.d2k.owner-development.v1' -or
+              $payload.source_sha -cne $expected -or $payload.lane -cne 'Qualification' -or
+              $payload.kind -cne 'go-package-test-diagnostic' -or
+              $payload.target_package -cne './optimizerstages' -or
+              $payload.scientific_first_use -ne $false -or
+              $payload.paid_model_calls -ne 0) { throw 'D2P_ISSUE_BODY_NOT_FROZEN' }
+          $code=@'
+          import json,sys,sqlite3
+          from pathlib import Path
+          from f139.audit_d2k_custody import audit
+          p,sha,seal=sys.argv[1:]
+          a=audit(Path(p),sha,seal,qualified_main_sha=sha)
+          assert a['event_count']==24 and a['historical_prefix_event_count']==23 and a['source_only_suffix_count']==1
+          assert a['live_main_source_suffix_verified'] is True and a['task_count']==4 and a['archive_count']==8
+          assert a['d2j_task_bindings_verified']==2 and a['original_database_writes']==0 and a['scientific_first_use'] is False
+          c=sqlite3.connect(Path(p).as_uri()+'?mode=ro',uri=True)
+          try:
+              c.row_factory=sqlite3.Row
+              m=c.execute('SELECT * FROM meta WHERE id=1').fetchone()
+              t=[dict(x) for x in c.execute('SELECT * FROM tasks')]
+              assert m['source_sha']==sha and m['head_seq']==24 and m['enabled']==1 and m['legacy_suspended']==1
+              assert len(t)==4 and all(x['stage']=='VERIFIED' for x in t)
+          finally:c.close()
+          print('F139_D2P_ORIGINAL_24_EVENT_AND_EIGHT_ZIP_CUSTODY=PASS')
+          '@
+          $old=(Get-Location).Path
+          try {
+            Set-Location -LiteralPath $fields.RepositoryRoot
+            & $fields.PythonExe -B -c $code $fields.Database $expected $seal
+            if ($LASTEXITCODE -ne 0) { throw 'D2P_NATIVE_CUSTODY_AUDIT_FAILED' }
+          } finally { Set-Location -LiteralPath $old }
+          Write-Output 'F139_D2P_TASK_OWNER_AND_PROTECTED_SOURCE=PASS'
+          Write-Output 'F139_D2P_ISSUE_671_UNLABELED_OWNER_CANDIDATE=PASS'
+          Write-Output 'F139_D2P_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2P_DISPOSITION=PRE_ADMISSION_READONLY_PASS'
