@@ -47,3 +47,32 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: D2S read-only witness host principal suitability
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'WITNESS_PROBE_UNEXPECTED_RUNNER' }
+          if ($env:OPENAI_API_KEY) { throw 'WITNESS_PROBE_PAID_API_REJECTED' }
+          if (-not [System.IO.Path]::IsPathRooted($env:LOCALAPPDATA)) {
+            throw 'WITNESS_PROBE_NO_PERSISTENT_WINDOWS_PROFILE'
+          }
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          if ($null -eq $identity -or $null -eq $identity.User) {
+            throw 'WITNESS_PROBE_UNKNOWN_WINDOWS_PRINCIPAL'
+          }
+          $isSystem = $identity.User.Value -eq 'S-1-5-18'
+          $ownerKey = Join-Path $env:LOCALAPPDATA 'FORGE-FSA\owner-ed25519.dpapi'
+          $ownerKeyVisible = Test-Path -LiteralPath $ownerKey -PathType Leaf
+          $localState = Join-Path $env:LOCALAPPDATA 'FORGE-FSA'
+          $existingDir = Test-Path -LiteralPath $localState -PathType Container
+          if ($existingDir) {
+            $item = Get-Item -LiteralPath $localState -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+              throw 'WITNESS_PROBE_PROFILE_SYMLINK'
+            }
+          }
+          Write-Output "D2S_RUNNER_PRINCIPAL_LOCAL_SYSTEM=$($isSystem.ToString().ToUpperInvariant())"
+          Write-Output "D2S_RUNNER_PROFILE_OWNER_KEY_VISIBLE=$($ownerKeyVisible.ToString().ToUpperInvariant())"
+          Write-Output 'D2S_OFF_CLOUD_WINDOWS_HOST=OBSERVED_NOT_INDEPENDENTLY_ATTESTED'
+          Write-Output 'D2S_SIGNING_KEY_CREATED=FALSE'
+          Write-Output 'D2S_FIRSTUSE_AUTHORIZED=FALSE'
