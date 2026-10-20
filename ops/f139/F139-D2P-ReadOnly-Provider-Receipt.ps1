@@ -49,7 +49,7 @@ from f139.local_controller import Database,GitHub,canonical,hash_bytes,receipt_f
 from f139.audit_d2k_custody import verify_chain,verify_evidence,load_provider_anchor,verify_d2j_task_bindings
 dbpath=Path(sys.argv[1]); src=sys.argv[2]; seal=sys.argv[3]
 ticket=sys.argv[4]; run_id=int(sys.argv[5]); issue_number=671; issue_id=5940729559
-with tempfile.TemporaryDirectory(prefix="f139-d2p-verify-") as folder:
+with tempfile.TemporaryDirectory(prefix='f139-d2p-verify-') as folder:
     snapshot=Path(folder)/'snapshot.sqlite'
     original=sqlite3.connect(dbpath.as_uri()+'?mode=ro',uri=True,timeout=15)
     try:
