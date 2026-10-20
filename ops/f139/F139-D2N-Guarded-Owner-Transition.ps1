@@ -146,11 +146,21 @@ try{
   Remote;Legacy
   if(!(Test-Path -LiteralPath $NewTree -PathType Container)){
     New-Item -ItemType Directory -Path $NewTree -Force -ErrorAction Stop|Out-Null
-    $null=InvokeNative 'git' @('-C',$NewTree,'init','--quiet')
-    $null=InvokeNative 'git' @('-C',$NewTree,'remote','add','origin','https://github.com/'+$Repo+'.git')
-    $null=InvokeNative 'git' @('-C',$NewTree,'fetch','--quiet','--depth','1','origin',$Next)
-    $null=InvokeNative 'git' @('-C',$NewTree,'-c','advice.detachedHead=false','checkout','--quiet','--detach',$Next)
   }
+  if(!(Test-Path -LiteralPath (Join-Path $NewTree '.git') -PathType Container)){
+    StopGate (@(Get-ChildItem -LiteralPath $NewTree -Force).Count -eq 0) 'FOREIGN_NON_GIT_CHECKOUT'
+    $null=InvokeNative 'git' @('-C',$NewTree,'init','--quiet')
+  }
+  $remoteUrl='https://github.com/' + $Repo + '.git'
+  $existingRemotes=InvokeNative 'git' @('-C',$NewTree,'remote')
+  if([string]::IsNullOrWhiteSpace($existingRemotes)){
+    $null=InvokeNative 'git' @('-C',$NewTree,'remote','add','origin',$remoteUrl)
+  }else{
+    StopGate ($existingRemotes -ceq 'origin') 'UNEXPECTED_GIT_REMOTES'
+    StopGate ((InvokeNative 'git' @('-C',$NewTree,'remote','get-url','origin')) -ceq $remoteUrl) 'REMOTE_URL_DRIFT'
+  }
+  $null=InvokeNative 'git' @('-C',$NewTree,'fetch','--quiet','--depth','1','origin',$Next)
+  $null=InvokeNative 'git' @('-C',$NewTree,'-c','advice.detachedHead=false','checkout','--quiet','--detach',$Next)
   StopGate ((InvokeNative 'git' @('-C',$NewTree,'rev-parse','HEAD')) -ceq $Next) 'NEW_TREE_SHA_DRIFT'
   StopGate ([string]::IsNullOrWhiteSpace((InvokeNative 'git' @('-C',$NewTree,'status','--porcelain')))) 'NEW_TREE_NOT_CLEAN'
   CheckPath $NewTree
