@@ -1,0 +1,313 @@
+name: K-Terminal RC2-H next exact-source Windows regression with timing
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [qualification/kterminal/rc2h-next-regression.signal]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-rc2h-next-b8c2052d530cdff93462dfccc21b28f3824e5531
+  cancel-in-progress: false
+jobs:
+  original-windows-qualification:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Checkout FORGE qualification workflow (no persisted credentials)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Confirm isolated hosted Windows execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_REF" = refs/heads/diagnostics/kterminal-original-local-preflight-20261019
+          test "$GITHUB_EVENT_NAME" = push
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+          echo KTERM_RC2C_EXISTING_HOSTED_WINDOWS=PASS
+      - name: Checkout frozen private original K-Terminal candidate read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kterminal-private
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout frozen original baseline to classify inherited negatives
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kterminal-original-baseline
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Setup existing pinned Go 1.26.5 toolchain
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact source identity and no broker credentials
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test "$(git rev-parse HEAD:pkg/coinbase-performance-reconciler.go)" = ce588db3a222d5edd1b5f226946b4e1994969de2
+          test -z "$(git status --porcelain)"
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            if [[ -n "${!n:-}" ]]; then echo KTERM_RC2C_CREDENTIAL_BLOCK=FAIL; exit 2; fi
+          done
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          echo KTERM_RC2C_EXACT_SOURCE=PASS
+          echo KTERM_RC2C_REAL_COINBASE_ACCESS=NONE
+      - name: Prepare original Stage3 retention workspace with existing custody contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/kterm-rc2e-workspace"
+          mkdir -p "$root/native-tail" "$root/authenticated-post" "$root/private-v2"
+          test -d "$root/private-v2" && test -d "$root/native-tail"
+          {
+            printf 'K_TERMINAL_TEST_WORKSPACE=%s\n' "$root"
+            printf 'KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT=%s\n' "$root/native-tail"
+            printf 'KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT=%s\n' "$root/authenticated-post"
+            printf 'KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT=%s\n' "$root/private-v2"
+          } >> "$GITHUB_ENV"
+          echo KTERM_RC2E_STAGE3_ORIGINAL_RETENTION_ROOTS=PREPARED
+      - name: Original exact-source Stage3 fixture acceptance
+        shell: bash
+        working-directory: kterminal-original-baseline
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=14m ./pkg -run '^TestStage3NativeHistoricalHistoryCheckpointV2$' > "$RUNNER_TEMP/rc2e-original-stage3.jsonl" 2> "$RUNNER_TEMP/rc2e-original-stage3-stderr.txt"
+          rc=$?
+          set -e
+          export RC2E_GO_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,sys
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2e-original-stage3.jsonl"
+          runs=passes=fails=errors=0
+          for line in p.open(encoding="utf-8",errors="replace"):
+              try:x=json.loads(line)
+              except ValueError:errors+=1;continue
+              name=x.get("Test","")
+              if name.startswith("TestStage3NativeHistoricalHistoryCheckpointV2"):
+                  if x.get("Action")=="run":runs+=1
+                  if x.get("Action")=="pass":passes+=1
+                  if x.get("Action")=="fail":fails+=1
+          good=(int(os.environ["RC2E_GO_EXIT"])==0 and fails==0 and errors==0 and runs>=15 and passes==runs)
+          print("KTERM_RC2E_ORIGINAL_STAGE3_NODES="+str(runs))
+          print("KTERM_RC2E_ORIGINAL_STAGE3_FAIL_NODES="+str(fails))
+          print("KTERM_RC2E_ORIGINAL_STAGE3_FIXTURE="+("PASS" if good else "FAIL_NOT_WAIVED"))
+          if not good:sys.exit(2)
+          PY
+      - name: Exact candidate focused accounting, reporting and restart qualification
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=20m ./pkg -run '^(TestHistoricalPnL.*|TestHistoricalOrderScope.*|TestHistoricalScope.*|TestIncrementalRestart.*|TestNativeObservation.*|TestPerformanceDrawdown.*|TestStage3NativeHistoricalHistoryCheckpointV2)$' > "$RUNNER_TEMP/rc2e-focused.jsonl" 2> "$RUNNER_TEMP/rc2e-focused-stderr.txt"
+          rc=$?
+          set -e
+          export RC2E_GO_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,sys
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2e-focused.jsonl"
+          passes=fails=errors=0; tested=set(); targets=set()
+          for line in p.open(encoding="utf-8",errors="replace"):
+              try:x=json.loads(line)
+              except ValueError:errors+=1;continue
+              name=x.get("Test","")
+              if name and x.get("Action")=="pass":
+                  passes+=1
+                  targets.add(name)
+              if name and x.get("Action")=="run": tested.add(name)
+              if name and x.get("Action")=="fail":fails+=1
+          required=["TestHistoricalPnLFullAuditClockAndImmutableJournal","TestStage3NativeHistoricalHistoryCheckpointV2"]
+          good=(int(os.environ["RC2E_GO_EXIT"])==0 and fails==0 and errors==0 and all(q in targets for q in required))
+          print("KTERM_RC2E_CANDIDATE_FOCUSED_PASSED="+str(passes))
+          print("KTERM_RC2E_CANDIDATE_FOCUSED_FAILED="+str(fails))
+          print("KTERM_RC2E_CANDIDATE_TARGETS="+str({q:q in targets for q in required}))
+          print("KTERM_RC2E_CANDIDATE_FOCUSED="+("PASS" if good else "FAIL_NOT_WAIVED"))
+          if not good:sys.exit(2)
+          PY
+      - name: One complete original Windows regression with bounded failure identity
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=38m ./... > "$RUNNER_TEMP/rc2g-full.jsonl" 2> "$RUNNER_TEMP/rc2g-full-stderr.txt"
+          rc=$?
+          set -e
+          export RC2G_FULL_GO_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,re,sys
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          p=root/"rc2g-full.jsonl"
+          passed=failed=errors=0
+          pkg_ok=set()
+          pkg_bad=set()
+          all_fail=[]
+          source_locations=set()
+          allow_test=re.compile(r'^Test[A-Za-z0-9_./#-]{0,240}$')
+          allow_package=re.compile(r'^k-terminal(?:/[A-Za-z0-9_/-]+)?$')
+          location_re=re.compile(r'([A-Za-z0-9_-]+_test[.]go):([0-9]+):')
+          for line in p.open(encoding="utf-8",errors="replace"):
+              try:x=json.loads(line)
+              except ValueError:errors+=1;continue
+              action,name,pkg=x.get("Action"),x.get("Test"),x.get("Package","")
+              if action=="pass" and name:passed+=1
+              if action=="pass" and not name and allow_package.fullmatch(pkg):pkg_ok.add(pkg)
+              if action=="fail":
+                  if name:failed+=1
+                  if allow_package.fullmatch(pkg):pkg_bad.add(pkg)
+                  if name and allow_package.fullmatch(pkg) and allow_test.fullmatch(name):
+                      all_fail.append((pkg,name))
+              if action=="output" and pkg in pkg_bad:
+                  for match in location_re.finditer(x.get("Output","")):
+                      source_locations.add(match.group(1)+":"+match.group(2))
+          # Test parents also fail when a child fails. Attribute only the
+          # deepest failing child in a package to avoid repeated follow-on runs.
+          leaves=[(pkg,name) for pkg,name in sorted(set(all_fail))
+                  if not any(p2==pkg and n2.startswith(name+"/") for p2,n2 in all_fail)]
+          original_candidate_exits=int(os.environ["RC2G_FULL_GO_EXIT"])
+          report={
+              "schema":"kterminal.rc2g.original-windows-failure-identity.v1",
+              "candidate_sha":"b8c2052d530cdff93462dfccc21b28f3824e5531",
+              "predecessor_sha":"eb5d225ae73b698a59c68d840daf1ec678e1a0ec",
+              "candidate_go_exit":original_candidate_exits,
+              "passed_test_nodes":passed,
+              "failed_test_nodes":failed,
+              "passed_packages":len(pkg_ok),
+              "failed_packages":sorted(pkg_bad),
+              "failed_leaf_tests":[{"package":pkg,"test":name} for pkg,name in leaves[:12]],
+              "source_test_locations":sorted(source_locations)[:25],
+              "json_errors":errors,
+              "provenance":"exact-source hosted Windows go test count=1",
+              "complete_regression_pass":original_candidate_exits==0 and failed==0 and not pkg_bad and errors==0,
+          }
+          dest=root/"rc2g-redacted-report.json"
+          dest.write_text(json.dumps(report,sort_keys=True,indent=2),encoding="utf-8")
+          print("KTERM_RC2G_PASS_NODES="+str(passed))
+          print("KTERM_RC2G_FAILED_NODES="+str(failed))
+          print("KTERM_RC2G_FAILED_PACKAGES="+str(len(pkg_bad)))
+          for pkg in sorted(pkg_bad): print("KTERM_RC2G_FAIL_PACKAGE="+pkg)
+          for pkg,name in leaves[:12]:print("KTERM_RC2G_FAIL_TEST="+pkg+":"+name)
+          print("KTERM_RC2G_FULL_WINDOWS="+("PASS" if report["complete_regression_pass"] else "FAIL_NOT_WAIVED"))
+          if not report["complete_regression_pass"]:sys.exit(2)
+          PY
+      - name: Compare discovered failures against exact original predecessor
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json,os,pathlib,re,subprocess,sys
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          reportfile=root/"rc2g-redacted-report.json"
+          if not reportfile.is_file():
+              print("KTERM_RC2G_PREDECESSOR=NOT_CHECKED_NO_REPORT")
+              sys.exit(2)
+          report=json.loads(reportfile.read_text(encoding="utf-8"))
+          cases=report.get("failed_leaf_tests",[])
+          if not cases:
+              print("KTERM_RC2G_PREDECESSOR=NOT_CHECKED_NO_IDENTIFIED_TEST")
+              sys.exit(2)
+          cwd=pathlib.Path(os.getcwd())/"kterminal-original-baseline"
+          done=[]
+          for index,case in enumerate(cases[:4]):
+              pkg,name=case["package"],case["test"]
+              if not re.fullmatch(r'k-terminal(?:/[A-Za-z0-9_/-]+)?',pkg):sys.exit(2)
+              if not re.fullmatch(r'Test[A-Za-z0-9_./#-]{0,240}',name):sys.exit(2)
+              packagepath="./"+(pkg[len("k-terminal/"):] if pkg!="k-terminal" else "")
+              runpat="/".join("^"+re.escape(part)+"$" for part in name.split("/"))
+              cmd=["go","test","-json","-count=1","-p=1","-parallel=1","-timeout=9m","-run",runpat,packagepath]
+              out=root/("rc2g-predecessor-"+str(index)+".jsonl")
+              err=root/("rc2g-predecessor-"+str(index)+".stderr")
+              with out.open("wb") as stdout,err.open("wb") as stderr:
+                  try:
+                      proc=subprocess.run(cmd,cwd=cwd,stdout=stdout,stderr=stderr,timeout=620,check=False)
+                      rc=proc.returncode
+                  except subprocess.TimeoutExpired:rc=124
+              actions={"run":0,"pass":0,"fail":0}
+              for line in out.open(encoding="utf-8",errors="replace"):
+                  try:ev=json.loads(line)
+                  except ValueError:continue
+                  if ev.get("Test")==name and ev.get("Action") in actions:
+                      actions[ev["Action"]]+=1
+              comparison=("BASELINE_FAIL" if rc!=0 and actions["run"] else
+                          "BASELINE_PASS" if rc==0 and actions["pass"] else
+                          "INCONCLUSIVE")
+              done.append({"package":pkg,"test":name,"baseline_exit":rc,"baseline_result":comparison})
+              print("KTERM_RC2G_BASELINE_COMPARISON="+pkg+":"+name+":"+comparison)
+          report["predecessor_checks"]=done
+          reportfile.write_text(json.dumps(report,sort_keys=True,indent=2),encoding="utf-8")
+          # Classification does not waive the failed complete regression.
+          print("KTERM_RC2G_RELEASE_GATE=BLOCKED")
+          PY
+      - name: Measure exact Windows regression duration without changing tests
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$RUNNER_TEMP/rc2g-full.jsonl" ]]; then
+            echo KTERM_RC2H_TIMING_SOURCE=ABSENT_NO_CLAIM
+            exit 2
+          fi
+          set +e
+          python -B qualification/kterminal/rc2h_regression_profile.py "$RUNNER_TEMP/rc2g-full.jsonl"             --sha b8c2052d530cdff93462dfccc21b28f3824e5531 --top 20             > "$RUNNER_TEMP/rc2h-timing-summary.json"
+          profiler_rc=$?
+          set -e
+          python -B - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2h-timing-summary.json"
+          d=json.loads(p.read_text(encoding="utf-8"))
+          print("KTERM_RC2H_PROFILE_SOURCE_SHA="+d["source_sha"])
+          print("KTERM_RC2H_SLOW_PACKAGES="+str(len(d["slowest_packages"])))
+          print("KTERM_RC2H_SLOW_TOP_LEVEL_TESTS="+str(len(d["slowest_top_level_tests"])))
+          print("KTERM_RC2H_TEST_INVENTORY_COUNT="+str(d["counts"].get("top_level_run",0)))
+          print("KTERM_RC2H_PASS_CLAIM_FROM_PROFILE=FALSE")
+          PY
+          if [[ "$profiler_rc" -ne 0 ]]; then
+            echo KTERM_RC2H_PROFILE_NEGATIVE_EVIDENCE_RETAINED=TRUE
+          fi
+          # Profiling cannot override the separately retained Go test result.
+      - name: Retain only source-pinned redacted failure identity
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2g-redacted-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/rc2g-redacted-report.json
+            ${{ runner.temp }}/rc2h-timing-summary.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Original Windows Go build after passing full regression
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          go build -p=1 ./...
+          echo KTERM_RC2C_WINDOWS_GO_BUILD=PASS
+          echo KTERM_RC2C_NO_MERGE_NO_INSTALL_NO_LIVE_BROKER=PASS
