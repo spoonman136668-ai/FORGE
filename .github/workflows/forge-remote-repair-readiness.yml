@@ -164,3 +164,35 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'D2V_F139_LOCAL_DB_READONLY_FAILED' }
           }
           Write-Output 'D2V_NO_CONTROLLER_OR_SCIENCE_MUTATIONS=TRUE'
+
+      - name: D2W F139 development source-transition eligibility read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $db = Join-Path $env:LOCALAPPDATA 'FORGE-F139\\state.sqlite'
+          if (-not (Test-Path -LiteralPath $db -PathType Leaf)) { throw 'D2W_NO_F139_LOCAL_DATABASE' }
+          @'
+          import os,pathlib,sqlite3,urllib.parse,collections
+          p=pathlib.Path(os.environ["LOCALAPPDATA"])/"FORGE-F139"/"state.sqlite"
+          db=sqlite3.connect("file:"+urllib.parse.quote(p.as_posix(),safe="/:")+"?mode=ro",uri=True,timeout=4)
+          try:
+              db.execute("PRAGMA query_only=ON")
+              meta=db.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              if not meta: raise RuntimeError("D2W_META_MISSING")
+              tasks=db.execute("SELECT lane,stage,source_sha,run_id,evidence_sha FROM tasks ORDER BY ticket").fetchall()
+              stages=collections.Counter(r[1] for r in tasks)
+              print("D2W_F139_TASKS="+str(len(tasks)))
+              for state,count in sorted(stages.items()):
+                  print("D2W_F139_TASK_STAGE_"+state+"="+str(count))
+              print("D2W_F139_HISTORIC_SOURCE_COUNT="+str(len(set(r[2] for r in tasks))))
+              print("D2W_F139_ANY_UNVERIFIED="+str(any(r[1]!="VERIFIED" or r[3] is None or r[4] is None for r in tasks)).upper())
+              events=db.execute("SELECT kind FROM events ORDER BY seq DESC LIMIT 8").fetchall()
+              print("D2W_F139_RECENT_SOURCE_TRANSITIONS="+str(sum(r[0]=="SOURCE_TRANSITION_ADMITTED" for r in events)))
+              print("D2W_F139_META_SOURCE="+str(meta[0]))
+              print("D2W_F139_LAST_SEQ="+str(meta[1]))
+              print("D2W_F139_CONTROLLER_ENABLED="+str(meta[3]))
+              print("D2W_F139_HISTORIC_AUTHORITY_SUSPENDED="+str(meta[4]))
+              print("D2W_NO_WORKSTATION_MUTATION=TRUE")
+          finally: db.close()
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw 'D2W_READONLY_STATE_FAILED' }
