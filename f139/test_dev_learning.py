@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 from f139 import dev_learning as d
 
-SHA = "a" * 40
+SHA = os.environ.get("GITHUB_SHA") or ("a" * 40)
 
 class DevLearningTests(unittest.TestCase):
     def test_actual_two_lane_fit_and_held_development_comparison(self):
