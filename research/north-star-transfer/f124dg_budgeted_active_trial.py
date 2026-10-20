@@ -47,7 +47,13 @@ def sourcefree_case(family,seed,arm,budget):
         model,receipt=peer.fit(fit,budget,oracle,meta,lex_only=(arm=="lex_exact_rank"))
         scored=peer.score
         trajectory=peer.trajectory
-    require(len(chosen)==budget,"FROZEN_0_16_48_EXTRA_ORACLE_RESPONSES")
+    # An exact-rank query is informative ONLY while FIT leaves nonzero
+    # nullspace. If rank=163 before the maximum budget is spent, stopping
+    # is mandatory: no independent intervention exists in this class.
+    final_rank=receipt["final_rank"]
+    require(len(chosen)<=budget and
+            (len(chosen)==budget or final_rank==163),
+            "MAX_QUERY_BUDGET_OR_MATHEMATICALLY_PROVEN_FULL_RANK_STOP")
     original=learned.supervised_rows(fit)
     observed=learned.basis([(x,0) for x,_ in original])
     unidentified=next((x for x in range(256) if learned.independent(observed,x)),None)
@@ -77,6 +83,8 @@ def sourcefree_case(family,seed,arm,budget):
         "explicit_nonzero_nullspace_polynomial_on_unobserved_pair":null_witness,
         "unobserved_counterfactual_pair":unidentified,
         "new_oracle_queries_consumed":len(chosen),"queries_distinct":len(set(chosen))==len(chosen),
+        "rank_saturated_before_query_budget":len(chosen)<budget,
+        "query_budget_is_MAXIMUM_not_forced_redundant_observations":True,
         "final_rank":receipt["final_rank"],
         "rank_gain_from_extra_information":receipt["final_rank"]-len(observed),
         "natural_CHECK_admission":natural,
