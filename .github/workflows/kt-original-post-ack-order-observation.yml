@@ -1,0 +1,185 @@
+name: K-Terminal original post-acknowledgment attribution
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-post-ack-order-observation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-production-code:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Measure order accepted-to-handler-return and delayed final evidence using production BUY path
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'WRONG_RUNNER' }
+          Write-Host 'KTERM_ACTUAL_CODE_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'ORIGINAL_INSTALL_NOT_UNIQUE' }
+          $original=$roots[0]
+          foreach($name in @('go.mod','go.sum','pkg\native-execution.go','pkg\native-maker-accounting-retry_test.go','pkg\regular-sell-selected-execution_test.go')) {
+            if(-not(Test-Path -LiteralPath (Join-Path $original $name) -PathType Leaf)) { throw 'REQUIRED_ORIGINAL_GO_SOURCE_MISSING' }
+          }
+          $fixture=Get-Content -LiteralPath (Join-Path $original 'pkg\native-maker-accounting-retry_test.go') -Raw -ErrorAction Stop
+          if(-not($fixture.Contains('newMakerAccountingFixture') -and $fixture.Contains('makerAccountingAccept') -and $fixture.Contains('lookupRoundTripFunc') -and $fixture.Contains('nativeGuardedTransport'))) { throw 'ORIGINAL_SAFE_MOCK_FIXTURE_INCOMPATIBLE' }
+          Write-Host 'KTERM_MOCKED_NATIVE_FIXTURE_PRESENT=PASS'
+          $goCommand=Get-Command go.exe -ErrorAction SilentlyContinue
+          $goBin=if($null-ne$goCommand){$goCommand.Source}else{'C:\Users\camar\sdk\go1.26.5\bin\go.exe'}
+          if(-not(Test-Path -LiteralPath $goBin -PathType Leaf)) { throw 'OFFLINE_GO_COMPILER_NOT_FOUND' }
+          $parent=Split-Path -Parent $original
+          $sandbox=Join-Path $parent ('kt-offline-real-order-'+[guid]::NewGuid().ToString('N'))
+          if($sandbox.StartsWith($original,[StringComparison]::OrdinalIgnoreCase)) { throw 'SANDBOX_INSIDE_ORIGINAL_FORBIDDEN' }
+          [void][IO.Directory]::CreateDirectory($sandbox)
+          try {
+            foreach($name in @('go.mod','go.sum')) {Copy-Item -LiteralPath (Join-Path $original $name) -Destination (Join-Path $sandbox $name) -ErrorAction Stop}
+            foreach($section in @('pkg','internal')) {
+              $src=Join-Path $original $section
+              if(Test-Path -LiteralPath $src -PathType Container) {
+                Get-ChildItem -LiteralPath $src -Recurse -Filter '*.go' -File -ErrorAction Stop | ForEach-Object {
+                  $rel=$_.FullName.Substring($original.Length).TrimStart('\')
+                  $dest=Join-Path $sandbox $rel
+                  [void][IO.Directory]::CreateDirectory((Split-Path -Parent $dest))
+                  Copy-Item -LiteralPath $_.FullName -Destination $dest -ErrorAction Stop
+                }
+              }
+            }
+            $embed=Join-Path $original 'pkg\tranche-plans.json'
+            if(-not(Test-Path -LiteralPath $embed -PathType Leaf)) { throw 'ORIGINAL_EMBEDDED_TRANCHES_MISSING' }
+            Copy-Item -LiteralPath $embed -Destination (Join-Path $sandbox 'pkg\tranche-plans.json') -ErrorAction Stop
+            $pkg=Join-Path $sandbox 'pkg'
+            $testSource=Join-Path $pkg 'offline-original-real-order-simulation_test.go'
+            $code=@'
+          package pkg
+          import (
+           "fmt"
+           "net/http"
+           "sort"
+           "testing"
+           "time"
+          )
+          type postAckSample struct {
+           total, ready, ackToReturn, evidence, receipt, tranche, fullLimit float64
+           afterAckEvents int
+          }
+          func summarizePostAck(label string, arr []postAckSample) {
+           avg:=func(get func(postAckSample)float64)float64{
+            sum:=0.0; for _,s:=range arr {sum+=get(s)};return sum/float64(len(arr))
+           }
+           durations:=make([]float64,0,len(arr))
+           for _,s:=range arr{durations=append(durations,s.ackToReturn)}
+           sort.Float64s(durations)
+           fmt.Printf("KTERM_POST_ACK_%s_TRIALS=%d\n",label,len(arr))
+           fmt.Printf("KTERM_POST_ACK_%s_HANDLER_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.total}))
+           fmt.Printf("KTERM_POST_ACK_%s_READY_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.ready}))
+           fmt.Printf("KTERM_POST_ACK_%s_AFTER_ACK_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.ackToReturn}))
+           fmt.Printf("KTERM_POST_ACK_%s_AFTER_ACK_MAX_MS=%.2f\n",label,durations[len(durations)-1])
+           fmt.Printf("KTERM_POST_ACK_%s_EVIDENCE_RECORD_SPAN_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.evidence}))
+           fmt.Printf("KTERM_POST_ACK_%s_RECEIPT_SYNC_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.receipt}))
+           fmt.Printf("KTERM_POST_ACK_%s_TRANCHE_SYNC_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.tranche}))
+           fmt.Printf("KTERM_POST_ACK_%s_LIMIT_HANDLER_AVG_MS=%.2f\n",label,avg(func(s postAckSample)float64{return s.fullLimit}))
+          }
+          func TestOfflineOriginalPostAcceptanceAccountingAndEvidence(t *testing.T) {
+           scenarios:=[]struct{
+            label string
+            delay time.Duration
+            trials int
+           }{
+            {"NO_INJECTED_DELAY",0,6},
+            {"EVIDENCE_DELAY_1500MS",1500*time.Millisecond,2},
+            {"EVIDENCE_DELAY_6900MS",6900*time.Millisecond,1},
+           }
+           for _,sc:=range scenarios{
+            results:=[]postAckSample{}
+            for i:=0;i<sc.trials;i++{
+             t.Run(fmt.Sprintf("%s_%02d",sc.label,i),func(t *testing.T){
+              f:=newMakerAccountingFixture(t)
+              acceptedAt:=time.Time{}
+              evidenceWaits:=0
+              f.post=func(_ int,r *AdvancedOrderRequest)(*http.Response,error){
+               acceptedAt=time.Now()
+               return makerAccountingAccept(r.ClientOrderID),nil
+              }
+              f.n.Record=func(e NativeOrderEvidence)error{
+               if !acceptedAt.IsZero() && e.State=="RESULT" && sc.delay>0 {
+                evidenceWaits++
+                time.Sleep(sc.delay)
+               }
+               return nil
+              }
+              start:=time.Now()
+              res,err:=f.h.ExecuteNativeSignal(f.n,t.TempDir())
+              returnedAt:=time.Now()
+              if err!=nil || res==nil || len(f.posts)!=1 || acceptedAt.IsZero() {
+               t.Fatalf("original accepted order path not completed: result=%t posts=%d ack_known=%t err=%v",res!=nil,len(f.posts),!acceptedAt.IsZero(),err)
+              }
+              if sc.delay>0 && evidenceWaits!=1 {t.Fatalf("post-ack evidence hook did not execute exactly once: %d",evidenceWaits)}
+              if sc.delay==0 && evidenceWaits!=0 {t.Fatal("unexpected evidence fixture stall")}
+              elapsed:=func(a,b time.Time)float64{return float64(a.Sub(b).Microseconds())/1000}
+              sample:=postAckSample{total:elapsed(returnedAt,start),ackToReturn:elapsed(returnedAt,acceptedAt),afterAckEvents:evidenceWaits}
+              trace:=f.n.timing.snapshot("RESULT",nil,true)
+              if len(trace.Ready)!=1{t.Fatalf("unexpected Coinbase transport-ready events: %d",len(trace.Ready))}
+              sample.ready=trace.Ready[0].ConstructionMS
+              for _,s:=range trace.Spans {
+               switch s.Stage{
+               case "evidence.required_record_total":sample.evidence+=s.DurationMS
+               case "receipt.required_sync":sample.receipt+=s.DurationMS
+               case "tranche.required_sync":sample.tranche+=s.DurationMS
+               case "execution.limit_full_wall_path":sample.fullLimit+=s.DurationMS
+               }
+              }
+              if sc.delay>0 && (sample.ackToReturn<float64(sc.delay.Milliseconds())-200 || sample.evidence<float64(sc.delay.Milliseconds())-200) {
+               t.Fatalf("injected final-evidence wait not attributed after ack; after_ack_ms=%.1f evidence_ms=%.1f",sample.ackToReturn,sample.evidence)
+              }
+              results=append(results,sample)
+             })
+            }
+            summarizePostAck(sc.label,results)
+           }
+           fmt.Println("KTERM_POST_ACK_REAL_PRODUCTION_HANDLER=TRUE")
+           fmt.Println("KTERM_POST_ACK_DELAY_IS_TEST_FIXTURE_ONLY=TRUE")
+           fmt.Println("KTERM_POST_ACK_FAKE_COINBASE_ONLY=TRUE")
+          }
+          
+          '@
+            [IO.File]::WriteAllText($testSource,$code,[Text.UTF8Encoding]::new($false))
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:K_TERMINAL_EXECUTION_MODE='PAPER'
+            $env:K_TERMINAL_NATIVE_TIMING='0'
+            $env:K_TERMINAL_P5_LATENCY='0'
+            $env:LOCALAPPDATA=Join-Path $sandbox 'localappdata'
+            [void][IO.Directory]::CreateDirectory($env:LOCALAPPDATA)
+            Write-Host 'KTERM_ISOLATED_SOURCE_COPY_READY=PASS'
+            Write-Host 'KTERM_OFFLINE_DEPENDENCIES_REQUIRED=TRUE'
+            Push-Location $sandbox
+            try {
+              & $goBin test ./pkg -run '^TestOfflineOriginalPostAcceptanceAccountingAndEvidence -count=1 -timeout=5m -v
+              if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_MOCKED_NATIVE_ORDER_TEST_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_ORIGINAL_NATIVE_POST_ACK_GATE=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_POSTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
+ -count=1 -timeout=5m -v
+              if($LASTEXITCODE -ne 0) { throw 'ORIGINAL_MOCKED_NATIVE_ORDER_TEST_FAILED' }
+            } finally { Pop-Location }
+            Write-Host 'KTERM_ORIGINAL_NATIVE_ORDER_SIMULATION=PASS'
+            Write-Host 'KTERM_REAL_COINBASE_POSTS=0'
+            Write-Host 'KTERM_ORIGINAL_APPLICATION_UNTOUCHED=TRUE'
+          } finally {
+            if($sandbox.StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase) -and $sandbox -ne $original) {
+              Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop
+              Write-Host 'KTERM_ISOLATED_SANDBOX_REMOVED=PASS'
+            }
+          }
