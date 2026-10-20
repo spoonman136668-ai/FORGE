@@ -112,13 +112,16 @@ jobs:
            if($product -notmatch '^[A-Za-z0-9]+-[A-Za-z0-9]+$'){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=PRODUCT_NAME_NOT_STANDARD';continue}
            $cachePresent++
            Write-Host ('KTERM_CACHE_METADATA_LENGTH_BYTES='+$file.Length)
-           if($file.Length -gt 2097152 -or $file.Length -lt 2){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=INVALID_METADATA_SIZE';continue}
+           if($file.Length -gt 33554432 -or $file.Length -lt 2){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=INVALID_METADATA_SIZE';continue}
            $journal=Join-Path $data ('coinbase-performance-history-'+$product+'.jsonl')
            if(-not(Test-Path -LiteralPath $journal -PathType Leaf)){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=COMPANION_JOURNAL_ABSENT';continue}
            $info=Get-Item -LiteralPath $journal
-           if($info.Length -gt 33554432 -or $info.Length -lt 1){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=INVALID_COMPANION_SIZE';continue}
+           Write-Host ('KTERM_CACHE_COMPANION_LENGTH_BYTES='+$info.Length)
+           if($info.Length -gt 134217728 -or $info.Length -lt 1){$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=INVALID_COMPANION_SIZE';continue}
            $meta=$null
-           try{$meta=Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop}catch{$cacheRejected++;Write-Host 'KTERM_CACHE_REJECT_REASON=METADATA_NOT_JSON';continue}
+           $parseTimer=[Diagnostics.Stopwatch]::StartNew()
+           try{$meta=Get-Content -LiteralPath $file.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop}catch{$cacheRejected++;Write-Host ('KTERM_CACHE_REJECT_REASON=METADATA_PARSE_'+$_.Exception.GetType().Name);continue}
+           finally{$parseTimer.Stop();Write-Host ('KTERM_CACHE_METADATA_PARSE_MS='+$parseTimer.ElapsedMilliseconds)}
            Write-Host ('KTERM_CACHE_METADATA_SCHEMA_VERSION='+[int]$meta.schema_version)
            Write-Host ('KTERM_CACHE_METADATA_EXPECTED_RECORDS='+[int]$meta.record_count)
            Write-Host ('KTERM_CACHE_METADATA_REPLAY_VERIFIED='+[bool]$meta.replay_verified)
