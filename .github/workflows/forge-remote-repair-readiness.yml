@@ -47,3 +47,21 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: Checkout exact D2O preflight source
+        if: github.event_name == 'push' && github.ref == 'refs/heads/proposal/forge-remote-repair-r1'
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run F139 D2O read-only owner restart preflight
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): run D2O read-only controlled-restart preflight'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_OWNER_RUNNER' }
+          $path = 'ops/f139/F139-D2O-Guarded-Idle-Restart.ps1'
+          $blob = (& git rev-parse ('HEAD:'+$path)).Trim()
+          if ($LASTEXITCODE -ne 0 -or $blob -cne '69809d129bda05516bf0cdcd307d9fb4f6f0c915') { throw 'D2O_SCRIPT_BLOB_DRIFT' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $env:GITHUB_WORKSPACE $path)
+          if ($LASTEXITCODE -ne 0) { throw 'D2O_READ_ONLY_PREFLIGHT_BLOCKED' }
+          Write-Output 'F139_D2O_RUNNER_READ_ONLY_PREFLIGHT_RETURNED_PASS'
