@@ -47,3 +47,78 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+      - name: F139 D2V prove protected owner identity against private committed public pin
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): independently read D2V private pinned operator-key continuity'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='spoonman136668-ai/FORGE'
+          $rbackup='spoonman136668-ai/rbackup'
+          $expectedSource='34ca99c1b5b063225566082aee5aa180a15d093b'
+          $pinCommit='3a372d4561cb47e1e004e5870f0e9eb70fe98505'
+          $pinBlob='dcafff0b8374734444d1191bce5a053aacccfc7c'
+          $proofSourceBlob='6fae8ef6215dde046562225065f6f027e0065e39'
+          $pinPath='PUBLIC_PINS/2026-10-19-f139-operator-ed25519.json'
+          if($env:GITHUB_REPOSITORY -cne $repo -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:RUNNER_OS -cne 'Windows'){throw 'D2V_OWNER_RUNNER_MISMATCH'}
+          $branch=(& gh api -X GET 'repos/spoonman136668-ai/FORGE/branches/main')|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $branch.commit.sha -cne $expectedSource -or $branch.protected -ne $true){throw 'D2V_SOURCE_GITHUB_MISMATCH'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1 -or $task.Principal.LogonType -cne 'Interactive'){throw 'D2V_ORIGINAL_CONTROLLER_NOT_RUNNING'}
+          $userSid=([Security.Principal.NTAccount]::new([string]$task.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier])
+          if($userSid.Value -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'D2V_NOT_WIN_OWNER'}
+          $match=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if(!$match.Success){throw 'D2V_ROOT_NOT_PINNED'}
+          $installed=$match.Groups[1].Value
+          $head=(& git -C $installed rev-parse HEAD).Trim()
+          $fileBlob=(& git -C $installed rev-parse 'HEAD:cmd/forge-fsa-owner-key/main_windows.go').Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $expectedSource -or $fileBlob -cne $proofSourceBlob){throw 'D2V_INSTALLED_PROVE_SOURCE_DRIFT'}
+          $pinEnvelope=(& gh api -X GET ('repos/'+$rbackup+'/contents/'+$pinPath+'?ref='+$pinCommit))|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $pinEnvelope.type -cne 'file' -or $pinEnvelope.sha -cne $pinBlob -or
+            $pinEnvelope.size -gt 3000 -or $pinEnvelope.encoding -cne 'base64'){throw 'D2V_PRIVATE_VAULT_PIN_IDENTITY_UNTRUSTED'}
+          $currentPin=(& gh api -X GET ('repos/'+$rbackup+'/contents/'+$pinPath+'?ref=main'))|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $currentPin.sha -cne $pinBlob){throw 'D2V_CURRENT_PRIVATE_PIN_DRIFT'}
+          $pin=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(($pinEnvelope.content -replace '\s',''))))|ConvertFrom-Json
+          $domain="FORGE-FSA-OPERATOR-KEY-POSSESSION-NO-SCIENCE-AUTHORITY-V1"+[char]10
+          if($pin.schema -cne 'forge.fsa.operator-public-pin-evidence.v1' -or
+             $pin.source_repository -cne $repo -or
+             $pin.possession_challenge_domain -cne $domain -or
+             $pin.state -cne 'LOCAL_OPERATOR_POSSESSION_ONLY' -or
+             $pin.external_witness_verified -ne $false -or
+             $pin.scientific_start_authorized -ne $false -or
+             $pin.independently_recoverable -ne $false){throw 'D2V_VAULT_PUBLIC_PIN_CONTRACT_DRIFT'}
+          $pinFingerprint=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Convert]::FromHexString([string]$pin.public_key_ed25519_hex))).ToLowerInvariant()
+          $challengeBytes=[Text.Encoding]::UTF8.GetBytes($domain+[string]$pin.public_key_ed25519_hex+[char]10)
+          $challengeHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($challengeBytes)).ToLowerInvariant()
+          if($pinFingerprint -cne [string]$pin.public_key_sha256 -or $challengeHash -cne [string]$pin.possession_challenge_sha256){throw 'D2V_VAULT_PUBLIC_PIN_HASH_REPLAY_FAILED'}
+          $go=Get-Command go -ErrorAction SilentlyContinue
+          if($null -eq $go){
+            $fallback=Join-Path $HOME 'sdk\go1.26.5\bin\go.exe'
+            if(!(Test-Path -LiteralPath $fallback -PathType Leaf)){throw 'D2V_OWNER_GO_NOT_FOUND'}
+            $goPath=$fallback
+          }else{$goPath=$go.Source}
+          $prior=(Get-Location).Path
+          try{
+            Set-Location -LiteralPath $installed
+            $proofText=@(& $goPath run ./cmd/forge-fsa-owner-key prove 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'D2V_OWNER_DPAPI_POSSESSION_PROOF_FAILED'}
+          }finally{Set-Location -LiteralPath $prior}
+          if($proofText.Count -ne 1 -or [string]$proofText[0].Length -gt 2000){throw 'D2V_OWNER_PROOF_SHAPE_INVALID'}
+          $proof=([string]$proofText[0])|ConvertFrom-Json
+          if($proof.schema -cne 'forge.fsa.local-operator-public-pin.v1' -or
+             $proof.public_key_ed25519_hex -cne $pin.public_key_ed25519_hex -or
+             $proof.public_key_sha256 -cne $pinFingerprint -or
+             $proof.possession_signature_hex -cne $pin.possession_signature_hex -or
+             $proof.state -cne 'LOCAL_OPERATOR_POSSESSION_ONLY' -or
+             $proof.external_witness_verified -ne $false -or
+             $proof.scientific_start_authorized -ne $false -or
+             $proof.independently_recoverable -ne $false){throw 'D2V_LIVE_KEY_NOT_SAME_AS_PRIVATE_PUBLIC_PIN'}
+          Write-Output 'F139_D2V_WORKSTATION_OWNER_DPAPI_KEY=POSSESSION_PROVED'
+          Write-Output 'F139_D2V_PRIVATE_RBACKUP_COMMIT_PIN=IDENTICAL'
+          Write-Output 'F139_D2V_ORIGINAL_PROVE_SOURCE_BLOB=UNCHANGED'
+          Write-Output 'F139_D2V_ED25519_PUBLIC_FINGERPRINT_AND_CHALLENGE_HASH=VERIFIED'
+          Write-Output 'F139_D2V_LIVE_POSSESSION_PROOF_MATCHES_PRIVATE_VAULT=PASS'
+          Write-Output 'F139_D2V_INDEPENDENT_FSA_WITNESS=NOT_VERIFIED'
+          Write-Output 'F139_D2V_CROSS_DEVICE_KEY_RECOVERY=NOT_VERIFIED'
+          Write-Output 'F139_D2V_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2V_DISPOSITION=OWNER_KEY_CUSTODY_CONTINUITY_ONLY'
