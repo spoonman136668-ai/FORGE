@@ -1,0 +1,204 @@
+name: K-Terminal original read-only order timing correlation
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-readonly-lifecycle-correlation.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-readonly-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect native timing P5 and event journal with numeric-only outputs
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') { throw 'KTERM_WRONG_LOCAL_RUNNER' }
+          Write-Host 'KTERM_LIFECYCLE_AUDIT_LOCAL_RUNNER=PASS'
+          $roots = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop | ForEach-Object {
+            Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal'
+          } | Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($roots.Count -ne 1) { throw 'KTERM_ORIGINAL_ROOT_NOT_UNIQUE' }
+          $root = $roots[0]
+          $engines = @(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          $owned = 0
+          foreach($engine in $engines) {
+            try {
+              if([string]::Equals([IO.Path]::GetDirectoryName([string]$engine.Path), $root, [StringComparison]::OrdinalIgnoreCase)) { $owned++ }
+            } catch {}
+          }
+          Write-Host ('KTERM_EXISTING_ORIGINAL_ENGINE_COUNT=' + $owned)
+          function Safe-Decimal($v) {
+            $d = 0.0
+            if($null -eq $v) {return $null}
+            if([double]::TryParse([string]$v,[Globalization.NumberStyles]::Float,[Globalization.CultureInfo]::InvariantCulture,[ref]$d) -and -not [double]::IsNaN($d) -and $d -ge 0 -and $d -le 86400000) { return $d }
+            return $null
+          }
+          function Get-TailLines([string]$file,[long]$maxBytes) {
+            $stream=$null; $reader=$null
+            try {
+              $stream=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+              $skip=$stream.Length -gt $maxBytes
+              if($skip) { $null=$stream.Seek(-$maxBytes,[IO.SeekOrigin]::End) }
+              $reader=[IO.StreamReader]::new($stream)
+              $a=$reader.ReadToEnd() -split '\r?\n'
+              if($skip -and $a.Length -gt 1){return ,@($a | Select-Object -Skip 1)}
+              return ,$a
+            } finally {
+              if($null -ne $reader){$reader.Dispose()}elseif($null -ne $stream){$stream.Dispose()}
+            }
+          }
+          function Show-Stats([string]$label,[System.Collections.IEnumerable]$vals) {
+            $v=@($vals | ForEach-Object {Safe-Decimal $_} | Where-Object {$null -ne $_} | Sort-Object)
+            Write-Host ($label+'_N='+$v.Count)
+            if($v.Count -eq 0){return}
+            $sum=0.0;foreach($x in $v){$sum+=$x}
+            $p95=$v[[Math]::Min($v.Count-1,[int][Math]::Ceiling($v.Count*.95)-1)]
+            Write-Host ($label+'_AVG_MS='+[Math]::Round($sum/$v.Count,2))
+            Write-Host ($label+'_P50_MS='+[Math]::Round($v[[int][Math]::Floor($v.Count/2)],2))
+            Write-Host ($label+'_P95_MS='+[Math]::Round($p95,2))
+            Write-Host ($label+'_MAX_MS='+[Math]::Round($v[-1],2))
+          }
+          $rt=Join-Path $root 'data\native-runtime'
+          $timings=Join-Path $rt 'native-construction-timing.jsonl'
+          $journal=Join-Path $rt 'exchange-requests.jsonl'
+          $realTiming=@()
+          if(Test-Path -LiteralPath $timings -PathType Leaf){
+            $f=Get-Item -LiteralPath $timings
+            Write-Host 'KTERM_ORIGINAL_NATIVE_TIMING_FILE=PRESENT'
+            Write-Host ('KTERM_ORIGINAL_NATIVE_TIMING_AGE_MIN='+[int][Math]::Max(0,([datetime]::UtcNow-$f.LastWriteTimeUtc).TotalMinutes))
+            $rows=Get-TailLines $timings 12582912
+            foreach($line in $rows){
+              if($line.Length -lt 15 -or $line.Length -gt 600000){continue}
+              try {
+                $x=$line | ConvertFrom-Json -ErrorAction Stop
+                if($x.environment -ne 'LIVE' -or $x.schema_version -ne 1){continue}
+                $wall=Safe-Decimal $x.execution_wall_ms
+                if($null -eq $wall){continue}
+                $r=[pscustomobject]@{ wall=$wall; ready=$null; exchange=$null; evidence=$null; receipt=$null; tranche=$null; accounting=$null; book=$null; clock=$null; start=$x.native_started_at }
+                foreach($t in @($x.transport_ready)){
+                  if($null -ne $t){
+                    $v=Safe-Decimal $t.full_transport_ready_ms
+                    if($null -ne $v -and ($null -eq $r.ready -or $v -lt $r.ready)) {$r.ready=$v}
+                  }
+                }
+                $map=@{'post.serialize_transport_ack_body'='exchange';'evidence.required_record_total'='evidence';'receipt.required_sync'='receipt';'tranche.required_sync'='tranche';'accounting.confirmed_settlement_wait'='accounting';'book.http_get'='book';'book.clock_http_get'='clock'}
+                foreach($s in @($x.spans)){
+                  if($null -eq $s){continue}
+                  $k=[string]$s.stage
+                  if(-not $map.ContainsKey($k)){continue}
+                  $d=Safe-Decimal $s.duration_ms
+                  if($null -eq $d){continue}
+                  $prop=$map[$k]
+                  if($null -eq $r.$prop){$r.$prop=0.0}
+                  $r.$prop+=$d
+                }
+                $realTiming+=,$r
+              }catch{}
+            }
+          }else{Write-Host 'KTERM_ORIGINAL_NATIVE_TIMING_FILE=ABSENT'}
+          Write-Host ('KTERM_LIVE_TIMING_RECORDS='+$realTiming.Count)
+          if($realTiming.Count -gt 0){
+            Show-Stats 'KTERM_REAL_NATIVE_WALL' @($realTiming | ForEach-Object {$_.wall})
+            Show-Stats 'KTERM_REAL_NATIVE_FIRST_READY' @($realTiming | Where-Object {$null -ne $_.ready} | ForEach-Object {$_.ready})
+            $slow=@($realTiming|Where-Object {$_.wall -ge 5000})
+            Write-Host ('KTERM_REAL_NATIVE_OVER_5_SECONDS='+$slow.Count)
+            foreach($field in @('exchange','evidence','receipt','tranche','accounting','book','clock')){
+              $v=@($realTiming|Where-Object{$null -ne $_.$field}|ForEach-Object{$_.$field})
+              if($v.Count -gt 0){ Show-Stats ('KTERM_REAL_NATIVE_STAGE_'+$field.ToUpperInvariant()) $v }
+            }
+            if($slow.Count -gt 0){
+              $last= @($slow|Sort-Object wall -Descending|Select-Object -First 3)
+              for($i=0;$i -lt $last.Count;$i++){
+                $s=$last[$i]
+                Write-Host ('KTERM_SLOW_SAMPLE_'+($i+1)+'_WALL_MS='+[Math]::Round($s.wall,1))
+                if($null -ne $s.ready){Write-Host ('KTERM_SLOW_SAMPLE_'+($i+1)+'_READY_MS='+[Math]::Round($s.ready,1))}
+                foreach($field in @('exchange','evidence','receipt','tranche','accounting','book','clock')){
+                  $v= $s.$field
+                  if($null -ne $v -and $v -gt 100){Write-Host ('KTERM_SLOW_SAMPLE_'+($i+1)+'_'+$field.ToUpperInvariant()+'_MS='+[Math]::Round($v,1))}
+                }
+              }
+            }
+          }
+          $journalMatches=@()
+          $readyByEvent=@{}
+          if(Test-Path -LiteralPath $journal -PathType Leaf){
+            $info=Get-Item -LiteralPath $journal
+            Write-Host 'KTERM_NATIVE_JOURNAL=PRESENT'
+            Write-Host ('KTERM_NATIVE_JOURNAL_AGE_MIN='+[int][Math]::Max(0,([datetime]::UtcNow-$info.LastWriteTimeUtc).TotalMinutes))
+            $rows=Get-TailLines $journal 12582912
+            $readyCount=0;$resultCount=0
+            foreach($line in $rows){
+              if($line.Length -lt 15 -or $line.Length -gt 600000){continue}
+              try {
+                $j=$line|ConvertFrom-Json -ErrorAction Stop
+                if($j.environment -ne 'LIVE'){continue}
+                $state=[string]$j.state
+                if($state -notin @('REQUEST_READY','RESULT')){continue}
+                $event=[string]$j.event_id
+                if($event.Length -lt 1 -or $event.Length -gt 300){continue}
+                $ts=[datetimeoffset]::MinValue
+                if(-not [datetimeoffset]::TryParse([string]$j.at,[ref]$ts)){continue}
+                if($state -eq 'REQUEST_READY') {
+                  $readyCount++
+                  $readyByEvent[$event]=$ts
+                } else {
+                  $resultCount++
+                  if($readyByEvent.ContainsKey($event)){
+                    $ms=($ts-$readyByEvent[$event]).TotalMilliseconds
+                    if($ms -ge 0 -and $ms -le 86400000){$journalMatches+=,$ms}
+                    $readyByEvent.Remove($event)
+                  }
+                }
+              }catch{}
+            }
+            Write-Host ('KTERM_JOURNAL_LIVE_READY_EVENTS='+$readyCount)
+            Write-Host ('KTERM_JOURNAL_LIVE_RESULT_EVENTS='+$resultCount)
+            Show-Stats 'KTERM_JOURNAL_READY_TO_RESULT' $journalMatches
+          }else{Write-Host 'KTERM_NATIVE_JOURNAL=ABSENT'}
+          $logDir=Join-Path $root 'data\logs\debug'
+          $p5=@{'native_order'=@();'dashboard_refresh'=@();'websocket_display_callback'=@()}
+          $p5Ready=@();$p5Evidence=@();$p5Display=@()
+          if(Test-Path -LiteralPath $logDir -PathType Container){
+            $logs=@(Get-ChildItem -LiteralPath $logDir -File -Filter 'k-terminal-debug-*.log' | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 4)
+            Write-Host ('KTERM_DEBUG_FILES_SCANNED='+$logs.Count)
+            foreach($file in $logs){
+              foreach($line in (Get-TailLines $file.FullName 4194304)){
+                if($line -notmatch 'P5_SAFE_LATENCY\s+(\{.*\})'){continue}
+                try{
+                  $x=$Matches[1]|ConvertFrom-Json -ErrorAction Stop
+                  $op=[string]$x.operation
+                  if(-not $p5.ContainsKey($op)){continue}
+                  $ms=Safe-Decimal $x.total_ms
+                  if($null -ne $ms){$p5[$op]+=,$ms}
+                  if($null -ne $x.stages_ms){
+                    if($op -eq 'native_order'){
+                      $v=Safe-Decimal $x.stages_ms.order_first_transport_ready
+                      if($null -ne $v){$p5Ready+=,$v}
+                      $v=Safe-Decimal $x.stages_ms.post_execute_evidence
+                      if($null -ne $v){$p5Evidence+=,$v}
+                    }
+                    if($op -eq 'dashboard_refresh'){
+                      $v=Safe-Decimal $x.stages_ms.dashboard_render_or_publish
+                      if($null -ne $v){$p5Display+=,$v}
+                    }
+                  }
+                }catch{}
+              }
+            }
+          }else{Write-Host 'KTERM_DEBUG_LOG_DIRECTORY=ABSENT'}
+          foreach($op in @('native_order','dashboard_refresh','websocket_display_callback')){
+            Show-Stats ('KTERM_P5_'+$op.ToUpperInvariant()) $p5[$op]
+          }
+          Show-Stats 'KTERM_P5_ORDER_FIRST_READY' $p5Ready
+          Show-Stats 'KTERM_P5_ORDER_POST_EXECUTE_EVIDENCE' $p5Evidence
+          Show-Stats 'KTERM_P5_DASHBOARD_RENDER_OR_PUBLISH' $p5Display
+          $hasOrders=($realTiming.Count -gt 0 -or $journalMatches.Count -gt 0 -or $p5['native_order'].Count -gt 0)
+          Write-Host ('KTERM_MEASURED_ORDER_TRACE_AVAILABLE='+[bool]$hasOrders)
+          Write-Host 'KTERM_FILL_TO_UI_EVENT_JOIN=NOT_PROVEN_FROM_THIS_DATA'
+          Write-Host 'KTERM_NO_RAW_ACCOUNT_ORDER_SIGNAL_OR_PRIVATE_IDENTITIES_EXPORTED=TRUE'
+          Write-Host 'KTERM_ORIGINAL_RUNTIME_NOT_STARTED_OR_MODIFIED=TRUE'
+          Write-Host 'KTERM_READ_ONLY_LIFECYCLE_AUDIT=PASS'
