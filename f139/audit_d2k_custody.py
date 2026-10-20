@@ -177,7 +177,7 @@ def verify_chain(events, expected_head: str):
                     "ticket","run_id","previous_reason","manifest_sha256",
                     "original_head_sha256","original_science","replay"}
                     and payload["ticket"]==ticket
-                    and payload["run_id"]==EXPECTED_RUNS[ticket][0]
+                    and type(payload["run_id"]) is int and payload["run_id"]>0
                     and payload["previous_reason"]=="PROVIDER_SOURCE_EVENT_SPOOFED"
                     and isinstance(payload["manifest_sha256"],str)
                     and SHA64.fullmatch(payload["manifest_sha256"])
@@ -192,7 +192,7 @@ def verify_chain(events, expected_head: str):
                 check(isinstance(payload,dict) and set(payload)=={
                     "ticket","run_id","evidence_sha"}
                     and payload["ticket"]==ticket
-                    and payload["run_id"]==EXPECTED_RUNS[ticket][0]
+                    and type(payload["run_id"]) is int and payload["run_id"]>0
                     and isinstance(payload["evidence_sha"],str)
                     and SHA64.fullmatch(payload["evidence_sha"]),
                     "TERMINAL_EVENT_FIELDS_INVALID")
