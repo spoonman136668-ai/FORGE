@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nci04_native_contract import SCHEMA, digest, parse_intent, NativeContractError
-from nci04_native_worker import stage_candidate, verify_fixed_commands, COMMANDS
+from f139.nci04_native_contract import SCHEMA, digest, parse_intent, NativeContractError
+from f139.nci04_native_worker import stage_candidate, verify_fixed_commands, COMMANDS
 
 CONTROLLER = "a" * 40
 BEFORE = b"package cognition\n"
