@@ -15,6 +15,7 @@ import tempfile
 
 from f139.local_controller import (
     ZERO, MAX_ZIP_BYTES, canonical, hash_bytes, receipt_from_zip, d2j_plan,
+    GitHub, F139Error,
 )
 
 SHA40=re.compile(r"[a-f0-9]{40}\Z")
@@ -366,6 +367,16 @@ def audit(dbpath: Path, expected_source: str, expected_head: str,
           "EXPECTED_SOURCE_INVALID")
     check(isinstance(expected_head,str) and SHA64.fullmatch(expected_head),
           "EXPECTED_PREFIX_NOT_SUPPLIED")
+    if qualified_main_sha is not None:
+        check(isinstance(qualified_main_sha,str)
+              and SHA40.fullmatch(qualified_main_sha)
+              and qualified_main_sha not in ALLOWED_SOURCE_SUCCESSORS
+              and qualified_main_sha != D2J_SOURCE,
+              "QUALIFIED_MAIN_SHA_INVALID")
+        # Always query the authenticated provider, including Python API calls.
+        # Local callers cannot certify an arbitrary future protected-main SHA.
+        check(GitHub().protected_main()==qualified_main_sha,
+              "LIVE_PROTECTED_MAIN_NOT_MATCHED")
     provider_anchor=load_provider_anchor()
     dbpath=Path(dbpath)
     with tempfile.TemporaryDirectory(prefix="f139-d2l-readonly-") as tmp:
@@ -430,12 +441,6 @@ def main():
     parser.add_argument("--qualified-protected-main-sha")
     args=parser.parse_args()
     check(os.name=="nt","NATIVE_WINDOWS_RUNNER_REQUIRED")
-    if args.qualified_protected_main_sha is not None:
-        # Source only. GitHub checks branch protection and exact HEAD in the
-        # owner profile. This does NOT sign historical custody or permit writes.
-        from f139.local_controller import GitHub
-        check(GitHub().protected_main()==args.qualified_protected_main_sha,
-              "LIVE_PROTECTED_MAIN_NOT_MATCHED")
     result=audit(args.db,args.expected_source_sha,args.sealed_event_head_sha256,
                  qualified_main_sha=args.qualified_protected_main_sha)
     print(json.dumps(result,sort_keys=True,separators=(",",":")))
@@ -443,5 +448,5 @@ def main():
 
 if __name__=="__main__":
     try: main()
-    except (CustodyBlocked,sqlite3.DatabaseError,OSError,ValueError) as exc:
+    except (CustodyBlocked,F139Error,sqlite3.DatabaseError,OSError,ValueError) as exc:
         raise SystemExit("F139_D2K_CUSTODY_FAIL_CLOSED "+str(exc)) from exc
