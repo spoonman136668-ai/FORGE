@@ -52,9 +52,9 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _inspect_checkout(checkout: Path, candidate: Candidate):
+    require(not checkout.is_symlink(), "CHECKOUT_SYMLINK_REJECTED")
     checkout = checkout.resolve(strict=True)
-    require(checkout.is_dir() and not checkout.is_symlink(),
-            "CHECKOUT_MISSING")
+    require(checkout.is_dir(), "CHECKOUT_MISSING")
     require(_git(checkout, "rev-parse", "--is-inside-work-tree") == "true",
             "CHECKOUT_NOT_GIT")
     require(_git(checkout, "rev-parse", "HEAD") == candidate.target_commit,
@@ -63,7 +63,7 @@ def _inspect_checkout(checkout: Path, candidate: Candidate):
             "CHECKOUT_TREE_DRIFT")
     require(_git(checkout, "status", "--porcelain", "--untracked-files=all") == "",
             "CHECKOUT_DIRTY")
-    require(_git(checkout, "rev-parse", "--show-toplevel") == str(checkout),
+    require(Path(_git(checkout, "rev-parse", "--show-toplevel")).resolve() == checkout,
             "CHECKOUT_NOT_EXACT_ROOT")
     # A copied symlink could escape the sandbox when the candidate file is
     # materialized or when native tests execute. A native checkout with
@@ -128,10 +128,14 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
     require(type(timeout_seconds) is int and 15 <= timeout_seconds <= 900,
             "TIMEOUT_NOT_BOUNDED")
     run = runner or subprocess.run
-    env = dict(os.environ)
-    for k in ("F139_WORKER_HMAC_KEY", "GITHUB_TOKEN", "GH_TOKEN",
-              "OPENAI_API_KEY", "CLOUDFLARE_API_TOKEN"):
-        env.pop(k, None)
+    # Positive allowlist, not a secret-name blacklist: signing keys, cloud
+    # credentials, GitHub runner tokens and arbitrary inherited variables must
+    # not cross from controller/test harness into candidate native subprocesses.
+    allow = {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR",
+             "SYSTEMDRIVE", "PATHEXT", "COMSPEC", "TMP", "TEMP", "TMPDIR",
+             "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL", "GOPATH",
+             "GOROOT", "GOCACHE", "GOMODCACHE", "CGO_ENABLED", "PYTHONPATH"}
+    env = {k: v for k, v in os.environ.items() if k.upper() in allow}
     env.update({"GIT_TERMINAL_PROMPT": "0", "GOPROXY": "off",
                 "GOSUMDB": "off", "GOTOOLCHAIN": "local", "PYTHONDONTWRITEBYTECODE": "1"})
     results = []
