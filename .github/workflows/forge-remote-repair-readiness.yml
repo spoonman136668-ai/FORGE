@@ -80,3 +80,74 @@ jobs:
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $env:GITHUB_WORKSPACE $path) -Apply
           if ($LASTEXITCODE -ne 0) { throw 'F139_D2O_OWNER_START_FAILED' }
           Write-Output 'F139_D2O_RUNNER_APPLY_COMPLETED=PASS'
+      - name: Independent F139 D2O idle succession observation
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/proposal/forge-remote-repair-r1' && github.event.head_commit.message == 'ops(f139): independently verify D2O idle succession'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $main = '34ca99c1b5b063225566082aee5aa180a15d093b'
+          $seal = 'eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'D2O_WRONG_RUNNER' }
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ($task.State -ne 'Running' -or @($task.Actions).Count -ne 1) { throw 'D2O_EXISTING_TASK_NOT_RUNNING' }
+          $args = [string]$task.Actions[0].Arguments
+          $vars = @{}
+          foreach ($name in @('RepositoryRoot','Database','PythonExe')) {
+            $m = [regex]::Match($args, '(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if (-not $m.Success) { throw ('D2O_TASK_'+$name+'_MISSING') }
+            $vars[$name] = $m.Groups[1].Value
+          }
+          if (-not (Test-Path -LiteralPath $vars.PythonExe -PathType Leaf)) { throw 'D2O_PYTHON_MISSING' }
+          $head = (& git -C $vars.RepositoryRoot rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $main) { throw 'D2O_INSTALLED_SOURCE_DRIFT' }
+          $branch = & gh api -X GET repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $branch.protected -ne $true -or $branch.commit.sha -cne $main) { throw 'D2O_MAIN_IDENTITY_DRIFT' }
+          $pythonSource = @'
+          import json,sqlite3,sys
+          from pathlib import Path
+          from f139.audit_d2k_custody import audit
+          p=Path(sys.argv[1]); main=sys.argv[2]; seal=sys.argv[3]
+          proof=audit(p,main,seal,qualified_main_sha=main)
+          assert proof['event_count']==24 and proof['historical_prefix_event_count']==23
+          assert proof['source_only_suffix_count']==1 and proof['live_main_source_suffix_verified'] is True
+          assert proof['task_count']==4 and proof['archive_count']==8
+          assert proof['d2j_task_bindings_verified']==2 and proof['scientific_first_use'] is False
+          assert proof['controller_actions']==0 and proof['original_database_writes']==0
+          c=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True)
+          try:
+              c.row_factory=sqlite3.Row
+              c.execute('PRAGMA query_only=ON')
+              m=c.execute('SELECT * FROM meta WHERE id=1').fetchone()
+              t=c.execute('SELECT COUNT(*) FROM tasks').fetchone()[0]
+              active=c.execute("SELECT COUNT(*) FROM tasks WHERE stage NOT IN ('VERIFIED')").fetchone()[0]
+              assert m['source_sha']==main and m['head_seq']==24 and t==4 and active==0
+          finally:c.close()
+          print(json.dumps({'event_count':24,'original_events':23,'tasks':4,'archives':8,'active':0,'science_authorized':False},sort_keys=True))
+          '@
+          $old=(Get-Location).Path
+          try {
+            Set-Location -LiteralPath $vars.RepositoryRoot
+            for ($i=1;$i -le 2;$i++) {
+              $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController'
+              if ($task.State -ne 'Running') { throw 'D2O_CONTROLLER_STOPPED_DURING_OBSERVATION' }
+              $p = @(Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object {
+                $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.IndexOf($vars.Database,[StringComparison]::OrdinalIgnoreCase) -ge 0
+              })
+              if ($p.Count -ne 1) { throw 'D2O_SINGLE_CONTROLLER_CHILD_NOT_PROVEN' }
+              $value = & $vars.PythonExe -B -c $pythonSource $vars.Database $main $seal
+              if ($LASTEXITCODE -ne 0) { throw ('D2O_CUSTODY_AUDIT_FAILED_OBSERVATION_'+$i) }
+              $j = ($value -join [Environment]::NewLine) | ConvertFrom-Json
+              if ($j.event_count -ne 24 -or $j.active -ne 0 -or $j.science_authorized -ne $false) { throw 'D2O_UNEXPECTED_DISPATCH_OR_EVENT' }
+              Write-Output ('F139_D2O_INDEPENDENT_OBSERVATION_'+$i+'=PASS')
+              if ($i -eq 1) { Start-Sleep -Seconds 48 }
+            }
+          } finally { Set-Location -LiteralPath $old }
+          Write-Output 'F139_D2O_INDEPENDENT_CONTROLLER_RUNNING=PASS'
+          Write-Output 'F139_D2O_INDEPENDENT_24_EVENT_LEDGER=PASS'
+          Write-Output 'F139_D2O_INDEPENDENT_ORIGINAL_TASKS=4_OF_4_PASS'
+          Write-Output 'F139_D2O_INDEPENDENT_ARCHIVES=8_OF_8_PASS'
+          Write-Output 'F139_D2O_INDEPENDENT_NO_NEW_DISPATCH=PASS'
+          Write-Output 'F139_D2O_INDEPENDENT_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2O_INDEPENDENT_DISPOSITION=CONTINUOUS_IDLE_TWO_SNAPSHOT_PASS'
