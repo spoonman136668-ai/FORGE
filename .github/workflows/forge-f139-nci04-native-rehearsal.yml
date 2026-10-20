@@ -1,0 +1,107 @@
+name: FORGE F139-NCI04 native source rehearsal
+# PR-only; NEVER a controller, successor, dispatcher or scientific first use.
+# No F139_WORKER_HMAC_KEY or GitHub write token is provided to native source.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'f139/nci04_native_contract.py'
+      - 'f139/nci04_native_worker.py'
+      - 'f139/test_nci04_native_contract.py'
+      - 'f139/test_nci04_native_worker.py'
+      - '.github/workflows/forge-f139-nci04-native-rehearsal.yml'
+permissions:
+  contents: read
+jobs:
+  wingless-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: a5db1727113731988bfccad6ae30a0b8b4d6f9d6
+          persist-credentials: false
+      - name: Verify exact native engineering candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = a5db1727113731988bfccad6ae30a0b8b4d6f9d6
+          test "$(git rev-parse HEAD^{tree})" = b80d8baf20915974aca655ec92b9baefe22f5cb1
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -f cognition/continual.go
+          test -f cognition/continual_test.go
+          echo F139_NCI04_WINGLESS_NATIVE_SOURCE=PINNED
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - name: Train and test actual isolated Wingless native cognition implementation
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: off
+          GOSUMDB: off
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f139-nci04-wingless"
+          go version > "$RUNNER_TEMP/f139-nci04-wingless/toolchain.txt"
+          go test -count=1 -v ./cognition > "$RUNNER_TEMP/f139-nci04-wingless/native-focused.log" 2>&1
+          go vet ./cognition > "$RUNNER_TEMP/f139-nci04-wingless/native-vet.log" 2>&1
+          go build ./cognition > "$RUNNER_TEMP/f139-nci04-wingless/native-build.log" 2>&1
+          sha256sum cognition/continual.go cognition/continual_test.go > "$RUNNER_TEMP/f139-nci04-wingless/source-sha256.txt"
+          sha256sum "$RUNNER_TEMP/f139-nci04-wingless/"*.log > "$RUNNER_TEMP/f139-nci04-wingless/diagnostic-sha256.txt"
+          echo F139_NCI04_WINGLESS_REAL_NATIVE_LEARNING_TESTS=PASS
+          echo F139_NCI04_AUTONOMOUS_DISPATCH=NOT_TESTED
+          echo F139_NCI04_SCIENTIFIC_FIRST_USE=FALSE
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-nci04-wingless-native-focused
+          path: ${{ runner.temp }}/f139-nci04-wingless/
+          if-no-files-found: error
+          retention-days: 14
+  yggdrasil-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: e5b2596fd7972c9a577427902f917887f37ee4a6
+          persist-credentials: false
+      - name: Verify exact native engineering candidate source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = e5b2596fd7972c9a577427902f917887f37ee4a6
+          test "$(git rev-parse HEAD^{tree})" = e42e8f3b476f7ae3e4d3814f0c55173ac6cc5211
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test -f yggdrasil/cells.py
+          test -f tests/test_native_cells.py
+          echo F139_NCI04_YGGDRASIL_NATIVE_SOURCE=PINNED
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+      - name: Train and test actual isolated Yggdrasil native local-learning implementation
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f139-nci04-yggdrasil"
+          python --version > "$RUNNER_TEMP/f139-nci04-yggdrasil/toolchain.txt" 2>&1
+          python -B -m unittest discover -s tests -p test_native_cells.py -v > "$RUNNER_TEMP/f139-nci04-yggdrasil/native-focused.log" 2>&1
+          python -B -m py_compile yggdrasil/cells.py scripts/native_cells.py > "$RUNNER_TEMP/f139-nci04-yggdrasil/native-build.log" 2>&1
+          sha256sum yggdrasil/cells.py tests/test_native_cells.py > "$RUNNER_TEMP/f139-nci04-yggdrasil/source-sha256.txt"
+          sha256sum "$RUNNER_TEMP/f139-nci04-yggdrasil/"*.log > "$RUNNER_TEMP/f139-nci04-yggdrasil/diagnostic-sha256.txt"
+          echo F139_NCI04_YGGDRASIL_REAL_NATIVE_LEARNING_TESTS=PASS
+          echo F139_NCI04_AUTONOMOUS_DISPATCH=NOT_TESTED
+          echo F139_NCI04_SCIENTIFIC_FIRST_USE=FALSE
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: f139-nci04-yggdrasil-native-focused
+          path: ${{ runner.temp }}/f139-nci04-yggdrasil/
+          if-no-files-found: error
+          retention-days: 14
