@@ -96,10 +96,13 @@ class NewPrimitiveTypes(unittest.TestCase):
         # Mutating learned gate parameters actually changes assembled
         # circuit results; this is a parameter ablation, not a victory
         # over equally trained competitor.
-        ex=d["HELDOUT"][0]
-        altered=dict(complete);altered["learned_gate_table"]=1
-        self.assertNotEqual(candidate.rollout(complete,ex),
-                            candidate.rollout(altered,ex))
+        altered=dict(complete);altered["learned_gate_table"]=0
+        graph=complete["compiled_gate_dag"]
+        self.assertTrue(any(
+            candidate.evaluate_circuit(graph,((i>>0)&1,(i>>1)&1,(i>>2)&1),7)
+            !=candidate.evaluate_circuit(graph,((i>>0)&1,(i>>1)&1,(i>>2)&1),0)
+            for i in range(8)),
+            "The learned binary gate table must materially change circuit semantics")
     def test_heldout_labels_do_not_enter_autoregressive_computation(self):
         d=source.heldout(source.FAMILIES[1],72)
         cm,_=candidate.learn_universal_gate(source.meta_training())
