@@ -1,0 +1,90 @@
+name: K-Terminal RC2-K Graphify compile-isolation qualification
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2k-graphify-source-qualification.yml]
+permissions:
+  contents: read
+jobs:
+  windows-graphify:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOFLAGS: '-p=1'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+    steps:
+      - name: Checkout FORGE run context without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout exact isolated K-Terminal Graphify repair
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: bfb11fca02a970c869642b00bc9096ef5f2ed67a
+          path: kt-graphify
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Pinned original Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify exact branch predecessor and source-only five-file diff
+        shell: bash
+        working-directory: kt-graphify
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git rev-parse HEAD)" = bfb11fca02a970c869642b00bc9096ef5f2ed67a
+          test -z "$(git status --porcelain)"
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            test -z "${!n:-}"
+          done
+          python -B - <<'PY'
+          import pathlib,subprocess,sys
+          base="eb5d225ae73b698a59c68d840daf1ec678e1a0ec"
+          expected={"tools/graphify/"+p for p in (
+              "g27_type_calls.go","g30_type_calls.go","g31_interpackage_calls.go",
+              "g44_ast_call_witness.go","doc.go")}
+          changed=set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          if changed!=expected:sys.exit("RC2K_FILES_CHANGED_OUT_OF_SCOPE")
+          for name in sorted(expected-{"tools/graphify/doc.go"}):
+              previous=subprocess.check_output(["git","show",base+":"+name])
+              updated=pathlib.Path(name).read_bytes()
+              header=b"//go:build ignore\n// +build ignore\n\n"
+              if updated!=header+previous:sys.exit("RC2K_STANDALONE_SOURCE_BODY_DRIFT")
+          source=pathlib.Path("tools/graphify/doc.go").read_text()
+          if "package graphify" not in source:sys.exit("RC2K_DOCUMENT_PACKAGE_INVALID")
+          print("KTERM_RC2K_ORIGINAL_GRAPHIFY_PROGRAM_BODIES=BYTE_IDENTICAL")
+          print("KTERM_RC2K_EXACT_SCOPE=FIVE_GRAPHIFY_FILES")
+          PY
+      - name: Graphify becomes a buildable non-executable Go package
+        shell: bash
+        working-directory: kt-graphify
+        run: |
+          set -euo pipefail
+          go test -count=1 -p=1 ./tools/graphify
+          go build -p=1 ./tools/graphify
+          echo KTERM_RC2K_GRAPHIFY_GO_TEST_PACKAGE=PASS
+          echo KTERM_RC2K_GRAPHIFY_GO_BUILD_PACKAGE=PASS
+      - name: Compile all four retained standalone Go command programs
+        shell: bash
+        working-directory: kt-graphify
+        run: |
+          set -euo pipefail
+          for f in g27_type_calls.go g30_type_calls.go g31_interpackage_calls.go g44_ast_call_witness.go; do
+            name="${f%.go}"
+            go build -p=1 -o "$RUNNER_TEMP/${name}.exe" "./tools/graphify/$f"
+            test -s "$RUNNER_TEMP/${name}.exe"
+            echo "KTERM_RC2K_PRESERVED_STANDALONE=$name:PASS"
+          done
+          echo KTERM_RC2K_ORIGINAL_CLI_EXECUTABLES=FOUR_COMPILED
+          echo KTERM_RC2K_NO_TRADING_SOURCE_CHANGED=PASS
+          echo KTERM_RC2K_FULL_REGRESSION=NOT_RUN_NOT_WAIVED
