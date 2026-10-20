@@ -228,3 +228,50 @@ jobs:
           Write-Output 'F139_D2R_SCIENTIFIC_FIRST_USE=BLOCKED'
           Write-Output 'F139_D2R_DISPOSITION=READONLY_AUTH_ACCESS_CLASSIFIED_NOT_ADMITTED'
           exit 0
+      - name: F139 D2R bounded D1 SELECT-only schema custody
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): inspect D2R existing FSA D1 schemas with read-only SELECT'
+        shell: pwsh
+        env:
+          F139_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          F139_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'D2R_WRONG_RUNNER'}
+          if([string]::IsNullOrWhiteSpace($env:F139_CF_TOKEN) -or $env:F139_CF_ACCOUNT -notmatch '^[a-f0-9]{32}$'){throw 'D2R_PROVIDER_CREDENTIAL_BINDING_INVALID'}
+          $b='https://api.cloudflare.com/client/v4/accounts/'+$env:F139_CF_ACCOUNT
+          $h=@{Authorization=('Bearer '+$env:F139_CF_TOKEN);Accept='application/json'}
+          $dbs=Invoke-RestMethod -Method Get -Headers $h -Uri ($b+'/d1/database?page=1&per_page=100') -TimeoutSec 30
+          if($dbs.success -ne $true -or $null -eq $dbs.result_info -or $dbs.result_info.total_count -gt 100){throw 'D2R_D1_LIST_NOT_PROVEN'}
+          $all=@($dbs.result)
+          if($all.Count -ne $dbs.result_info.total_count){throw 'D2R_D1_LIST_PARTIAL'}
+          $forge=@($all|Where-Object{$_.name -match '(?i)forge'})
+          if($forge.Count -ne 1 -or [string]$forge[0].uuid -notmatch '^[a-f0-9-]{36}$'){throw 'D2R_UNIQUE_FORGE_DATABASE_NOT_IDENTIFIED'}
+          $dbid=[string]$forge[0].uuid
+          $info=Invoke-RestMethod -Method Get -Headers $h -Uri ($b+'/d1/database/'+$dbid) -TimeoutSec 30
+          if($info.success -ne $true -or $info.result.uuid -cne $dbid -or $info.result.name -cne $forge[0].name){throw 'D2R_D1_DETAIL_IDENTITY_DRIFT'}
+          Write-Output 'F139_D2R_D1_ACCOUNT_AND_DATABASE_IDENTITY=PROVIDER_VERIFIED'
+          $book='UNAVAILABLE'
+          try{
+            $r=Invoke-RestMethod -Method Get -Headers $h -Uri ($b+'/d1/database/'+$dbid+'/time_travel/bookmark') -TimeoutSec 20
+            if($r.success -eq $true -and $null -ne $r.result){$book='AVAILABLE_METADATA_ONLY'}
+          }catch{}
+          Write-Output ('F139_D2R_D1_TIMETRAVEL_BOOKMARK='+$book)
+          $sql="SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'forge_research_%' OR name LIKE 'forge_fsa_%') ORDER BY name LIMIT 50"
+          if($sql -cne "SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'forge_research_%' OR name LIKE 'forge_fsa_%') ORDER BY name LIMIT 50"){throw 'D2R_SQL_MUTATION_NOT_ALLOWED'}
+          $body=@{sql=$sql;params=@()}|ConvertTo-Json -Compress
+          $res=Invoke-RestMethod -Method Post -ContentType 'application/json' -Headers $h -Uri ($b+'/d1/database/'+$dbid+'/query') -Body $body -TimeoutSec 30
+          if($res.success -ne $true -or @($res.result).Count -ne 1 -or $res.result[0].success -ne $true){throw 'D2R_D1_SELECT_FAILED'}
+          $meta=$res.result[0].meta
+          if($meta.changes -ne 0 -or $meta.rows_written -ne 0){throw 'D2R_SQL_NOT_READONLY'}
+          $names=@($res.result[0].results|ForEach-Object{[string]$_.name})
+          if($names.Count -gt 50 -or @($names|Select-Object -Unique).Count -ne $names.Count){throw 'D2R_TABLES_TOO_MANY_OR_DUPLICATE'}
+          Write-Output 'F139_D2R_D1_SCHEMA_QUERY=FIXED_READONLY_SELECT_PASS'
+          Write-Output ('F139_D2R_RESEARCH_TABLE_COUNT='+@($names|Where-Object{$_ -like 'forge_research_*'}).Count)
+          Write-Output ('F139_D2R_FSA_TABLE_COUNT='+@($names|Where-Object{$_ -like 'forge_fsa_*'}).Count)
+          foreach($table in $names){Write-Output ('F139_D2R_PRESENT_TABLE='+$table)}
+          Write-Output 'F139_D2R_D1_READBACK_SCIENTIFIC_RECORDS=NOT_ACCESSED'
+          Write-Output 'F139_D2R_FSA_SIGNED_CHECKPOINT=NOT_AUTHENTICATED'
+          Write-Output 'F139_D2R_INDEPENDENT_WITNESS=NOT_AUTHENTICATED'
+          Write-Output 'F139_D2R_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2R_DISPOSITION=READONLY_D1_SCHEMA_INVENTORY'
