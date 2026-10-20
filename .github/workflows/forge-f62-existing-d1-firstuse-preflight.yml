@@ -32,6 +32,7 @@ jobs:
           node --version
           node --test d1retention/f61_worker_preuse.test.mjs
           PYTHONPATH=d1retention python3 -B -m unittest d1retention/test_f62_firstuse_readonly.py -v
+          PYTHONPATH=d1retention python3 -B -m unittest d1retention/test_d2s_existing_witness_discovery.py -v
           echo 'F61_GITHUB_OIDC_PROTECTED_MAIN_POLICY_SOURCE_ONLY=PASS'
           echo 'F61_NO_WORKER_FETCH_HANDLER_EXPORTED=TRUE'
           echo 'F61_NO_RELEASE_PERMIT=TRUE'
@@ -57,6 +58,24 @@ jobs:
           export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
           test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
           PYTHONPATH=d1retention python3 -B d1retention/r39_existing_cloudflare_preflight.py
+          PYTHONPATH=d1retention python3 -B d1retention/d2s_existing_witness_discovery.py > "$RUNNER_TEMP/d2s-witness-inventory.json"
+          python3 -B - "$RUNNER_TEMP/d2s-witness-inventory.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert d["schema"]=="forge.f139.d2s.existing-cloudflare-witness-readonly.v1"
+          assert set(d["checks"])=={"worker_scripts","durable_object_namespaces","kv_namespaces"}
+          for k in ("separate_witness_key_possession_authenticated",
+                    "independently_pinned_monotonic_firstuse_highwater",
+                    "complete_two_lane_original_firstuse_ledger_verified",
+                    "deployment_independence_verified","fsa_witness_qualified",
+                    "scientific_execution_authorized"):
+              assert d[k] is False,k
+          assert d["new_origins_dispatched"]==0 and d["cloudflare_mutations"]==0
+          for k,v in d["checks"].items():
+              print("D2S_"+k.upper()+"="+v["status"]+
+                    "_CANDIDATES="+str(v["candidate_names_observed"]))
+          print("D2S_INDEPENDENT_FIRSTUSE_AUTHORITY=NOT_ESTABLISHED")
+          PY
           PYTHONPATH=d1retention python3 -B d1retention/f62_firstuse_readonly.py > "$RUNNER_TEMP/f62-preflight.json"
           python3 -B - "$RUNNER_TEMP/f62-preflight.json" <<'PY'
           import json,sys
