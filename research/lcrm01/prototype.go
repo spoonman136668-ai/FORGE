@@ -45,6 +45,7 @@ func ForFamily(f Family) Spec {
     case InterventionalValue:s.ActionValue=true
     case LearnedComposition:s.Composition=true
     case Joint:s.Encoder=true;s.Retention=true;s.ActionValue=true;s.Composition=true
+    default:return Spec{} // fail closed on unregistered mechanism families
     }
     return s
 }
