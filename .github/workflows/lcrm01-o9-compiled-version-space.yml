@@ -1,0 +1,98 @@
+name: LCRM O9 compiled causal version-space source-free qualification
+on:
+  push:
+    branches: [research/lcrm01-o9-compiled-version-space-20261020]
+    paths: ['.github/workflows/lcrm01-o9-compiled-version-space.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o9-compiled-sourcefree
+  cancel-in-progress: false
+jobs:
+  native-exact-comparison:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Source-frozen O9 hypothesis, exact foundation and implementation provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA){throw 'O9_EXACT_HEAD_DRIFT'}
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o9-compiled-version-space-precode.json'='6ab2eb6f8ddf78335be5ef9bfb9269df1cb3bdeb'
+            'research/lcrm01/o9_compiled_version_space.go'='9c6a5b71fa8a8d3de6b36ffc9fe9959cf3d8a662'
+            'research/lcrm01/o9_compiled_version_space_test.go'='78c8be504eef6621c6c64d31fde1fcf8e5d7d044'
+            'research/lcrm01/cmd/o9measure/main.go'='81ebcce8efba21c8b093b808341549a0a86407fa'
+            'research/lcrm01/o9_compiled_resource_audit.py'='63ca69f811802225d61b5ed3af7e6bf32af57da5'
+            'research/lcrm01/o7_grounded_ports_compose.go'='00fe2b40dd9d2fa59faff135340a61ea50e68756'
+            'research/lcrm01/originals/20261020-lcrm01-o8-native-cost-ineligible-original.json'='674aed3e96107348dfcb2accbc58fe8ca45a35d8'
+          }
+          foreach($p in $blobs.Keys){
+            if((git hash-object -- $p).Trim() -cne $blobs[$p]){throw "O9_EXACT_BLOB_DRIFT:$p"}
+          }
+          git merge-base --is-ancestor 52267d598a208c47cdf1b093d1f7acd242d027f4 69ffa55b4f8940519cd8956ef101f44c14f37e13
+          if($LASTEXITCODE -ne 0){throw 'O9_WRONG_O8_PREDECESSOR'}
+          git merge-base --is-ancestor 69ffa55b4f8940519cd8956ef101f44c14f37e13 06eef423e45f42d03407fff0e6963d7ec161c792
+          if($LASTEXITCODE -ne 0){throw 'O9_SOURCE_BEFORE_PREREG'}
+          git merge-base --is-ancestor 06eef423e45f42d03407fff0e6963d7ec161c792 8b0b165f681c4ff6c14853289102e4566ee6f007
+          if($LASTEXITCODE -ne 0){throw 'O9_TESTS_BEFORE_MECHANISM'}
+          git merge-base --is-ancestor 8b0b165f681c4ff6c14853289102e4566ee6f007 0b6db6c5f42c4acd539fb871a9d0f246640d5bc5
+          if($LASTEXITCODE -ne 0){throw 'O9_NATIVE_BENCH_BEFORE_PROPERTY'}
+          git merge-base --is-ancestor c1a4b1e4453f7ba2bdba539d6dd512159d9149ed HEAD
+          if($LASTEXITCODE -ne 0){throw 'O9_AUDITOR_NOT_INCLUDED'}
+          Write-Output 'O9_FROZEN_SOURCEFREE_CHRONOLOGY=PASS'
+      - name: Exact source-free causal semantics and atomic conflict property tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01 -run '^TestO9Compiled' -count=1 -v
+          if($LASTEXITCODE -ne 0){throw 'O9_PRE_NATIVE_CAUSAL_PROPERTY_FAIL'}
+          go vet ./research/lcrm01/...
+          if($LASTEXITCODE -ne 0){throw 'O9_VET_FAIL'}
+          go build -o o9measure.exe ./research/lcrm01/cmd/o9measure
+          if($LASTEXITCODE -ne 0){throw 'O9_NATIVE_BUILD_FAIL'}
+          python -m py_compile research/lcrm01/o9_compiled_resource_audit.py
+          if($LASTEXITCODE -ne 0){throw 'O9_PY_AUDIT_INVALID'}
+      - name: New source-free 15 whole-process three-arm OS-native exact parity and resources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($arm in @('compiled-version-space','independent-symbolic','original-anf')){
+            foreach($i in 0..4){
+              $row = & ./o9measure.exe --arm $arm --rep $i
+              if($LASTEXITCODE -ne 0){throw "O9_NATIVE_OR_SEMANTIC_FAILURE:$arm/$i"}
+              Add-Content -Path o9-native-samples.ndjson -Value $row -Encoding utf8
+            }
+          }
+          python research/lcrm01/o9_compiled_resource_audit.py o9-native-samples.ndjson > o9-native-comparison.json
+          if($LASTEXITCODE -ne 0){throw 'O9_AUDIT_PEER_SEMANTIC_PARITY_FAIL'}
+          python -c "import json; d=json.load(open('o9-native-comparison.json',encoding='utf-8-sig')); assert d['retained_processes']==15 and d['all_arms_semantic_parity'] and not d['scientific_acceptance'] and not d['optimizer_admission'] and not d['source_first_use']; print('O9_NATIVE_SEMANTIC_PARITY=PASS'); print('O9_CLOCK_UNCENSORED='+str(d['native_cpu_clock_uncensored'])); print('O9_COST_ADMISSION='+str(d['technical_cost_admission'])); print('O9_CPU_RSS='+json.dumps({k:{'cpu':v['median_cpu_ns'],'rss':v['max_peak_rss_bytes'],'cert':v['hard_certified'],'abstain':v['safe_abstentions']} for k,v in d['arms'].items()},sort_keys=True))"
+          if($LASTEXITCODE -ne 0){throw 'O9_EVIDENCE_INVARIANT_FAIL'}
+          Write-Output 'O9_SCIENTIFIC_AND_OPTIMIZER_ACCEPTANCE=FALSE'
+      - name: One final complete LCRM package regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01/... -count=1
+          if($LASTEXITCODE -ne 0){throw 'O9_FINAL_LCRM_PACKAGE_REGRESSION_FAIL'}
+          Write-Output 'O9_FINAL_LCRM_PACKAGE_REGRESSION=PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o9-compiled-native-${{ matrix.os }}
+          path: |
+            o9-native-samples.ndjson
+            o9-native-comparison.json
+          if-no-files-found: ignore
+          retention-days: 90
