@@ -1,0 +1,72 @@
+name: LCRM-01 O3 source-free causal composition memory feasibility
+on:
+  push:
+    branches: [research/lcrm01-o3-compositional-memory-feasibility-20261020]
+    paths: ['.github/workflows/lcrm01-o3-composition-feasibility.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o3-sourcefree
+  cancel-in-progress: false
+jobs:
+  exact-sourcefree:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify O3 prereg before code, exact blobs and O2 negative identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'O3_HEAD_DRIFT' }
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o3-composition-precode.json'='f5ec26980a87460cb40d31633e450cbffe4d95dd'
+            'research/lcrm01/o3_compositional_memory.go'='2c3465abf0769deccbc932e3129db8f0d574fb4d'
+            'research/lcrm01/o3_compositional_memory_test.go'='dd03aa8ea912bd094c6b373bfb459ff4b9ffcd04'
+            'research/lcrm01/20261020-lcrm01-optimizer-preregistration.json'='e8a73678ba405f9abe572abe896c4d9ac8ec002f'
+            'research/lcrm01/originals/20261020-lcrm01-o2-sourcefree-retention-negative.json'='e0daa40a3baac82e14436b935e82132bfa6be13e'
+          }
+          foreach($path in $blobs.Keys){
+            $actual=(git hash-object -- $path).Trim()
+            if($actual -cne $blobs[$path]){throw "O3_BLOB_DRIFT:$path"}
+          }
+          git merge-base --is-ancestor 71a51b0942a39f898099343063ef83fae4430620 2b0fec525255fec65a9b1949c70243ec462a4ade
+          if($LASTEXITCODE -ne 0){throw 'O3_PREDECESSOR_WRONG'}
+          git merge-base --is-ancestor 2b0fec525255fec65a9b1949c70243ec462a4ade 2aa7e14dde90cafb11647540716538c3a718dd1a
+          if($LASTEXITCODE -ne 0){throw 'O3_IMPLEMENTATION_PRECEDES_FREEZE'}
+          git merge-base --is-ancestor 2aa7e14dde90cafb11647540716538c3a718dd1a 264659f4f11a8a4c1c150762d5b81a2e4f51a4ef
+          if($LASTEXITCODE -ne 0){throw 'O3_TEST_PRECEDES_IMPLEMENTATION'}
+          git merge-base --is-ancestor 4765c85fe402a31c79dfb0d324952c857ec64628 HEAD
+          if($LASTEXITCODE -ne 0){throw 'O3_SOURCEFREE_REPAIR_NOT_INCLUDED'}
+          Write-Output 'O3_FROZEN_EXACT_IDENTITY_AND_CHRONOLOGY=PASS'
+      - name: Exhaust source-free causal algebra, same-slot control and leakage guards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01 -run '^TestO3' -count=1 -v > o3-exact-property.log
+          if($LASTEXITCODE -ne 0){Get-Content o3-exact-property.log;throw 'O3_EXACT_PROPERTY_FAILED'}
+          Get-Content o3-exact-property.log
+          go vet ./research/lcrm01
+          if($LASTEXITCODE -ne 0){throw 'O3_VET_FAILED'}
+          go test ./research/lcrm01 -count=1
+          if($LASTEXITCODE -ne 0){throw 'O3_FOCUSED_REGRESSION_FAILED'}
+          Write-Output 'O3_SOURCEFREE_4096_COMPOSITION_OUTPUTS_UNARY_ASSOCIATIVE_STRONG_SYMBOLIC_PARITY=PASS'
+          Write-Output 'O3_ORIGINAL_FIRSTUSE_COUNT=0'
+          Write-Output 'O3_SCIENCE_AND_OPTIMIZER_ADMISSION=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: o3-sourcefree-property-${{ matrix.os }}
+          path: o3-exact-property.log
+          if-no-files-found: ignore
+          retention-days: 90
