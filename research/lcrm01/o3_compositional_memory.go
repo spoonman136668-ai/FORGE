@@ -128,6 +128,15 @@ func O3SourceFreeIndistinguishability() bool {
   x2,y2:=u,u // world 2: X:=U; Y:=U (confounded)
   if x1!=x2||y1!=y2{return false}
  }
- // do(X=1) with exogenous U=0: Y changes in first world but not second.
- return uint8(1)!=uint8(0)
+ // Intervene on X independently of U. The causal parent graph yields
+ // Y:=do(X), whereas the confounded graph keeps Y:=U.
+ differing:=false
+ for u:=uint8(0);u<2;u++ {
+  for doX:=uint8(0);doX<2;doX++ {
+   firstWorldOutcome:=doX
+   secondWorldOutcome:=u
+   if firstWorldOutcome!=secondWorldOutcome {differing=true}
+  }
+ }
+ return differing
 }
