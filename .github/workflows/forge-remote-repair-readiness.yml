@@ -275,3 +275,38 @@ jobs:
           Write-Output 'F139_D2R_INDEPENDENT_WITNESS=NOT_AUTHENTICATED'
           Write-Output 'F139_D2R_FIRST_USE=BLOCKED'
           Write-Output 'F139_D2R_DISPOSITION=READONLY_D1_SCHEMA_INVENTORY'
+      - name: F139 D2R bounded D1 historical archive count
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): count original D2R Cloudflare archives and seals read only'
+        shell: pwsh
+        env:
+          F139_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          F139_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'D2R_WRONG_OWNER_RUNNER'}
+          if([string]::IsNullOrWhiteSpace($env:F139_CF_TOKEN) -or $env:F139_CF_ACCOUNT -notmatch '^[a-f0-9]{32}$'){throw 'D2R_PROVIDER_BINDING_ABSENT'}
+          $b='https://api.cloudflare.com/client/v4/accounts/'+$env:F139_CF_ACCOUNT
+          $h=@{Authorization=('Bearer '+$env:F139_CF_TOKEN);Accept='application/json'}
+          $dbs=Invoke-RestMethod -Uri ($b+'/d1/database?page=1&per_page=100') -Headers $h -Method Get -TimeoutSec 30
+          if($dbs.success -ne $true -or $dbs.result_info.total_count -gt 100 -or @($dbs.result).Count -ne $dbs.result_info.total_count){throw 'D2R_D1_INVENTORY_DRIFT'}
+          $fs=@($dbs.result|Where-Object{$_.name -match '(?i)forge'})
+          if($fs.Count -ne 1 -or [string]$fs[0].uuid -notmatch '^[a-f0-9-]{36}$'){throw 'D2R_D1_IDENTITY_AMBIGUOUS'}
+          $sql="SELECT 'originals' AS class, COUNT(*) AS total FROM forge_research_originals UNION ALL SELECT 'seals' AS class, COUNT(*) AS total FROM forge_research_seals UNION ALL SELECT 'chunks' AS class, COUNT(*) AS total FROM forge_research_chunks"
+          $body=@{sql=$sql;params=@()}|ConvertTo-Json -Compress
+          $result=Invoke-RestMethod -Uri ($b+'/d1/database/'+$fs[0].uuid+'/query') -Headers $h -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
+          if($result.success -ne $true -or @($result.result).Count -ne 1 -or $result.result[0].success -ne $true){throw 'D2R_D1_READONLY_COUNTS_FAILED'}
+          $meta=$result.result[0].meta
+          if($meta.changes -ne 0 -or $meta.rows_written -ne 0){throw 'D2R_D1_COUNTERS_MUTATED'}
+          $r=@($result.result[0].results)
+          if($r.Count -ne 3 -or ($r[0].class,$r[1].class,$r[2].class -join ',') -cne 'originals,seals,chunks'){throw 'D2R_COUNT_RESULT_SCHEMA_INVALID'}
+          foreach($entry in $r){if([long]$entry.total -lt 0){throw 'D2R_COUNT_INVALID'}}
+          Write-Output ('F139_D2R_LIVE_ORIGINAL_ARCHIVE_ROWS='+$r[0].total)
+          Write-Output ('F139_D2R_LIVE_ORIGINAL_SEAL_ROWS='+$r[1].total)
+          Write-Output ('F139_D2R_LIVE_ARCHIVE_CHUNK_ROWS='+$r[2].total)
+          Write-Output 'F139_D2R_ARCHIVE_CONTENTS_READ=FALSE'
+          Write-Output 'F139_D2R_D1_SQL_MUTATIONS=ZERO'
+          Write-Output 'F139_D2R_FSA_ADMISSION_NAMESPACE=ABSENT_FROM_PRECEDING_INDEPENDENT_SCHEMA_AUDIT'
+          Write-Output 'F139_D2R_EXTERNAL_FSA_WITNESS=NOT_AUTHENTICATED'
+          Write-Output 'F139_D2R_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2R_DISPOSITION=HISTORICAL_COUNTS_ONLY_NOT_SCIENTIFIC_AUTHORITY'
