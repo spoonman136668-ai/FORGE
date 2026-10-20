@@ -1,0 +1,70 @@
+name: K-Terminal original local desktop preload check
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-desktop-preload.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preload:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Run original inactive desktop preload only
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'WRONG_RUNNER'}
+          Write-Host 'KTERM_LOCAL_RUNNER=PASS'
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } | Where-Object {Test-Path -LiteralPath $_ -PathType Container})
+          if($roots.Count -ne 1){throw 'KTERM_ORIGINAL_ROOT_NOT_UNIQUE'}
+          $root=$roots[0]
+          $stage='ui-runtime'
+          $pipe=$null; $space=$null
+          $prior=[Runspace]::DefaultRunspace
+          try {
+            . (Join-Path $root 'ui-runtime-loader.ps1')
+            Import-KTerminalUIRuntime
+            Write-Host 'KTERM_ORIGINAL_UI_RUNTIME=PASS'
+            $stage='session-host'
+            if(-not('KTerminal.Launch.SessionHost' -as [type])) {
+              Add-Type -Path (Join-Path $root 'desktop-session-host.cs') -ReferencedAssemblies ([Management.Automation.Host.PSHost].Assembly.Location)
+            }
+            Write-Host 'KTERM_ORIGINAL_SESSION_HOST=PASS'
+            $stage='desktop-preload'
+            $stageHost=[KTerminal.Launch.SessionHost]::new($Host)
+            $space=[RunspaceFactory]::CreateRunspace($stageHost)
+            $space.ThreadOptions='UseCurrentThread'
+            $space.ApartmentState='STA'
+            $space.Open()
+            $pipe=[PowerShell]::Create()
+            $pipe.Runspace=$space
+            $space.SessionStateProxy.SetVariable('desktopStagePath',(Join-Path $root 'desktop-preload.ps1'))
+            $null=$pipe.AddScript('$ErrorActionPreference="Stop"; . $desktopStagePath',$false)
+            [Runspace]::DefaultRunspace=$space
+            $null=$pipe.Invoke()
+            if($pipe.InvocationStateInfo.State -eq 'Failed'){throw $pipe.InvocationStateInfo.Reason}
+            if($pipe.HadErrors){
+              $errs=@($pipe.Streams.Error)
+              if($errs.Count -gt 0){throw $errs[0].Exception}
+              throw 'Preload pipeline reported an error'
+            }
+            Write-Host 'KTERM_ORIGINAL_DESKTOP_PRELOAD=PASS'
+            Write-Host 'KTERM_NO_UI_OR_ENGINE_LAUNCHED=TRUE'
+          } catch {
+            $e=$_.Exception
+            $detail=[string]$e.Message
+            if($detail -match '(?i)api.?key|private.?key|secret|token|password|organizations/|credential'){ $detail='[REDACTED]' }
+            $detail=$detail -replace '(?i)[A-Z]:\\[^\s,;\x22]+','[LOCAL_PATH]'
+            if($detail.Length -gt 200){$detail=$detail.Substring(0,200)}
+            Write-Host ('KTERM_PRELOAD_FAILED_STAGE=' + $stage)
+            Write-Host ('KTERM_PRELOAD_ERROR_TYPE=' + $e.GetType().Name)
+            Write-Host ('KTERM_PRELOAD_SANITIZED_ERROR=' + $detail)
+            throw 'KTERM_ORIGINAL_PRELOAD_FAILED'
+          } finally {
+            [Runspace]::DefaultRunspace=$prior
+            if($null -ne $pipe){$pipe.Dispose()}
+            if($null -ne $space){$space.Dispose()}
+          }
