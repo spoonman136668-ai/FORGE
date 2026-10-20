@@ -244,6 +244,7 @@ jobs:
           Write-Host 'D2Y_NO_FILES_OR_TASKS_MODIFIED=TRUE'
 
       - name: D2Z source-transition and real dev issue intake preflight, read only
+        if: ${{ false }} # one-shot source transition completed; never replay
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -307,6 +308,7 @@ jobs:
           Write-Host 'D2Z_NO_SOURCE_TRANSITION_OR_NEW_DISPATCH=TRUE'
 
       - name: D3 guarded one-time FORGE development source transition
+        if: ${{ false }} # one-shot source transition completed; never replay
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -442,3 +444,74 @@ jobs:
           $current=(& git -C $root rev-parse HEAD).Trim()
           if ($current -cne $target) { throw 'D3_POST_TRANSITION_CHECKOUT_DRIFT' }
           Write-Host 'D3_SOURCE_TRANSITION_COMPLETE_AWAIT_AUTHENTIC_DISPATCH'
+
+      - name: D4 audit live two-lane posttransition receipts and controller succession read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ($task.State.ToString() -cne 'Running') { throw 'D4_CONTROLLER_NOT_RUNNING' }
+          $args=[string](@($task.Actions)[0].Arguments)
+          if ($args -notmatch '(?i)-RepositoryRoot\s+["'']?([^"'']+?)["'']?(?=\s+-|$)') { throw 'D4_CONTROLLER_ROOT_NOT_PINNED' }
+          $root=$Matches[1].Trim()
+          $head=(& git -C $root rev-parse HEAD).Trim()
+          if ($head -cne '5a252f8dde245c67e9a5d9c9dfcd421fd18f5d91') { throw 'D4_INSTALLED_SOURCE_DRIFT' }
+          if (@(& git -C $root status --porcelain).Count -ne 0) { throw 'D4_INSTALLED_CHECKOUT_DIRTY' }
+          $env:D4_ROOT=$root
+          $env:D4_DB=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $env:D4_SNAP=Join-Path $env:RUNNER_TEMP 'f139-d4-audit.sqlite'
+          @'
+          import os,pathlib,sqlite3,urllib.parse,time,sys,hashlib,json
+          root=pathlib.Path(os.environ['D4_ROOT'])
+          db=pathlib.Path(os.environ['D4_DB'])
+          uri='file:'+urllib.parse.quote(db.as_posix(),safe='/:')+'?mode=ro'
+          snapshot=pathlib.Path(os.environ['D4_SNAP'])
+          target='5a252f8dde245c67e9a5d9c9dfcd421fd18f5d91'
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,receipt_from_zip
+          complete=False
+          for attempt in range(20):
+              # Always start from fresh SQLite snapshot; never observe half a transaction.
+              if snapshot.exists():snapshot.unlink()
+              ro=sqlite3.connect(uri,uri=True,timeout=3)
+              try:
+                  ro.execute('PRAGMA query_only=ON')
+                  copy=sqlite3.connect(str(snapshot),timeout=3)
+                  try:ro.backup(copy)
+                  finally:copy.close()
+              finally:ro.close()
+              model=Database(snapshot)
+              try:
+                  model.verify()
+                  meta=model.meta()
+                  tasks=[dict(r) for r in model.conn.execute('SELECT * FROM tasks ORDER BY ticket')]
+                  if meta['source_sha']!=target or len(tasks)!=7 or meta['enabled']!=1 or meta['legacy_suspended']!=1:
+                      raise RuntimeError('D4_CONTROLLER_AUTHORITY_OR_COUNT_DRIFT')
+                  terminals=sum(t['stage']=='VERIFIED' for t in tasks)
+                  if terminals==7:
+                      for task in tasks:
+                          evidence=pathlib.Path(task['evidence_dir'])
+                          manifest=json.loads((evidence/'manifest.json').read_text(encoding='utf-8'))
+                          for label in ('ubuntu-latest','windows-latest'):
+                              raw=(evidence/(label+'.zip')).read_bytes()
+                              digest=hashlib.sha256(raw).hexdigest()
+                              if manifest['sha256'][label]!=digest:
+                                  raise RuntimeError('D4_ARCHIVED_PROVIDER_ORIGINAL_DRIFT')
+                              receipt_from_zip(raw,{'digest':'sha256:'+digest,'size_in_bytes':len(raw)},
+                                  task,task['run_id'],label,epoch=meta['epoch'],
+                                  d2k_fields=model.d2k_fields(task['ticket']))
+                      print('D4_PROVIDER_AUTHENTIC_7_OF_7=PASS')
+                      print('D4_TWO_DEV_TICKETS='+str(sum(t['ticket'].startswith('f139-d2k-i68') for t in tasks)))
+                      print('D4_FINAL_CONTROLLER_EVENT_SEQ='+str(meta['head_seq']))
+                      print('D4_FINAL_CONTROLLER_SOURCE='+meta['source_sha'])
+                      print('D4_LAST_EVENT_HASH='+meta['head_hash'])
+                      print('D4_ARCHIVED_RECEIPTS_VERIFIED=14_ZIPS')
+                      complete=True
+                      break
+                  print('D4_RECONCILING_TERMINALS='+str(terminals)+'_OF_7')
+              finally:model.close()
+              time.sleep(5)
+          if not complete:raise RuntimeError('D4_PENDING_PROVIDER_TERMINAL_NO_REPLAY')
+          '@ | python -B -
+          if ($LASTEXITCODE -ne 0) { throw 'D4_POSTTRANSITION_AUDIT_BLOCKED' }
+          Write-Host 'D4_NO_DISPATCH_NO_SCIENCE_NO_CLOUD_WRITES=TRUE'
