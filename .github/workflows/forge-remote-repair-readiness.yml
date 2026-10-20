@@ -119,3 +119,61 @@ jobs:
           }
           Write-Output 'F139_D2R_SECRET_VALUES_ACCESSED=FALSE'
           Write-Output 'F139_D2R_PROVIDER_MUTATIONS=ZERO'
+      - name: F139 D2R Cloudflare provider GET-only attestation
+        if: >-
+          github.event_name == 'push' && github.event.head_commit.message == 'ops(f139): inspect existing D2R Cloudflare D1 and Worker metadata read only'
+        shell: pwsh
+        env:
+          F139_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          F139_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'D2R_WRONG_RUNNER'}
+          if([string]::IsNullOrWhiteSpace($env:F139_CF_TOKEN) -or $env:F139_CF_ACCOUNT -notmatch '^[a-f0-9]{32}$'){
+            throw 'D2R_EXISTING_PROVIDER_SECRET_BINDING_UNAVAILABLE'
+          }
+          $headers=@{Authorization=('Bearer '+$env:F139_CF_TOKEN);Accept='application/json'}
+          $base='https://api.cloudflare.com/client/v4'
+          function CFGet([string]$path){
+            try {
+              $r=Invoke-RestMethod -Uri ($base+'/'+$path) -Method Get -Headers $headers -TimeoutSec 30
+              if($r.success -ne $true){return $null}
+              return $r
+            }catch{return $null}
+          }
+          $verify=CFGet 'user/tokens/verify'
+          if($null -eq $verify -or $verify.result.status -cne 'active'){throw 'D2R_PROVIDER_TOKEN_NOT_VERIFIED'}
+          Write-Output 'F139_D2R_CLOUDFLARE_PROVIDER_TOKEN=ACTIVE'
+          $dbs=CFGet ('accounts/'+$env:F139_CF_ACCOUNT+'/d1/database?page=1&per_page=100')
+          if($null -eq $dbs){Write-Output 'F139_D2R_D1_LIST=DENIED_OR_UNAVAILABLE'}
+          else {
+            $items=@($dbs.result)
+            $info=$dbs.result_info
+            if($null -eq $info -or $info.total_count -gt 100 -or $items.Count -ne $info.total_count){throw 'D2R_D1_INVENTORY_PAGINATION_UNVERIFIED'}
+            $matches=@($items|Where-Object {$_.name -match '(?i)forge'})
+            Write-Output 'F139_D2R_D1_LIST=AUTHENTICATED_GET'
+            Write-Output ('F139_D2R_D1_DATABASE_COUNT='+$items.Count)
+            Write-Output ('F139_D2R_FORGE_NAMED_D1_COUNT='+$matches.Count)
+            if($matches.Count -eq 1){
+              $one=$matches[0]
+              $detail=CFGet ('accounts/'+$env:F139_CF_ACCOUNT+'/d1/database/'+$one.uuid)
+              if($null -ne $detail -and $detail.result.uuid -ceq $one.uuid){
+                Write-Output 'F139_D2R_UNIQUE_FORGE_D1_IDENTITY=PROVIDER_GET_MATCH'
+                $mark=CFGet ('accounts/'+$env:F139_CF_ACCOUNT+'/d1/database/'+$one.uuid+'/time_travel/bookmark')
+                Write-Output ('F139_D2R_D1_TIMETRAVEL_BOOKMARK_METADATA='+(('PRESENT','UNAVAILABLE')[[int]($null -eq $mark)]))
+              }else{Write-Output 'F139_D2R_UNIQUE_FORGE_D1_IDENTITY=NOT_VERIFIED'}
+            }
+          }
+          $scripts=CFGet ('accounts/'+$env:F139_CF_ACCOUNT+'/workers/scripts')
+          if($null -eq $scripts){Write-Output 'F139_D2R_WORKER_SCRIPTS=DENIED_OR_UNAVAILABLE'}
+          else{
+            $s=@($scripts.result)
+            $fsa=@($s|Where-Object{($_.id -match '(?i)(forge|fsa)')})
+            Write-Output 'F139_D2R_WORKER_SCRIPTS=AUTHENTICATED_GET'
+            Write-Output ('F139_D2R_FORGE_FSA_NAMED_WORKER_COUNT='+$fsa.Count)
+          }
+          Write-Output 'F139_D2R_PROVIDER_HTTP_METHODS=GET_ONLY'
+          Write-Output 'F139_D2R_SQL_MUTATIONS=ZERO'
+          Write-Output 'F139_D2R_FSA_INDEPENDENT_SIGNER_OR_WITNESS=UNVERIFIED'
+          Write-Output 'F139_D2R_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Output 'F139_D2R_DISPOSITION=PROVIDER_METADATA_ONLY_NO_SCIENCE'
