@@ -20,8 +20,8 @@ SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 PATH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}\Z")
 REPOS = {
-    "Wingless": ("spoonman136668-ai/Wingless", ("inference/", "modelhost/", "research/"), ".go"),
-    "Yggdrasil": ("spoonman136668-ai/Yggdrasil", ("research/",), ".py"),
+    "Wingless": ("spoonman136668-ai/Wingless", ("cognition/", "cmd/wingless/"), ".go"),
+    "Yggdrasil": ("spoonman136668-ai/Yggdrasil", ("yggdrasil/", "scripts/"), ".py"),
 }
 MAX_CANDIDATE_BYTES = 32768
 FIELDS = frozenset({
@@ -113,7 +113,7 @@ def parse_intent(raw: bytes, *, protected_main: str, target_commit: str,
                      *("lpt" + str(i) for i in range(1, 10))}
                     for part in path.split("/"))
             and path.startswith(prefixes) and path.endswith(suffix), "SOURCE_PATH_FORBIDDEN")
-    require(value["toolchain_identity"] in ("go1.23.12", "python3.11.11")
+    require(value["toolchain_identity"] in ("go1.25.0", "python3.11.11")
             and (value["toolchain_identity"].startswith("go") == (value["lane"] == "Wingless")),
             "TOOLCHAIN_NOT_QUALIFIED")
     require(value["worker_mode"] == "isolated-candidate-only"
