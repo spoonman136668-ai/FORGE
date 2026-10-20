@@ -47,6 +47,15 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout frozen original baseline to classify inherited negatives
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kterminal-original-baseline
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
       - name: Setup existing pinned Go 1.26.5 toolchain
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -67,34 +76,57 @@ jobs:
           test "$K_TERMINAL_EXECUTION_MODE" = PAPER
           echo KTERM_RC2C_EXACT_SOURCE=PASS
           echo KTERM_RC2C_REAL_COINBASE_ACCESS=NONE
-      - name: Focused native accounting and audit-clock tests
+      - name: Focused native audit-clock tests and exact predecessor comparison
         shell: bash
-        working-directory: kterminal-private
         run: |
           set -euo pipefail
+          regex='^(TestHistoricalPnL.*|TestHistoricalOrderScope.*|TestHistoricalScope.*|TestIncrementalRestart.*|TestNativeObservation.*|TestPerformanceDrawdown.*|TestStage3NativeHistoricalHistoryCheckpointV2)$'
+          test "$(git -C kterminal-private rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test "$(git -C kterminal-original-baseline rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
           set +e
-          go test -json -count=1 -p=1 -parallel=1 -timeout=18m ./pkg -run '^(TestHistoricalPnL.*|TestHistoricalOrderScope.*|TestHistoricalScope.*|TestIncrementalRestart.*|TestNativeObservation.*|TestPerformanceDrawdown.*|TestStage3NativeHistoricalHistoryCheckpointV2)$' > "$RUNNER_TEMP/rc2c-focused.jsonl" 2> "$RUNNER_TEMP/rc2c-focused-stderr.txt"
-          rc=$?
+          (cd kterminal-private && go test -json -count=1 -p=1 -parallel=1 -timeout=18m ./pkg -run "$regex") > "$RUNNER_TEMP/rc2c-candidate.jsonl" 2> "$RUNNER_TEMP/rc2c-candidate-stderr.txt"
+          candidate_rc=$?
+          (cd kterminal-original-baseline && go test -json -count=1 -p=1 -parallel=1 -timeout=18m ./pkg -run "$regex") > "$RUNNER_TEMP/rc2c-original.jsonl" 2> "$RUNNER_TEMP/rc2c-original-stderr.txt"
+          original_rc=$?
           set -e
-          export KTERM_RC2C_EXIT="$rc"
+          export RC2C_CANDIDATE_RC="$candidate_rc"
+          export RC2C_ORIGINAL_RC="$original_rc"
           python -B - <<'PY'
-          import json,os,pathlib,sys
-          path=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2c-focused.jsonl"
-          passed=failed=errors=0
-          target=False
-          for line in path.open(encoding="utf-8",errors="replace"):
-              try: e=json.loads(line)
-              except ValueError: errors+=1;continue
-              t=e.get("Test","")
-              if t=="TestHistoricalPnLFullAuditClockAndImmutableJournal" and e.get("Action")=="pass": target=True
-              if e.get("Action")=="pass" and t:passed+=1
-              if e.get("Action")=="fail" and t:failed+=1
-          good=(int(os.environ["KTERM_RC2C_EXIT"])==0 and failed==0 and errors==0 and target)
-          print("KTERM_RC2C_TARGET_TEST_PASS="+str(target).upper())
-          print("KTERM_RC2C_FOCUSED_PASS_NODES="+str(passed))
-          print("KTERM_RC2C_FOCUSED_FAILED_NODES="+str(failed))
-          print("KTERM_RC2C_FOCUSED="+("PASS" if good else "FAIL"))
-          if not good: sys.exit(2)
+          import json,os,pathlib,sys,re
+          def read(name):
+              counts={"pass":0,"fail":0,"run":0}
+              fail=set()
+              pkg_fail=set()
+              target=False
+              errors=0
+              path=pathlib.Path(os.environ["RUNNER_TEMP"])/("rc2c-"+name+".jsonl")
+              for line in path.open(encoding="utf-8",errors="replace"):
+                  try:v=json.loads(line)
+                  except ValueError:errors+=1;continue
+                  action,t,pkg=v.get("Action"),v.get("Test"),v.get("Package")
+                  if t and action in counts:counts[action]+=1
+                  if t=="TestHistoricalPnLFullAuditClockAndImmutableJournal" and action=="pass":target=True
+                  if action=="fail":
+                      if t:fail.add(t)
+                      elif pkg:pkg_fail.add(pkg)
+              return counts,fail,pkg_fail,target,errors
+          c,cf,cp,ct,ce=read("candidate")
+          o,of,op,ot,oe=read("original")
+          print("KTERM_RC2C_TARGET_AUDIT_TEST_PASS="+str(ct).upper())
+          print("KTERM_RC2C_CANDIDATE_PASSED="+str(c["pass"]))
+          print("KTERM_RC2C_CANDIDATE_FAILED="+str(c["fail"]))
+          print("KTERM_RC2C_ORIGINAL_PASSED="+str(o["pass"]))
+          print("KTERM_RC2C_ORIGINAL_FAILED="+str(o["fail"]))
+          print("KTERM_RC2C_CANDIDATE_INHERITED_TEST_FAILS="+str(len(cf&of)))
+          print("KTERM_RC2C_CANDIDATE_ONLY_TEST_FAILS="+str(len(cf-of)))
+          for item in sorted(cf|of):
+              if not re.fullmatch(r"[A-Za-z0-9_./-]{1,220}",item):continue
+              origin=("BOTH" if item in cf and item in of else "CANDIDATE" if item in cf else "BASELINE")
+              print("KTERM_RC2C_FAILURE_TEST="+origin+":"+item)
+          print("KTERM_RC2C_COMPARISON_BROKEN="+str(ce>0 or oe>0 or bool(cp-of) or bool(op-cp)).upper())
+          good=(int(os.environ["RC2C_CANDIDATE_RC"])==0 and not cf and not cp and ct and ce==0)
+          print("KTERM_RC2C_FOCUSED="+("PASS" if good else "FAILED_NOT_WAIVED"))
+          if not good:sys.exit(2)
           PY
       - name: One complete original Windows regression
         shell: bash
