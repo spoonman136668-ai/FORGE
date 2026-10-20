@@ -65,3 +65,18 @@ jobs:
           & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $env:GITHUB_WORKSPACE $path)
           if ($LASTEXITCODE -ne 0) { throw 'D2O_READ_ONLY_PREFLIGHT_BLOCKED' }
           Write-Output 'F139_D2O_RUNNER_READ_ONLY_PREFLIGHT_RETURNED_PASS'
+      - name: Apply guarded F139 D2O idle restart
+        if: >-
+          github.event_name == 'push' && github.ref == 'refs/heads/proposal/forge-remote-repair-r1' && github.event.head_commit.message == 'ops(f139): apply qualified D2O owner idle restart'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'F139_D2O_WRONG_RUNNER'
+          }
+          $path = 'ops/f139/F139-D2O-Guarded-Idle-Restart.ps1'
+          $blob = (& git rev-parse ('HEAD:'+$path)).Trim()
+          if ($LASTEXITCODE -ne 0 -or $blob -cne '57d08380a31f69a3a07170820dac57b3c3784d91') { throw 'F139_D2O_ACCEPTANCE_BLOB_DRIFT' }
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $env:GITHUB_WORKSPACE $path) -Apply
+          if ($LASTEXITCODE -ne 0) { throw 'F139_D2O_OWNER_START_FAILED' }
+          Write-Output 'F139_D2O_RUNNER_APPLY_COMPLETED=PASS'
