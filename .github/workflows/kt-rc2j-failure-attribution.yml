@@ -1,0 +1,147 @@
+name: K-Terminal RC2-J bounded failure attribution (no full regression)
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2j-failure-attribution.yml]
+permissions:
+  contents: read
+jobs:
+  pin-and-isolate:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOFLAGS: '-p=1'
+      GOMAXPROCS: '2'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Checkout audit-only runner context
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout frozen original K-Terminal read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout exact PR73 source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Use pinned original Windows Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify all custody and no broker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kt-original status --porcelain)"
+          test -z "$(git -C kt-candidate status --porcelain)"
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do test -z "${!n:-}"; done
+          echo KTERM_RC2J_EXACT_IDENTITY_NO_BROKER=PASS
+      - name: Run isolated original and candidate Graphify package compilation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json,os,pathlib,re,subprocess
+          root=pathlib.Path.cwd()
+          report={}
+          for label in ("kt-original","kt-candidate"):
+              cp=subprocess.run(["go","test","-json","-count=1","-p=1","./tools/graphify"],
+                  cwd=root/label,capture_output=True,text=True,timeout=240,check=False)
+              raw=cp.stdout+"\n"+cp.stderr
+              findings=[]
+              for ln in raw.splitlines():
+                  if not re.search(r"redeclared|other declaration|main redeclared|no Go files|build constraints|FAIL|undefined|syntax error",ln,re.I):continue
+                  match=re.search(r"(g(?:27|30|31|44)[A-Za-z0-9_-]*[.]go):[0-9]+",ln)
+                  if match: findings.append({"file":match.group(1),"reason":"COMPILER_DECLARATION_CONFLICT" if re.search("redeclared|other declaration",ln,re.I) else "COMPILER_DIAGNOSTIC"})
+                  elif "build failed" in ln.lower():findings.append({"reason":"COMPILATION_FAILED"})
+              report[label]={"exit":cp.returncode,"compiler_findings":findings[:12],
+                  "go_tool_package":"k-terminal/tools/graphify"}
+              print("KTERM_RC2J_GRAPHIFY_"+label.replace("-","_").upper()+"_EXIT="+str(cp.returncode))
+              print("KTERM_RC2J_GRAPHIFY_"+label.replace("-","_").upper()+"_DECLARATION_CONFLICT="+str(any(x["reason"]=="COMPILER_DECLARATION_CONFLICT" for x in findings)).upper())
+          out=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2j-graphify.json"
+          out.write_text(json.dumps(report,sort_keys=True,indent=2),encoding="utf-8")
+          if not all(x["exit"]!=0 for x in report.values()):
+              print("KTERM_RC2J_GRAPHIFY_PREDECESSOR_CANDIDATE=DIFFERENT")
+          else:
+              print("KTERM_RC2J_GRAPHIFY_PREDECESSOR_CANDIDATE=BOTH_FAILED")
+          # This is only a diagnosis. A build failure is NOT waived.
+          print("KTERM_RC2J_FULL_REGRESSION=NOT_RUN")
+          PY
+      - name: Reproduce original two-second maker retry budget in isolated processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json,os,pathlib,subprocess,time
+          root=pathlib.Path.cwd()
+          test="TestCanceledBuyRetryActualAllNineMakerAttemptsWithinOriginalWindow"
+          result={}
+          for label in ("kt-original","kt-candidate"):
+              result[label]=[]
+              for trial in range(1,4):
+                  start=time.monotonic()
+                  # No exchange secrets or real transport are permitted.
+                  p=subprocess.run(["go","test","-json","-count=1","-p=1","-parallel=1",
+                                    "-timeout=5m","-run","^"+test+"$","./pkg"],
+                                    cwd=root/label,text=True,capture_output=True,
+                                    timeout=330,check=False)
+                  msgs=[]
+                  passed=failed=0
+                  for line in p.stdout.splitlines():
+                      try:e=json.loads(line)
+                      except ValueError:continue
+                      if e.get("Test")==test and e.get("Action")=="pass":passed+=1
+                      if e.get("Test")==test and e.get("Action")=="fail":failed+=1
+                      if e.get("Test")==test and e.get("Action")=="output":
+                          t=e.get("Output","")
+                          for needle,category in [
+                              ("full original native maker budget failed","TWO_SECOND_WINDOW_OR_ATTEMPT_COUNT"),
+                              ("authorized maker budget truncated","MAKER_ATTEMPT_TRUNCATION"),
+                              ("attempt identity/policy/quantity changed","ORDER_IDENTITY_OR_QUANTITY"),
+                              ("duplicate terminal proof resubmitted","DUPLICATE_TERMINAL"),
+                              ("logical event acquired duplicate reservations","RESERVATION_INTEGRITY"),
+                          ]:
+                              if needle in t: msgs.append(category)
+                  rec={"trial":trial,"go_exit":p.returncode,
+                       "test_pass":passed,"test_fail":failed,
+                       "elapsed_command_s":round(time.monotonic()-start,2),
+                       "reason_classes":sorted(set(msgs))}
+                  result[label].append(rec)
+                  print("KTERM_RC2J_MAKER_"+label.replace("-","_").upper()+"_TRIAL_"+str(trial)+"_RESULT="+("PASS" if p.returncode==0 and passed and not failed else "FAIL"))
+          out=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2j-maker.json"
+          out.write_text(json.dumps(result,indent=2,sort_keys=True),encoding="utf-8")
+          print("KTERM_RC2J_MAKER_FAILURE_ATTRIBUTION=MEASURED_NOT_WAIVED")
+          PY
+      - name: Retain non-secret categorized attribution only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2j-attribution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/rc2j-graphify.json
+            ${{ runner.temp }}/rc2j-maker.json
+          retention-days: 15
+          if-no-files-found: warn
