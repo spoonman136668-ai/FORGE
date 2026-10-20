@@ -234,7 +234,8 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $head -cnotmatch '^[a-f0-9]{40}$') { throw 'D2Y_F139_GIT_SOURCE_INVALID' }
           $dirty=@(& git -C $root status --porcelain)
           if ($LASTEXITCODE -ne 0) { throw 'D2Y_F139_GIT_STATUS_UNAVAILABLE' }
-          $branch=(& git -C $root branch --show-current).Trim()
+          $rawBranch=& git -C $root branch --show-current
+          $branch=if ($null -eq $rawBranch) { '' } else { ([string]$rawBranch).Trim() }
           if ($LASTEXITCODE -ne 0) { throw 'D2Y_F139_CHECKOUT_BRANCH_INVALID' }
           Write-Host 'D2Y_F139_CHECKOUT_PATH=EXTRACTED_VERIFIED'
           Write-Host ('D2Y_F139_CHECKOUT_HEAD='+$head)
