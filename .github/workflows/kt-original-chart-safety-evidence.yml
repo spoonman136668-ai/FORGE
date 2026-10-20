@@ -22,6 +22,27 @@ jobs:
           $root=$roots[0]
           $exes=@(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue)
           Write-Host ('KTERM_NATIVE_ENGINE_PROCESS_COUNT=' + $exes.Count)
+          $originalCount=0
+          $otherCount=0
+          $inaccessible=0
+          $startedAfterRepair=0
+          foreach($engine in $exes){
+            try {
+              $enginePath=[string]$engine.Path
+              if([string]::IsNullOrWhiteSpace($enginePath)){ $inaccessible++;continue }
+              $parent=[IO.Path]::GetDirectoryName($enginePath)
+              if([string]::Equals($parent,$root,[StringComparison]::OrdinalIgnoreCase)){
+                $originalCount++
+                try {
+                  if($engine.StartTime.ToUniversalTime() -ge [datetime]::Parse('2026-10-20T01:42:00Z').ToUniversalTime()){$startedAfterRepair++}
+                } catch { }
+              } else {$otherCount++}
+            } catch {$inaccessible++}
+          }
+          Write-Host ('KTERM_ORIGINAL_FOLDER_RUNNING_ENGINE_COUNT=' + $originalCount)
+          Write-Host ('KTERM_OTHER_FOLDER_RUNNING_ENGINE_COUNT=' + $otherCount)
+          Write-Host ('KTERM_UNREADABLE_ENGINE_PATH_COUNT=' + $inaccessible)
+          Write-Host ('KTERM_ORIGINAL_ENGINE_STARTED_AFTER_REPAIR_COUNT=' + $startedAfterRepair)
           $path=Join-Path $root 'data\chart\chart-current.json'
           if(-not(Test-Path -LiteralPath $path -PathType Leaf)){Write-Host 'KTERM_ORIGINAL_LIVE_CHART=ABSENT';exit 0}
           $fi=[IO.FileInfo]::new($path)
