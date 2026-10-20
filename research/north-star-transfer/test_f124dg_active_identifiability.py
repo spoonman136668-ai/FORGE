@@ -29,6 +29,14 @@ class CausalNullspaceAndBudget(unittest.TestCase):
                 self.assertEqual((len(data["FIT"]),len(data["CHECK"]),
                                   len(data["HELDOUT"])),(24,8,8))
                 self.assertEqual(data,world.born(family,seed))
+                # Source-only counterfactual validity: no silently
+                # fabricated hard-negative labels or invalid zero-denominator
+                # false-positive claims in the heldout test.
+                for ep in data["HELDOUT"]:
+                    neg=world.matched_negative(ep)
+                    self.assertEqual(sorted(x["observed"] for x in ep["events"]),
+                                     sorted(x["observed"] for x in neg["events"]))
+                    self.assertNotEqual(ep,neg)
                 for episode in data.values():
                     for item in episode:learner.check_ep(item)
                 self.assertEqual(world.response(family,seed,0),
