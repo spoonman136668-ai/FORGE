@@ -76,11 +76,11 @@ try {
         Copy-Item -LiteralPath $file.FullName -Destination $stage -ErrorAction Stop
     }
     $readme = @'
-RC2-F PORTABLE DIAGNOSTIC CANDIDATE — NOT APPROVED FOR LIVE TRADING
+RC2-F PORTABLE DIAGNOSTIC CANDIDATE — NOT APPROVED FOR USER EXECUTION
 This is an isolated, source-pinned candidate, not a production upgrade.
 No user data, Coinbase credentials, API secrets, order history, or active config
 is included. The original installation must remain untouched.
-Do not copy any live account secrets into this diagnostic package.
+Do not execute this package or add live credentials until runtime isolation is separately verified.
 The private native full Windows regression was required to pass before build.
 Original owner's desktop/UI acceptance and field latency measurements remain
 separate requirements. Do not promote, auto-update, or submit live orders.
@@ -97,8 +97,10 @@ separate requirements. Do not promote, auto-update, or submit live orders.
         qualifying_conclusion='success'
         build_host='windows'
         go_version=$goVersion
-        mode='PAPER_ONLY_DIAGNOSTIC_UNINSTALLED'
+        mode='UNINSTALLED_RUNTIME_NOT_QUALIFIED'
         desktop_acceptance='NOT_YET_QUALIFIED'
+        runtime_no_live_order_guard='NOT_YET_QUALIFIED'
+        release_approved=$false
         broker_credentials_used=$false
         user_data_copied=$false
         entries=$entries
