@@ -1,0 +1,71 @@
+name: LCRM O5 exact predictive state information lower bound
+on:
+  push:
+    branches: [research/lcrm01-o5-predictive-state-information-bound-20261020]
+    paths: ['.github/workflows/lcrm01-o5-predictive-state-information.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o5-public-information
+  cancel-in-progress: false
+jobs:
+  source-free-predictive-bound:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify O4 original evidence, O5 freeze chronology and exact immutable sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {throw 'O5_HEAD_DRIFT'}
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o5-predictive-state-bound-precode.json'='678a99e962847f8731bb9c7e34bfb8a61a32fd68'
+            'research/lcrm01/o5_predictive_state_bound.go'='af3f632b5e403fb08a34d8346b87a9466104795a'
+            'research/lcrm01/o5_predictive_state_bound_test.go'='b511bc119188679fdd46bb454c0aa94f5556f526'
+            'research/lcrm01/o4_rule_induction.go'='d11303f0adabfe1331ccf71899e1cf7bfacad10e'
+            'research/lcrm01/originals/20261020-lcrm01-o4-sourcefree-interventional-parity.json'='c5e487d76b2e0fa89dd0b9f27841a2c03de21175'
+          }
+          foreach($p in $blobs.Keys) {
+            if ((git hash-object -- $p).Trim() -cne $blobs[$p]) {throw "O5_BLOB_DRIFT:$p"}
+          }
+          git merge-base --is-ancestor 31add5fa1efc3e09912a866cb6e80875c26f3152 cb7b2c8533c49c7d0b24224a8d95cfa26ebd9a82
+          if ($LASTEXITCODE -ne 0) {throw 'O5_O4_PREDECESSOR_DRIFT'}
+          git merge-base --is-ancestor cb7b2c8533c49c7d0b24224a8d95cfa26ebd9a82 e4efaac9d419d9b15ffc64a9aa74c71750520591
+          if ($LASTEXITCODE -ne 0) {throw 'O5_IMPLEMENTATION_BEFORE_FREEZE'}
+          git merge-base --is-ancestor e4efaac9d419d9b15ffc64a9aa74c71750520591 58ab17ea12368d3e6b185f10b7d24ff4b597000a
+          if ($LASTEXITCODE -ne 0) {throw 'O5_TEST_BEFORE_CODE'}
+          git merge-base --is-ancestor 58ab17ea12368d3e6b185f10b7d24ff4b597000a HEAD
+          if ($LASTEXITCODE -ne 0) {throw 'O5_TEST_NOT_INCLUDED'}
+          Write-Output 'O5_FROZEN_SOURCE_ONLY_ORIGINAL_IDENTITY=PASS'
+      - name: Exhaustive query-blind lower bound, exact symbolic parity and package regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01 -run '^TestO5' -count=1 -v > o5-public-information.log
+          if ($LASTEXITCODE -ne 0) {Get-Content o5-public-information.log;throw 'O5_EXHAUSTIVE_PROPERTY_FAILED'}
+          Get-Content o5-public-information.log
+          go vet ./research/lcrm01
+          if ($LASTEXITCODE -ne 0) {throw 'O5_VET_FAILED'}
+          go test ./research/lcrm01 -count=1
+          if ($LASTEXITCODE -ne 0) {throw 'O5_PACKAGE_REGRESSION'}
+          Write-Output 'O5_ZERO_SOURCE_FIRST_USE=PASS'
+          Write-Output 'O5_STRONGEST_EXACT_PEER_PARITY_ONLY_NO_LEARNED_TRANSFER=PASS'
+          Write-Output 'O5_SCIENTIFIC_AND_OPTIMIZER_ADMISSION=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o5-sourcefree-bound-${{ matrix.os }}
+          path: o5-public-information.log
+          if-no-files-found: ignore
+          retention-days: 90
