@@ -9,7 +9,7 @@ import unittest
 
 from unittest import mock
 from f139.audit_d2k_custody import (
-    audit, CustodyBlocked, copied_snapshot,
+    audit, CustodyBlocked, copied_snapshot, verify_chain, REAL_23_EVENT_KINDS,
     load_provider_anchor as real_load_provider_anchor,
 )
 from f139.local_controller import Database, canonical, hash_bytes, store_evidence, d2j_plan
@@ -48,13 +48,25 @@ class ReadonlyCustodyTests(unittest.TestCase):
                 "run_id,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?)",
                 (ticket,lane,SHA,"f"*64,i,folder,digest))
             recorded.append({"ticket":ticket,"run_id":i,"evidence_sha":digest})
-        kinds=["SYNTHETIC_EVENT"]*23
-        for index in (2,5,9): kinds[index]="SOURCE_TRANSITION_ADMITTED"
-        kinds[14]="UNATTENDED_SUCCESSION_ADMITTED"
-        terminal_indexes=(0,3,17,20)
+        # The genuine 23-event history has D2C quarantine/recovery, NOT
+        # four provider-terminal events. Retain the true chronological kinds.
         with db.transaction():
-            for i,kind in enumerate(kinds):
-                if i==14:
+            original_nine_head=None
+            for i,kind in enumerate(REAL_23_EVENT_KINDS):
+                if i==9:
+                    original_nine_head=db.meta()["head_hash"]
+                if i in (9,10):
+                    original=recorded[i-9]
+                    payload={
+                        "ticket":original["ticket"],"run_id":original["run_id"],
+                        "previous_reason":"PROVIDER_SOURCE_EVENT_SPOOFED",
+                        "manifest_sha256":original["evidence_sha"],
+                        "original_head_sha256":original_nine_head,
+                        "original_science":False,"replay":False,
+                    }
+                elif i in (19,22):
+                    payload=recorded[2 if i==19 else 3]
+                elif i==14:
                     plan=d2j_plan(SHA,db.meta()["head_hash"])
                     manifest_sha256=hash_bytes(canonical(plan))
                     for task in plan["tasks"]:
@@ -66,10 +78,8 @@ class ReadonlyCustodyTests(unittest.TestCase):
                              "tickets":[task["ticket"] for task in plan["tasks"]],
                              "new_dispatches":0,"scientific_first_use":False}
                 else:
-                    payload=(recorded[terminal_indexes.index(i)]
-                             if i in terminal_indexes else {"test_only":True,"iteration":i})
-                db.event("PROVIDER_VERIFIED_TERMINAL" if i in terminal_indexes
-                         else kind,payload)
+                    payload={"test_only":True,"iteration":i}
+                db.event(kind,payload)
         self.head=db.meta()["head_hash"]
         db.close()
         patcher=mock.patch("f139.audit_d2k_custody.load_provider_anchor",
@@ -90,6 +100,50 @@ class ReadonlyCustodyTests(unittest.TestCase):
         self.assertEqual(result["d2j_task_bindings_verified"],2)
         self.assertEqual(result["controller_actions"],0)
         self.assertEqual(result["original_database_writes"],0)
+
+    def test_original_reconciliations_are_not_reinterpreted_as_provider_terminals(self):
+        with closing(sqlite3.connect(self.dbpath)) as c:
+            c.row_factory=sqlite3.Row
+            entries=[dict(r) for r in c.execute("SELECT * FROM events ORDER BY seq")]
+        self.assertEqual([x["kind"] for x in entries[9:11]],
+            ["QUARANTINE_ORIGINAL_RECONCILED"]*2)
+        self.assertEqual([entries[19]["kind"],entries[22]["kind"]],
+            ["PROVIDER_VERIFIED_TERMINAL"]*2)
+        proof=verify_chain(entries,self.head)
+        self.assertEqual(len(proof[0]),4)
+        self.assertEqual({t["ticket"] for t in proof[0].values()},set(self.provider_anchor))
+
+    def test_repaired_quarantine_metadata_cannot_claim_original_science(self):
+        with closing(sqlite3.connect(self.dbpath)) as c:
+            c.row_factory=sqlite3.Row
+            entries=[dict(r) for r in c.execute("SELECT * FROM events ORDER BY seq")]
+        import json
+        for field,new_value in (
+            ("original_science",True),("replay",True),
+            ("previous_reason","FORGED_ACCEPTED"),
+            ("original_head_sha256","0"*64),
+        ):
+            with self.subTest(field=field):
+                mutated=[dict(x) for x in entries]
+                data=json.loads(mutated[9]["payload"])
+                data[field]=new_value
+                mutated[9]["payload"]=canonical(data).decode()
+                # Even when an attacker recreates a locally consistent hash
+                # chain and supplies that new head, the original-repair
+                # semantic restrictions remain mandatory.
+                prior=mutated[8]["sha"]
+                for i in range(9,len(mutated)):
+                    entry=mutated[i]
+                    entry["prior_sha"]=prior
+                    entry["sha"]=hash_bytes(canonical({
+                        "seq":entry["seq"],"prior_sha":prior,
+                        "kind":entry["kind"],
+                        "payload":json.loads(entry["payload"]),
+                    }))
+                    prior=entry["sha"]
+                with self.assertRaisesRegex(CustodyBlocked,
+                    "D2C_ORIGINAL_RECONCILIATION_INVALID"):
+                    verify_chain(mutated,prior)
 
     def test_mutable_d2j_manifest_drift_rejected_even_with_same_sealed_head(self):
         original_head=self.head
