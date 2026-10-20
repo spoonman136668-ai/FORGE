@@ -103,8 +103,9 @@ jobs:
             $proofText=@(& $goPath run ./cmd/forge-fsa-owner-key prove 2>&1)
             if($LASTEXITCODE -ne 0){throw 'D2V_OWNER_DPAPI_POSSESSION_PROOF_FAILED'}
           }finally{Set-Location -LiteralPath $prior}
-          if($proofText.Count -ne 1 -or [string]$proofText[0].Length -gt 2000){throw 'D2V_OWNER_PROOF_SHAPE_INVALID'}
-          $proof=([string]$proofText[0])|ConvertFrom-Json
+          $proofCandidates=@($proofText | Where-Object {([string]$_).TrimStart().StartsWith('{') -and ([string]$_).Length -le 2000})
+          if($proofCandidates.Count -ne 1 -or $proofText.Count -gt 5){throw ('D2V_OWNER_PROOF_SHAPE_INVALID_COUNT_'+$proofText.Count+'_CANDIDATES_'+$proofCandidates.Count)}
+          $proof=([string]$proofCandidates[0])|ConvertFrom-Json
           if($proof.schema -cne 'forge.fsa.local-operator-public-pin.v1' -or
              $proof.public_key_ed25519_hex -cne $pin.public_key_ed25519_hex -or
              $proof.public_key_sha256 -cne $pinFingerprint -or
