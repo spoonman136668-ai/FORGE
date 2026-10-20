@@ -137,15 +137,24 @@ def copied_snapshot(source: Path, scratch: Path):
     return scratch/source.name
 
 
-def verify_chain(events, expected_head: str):
-    """Require externally sealed first 23 events and strictly source-only successors.
+def verify_chain(events, expected_head: str, *, qualified_main_sha: str | None = None):
+    """Require the sealed 23-event prefix and strictly source-only successors.
+
+    The optional final target is NOT an authorization: callers must obtain
+    qualified_main_sha from an independently authenticated protected-main
+    provider read. The native CLI enforces that check before accepting it.
 
     The caller must supply the *original*, independently sealed head. Checking
     a later local head against itself would permit fabricated post-merge custody.
     """
     check(isinstance(expected_head,str) and SHA64.fullmatch(expected_head),
           "UNSEALED_EXPECTED_EVENT_HEAD")
-    check(23 <= len(events) <= 23+len(ALLOWED_SOURCE_SUCCESSORS),
+    check(qualified_main_sha is None or
+          (isinstance(qualified_main_sha,str) and SHA40.fullmatch(qualified_main_sha)
+           and qualified_main_sha not in ALLOWED_SOURCE_SUCCESSORS
+           and qualified_main_sha != D2J_SOURCE), "QUALIFIED_MAIN_SHA_INVALID")
+    check(23 <= len(events) <= 23+len(ALLOWED_SOURCE_SUCCESSORS)
+          +(1 if qualified_main_sha is not None else 0),
           "EVENT_COUNT_UNSUPPORTED")
     prior=ZERO
     kinds=[]
@@ -216,11 +225,18 @@ def verify_chain(events, expected_head: str):
                 "new_dispatches","scientific_first_use"},
                   "SOURCE_SUFFIX_FIELDS_INVALID")
             target=payload["to_source_sha"]
+            static_index=(ALLOWED_SOURCE_SUCCESSORS.index(target)
+                          if target in ALLOWED_SOURCE_SUCCESSORS else None)
+            static_approved=(static_index is not None
+                             and static_index>approved_index)
+            live_main_approved=(qualified_main_sha is not None
+                                and target==qualified_main_sha
+                                and number==len(events)
+                                and approved_index<len(ALLOWED_SOURCE_SUCCESSORS))
             check(payload["schema"]=="forge.f139.source-transition.v1"
                   and payload["from_source_sha"]==current_source
                   and payload["prior_event_head_sha256"]==prior
-                  and target in ALLOWED_SOURCE_SUCCESSORS
-                  and ALLOWED_SOURCE_SUCCESSORS.index(target)>approved_index
+                  and (static_approved or live_main_approved)
                   and type(payload["verified_historical_tasks"]) is int
                   and payload["verified_historical_tasks"]==4
                   and type(payload["new_dispatches"]) is int
@@ -228,7 +244,8 @@ def verify_chain(events, expected_head: str):
                   and payload["scientific_first_use"] is False,
                   "SOURCE_SUFFIX_AUTHORITY_OR_ORDER_DRIFT")
             current_source=target
-            approved_index=ALLOWED_SOURCE_SUCCESSORS.index(target)
+            approved_index=(static_index if static_approved
+                            else len(ALLOWED_SOURCE_SUCCESSORS))
         prior=digest
     check(tuple(kinds)==REAL_23_EVENT_KINDS,
           "D2J_HISTORY_SHAPE_INVALID")
@@ -343,7 +360,8 @@ def verify_evidence(root: Path, row: dict, epoch: int, anchor: dict):
             "manifest_sha256":row["evidence_sha"]}
 
 
-def audit(dbpath: Path, expected_source: str, expected_head: str):
+def audit(dbpath: Path, expected_source: str, expected_head: str,
+          *, qualified_main_sha: str | None = None):
     check(isinstance(expected_source,str) and SHA40.fullmatch(expected_source),
           "EXPECTED_SOURCE_INVALID")
     check(isinstance(expected_head,str) and SHA64.fullmatch(expected_head),
@@ -364,7 +382,8 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
                   and meta["source_sha"]==expected_source,
                   "SEALED_METADATA_NOT_MATCHED")
             events=connection.execute("SELECT * FROM events ORDER BY seq").fetchall()
-            terminals,observed_head,derived_source=verify_chain(events,expected_head)
+            terminals,observed_head,derived_source=verify_chain(
+                events,expected_head,qualified_main_sha=qualified_main_sha)
             check(meta["head_seq"]==len(events)
                   and meta["head_hash"]==observed_head
                   and meta["source_sha"]==(derived_source if len(events)>23 else expected_source),
@@ -395,7 +414,12 @@ def audit(dbpath: Path, expected_source: str, expected_head: str):
             "d2j_admission_manifest_sha256":admitted_manifest,
             "d2j_task_bindings_verified":2,
             "original_database_writes":0,"controller_actions":0,
-            "scientific_first_use":False,"receipts":reports}
+            "scientific_first_use":False,
+            "qualified_protected_main_sha":qualified_main_sha,
+            "live_main_source_suffix_verified":bool(
+                qualified_main_sha and derived_source==qualified_main_sha
+                and len(events)>23),
+            "receipts":reports}
 
 
 def main():
@@ -403,9 +427,17 @@ def main():
     parser.add_argument("--db",required=True,type=Path)
     parser.add_argument("--expected-source-sha",required=True)
     parser.add_argument("--sealed-event-head-sha256",required=True)
+    parser.add_argument("--qualified-protected-main-sha")
     args=parser.parse_args()
     check(os.name=="nt","NATIVE_WINDOWS_RUNNER_REQUIRED")
-    result=audit(args.db,args.expected_source_sha,args.sealed_event_head_sha256)
+    if args.qualified_protected_main_sha is not None:
+        # Source only. GitHub checks branch protection and exact HEAD in the
+        # owner profile. This does NOT sign historical custody or permit writes.
+        from f139.local_controller import GitHub
+        check(GitHub().protected_main()==args.qualified_protected_main_sha,
+              "LIVE_PROTECTED_MAIN_NOT_MATCHED")
+    result=audit(args.db,args.expected_source_sha,args.sealed_event_head_sha256,
+                 qualified_main_sha=args.qualified_protected_main_sha)
     print(json.dumps(result,sort_keys=True,separators=(",",":")))
 
 
