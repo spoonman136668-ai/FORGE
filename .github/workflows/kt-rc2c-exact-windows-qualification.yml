@@ -151,36 +151,129 @@ jobs:
           print("KTERM_RC2E_CANDIDATE_FOCUSED="+("PASS" if good else "FAIL_NOT_WAIVED"))
           if not good:sys.exit(2)
           PY
-      - name: One complete original Windows regression
+      - name: One complete original Windows regression with bounded failure identity
         shell: bash
         working-directory: kterminal-private
         run: |
           set -euo pipefail
           set +e
-          go test -json -count=1 -p=1 -parallel=1 -timeout=38m ./... > "$RUNNER_TEMP/rc2c-full.jsonl" 2> "$RUNNER_TEMP/rc2c-full-stderr.txt"
+          go test -json -count=1 -p=1 -parallel=1 -timeout=38m ./... > "$RUNNER_TEMP/rc2g-full.jsonl" 2> "$RUNNER_TEMP/rc2g-full-stderr.txt"
           rc=$?
           set -e
-          export KTERM_RC2C_EXIT="$rc"
+          export RC2G_FULL_GO_EXIT="$rc"
           python -B - <<'PY'
-          import json,os,pathlib,sys
-          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"rc2c-full.jsonl"
-          passed=failed=errors=0; packages=set(); failures=set()
+          import json,os,pathlib,re,sys
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          p=root/"rc2g-full.jsonl"
+          passed=failed=errors=0
+          pkg_ok=set()
+          pkg_bad=set()
+          all_fail=[]
+          source_locations=set()
+          allow_test=re.compile(r'^Test[A-Za-z0-9_./#-]{0,240}$')
+          allow_package=re.compile(r'^k-terminal(?:/[A-Za-z0-9_/-]+)?$')
+          location_re=re.compile(r'([A-Za-z0-9_-]+_test[.]go):([0-9]+):')
           for line in p.open(encoding="utf-8",errors="replace"):
-              try:e=json.loads(line)
+              try:x=json.loads(line)
               except ValueError:errors+=1;continue
-              if e.get("Action")=="pass" and e.get("Test"):passed+=1
-              if e.get("Action")=="fail":
-                  if e.get("Test"):failed+=1
-                  failures.add(e.get("Package","unknown"))
-              if e.get("Action")=="pass" and not e.get("Test"):packages.add(e.get("Package","unknown"))
-          good=int(os.environ["KTERM_RC2C_EXIT"])==0 and failed==0 and errors==0 and not failures
-          print("KTERM_RC2C_FULL_PASS_NODES="+str(passed))
-          print("KTERM_RC2C_FULL_FAILED_NODES="+str(failed))
-          print("KTERM_RC2C_FULL_PASS_PACKAGES="+str(len(packages)))
-          print("KTERM_RC2C_FULL_FAILED_PACKAGES="+str(len(failures)))
-          print("KTERM_RC2C_FULL_WINDOWS_REGRESSION="+("PASS" if good else "FAIL_NOT_WAIVED"))
-          if not good:sys.exit(2)
+              action,name,pkg=x.get("Action"),x.get("Test"),x.get("Package","")
+              if action=="pass" and name:passed+=1
+              if action=="pass" and not name and allow_package.fullmatch(pkg):pkg_ok.add(pkg)
+              if action=="fail":
+                  if name:failed+=1
+                  if allow_package.fullmatch(pkg):pkg_bad.add(pkg)
+                  if name and allow_package.fullmatch(pkg) and allow_test.fullmatch(name):
+                      all_fail.append((pkg,name))
+              if action=="output" and pkg in pkg_bad:
+                  for match in location_re.finditer(x.get("Output","")):
+                      source_locations.add(match.group(1)+":"+match.group(2))
+          # Test parents also fail when a child fails. Attribute only the
+          # deepest failing child in a package to avoid repeated follow-on runs.
+          leaves=[(pkg,name) for pkg,name in sorted(set(all_fail))
+                  if not any(p2==pkg and n2.startswith(name+"/") for p2,n2 in all_fail)]
+          original_candidate_exits=int(os.environ["RC2G_FULL_GO_EXIT"])
+          report={
+              "schema":"kterminal.rc2g.original-windows-failure-identity.v1",
+              "candidate_sha":"b8c2052d530cdff93462dfccc21b28f3824e5531",
+              "predecessor_sha":"eb5d225ae73b698a59c68d840daf1ec678e1a0ec",
+              "candidate_go_exit":original_candidate_exits,
+              "passed_test_nodes":passed,
+              "failed_test_nodes":failed,
+              "passed_packages":len(pkg_ok),
+              "failed_packages":sorted(pkg_bad),
+              "failed_leaf_tests":[{"package":pkg,"test":name} for pkg,name in leaves[:12]],
+              "source_test_locations":sorted(source_locations)[:25],
+              "json_errors":errors,
+              "provenance":"exact-source hosted Windows go test count=1",
+              "complete_regression_pass":original_candidate_exits==0 and failed==0 and not pkg_bad and errors==0,
+          }
+          dest=root/"rc2g-redacted-report.json"
+          dest.write_text(json.dumps(report,sort_keys=True,indent=2),encoding="utf-8")
+          print("KTERM_RC2G_PASS_NODES="+str(passed))
+          print("KTERM_RC2G_FAILED_NODES="+str(failed))
+          print("KTERM_RC2G_FAILED_PACKAGES="+str(len(pkg_bad)))
+          for pkg in sorted(pkg_bad): print("KTERM_RC2G_FAIL_PACKAGE="+pkg)
+          for pkg,name in leaves[:12]:print("KTERM_RC2G_FAIL_TEST="+pkg+":"+name)
+          print("KTERM_RC2G_FULL_WINDOWS="+("PASS" if report["complete_regression_pass"] else "FAIL_NOT_WAIVED"))
+          if not report["complete_regression_pass"]:sys.exit(2)
           PY
+      - name: Compare discovered failures against exact original predecessor
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import json,os,pathlib,re,subprocess,sys
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])
+          reportfile=root/"rc2g-redacted-report.json"
+          if not reportfile.is_file():
+              print("KTERM_RC2G_PREDECESSOR=NOT_CHECKED_NO_REPORT")
+              sys.exit(2)
+          report=json.loads(reportfile.read_text(encoding="utf-8"))
+          cases=report.get("failed_leaf_tests",[])
+          if not cases:
+              print("KTERM_RC2G_PREDECESSOR=NOT_CHECKED_NO_IDENTIFIED_TEST")
+              sys.exit(2)
+          cwd=pathlib.Path(os.getcwd())/"kterminal-original-baseline"
+          done=[]
+          for index,case in enumerate(cases[:4]):
+              pkg,name=case["package"],case["test"]
+              if not re.fullmatch(r'k-terminal(?:/[A-Za-z0-9_/-]+)?',pkg):sys.exit(2)
+              if not re.fullmatch(r'Test[A-Za-z0-9_./#-]{0,240}',name):sys.exit(2)
+              packagepath="./"+(pkg[len("k-terminal/"):] if pkg!="k-terminal" else "")
+              runpat="/".join("^"+re.escape(part)+"$" for part in name.split("/"))
+              cmd=["go","test","-json","-count=1","-p=1","-parallel=1","-timeout=9m","-run",runpat,packagepath]
+              out=root/("rc2g-predecessor-"+str(index)+".jsonl")
+              err=root/("rc2g-predecessor-"+str(index)+".stderr")
+              with out.open("wb") as stdout,err.open("wb") as stderr:
+                  try:
+                      proc=subprocess.run(cmd,cwd=cwd,stdout=stdout,stderr=stderr,timeout=620,check=False)
+                      rc=proc.returncode
+                  except subprocess.TimeoutExpired:rc=124
+              actions={"run":0,"pass":0,"fail":0}
+              for line in out.open(encoding="utf-8",errors="replace"):
+                  try:ev=json.loads(line)
+                  except ValueError:continue
+                  if ev.get("Test")==name and ev.get("Action") in actions:
+                      actions[ev["Action"]]+=1
+              comparison=("BASELINE_FAIL" if rc!=0 and actions["run"] else
+                          "BASELINE_PASS" if rc==0 and actions["pass"] else
+                          "INCONCLUSIVE")
+              done.append({"package":pkg,"test":name,"baseline_exit":rc,"baseline_result":comparison})
+              print("KTERM_RC2G_BASELINE_COMPARISON="+pkg+":"+name+":"+comparison)
+          report["predecessor_checks"]=done
+          reportfile.write_text(json.dumps(report,sort_keys=True,indent=2),encoding="utf-8")
+          # Classification does not waive the failed complete regression.
+          print("KTERM_RC2G_RELEASE_GATE=BLOCKED")
+          PY
+      - name: Retain only source-pinned redacted failure identity
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2g-redacted-${{ github.run_id }}
+          path: ${{ runner.temp }}/rc2g-redacted-report.json
+          retention-days: 30
+          if-no-files-found: warn
       - name: Original Windows Go build after passing full regression
         shell: bash
         working-directory: kterminal-private
