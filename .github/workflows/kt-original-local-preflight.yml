@@ -1,0 +1,118 @@
+name: K-Terminal original local startup preflight
+on:
+  push:
+    branches:
+      - diagnostics/kterminal-original-local-preflight-20261019
+    paths:
+      - .github/workflows/kt-original-local-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Isolated read-only original startup preflight
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB') {
+            throw 'KTERM_PREFLIGHT_WRONG_RUNNER'
+          }
+          Write-Host 'KTERM_LOCAL_RUNNER_IDENTITY=PASS'
+          # Use an existing owner profile, not the runner service account.
+          # Never print absolute user paths or enumerate private data files.
+          $candidates = @(Get-ChildItem -LiteralPath 'C:\Users' -Directory -ErrorAction Stop |
+            ForEach-Object { Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Container })
+          if ($candidates.Count -ne 1) {
+            Write-Host ('KTERM_ORIGINAL_INSTALL_MATCH_COUNT=' + $candidates.Count)
+            throw 'KTERM_ORIGINAL_INSTALL_NOT_UNIQUELY_VISIBLE_TO_RUNNER'
+          }
+          $root = $candidates[0]
+          Write-Host 'KTERM_ORIGINAL_INSTALL_VISIBLE=PASS'
+          $required = @(
+            'K-Terminal.exe','K-Terminal-Engine.exe','K-Terminal-Chart.exe',
+            'K-Terminal-Chart-History.exe','K-Terminal-Account-Lookup.exe',
+            'K-Terminal-Subminute-Chart.exe','K-Terminal-Intelligence.exe',
+            'K-Terminal-Notifications.exe','launch-kterminal.ps1',
+            'desktop-session.ps1','desktop-session-host.cs','desktop-preload.ps1',
+            'application-launch.ps1','dashboard-ui.ps1','ui-runtime-loader.ps1'
+          )
+          $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) })
+          if ($missing.Count -gt 0) {
+            Write-Host ('KTERM_MISSING_COMPONENT_NAMES=' + ($missing -join ','))
+            throw 'KTERM_ORIGINAL_COMPONENTS_MISSING'
+          }
+          Write-Host 'KTERM_EIGHT_EXES_AND_LAUNCH_SCRIPTS=PASS'
+          foreach ($name in @('launch-kterminal.ps1','desktop-session.ps1','desktop-preload.ps1','application-launch.ps1','dashboard-ui.ps1','ui-runtime-loader.ps1')) {
+            $tokens = $null
+            $parseErrors = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $name), [ref]$tokens, [ref]$parseErrors)
+            if (@($parseErrors).Count -gt 0) {
+              Write-Host ('KTERM_PS_PARSE_FAILED_FILE=' + $name)
+              Write-Host ('KTERM_PS_PARSE_ERROR_COUNT=' + @($parseErrors).Count)
+              throw 'KTERM_POWERSHELL_PARSE_FAILED'
+            }
+          }
+          Write-Host 'KTERM_LAUNCH_PS_PARSE=PASS'
+          # Never run application-launch.ps1, dashboard-ui.ps1, the executable,
+          # a broker worker, updater or any trading path.
+          $runspace = $null
+          $pipeline = $null
+          $prior = [Runspace]::DefaultRunspace
+          $stage = 'ui-runtime'
+          try {
+            . (Join-Path $root 'ui-runtime-loader.ps1')
+            Import-KTerminalUIRuntime
+            Write-Host 'KTERM_UI_RUNTIME_IMPORT=PASS'
+            $stage = 'session-host'
+            if (-not ('KTerminal.Launch.SessionHost' -as [type])) {
+              Add-Type -Path (Join-Path $root 'desktop-session-host.cs') -ReferencedAssemblies ([Management.Automation.Host.PSHost].Assembly.Location)
+            }
+            Write-Host 'KTERM_SESSION_HOST_COMPILE=PASS'
+            $stage = 'desktop-preload'
+            $stageHost = [KTerminal.Launch.SessionHost]::new($Host)
+            $runspace = [RunspaceFactory]::CreateRunspace($stageHost)
+            $runspace.ThreadOptions = 'UseCurrentThread'
+            $runspace.ApartmentState = 'STA'
+            $runspace.Open()
+            $pipeline = [PowerShell]::Create()
+            $pipeline.Runspace = $runspace
+            $runspace.SessionStateProxy.SetVariable('desktopStagePath', (Join-Path $root 'desktop-preload.ps1'))
+            $null = $pipeline.AddScript('$ErrorActionPreference="Stop"; . $desktopStagePath', $false)
+            [Runspace]::DefaultRunspace = $runspace
+            $null = $pipeline.Invoke()
+            if ($pipeline.InvocationStateInfo.State -eq 'Failed') { throw $pipeline.InvocationStateInfo.Reason }
+            if ($pipeline.HadErrors) {
+              $streamErrors = @($pipeline.Streams.Error)
+              if ($streamErrors.Count -gt 0) { throw $streamErrors[0].Exception }
+              throw 'Preload pipeline reported an error'
+            }
+            Write-Host 'KTERM_DESKTOP_PRELOAD=PASS'
+            Write-Host 'KTERM_ORIGINAL_STARTUP_PREFLIGHT=PASS'
+            Write-Host 'KTERM_UI_LAUNCH_NOT_EXECUTED=TRUE'
+          }
+          catch {
+            $exception = $_.Exception
+            $detail = [string]$exception.Message
+            # Prevent sensitive local path or credential disclosure to public Actions logs.
+            $detail = $detail -replace '(?i)[a-z]:\\[^\s,;"]+', '[LOCAL_PATH]'
+            if ($detail -match '(?i)api.?key|private.?key|secret|token|password|organizations/|credential|BEGIN .+ PRIVATE KEY') {
+              $detail = '[REDACTED]'
+            }
+            if ($detail.Length -gt 240) { $detail = $detail.Substring(0, 240) }
+            Write-Host ('KTERM_FAILED_STAGE=' + $stage)
+            Write-Host ('KTERM_ERROR_TYPE=' + $exception.GetType().Name)
+            Write-Host ('KTERM_SANITIZED_ERROR=' + $detail)
+            throw 'KTERM_ORIGINAL_STARTUP_PREFLIGHT=FAIL'
+          }
+          finally {
+            [Runspace]::DefaultRunspace = $prior
+            if ($null -ne $pipeline) { $pipeline.Dispose() }
+            if ($null -ne $runspace) { $runspace.Dispose() }
+          }
