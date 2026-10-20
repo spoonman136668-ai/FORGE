@@ -1,0 +1,110 @@
+name: F124-DI sourcefree zero-oracle learned causal structural prior
+on:
+  push:
+    branches: [research/f124di-same-info-learned-prior-20261020]
+    paths: [.github/workflows/forge-f124di-zero-oracle.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f124di-sourcefree-fit-only-cv-prior-original-dev
+  cancel-in-progress: false
+jobs:
+  exact-frozen-development-preflight:
+    name: development-frozen-preflight (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify F124-DI was frozen before new development source and both original full peers unchanged
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'DI_EXACT_SOURCE_DRIFT' }
+          & git merge-base --is-ancestor 50af846944ae92c5db952b790223ab6a9287ad81 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DI_BEFORE_SOURCE_FREEZE_MISSING' }
+          & git merge-base --is-ancestor f5eb042a9a178583c3d7a7ffc50bb3e9ebf4e1bf HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'DI_AUTHENTIC_DH_ORIGINAL_PARENT_MISSING' }
+          $freeze=Get-Content -Raw research/north-star-transfer/f124di-frozen-no-extra-information-prior.json | ConvertFrom-Json
+          if ($freeze.schema -cne 'mass.f124di.frozen-no-extra-oracle-causal-prior-feasibility.v1' -or $freeze.same_information.extra_oracle_queries -ne 0 -or $freeze.same_information.meta_supervision_task_sequences -ne 0) { throw 'DI_ADDED_INFORMATION_INVALID' }
+          if (!$freeze.governance.sourcefree_dev_only -or $freeze.governance.external_firstuse -ne 0 -or $freeze.governance.science_accepted -or $freeze.governance.auto_merge -or $freeze.governance.new_controller) { throw 'DI_FIRSTUSE_GUARD_VIOLATION' }
+          foreach ($pair in @(@('research/north-star-transfer/f124de_sparse_crossbit_learner.py','3cdd48f963c27af9f479bea851186bf54932e247'),@('research/north-star-transfer/f124de_independent_full_anf.py','9fc7a6766893a06f721c18666c04edbd99b3291d'))) {
+            $actual=(& git rev-parse "HEAD:$($pair[0])").Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -cne $pair[1]) { throw "DI_QUALIFIED_STRONG_SOLVER_DRIFT:$($pair[0])" }
+          }
+          Write-Host 'F124DI_EXACT_SAME_INFORMATION_FREEZE_AND_FROZEN_CONTROLS=PASS'
+      - name: Verify sourcefree full-sequence learned CV, independent peer and no-oracle safeguards
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/north-star-transfer/test_f124di_zero_oracle_prior.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'DI_FIT_ONLY_CV_CAUSAL_PRIOR_MATH_FAIL' }
+          Write-Host 'F124DI_EQUAL_TRAINED_ZERO_EXTRA_ORACLE_FEASIBILITY=PASS'
+  sourcefree-development-OS:
+    name: original-sourcefree-development (${{ matrix.family }})
+    needs: exact-frozen-development-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [two_register_add_carry, two_register_rotate_and_add, non_arithmetic_bitwise_boolean, three_register_outside_model]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Measure 12 whole sourcefree development processes; no scientific or extra oracle queries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124di_os_development.py \
+            --family "${{ matrix.family }}" \
+            --out "$RUNNER_TEMP/f124di-dev"
+      - name: Preserve each original complete Linux CPU/RSS sourcefree development shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124di-sourcefree-dev-${{ matrix.family }}
+          path: ${{ runner.temp }}/f124di-dev/dev-*.json
+          retention-days: 90
+          if-no-files-found: error
+  independent-development-readonly:
+    name: independent-development-readonly
+    needs: sourcefree-development-OS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: f124di-sourcefree-dev-*
+          path: ${{ runner.temp }}/f124di-original-shards
+          merge-multiple: true
+      - name: Independent read-only original 48-process exact same FIT+CV source reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/north-star-transfer/f124di_readonly_dev_audit.py \
+            --shards "$RUNNER_TEMP/f124di-original-shards" \
+            --out "$RUNNER_TEMP/f124di-independent"
+      - name: Retain all 48 original development receipts and safe summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: f124di-original-48-dev-zero-oracle-full-OS
+          path: ${{ runner.temp }}/f124di-independent/
+          retention-days: 90
+          if-no-files-found: error
