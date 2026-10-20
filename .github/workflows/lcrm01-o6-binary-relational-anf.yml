@@ -1,0 +1,71 @@
+name: LCRM O6 source-free binary causal ANF and binding identifiability
+on:
+  push:
+    branches: [research/lcrm01-o6-binary-relational-operator-20261020]
+    paths: ['.github/workflows/lcrm01-o6-binary-relational-anf.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-o6-binary-anf
+  cancel-in-progress: false
+jobs:
+  exact-binary-algebra:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Verify frozen O6 chronology and source identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) {throw 'O6_HEAD_DRIFT'}
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-o6-binary-anf-precode.json'='00f2c054b0bf920cbaa8515f7714045ba65abb22'
+            'research/lcrm01/o6_binary_relational_anf.go'='4dcc0e07fa3e71b2661331ba9da489cb9568d522'
+            'research/lcrm01/o6_binary_relational_anf_test.go'='2e8099cf1db2c94e206ade8db242dc48e5559c00'
+            'research/lcrm01/o5_predictive_state_bound.go'='af3f632b5e403fb08a34d8346b87a9466104795a'
+            'research/lcrm01/originals/20261020-lcrm01-o5-sourcefree-predictive-memory-lower-bound.json'='7a27a1c9282280bb1d37c962045a08771f248d3d'
+          }
+          foreach($p in $blobs.Keys){
+            if((git hash-object -- $p).Trim() -cne $blobs[$p]){throw "O6_EXACT_BLOB_DRIFT:$p"}
+          }
+          git merge-base --is-ancestor cf61a038bd707e2a4b0a684d10b539cd40f7e888 3b74f8a6e8d35d6e6287451fb5a5c5dce0adf4ed
+          if($LASTEXITCODE -ne 0){throw 'O6_INVALID_O5_PREDECESSOR'}
+          git merge-base --is-ancestor 3b74f8a6e8d35d6e6287451fb5a5c5dce0adf4ed 0d11be2947d5d2068edf21f2ba067344bedfa25e
+          if($LASTEXITCODE -ne 0){throw 'O6_MECHANISM_PRECEDES_FREEZE'}
+          git merge-base --is-ancestor 0d11be2947d5d2068edf21f2ba067344bedfa25e b372a33ec8e0123a20649ac2d7a15a7952e656f7
+          if($LASTEXITCODE -ne 0){throw 'O6_TESTS_PRECEDE_SOURCE'}
+          git merge-base --is-ancestor b372a33ec8e0123a20649ac2d7a15a7952e656f7 HEAD
+          if($LASTEXITCODE -ne 0){throw 'O6_TESTS_NOT_INCLUDED'}
+          Write-Output 'O6_SOURCE_FREE_PRECODE_CHRONOLOGY_AND_BLOBS=PASS'
+      - name: Exhaustive out-of-vocabulary causal induction and package regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test ./research/lcrm01 -run '^TestO6' -count=1 -v > o6-sourcefree-algebra.log
+          if($LASTEXITCODE -ne 0){Get-Content o6-sourcefree-algebra.log;throw 'O6_FOCUSED_PROPERTY_FAILED'}
+          Get-Content o6-sourcefree-algebra.log
+          go vet ./research/lcrm01
+          if($LASTEXITCODE -ne 0){throw 'O6_VET_FAILED'}
+          go test ./research/lcrm01 -count=1
+          if($LASTEXITCODE -ne 0){throw 'O6_PACKAGE_REGRESSION'}
+          Write-Output 'O6_SOURCE_FREE_ORIGINAL_CASES_CONSUMED=0'
+          Write-Output 'O6_SCIENTIFIC_ADMISSION=FALSE'
+          Write-Output 'O6_OPTIMIZER_ADMISSION=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lcrm-o6-sourcefree-binary-${{ matrix.os }}
+          path: o6-sourcefree-algebra.log
+          if-no-files-found: ignore
+          retention-days: 90
