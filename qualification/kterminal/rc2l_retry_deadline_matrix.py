@@ -55,8 +55,9 @@ def fixture_environment(workspace):
     return env
 
 def pressure_program():
-    return ('import hashlib,time; d=b"KTERM_RC2L_LOAD" * 1024; stop=time.monotonic()+95; '
-            'exec("while time.monotonic()<stop:\n d=hashlib.sha256(d).digest()*1024")')
+    return ('import hashlib,time; d=b"KTERM_RC2L_LOAD" * 1024; '
+            'stop=time.monotonic()+95; '
+            'exec("while time.monotonic()<stop: d=hashlib.sha256(d).digest()*1024")')
 
 def run_case(directory,label,condition,regex,count,pressure,workspace):
     env=fixture_environment(workspace)
