@@ -17,7 +17,11 @@ function InvokeChecked([string]$program,[string[]]$args){
   $prior=$ErrorActionPreference
   try{$ErrorActionPreference='Continue';$output=@(& $program @args 2>&1);$code=$LASTEXITCODE}
   finally{$ErrorActionPreference=$prior}
-  Need ($code -eq 0) ('NATIVE_'+$program+'_FAILED_'+$code)
+  if($code -ne 0){
+    $detail=(@($output|ForEach-Object{[string]$_}) -join ' ')
+    if($detail.Length -gt 300){$detail=$detail.Substring(0,300)}
+    throw ('F139_D2O_BLOCKED_NATIVE_'+$program+'_FAILED_'+$code+'_'+$detail)
+  }
   return (@($output|ForEach-Object{[string]$_}) -join [Environment]::NewLine).Trim()
 }
 function API([string]$route){(InvokeChecked 'gh' @('api','-X','GET',$route))|ConvertFrom-Json}
