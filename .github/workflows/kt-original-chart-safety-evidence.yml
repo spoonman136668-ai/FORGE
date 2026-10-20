@@ -1,0 +1,57 @@
+name: K-Terminal original chart and session safety evidence
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-original-chart-safety-evidence.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Read current chart readiness and whether native engine is running
+        shell: powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){throw 'WRONG_RUNNER'}
+          $roots=@(Get-ChildItem -LiteralPath 'C:\Users' -Directory | ForEach-Object {Join-Path $_.FullName 'Downloads\Personal.v1.1.5.-.BTC\Personal'} | Where-Object {Test-Path -LiteralPath $_ -PathType Container})
+          if($roots.Count -ne 1){throw 'ORIGINAL_ROOT_NOT_UNIQUE'}
+          $root=$roots[0]
+          $exes=@(Get-Process -Name 'K-Terminal-Engine' -ErrorAction SilentlyContinue)
+          Write-Host ('KTERM_NATIVE_ENGINE_PROCESS_COUNT=' + $exes.Count)
+          $path=Join-Path $root 'data\chart\chart-current.json'
+          if(-not(Test-Path -LiteralPath $path -PathType Leaf)){Write-Host 'KTERM_ORIGINAL_LIVE_CHART=ABSENT';exit 0}
+          $fi=[IO.FileInfo]::new($path)
+          Write-Host ('KTERM_ORIGINAL_CHART_SIZE_BYTES=' + $fi.Length)
+          Write-Host ('KTERM_ORIGINAL_CHART_AGE_MIN=' + [int][Math]::Max(0,([DateTime]::UtcNow-$fi.LastWriteTimeUtc).TotalMinutes))
+          Write-Host ('KTERM_ORIGINAL_CHART_AFTER_DLL_REPAIR=' + ($fi.LastWriteTimeUtc -ge [datetime]::Parse('2026-10-20T01:42:00Z').ToUniversalTime()))
+          if($fi.Length -lt 2 -or $fi.Length -gt 10000000){Write-Host 'KTERM_ORIGINAL_CHART_PARSE=SKIPPED_SIZE';exit 0}
+          try {
+            $snap=Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -ErrorAction Stop
+            $mode=[string]$snap.mode
+            if($mode -in @('LIVE','PAPER','CHART')){Write-Host ('KTERM_ORIGINAL_CHART_MODE=' + $mode)}else{Write-Host 'KTERM_ORIGINAL_CHART_MODE=OTHER'}
+            $status=[string]$snap.status
+            if($status -in @('HISTORY READY','HISTORY PARTIAL','LOADING HISTORY','HISTORY ERROR','HISTORY RETRY','LIVE','CONNECTED','DISCONNECTED')){
+              Write-Host ('KTERM_ORIGINAL_CHART_STATUS=' + $status)
+            } else { Write-Host 'KTERM_ORIGINAL_CHART_STATUS=OTHER' }
+            if($null -ne $snap.PSObject.Properties['connected']){Write-Host ('KTERM_ORIGINAL_CHART_CONNECTED=' + ([bool]$snap.connected))}
+            if($null -ne $snap.PSObject.Properties['history_request_complete']){Write-Host ('KTERM_HISTORY_REQUEST_COMPLETE=' + ([bool]$snap.history_request_complete))}
+            $candles=0L
+            if([long]::TryParse([string]$snap.candle_count,[ref]$candles) -and $candles -ge 0 -and $candles -le 120000){Write-Host ('KTERM_CHART_CANDLE_COUNT=' + $candles)}
+            if($null -ne $snap.PSObject.Properties['timing'] -and $null -ne $snap.timing){
+              foreach($field in @('history_fetch_ms','aggregation_ms','indicators_ms','first_snapshot_ms','live_attach_ms')){
+                $p=$snap.timing.PSObject.Properties[$field]
+                $val=0L
+                if($null -ne $p -and [long]::TryParse([string]$p.Value,[ref]$val) -and $val -ge 0 -and $val -le 10000000){
+                  Write-Host ('KTERM_CHART_' + $field.ToUpperInvariant() + '=' + $val)
+                }
+              }
+            }
+            Write-Host 'KTERM_ORIGINAL_CHART_SNAPSHOT_PARSE=PASS'
+          } catch {
+            Write-Host ('KTERM_ORIGINAL_CHART_SNAPSHOT_PARSE_ERROR=' + $_.Exception.GetType().Name)
+          }
+          Write-Host 'KTERM_NO_PROGRAM_STARTED_OR_DATA_CHANGED=TRUE'
