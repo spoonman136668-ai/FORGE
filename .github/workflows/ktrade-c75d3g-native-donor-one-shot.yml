@@ -1,0 +1,125 @@
+name: R25-C75D3G authentic donor-native VWAP one-shot (isolated)
+on:
+  push:
+    branches: [qualification/ktrade-c75d3g-native-donor-readonly-20261021]
+    paths: [.github/workflows/ktrade-c75d3g-native-donor-one-shot.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-c75d3g-isolated-one-shot
+  cancel-in-progress: false
+jobs:
+  original-donor-native:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    env:
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: 'Never'
+      GIT_CONFIG_NOSYSTEM: '1'
+      GOWORK: 'off'
+      GOTOOLCHAIN: 'local'
+      GOMAXPROCS: '2'
+    steps:
+      - name: Execute frozen original donor native acceptance with zero broker/controller privileges
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-c75d3g-native-donor-readonly-20261021' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_CI_PROMOTION_ALLOWED -cne '0'){
+            throw 'D3G_RUNNER_OR_AUTHORITY_NOT_ISOLATED'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'D3G_BROKER_CREDENTIAL_PRESENT_ABORT'}
+          }
+          if(!(Get-Command git -ErrorAction SilentlyContinue) -or
+             !(Get-Command go -ErrorAction SilentlyContinue)){
+            throw 'D3G_NATIVE_TOOLCHAIN_UNAVAILABLE'
+          }
+          $donorSha='520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc'
+          $donorTree='b74808f35e798b1b72e8fb31a49a5f4664ca87b5'
+          $candidateSha='c2d0ac91d132db4255d8c09dde9cdd290a4ec2b0'
+          $root=Join-Path $env:RUNNER_TEMP ('d3g-native-'+[guid]::NewGuid().ToString('N'))
+          $candidate=Join-Path $root 'ktrade'
+          $donor=Join-Path $root 'original-ckb'
+          $mods=Join-Path $root 'module-seed'
+          $privateLog=Join-Path $root 'native-private.log'
+          $cloneLog=Join-Path $root 'private-git.log'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            Write-Host 'D3G_EXISTING_ISOLATED_WINDOWS_RUNNER=PASS'
+            # Credential selection is entirely via pre-existing, authorized
+            # machine Git custody. Never inject runner-research GitHub token,
+            # request personal access, echo credentials, or clone CKB-plane.
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ktrade.git $candidate *> $cloneLog
+            if($LASTEXITCODE -ne 0){throw 'D3G_EXISTING_MACHINE_KTRADE_READ_UNAVAILABLE'}
+            & git -C $candidate checkout --quiet --detach $candidateSha *> $cloneLog
+            if($LASTEXITCODE -ne 0){throw 'D3G_FROZEN_KTRADE_SHA_UNAVAILABLE'}
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ckb.git $donor *> $cloneLog
+            if($LASTEXITCODE -ne 0){throw 'D3G_EXISTING_MACHINE_CKB_READ_UNAVAILABLE'}
+            & git -C $donor checkout --quiet --detach $donorSha *> $cloneLog
+            if($LASTEXITCODE -ne 0){throw 'D3G_FROZEN_CKB_SHA_UNAVAILABLE'}
+            $currentSource=(& git -C $candidate rev-parse HEAD).Trim()
+            $currentDonor=(& git -C $donor rev-parse HEAD).Trim()
+            $currentTree=(& git -C $donor rev-parse 'HEAD^{tree}').Trim()
+            if($currentSource -cne $candidateSha -or
+               $currentDonor -cne $donorSha -or $currentTree -cne $donorTree){
+              throw 'D3G_EXACT_REVISIONS_OR_TREE_CHANGED'
+            }
+            Write-Host 'D3G_AUTHENTIC_ORIGINAL_CKB_AND_KTRADE_GIT_PIN=PASS'
+            # Public Go modules only, downloaded into isolated scratch, not
+            # into the owner's projects or FORGE's resident module caches.
+            New-Item -ItemType Directory -Path $mods -ErrorAction Stop | Out-Null
+            Copy-Item -LiteralPath (Join-Path $donor 'go.mod') -Destination $mods
+            Copy-Item -LiteralPath (Join-Path $donor 'go.sum') -Destination $mods
+            $env:GOMODCACHE=Join-Path $root 'go-module-cache'
+            $env:GOPROXY='https://proxy.golang.org'
+            $env:GOSUMDB='sum.golang.org'
+            Push-Location $mods
+            try{
+              & go mod download *> $privateLog
+              if($LASTEXITCODE -ne 0){throw 'D3G_PINNED_PUBLIC_GO_DEPENDENCIES_UNAVAILABLE'}
+            }finally{Pop-Location}
+            Write-Host 'D3G_PREPARED_ISOLATED_PUBLIC_GO_MODULE_CACHE=PASS'
+            $script=Join-Path $candidate 'scripts/r25-c75d3g-original-native-qualify.ps1'
+            if(!(Test-Path -LiteralPath $script -PathType Leaf)){throw 'D3G_FROZEN_ACCEPTANCE_SCRIPT_MISSING'}
+            & pwsh -NoLogo -NoProfile -NonInteractive -File $script -CandidateCheckout $candidate -DonorCheckout $donor *> $privateLog
+            if($LASTEXITCODE -ne 0){
+              throw 'D3G_AUTHENTIC_ORIGINAL_NATIVE_QUALIFICATION_FAILED'
+            }
+            $lines=@(Get-Content -LiteralPath $privateLog -Encoding utf8)
+            $required=@(
+              'D3G_REAL_DONOR_NATIVE_TESTS=PASS',
+              'D3G_REAL_DONOR_VET=PASS',
+              'D3G_REAL_DONOR_SIDECAR_BUILD=PASS',
+              'D3G_ORIGINAL_DONOR_READONLY=PASS',
+              'D3G_CURRENT_NATIVE_VWAP_OBSERVER=QUALIFIED_OFFLINE',
+              'D3G_NATIVE_BUY_SELL_DECISION=NOT_IMPLEMENTED',
+              'D3G_CURRENT_PAPER_TRADING_AUTHORITY=FALSE',
+              'D3G_NO_BROKER_NO_PROMOTION=TRUE'
+            )
+            foreach($item in $required){
+              if($lines -cnotcontains $item){throw 'D3G_REAL_NATIVE_RECEIPT_INCOMPLETE'}
+            }
+            $shaLines=@($lines | Where-Object {$_ -cmatch '^D3G_NATIVE_SIDECAR_SHA256=[0-9a-f]{64}$'})
+            if($shaLines.Count -ne 1){throw 'D3G_NATIVE_SIDECAR_SHA256_MISSING_OR_DUPLICATE'}
+            foreach($item in $required){Write-Host $item}
+            Write-Host $shaLines[0]
+            Write-Host 'D3G_AUTHENTIC_DONOR_NATIVE_ONE_SHOT=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $root){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host 'D3G_NO_ARTIFACTS_OR_DONOR_SOURCE_EXPORTED=TRUE'
+          }
