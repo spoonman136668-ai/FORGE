@@ -117,7 +117,7 @@ class NCI04SignedNativeTests(unittest.TestCase):
 
     def test_fails_closed_on_old_D2K_and_historical_ticket(self):
         inp, body, sig = fixture()
-        for name in ("f139-d2k-i689-" + MAIN[:12] + "-deadbeef",
+        for name in ("f139-d2k-i689-" + MAIN[:12] + "-" + BODY[:8],
                      "f139-d2j-wingless-" + MAIN[:12]):
             with self.subTest(name=name):
                 changed = dict(inp, ticket=name)
