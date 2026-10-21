@@ -1,0 +1,123 @@
+name: RC2-U1K native recovery first-failure site
+on:
+  push:
+    branches: [qualification/kterminal-rc2-u1k-failure-site-20261021]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify exact FORGE workflow, hosted runner and PAPER custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-rc2-u1k-failure-site-20261021' -or
+              $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER') { throw 'RC2_U1K_ISOLATION_FAIL' }
+          $diff=@(git diff --name-only 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD)
+          if (($diff -join '|') -cne '.github/workflows/forge-kterminal-rc2-u1k.yml') { throw 'RC2_U1K_FORGE_SOURCE_DRIFT' }
+          foreach ($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+                           'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) { throw 'RC2_U1K_BROKER_ENV_BLOCKED' }
+          }
+          Write-Host 'RC2_U1K_ISOLATION=PASS'
+      - name: Checkout original frozen Graphify-only control
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: bfb11fca02a970c869642b00bc9096ef5f2ed67a
+          path: kterm-control
+          persist-credentials: false
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Original control single-root first failure site only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C kterm-control rev-parse HEAD)" = bfb11fca02a970c869642b00bc9096ef5f2ed67a
+          go version | grep -q 'go1.26.5 windows/amd64'
+          export K_TERMINAL_TEST_WORKSPACE="$RUNNER_TEMP/rc2u1k/workspace"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$RUNNER_TEMP/rc2u1k/auth"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$RUNNER_TEMP/rc2u1k/tail"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$RUNNER_TEMP/rc2u1k/private"
+          mkdir -p "$K_TERMINAL_TEST_WORKSPACE" "$KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT" "$KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT" "$KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT"
+          pushd kterm-control > /dev/null
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=5m '-run=^TestNativeRecoveryFinancialReceiptAfterVerifiedRefreshProgress$' ./pkg > "$RUNNER_TEMP/rc2u1k-private.jsonl" 2> "$RUNNER_TEMP/rc2u1k-private.stderr"
+          rc=$?
+          set -e
+          popd > /dev/null
+          export RC2_U1K_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,re,sys
+          root='TestNativeRecoveryFinancialReceiptAfterVerifiedRefreshProgress'
+          temp=pathlib.Path(os.environ['RUNNER_TEMP'])
+          p=temp/'rc2u1k-private.jsonl'
+          e=temp/'rc2u1k-private.stderr'
+          if not p.exists() or p.stat().st_size>70000000 or not e.exists() or e.stat().st_size>15000000:
+              print('RC2_U1K_LOG_BOUNDS=FAIL');sys.exit(2)
+          lines=p.read_text(encoding='utf-8',errors='replace').splitlines()
+          locations=[]
+          terminal=[]
+          classifications=set()
+          json_bad=0
+          for line in lines:
+              try: obj=json.loads(line)
+              except (ValueError,TypeError):json_bad+=1;continue
+              test=obj.get('Test','')
+              action=obj.get('Action')
+              if (test==root or isinstance(test,str) and test.startswith(root+'/')) and action in ('pass','fail','skip'):
+                  terminal.append((test,action))
+              if action!='output':continue
+              out=obj.get('Output','')
+              if not isinstance(out,str):continue
+              for m in re.finditer(r'([A-Za-z0-9_.-]+_test\.go):([1-9][0-9]{0,4}):',out):
+                  filename,num=m.groups()
+                  if len(filename)<=100 and filename!='none_test.go' and (filename,num) not in locations:
+                      locations.append((filename,num))
+              for needle,label in [
+                ('panic: test timed out','TIMEOUT'),
+                ('test timed out after','TIMEOUT'),
+                ('explicit parent-owned absolute retention root required','MISSING_AUTH_RETENTION'),
+                ('diagnostic retention must be explicit existing absolute isolated root','MISSING_OTHER_RETENTION'),
+                ('original verified worker progress premise missing','REFRESH_PREMISE'),
+                ('actual cold financial replay after verified worker progress','COLD_REPLAY'),
+                ('original native premise blocked beyond its documented cold cutoff','ORIGINAL_READY_BLOCKER'),
+                ('required original check failed','ORIGINAL_CHECK'),
+                ('original scoped historical producer did not qualify','HISTORY_PRODUCER'),
+                ('fresh actual native startup unavailable','COLD_STARTUP')]:
+                  if needle in out:classifications.add(label)
+          stderr=e.read_text(encoding='utf-8',errors='replace')
+          if 'panic: test timed out' in stderr:classifications.add('TIMEOUT')
+          if json_bad:
+              print('RC2_U1K_JSON_MALFORMED='+str(json_bad));sys.exit(2)
+          print('RC2_U1K_ORIGINAL_GO_EXIT='+os.environ['RC2_U1K_EXIT'])
+          print('RC2_U1K_ROOT_END_STATE='+('FAIL' if any(x[0]==root and x[1]=='fail' for x in terminal) else 'PASS' if any(x[0]==root and x[1]=='pass' for x in terminal) else 'INCOMPLETE'))
+          print('RC2_U1K_FAILURE_CLASSES='+(','.join(sorted(classifications)) if classifications else 'UNCLASSIFIED'))
+          print('RC2_U1K_FIRST_SAFE_SOURCE_SITE='+(':'.join(locations[0]) if locations else 'NOT_REPORTED'))
+          print('RC2_U1K_SAFE_SOURCE_SITES_COUNT='+str(len(locations)))
+          print('RC2_U1K_FULL_REGRESSION=NOT_RERUN')
+          print('RC2_U1K_RELEASE_ACCEPTANCE=BLOCKED')
+          PY
