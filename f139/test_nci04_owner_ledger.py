@@ -124,5 +124,87 @@ class LedgerTests(unittest.TestCase):
             admit_native_issue(self.db, self.native, "2026-10-21T10:00:00Z")
 
 
+    def test_native_signed_dispatch_provider_custody_restart_no_replay(self):
+        """Isolated fake provider, genuine original SQLite state machine."""
+        from f139.nci04_owner_issue import make_signed_dispatch_inputs
+        from f139.nci04_signed_native import admit_native_intent, receipt_from_report
+        from f139.nci04_native_contract import canonical, digest
+        from test_nci04_signed_native import report as produce_report
+        from test_nci04_provider_receipt import zipper
+        issue = self.native
+        runid = 39510000000
+
+        class FakeNativeProvider:
+            dispatches = []
+            archives = {}
+            def protected_main(self):return MAIN
+            def d2k_eligible_issues(self,source):return []
+            def native_eligible_issues(self,source):return [issue]
+            def dispatch_native(self,fields,record):
+                self.dispatches.append((fields,record))
+                self.auth = fields
+            def candidates(self,ticket,started_at):
+                return {"id":runid,"ticket":ticket}
+            def run_proof(self,run,ticket,source,started_at):
+                self.archives = {}
+                artifacts = []
+                for oslabel in ("ubuntu-latest","windows-latest"):
+                    inp = {
+                        "key":HMAC, "ticket":issue.ticket,"lane":issue.lane,
+                        "source_sha":MAIN,"epoch":"1",
+                        "signature":self.auth["signature"],
+                        "repository":"spoonman136668-ai/FORGE",
+                        "ref":"refs/heads/main","event":"workflow_dispatch",
+                        "head_sha":MAIN,"run_attempt":"1",
+                        "run_id":str(runid),"os":oslabel,
+                    }
+                    accepted=admit_native_intent(
+                        inp,issue.intent_raw,
+                        native_signature=self.auth["native_signature"],
+                        issue_number=str(issue.number), issue_id=str(issue.issue_id),
+                        issue_body_sha256=issue.issue_body_sha256,
+                        authenticated_main_sha=MAIN,
+                        authenticated_target_commit=TARGET,
+                        authenticated_target_tree=TREE)
+                    report=produce_report(accepted)
+                    receipt=receipt_from_report(accepted,report)
+                    data=zipper(canonical(receipt),report)
+                    artid=runid+(1 if oslabel=="ubuntu-latest" else 2)
+                    self.archives[artid]=data
+                    artifacts.append({
+                        "id":artid,"name":"forge-f139-native-receipt-"+oslabel,
+                        "expired":False,
+                        "workflow_run":{"id":runid,"head_sha":MAIN},
+                        "digest":"sha256:"+digest(data),
+                        "size_in_bytes":len(data),
+                    })
+                return runid,artifacts
+            def artifact(self,artid):
+                return self.archives[artid]
+
+        gh=FakeNativeProvider()
+        started=run_once(self.db,gh,self.path,HMAC,
+                         now="2026-10-21T10:00:00Z",native_enabled=True)
+        self.assertEqual(started["disposition"],"DEVELOPMENT_DISPATCHED_ONCE")
+        self.assertEqual(len(gh.dispatches),1)
+        self.assertEqual(self.db.active()["stage"],"WAIT_PROVIDER")
+        self.db.close()
+        self.db=Database(self.path)
+        again=run_once(self.db,gh,self.path,HMAC,
+                       now="2026-10-21T10:01:00Z",native_enabled=True)
+        self.assertEqual(again["disposition"],"QUEUE_EMPTY_NO_SCIENCE")
+        self.assertEqual(len(gh.dispatches),1)
+        local=self.db.conn.execute(
+            "SELECT * FROM tasks WHERE ticket=?",(issue.ticket,)).fetchone()
+        self.assertEqual(local["stage"],"VERIFIED")
+        self.assertEqual(local["run_id"],runid)
+        evidence=list((self.root/"evidence"/issue.ticket).rglob("*.zip"))
+        self.assertEqual(len(evidence),2)
+        self.assertEqual(run_once(self.db,gh,self.path,HMAC,
+                          now="2026-10-21T10:02:00Z",native_enabled=True)["disposition"],
+                         "QUEUE_EMPTY_NO_SCIENCE")
+        self.assertEqual(len(gh.dispatches),1)
+
+
 if __name__ == "__main__":
     unittest.main()
