@@ -113,7 +113,12 @@ def parse_intent(raw: bytes, *, protected_main: str, target_commit: str,
                      *("lpt" + str(i) for i in range(1, 10))}
                     for part in path.split("/"))
             and path.startswith(prefixes) and path.endswith(suffix), "SOURCE_PATH_FORBIDDEN")
-    require(value["toolchain_identity"] in ("go1.25.0", "python3.11.11")
+    # Historical native ticket #696 is immutable and quarantined. Keep its
+    # exact original 3.11.11 toolchain identity parseable for original-owner
+    # event-chain verification; only a new source-bound ticket can select the
+    # portable 3.11 profile. Neither identity authorizes replay of #696.
+    require(value["toolchain_identity"] in
+            ("go1.25.0", "python3.11.11", "python3.11")
             and (value["toolchain_identity"].startswith("go") == (value["lane"] == "Wingless")),
             "TOOLCHAIN_NOT_QUALIFIED")
     require(value["worker_mode"] == "isolated-candidate-only"

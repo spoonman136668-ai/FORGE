@@ -25,7 +25,7 @@ def intent(lane="Wingless"):
         "dependency_sha256": "d" * 64,
         "qualification_harness_sha256": "e" * 64,
         "training_config_sha256": "f" * 64,
-        "toolchain_identity": "go1.25.0" if wing else "python3.11.11",
+        "toolchain_identity": "go1.25.0" if wing else "python3.11",
         "suite_identity_sha256": "1" * 64,
         "path": "cognition/native_state.go" if wing else "yggdrasil/native_state.py",
         "before_sha256": ZERO,
@@ -63,6 +63,17 @@ class NativeContractTests(unittest.TestCase):
                 self.assertEqual(candidate.materialize_bytes(b""), AFTER)
                 self.assertEqual(len(candidate.qualification_key), 64)
                 self.assertEqual(candidate.lane, lane)
+
+    def test_quarantined_original_toolchain_identity_retained(self):
+        # Historical issue #696 is immutable: newer source parsing must not
+        # invalidate the originally authenticated negative event-chain input.
+        old = intent("Yggdrasil")
+        old["toolchain_identity"] = "python3.11.11"
+        historic = self.parse(old)
+        current = self.parse(intent("Yggdrasil"))
+        self.assertNotEqual(historic.qualification_key, current.qualification_key)
+        self.assertEqual(historic.lane, "Yggdrasil")
+        self.assertEqual(current.lane, "Yggdrasil")
 
     def test_original_drift_fails_closed(self):
         with self.assertRaisesRegex(NativeContractError, "ORIGINAL_BYTES_DRIFT"):
