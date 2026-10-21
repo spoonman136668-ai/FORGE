@@ -25,7 +25,7 @@ def intent(lane="Wingless"):
         "dependency_sha256": "d" * 64,
         "qualification_harness_sha256": "e" * 64,
         "training_config_sha256": "f" * 64,
-        "toolchain_identity": "go1.25.0" if wing else "python3.11.11",
+        "toolchain_identity": "go1.25.0" if wing else "python3.11",
         "suite_identity_sha256": "1" * 64,
         "path": "cognition/native_state.go" if wing else "yggdrasil/native_state.py",
         "before_sha256": ZERO,
