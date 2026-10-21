@@ -1,0 +1,217 @@
+"""F139 NCI04-A6 native issue ledger, original SQLite authority only.
+
+All operations use the same Database transaction, task table, owner mutex,
+append-only SHA chain, START_RISK and provider reconciliation as F139 D2K.
+No table reset or additional controller/queue. Existing non-native records
+are unchanged. Production native admission is disabled until a separately
+qualified owner source transition and explicit native activation.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import re
+
+from f139.nci04_native_contract import digest, canonical, parse_intent
+from f139.nci04_owner_issue import NativeIssue, inspect_owner_issue, SCHEMA as ISSUE_SCHEMA
+
+ADMISSION_SCHEMA = "forge.f139.nci04.owner-native-ledger.v1"
+KIND = "NATIVE_DEVELOPMENT_ADMITTED"
+MAX_DAILY = 2
+MAX_TOTAL = 20
+FIELDS = frozenset({
+    "schema", "ticket", "issue_number", "issue_id", "lane",
+    "source_sha", "issue_body_sha256", "native_intent_sha256",
+    "qualification_key", "native_target_commit", "native_target_tree",
+    "native_path", "before_sha256", "after_sha256",
+    "native_intent_base64", "prior_event_head_sha256",
+    "admitted_day", "manifest_sha256", "scientific_first_use",
+})
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
+
+
+class NativeLedgerDenied(ValueError):
+    pass
+
+
+def require(v: bool, why: str):
+    if not v:
+        raise NativeLedgerDenied("F139_NCI04_A6_" + why)
+
+
+def native_events(db):
+    return [json.loads(r["payload"]) for r in db.conn.execute(
+        "SELECT payload FROM events WHERE kind=? ORDER BY seq", (KIND,))]
+
+
+def verified_historical_foundation(db):
+    meta = db.meta()
+    verified = list(db.conn.execute(
+        "SELECT ticket,stage,run_id,evidence_sha FROM tasks "
+        "WHERE ticket LIKE 'f139-d2c-%' OR ticket LIKE 'f139-d2j-%'"))
+    require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
+            and meta["head_seq"] >= 23
+            and len(verified) == 4
+            and sum(r["ticket"].startswith("f139-d2c-") for r in verified) == 2
+            and sum(r["ticket"].startswith("f139-d2j-") for r in verified) == 2
+            and all(r["stage"] == "VERIFIED" and type(r["run_id"]) is int
+                    and isinstance(r["evidence_sha"], str)
+                    and SHA64.fullmatch(r["evidence_sha"]) is not None
+                    for r in verified), "ORIGINAL_HISTORY_NOT_QUALIFIED")
+
+
+def frozen_issue_record(issue: NativeIssue, prior_head: str, day: str) -> dict:
+    return {
+        "schema": ADMISSION_SCHEMA,
+        "ticket": issue.ticket, "issue_number": issue.number,
+        "issue_id": issue.issue_id, "lane": issue.lane,
+        "source_sha": issue.source_sha,
+        "issue_body_sha256": issue.issue_body_sha256,
+        "native_intent_sha256": issue.native_intent_sha256,
+        "qualification_key": issue.qualification_key,
+        "native_target_commit": issue.candidate.target_commit,
+        "native_target_tree": issue.candidate.target_tree_sha,
+        "native_path": issue.candidate.path,
+        "before_sha256": issue.candidate.before_sha256,
+        "after_sha256": issue.candidate.after_sha256,
+        "native_intent_base64": base64.b64encode(issue.intent_raw).decode("ascii"),
+        "prior_event_head_sha256": prior_head, "admitted_day": day,
+        "scientific_first_use": False,
+    }
+
+
+def verify_admission(db, event: dict, prior_sha: str):
+    require(isinstance(event, dict) and set(event) == FIELDS,
+            "ADMISSION_FIELDS")
+    require(event["schema"] == ADMISSION_SCHEMA
+            and event["prior_event_head_sha256"] == prior_sha
+            and event["scientific_first_use"] is False
+            and isinstance(event["admitted_day"], str)
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", event["admitted_day"])
+            and type(event["issue_number"]) is int and event["issue_number"] > 0
+            and type(event["issue_id"]) is int and event["issue_id"] > 0,
+            "ADMISSION_AUTHORITY")
+    encoding = event["native_intent_base64"]
+    require(isinstance(encoding, str) and len(encoding) < 59000,
+            "INTENT_OVERSIZE")
+    try:
+        raw = base64.b64decode(encoding, validate=True)
+        require(base64.b64encode(raw).decode("ascii") == encoding,
+                "INTENT_NONCANONICAL")
+        candidate = parse_intent(
+            raw, protected_main=event["source_sha"],
+            target_commit=event["native_target_commit"],
+            target_tree_sha=event["native_target_tree"])
+    except (ValueError, UnicodeError) as exc:
+        raise NativeLedgerDenied("F139_NCI04_A6_INTENT_CORRUPT") from exc
+    require(candidate.lane == event["lane"]
+            and candidate.path == event["native_path"]
+            and candidate.before_sha256 == event["before_sha256"]
+            and candidate.after_sha256 == event["after_sha256"]
+            and candidate.intent_sha256 == event["native_intent_sha256"]
+            and candidate.qualification_key == event["qualification_key"]
+            and event["ticket"] == "f139-nci04-i" + str(event["issue_number"]) +
+                "-" + event["source_sha"][:12] + "-" + candidate.intent_sha256[:8],
+            "INTENT_EVENT_IDENTITY_DRIFT")
+    fragment = {k: v for k, v in event.items() if k != "manifest_sha256"}
+    require(digest(canonical(fragment)) == event["manifest_sha256"],
+            "MANIFEST_TAMPERED")
+    row = db.conn.execute(
+        "SELECT lane,source_sha,manifest_sha FROM tasks WHERE ticket=?",
+        (event["ticket"],)).fetchone()
+    require(row is not None and row["lane"] == event["lane"]
+            and row["source_sha"] == event["source_sha"]
+            and row["manifest_sha"] == event["manifest_sha256"],
+            "TASK_ADMISSION_MISMATCH")
+    return candidate
+
+
+def audit_native_events(db):
+    """Called by the existing Database.verify within its SHA-chain walk.
+
+    Also rejects duplicate issue identity and preserving once-only intent
+    after a previous negative attempt, even across source transitions.
+    """
+    seen_numbers, seen_ids, seen_tickets = set(), set(), set()
+    for row in db.conn.execute(
+            "SELECT kind,payload,prior_sha FROM events ORDER BY seq"):
+        if row["kind"] == KIND:
+            event = json.loads(row["payload"])
+            verify_admission(db, event, row["prior_sha"])
+            require(event["issue_number"] not in seen_numbers
+                    and event["issue_id"] not in seen_ids
+                    and event["ticket"] not in seen_tickets,
+                    "DUPLICATE_NATIVE_ISSUE")
+            seen_numbers.add(event["issue_number"])
+            seen_ids.add(event["issue_id"])
+            seen_tickets.add(event["ticket"])
+    for row in db.conn.execute(
+            "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'"):
+        ev = json.loads(row["payload"])
+        require(ev["issue_number"] not in seen_numbers
+                and ev["issue_id"] not in seen_ids,
+                "D2K_NATIVE_ISSUE_REUSE")
+
+
+def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
+    """Must be called only while the original SingleOwner mutex is held.
+
+    Atomic SQLite transaction prevents re-admission after process crash.
+    Production dispatch is blocked in run_once unless native_enabled is true,
+    and native_enabled is NOT reachable through the original CLI.
+    """
+    require(isinstance(issue, NativeIssue), "ISSUE_UNTRUSTED")
+    db.verify()
+    verified_historical_foundation(db)
+    meta = db.meta()
+    require(issue.source_sha == meta["source_sha"]
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", now[:10])
+            and len(issue.intent_raw) <= 44000,
+            "SOURCE_OR_DAY_DRIFT")
+    with db.transaction():
+        db.verify()
+        rows = native_events(db)
+        require(len(rows) < MAX_TOTAL, "NATIVE_WORK_TOTAL_LIMIT")
+        require(sum(x["admitted_day"] == now[:10] for x in rows) < MAX_DAILY,
+                "NATIVE_DAILY_BUDGET")
+        # Strict ticket, issue ID and number nonreplay even if previous
+        # attempt was QUARANTINED or the protected source later transitioned.
+        d2k = [json.loads(r["payload"]) for r in db.conn.execute(
+            "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")]
+        if any(x["ticket"] == issue.ticket or x["issue_number"] == issue.number
+               or x["issue_id"] == issue.issue_id for x in rows + d2k):
+            return False
+        require(db.active() is None and db.ready() is None,
+                "OTHER_WORK_PENDING")
+        intent = frozen_issue_record(issue, meta["head_hash"], now[:10])
+        manifest_sha = digest(canonical(intent))
+        db.event(KIND, {**intent, "manifest_sha256": manifest_sha})
+        db.conn.execute(
+            "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) "
+            "VALUES(?,?,?,'READY',?)",
+            (issue.ticket, issue.lane, issue.source_sha, manifest_sha))
+        db.event("TASK_INTAKE", {
+            "ticket":issue.ticket, "lane":issue.lane, "manifest_sha":manifest_sha,
+        })
+        db.verify()
+        return True
+
+
+def frozen_native_issue(db, ticket: str):
+    """Reconstruct native issue only from immutable append-only ledger."""
+    records = [x for x in native_events(db) if x["ticket"] == ticket]
+    require(len(records) == 1, "NATIVE_ISSUE_NOT_FROZEN")
+    event = records[0]
+    candidate = parse_intent(
+        base64.b64decode(event["native_intent_base64"], validate=True),
+        protected_main=event["source_sha"],
+        target_commit=event["native_target_commit"],
+        target_tree_sha=event["native_target_tree"])
+    return NativeIssue(
+        number=event["issue_number"], issue_id=event["issue_id"],
+        ticket=ticket, lane=event["lane"], source_sha=event["source_sha"],
+        issue_body_sha256=event["issue_body_sha256"],
+        native_intent_sha256=event["native_intent_sha256"],
+        qualification_key=event["qualification_key"],
+        intent_raw=base64.b64decode(event["native_intent_base64"], validate=True),
+        candidate=candidate)
