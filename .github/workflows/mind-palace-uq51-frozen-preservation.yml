@@ -1,0 +1,116 @@
+name: UQ51 Mind-Palace frozen-preservation qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq51-frozen-preservation.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq51-one-shot-frozen-preservation
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 70
+    steps:
+      - name: Checkout pinned FORGE diagnostics event
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Read-only production; isolated synthetic UQ51 UQ53 UQ55 and one full regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'UQ51_WRONG_RUNNER_OR_BRANCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $sourceBranch='engineering/uq51-frozen-regression-preservation-20261021'
+          $sourceSha='dbdd3b537ee047df9aa14f394a7d7e1b625233e1'
+          $mainSha='5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq51-integrity-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $logs=Join-Path $scratch 'logs'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Require([bool]$OK,[string]$Reason){ if(-not $OK){throw ('UQ51_'+$Reason)} }
+          function Pin([string]$ref,[string]$expected){
+            $lines=@(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and
+              (([string]$lines[0] -split '\s+')[0]) -ceq $expected) 'REMOTE_IDENTITY_DRIFT'
+          }
+          function RunTest([string]$name,[string]$file){
+            $path=Join-Path $root ('tests/'+$file)
+            Require (Test-Path -LiteralPath $path -PathType Leaf) 'TEST_MISSING'
+            $stdout=Join-Path $logs ($name+'.out')
+            $stderr=Join-Path $logs ($name+'.err')
+            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$path
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if($p.ExitCode -ne 0){
+              $errText=[IO.File]::ReadAllText($stderr)
+              $tokens=@([regex]::Matches($errText,'UQ(?:51|53|55)_[A-Z0-9_]+') |
+                ForEach-Object { $_.Value } | Select-Object -Unique)
+              $classes=@([regex]::Matches($errText,'ParserError|NativeCommandError|RuntimeException|MethodException|InvalidOperation|ParameterBindingException') |
+                ForEach-Object { $_.Value } | Select-Object -Unique)
+              $code=if($tokens.Count -gt 0){$tokens[0]}else{'UNCLASSIFIED'}
+              $class=if($classes.Count -gt 0){$classes[0]}else{'UNCLASSIFIED'}
+              Write-Host ('UQ51_FAILURE_TEST='+$name)
+              Write-Host ('UQ51_FAILURE_CODE='+$code)
+              Write-Host ('UQ51_FAILURE_CLASS='+$class)
+              if($name -ceq 'full'){
+                $lines=@([regex]::Matches([IO.File]::ReadAllText($stdout),'RUN Test-[A-Za-z0-9_-]+\.ps1') | ForEach-Object {$_.Value})
+                Write-Host ('UQ51_LAST_FULL_TEST='+(if($lines.Count -gt 0){$lines[-1]}else{'NONE'}))
+              }
+              throw ('UQ51_TEST_FAILED_'+$name+'_EXIT_'+$p.ExitCode)
+            }
+            Write-Host ('UQ51_'+$name.ToUpperInvariant()+'=PASS')
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'UQ51_STALE_SCRATCH'}
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
+          try {
+            Pin 'refs/heads/main' $mainSha
+            Pin ('refs/heads/'+$sourceBranch) $sourceSha
+            & git.exe clone --quiet --single-branch --branch $sourceBranch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            Require ($head -ceq $sourceSha) 'CHECKOUT_HEAD_MISMATCH'
+            $baseline=@{}
+            foreach($p in $guard){
+              $baseline[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            RunTest 'uq51-transaction' 'Test-RepoSourceTransaction.ps1'
+            RunTest 'uq53-crash' 'Test-RepoSourceCrashRecovery.ps1'
+            RunTest 'uq55-fencing' 'Test-RepoSourceWriterFencing.ps1'
+            RunTest 'mind-checkpoint' 'Test-MindCheckpoint.ps1'
+            RunTest 'update-checkpoint' 'Test-UpdateCheckpoint.ps1'
+            RunTest 'full' 'Test-All.ps1'
+            foreach($p in $guard){
+              $hash=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Require ($hash -ceq $baseline[$p]) 'PROTECTED_HASH_DRIFT'
+            }
+            $dirty=(& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()
+            Require ($LASTEXITCODE -eq 0 -and -not $dirty) 'CHECKOUT_DIRTY'
+            Pin 'refs/heads/main' $mainSha
+            Pin ('refs/heads/'+$sourceBranch) $sourceSha
+            Write-Host 'UQ51_PROTECTED_HASHES=PASS'
+            Write-Host 'UQ51_PINNED_SOURCE_IDENTITY=PASS'
+            Write-Host 'UQ51_GITHUB_PRODUCTION_WRITES=0'
+            Write-Host 'UQ51_PAID_INFERENCE=0'
+            Write-Host 'UQ51_COMPLETE_WINDOWS_REGRESSION=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
+            Write-Host 'UQ51_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
