@@ -1024,15 +1024,14 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     # it cannot be replayed or mistaken for fully accepted evidence on recovery.
     return (str(folder),hash_bytes(payload))
 
-def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None,
-             native_enabled=False):
+def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
     db.verify()
     from f139.nci04_owner_ledger import verify_native_activation
     # Original Tick/Loop now recognizes only a genuine append-only owner
     # activation event, not an issue label, environment toggle or auto-setup.
-    native_enabled = bool(native_enabled or verify_native_activation(db))
+    native_enabled = verify_native_activation(db)
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
     require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
