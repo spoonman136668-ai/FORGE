@@ -1,7 +1,7 @@
 name: FORGE isolated remote repair readiness
 on:
   push:
-    branches: [proposal/forge-remote-repair-r1]
+    branches: [proposal/forge-remote-repair-r1, audit/f139-existing-runner-owner-custody-20261021]
   workflow_dispatch:
   schedule:
     - cron: '17 * * * *'
@@ -47,3 +47,60 @@ jobs:
           Write-Output 'REMOTE_REPAIR_EXECUTION=NOT_AUTHORIZED_BY_READINESS_CHECK'
           Write-Output 'AUTO_MERGE=DISABLED'
           Write-Output 'SCIENCE_ACTIVATION=DISABLED'
+
+  f139-owner-profile-readonly:
+    # One source-branch runner qualification on the existing Windows host.
+    # No task mutation, original ledger open, DPAPI secret read, controller
+    # start, workflow_dispatch, scientific work, or new runner registration.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/audit/f139-existing-runner-owner-custody-20261021' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Check whether this existing runner has authentic F139 owner custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:OPENAI_API_KEY) { throw 'F139_PAID_API_FORBIDDEN' }
+          $current = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue
+          if ($null -eq $task) {
+            Write-Host 'F139_EXISTING_RUNNER_TASK=NOT_VISIBLE'
+            Write-Host 'F139_EXISTING_RUNNER_OWNER_CUTOVER=BLOCKED'
+            exit 0
+          }
+          if (@($task.Actions).Count -ne 1) {
+            Write-Host 'F139_EXISTING_RUNNER_TASK_ACTION=INVALID'
+            Write-Host 'F139_EXISTING_RUNNER_OWNER_CUTOVER=BLOCKED'
+            exit 0
+          }
+          $principal = [string]$task.Principal.UserId
+          $sid = try {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          } catch { '' }
+          $sameOwner = ($principal -ieq $current.Name -or $sid -eq $current.User.Value)
+          $db = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $key = Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
+          $raw = [string]$task.Actions[0].Arguments
+          $m = [regex]::Match($raw,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          $dbBound = $m.Success -and (
+            [IO.Path]::GetFullPath($m.Groups[1].Value) -ieq
+            [IO.Path]::GetFullPath($db))
+          Write-Host ('F139_EXISTING_RUNNER_TASK=' + 'VISIBLE')
+          Write-Host ('F139_EXISTING_RUNNER_OWNER_SID_MATCH=' +
+            [string]$sameOwner.ToString().ToUpperInvariant())
+          Write-Host ('F139_EXISTING_RUNNER_ORIGINAL_DB_BINDING=' +
+            [string]$dbBound.ToString().ToUpperInvariant())
+          Write-Host ('F139_EXISTING_RUNNER_DB_PRESENT=' +
+            [string](Test-Path -LiteralPath $db -PathType Leaf).ToString().ToUpperInvariant())
+          Write-Host ('F139_EXISTING_RUNNER_DPAPI_FILE_PRESENT=' +
+            [string](Test-Path -LiteralPath $key -PathType Leaf).ToString().ToUpperInvariant())
+          Write-Host ('F139_EXISTING_RUNNER_TASK_STATE=' + [string]$task.State)
+          if ($sameOwner -and $dbBound -and
+              (Test-Path -LiteralPath $db -PathType Leaf) -and
+              (Test-Path -LiteralPath $key -PathType Leaf)) {
+            Write-Host 'F139_EXISTING_RUNNER_OWNER_CUTOVER=ELIGIBLE_FOR_SEPARATE_QUALIFIED_ACTION'
+          } else {
+            Write-Host 'F139_EXISTING_RUNNER_OWNER_CUTOVER=BLOCKED'
+          }
+          Write-Host 'F139_EXISTING_RUNNER_READ_ONLY=PASS'
