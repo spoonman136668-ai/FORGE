@@ -121,9 +121,12 @@ class NCI04SignedNativeTests(unittest.TestCase):
                      "f139-d2j-wingless-" + MAIN[:12]):
             with self.subTest(name=name):
                 changed = dict(inp, ticket=name)
+                d2k_fields = ({"issue_number":"689", "issue_id":"123456",
+                               "body_sha256":BODY, "target_package":"./planner"}
+                              if name.startswith("f139-d2k-") else {})
+                changed.update(d2k_fields)
                 changed["signature"] = sign_controller(KEY, name, "Wingless", MAIN, "1",
-                    **({"issue_number":"689", "issue_id":"123456", "body_sha256":BODY,
-                        "target_package":"./planner"} if name.startswith("f139-d2k-") else {}))
+                                                        **d2k_fields)
                 with self.assertRaisesRegex(Untrusted, "NATIVE_TICKET_REQUIRED"):
                     admit(changed, body, sig)
 
