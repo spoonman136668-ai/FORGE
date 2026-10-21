@@ -142,11 +142,8 @@ try{
   if($script:recorded.Count-ne6 -or $script:updateCalled-ne6){
     throw 'RC2S_MISSED_OR_DUPLICATE_APPLICATION'
   }
-  if($script:recorded|Where-Object{$_.source_publish_to_update_ms-lt0 -or
-      $_.source_publish_to_update_ms-gt500}){
-    throw 'RC2S_PRESENTATION_LATENCY_EXCEEDED_BOUNDED_DIAGNOSTIC'
-  }
   $rows=@($script:recorded)
+  $latencyBreach=@($rows|Where-Object{$_.source_publish_to_update_ms-lt0 -or $_.source_publish_to_update_ms-gt500}).Count -gt 0
   $summary=[ordered]@{
     schema='kterminal.rc2s.wpf-poll-actual-callback-diagnostic.v1'
     production_wpf_poll_AST=$true
@@ -157,9 +154,11 @@ try{
     backend_refresh_ticker_measured=$false
     no_app_or_broker=$true
     samples=$rows
-    result='PASS'
+    latency_breach=$latencyBreach
+    result=$(if($latencyBreach){'FAIL_NOT_WAIVED'}else{'PASS'})
   }
   [IO.File]::WriteAllText($OutputPath,($summary|ConvertTo-Json -Depth 9))
+  if($latencyBreach){Write-Output 'KTERM_RC2S_SNAPSHOT_POLL=FAIL_NOT_WAIVED';throw 'RC2S_PRESENTATION_LATENCY_EXCEEDED_BOUNDED_DIAGNOSTIC'}
   Write-Output ('KTERM_RC2S_SNAPSHOT_POLL=PASS')
   Write-Output ('KTERM_RC2S_SAMPLES='+$rows.Count)
   Write-Output ('KTERM_RC2S_MAX_PUBLISH_TO_WPF_MS='+([math]::Round((@($rows|ForEach-Object{$_.source_publish_to_update_ms}|Measure-Object -Maximum).Maximum),3)))
