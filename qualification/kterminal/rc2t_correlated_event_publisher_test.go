@@ -63,6 +63,7 @@ func TestRC2TCorrelatedSyntheticConfirmedEventAndDashboardPublication(t *testing
         }
         snap:=&DashboardSnapshot{
            ProductID:"BTC-USDC",PriceIncrement:0.01,MarketValue:76500,
+           LastUpdated:time.Now().UTC(),
            AvailableCash:500,TotalCash:500,Equity:500+after.Quantity*76500,
            Quantity:after.Quantity,TrackedQuantity:after.Quantity,
            CostBasis:after.CostBasis,AverageBuy:after.AverageBuy,
