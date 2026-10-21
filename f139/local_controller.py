@@ -875,6 +875,38 @@ class GitHub:
         return zipbytes
 
 
+def native_original_owner_profile(db_path: Path) -> bool:
+    """Read-only Windows owner/task custody assertion before any A6 mutation."""
+    require(os.name=="nt","NATIVE_OWNER_MUST_BE_WINDOWS")
+    profile=os.environ.get("LOCALAPPDATA","")
+    require(bool(profile),"OWNER_LOCALAPPDATA_MISSING")
+    expected=Path(profile)/"FORGE-F139"/"state.sqlite"
+    require(Path(db_path).resolve()==expected.resolve(),
+            "ORIGINAL_OWNER_DATABASE_PROFILE_MISMATCH")
+    source=shutil.which("powershell.exe")
+    require(source is not None,"OWNER_WINDOWS_POWERSHELL_UNAVAILABLE")
+    script=(
+        "$ErrorActionPreference='Stop';"
+        "$t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop;"
+        "$who=[Security.Principal.WindowsIdentity]::GetCurrent();"
+        "$principal=[string]$t.Principal.UserId;"
+        "$sid='';"
+        "try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate("
+        "[Security.Principal.SecurityIdentifier]).Value}catch{};"
+        "if($principal -ine $who.Name -and $sid -ne $who.User.Value){exit 42};"
+        "if($t.State -notin @('Ready','Running')){exit 43};"
+        "Write-Output 'F139_NATIVE_ORIGINAL_OWNER_PROFILE=PASS'"
+    )
+    result=subprocess.run(
+        [source,"-NoProfile","-NonInteractive","-Command",script],
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,timeout=20,check=False)
+    require(result.returncode==0 and
+            result.stdout.strip()==b"F139_NATIVE_ORIGINAL_OWNER_PROFILE=PASS",
+            "ORIGINAL_OWNER_PROFILE_OR_TASK_NOT_VERIFIED")
+    return True
+
+
 def legacy_windows_task_disabled():
     require(os.name=="nt","CUTOVER_MUST_RUN_ON_TARGET_WINDOWS_HOST")
     source=shutil.which("powershell.exe")
@@ -1176,7 +1208,7 @@ def cli(argv=None):
         elif args.verb=="transition-qualified-native":
             # The owner must run this exact, qualified, protected-main checkout;
             # never rewrite historical identities or reset the event chain.
-            require(os.name=="nt","OWNER_WINDOWS_ONLY_FOR_TRANSITION")
+            native_original_owner_profile(args.db)
             raw=args.approval.read_bytes()
             require(0<len(raw)<=4096,"SOURCE_APPROVAL_FILE_INVALID")
             proof=json.loads(raw)
@@ -1227,7 +1259,7 @@ def cli(argv=None):
             # Owner-only, explicit admission. Does not create a second task or
             # controller and does not dispatch work. The existing scheduled
             # tick picks up only this authenticated SQLite activation event.
-            require(os.name=="nt","OWNER_WINDOWS_ONLY_FOR_ACTIVATION")
+            native_original_owner_profile(args.db)
             require(GitHub().protected_main()==db.meta()["source_sha"],
                     "NATIVE_ACTIVATION_GITHUB_SOURCE_DRIFT")
             GitHub().legacy_dispatchers_disabled()
