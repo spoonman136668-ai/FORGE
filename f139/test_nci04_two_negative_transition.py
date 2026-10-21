@@ -130,6 +130,7 @@ class TwoNegativeControllerIntegration(unittest.TestCase):
         self.transition()
         self.db.close()
         self.db = Database(self.path)
+        self.addCleanup(self.db.close)
         self.db.verify()
         self.assertEqual(self.db.meta()["head_seq"], 57)
 
