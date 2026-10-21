@@ -27,7 +27,7 @@ def candidate(lane="Wingless"):
         "target_commit": TARGET, "target_tree_sha": TREE,
         "dependency_sha256": "d" * 64, "qualification_harness_sha256": "e" * 64,
         "training_config_sha256": "f" * 64, "suite_identity_sha256": "1" * 64,
-        "toolchain_identity": "go1.25.0" if lane == "Wingless" else "python3.11.11",
+        "toolchain_identity": "go1.25.0" if lane == "Wingless" else "python3.11",
         "path": "cognition/native_state.go" if lane == "Wingless" else "yggdrasil/native_state.py",
         "before_sha256": digest(b""), "after_sha256": digest(SOURCE),
         "after_base64": base64.b64encode(SOURCE).decode("ascii"),
