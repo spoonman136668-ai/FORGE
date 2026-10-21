@@ -168,6 +168,11 @@ def audit_native_events(db):
                 and ev["issue_id"] not in seen_ids,
                 "D2K_NATIVE_ISSUE_REUSE")
     verify_native_activation(db)
+    # A8B is additive: old 47 events retain their exact original hashes.
+    # A custodied failed native original is checked again on every cold read,
+    # not merely trusted because a prior SQL event claimed success.
+    from f139.nci04_negative_owner_store import verify_original_negative_custody
+    verify_original_negative_custody(db)
 
 
 def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
