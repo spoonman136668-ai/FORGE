@@ -2,6 +2,7 @@
 import base64
 import json
 from pathlib import Path
+from dataclasses import replace
 import subprocess
 import tempfile
 import unittest
@@ -75,6 +76,40 @@ class NativeWorkerTests(unittest.TestCase):
         self.assertEqual((stage / "checkout" / "cognition" / "sample.go").read_bytes(), AFTER)
         self.assertEqual((self.repo / "cognition" / "sample.go").read_bytes(), BEFORE)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
+    def test_independent_git_clones_keep_pristine_atlas_and_candidate_diffs(self):
+        candidate = self.intent()
+        stage = stage_candidate(candidate, self.repo, self.sandbox)
+        original = stage / "pristine"
+        changed = stage / "checkout"
+        self.assertEqual(git(original, "rev-parse", "HEAD"), self.sha)
+        self.assertEqual(git(changed, "rev-parse", "HEAD^{tree}"), self.tree)
+        self.assertEqual(git(original, "remote"), "")
+        self.assertEqual(git(changed, "remote"), "")
+        self.assertEqual(git(original, "status", "--porcelain"), "")
+        self.assertIn("cognition/sample.go", git(changed, "status", "--porcelain"))
+        self.assertEqual((original / "cognition/sample.go").read_bytes(), BEFORE)
+        self.assertEqual((changed / "cognition/sample.go").read_bytes(), AFTER)
+        self.assertEqual((self.repo / "cognition/sample.go").read_bytes(), BEFORE)
+
+    def test_yggdrasil_atlas_runs_on_clean_source_candidate_exhaustive_rest(self):
+        from f139.nci04_native_worker import YGG_CANDIDATE_FULL_SUITE
+        candidate = replace(self.intent(), lane="Yggdrasil")
+        stage = stage_candidate(candidate, self.repo, self.sandbox)
+        calls=[]
+        def fake(argv, **kw):
+            calls.append((tuple(argv), Path(kw["cwd"])))
+            return subprocess.CompletedProcess(argv, 0, b"ALL_FIXED_TESTS_PASS\n")
+        result = verify_fixed_commands(candidate, stage, runner=fake)
+        self.assertTrue(result["qualification_complete"])
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[0][1], stage / "pristine")
+        self.assertTrue(all(cwd == stage / "checkout" for _, cwd in calls[1:]))
+        self.assertEqual(tuple(calls[2][0]), (
+            "python","-B","-c",YGG_CANDIDATE_FULL_SUITE))
+        self.assertIn("YGG_NATIVE_G29_SCOPE_DRIFT", YGG_CANDIDATE_FULL_SUITE)
+        self.assertIn("test_code_atlas.G29.test_uncommitted_source_rejected",
+                      YGG_CANDIDATE_FULL_SUITE)
 
     def test_dirty_checkout_rejected_before_staging(self):
         (self.repo / "cognition" / "sample.go").write_bytes(b"unexpected")
