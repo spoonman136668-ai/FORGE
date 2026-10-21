@@ -421,8 +421,7 @@ class Database:
                     verified.append(row)
                 elif (allow_certified_negative and row["stage"] == "QUARANTINED"
                       and row["ticket"] == "f139-nci04-i696-5662e3586bc9-7bb8f27f"
-                      and row["source_sha"] ==
-                          "5662e3586bc9d12c90033b7c0344ca65ea1ad2a0"
+                      and row["source_sha"] == ORIGINAL_NEGATIVE_SOURCE
                       and row["run_id"] is None and row["evidence_sha"] is None
                       and not row["evidence_dir"]):
                     certified.append(row)
