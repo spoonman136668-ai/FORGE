@@ -169,3 +169,104 @@ jobs:
           if ($null -eq $ast) { throw 'F139_A8_NO_PARSED_SOURCE' }
           Write-Host 'F139_A8_CUTOVER_POWERSHELL_SYNTAX=PASS'
           Write-Host 'F139_A8_CUTOVER_SCRIPT_NOT_EXECUTED=TRUE'
+
+  f139-issue706-native-rehearsal:
+    # Source-only prereadiness of the first candidate. Not the F139 workflow
+    # endpoint and NOT a scheduled owner controller run. Runs without HMAC.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/audit/f139-existing-runner-owner-custody-20261021' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Read-only checkout of exact FORGE source qualification harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticated Git clone of original Wingless source at exact commit
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: a5db1727113731988bfccad6ae30a0b8b4d6f9d6
+          path: native
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Independently read exact owner issue, protected main and target tree
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'f139-issue706-readonly'
+          New-Item -ItemType Directory -Path $root | Out-Null
+          & gh api 'repos/spoonman136668-ai/FORGE/issues/706' > (Join-Path $root 'issue.json')
+          if($LASTEXITCODE -ne 0) { throw 'F139_706_ISSUE_PROVIDER_READ_FAILED' }
+          & gh api 'repos/spoonman136668-ai/FORGE/git/ref/heads/main' > (Join-Path $root 'main.json')
+          if($LASTEXITCODE -ne 0) { throw 'F139_706_MAIN_PROVIDER_READ_FAILED' }
+          & gh api 'repos/spoonman136668-ai/Wingless/git/commits/a5db1727113731988bfccad6ae30a0b8b4d6f9d6' > (Join-Path $root 'target.json')
+          if($LASTEXITCODE -ne 0) { throw 'F139_706_TARGET_PROVIDER_READ_FAILED' }
+          Write-Host 'F139_706_THREE_SOURCE_IDENTITIES_READ_ONLY=PASS'
+      - name: Isolated real Wingless candidate, focused then full regression, vet and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $code = @'
+          import json,os,sys,tempfile
+          from pathlib import Path
+          from f139.nci04_owner_issue import inspect_owner_issue
+          from f139.nci04_native_worker import qualification_from_bytes
+          root=Path(os.environ["RUNNER_TEMP"])/"f139-issue706-readonly"
+          read=lambda k:json.loads((root/k).read_text(encoding="utf-8-sig"))
+          issue,main,target=read("issue.json"),read("main.json"),read("target.json")
+          assert main["object"]["sha"]=="09f3d7447900f99dd3d532c5d3d90ed7e8c20ac3","MAIN_IDENTITY_DRIFT"
+          assert target["sha"]=="a5db1727113731988bfccad6ae30a0b8b4d6f9d6","TARGET_COMMIT_DRIFT"
+          assert target["tree"]["sha"]=="b80d8baf20915974aca655ec92b9baefe22f5cb1","TARGET_TREE_DRIFT"
+          auth=inspect_owner_issue(issue,protected_main=main["object"]["sha"],
+              authenticated_target_commit=target["sha"],
+              authenticated_target_tree=target["tree"]["sha"])
+          assert auth.number==706 and auth.lane=="Wingless"
+          native=Path(os.environ["GITHUB_WORKSPACE"])/"native"
+          candidate,stage,report=qualification_from_bytes(
+              auth.intent_raw,protected_main=main["object"]["sha"],
+              target_commit=target["sha"],target_tree_sha=target["tree"]["sha"],
+              checkout=native,sandbox_parent=Path(os.environ["RUNNER_TEMP"]))
+          assert candidate.before_sha256=="d2b0e1ed7149d2378bb0db05e148f24aded1657ed98157142063bf21a145a87b"
+          assert candidate.after_sha256=="9e0faeeb1055bbd2bfde38b6ab1d7c1b982dd17357c8fe1b228f3aea0ee96f45"
+          output=root/"native-report.json"
+          output.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+          for cmd in report["commands"]:
+              print("F139_706_CMD="+str(cmd["command"]))
+              print("F139_706_RESULT="+cmd["outcome"]+" EXIT="+str(cmd["returncode"]))
+              if cmd["outcome"]!="PASS":
+                  print(cmd["excerpt"][-2600:])
+          print("F139_706_NATIVE_QUALIFICATION="+("PASS" if report["qualification_complete"] else "NEGATIVE_RETAINED"))
+          print("F139_706_SCIENTIFIC_FIRST_USE=FALSE")
+          print("F139_706_ORIGINAL_OWNER_LEDGER_TOUCHED=FALSE")
+          print("F139_706_MANUAL_WORKER_DISPATCH=NONE")
+          if not report["qualification_complete"]:sys.exit(1)
+          '@
+          python -B -c $code
+          if($LASTEXITCODE -ne 0) { throw 'F139_706_NATIVE_QUALIFICATION_NEGATIVE_RETAINED' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f139-issue706-readonly-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-issue706-readonly/native-report.json
+          if-no-files-found: warn
+          retention-days: 30
