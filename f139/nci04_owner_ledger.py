@@ -167,6 +167,7 @@ def audit_native_events(db):
         require(ev["issue_number"] not in seen_numbers
                 and ev["issue_id"] not in seen_ids,
                 "D2K_NATIVE_ISSUE_REUSE")
+    verify_native_activation(db)
 
 
 def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
@@ -208,6 +209,101 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
             (issue.ticket, issue.lane, issue.source_sha, manifest_sha))
         db.event("TASK_INTAKE", {
             "ticket":issue.ticket, "lane":issue.lane, "manifest_sha":manifest_sha,
+        })
+        db.verify()
+        return True
+
+
+
+ACTIVATION_KIND = "NATIVE_DEVELOPMENT_ACTIVATED"
+ACTIVATION_SCHEMA = "forge.f139.nci04.owner-native-activation.v1"
+ACTIVATION_FIELDS = frozenset({
+    "schema", "source_sha", "prior_event_head_sha256",
+    "sealed_original_prefix_sha256", "verified_original_tasks",
+    "verified_d2k_tasks", "new_dispatches",
+    "scientific_first_use", "development_only",
+})
+APPROVAL_FIELDS = frozenset({
+    "schema", "source_sha", "expected_event_head_sha256",
+    "native_development_approved", "scientific_first_use",
+    "create_controller", "paid_api_calls",
+})
+APPROVAL_SCHEMA = "forge.f139.nci04.owner-native-approval.v1"
+
+
+def verify_native_activation(db):
+    """Source-bound monotonic event; no scheduler or additional owner."""
+    rows = list(db.conn.execute(
+        "SELECT payload,prior_sha FROM events WHERE kind=? ORDER BY seq",
+        (ACTIVATION_KIND,)))
+    require(len(rows) <= 1, "DUPLICATE_NATIVE_ACTIVATION")
+    if not rows:
+        return False
+    row = rows[0]
+    doc = json.loads(row["payload"])
+    require(isinstance(doc, dict) and set(doc) == ACTIVATION_FIELDS
+            and doc["schema"] == ACTIVATION_SCHEMA
+            and doc["prior_event_head_sha256"] == row["prior_sha"]
+            and doc["sealed_original_prefix_sha256"] ==
+               SEALED_OWNER_PREFIX_HEAD
+            and type(doc["verified_original_tasks"]) is int
+            and doc["verified_original_tasks"] == 4
+            and type(doc["verified_d2k_tasks"]) is int
+            and doc["verified_d2k_tasks"] == 2
+            and type(doc["new_dispatches"]) is int
+            and doc["new_dispatches"] == 0
+            and doc["scientific_first_use"] is False
+            and doc["development_only"] is True,
+            "NATIVE_ACTIVATION_AUTHORITY_DRIFT")
+    require(isinstance(doc["source_sha"], str)
+            and re.fullmatch(r"[a-f0-9]{40}", doc["source_sha"]),
+            "NATIVE_ACTIVATION_SOURCE_INVALID")
+    return doc["source_sha"] == db.meta()["source_sha"]
+
+
+def activate_native(db, approval: dict) -> bool:
+    """Atomic explicit *owner-local* activation using presealed identity.
+
+    Never infer approval from a GitHub issue or from absence of other work.
+    This must run under existing SingleOwner mutex in the original F139 task
+    profile after protected-main source and application identity are pinned.
+    """
+    require(isinstance(approval, dict) and set(approval) == APPROVAL_FIELDS
+            and approval["schema"] == APPROVAL_SCHEMA
+            and approval["native_development_approved"] is True
+            and approval["scientific_first_use"] is False
+            and approval["create_controller"] is False
+            and type(approval["paid_api_calls"]) is int
+            and approval["paid_api_calls"] == 0,
+            "NATIVE_OWNER_APPROVAL_NOT_QUALIFIED")
+    db.verify()
+    verified_historical_foundation(db)
+    with db.transaction():
+        db.verify()
+        meta = db.meta()
+        require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
+                and approval["source_sha"] == meta["source_sha"]
+                and approval["expected_event_head_sha256"] == meta["head_hash"]
+                and re.fullmatch(r"[a-f0-9]{64}",
+                                 approval["expected_event_head_sha256"]),
+                "APPROVAL_LEDGER_OR_SOURCE_DRIFT")
+        require(db.active() is None and db.ready() is None,
+                "PREEXISTING_PENDING_WORK")
+        require(not list(db.conn.execute(
+            "SELECT 1 FROM events WHERE kind=?", (ACTIVATION_KIND,))),
+            "NATIVE_ALREADY_ACTIVATED")
+        require(all(row["stage"] == "VERIFIED"
+                    for row in db.conn.execute("SELECT stage FROM tasks")),
+                "UNVERIFIED_HISTORICAL_TASK")
+        prior = meta["head_hash"]
+        db.event(ACTIVATION_KIND, {
+            "schema": ACTIVATION_SCHEMA,
+            "source_sha": meta["source_sha"],
+            "prior_event_head_sha256": prior,
+            "sealed_original_prefix_sha256": SEALED_OWNER_PREFIX_HEAD,
+            "verified_original_tasks": 4, "verified_d2k_tasks": 2,
+            "new_dispatches": 0,
+            "scientific_first_use": False, "development_only": True,
         })
         db.verify()
         return True
