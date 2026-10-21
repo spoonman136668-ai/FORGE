@@ -39,7 +39,7 @@ class MeterAndContractTests(unittest.TestCase):
             argv=[sys.executable,"-B","-c",
                 "import subprocess,sys,time; "
                 "p=subprocess.run([sys.executable,'-B','-c',"
-                "'x=bytearray(2_000_000); time.sleep(.045)'],check=True); "
+                "'import time; x=bytearray(2_000_000); time.sleep(.045)'],check=True); "
                 "print('METER_CHILD_OK')"]
             result=command_receipt(argv,Path(tmp),timeout_s=5.0)
             self.assertEqual(result["exit_code"],0)
