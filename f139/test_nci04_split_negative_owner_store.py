@@ -8,6 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 import hashlib
 import json
+import sqlite3
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -208,10 +209,13 @@ class SecondNegativeSyntheticOwnerTests(unittest.TestCase):
             "SELECT payload FROM events WHERE seq=56").fetchone()
         doc = json.loads(row["payload"])
         doc["whole_run_qualified"] = True
-        self.db.conn.execute("UPDATE events SET payload=? WHERE seq=56",
-                             (json.dumps(doc),))
-        with self.assertRaisesRegex(SplitOwnerCustodyDenied, "SECOND_CUSTODY_EVENT_DRIFT"):
-            verify_second_negative_custody(self.db)
+        # Real F139 SQLite explicitly prohibits historical event mutation.
+        # Assert append-only enforcement rather than weakening the trigger
+        # just to synthetically exercise a forged custody document.
+        with self.assertRaisesRegex(sqlite3.IntegrityError, "F139_APPEND_ONLY"):
+            self.db.conn.execute("UPDATE events SET payload=? WHERE seq=56",
+                                 (json.dumps(doc),))
+        self.assertTrue(verify_second_negative_custody(self.db))
 
 if __name__ == "__main__":
     unittest.main()
