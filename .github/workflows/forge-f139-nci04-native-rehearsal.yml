@@ -9,6 +9,7 @@ on:
       - 'f139/nci04_native_worker.py'
       - 'f139/test_nci04_native_contract.py'
       - 'f139/test_nci04_native_worker.py'
+      - 'f139/test_nci04_real_native_atlas.py'
       - '.github/workflows/forge-f139-nci04-native-rehearsal.yml'
 permissions:
   contents: read
@@ -105,3 +106,42 @@ jobs:
           path: ${{ runner.temp }}/f139-nci04-yggdrasil/
           if-no-files-found: error
           retention-days: 14
+
+  yggdrasil-real-g29-candidate:
+    # PR-only; clean original G29 source plus modified candidate full suite.
+    # No HMAC, write token, signed native ticket, or scientific source use.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: e5b2596fd7972c9a577427902f917887f37ee4a6
+          path: native
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify real immutable G29 source and synthetic isolated candidate
+        shell: pwsh
+        env:
+          F139_PR_NATIVE_SOURCE: ${{ github.workspace }}/native
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if(-not (Test-Path (Join-Path $env:F139_PR_NATIVE_SOURCE 'tests/test_code_atlas.py'))) { throw 'G29_PINNED_CHECKOUT_MISSING' }
+          python -B -m unittest -v f139.test_nci04_real_native_atlas
+          if($LASTEXITCODE -ne 0) { throw 'NCI04_REAL_G29_CANDIDATE_REGRESSION_FAILED' }
+          Write-Host 'F139_NCI04_REAL_G29_SOURCE_AND_CANDIDATE=PASS'
+          Write-Host 'F139_NCI04_NO_ORIGINAL_TICKET_REPLAY=TRUE'
+          Write-Host 'F139_NCI04_SCIENTIFIC_FIRST_USE=FALSE'

@@ -18,6 +18,39 @@ import time
 from f139.nci04_native_contract import Candidate, NativeContractError, digest, parse_intent
 
 MAX_CAPTURE_BYTES = 1_000_000
+
+# The G29 source atlas is explicitly tied to committed, clean source. Running
+# it on an uncommitted research candidate is an identity error, not a test to
+# suppress. Run G29 against a separate authenticated pristine Git clone, then
+# run ALL other native regression tests on the isolated candidate Git clone.
+# Fail closed unless precisely the four named G29 tests were separated.
+YGG_CANDIDATE_FULL_SUITE = """
+import sys
+import unittest
+suite = unittest.defaultTestLoader.discover(
+    'tests', pattern='test_*.py')
+tests = []
+def collect(node):
+    for item in node:
+        if isinstance(item, unittest.TestSuite):
+            collect(item)
+        else:
+            tests.append(item)
+collect(suite)
+atlas = [t for t in tests if t.id().startswith('test_code_atlas.G29.')]
+other = [t for t in tests if not t.id().startswith('test_code_atlas.G29.')]
+expected = {
+    'test_code_atlas.G29.test_html_injection_encoding',
+    'test_code_atlas.G29.test_native_python_symbols',
+    'test_code_atlas.G29.test_source_and_pinned_artifact',
+    'test_code_atlas.G29.test_uncommitted_source_rejected',
+}
+if {t.id() for t in atlas} != expected or not other:
+    raise SystemExit('YGG_NATIVE_G29_SCOPE_DRIFT')
+result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(other))
+raise SystemExit(0 if result.wasSuccessful() else 1)
+""".strip()
+
 # No user text, issue contents or candidate code may select the command line.
 COMMANDS = {
     "Wingless": (
@@ -27,10 +60,14 @@ COMMANDS = {
         ("go", "build", "./..."),
     ),
     "Yggdrasil": (
+        # First: exact source-pinned G29 in pristine local Git clone.
+        ("python", "-B", "-m", "unittest", "discover", "-s", "tests",
+         "-p", "test_code_atlas.py", "-v"),
+        # Then candidate-focused + exhaustive remaining tests in its own
+        # isolated Git clone. G29's strict original source test is not bypassed.
         ("python", "-B", "-m", "unittest", "discover", "-s", "tests",
          "-p", "test_native_cells.py", "-v"),
-        ("python", "-B", "-m", "unittest", "discover", "-s", "tests",
-         "-p", "test_*.py", "-v"),  # one final full regression
+        ("python", "-B", "-c", YGG_CANDIDATE_FULL_SUITE),
         ("python", "-B", "-m", "compileall", "-q", "yggdrasil", "scripts"),
     ),
 }
@@ -90,8 +127,44 @@ def stage_candidate(candidate: Candidate, checkout: Path,
     try:
         # Disallow symlinks rather than letting copytree dereference unknown
         # providers or allowing a candidate to mutate outside the sandbox.
-        shutil.copytree(source, stage / "checkout", ignore=shutil.ignore_patterns(".git"),
-                        symlinks=True, dirs_exist_ok=False)
+        # Independent non-hardlinked local Git clones preserve the original
+        # source history for Atlas checks WITHOUT sharing its writable .git
+        # object store, worktree index, or remote. No network credentials.
+        for name in ("pristine", "checkout"):
+            dest_root = stage / name
+            p = subprocess.run(
+                ["git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
+                 "--", str(source), str(dest_root)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, timeout=90, check=False)
+            require(p.returncode == 0, "LOCAL_INDEPENDENT_CLONE_FAILED")
+            # An inherited Windows core.autocrlf=true would silently change
+            # source preimage bytes on checkout. Freeze LF materialization in
+            # each *isolated* Git clone without changing original git config.
+            for cfg in (("core.autocrlf","false"),("core.eol","lf")):
+                require(subprocess.run(
+                    ["git", "-C", str(dest_root), "config", "--local",
+                     cfg[0],cfg[1]],stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
+                    timeout=15,check=False).returncode==0,
+                    "ISOLATED_TEXT_BYTES_CONFIG_FAILED")
+            require(subprocess.run(
+                ["git", "-C", str(dest_root), "checkout", "--quiet",
+                 "--detach", candidate.target_commit],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, timeout=30,
+                check=False).returncode == 0, "LOCAL_SOURCE_DETACH_FAILED")
+            require(subprocess.run(
+                ["git", "-C", str(dest_root), "remote", "remove", "origin"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, timeout=15,
+                check=False).returncode == 0, "LOCAL_ORIGIN_REMOVAL_FAILED")
+            require(_git(dest_root, "rev-parse", "HEAD")==candidate.target_commit
+                    and _git(dest_root, "rev-parse", "HEAD^{tree}")==
+                        candidate.target_tree_sha
+                    and _git(dest_root, "status", "--porcelain")==""
+                    and _git(dest_root, "remote")=="",
+                    "STAGED_GIT_CUSTODY_MISMATCH")
         root = stage / "checkout"
         rel = Path(*candidate.path.split("/"))
         dest = root / rel
@@ -139,10 +212,14 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
     env.update({"GIT_TERMINAL_PROMPT": "0", "GOPROXY": "off",
                 "GOSUMDB": "off", "GOTOOLCHAIN": "local", "PYTHONDONTWRITEBYTECODE": "1"})
     results = []
-    for argv in COMMANDS[candidate.lane]:
+    for index, argv in enumerate(COMMANDS[candidate.lane]):
         started = time.monotonic()
+        # Code Atlas must see the immutable source commit and its *clean*
+        # original checkout. Every candidate-influenced test uses the separate
+        # modified checkout; candidate patch identity is verified beforehand.
+        workroot = stage / "pristine" if candidate.lane=="Yggdrasil" and index==0 else root
         try:
-            p = run(list(argv), cwd=root, env=env,
+            p = run(list(argv), cwd=workroot, env=env,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL, check=False,
                     timeout=timeout_seconds)
