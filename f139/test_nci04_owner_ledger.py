@@ -10,7 +10,8 @@ from f139.local_controller import Database, hash_bytes, run_once
 from f139.nci04_owner_issue import inspect_owner_issue
 from f139.nci04_owner_ledger import (
     NativeLedgerDenied, audit_native_events, admit_native_issue,
-    frozen_native_issue, KIND)
+    frozen_native_issue, KIND, APPROVAL_SCHEMA, activate_native,
+    verify_native_activation)
 from test_nci04_owner_issue import issue as make_issue, MAIN, TARGET, TREE, HMAC
 
 
@@ -124,6 +125,46 @@ class LedgerTests(unittest.TestCase):
             admit_native_issue(self.db, self.native, "2026-10-21T10:00:00Z")
 
 
+
+    def approval(self):
+        return {
+            "schema": APPROVAL_SCHEMA, "source_sha": MAIN,
+            "expected_event_head_sha256": self.db.meta()["head_hash"],
+            "native_development_approved": True,
+            "scientific_first_use": False, "create_controller": False,
+            "paid_api_calls": 0,
+        }
+
+    def test_explicit_native_activation_is_durable_and_idempotent(self):
+        self.assertFalse(verify_native_activation(self.db))
+        approved = self.approval()
+        original = self.db.meta()
+        self.assertTrue(activate_native(self.db, approved))
+        self.assertEqual(self.db.meta()["head_seq"], original["head_seq"]+1)
+        self.assertTrue(verify_native_activation(self.db))
+        with self.assertRaisesRegex(NativeLedgerDenied, "APPROVAL_LEDGER_OR_SOURCE_DRIFT"):
+            activate_native(self.db, approved)
+        self.assertEqual(self.db.meta()["head_seq"], original["head_seq"]+1)
+        reopened = Database(self.path)
+        self.assertTrue(verify_native_activation(reopened))
+        reopened.close()
+
+    def test_native_activation_denies_implicit_authorization(self):
+        variants = (
+            {"scientific_first_use": True},
+            {"create_controller": True},
+            {"paid_api_calls": 1},
+            {"native_development_approved": False},
+            {"source_sha": "9"*40},
+            {"expected_event_head_sha256": "9"*64},
+        )
+        for fields in variants:
+            with self.subTest(fields=fields):
+                with self.assertRaises(NativeLedgerDenied):
+                    activate_native(self.db,{**self.approval(), **fields})
+        self.assertFalse(verify_native_activation(self.db))
+        self.assertEqual(self.db.meta()["head_seq"],40)
+
     def test_native_signed_dispatch_provider_custody_restart_no_replay(self):
         """Isolated fake provider, genuine original SQLite state machine."""
         from f139.nci04_owner_issue import make_signed_dispatch_inputs
@@ -183,8 +224,9 @@ class LedgerTests(unittest.TestCase):
                 return self.archives[artid]
 
         gh=FakeNativeProvider()
+        self.assertTrue(activate_native(self.db,self.approval()))
         started=run_once(self.db,gh,self.path,HMAC,
-                         now="2026-10-21T10:00:00Z",native_enabled=True)
+                         now="2026-10-21T10:00:00Z")
         self.assertEqual(started["disposition"],"DEVELOPMENT_DISPATCHED_ONCE")
         self.assertEqual(len(gh.dispatches),1)
         self.assertEqual(self.db.active()["stage"],"WAIT_PROVIDER")
@@ -192,7 +234,7 @@ class LedgerTests(unittest.TestCase):
         self.db=Database(self.path)
         self.addCleanup(self.db.close)
         again=run_once(self.db,gh,self.path,HMAC,
-                       now="2026-10-21T10:01:00Z",native_enabled=True)
+                       now="2026-10-21T10:01:00Z")
         self.assertEqual(again["disposition"],"QUEUE_EMPTY_NO_SCIENCE")
         self.assertEqual(len(gh.dispatches),1)
         local=self.db.conn.execute(
@@ -202,7 +244,7 @@ class LedgerTests(unittest.TestCase):
         evidence=list((self.root/"evidence"/issue.ticket).rglob("*.zip"))
         self.assertEqual(len(evidence),2)
         self.assertEqual(run_once(self.db,gh,self.path,HMAC,
-                          now="2026-10-21T10:02:00Z",native_enabled=True)["disposition"],
+                          now="2026-10-21T10:02:00Z")["disposition"],
                          "QUEUE_EMPTY_NO_SCIENCE")
         self.assertEqual(len(gh.dispatches),1)
 
