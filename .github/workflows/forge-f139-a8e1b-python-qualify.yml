@@ -1,0 +1,46 @@
+name: FORGE F139 A8E1B exact native Python toolcache qualification
+# Qualification-only: no controller secrets, worker dispatch or scientific use.
+on:
+  push:
+    branches: [qualification/f139-a8e1-toolcache-proof-20261021]
+permissions:
+  contents: read
+jobs:
+  python-provisioning:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert the exact qualified native worker Python selector
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'A8E1B_SOURCE_DRIFT' }
+          $worker = Get-Content -Raw -LiteralPath '.github/workflows/forge-f139-development-worker.yml'
+          $expected = "python-version: " + '${{ matrix.os == ''windows-latest'' && ''3.11.9'' || ''3.11.11'' }}'
+          if ([regex]::Matches($worker,[regex]::Escape($expected)).Count -ne 1) { throw 'A8E1B_NATIVE_SELECTOR_DRIFT' }
+          Write-Host 'F139_A8E1B_NATIVE_SELECTOR_PINNED=PASS'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.os == 'windows-latest' && '3.11.9' || '3.11.11' }}
+      - name: Verify exact interpreter and native-worker source contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $want = if ($env:RUNNER_OS -eq 'Windows') { '3.11.9' } else { '3.11.11' }
+          $actual = (& python -c "import sys; print('.'.join(map(str,sys.version_info[:3])))").Trim()
+          if ($actual -cne $want) { throw ('A8E1B_PYTHON_VERSION_DRIFT=' + $actual + ' EXPECTED=' + $want) }
+          Write-Host ('F139_A8E1B_NATIVE_PYTHON_PROVISIONED=' + $env:RUNNER_OS + '/' + $actual)
+          python -B -m unittest discover -s f139 -p 'test_nci04_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'A8E1B_NATIVE_CONTRACT_REGRESSION' }
+          python -B -m compileall -q f139
+          if ($LASTEXITCODE -ne 0) { throw 'A8E1B_NATIVE_SYNTAX_FAILED' }
+          Write-Host 'F139_A8E1B_NATIVE_SOURCE_TESTS=PASS'
+          Write-Host 'F139_A8E1B_ORIGINAL_DISPATCH=NONE'
+          Write-Host 'F139_A8E1B_SCIENTIFIC_FIRST_USE=FALSE'
