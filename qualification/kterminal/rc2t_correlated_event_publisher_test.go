@@ -68,7 +68,7 @@ func TestRC2TCorrelatedSyntheticConfirmedEventAndDashboardPublication(t *testing
            CostBasis:after.CostBasis,AverageBuy:after.AverageBuy,
            RealizedPnL:after.RealizedPnL,PositionAccountingVerified:after.AccountingVerified,
            BasisVerified:!after.BasisEstimated,BasisDisplayKnown:true,
-           AccountingStatus:after.AccountingStatus,
+           AccountingStatus:string(after.AccountingStatus),
         }
         prepared:=time.Now()
         publishDashboardUISnapshot(snap,nil)
