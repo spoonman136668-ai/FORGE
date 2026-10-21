@@ -60,6 +60,8 @@ def native_receipt_from_zip(raw: bytes, meta: dict, task: dict,
             receipt_raw=archive.read("f139-receipt.json")
             sha_raw=archive.read("f139-receipt.sha256")
             report_raw=archive.read("f139-native-report.json")
+    except NativeReceiptDenied:
+        raise
     except (OSError,ValueError,zipfile.BadZipFile,RuntimeError) as exc:
         raise NativeReceiptDenied("F139_NCI04_A6_NATIVE_ZIP_INVALID") from exc
     require(sha_raw==(digest(receipt_raw)+"  f139-receipt.json\n").encode(),
