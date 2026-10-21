@@ -273,16 +273,12 @@ def verify_native_activation(db):
             json.loads(t["payload"]) for t in db.conn.execute(
                 "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
                 " AND seq < ? ORDER BY seq", (row["seq"],))]
-        source_at_activation = (transitions[-1]["to_source_sha"] if
-                                transitions else db.conn.execute(
-                                    "SELECT source_sha FROM tasks WHERE ticket LIKE 'f139-d2c-%'"
-                                    " ORDER BY ticket LIMIT 1").fetchone())
-        if not transitions:
-            # A synthetic, pre-transition development fixture can legitimately
-            # start at the present source. Real owner events always include
-            # source transitions before the initial native activation.
-            if not isinstance(source_at_activation,str):
-                source_at_activation = db.meta()["source_sha"]
+        origin=db.conn.execute(
+            "SELECT source_sha FROM tasks WHERE ticket LIKE 'f139-d2c-%'"
+            " ORDER BY ticket LIMIT 1").fetchone()
+        source_at_activation=(
+            transitions[-1]["to_source_sha"] if transitions else
+            (origin["source_sha"] if origin else db.meta()["source_sha"]))
         require(doc["source_sha"] == source_at_activation
                 and doc["source_sha"] not in seen,
                 "NATIVE_ACTIVATION_SOURCE_REPLAY")
