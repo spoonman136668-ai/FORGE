@@ -121,7 +121,7 @@ class OwnerNativeIssueTests(unittest.TestCase):
             inspect(raw)
 
     def test_source_and_native_tree_drift(self):
-        with self.assertRaisesRegex(ValueError, "CONTROLLER_IDENTITY_DRIFT"):
+        with self.assertRaisesRegex(NativeIssueDenied, "ISSUE_NATIVE_SCHEMA_OR_AUTHORITY"):
             inspect(issue(), main="9" * 40)
         with self.assertRaisesRegex(ValueError, "TARGET_COMMIT_DRIFT"):
             inspect(issue(), commit="9" * 40)
@@ -195,7 +195,7 @@ class OwnerNativeIssueTests(unittest.TestCase):
         fields = make_signed_dispatch_inputs(record, owner_hmac_key=HMAC, epoch=1)
         inp = verifier_inputs(record, fields["signature"])
         for k, altered in (("issue_number", "703"), ("issue_id", "5951234568"),
-                           ("body_sha256", "9" * 64)):
+                           ("issue_body_sha256", "9" * 64)):
             params = dict(
                 native_signature=fields["native_signature"],
                 issue_number=fields["issue_number"],
