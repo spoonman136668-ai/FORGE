@@ -49,7 +49,9 @@ jobs:
           }
           $donorSha='520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc'
           $donorTree='b74808f35e798b1b72e8fb31a49a5f4664ca87b5'
-          $candidateSha='c2d0ac91d132db4255d8c09dde9cdd290a4ec2b0'
+          $scriptCommit='c2d0ac91d132db4255d8c09dde9cdd290a4ec2b0'
+          $scriptBlob='c0eec0ed4e8ebaafd7e9e6d21358a637abb76c51'
+          $candidateSha='fde31f0da47de47ecc3c2693e52f6127bbabde7c'
           $root=Join-Path $env:RUNNER_TEMP ('d3g-native-'+[guid]::NewGuid().ToString('N'))
           $candidate=Join-Path $root 'ktrade'
           $donor=Join-Path $root 'original-ckb'
@@ -64,8 +66,17 @@ jobs:
             # request personal access, echo credentials, or clone CKB-plane.
             & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ktrade.git $candidate *> $cloneLog
             if($LASTEXITCODE -ne 0){throw 'D3G_EXISTING_MACHINE_KTRADE_READ_UNAVAILABLE'}
+            # PR #100 contains the acceptance script; its exact source
+            # inputs are PR #99. Split these two frozen identities to
+            # avoid the self-referential script-commit hash paradox.
+            & git -C $candidate checkout --quiet --detach $scriptCommit *> $cloneLog
+            if($LASTEXITCODE -ne 0){throw 'D3G_FROZEN_SCRIPT_COMMIT_UNAVAILABLE'}
+            $observedScriptBlob=(& git -C $candidate rev-parse 'HEAD:scripts/r25-c75d3g-original-native-qualify.ps1').Trim()
+            if($observedScriptBlob -cne $scriptBlob){throw 'D3G_SCRIPT_BLOB_DRIFT'}
+            $script=Join-Path $root 'offline-native-acceptance.ps1'
+            Copy-Item -LiteralPath (Join-Path $candidate 'scripts/r25-c75d3g-original-native-qualify.ps1') -Destination $script -ErrorAction Stop
             & git -C $candidate checkout --quiet --detach $candidateSha *> $cloneLog
-            if($LASTEXITCODE -ne 0){throw 'D3G_FROZEN_KTRADE_SHA_UNAVAILABLE'}
+            if($LASTEXITCODE -ne 0){throw 'D3G_FROZEN_NATIVE_SOURCE_COMMIT_UNAVAILABLE'}
             & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ckb.git $donor *> $cloneLog
             if($LASTEXITCODE -ne 0){throw 'D3G_EXISTING_MACHINE_CKB_READ_UNAVAILABLE'}
             & git -C $donor checkout --quiet --detach $donorSha *> $cloneLog
@@ -92,7 +103,6 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'D3G_PINNED_PUBLIC_GO_DEPENDENCIES_UNAVAILABLE'}
             }finally{Pop-Location}
             Write-Host 'D3G_PREPARED_ISOLATED_PUBLIC_GO_MODULE_CACHE=PASS'
-            $script=Join-Path $candidate 'scripts/r25-c75d3g-original-native-qualify.ps1'
             if(!(Test-Path -LiteralPath $script -PathType Leaf)){throw 'D3G_FROZEN_ACCEPTANCE_SCRIPT_MISSING'}
             & pwsh -NoLogo -NoProfile -NonInteractive -File $script -CandidateCheckout $candidate -DonorCheckout $donor *> $privateLog
             if($LASTEXITCODE -ne 0){
