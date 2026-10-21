@@ -55,7 +55,10 @@ jobs:
             Require (Test-Path -LiteralPath $path -PathType Leaf) 'TEST_MISSING'
             $stdout=Join-Path $logs ($name+'.out')
             $stderr=Join-Path $logs ($name+'.err')
-            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            # Canonical checkpoint and complete Windows regression use PS7.
+            # Their tests explicitly exercise Windows PowerShell 5.1 when required.
+            $testHost=if($name -in @('update-checkpoint','mind-checkpoint','full')){'pwsh.exe'}else{'powershell.exe'}
+            $p=Start-Process -FilePath $testHost -ArgumentList @(
               '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$path
             ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
             if($p.ExitCode -ne 0){
