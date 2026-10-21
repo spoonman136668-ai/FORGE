@@ -209,5 +209,71 @@ class NCI04SignedNativeTests(unittest.TestCase):
                     receipt_from_report(admitted, r)
 
 
+    def test_authenticated_intent_reaches_isolated_native_worker_and_receipt(self):
+        """One in-process credential-ephemeral qualification, NOT live dispatch."""
+        import subprocess
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from f139.nci04_native_contract import parse_intent
+        from f139.nci04_native_worker import stage_candidate, verify_fixed_commands
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "cognition").mkdir()
+            def git(*args):
+                p = subprocess.run(["git", "-C", str(source), *args],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   timeout=15, check=True)
+                return p.stdout.decode().strip()
+            git("init", "-q")
+            git("config", "user.name", "nci04-test")
+            git("config", "user.email", "nci04@example.invalid")
+            (source / "cognition" / "base.go").write_bytes(b"package cognition\n")
+            git("add", ".")
+            git("commit", "-qm", "sealed source fixture")
+            commit, tree = git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}")
+            blob = canonical({**intent(), "target_commit": commit, "target_tree_sha": tree})
+            candidate = parse_intent(blob, protected_main=MAIN,
+                                     target_commit=commit, target_tree_sha=tree)
+            ticket = "f139-nci04-i689-" + MAIN[:12] + "-" + candidate.intent_sha256[:8]
+            inp = {
+                "key": KEY, "ticket": ticket, "lane": "Wingless",
+                "source_sha": MAIN, "epoch": "1",
+                "repository": "spoonman136668-ai/FORGE",
+                "ref": "refs/heads/main", "event": "workflow_dispatch",
+                "head_sha": MAIN, "run_attempt": "1", "run_id": "39500123999",
+                "os": "ubuntu-latest",
+            }
+            inp["signature"] = sign_controller(KEY, ticket, "Wingless", MAIN, "1")
+            sig = sign_native_intent(inp, candidate, issue_number="689",
+                                     issue_id="123456", issue_body_sha256=BODY)
+            accepted = admit_native_intent(
+                inp, blob, native_signature=sig, issue_number="689",
+                issue_id="123456", issue_body_sha256=BODY,
+                authenticated_main_sha=MAIN, authenticated_target_commit=commit,
+                authenticated_target_tree=tree)
+            sandbox = root / "sandbox"
+            sandbox.mkdir()
+            staged = stage_candidate(accepted.intent, source, sandbox)
+            newfile = staged / "checkout" / "cognition" / "native_state.go"
+            self.assertEqual(newfile.read_bytes(), SOURCE)
+            self.assertFalse((source / "cognition" / "native_state.go").exists())
+            calls = []
+            def mock_native_test(argv, **kwargs):
+                calls.append(tuple(argv))
+                self.assertNotIn("F139_WORKER_HMAC_KEY", kwargs["env"])
+                return subprocess.CompletedProcess(argv, 0, b"qualified\n")
+            proof = verify_fixed_commands(accepted.intent, staged, runner=mock_native_test)
+            self.assertEqual(calls, list(COMMANDS["Wingless"]))
+            self.assertTrue(proof["qualification_complete"])
+            receipt = receipt_from_report(accepted, proof)
+            self.assertEqual(receipt["native_authorization_sha256"],
+                             accepted.authorization_sha256)
+            self.assertTrue(receipt["native_qualified"])
+            self.assertFalse(receipt["controller_unattended_verified"])
+            self.assertEqual(git("status", "--porcelain"), "")
+
+
 if __name__ == "__main__":
     unittest.main()
