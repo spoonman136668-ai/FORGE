@@ -701,6 +701,91 @@ class GitHub:
                 "D2K_DUPLICATE_ISSUE_IDENTITY")
         return sorted(accepted,key=lambda x:x["issue_number"])
 
+    def native_eligible_issues(self, source: str):
+        """Read-only authenticated issue and native target commit/tree catalog.
+
+        Existing controller and label remain unchanged. Called only after
+        explicit source-qualified native_enabled gate in the owner's tick.
+        """
+        from f139.nci04_owner_issue import (
+            LABEL, OWNER, inspect_owner_issue, NativeIssueDenied)
+        from f139.nci04_native_contract import NativeContractError
+        require(isinstance(source,str) and SHA.fullmatch(source) is not None,
+                "NATIVE_SOURCE_INVALID")
+        items = []
+        for page in (1, 2):
+            docs = self.get(
+                "repos/" + REPO + "/issues?state=open&labels=" + LABEL +
+                "&per_page=100&page=" + str(page))
+            require(isinstance(docs,list) and len(docs)<=100,
+                    "NATIVE_ISSUE_CATALOG_INVALID")
+            for raw in docs:
+                # A declarative issue may only select a *pinned* native commit.
+                # Independent GitHub API lookup binds actual Git tree identity.
+                try:
+                    body = json.loads(raw.get("body",""))
+                    encoded = body["intent_base64"]
+                    from f139.nci04_native_contract import canonical as _canonical
+                    import base64
+                    intent = json.loads(base64.b64decode(encoded,validate=True))
+                    lane = intent["lane"]
+                    require(lane in ("Wingless","Yggdrasil"),
+                            "NATIVE_LANE_FORBIDDEN")
+                    sha = intent["target_commit"]
+                    require(isinstance(sha,str) and SHA.fullmatch(sha) is not None,
+                            "NATIVE_TARGET_COMMIT_INVALID")
+                    native_repo = "spoonman136668-ai/" + lane
+                    raw_commit = self.runner([
+                        "repos/" + native_repo + "/git/commits/" + sha])
+                    commit = json.loads(raw_commit)
+                    require(commit.get("sha")==sha
+                            and isinstance(commit.get("tree"),dict)
+                            and isinstance(commit["tree"].get("sha"),str)
+                            and SHA.fullmatch(commit["tree"]["sha"]) is not None,
+                            "NATIVE_TARGET_GIT_PROVIDER_DRIFT")
+                    doc=inspect_owner_issue(
+                        raw, protected_main=source,
+                        authenticated_target_commit=sha,
+                        authenticated_target_tree=commit["tree"]["sha"])
+                except (ValueError,UnicodeError,KeyError,TypeError,
+                        NativeIssueDenied,NativeContractError) as exc:
+                    raise F139Error("F139_NATIVE_ISSUE_OR_SOURCE_REJECTED") from exc
+                items.append(doc)
+            if len(docs)<100:
+                break
+        else:
+            raise F139Error("F139_NATIVE_CATALOG_TRUNCATED")
+        require(len({x.number for x in items})==len(items)
+                and len({x.issue_id for x in items})==len(items),
+                "NATIVE_DUPLICATE_ISSUES")
+        return sorted(items,key=lambda x:x.number)
+
+    def dispatch_native(self, signed_fields: dict, issue):
+        """One original workflow endpoint, not another scheduler/controller."""
+        from f139.nci04_owner_issue import NativeIssue
+        import base64
+        require(isinstance(issue,NativeIssue)
+                and signed_fields["ticket"]==issue.ticket
+                and signed_fields["target_commit"]==issue.candidate.target_commit
+                and signed_fields["target_tree_sha"]==issue.candidate.target_tree_sha,
+                "NATIVE_DISPATCH_ISSUE_IDENTITY")
+        payload = [
+            "--method","POST",
+            "repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
+            "-f","ref=main",
+        ]
+        for key in ("ticket","lane","source_sha","epoch","signature",
+                    "native_signature","issue_number","issue_id","body_sha256",
+                    "qualification_key","target_commit","target_tree_sha"):
+            value=signed_fields[key]
+            require(isinstance(value,str) and 0<len(value)<=128,
+                    "NATIVE_DISPATCH_FIELD_INVALID")
+            payload.extend(["-f","inputs["+key+"]="+value])
+        encoded=base64.b64encode(issue.intent_raw).decode("ascii")
+        require(len(encoded)<59000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
+        payload.extend(["-f","inputs[intent_base64]="+encoded])
+        self.runner(payload)
+
     def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str, *, d2k_fields=None):
         require(TICKET.fullmatch(ticket) and lane in LANES and SHA.fullmatch(source)
                 and 0<epoch<2**31 and re.fullmatch(r"[a-f0-9]{64}",signature),
@@ -755,11 +840,19 @@ class GitHub:
         require(isinstance(jr,list) and isinstance(ar,list) and jobs.get("total_count")==len(jr)
                 and arts.get("total_count")==len(ar) and len(jr)<=100 and len(ar)<=100,
                 "PROVIDER_INDEX_TRUNCATED")
+        native = ticket.startswith("f139-nci04-")
+        job_prefix = "native-execute (" if native else "execute ("
+        artifact_prefix = "forge-f139-native-receipt-" if native else "forge-f139-dev-receipt-"
+        if native:
+            authorized = [x for x in jr if x.get("name")=="native-authorize"]
+            require(len(authorized)==1 and authorized[0].get("status")=="completed"
+                    and authorized[0].get("conclusion")=="success",
+                    "NATIVE_PROVIDER_AUTH_JOB_NOT_VERIFIED")
         for oslabel in ("windows-latest","ubuntu-latest"):
-            matching=[x for x in jr if x.get("name")=="execute ("+oslabel+")"]
+            matching=[x for x in jr if x.get("name")==job_prefix+oslabel+")"]
             require(len(matching)==1 and matching[0].get("status")=="completed"
                     and matching[0].get("conclusion")=="success", "WORKER_OS_NOT_VERIFIED")
-            names=[x for x in ar if x.get("name")=="forge-f139-dev-receipt-"+oslabel]
+            names=[x for x in ar if x.get("name")==artifact_prefix+oslabel]
             require(len(names)==1 and names[0].get("expired") is False
                     and names[0].get("workflow_run",{}).get("id")==rid
                     and names[0].get("workflow_run",{}).get("head_sha")==source
@@ -944,11 +1037,22 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None,
             rid,artifacts=result
             archives={}
             for oslabel in ("ubuntu-latest","windows-latest"):
-                matching=[x for x in artifacts if x.get("name")=="forge-f139-dev-receipt-"+oslabel]
+                prefix=("forge-f139-native-receipt-" if
+                        active["ticket"].startswith("f139-nci04-") else
+                        "forge-f139-dev-receipt-")
+                matching=[x for x in artifacts if x.get("name")==prefix+oslabel]
                 require(len(matching)==1,"AMBIGUOUS_PROVIDER_ARTIFACT")
                 raw=api.artifact(matching[0]["id"])
-                receipt_from_zip(raw,matching[0],active,rid,oslabel,meta["epoch"],
-                                 d2k_fields=db.d2k_fields(active["ticket"]))
+                if active["ticket"].startswith("f139-nci04-"):
+                    from f139.nci04_provider_receipt import native_receipt_from_zip
+                    from f139.nci04_owner_ledger import frozen_native_issue
+                    native_receipt_from_zip(
+                        raw, matching[0], active, rid, oslabel,
+                        meta["epoch"], frozen_native_issue(db,active["ticket"]),
+                        owner_hmac_key=hmac_key)
+                else:
+                    receipt_from_zip(raw,matching[0],active,rid,oslabel,meta["epoch"],
+                                     d2k_fields=db.d2k_fields(active["ticket"]))
                 archives[oslabel]=raw
             path,digest=store_evidence(db_path.parent,active["ticket"],rid,archives)
             db.terminal(active["ticket"],rid,path,digest)
