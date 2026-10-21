@@ -1,0 +1,73 @@
+name: K-Terminal RC2-S Windows WPF snapshot-to-control timing
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2s-wpf-consumer-timing.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-rc2s-wpf-sourcebound-20261020
+  cancel-in-progress: false
+jobs:
+  windows-sourcebound-wpf-consumer:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+    steps:
+      - name: Checkout test-only FORGE probe
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout frozen original K-Terminal without writes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout frozen PR73 without writes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Custody and synthetic-only Windows WPF environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_EVENT_NAME" = push
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kt-original status --porcelain)"
+          test -z "$(git -C kt-candidate status --porcelain)"
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            test -z "${!n:-}"
+          done
+          echo KTERM_RC2S_SOURCES_AND_NO_BROKER=PASS
+      - name: Measure unchanged consumer code and retain WPF fixture failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2s_wpf_consumer_harness.py \
+            kt-original kt-candidate \
+            qualification/kterminal/rc2s_wpf_snapshot_probe.ps1 \
+            "$RUNNER_TEMP/kterm-rc2s-wpf"
+          echo KTERM_RC2S_ORIGINAL_DESKTOP_EXE=NOT_LAUNCHED
+          echo KTERM_RC2S_FULL_REGRESSION=NOT_RUN
+          echo KTERM_RC2S_RELEASE=BLOCKED
+      - name: Retain safe WPF phase and fixture classifications
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2s-wpf-timing-${{ github.run_id }}
+          path: ${{ runner.temp }}/kterm-rc2s-wpf/rc2s-redacted-wpf-timing.json
+          retention-days: 14
+          if-no-files-found: warn
