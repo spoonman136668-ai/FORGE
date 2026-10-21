@@ -31,6 +31,24 @@ def custody(repo,expected):
     dirty=proc(["git","-C",str(repo),"status","--porcelain"],repo)
     if sha.returncode or dirty.returncode or sha.stdout.strip()!=expected or dirty.stdout.strip():
         raise RuntimeError("SOURCE_SHA_OR_CLEANLINESS_MISMATCH")
+def safe_ps_failure_identity(output,filename):
+    lines=sorted(set(int(x) for x in re.findall(
+        re.escape(filename)+r":([0-9]{1,5})",output,re.IGNORECASE)))[:6]
+    errors=sorted(set(re.findall(
+        r"FullyQualifiedErrorId\s*:\s*([A-Za-z_][A-Za-z0-9_.-]{0,70})",
+        output,re.IGNORECASE)))[:6]
+    exceptions=sorted(set(re.findall(
+        r"\b([A-Za-z_][A-Za-z0-9_]{2,65}Exception)\b",output)))[:6]
+    properties=sorted(set(re.findall(
+        r"The property .([A-Za-z_][A-Za-z0-9_]{0,55}). cannot be found",
+        output,re.IGNORECASE)))[:6]
+    variables=sorted(set(re.findall(
+        r"The variable .?\$([A-Za-z_][A-Za-z0-9_]{0,55})",
+        output,re.IGNORECASE)))[:6]
+    return {"error_line_numbers":lines,"error_ids":errors,
+       "exception_classes":exceptions,"missing_property":properties,
+       "unbound_variable":variables}
+
 def testcase(repo,source_label,ps,out):
     path=out/(source_label+"-wpf.json")
     invocation=["powershell.exe","-NoLogo","-NoProfile","-NonInteractive",
@@ -58,6 +76,7 @@ def testcase(repo,source_label,ps,out):
       "source":source_label,"result":"PASS" if valid else "FAIL_NOT_WAIVED",
       "exit_code":rc,"wall_s":round(time.monotonic()-before,3),
       "reason_classes":classifications,
+      "safe_error_identity":safe_ps_failure_identity(output,"rc2s_wpf_snapshot_probe.ps1"),
       "sample_count":len(data["samples"]) if data else 0,
       "observations":data["samples"] if valid else [],
       "shipping_pixel_paint_tested":False}
@@ -69,6 +88,7 @@ def testcase(repo,source_label,ps,out):
              "max":round(max(x[k] for x in data["samples"]),3)}
           for k in fields}
     print("KTERM_RC2S_"+source_label.upper()+"_SNAPSHOT_TO_WPF="+result["result"],flush=True)
+    print("KTERM_RC2S_"+source_label.upper()+"_PS_ERROR="+json.dumps(result["safe_error_identity"],sort_keys=True),flush=True)
     return result
 def layout_attribution(repo,label,out):
     # Read-only original failing fixture. No source or assertion relaxation.
@@ -87,10 +107,12 @@ def layout_attribution(repo,label,out):
     result={"source":label,"case":"unchanged_existing_WPF_resize",
         "result":"PASS" if rc==0 and "PASS: real WPF splitter" in output else "FAIL_NOT_WAIVED",
         "exit_code":rc,"reason_classes":categories,
+        "safe_error_identity":safe_ps_failure_identity(output,"test-dashboard-resize.ps1"),
         "elapsed_ms":round((time.monotonic()-start)*1000,2),
         "source_edited":False}
     print("KTERM_RC2S_"+label.upper()+"_UNCHANGED_WPF_RESIZE="+result["result"],flush=True)
     print("KTERM_RC2S_"+label.upper()+"_RESIZE_CAUSE="+",".join(result["reason_classes"]),flush=True)
+    print("KTERM_RC2S_"+label.upper()+"_LAYOUT_ERROR="+json.dumps(result["safe_error_identity"],sort_keys=True),flush=True)
     return result
 def main():
     if len(sys.argv)!=5:raise RuntimeError("ORIGINAL_CAND_WPF_PROBE_OUTPUT_REQUIRED")
