@@ -904,8 +904,12 @@ def native_original_owner_profile(db_path: Path) -> bool:
         # disabled for the bounded owner cutover, preventing a scheduled
         # Python child from racing the SQLite source transition.
         "if($t.State -ne 'Disabled'){exit 43};"
+        # Exclude ONLY this exact owner CLI process. Other F139 Python
+        # children pointing at the same source/DB must still block the cutover.
+        "$selfId=[int]$env:F139_EXPECTED_NATIVE_CLI_PID;"
+        "if($selfId -le 0){exit 51};"
         "$processes=@(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
-        "-ErrorAction Stop | Where-Object { $_.CommandLine -and "
+        "-ErrorAction Stop | Where-Object { [int]$_.ProcessId -ne $selfId -and $_.CommandLine -and "
         "$_.CommandLine.Contains('f139.local_controller') -and "
         "$_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE) });"
         "if($processes.Count -gt 0){exit 50};"
@@ -926,7 +930,8 @@ def native_original_owner_profile(db_path: Path) -> bool:
     )
     env={**os.environ,
          "F139_EXPECTED_TASK_SOURCE_ROOT":str(Path(__file__).resolve().parent.parent),
-         "F139_EXPECTED_TASK_DATABASE":str(Path(db_path).resolve())}
+         "F139_EXPECTED_TASK_DATABASE":str(Path(db_path).resolve()),
+         "F139_EXPECTED_NATIVE_CLI_PID":str(os.getpid())}
     result=subprocess.run(
         [source,"-NoProfile","-NonInteractive","-Command",script],
         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
