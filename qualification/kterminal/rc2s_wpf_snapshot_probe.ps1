@@ -56,6 +56,7 @@ $window=[Windows.Window]::new()
 $window.Width=640
 $window.Height=240
 $window.Content=$panel
+$script:stage='PREPARE_WPF'
 $script:watch=[Diagnostics.Stopwatch]::StartNew()
 $script:recorded=New-Object 'Collections.Generic.List[object]'
 $script:waitingGeneration=0
@@ -78,6 +79,7 @@ $timer.Add_Tick({
   & $poll
 })
 function Update-Dashboard($snapshot){
+  $script:stage='PRODUCTION_CALLBACK'
   $start=$script:watch.Elapsed.TotalMilliseconds
   & $script:actualUpdateDashboard $snapshot
   $script:updateMs=$script:watch.Elapsed.TotalMilliseconds-$start
@@ -87,6 +89,7 @@ function Update-Dashboard($snapshot){
   }
   $script:updateCalled++
   $script:appliedGeneration=[int]$snapshot.generation
+  $script:stage='OFFSCREEN_WPF_RENDER'
   $startPaint=$script:watch.Elapsed.TotalMilliseconds
   $panel.Measure([Windows.Size]::new(640,220))
   $panel.Arrange([Windows.Rect]::new(0,0,640,220))
@@ -130,10 +133,12 @@ try{
     $payload=$snapshot|ConvertTo-Json -Compress -Depth 5
     $candidate=$snapshotPath+'.tmp'
     [IO.File]::WriteAllText($candidate,$payload)
+    $script:stage='ATOMIC_SNAPSHOT_PUBLISH'
     Move-KTerminalAtomicFile -TemporaryPath $candidate -Path $snapshotPath
     # Changes must be observable even on coarse filesystem timestamp ticks.
     [IO.File]::SetLastWriteTimeUtc($snapshotPath,[datetime]::UtcNow.AddSeconds($generation))
     $script:publishAtMs=$script:watch.Elapsed.TotalMilliseconds
+    $script:stage='POLL_AND_DISPATCH'
     Pump-WPF 140
     if($script:appliedGeneration-ne$generation){
       throw 'RC2S_SNAPSHOT_NOT_CONSUMED_WITHIN_BOUNDED_DISPATCHER_PUMPS'
@@ -142,6 +147,7 @@ try{
   if($script:recorded.Count-ne6 -or $script:updateCalled-ne6){
     throw 'RC2S_MISSED_OR_DUPLICATE_APPLICATION'
   }
+  $script:stage='TIMING_REPORT'
   $rows=@($script:recorded)
   $latencyBreach=@($rows|Where-Object{$_.source_publish_to_update_ms-lt0 -or $_.source_publish_to_update_ms-gt500}).Count -gt 0
   $summary=[ordered]@{
@@ -163,6 +169,10 @@ try{
   Write-Output ('KTERM_RC2S_SAMPLES='+$rows.Count)
   Write-Output ('KTERM_RC2S_MAX_PUBLISH_TO_WPF_MS='+([math]::Round((@($rows|ForEach-Object{$_.source_publish_to_update_ms}|Measure-Object -Maximum).Maximum),3)))
   Write-Output ('KTERM_RC2S_SHIPPING_PIXEL_PAINT=NOT_MEASURED')
+}catch{
+  Write-Output ('KTERM_RC2S_FAILURE_STAGE='+$script:stage)
+  Write-Output ('KTERM_RC2S_FAILURE_CLASS='+$_.Exception.GetType().Name)
+  throw
 }finally{
   $timer.Stop()
   $window.Close()
