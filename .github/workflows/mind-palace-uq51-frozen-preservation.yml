@@ -36,7 +36,7 @@ jobs:
           Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $sourceBranch='engineering/uq51-frozen-regression-preservation-20261021'
-          $sourceSha='dbdd3b537ee047df9aa14f394a7d7e1b625233e1'
+          $sourceSha='2654a06149e31c231e3f7114d2679b4d2396c55f'
           $mainSha='5e7414966bdcb6e75776ea3422b98422b20c9025'
           $scratch=Join-Path $env:RUNNER_TEMP ('uq51-integrity-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -70,6 +70,8 @@ jobs:
               Write-Host ('UQ51_FAILURE_CODE='+$code)
               Write-Host ('UQ51_FAILURE_CLASS='+$class)
               $outText=[IO.File]::ReadAllText($stdout)
+              $steps=@([regex]::Matches($outText,'UQ51_UPDATE_STEP_[A-Z_]+') | ForEach-Object {$_.Value})
+              if($steps.Count -gt 0){Write-Host ('UQ51_LAST_CHECKPOINT_STAGE='+$steps[-1])}
               $joined=$errText + [Environment]::NewLine + $outText
               # Emit only whitelisted test source locations and fixed diagnostic phrases.
               $locations=@([regex]::Matches($joined,'(?i)(Test-UpdateCheckpoint|update-checkpoint|remote-snapshot|Test-RepoSourceTransaction|mind)\.ps1:(\d{1,4})'))
