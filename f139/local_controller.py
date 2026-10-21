@@ -900,7 +900,15 @@ def native_original_owner_profile(db_path: Path) -> bool:
         "try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate("
         "[Security.Principal.SecurityIdentifier]).Value}catch{};"
         "if($principal -ine $who.Name -and $sid -ne $who.User.Value){exit 42};"
-        "if($t.State -notin @('Ready','Running')){exit 43};"
+        # A source transition is allowed only while the ORIGINAL task is
+        # disabled for the bounded owner cutover, preventing a scheduled
+        # Python child from racing the SQLite source transition.
+        "if($t.State -ne 'Disabled'){exit 43};"
+        "$processes=@(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
+        "-ErrorAction Stop | Where-Object { $_.CommandLine -and "
+        "$_.CommandLine.Contains('f139.local_controller') -and "
+        "$_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE) });"
+        "if($processes.Count -gt 0){exit 50};"
         "if(@($t.Actions).Count -ne 1){exit 44};"
         "$a=$t.Actions[0];"
         "if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe'){exit 45};"
