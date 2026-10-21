@@ -148,8 +148,11 @@ try{
     throw 'RC2S_MISSED_OR_DUPLICATE_APPLICATION'
   }
   $script:stage='TIMING_REPORT'
-  $rows=@($script:recorded)
-  $latencyBreach=@($rows|Where-Object{$_.source_publish_to_update_ms-lt0 -or $_.source_publish_to_update_ms-gt500}).Count -gt 0
+  $rows=$script:recorded.ToArray()
+  $latencyBreach=$false
+  foreach($sample in $rows){
+    if($sample.source_publish_to_update_ms -lt 0 -or $sample.source_publish_to_update_ms -gt 500){$latencyBreach=$true}
+  }
   $summary=[ordered]@{
     schema='kterminal.rc2s.wpf-poll-actual-callback-diagnostic.v1'
     production_wpf_poll_AST=$true
