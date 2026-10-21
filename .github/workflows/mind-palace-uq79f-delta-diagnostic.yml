@@ -1,0 +1,89 @@
+name: Mind-Palace UQ79F isolated ChatDelta diagnostic
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq79f-delta-diagnostic.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq79f-delta-diagnostic
+  cancel-in-progress: false
+jobs:
+  diagnostic:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout diagnostic event
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Native isolated source-pinned delta regression and redacted error evidence
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$ok,[string]$errorCode) { if(-not $ok){throw ('UQ79F_'+$errorCode)} }
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(Test-Path -LiteralPath $native -PathType Container){$env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath}
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='engineering/uq51-frozen-regression-preservation-20261021'
+          $sha='3a34def4944a2683bd4f41ab7a9e824c10a4c85a'
+          $base='5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq79f-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $out=Join-Path $scratch 'stdout.log'
+          $err=Join-Path $scratch 'stderr.log'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$expected){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and (([string]$rows[0] -split '\s+')[0]) -ceq $expected) ('REF_DRIFT_'+$ref)
+          }
+          function Redact([string]$s){
+            $s=[regex]::Replace($s,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
+            $s=[regex]::Replace($s,'https?://[^\s]+','<SOURCE_URL>')
+            $s=[regex]::Replace($s,'[a-fA-F0-9]{32,}','<DIGEST>')
+            $s=[regex]::Replace($s,'[\x00-\x1f\x7f]',' ')
+            if($s.Length -gt 220){$s=$s.Substring(0,220)}
+            return $s
+          }
+          Require (-not (Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          try{
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $sha
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0 -and (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $sha) 'SOURCE_CLONE_OR_IDENTITY'
+            $before=@{}
+            foreach($f in $guard){$before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $script=Join-Path $root 'tests/Test-ChatDeltaIngest.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $text=[IO.File]::ReadAllText($err)
+            $stdout=[IO.File]::ReadAllText($out)
+            $lines=@(($text -split '\r?\n')|Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $output=@(($stdout -split '\r?\n')|Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            Write-Host ('UQ79F_DELTA_EXIT='+$p.ExitCode)
+            Write-Host ('UQ79F_DELTA_OUT_LINES='+$output.Count)
+            if($output.Count){ Write-Host ('UQ79F_DELTA_OUT_LAST='+ (Redact ([string]$output[-1]))) }
+            foreach($line in ($lines|Select-Object -First 3)){Write-Host ('UQ79F_REDACTED_ERROR_FIRST='+(Redact ([string]$line)))}
+            foreach($line in ($lines|Select-Object -Last 7)){Write-Host ('UQ79F_REDACTED_ERROR_LAST='+(Redact ([string]$line)))}
+            foreach($f in $guard){$after=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant();Require ($before[$f] -ceq $after) ('PROTECTED_DRIFT_'+$f)}
+            Require (@(& git.exe -C $root status --porcelain=v1 --untracked-files=no).Count -eq 0) 'SOURCE_DIRTY'
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $sha
+            Write-Host 'UQ79F_PROTECTED_HASH_PARITY=PASS'
+            Write-Host 'UQ79F_PRODUCTION_WRITES=0'
+            Require ($p.ExitCode -eq 0) 'DELTA_REGRESSION_FAIL'
+            Write-Host 'UQ79F_DELTA_NATIVE=PASS'
+          }finally{
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_RETAINED'
+            Write-Host 'UQ79F_SCRATCH_CLEAN=PASS'
+          }
