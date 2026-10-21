@@ -317,6 +317,11 @@ class Database:
                          if row["source_sha"] in historical_sources and row["stage"] == "VERIFIED")
             require(admitted >= source_transitions[-1]["verified_historical_tasks"],
                     "SOURCE_TRANSITION_HISTORIC_COUNT_INVALID")
+        # NCI04 admission is additive; historic F139/D2K event semantics stay
+        # exact. Check native admission against the original SHA-linked SQLite
+        # chain, preventing cross-kind issue replay and fabricated task records.
+        from f139.nci04_owner_ledger import audit_native_events
+        audit_native_events(self)
         active = self.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')").fetchone()[0]
         require(active <= 1, "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
 
@@ -696,6 +701,99 @@ class GitHub:
                 "D2K_DUPLICATE_ISSUE_IDENTITY")
         return sorted(accepted,key=lambda x:x["issue_number"])
 
+    def native_eligible_issues(self, source: str):
+        """Read-only authenticated issue and native target commit/tree catalog.
+
+        Existing controller and label remain unchanged. Called only after
+        explicit source-qualified native_enabled gate in the owner's tick.
+        """
+        from f139.nci04_owner_issue import (
+            LABEL, OWNER, inspect_owner_issue, NativeIssueDenied)
+        from f139.nci04_native_contract import NativeContractError
+        require(isinstance(source,str) and SHA.fullmatch(source) is not None,
+                "NATIVE_SOURCE_INVALID")
+        items = []
+        for page in (1, 2):
+            docs = self.get(
+                "repos/" + REPO + "/issues?state=open&labels=" + LABEL +
+                "&per_page=100&page=" + str(page))
+            require(isinstance(docs,list) and len(docs)<=100,
+                    "NATIVE_ISSUE_CATALOG_INVALID")
+            for raw in docs:
+                # A declarative issue may only select a *pinned* native commit.
+                # Independent GitHub API lookup binds actual Git tree identity.
+                try:
+                    body = json.loads(raw.get("body",""))
+                    encoded = body["intent_base64"]
+                    from f139.nci04_native_contract import canonical as _canonical
+                    import base64
+                    intent = json.loads(base64.b64decode(encoded,validate=True))
+                    lane = intent["lane"]
+                    require(lane in ("Wingless","Yggdrasil"),
+                            "NATIVE_LANE_FORBIDDEN")
+                    sha = intent["target_commit"]
+                    require(isinstance(sha,str) and SHA.fullmatch(sha) is not None,
+                            "NATIVE_TARGET_COMMIT_INVALID")
+                    native_repo = "spoonman136668-ai/" + lane
+                    raw_commit = self.runner([
+                        "repos/" + native_repo + "/git/commits/" + sha])
+                    commit = json.loads(raw_commit)
+                    require(commit.get("sha")==sha
+                            and isinstance(commit.get("tree"),dict)
+                            and isinstance(commit["tree"].get("sha"),str)
+                            and SHA.fullmatch(commit["tree"]["sha"]) is not None,
+                            "NATIVE_TARGET_GIT_PROVIDER_DRIFT")
+                    doc=inspect_owner_issue(
+                        raw, protected_main=source,
+                        authenticated_target_commit=sha,
+                        authenticated_target_tree=commit["tree"]["sha"])
+                except (ValueError,UnicodeError,KeyError,TypeError,
+                        NativeIssueDenied,NativeContractError) as exc:
+                    raise F139Error("F139_NATIVE_ISSUE_OR_SOURCE_REJECTED") from exc
+                items.append(doc)
+            if len(docs)<100:
+                break
+        else:
+            raise F139Error("F139_NATIVE_CATALOG_TRUNCATED")
+        require(len({x.number for x in items})==len(items)
+                and len({x.issue_id for x in items})==len(items),
+                "NATIVE_DUPLICATE_ISSUES")
+        return sorted(items,key=lambda x:x.number)
+
+    def dispatch_native(self, signed_fields: dict, issue):
+        """One original workflow endpoint, not another scheduler/controller."""
+        from f139.nci04_owner_issue import NativeIssue
+        import base64
+        require(isinstance(issue,NativeIssue)
+                and signed_fields["ticket"]==issue.ticket
+                and signed_fields["target_commit"]==issue.candidate.target_commit
+                and signed_fields["target_tree_sha"]==issue.candidate.target_tree_sha,
+                "NATIVE_DISPATCH_ISSUE_IDENTITY")
+        payload = [
+            "--method","POST",
+            "repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
+            "-f","ref=main",
+        ]
+        # GitHub workflow_dispatch supports only TEN input keys; legacy
+        # endpoint already consumes nine. Keep those exact preexisting fields
+        # and add ONE source-bound, typed, encoded native bundle.
+        for key in ("ticket","lane","source_sha","epoch","signature"):
+            value=signed_fields[key]
+            require(isinstance(value,str) and 0<len(value)<=128,
+                    "NATIVE_DISPATCH_FIELD_INVALID")
+            payload.extend(["-f","inputs["+key+"]="+value])
+        bundle = {
+            key:signed_fields[key]
+            for key in ("native_signature","issue_number","issue_id",
+                        "body_sha256","qualification_key",
+                        "target_commit","target_tree_sha")
+        }
+        bundle["intent_base64"] = base64.b64encode(issue.intent_raw).decode("ascii")
+        encoded=base64.b64encode(canonical(bundle)).decode("ascii")
+        require(0<len(encoded)<=60000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
+        payload.extend(["-f","inputs[native_bundle]="+encoded])
+        self.runner(payload)
+
     def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str, *, d2k_fields=None):
         require(TICKET.fullmatch(ticket) and lane in LANES and SHA.fullmatch(source)
                 and 0<epoch<2**31 and re.fullmatch(r"[a-f0-9]{64}",signature),
@@ -750,11 +848,19 @@ class GitHub:
         require(isinstance(jr,list) and isinstance(ar,list) and jobs.get("total_count")==len(jr)
                 and arts.get("total_count")==len(ar) and len(jr)<=100 and len(ar)<=100,
                 "PROVIDER_INDEX_TRUNCATED")
+        native = ticket.startswith("f139-nci04-")
+        job_prefix = "native-execute (" if native else "execute ("
+        artifact_prefix = "forge-f139-native-receipt-" if native else "forge-f139-dev-receipt-"
+        if native:
+            authorized = [x for x in jr if x.get("name")=="native-authorize"]
+            require(len(authorized)==1 and authorized[0].get("status")=="completed"
+                    and authorized[0].get("conclusion")=="success",
+                    "NATIVE_PROVIDER_AUTH_JOB_NOT_VERIFIED")
         for oslabel in ("windows-latest","ubuntu-latest"):
-            matching=[x for x in jr if x.get("name")=="execute ("+oslabel+")"]
+            matching=[x for x in jr if x.get("name")==job_prefix+oslabel+")"]
             require(len(matching)==1 and matching[0].get("status")=="completed"
                     and matching[0].get("conclusion")=="success", "WORKER_OS_NOT_VERIFIED")
-            names=[x for x in ar if x.get("name")=="forge-f139-dev-receipt-"+oslabel]
+            names=[x for x in ar if x.get("name")==artifact_prefix+oslabel]
             require(len(names)==1 and names[0].get("expired") is False
                     and names[0].get("workflow_run",{}).get("id")==rid
                     and names[0].get("workflow_run",{}).get("head_sha")==source
@@ -767,6 +873,68 @@ class GitHub:
         zipbytes=self.runner([f"repos/{REPO}/actions/artifacts/{artifact_id}/zip"])
         require(isinstance(zipbytes,bytes) and 0<len(zipbytes)<MAX_ZIP_BYTES,"ARTIFACT_TOO_LARGE")
         return zipbytes
+
+
+def native_original_owner_profile(db_path: Path) -> bool:
+    """Read-only SID, DB and *scheduled source root* custody check.
+
+    The installed PowerShell wrapper can reside in the historical D2N tree,
+    but its -RepositoryRoot parameter MUST equal the exact Python checkout
+    executing a native source transition or activation. Never inspect or
+    print DPAPI key material or the raw scheduled task command line.
+    """
+    require(os.name=="nt","NATIVE_OWNER_MUST_BE_WINDOWS")
+    profile=os.environ.get("LOCALAPPDATA","")
+    require(bool(profile),"OWNER_LOCALAPPDATA_MISSING")
+    expected=Path(profile)/"FORGE-F139"/"state.sqlite"
+    require(Path(db_path).resolve()==expected.resolve(),
+            "ORIGINAL_OWNER_DATABASE_PROFILE_MISMATCH")
+    source=shutil.which("powershell.exe")
+    require(source is not None,"OWNER_WINDOWS_POWERSHELL_UNAVAILABLE")
+    script=(
+        "$ErrorActionPreference='Stop';"
+        "$t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop;"
+        "$who=[Security.Principal.WindowsIdentity]::GetCurrent();"
+        "$principal=[string]$t.Principal.UserId;"
+        "$sid='';"
+        "try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate("
+        "[Security.Principal.SecurityIdentifier]).Value}catch{};"
+        "if($principal -ine $who.Name -and $sid -ne $who.User.Value){exit 42};"
+        # A source transition is allowed only while the ORIGINAL task is
+        # disabled for the bounded owner cutover, preventing a scheduled
+        # Python child from racing the SQLite source transition.
+        "if($t.State -ne 'Disabled'){exit 43};"
+        "$processes=@(Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" "
+        "-ErrorAction Stop | Where-Object { $_.CommandLine -and "
+        "$_.CommandLine.Contains('f139.local_controller') -and "
+        "$_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE) });"
+        "if($processes.Count -gt 0){exit 50};"
+        "if(@($t.Actions).Count -ne 1){exit 44};"
+        "$a=$t.Actions[0];"
+        "if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe'){exit 45};"
+        "$opts=[string]$a.Arguments;"
+        "$root=[regex]::Match($opts,'(?i)(?:^|\\s)-RepositoryRoot\\s+\"([^\"]+)\"');"
+        "$db=[regex]::Match($opts,'(?i)(?:^|\\s)-Database\\s+\"([^\"]+)\"');"
+        "$wrapper=[regex]::Match($opts,'(?i)(?:^|\\s)-File\\s+\"([^\"]+)\"');"
+        "if(-not($root.Success -and $db.Success -and $wrapper.Success)){exit 46};"
+        "if([IO.Path]::GetFileName($wrapper.Groups[1].Value) -cne 'Run-FORGE-F139.ps1'){exit 47};"
+        "if([IO.Path]::GetFullPath($root.Groups[1].Value) -ine "
+        "[IO.Path]::GetFullPath($env:F139_EXPECTED_TASK_SOURCE_ROOT)){exit 48};"
+        "if([IO.Path]::GetFullPath($db.Groups[1].Value) -ine "
+        "[IO.Path]::GetFullPath($env:F139_EXPECTED_TASK_DATABASE)){exit 49};"
+        "Write-Output 'F139_NATIVE_ORIGINAL_OWNER_PROFILE=PASS'"
+    )
+    env={**os.environ,
+         "F139_EXPECTED_TASK_SOURCE_ROOT":str(Path(__file__).resolve().parent.parent),
+         "F139_EXPECTED_TASK_DATABASE":str(Path(db_path).resolve())}
+    result=subprocess.run(
+        [source,"-NoProfile","-NonInteractive","-Command",script],
+        stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,env=env,timeout=20,check=False)
+    require(result.returncode==0 and
+            result.stdout.strip()==b"F139_NATIVE_ORIGINAL_OWNER_PROFILE=PASS",
+            "ORIGINAL_OWNER_PROFILE_TASK_ROUTE_OR_DB_DRIFT")
+    return True
 
 
 def legacy_windows_task_disabled():
@@ -922,6 +1090,10 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
     db.verify()
+    from f139.nci04_owner_ledger import verify_native_activation
+    # Original Tick/Loop now recognizes only a genuine append-only owner
+    # activation event, not an issue label, environment toggle or auto-setup.
+    native_enabled = verify_native_activation(db)
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
     require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
@@ -938,11 +1110,22 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             rid,artifacts=result
             archives={}
             for oslabel in ("ubuntu-latest","windows-latest"):
-                matching=[x for x in artifacts if x.get("name")=="forge-f139-dev-receipt-"+oslabel]
+                prefix=("forge-f139-native-receipt-" if
+                        active["ticket"].startswith("f139-nci04-") else
+                        "forge-f139-dev-receipt-")
+                matching=[x for x in artifacts if x.get("name")==prefix+oslabel]
                 require(len(matching)==1,"AMBIGUOUS_PROVIDER_ARTIFACT")
                 raw=api.artifact(matching[0]["id"])
-                receipt_from_zip(raw,matching[0],active,rid,oslabel,meta["epoch"],
-                                 d2k_fields=db.d2k_fields(active["ticket"]))
+                if active["ticket"].startswith("f139-nci04-"):
+                    from f139.nci04_provider_receipt import native_receipt_from_zip
+                    from f139.nci04_owner_ledger import frozen_native_issue
+                    native_receipt_from_zip(
+                        raw, matching[0], active, rid, oslabel,
+                        meta["epoch"], frozen_native_issue(db,active["ticket"]),
+                        owner_hmac_key=hmac_key)
+                else:
+                    receipt_from_zip(raw,matching[0],active,rid,oslabel,meta["epoch"],
+                                     d2k_fields=db.d2k_fields(active["ticket"]))
                 archives[oslabel]=raw
             path,digest=store_evidence(db_path.parent,active["ticket"],rid,archives)
             db.terminal(active["ticket"],rid,path,digest)
@@ -971,20 +1154,42 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             if db.admit_d2k_issue(item):
                 ready=db.ready()
             break
+    if ready is None and native_enabled:
+        # Inert in the shipping controller. Exact future source-transition and
+        # owner activation are mandatory before this gate can be called.
+        # Same single-owner lock, SQLite ledger and once-only budget as D2K.
+        from f139.nci04_owner_ledger import admit_native_issue
+        known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
+        for native_issue in api.native_eligible_issues(meta["source_sha"]):
+            if native_issue.ticket in known:
+                continue
+            if admit_native_issue(db, native_issue, timestamp):
+                ready = db.ready()
+            break
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
     db.claim(task["ticket"],timestamp)
     from f139.verify_ticket import signature as sign_worker_ticket
     d2k=db.d2k_fields(task["ticket"])
-    signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
-                                 task["source_sha"],str(meta["epoch"]),
-                                 **(d2k or {}))
-    if d2k is not None:
-        api.dispatch(task["ticket"],task["lane"],task["source_sha"],
-                     meta["epoch"],signature,d2k_fields=d2k)
+    native = task["ticket"].startswith("f139-nci04-")
+    if native:
+        require(native_enabled, "NATIVE_DISPATCH_NOT_ACTIVATED")
+        from f139.nci04_owner_ledger import frozen_native_issue
+        from f139.nci04_owner_issue import make_signed_dispatch_inputs
+        issue = frozen_native_issue(db, task["ticket"])
+        fields = make_signed_dispatch_inputs(
+            issue, owner_hmac_key=hmac_key, epoch=meta["epoch"])
+        api.dispatch_native(fields, issue)
     else:
-        api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
+        signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
+                                     task["source_sha"],str(meta["epoch"]),
+                                     **(d2k or {}))
+        if d2k is not None:
+            api.dispatch(task["ticket"],task["lane"],task["source_sha"],
+                         meta["epoch"],signature,d2k_fields=d2k)
+        else:
+            api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
     db.dispatch_observed(task["ticket"])
     return {"disposition":"DEVELOPMENT_DISPATCHED_ONCE","ticket":task["ticket"],"science_authorized":False}
 
@@ -998,6 +1203,10 @@ def cli(argv=None):
     sub.add_parser("status")
     enable=sub.add_parser("activate");enable.add_argument("--legacy-suspended-evidence",type=Path,required=True)
     sub.add_parser("tick")
+    owner_native=sub.add_parser("activate-native")
+    owner_native.add_argument("--approval",type=Path,required=True)
+    transition=sub.add_parser("transition-qualified-native")
+    transition.add_argument("--approval",type=Path,required=True)
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1026,6 +1235,76 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="transition-qualified-native":
+            # The owner must run this exact, qualified, protected-main checkout;
+            # never rewrite historical identities or reset the event chain.
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"SOURCE_APPROVAL_FILE_INVALID")
+            proof=json.loads(raw)
+            from f139.nci04_owner_ledger import SEALED_OWNER_PREFIX_HEAD
+            expected={"schema","from_source_sha","to_source_sha",
+                      "expected_event_head_sha256","sealed_23_event_head_sha256",
+                      "native_development_only","scientific_first_use",
+                      "new_controller","paid_api_calls"}
+            require(isinstance(proof,dict) and set(proof)==expected
+                    and proof["schema"]==
+                       "forge.f139.nci04.owner-source-transition-approval.v1"
+                    and proof["from_source_sha"]==db.meta()["source_sha"]
+                    and proof["expected_event_head_sha256"]==db.meta()["head_hash"]
+                    and proof["sealed_23_event_head_sha256"]==SEALED_OWNER_PREFIX_HEAD
+                    and proof["native_development_only"] is True
+                    and proof["scientific_first_use"] is False
+                    and proof["new_controller"] is False
+                    and type(proof["paid_api_calls"]) is int
+                    and proof["paid_api_calls"]==0
+                    and isinstance(proof["to_source_sha"],str)
+                    and SHA.fullmatch(proof["to_source_sha"]) is not None,
+                    "SOURCE_TRANSITION_APPROVAL_INVALID")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"TRANSITION_CHECKOUT_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git_read("rev-parse","HEAD")==proof["to_source_sha"]
+                    and _git_read("status","--porcelain","--untracked-files=all")=="",
+                    "TRANSITION_CHECKOUT_NOT_EXACT_CLEAN_SOURCE")
+            api=GitHub()
+            require(api.protected_main()==proof["to_source_sha"],
+                    "TRANSITION_PROTECTED_MAIN_UNQUALIFIED")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                require(db.meta()["head_hash"]==proof["expected_event_head_sha256"],
+                        "TRANSITION_EVENT_HEAD_CHANGED")
+                db.transition_source(proof["to_source_sha"])
+                print(json.dumps({"native_source_transition":"PASS",
+                    "source_sha":db.meta()["source_sha"],
+                    "head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="activate-native":
+            # Owner-only, explicit admission. Does not create a second task or
+            # controller and does not dispatch work. The existing scheduled
+            # tick picks up only this authenticated SQLite activation event.
+            native_original_owner_profile(args.db)
+            require(GitHub().protected_main()==db.meta()["source_sha"],
+                    "NATIVE_ACTIVATION_GITHUB_SOURCE_DRIFT")
+            GitHub().legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            from f139.nci04_owner_ledger import activate_native
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"OWNER_APPROVAL_FILE_UNQUALIFIED")
+            approval=json.loads(raw)
+            with SingleOwner(args.db.with_suffix(".lock")):
+                result=activate_native(db,approval)
+                print(json.dumps({"native_development_activated":result,
+                                  "source_sha":db.meta()["source_sha"],
+                                  "event_head":db.meta()["head_hash"],
+                                  "scientific_first_use":False},
+                                 sort_keys=True))
         elif args.verb=="tick":
             with SingleOwner(args.db.with_suffix(".lock")):
                 result=run_once(db,GitHub(),args.db,os.environ.get("F139_WORKER_HMAC_KEY",""))

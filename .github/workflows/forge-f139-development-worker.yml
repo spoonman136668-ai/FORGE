@@ -42,6 +42,10 @@ on:
         description: Signed allowlisted Go package
         type: string
         required: false
+      native_bundle:
+        description: Typed source-pinned NCI04 code candidate; inert without both HMACs
+        type: string
+        required: false
 permissions:
   contents: read
 concurrency:
@@ -49,6 +53,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   execute:
+    if: ${{ !startsWith(inputs.ticket, 'f139-nci04-') }}
     strategy:
       fail-fast: false
       matrix:
@@ -163,3 +168,186 @@ jobs:
           path: ${{ runner.temp }}/f139-development/f139-dev-learning.json
           if-no-files-found: error
           retention-days: 21
+
+
+  native-authorize:
+    # Existing single F139 workflow endpoint. Secret never enters native code.
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      authorization: ${{ steps.admit.outputs.authorization }}
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_EPOCH: ${{ inputs.epoch }}
+      F139_SIGNATURE: ${{ inputs.signature }}
+      F139_RUNNER_OS: ubuntu-latest
+      F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Decode strict native inputs without running native candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_NATIVE_BUNDLE.Length -gt 60000 -or $env:F139_NATIVE_BUNDLE -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { throw 'NCI04_UNTRUSTED_BUNDLE' }
+          $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:F139_NATIVE_BUNDLE))
+          $doc = $json | ConvertFrom-Json -ErrorAction Stop
+          $names = @($doc.PSObject.Properties.Name | Sort-Object)
+          $expected = @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64' | Sort-Object)
+          if((Compare-Object $names $expected).Count -ne 0) { throw 'NCI04_UNTRUSTED_BUNDLE_FIELDS' }
+          $limits = @{
+            native_signature='^[a-f0-9]{64}$'
+            issue_number='^[1-9][0-9]*$'
+            issue_id='^[1-9][0-9]*$'
+            body_sha256='^[a-f0-9]{64}$'
+            qualification_key='^[a-f0-9]{64}$'
+            target_commit='^[a-f0-9]{40}$'
+            target_tree_sha='^[a-f0-9]{40}$'
+            intent_base64='^[A-Za-z0-9+/]+={0,2}$'
+          }
+          $toEnv = @{
+            F139_NATIVE_SIGNATURE='native_signature'
+            F139_ISSUE_NUMBER='issue_number'
+            F139_ISSUE_ID='issue_id'
+            F139_BODY_SHA256='body_sha256'
+            F139_QUALIFICATION_KEY='qualification_key'
+            F139_TARGET_COMMIT='target_commit'
+            F139_TARGET_TREE_SHA='target_tree_sha'
+            F139_INTENT_BASE64='intent_base64'
+          }
+          foreach($entry in $toEnv.GetEnumerator()){
+            $value = [string]$doc.($entry.Value)
+            if($value.Length -gt 59000 -or $value -cnotmatch $limits[$entry.Value]) { throw 'NCI04_UNTRUSTED_FIELD' }
+            "$($entry.Key)=$value" >> $env:GITHUB_ENV
+          }
+      - name: Independently authenticate exact native Git commit and tree
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_LANE -cnotin @('Wingless','Yggdrasil')) { throw 'NCI04_NATIVE_LANE_FORBIDDEN' }
+          $url = "repos/spoonman136668-ai/$($env:F139_LANE)/git/commits/$($env:F139_TARGET_COMMIT)"
+          $commit = & gh api $url | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $commit.sha -cne $env:F139_TARGET_COMMIT -or $commit.tree.sha -cne $env:F139_TARGET_TREE_SHA) { throw 'NCI04_NATIVE_PROVIDER_SOURCE_DRIFT' }
+          "F139_AUTHENTICATED_TARGET_TREE=$($commit.tree.sha)" >> $env:GITHUB_ENV
+      - name: Verify BOTH signed owner HMACs and source before native work
+        id: admit
+        shell: pwsh
+        env:
+          F139_WORKER_HMAC_KEY: ${{ secrets.F139_WORKER_HMAC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $raw = & python -B -m f139.nci04_worker_entry authorize
+          if($LASTEXITCODE -ne 0) { throw 'NCI04_DUAL_HMAC_AUTHENTICATION_FAILED' }
+          $proof = ($raw -join "`n") | ConvertFrom-Json -ErrorAction Stop
+          if($proof.schema -cne 'forge.f139.nci04.native-authorized-job.v1' -or
+             $proof.source_sha -cne $env:F139_SOURCE_SHA -or
+             $proof.scientific_first_use -or
+             $proof.authorization_sha256 -cnotmatch '^[a-f0-9]{64}$') { throw 'NCI04_NATIVE_AUTHENTICATION_RECEIPT_REJECTED' }
+          "authorization=$($proof.authorization_sha256)" >> $env:GITHUB_OUTPUT
+          Write-Host 'F139_NCI04_OWNER_AND_NATIVE_SIGNATURES=VERIFIED'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+
+  native-execute:
+    # Different ephemeral GitHub-hosted OS jobs; NO F139 signing key.
+    needs: native-authorize
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && needs.native-authorize.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      F139_TICKET: ${{ inputs.ticket }}
+      F139_LANE: ${{ inputs.lane }}
+      F139_SOURCE_SHA: ${{ inputs.source_sha }}
+      F139_RUNNER_OS: ${{ matrix.os }}
+      F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
+      F139_NATIVE_AUTHENTICATION_PASSED: 'true'
+      F139_NATIVE_AUTHORIZATION_SHA256: ${{ needs.native-authorize.outputs.authorization }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Decode fixed signed native target fields
+        id: pin
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_NATIVE_BUNDLE.Length -gt 60000 -or $env:F139_NATIVE_BUNDLE -cnotmatch '^[A-Za-z0-9+/]+={0,2}$') { throw 'NCI04_UNTRUSTED_BUNDLE' }
+          $doc = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:F139_NATIVE_BUNDLE)) | ConvertFrom-Json -ErrorAction Stop
+          if($doc.target_commit -cnotmatch '^[a-f0-9]{40}$' -or $doc.target_tree_sha -cnotmatch '^[a-f0-9]{40}$' -or $doc.qualification_key -cnotmatch '^[a-f0-9]{64}$') { throw 'NCI04_TARGET_UNQUALIFIED' }
+          "native_ref=$($doc.target_commit)" >> $env:GITHUB_OUTPUT
+          foreach($field in @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64')){
+            $value = [string]$doc.$field
+            if($value.Contains("`n") -or $value.Contains("`r")) { throw 'NCI04_ENV_INJECTION' }
+          }
+          "F139_TARGET_COMMIT=$($doc.target_commit)" >> $env:GITHUB_ENV
+          "F139_TARGET_TREE_SHA=$($doc.target_tree_sha)" >> $env:GITHUB_ENV
+          "F139_QUALIFICATION_KEY=$($doc.qualification_key)" >> $env:GITHUB_ENV
+          "F139_ISSUE_NUMBER=$($doc.issue_number)" >> $env:GITHUB_ENV
+          "F139_ISSUE_ID=$($doc.issue_id)" >> $env:GITHUB_ENV
+          "F139_INTENT_BASE64=$($doc.intent_base64)" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v4
+        if: ${{ inputs.lane == 'Wingless' }}
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: ${{ steps.pin.outputs.native_ref }}
+          path: native
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        if: ${{ inputs.lane == 'Yggdrasil' }}
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: ${{ steps.pin.outputs.native_ref }}
+          path: native
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+      - name: Execute source-bound isolated native candidate and fixed full regression
+        shell: pwsh
+        env:
+          GOMAXPROCS: '2'
+          GOFLAGS: '-p=2'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:F139_NATIVE_AUTHORIZATION_SHA256 -cnotmatch '^[a-f0-9]{64}$' -or
+             $env:F139_NATIVE_AUTHENTICATION_PASSED -cne 'true' -or
+             $env:F139_LANE -cnotin @('Wingless','Yggdrasil')) { throw 'NCI04_AUTH_JOB_NOT_BOUND' }
+          if($env:F139_WORKER_HMAC_KEY -or $env:GH_TOKEN -or $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY) { throw 'NCI04_CODE_JOB_CREDENTIAL_EXPOSURE' }
+          $scratch = Join-Path $env:RUNNER_TEMP 'f139-native-stage'
+          $out = Join-Path $env:RUNNER_TEMP 'f139-native-receipt'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
+          python -B -m f139.nci04_worker_entry execute --native-root (Join-Path $env:GITHUB_WORKSPACE 'native') --scratch $scratch --output $out
+          if($LASTEXITCODE -ne 0) { throw 'NCI04_NATIVE_QUALIFICATION_NEGATIVE_OR_REJECTED' }
+          Write-Host 'F139_NCI04_SOURCE_BOUND_NATIVE_QUALIFICATION=PASS'
+          Write-Host 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: forge-f139-native-receipt-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/f139-native-receipt/f139-receipt.json
+            ${{ runner.temp }}/f139-native-receipt/f139-receipt.sha256
+            ${{ runner.temp }}/f139-native-receipt/f139-native-report.json
+          if-no-files-found: warn
+          retention-days: 90
