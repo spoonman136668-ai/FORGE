@@ -1,0 +1,88 @@
+name: K-Terminal RC2-N native retry subphase attribution on Windows
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2n-native-subphase-attribution.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-rc2n-native-subphase-attribution-20261020
+  cancel-in-progress: false
+jobs:
+  diagnostic-phase-matrix:
+    runs-on: windows-latest
+    timeout-minutes: 22
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOFLAGS: '-p=1'
+      GOMAXPROCS: '2'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      KTERM_RC2N_NATIVE_SPANS: '1'
+    steps:
+      - name: Checkout test-only FORGE diagnostic files
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout frozen K-Terminal original without write permissions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout exact draft PR73 without write permissions
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Pin Go 1.26.5 on Windows
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Exact original source custody and synthetic-only broker environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF" = refs/heads/diagnostics/kterminal-original-local-preflight-20261019
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kt-original status --porcelain)"
+          test -z "$(git -C kt-candidate status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for k in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            test -z "${!k:-}"
+          done
+          echo KTERM_RC2N_SOURCE_IDENTITY_AND_NO_LIVE_BROKER=PASS
+      - name: Instrument original test fixture and compare native phase costs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2n_phase_harness.py \
+            kt-original kt-candidate \
+            qualification/kterminal/rc2n_nine_attempt_phase_probe_test.go \
+            "$RUNNER_TEMP/kterm-rc2n-subspans"
+          echo KTERM_RC2N_NATIVE_DEADLINE_AND_NINE_MAKER_ASSERTIONS=UNCHANGED
+          echo KTERM_RC2N_PRODUCTION_SOURCE_MODIFIED=FALSE
+          echo KTERM_RC2N_NO_FULL_REGRESSION_AND_NO_RELEASE=TRUE
+      - name: Save redacted phase and failure classifications
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2n-native-subspan-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/kterm-rc2n-subspans/rc2n-redacted-phase-evidence.json
+          if-no-files-found: warn
+          retention-days: 20
