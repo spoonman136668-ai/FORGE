@@ -42,12 +42,15 @@ def safe_ps_failure_identity(output,filename):
     properties=sorted(set(re.findall(
         r"The property .([A-Za-z_][A-Za-z0-9_]{0,55}). cannot be found",
         output,re.IGNORECASE)))[:6]
+    unknown_type=sorted(set(re.findall(
+        r"(?:Unable to find type|Cannot find type)\s*\[([A-Za-z0-9_.]{1,80})\]",
+        output,re.IGNORECASE)))[:6]
     variables=sorted(set(re.findall(
         r"The variable .?\$([A-Za-z_][A-Za-z0-9_]{0,55})",
         output,re.IGNORECASE)))[:6]
     return {"error_line_numbers":lines,"error_ids":errors,
        "exception_classes":exceptions,"missing_property":properties,
-       "unbound_variable":variables}
+       "unbound_variable":variables,"missing_types":unknown_type}
 
 def testcase(repo,source_label,ps,out):
     path=out/(source_label+"-wpf.json")
