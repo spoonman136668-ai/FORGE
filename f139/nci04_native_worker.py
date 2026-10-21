@@ -138,6 +138,16 @@ def stage_candidate(candidate: Candidate, checkout: Path,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL, timeout=90, check=False)
             require(p.returncode == 0, "LOCAL_INDEPENDENT_CLONE_FAILED")
+            # An inherited Windows core.autocrlf=true would silently change
+            # source preimage bytes on checkout. Freeze LF materialization in
+            # each *isolated* Git clone without changing original git config.
+            for cfg in (("core.autocrlf","false"),("core.eol","lf")):
+                require(subprocess.run(
+                    ["git", "-C", str(dest_root), "config", "--local",
+                     cfg[0],cfg[1]],stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
+                    timeout=15,check=False).returncode==0,
+                    "ISOLATED_TEXT_BYTES_CONFIG_FAILED")
             require(subprocess.run(
                 ["git", "-C", str(dest_root), "checkout", "--quiet",
                  "--detach", candidate.target_commit],
