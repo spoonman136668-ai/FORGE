@@ -1,0 +1,60 @@
+name: K-Terminal RC2-R4 current WPF snapshot and layout
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2r4-current-wpf-snapshot-layout.yml]
+permissions:
+  contents: read
+jobs:
+  windows-native-wpf-layout:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout FORGE test-only script
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Frozen original K-Terminal read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Frozen PR73 K-Terminal read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Verify Windows SHA and no broker secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do test -z "${!n:-}"; done
+          echo KTERM_RC2R4_ORIGINAL_CUSTODY_NO_BROKER=PASS
+      - name: Existing snapshot-gap and WPF visual-layout fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2r4_current_wpf_fixture_harness.py \
+             kt-original kt-candidate "$RUNNER_TEMP/kterm-rc2r4-current"
+          echo KTERM_RC2R4_TRADING_MODE=NO_APPLICATION_STARTED
+          echo KTERM_RC2R4_FULL_REGRESSION=NOT_RUN
+          echo KTERM_RC2R4_RELEASE=BLOCKED
+      - name: Retain only bounded WPF fixture outcomes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2r4-current-wpf-${{ github.run_id }}
+          path: ${{ runner.temp }}/kterm-rc2r4-current/rc2r4-redacted-wpf.json
+          retention-days: 14
+          if-no-files-found: warn
