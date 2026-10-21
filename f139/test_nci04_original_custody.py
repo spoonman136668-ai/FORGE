@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from f139.local_controller import Database, hash_bytes, store_evidence
+from f139.local_controller import Database, canonical, hash_bytes, store_evidence
 from f139.nci04_original_custody import (
     A4CustodyBlocked, EXPECTED, SOURCE, PREFIX_HEAD, audit, verify_one,
 )
@@ -62,7 +62,16 @@ class ReadOnlyA4Tests(unittest.TestCase):
             }
         folder, evidence_sha = store_evidence(
             self.root, ticket, expected["run_id"], self.archives)
-        self.manifest_sha = "c" * 64
+        self.manifest_sha = hash_bytes(canonical({
+            "schema": "forge.f139.d2k.issue-work.v1",
+            "source_sha": SOURCE, "ticket": ticket,
+            "issue_number": 687, "issue_id": expected["issue_id"],
+            "lane": "Wingless", "kind": "go-package-test-diagnostic",
+            "target_package": expected["target_package"],
+            "body_sha256": self.fields["body_sha256"],
+            "prior_event_head_sha256": "0" * 64,
+            "admitted_day": "2026-10-20", "scientific_first_use": False,
+        }))
         self.db.conn.execute(
             "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
             "run_id,started_at,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?,?)",
