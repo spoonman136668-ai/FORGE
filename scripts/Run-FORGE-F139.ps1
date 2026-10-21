@@ -6,7 +6,8 @@ param(
   [Parameter(Mandatory)][string]$RepositoryRoot,
   [Parameter(Mandatory)][string]$Database,
   [Parameter(Mandatory)][string]$EncryptedKeyFile,
-  [int]$PollSeconds = 45
+  [int]$PollSeconds = 45,
+  [switch]$CustodyOriginalNativeNegative
 )
 $ErrorActionPreference = 'Stop'
 if ($PollSeconds -lt 15 -or $PollSeconds -gt 300) { throw 'F139_BAD_POLL_INTERVAL' }
@@ -25,6 +26,15 @@ try {
   finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
   if ($env:F139_WORKER_HMAC_KEY.Length -lt 32) { throw 'F139_SECRET_TOO_SHORT' }
   Set-Location -LiteralPath $RepositoryRoot
+  if ($CustodyOriginalNativeNegative) {
+    # One-time owner cutover under the existing SID/task/DPAPI custody.
+    # This does NOT start a second controller, execute the normal loop,
+    # authorize scientific work, dispatch, or print raw HMAC material.
+    & $PythonExe -B -m f139.local_controller --db $Database custody-original-native-negative
+    if ($LASTEXITCODE -ne 0) { throw 'F139_ORIGINAL_NEGATIVE_CUSTODY_FAILED' }
+    Write-Host 'F139_ORIGINAL_NATIVE_NEGATIVE_CUSTODY=QUALIFIED_ONCE'
+    return
+  }
   # Native Windows job control ensures Python is terminated if Task Scheduler
   # terminates this PowerShell host. Suspend -> assign -> resume closes the
   # orphan creation race, with CREATE_NO_WINDOW for its Python process.

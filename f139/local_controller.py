@@ -271,11 +271,22 @@ class Database:
                             and task["manifest_sha"] == doc["manifest_sha256"],
                             "D2J_ADMISSION_TASK_RECORD_CHANGED")
             if row["kind"] == "SOURCE_TRANSITION_ADMITTED":
-                require(isinstance(doc, dict) and set(doc) == {
+                base_fields = {
                     "schema", "from_source_sha", "to_source_sha", "prior_event_head_sha256",
-                    "verified_historical_tasks", "new_dispatches", "scientific_first_use"},
+                    "verified_historical_tasks", "new_dispatches", "scientific_first_use"}
+                is_negative_transition = (
+                    isinstance(doc, dict)
+                    and doc.get("schema") == "forge.f139.source-transition.v2"
+                    and set(doc) == base_fields | {"custodied_negative_tasks"})
+                require(isinstance(doc, dict) and (
+                    doc.get("schema") == "forge.f139.source-transition.v1"
+                    and set(doc) == base_fields
+                    or doc.get("schema") == "forge.f139.source-transition.v2"
+                    and is_negative_transition),
                     "SOURCE_TRANSITION_EVENT_FIELDS")
-                require(doc["schema"] == "forge.f139.source-transition.v1"
+                require((doc["schema"] == "forge.f139.source-transition.v1"
+                         or type(doc["custodied_negative_tasks"]) is int
+                         and doc["custodied_negative_tasks"] == 1)
                         and isinstance(doc["from_source_sha"], str)
                         and SHA.fullmatch(doc["from_source_sha"])
                         and isinstance(doc["to_source_sha"], str)
@@ -299,13 +310,34 @@ class Database:
                 historical_sources.add(transition["from_source_sha"])
             require(source_transitions[-1]["to_source_sha"] == meta["source_sha"],
                     "SOURCE_TRANSITION_HEAD_INVALID")
+        from f139.nci04_negative_owner_store import (
+            verify_original_negative_custody, TICKET as ORIGINAL_NEGATIVE_TICKET,
+            SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE)
+        # A historical QUARANTINED task is exceptional and never counts as
+        # VERIFIED. Only the singular original sealed provider negative ZIP,
+        # with its own immutable SQL event, can be carried across a V2 source
+        # transition. Every cold verification re-reads its original bytes.
+        certified_negative = verify_original_negative_custody(self)
+        negative_transitions = [
+            t for t in source_transitions
+            if t["schema"] == "forge.f139.source-transition.v2"]
+        require(len(negative_transitions) <= 20, "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         for row in self.conn.execute("SELECT ticket,lane,source_sha,stage,run_id,evidence_dir,evidence_sha FROM tasks"):
-            historical = (row["source_sha"] in historical_sources and
-                          row["stage"] == "VERIFIED" and
-                          isinstance(row["run_id"], int) and row["run_id"] > 0 and
-                          isinstance(row["evidence_dir"], str) and bool(row["evidence_dir"]) and
-                          isinstance(row["evidence_sha"], str) and
-                          re.fullmatch(r"[a-f0-9]{64}", row["evidence_sha"]) is not None)
+            prior_verified = (
+                row["source_sha"] in historical_sources and
+                row["stage"] == "VERIFIED" and
+                isinstance(row["run_id"], int) and row["run_id"] > 0 and
+                isinstance(row["evidence_dir"], str) and bool(row["evidence_dir"]) and
+                isinstance(row["evidence_sha"], str) and
+                re.fullmatch(r"[a-f0-9]{64}", row["evidence_sha"]) is not None)
+            prior_certified_negative = (
+                certified_negative and bool(negative_transitions)
+                and row["ticket"] == ORIGINAL_NEGATIVE_TICKET
+                and row["source_sha"] == ORIGINAL_NEGATIVE_SOURCE
+                and row["source_sha"] in historical_sources
+                and row["stage"] == "QUARANTINED" and row["run_id"] is None
+                and row["evidence_sha"] is None and not row["evidence_dir"])
+            historical = prior_verified or prior_certified_negative
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
@@ -317,6 +349,14 @@ class Database:
                          if row["source_sha"] in historical_sources and row["stage"] == "VERIFIED")
             require(admitted >= source_transitions[-1]["verified_historical_tasks"],
                     "SOURCE_TRANSITION_HISTORIC_COUNT_INVALID")
+            if negative_transitions:
+                negative = negative_transitions[0]
+                require(certified_negative
+                        and negative_transitions[0]["from_source_sha"] ==
+                            ORIGINAL_NEGATIVE_SOURCE
+                        and all(t["custodied_negative_tasks"] == 1
+                                for t in negative_transitions),
+                        "CUSTODIED_NEGATIVE_TRANSITION_DRIFT")
         # NCI04 admission is additive; historic F139/D2K event semantics stay
         # exact. Check native admission against the original SHA-linked SQLite
         # chain, preventing cross-kind issue replay and fabricated task records.
@@ -351,33 +391,79 @@ class Database:
             self.conn.execute("UPDATE meta SET enabled=1,legacy_suspended=1 WHERE id=1")
             self.event("CUTOVER_ACTIVATED",{"source_sha":self.meta()["source_sha"]})
 
-    def transition_source(self, new_source_sha: str):
-        """Append immutable authority evidence; never rewrite historical task source or run."""
+    def transition_source(self, new_source_sha: str, *,
+                          allow_certified_negative: bool = False):
+        """Same original controller, old event formats and immutable task rows.
+
+        A8C's V2 path is limited to the ONE authenticated #696 original, after
+        durable custody event #48. The V1 path remains exact for zero negatives.
+        A mere QUARANTINED stage never grants a source transition.
+        """
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
+        from f139.nci04_negative_owner_store import (
+            SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE,
+            TICKET as ORIGINAL_NEGATIVE_TICKET)
         with self.transaction():
+            self.verify()
             meta = self.meta()
             require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
                     and new_source_sha != meta["source_sha"],
                     "SOURCE_TRANSITION_OWNER_OR_IDENTITY_INVALID")
             tasks = list(self.conn.execute("SELECT * FROM tasks"))
-            require(tasks and all(
-                row["stage"] == "VERIFIED" and row["run_id"] is not None
-                and isinstance(row["evidence_sha"], str)
-                and re.fullmatch(r"[a-f0-9]{64}", row["evidence_sha"]) is not None
-                and row["evidence_dir"] for row in tasks),
-                "SOURCE_TRANSITION_UNVERIFIED_OR_PENDING_TASK")
+            certified = []
+            verified = []
+            for row in tasks:
+                if (row["stage"] == "VERIFIED"
+                    and type(row["run_id"]) is int and row["run_id"] > 0
+                    and isinstance(row["evidence_sha"], str)
+                    and re.fullmatch(r"[a-f0-9]{64}",row["evidence_sha"])
+                    and row["evidence_dir"]):
+                    verified.append(row)
+                elif (allow_certified_negative and row["stage"] == "QUARANTINED"
+                      and row["ticket"] == ORIGINAL_NEGATIVE_TICKET
+                      and row["source_sha"] == ORIGINAL_NEGATIVE_SOURCE
+                      and row["run_id"] is None and row["evidence_sha"] is None
+                      and not row["evidence_dir"]):
+                    certified.append(row)
+                else:
+                    raise F139Error("F139_SOURCE_TRANSITION_UNVERIFIED_OR_PENDING_TASK")
+            require(bool(tasks) and len(verified) + len(certified) == len(tasks),
+                    "SOURCE_TRANSITION_UNVERIFIED_OR_PENDING_TASK")
+            if certified:
+                from f139.nci04_negative_owner_store import (
+                    verify_original_negative_custody, SOURCE_SHA)
+                transitions = [
+                    parsed for parsed in (
+                        json.loads(t["payload"]) for t in self.conn.execute(
+                            "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")
+                    ) if parsed["schema"] == "forge.f139.source-transition.v2"]
+                require(allow_certified_negative and len(certified) == 1
+                        and verify_original_negative_custody(self)
+                        and (meta["source_sha"] == SOURCE_SHA
+                             and meta["head_seq"] == 48 and not transitions
+                             or meta["source_sha"] != SOURCE_SHA
+                             and len(transitions) >= 1
+                             and transitions[0]["from_source_sha"] == SOURCE_SHA),
+                        "SOURCE_TRANSITION_NEGATIVE_NOT_CUSTODIED")
+            else:
+                require(not allow_certified_negative,
+                        "SOURCE_TRANSITION_NEGATIVE_NOT_PRESENT")
             prior = meta["head_hash"]
             self.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", (new_source_sha,))
-            self.event("SOURCE_TRANSITION_ADMITTED", {
-                "schema": "forge.f139.source-transition.v1",
+            event = {
+                "schema": ("forge.f139.source-transition.v2" if certified
+                           else "forge.f139.source-transition.v1"),
                 "from_source_sha": meta["source_sha"],
                 "to_source_sha": new_source_sha,
                 "prior_event_head_sha256": prior,
-                "verified_historical_tasks": len(tasks),
+                "verified_historical_tasks": len(verified),
                 "new_dispatches": 0,
                 "scientific_first_use": False,
-            })
+            }
+            if certified:
+                event["custodied_negative_tasks"] = 1
+            self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
     def enqueue(self, tasks: list[dict], freeze_sha: str):
@@ -1212,6 +1298,7 @@ def cli(argv=None):
     owner_native.add_argument("--approval",type=Path,required=True)
     transition=sub.add_parser("transition-qualified-native")
     transition.add_argument("--approval",type=Path,required=True)
+    sub.add_parser("custody-original-native-negative")
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1240,6 +1327,64 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="custody-original-native-negative":
+            # One authorized, development-only owner CLI. No GitHub dispatch
+            # method, second task, new controller or scientific first-use.
+            from f139.nci04_negative_owner_store import (
+                admit_original_negative_custody, RUN_ID as NEGATIVE_RUN_ID,
+                ARTIFACT_ID as NEGATIVE_ARTIFACT_ID)
+            native_original_owner_profile(args.db)
+            legacy_windows_task_disabled()
+            api=GitHub()
+            checkout=Path(__file__).resolve().parent.parent
+            head=subprocess.run(["git","-C",str(checkout),"rev-parse","HEAD"],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,timeout=15,check=False)
+            clean=subprocess.run(["git","-C",str(checkout),"status","--porcelain",
+                                  "--untracked-files=all"],stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
+                                 timeout=15,check=False)
+            require(head.returncode==0 and clean.returncode==0
+                    and not clean.stdout.strip()
+                    and head.stdout.decode().strip()==api.protected_main(),
+                    "NEGATIVE_CUSTODY_CHECKOUT_NOT_PROTECTED_MAIN")
+            api.legacy_dispatchers_disabled()
+            hmac_key=os.environ.get("F139_WORKER_HMAC_KEY","")
+            require(len(hmac_key)>=32,"NEGATIVE_CUSTODY_OWNER_HMAC_UNAVAILABLE")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                # Verify original owner database is unchanged BEFORE making
+                # any external retrieval. Never issue workflow_dispatch.
+                from f139.nci04_negative_owner_store import (
+                    OWNER_HEAD, SOURCE_SHA as NEGATIVE_SOURCE)
+                meta=db.meta()
+                require(meta["source_sha"]==NEGATIVE_SOURCE
+                        and meta["head_seq"]==47
+                        and meta["head_hash"]==OWNER_HEAD,
+                        "NEGATIVE_CUSTODY_NOT_ORIGINAL_47_EVENT_BOUNDARY")
+                run=api.get(f"repos/{REPO}/actions/runs/{NEGATIVE_RUN_ID}")
+                run_jobs=api.get(
+                    f"repos/{REPO}/actions/runs/{NEGATIVE_RUN_ID}/jobs?per_page=100")
+                job_list=run_jobs.get("jobs")
+                require(isinstance(job_list,list)
+                        and run_jobs.get("total_count")==4
+                        and len(job_list)==4,
+                        "NEGATIVE_CUSTODY_PROVIDER_JOBS_INVALID")
+                artifacts=api.get(
+                    f"repos/{REPO}/actions/runs/{NEGATIVE_RUN_ID}/artifacts?per_page=100")
+                archive_list=artifacts.get("artifacts")
+                require(isinstance(archive_list,list)
+                        and artifacts.get("total_count")==1
+                        and len(archive_list)==1
+                        and archive_list[0].get("id")==NEGATIVE_ARTIFACT_ID,
+                        "NEGATIVE_CUSTODY_PROVIDER_ARTIFACT_INVALID")
+                artifact=archive_list[0]
+                archive=api.artifact(NEGATIVE_ARTIFACT_ID)
+                result=admit_original_negative_custody(
+                    db,run=run,jobs=job_list,artifact=artifact,
+                    archive=archive,owner_hmac_key=hmac_key,
+                    epoch=meta["epoch"])
+                print(json.dumps(result,sort_keys=True))
         elif args.verb=="transition-qualified-native":
             # The owner must run this exact, qualified, protected-main checkout;
             # never rewrite historical identities or reset the event chain.
@@ -1285,7 +1430,20 @@ def cli(argv=None):
                 db.verify()
                 require(db.meta()["head_hash"]==proof["expected_event_head_sha256"],
                         "TRANSITION_EVENT_HEAD_CHANGED")
-                db.transition_source(proof["to_source_sha"])
+                from f139.nci04_negative_owner_store import (
+                    verify_original_negative_custody, TICKET as NEGATIVE_TICKET)
+                excluded=list(db.conn.execute(
+                    "SELECT ticket,stage FROM tasks WHERE stage!='VERIFIED'"))
+                has_certified_negative=(
+                    len(excluded)==1
+                    and excluded[0]["ticket"]==NEGATIVE_TICKET
+                    and excluded[0]["stage"]=="QUARANTINED"
+                    and verify_original_negative_custody(db))
+                require(not excluded or has_certified_negative,
+                        "NEGATIVE_HISTORY_NOT_SAFELY_CUSTODIED")
+                db.transition_source(
+                    proof["to_source_sha"],
+                    allow_certified_negative=has_certified_negative)
                 print(json.dumps({"native_source_transition":"PASS",
                     "source_sha":db.meta()["source_sha"],
                     "head_sha256":db.meta()["head_hash"],

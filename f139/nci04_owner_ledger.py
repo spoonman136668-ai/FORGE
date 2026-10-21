@@ -168,6 +168,11 @@ def audit_native_events(db):
                 and ev["issue_id"] not in seen_ids,
                 "D2K_NATIVE_ISSUE_REUSE")
     verify_native_activation(db)
+    # A8B is additive: old 47 events retain their exact original hashes.
+    # A custodied failed native original is checked again on every cold read,
+    # not merely trusted because a prior SQL event claimed success.
+    from f139.nci04_negative_owner_store import verify_original_negative_custody
+    verify_original_negative_custody(db)
 
 
 def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
@@ -232,42 +237,58 @@ APPROVAL_SCHEMA = "forge.f139.nci04.owner-native-approval.v1"
 
 
 def verify_native_activation(db):
-    """Source-bound monotonic event; no scheduler or additional owner."""
+    """Verify every existing owner activation while selecting current source.
+
+    One native activation is allowed per strictly new source authority. Older
+    activation records must remain byte-for-byte intact and can never activate
+    a later source. Exact original v1 events and their SHA-chain are preserved.
+    """
     rows = list(db.conn.execute(
-        "SELECT payload,prior_sha FROM events WHERE kind=? ORDER BY seq",
+        "SELECT seq,payload,prior_sha FROM events WHERE kind=? ORDER BY seq",
         (ACTIVATION_KIND,)))
-    require(len(rows) <= 1, "DUPLICATE_NATIVE_ACTIVATION")
-    if not rows:
-        return False
-    row = rows[0]
-    doc = json.loads(row["payload"])
-    require(isinstance(doc, dict) and set(doc) == ACTIVATION_FIELDS
-            and doc["schema"] == ACTIVATION_SCHEMA
-            and doc["prior_event_head_sha256"] == row["prior_sha"]
-            and doc["sealed_original_prefix_sha256"] ==
-               SEALED_OWNER_PREFIX_HEAD
-            and type(doc["verified_original_tasks"]) is int
-            and doc["verified_original_tasks"] == 4
-            and type(doc["verified_d2k_tasks"]) is int
-            and doc["verified_d2k_tasks"] == 2
-            and type(doc["new_dispatches"]) is int
-            and doc["new_dispatches"] == 0
-            and doc["scientific_first_use"] is False
-            and doc["development_only"] is True,
-            "NATIVE_ACTIVATION_AUTHORITY_DRIFT")
-    require(isinstance(doc["source_sha"], str)
-            and re.fullmatch(r"[a-f0-9]{40}", doc["source_sha"]),
-            "NATIVE_ACTIVATION_SOURCE_INVALID")
-    return doc["source_sha"] == db.meta()["source_sha"]
+    require(len(rows) <= 10, "ACTIVATION_COUNT_LIMIT")
+    seen = set()
+    last_source = None
+    for row in rows:
+        doc = json.loads(row["payload"])
+        require(isinstance(doc,dict) and set(doc)==ACTIVATION_FIELDS
+                and doc["schema"]==ACTIVATION_SCHEMA
+                and doc["prior_event_head_sha256"]==row["prior_sha"]
+                and doc["sealed_original_prefix_sha256"]==
+                    SEALED_OWNER_PREFIX_HEAD
+                and type(doc["verified_original_tasks"]) is int
+                and doc["verified_original_tasks"]==4
+                and type(doc["verified_d2k_tasks"]) is int
+                and doc["verified_d2k_tasks"]==2
+                and type(doc["new_dispatches"]) is int
+                and doc["new_dispatches"]==0
+                and doc["scientific_first_use"] is False
+                and doc["development_only"] is True
+                and isinstance(doc["source_sha"],str)
+                and re.fullmatch(r"[a-f0-9]{40}",doc["source_sha"]),
+                "NATIVE_ACTIVATION_AUTHORITY_DRIFT")
+        # Establish effective original-source authority at each *historical*
+        # activation sequence, not using today's protected source retroactively.
+        transitions = [
+            json.loads(t["payload"]) for t in db.conn.execute(
+                "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+                " AND seq < ? ORDER BY seq", (row["seq"],))]
+        origin=db.conn.execute(
+            "SELECT source_sha FROM tasks WHERE ticket LIKE 'f139-d2c-%'"
+            " ORDER BY ticket LIMIT 1").fetchone()
+        source_at_activation=(
+            transitions[-1]["to_source_sha"] if transitions else
+            (origin["source_sha"] if origin else db.meta()["source_sha"]))
+        require(doc["source_sha"] == source_at_activation
+                and doc["source_sha"] not in seen,
+                "NATIVE_ACTIVATION_SOURCE_REPLAY")
+        seen.add(doc["source_sha"])
+        last_source = doc["source_sha"]
+    return bool(rows) and last_source == db.meta()["source_sha"]
 
 
 def activate_native(db, approval: dict) -> bool:
-    """Atomic explicit *owner-local* activation using presealed identity.
-
-    Never infer approval from a GitHub issue or from absence of other work.
-    This must run under existing SingleOwner mutex in the original F139 task
-    profile after protected-main source and application identity are pinned.
-    """
+    """Owner-only, explicit per-source activation; never autonomous approval."""
     require(isinstance(approval, dict) and set(approval) == APPROVAL_FIELDS
             and approval["schema"] == APPROVAL_SCHEMA
             and approval["native_development_approved"] is True
@@ -280,7 +301,7 @@ def activate_native(db, approval: dict) -> bool:
     verified_historical_foundation(db)
     with db.transaction():
         db.verify()
-        meta = db.meta()
+        meta=db.meta()
         require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
                 and approval["source_sha"] == meta["source_sha"]
                 and approval["expected_event_head_sha256"] == meta["head_hash"]
@@ -289,21 +310,37 @@ def activate_native(db, approval: dict) -> bool:
                 "APPROVAL_LEDGER_OR_SOURCE_DRIFT")
         require(db.active() is None and db.ready() is None,
                 "PREEXISTING_PENDING_WORK")
-        require(not list(db.conn.execute(
-            "SELECT 1 FROM events WHERE kind=?", (ACTIVATION_KIND,))),
-            "NATIVE_ALREADY_ACTIVATED")
-        require(all(row["stage"] == "VERIFIED"
-                    for row in db.conn.execute("SELECT stage FROM tasks")),
-                "UNVERIFIED_HISTORICAL_TASK")
-        prior = meta["head_hash"]
-        db.event(ACTIVATION_KIND, {
-            "schema": ACTIVATION_SCHEMA,
-            "source_sha": meta["source_sha"],
-            "prior_event_head_sha256": prior,
-            "sealed_original_prefix_sha256": SEALED_OWNER_PREFIX_HEAD,
-            "verified_original_tasks": 4, "verified_d2k_tasks": 2,
-            "new_dispatches": 0,
-            "scientific_first_use": False, "development_only": True,
+        activations=[
+            json.loads(row["payload"]) for row in db.conn.execute(
+                "SELECT payload FROM events WHERE kind=? ORDER BY seq",
+                (ACTIVATION_KIND,))]
+        require(len(activations) < 10
+                and all(a["source_sha"] != meta["source_sha"]
+                        for a in activations),
+                "NATIVE_ALREADY_ACTIVATED")
+        failures=[
+            r for r in db.conn.execute("SELECT ticket,stage FROM tasks")
+            if r["stage"] != "VERIFIED"]
+        if failures:
+            from f139.nci04_negative_owner_store import (
+                verify_original_negative_custody, TICKET as NEGATIVE_TICKET)
+            require(len(failures)==1 and failures[0]["stage"]=="QUARANTINED"
+                    and failures[0]["ticket"]==NEGATIVE_TICKET
+                    and verify_original_negative_custody(db)
+                    and any(
+                        json.loads(row["payload"]).get("schema")==
+                        "forge.f139.source-transition.v2"
+                        for row in db.conn.execute(
+                            "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")),
+                    "UNVERIFIED_HISTORICAL_TASK")
+        prior=meta["head_hash"]
+        db.event(ACTIVATION_KIND,{
+            "schema":ACTIVATION_SCHEMA,"source_sha":meta["source_sha"],
+            "prior_event_head_sha256":prior,
+            "sealed_original_prefix_sha256":SEALED_OWNER_PREFIX_HEAD,
+            "verified_original_tasks":4,"verified_d2k_tasks":2,
+            "new_dispatches":0,"scientific_first_use":False,
+            "development_only":True,
         })
         db.verify()
         return True
