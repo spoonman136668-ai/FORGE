@@ -77,7 +77,7 @@ class OriginalSplitNegativeCli(unittest.TestCase):
               mock.patch(
                   "f139.nci04_negative_owner_store.verify_original_negative_custody",
                   return_value=True),
-              mock.patch.dict(os.environ, {"F139_WORKER_HMAC_KEY": "synthetic-owner-key-only"}),
+              mock.patch.dict(os.environ, {"F139_WORKER_HMAC_KEY": "synthetic-owner-hmac-key-not-production-00000"}),
               contextlib.redirect_stdout(io.StringIO()) as output):
             cli(["--db", str(self.path), "custody-original-native-split-negative"])
             return output.getvalue()
