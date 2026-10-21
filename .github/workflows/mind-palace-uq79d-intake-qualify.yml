@@ -51,12 +51,12 @@ jobs:
             Require ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
               (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_CHANGED_'+$ref)
           }
-          function CallNative([string]$label,[string]$relative,[string[]]$args=@()) {
+          function CallNative([string]$label,[string]$relative,[string[]]$nativeArgs=@()) {
             $out=Join-Path $logroot ($label+'.out')
             $err=Join-Path $logroot ($label+'.err')
             $script=Join-Path $root $relative
             Require (Test-Path -LiteralPath $script -PathType Leaf) ('MISSING_'+$label)
-            $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$script+'"')) + $args
+            $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$script+'"')) + $nativeArgs
             $p=Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
             if($p.ExitCode -ne 0) {
               $errorBody=[IO.File]::ReadAllText($err)
