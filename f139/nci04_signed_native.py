@@ -106,6 +106,9 @@ def admit_native_intent(inputs: dict, native_intent_raw: bytes, *,
                         issue_id: str, issue_body_sha256: str,
                         authenticated_main_sha: str, authenticated_target_commit: str,
                         authenticated_target_tree: str) -> NativeAdmission:
+    require(isinstance(inputs,dict) and isinstance(inputs.get("ticket"),str)
+            and NATIVE_TICKET.fullmatch(inputs["ticket"]) is not None,
+            "NATIVE_TICKET_REQUIRED")
     # Existing ticket must pass the real F139 HMAC, epoch, run source/event
     # check before any candidate bytes are considered. It must be a distinct
     # native ticket; D2K and frozen historical tickets are never upcast.
