@@ -271,3 +271,91 @@ jobs:
           path: ${{ runner.temp }}/f139-issue706-readonly/native-report.json
           if-no-files-found: warn
           retention-days: 30
+
+  f139-original-ledger-cold-source-rehearsal:
+    # Exact merged F139 A8C source against a private, ephemeral SQLite snapshot
+    # of the original 47-event database on the same owner Windows runner.
+    # No task changes, no HMAC/DPAPI reads, no native dispatch, no artifacts.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/audit/f139-existing-runner-owner-custody-20261021' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify source files are bit-identical to merged protected A8C
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & git diff --quiet '09f3d7447900f99dd3d532c5d3d90ed7e8c20ac3' HEAD -- f139
+          if($LASTEXITCODE -ne 0) { throw 'F139_A8C_SOURCE_DIFFERS_FROM_PROTECTED_MAIN' }
+          Write-Host 'F139_A8C_ORIGINAL_VERIFY_CODE_EXACT_PROTECTED_MAIN=PASS'
+      - name: Cold-verify authentic original 47-event DB using private temporary snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:OPENAI_API_KEY) { throw 'F139_PAID_API_FORBIDDEN' }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$t.Principal.UserId
+          $sid=try {
+            (New-Object Security.Principal.NTAccount($principal)).
+              Translate([Security.Principal.SecurityIdentifier]).Value
+          } catch { '' }
+          if($principal -ine $who.Name -and $sid -ne $who.User.Value) {
+            throw 'F139_OWNER_PROFILE_NOT_AUTHENTICATED'
+          }
+          if(@($t.Actions).Count -ne 1) { throw 'F139_ORIGINAL_TASK_SHAPE_DRIFT' }
+          $argsText=[string]$t.Actions[0].Arguments
+          function TaskArg([string]$key) {
+            $pattern='(?i)(?:^|\s)-'+[regex]::Escape($key)+'\s+"([^"]+)"'
+            $matchesFound=[regex]::Matches($argsText,$pattern)
+            if($matchesFound.Count -ne 1) { throw 'F139_ORIGINAL_TASK_ARG_DRIFT' }
+            return $matchesFound[0].Groups[1].Value
+          }
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $code=@'
+          import os,sys,sqlite3,tempfile
+          from pathlib import Path
+          from f139.local_controller import Database
+          original=Path(sys.argv[1]).resolve(strict=True)
+          assert original.is_file(),"ORIGINAL_OWNER_DB_MISSING"
+          with tempfile.TemporaryDirectory(prefix="f139-a8c-owner-preflight-") as temp:
+              dest=Path(temp)/"state.sqlite"
+              uri=original.as_uri()+"?mode=ro"
+              source=sqlite3.connect(uri,uri=True)
+              target=sqlite3.connect(str(dest))
+              try:
+                  source.backup(target)
+                  target.commit()
+              finally:
+                  target.close()
+                  source.close()
+              db=Database(dest)
+              try:
+                  db.verify()
+                  meta=db.meta()
+                  rows=list(db.conn.execute(
+                      "SELECT ticket,stage,quarantine_reason FROM tasks"))
+                  assert meta["source_sha"]=="5662e3586bc9d12c90033b7c0344ca65ea1ad2a0","ORIGINAL_SOURCE_DRIFT"
+                  assert meta["head_seq"]==47,"ORIGINAL_EVENT_COUNT_DRIFT"
+                  assert meta["head_hash"]=="75b24554b43cf1ea807810d9d98bd28a3f2c08585f8a9b811ae62f0c2ad74c4b","ORIGINAL_HASH_DRIFT"
+                  assert len(rows)==8 and sum(r["stage"]=="VERIFIED" for r in rows)==7,"ORIGINAL_TASKS_DRIFT"
+                  neg=[r for r in rows if r["ticket"].startswith("f139-nci04-i696-")]
+                  assert len(neg)==1 and neg[0]["stage"]=="QUARANTINED","ORIGINAL_NEGATIVE_STAGE_DRIFT"
+                  reason=neg[0]["quarantine_reason"]
+                  print("F139_A8C_ORIGINAL_QUARANTINE_REASON_MATCH="+
+                    str(reason=="FAILED_OR_CANCELLED_NO_REPLAY").upper())
+                  print("F139_A8C_ORIGINAL_LEDGER_47_NEW_SOURCE_COLD_VERIFY=PASS")
+                  print("F139_A8C_ORIGINAL_LEDGER_UNMODIFIED=TRUE")
+                  print("F139_A8C_OWNER_CUTOVER_NOT_EXECUTED=TRUE")
+                  assert reason=="FAILED_OR_CANCELLED_NO_REPLAY","ORIGINAL_NEGATIVE_REASON_DRIFT"
+              finally:
+                  db.close()
+          '@
+          & $python -B -c $code $db
+          if($LASTEXITCODE -ne 0) { throw 'F139_A8C_ORIGINAL_LEDGER_COLD_VERIFY_FAILED' }
