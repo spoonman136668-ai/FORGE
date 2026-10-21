@@ -232,8 +232,8 @@ def main():
             dest.write_bytes(payload)
             added.append(dest)
         for label,src,_ in sources:
-            for condition in ("normal","contended"):
-                modes=(("phase_probe",3),) if os.environ.get("KTERM_RC2N_NATIVE_SPANS")=="1" else (("phase_probe",5),("original_test",5))
+            for condition in (("normal",) if os.environ.get("KTERM_RC2O_ONLY_NORMAL")=="1" else ("normal","contended")):
+                modes=(("phase_probe",3),("original_test",3)) if os.environ.get("KTERM_RC2O_WITH_CONTROLS")=="1" else ((("phase_probe",3),) if os.environ.get("KTERM_RC2N_NATIVE_SPANS")=="1" else (("phase_probe",5),("original_test",5)))
                 for mode,count in modes:
                     summary=run_case(src,label,condition,mode,count,out)
                     report["results"].append(summary)
