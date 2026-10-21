@@ -66,7 +66,7 @@ jobs:
               # Deliberately expose only bounded diagnostic tokens on the PUBLIC FORGE runner.
               # Raw stderr/stdout stay under private scratch and are destroyed in finally.
               $failureText=[IO.File]::ReadAllText($err)
-              $codeMatches=@([regex]::Matches($failureText,'UQ69B_STOP_[A-Z0-9_]+|UQ69B_[A-Z0-9_]*(?:FAIL|MISMATCH|MISSING|DRIFT|BLOCKED)') |
+              $codeMatches=@([regex]::Matches($failureText,'UQ[0-9]+[A-Z]?_[A-Z0-9_]+') |
                 ForEach-Object { $_.Value } | Select-Object -Unique)
               $classMatches=@([regex]::Matches($failureText,
                 'ParserError|ParameterBindingException|PropertyNotFoundException|CommandNotFoundException|RuntimeException|MethodException|InvalidOperation|ParseException') |
@@ -76,6 +76,12 @@ jobs:
               Write-Host ('UQ69B_PRIVATE_FAILURE_STAGE='+$Name)
               Write-Host ('UQ69B_PRIVATE_FAILURE_CODE='+$reported)
               Write-Host ('UQ69B_PRIVATE_FAILURE_CLASS='+$failureClass)
+              if($Name -ceq 'full-regression'){
+                $testMatches=@([regex]::Matches([IO.File]::ReadAllText($out),'RUN Test-[A-Za-z0-9_-]+\.ps1') |
+                  ForEach-Object { $_.Value } )
+                $lastTest=if($testMatches.Count -gt 0){$testMatches[-1]}else{'NONE'}
+                Write-Host ('UQ69B_FULL_LAST_TEST='+$lastTest)
+              }
               throw ('UQ69B_TEST_FAILED_'+$Name+'_EXIT_'+$p.ExitCode)
             }
             if($Name -ceq 'native'){
@@ -105,6 +111,8 @@ jobs:
             RunPrivate 'focused-ingest' 'tests/Test-IngestClassification.ps1'
             RunPrivate 'focused-collector' 'tests/Test-CollectorBatch.ps1'
             RunPrivate 'focused-supersession' 'tests/Test-BackfillSupersede.ps1'
+            # Diagnose one inherited fixed-baseline test before paying for another full suite.
+            RunPrivate 'focused-uq51-fixture' 'tests/Test-RepoSourceTransaction.ps1'
             RunPrivate 'full-regression' 'tests/Test-All.ps1'
             foreach($item in $guard){
               $after=(Get-FileHash -LiteralPath (Join-Path $root $item) -Algorithm SHA256).Hash.ToLowerInvariant()
