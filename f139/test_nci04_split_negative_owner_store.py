@@ -120,6 +120,7 @@ class SecondNegativeSyntheticOwnerTests(unittest.TestCase):
         self.admit()
         self.db.close()
         self.db = Database(self.path)
+        self.addCleanup(self.db.close)
         self.db.verify = lambda: None
         self.assertTrue(verify_second_negative_custody(self.db))
         self.assertEqual(self.db.meta()["head_seq"], 56)
