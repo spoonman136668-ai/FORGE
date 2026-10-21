@@ -2,6 +2,7 @@ package pkg
 
 import (
     "net/http"
+    "sort"
     "testing"
     "time"
 )
@@ -79,6 +80,39 @@ func TestRC2NNineMakerAttemptsMeasuredUnderOriginalDeadline(t *testing.T) {
         t.Logf("RC2N_FIXTURE fixture_us=%d initial_age_us=%d receipt_age_us=%d original_limit_us=%d", fixtureUs,
             time.Since(f.n.Started).Microseconds(), time.Since(receipt).Microseconds(),
             nativeCanceledBuyRetryWindow.Microseconds())
+        // The native runtime already records named, source-local timing
+        // subspans. Read its immutable snapshot; never publish identities.
+        record := f.n.timing.snapshot("RC2N", nil, true)
+        type spanTotals struct { calls int; totalUs int64; peakUs int64 }
+        spanStats := make(map[string]spanTotals)
+        for _, v := range record.Spans {
+            // Source-authored constant stage labels only, no client IDs.
+            safe := true
+            for _, ch := range v.Stage {
+                if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                    (ch >= '0' && ch <= '9') || ch == '_' || ch == '.' || ch == '-') {
+                    safe = false
+                    break
+                }
+            }
+            if !safe || v.Stage == "" { continue }
+            u := int64(v.DurationMS * 1000)
+            if u < 0 { continue }
+            prev := spanStats[v.Stage]
+            prev.calls++
+            prev.totalUs += u
+            if u > prev.peakUs { prev.peakUs = u }
+            spanStats[v.Stage] = prev
+        }
+        labels := make([]string, 0, len(spanStats))
+        for k := range spanStats { labels = append(labels,k) }
+        sort.Strings(labels)
+        t.Logf("RC2N_NATIVE_SUMMARY span_types=%d dropped_spans=%d total_spans=%d",len(labels),record.DroppedSpans,len(record.Spans))
+        for _, label := range labels {
+            x := spanStats[label]
+            t.Logf("RC2N_NATIVE_SPAN stage=%s calls=%d total_us=%d peak_us=%d",
+                label,x.calls,x.totalUs,x.peakUs)
+        }
         for _, p := range phases {
             if p.attempt == 0 {
                 break
