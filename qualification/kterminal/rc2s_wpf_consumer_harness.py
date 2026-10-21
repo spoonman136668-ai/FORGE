@@ -45,12 +45,13 @@ def safe_ps_failure_identity(output,filename):
     unknown_type=sorted(set(re.findall(
         r"(?:Unable to find type|Cannot find type)\s*\[([A-Za-z0-9_.]{1,80})\]",
         output,re.IGNORECASE)))[:6]
+    parameters=sorted(set(re.findall(r"Parameter name:\\s*([A-Za-z][A-Za-z0-9_]{0,63})",output,re.IGNORECASE)))[:5]
     variables=sorted(set(re.findall(
         r"The variable .?\$([A-Za-z_][A-Za-z0-9_]{0,55})",
         output,re.IGNORECASE)))[:6]
     return {"error_line_numbers":lines,"error_ids":errors,
        "exception_classes":exceptions,"missing_property":properties,
-       "unbound_variable":variables,"missing_types":unknown_type}
+       "unbound_variable":variables,"missing_types":unknown_type,"invalid_parameters":parameters}
 
 def testcase(repo,source_label,ps,out):
     path=out/(source_label+"-wpf.json")
@@ -81,9 +82,9 @@ def testcase(repo,source_label,ps,out):
       "reason_classes":classifications,
       "safe_error_identity":safe_ps_failure_identity(output,"rc2s_wpf_snapshot_probe.ps1"),
       "sample_count":len(data["samples"]) if data else 0,
-      "observations":data["samples"] if valid else [],
+      "observations":data["samples"] if data and len(data.get("samples",[]))==6 else [],
       "shipping_pixel_paint_tested":False}
-    if valid:
+    if data and len(data.get("samples",[]))==6:
         fields=("source_publish_to_update_ms","production_update_ms",
                 "offscreen_layout_render_ms")
         result["stats_ms"]={
@@ -98,8 +99,9 @@ def layout_attribution(repo,label,out):
     start=time.monotonic()
     argv=["powershell.exe","-NoLogo","-NoProfile","-NonInteractive",
           "-Sta","-ExecutionPolicy","Bypass","-File",
-          str(repo/"verification/test-dashboard-resize.ps1"),
-          "-Root",str(repo)]
+          str(pathlib.Path(__file__).with_name("rc2s_layout_test_setup.ps1")),
+          "-Root",str(repo),"-OutputDirectory",str(out/(label+"-layout-images"))]
+    (out/(label+"-layout-images")).mkdir(mode=0o700,exist_ok=False)
     try:
         p=proc(argv,repo,95);rc=p.returncode;output=p.stdout+"\n"+p.stderr
     except subprocess.TimeoutExpired:
@@ -108,7 +110,7 @@ def layout_attribution(repo,label,out):
         if re.search(r,output,re.IGNORECASE))
     if rc!=0 and not categories:categories=["UNCLASSIFIED_LAYOUT_FAILURE"]
     result={"source":label,"case":"unchanged_existing_WPF_resize",
-        "result":"PASS" if rc==0 and "PASS: real WPF splitter" in output else "FAIL_NOT_WAIVED",
+        "result":"PASS" if rc==0 and "PASS: real WPF splitter" in output and "KTERM_RC2S_LAYOUT_EXISTING_ASSERTIONS=PASS" in output else "FAIL_NOT_WAIVED",
         "exit_code":rc,"reason_classes":categories,
         "safe_error_identity":safe_ps_failure_identity(output,"test-dashboard-resize.ps1"),
         "elapsed_ms":round((time.monotonic()-start)*1000,2),
