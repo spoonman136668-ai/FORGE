@@ -23,7 +23,7 @@ foreach($name in @('Update-Dashboard','Set-ValueText','Tone-Value','Tone-Money')
 }
 $script:actualUpdateDashboard=${function:Update-Dashboard}
 $brushConverter=[Windows.Media.BrushConverter]::new()
-foreach($match in [regex]::Matches($source,"(?m)^\$brush[A-Za-z]+\s*=\s*\$brushConverter\.ConvertFromString\('#[A-Fa-f0-9]+'\)")){
+foreach($match in [regex]::Matches($source,'(?m)^\$brush[A-Za-z]+\s*=\s*\$brushConverter\.ConvertFromString\(''#[A-Fa-f0-9]+''\)')){
   . ([scriptblock]::Create($match.Value))
 }
 $script:selectedAsset='BTC-USDC'
