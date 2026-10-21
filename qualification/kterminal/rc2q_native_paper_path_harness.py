@@ -27,6 +27,21 @@ FIELDS={
  "requests","receipts"
 }
 METRIC=re.compile(r"([a-z_]+)=(-?[0-9]+)")
+SAFE_FAILURE_CATEGORIES=(
+ "PAPER_NATIVE_ACK_DENIED",
+ "PAPER_SYNTHETIC_TRANSPORT_NOT_ISOLATED",
+ "PAPER_EVENT_CLOCK_ORDER_INVALID",
+ "PAPER_READY_PREVIEW_CONTRACT_NOT_PRESERVED",
+ "PAPER_RECEIPT_NOT_DURABLE",
+ "PAPER_TRANSPORT_UNEXPECTED_LIVE_RESERVATION",
+ "PAPER_ACK_INVENTED_FILL_OR_COST_BASIS",
+ "PAPER_DUPLICATE_REEXECUTED",
+ "PAPER_UI_MODEL_MISSING_ORDER",
+ "PAPER_UI_MODEL_NOT_PUBLISHED",
+ "PAPER_DISPLAY_TERMINAL_FILL_STILL_WORKING",
+ "PAPER_DISPLAY_EVENT_INVENTED_FINANCIAL_ACCOUNTING",
+ "PAPER_PREVIEW_CLIENT_ID_EMPTY",
+)
 
 def cmd(argv,cwd,env=None,timeout=240):
     return subprocess.run(argv,cwd=cwd,env=env,capture_output=True,
@@ -68,6 +83,10 @@ def parse(stdout):
             fields={k:int(v) for k,v in METRIC.findall(e["Output"].split("RC2Q_BOUNDARY ",1)[1])}
             if set(fields)==FIELDS:metrics.append(fields)
             else:rejects.add("BAD_METRIC_INVENTORY")
+        if action=="output" and name==NAME:
+            line=e.get("Output","")
+            for category in SAFE_FAILURE_CATEGORIES:
+                if category in line:rejects.add(category)
         if action=="fail" and name==NAME:rejects.add("PAPER_TEST_FAILURE")
         if action=="fail" and not name:rejects.add("PACKAGE_FAILED")
     return metrics,counts,malformed,rejects
