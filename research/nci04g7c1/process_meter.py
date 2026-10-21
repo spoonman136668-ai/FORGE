@@ -61,7 +61,7 @@ def command_receipt(argv: list[str], cwd: Path, *, timeout_s: float=8.0,
     require(type(argv) is list and 1 <= len(argv) <= 16
             and all(type(x) is str and x and len(x) <= 1024 for x in argv),
             "INVALID_ARGV")
-    require(type(cwd) is Path and cwd.is_dir() and not cwd.is_symlink(),
+    require(isinstance(cwd, Path) and cwd.is_dir() and not cwd.is_symlink(),
             "INVALID_CWD")
     require(type(timeout_s) in (float,int) and 0.1 <= timeout_s <= 60.0
             and type(sample_interval_s) in (float,int)
