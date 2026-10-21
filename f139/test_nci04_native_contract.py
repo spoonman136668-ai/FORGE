@@ -64,6 +64,17 @@ class NativeContractTests(unittest.TestCase):
                 self.assertEqual(len(candidate.qualification_key), 64)
                 self.assertEqual(candidate.lane, lane)
 
+    def test_quarantined_original_toolchain_identity_retained(self):
+        # Historical issue #696 is immutable: newer source parsing must not
+        # invalidate the originally authenticated negative event-chain input.
+        old = intent("Yggdrasil")
+        old["toolchain_identity"] = "python3.11.11"
+        historic = self.parse(old)
+        current = self.parse(intent("Yggdrasil"))
+        self.assertNotEqual(historic.qualification_key, current.qualification_key)
+        self.assertEqual(historic.lane, "Yggdrasil")
+        self.assertEqual(current.lane, "Yggdrasil")
+
     def test_original_drift_fails_closed(self):
         with self.assertRaisesRegex(NativeContractError, "ORIGINAL_BYTES_DRIFT"):
             self.parse(intent()).materialize_bytes(b"unexpected")
