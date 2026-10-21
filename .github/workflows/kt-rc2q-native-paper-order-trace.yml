@@ -1,0 +1,86 @@
+name: K-Terminal RC2-Q native PAPER order and dashboard trace
+on:
+  push:
+    branches: [diagnostics/kterminal-original-local-preflight-20261019]
+    paths: [.github/workflows/kt-rc2q-native-paper-order-trace.yml]
+permissions:
+  contents: read
+concurrency:
+  group: kterm-rc2q-native-paper-path-20261020
+  cancel-in-progress: false
+jobs:
+  paper-order-trace:
+    runs-on: windows-latest
+    timeout-minutes: 19
+    env:
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOFLAGS: '-p=1'
+      GOMAXPROCS: '2'
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+    steps:
+      - name: Checkout FORGE qualification-only test source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Checkout original K-Terminal SHA with read-only token
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kt-original
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Checkout PR73 frozen SHA with read-only token
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: b8c2052d530cdff93462dfccc21b28f3824e5531
+          path: kt-candidate
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Pin Go 1.26.5 Windows
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Validate exact source and prohibit live broker credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = Windows
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git -C kt-original rev-parse HEAD)" = eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          test "$(git -C kt-candidate rev-parse HEAD)" = b8c2052d530cdff93462dfccc21b28f3824e5531
+          test -z "$(git -C kt-original status --porcelain)"
+          test -z "$(git -C kt-candidate status --porcelain)"
+          test "$K_TERMINAL_EXECUTION_MODE" = PAPER
+          go version | grep -F 'go1.26.5 windows/amd64'
+          for n in COINBASE_API_KEY COINBASE_API_SECRET CDP_API_KEY_NAME CDP_API_KEY_PRIVATE_KEY K_TERMINAL_API_KEY K_TERMINAL_API_SECRET; do
+            test -z "${!n:-}"
+          done
+          echo KTERM_RC2Q_FROZEN_SOURCE_AND_NO_BROKER=PASS
+      - name: Exercise real native PAPER branch with fake network rejection and dashboard publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B qualification/kterminal/rc2q_native_paper_path_harness.py \
+             kt-original kt-candidate \
+             qualification/kterminal/rc2q_native_paper_receipt_and_dashboard_test.go \
+             "$RUNNER_TEMP/kterm-rc2q-paper-trace"
+          echo KTERM_RC2Q_PRODUCTION_SOURCE_UNMODIFIED=TRUE
+          echo KTERM_RC2Q_FULL_FINANCIAL_REGRESSION=NOT_RUN
+          echo KTERM_RC2Q_WPF_PAINT_AND_REAL_PAPER_FILLS=NOT_CLAIMED
+      - name: Retain redacted timing and negative test categories only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kterm-rc2q-paper-trace-${{ github.run_id }}
+          path: ${{ runner.temp }}/kterm-rc2q-paper-trace/rc2q-redacted-metrics.json
+          retention-days: 20
+          if-no-files-found: warn
