@@ -96,6 +96,31 @@ jobs:
             if(!(Test-Path -LiteralPath $script -PathType Leaf)){throw 'D3G_FROZEN_ACCEPTANCE_SCRIPT_MISSING'}
             & pwsh -NoLogo -NoProfile -NonInteractive -File $script -CandidateCheckout $candidate -DonorCheckout $donor *> $privateLog
             if($LASTEXITCODE -ne 0){
+              # These output lines are vetted stage markers or errors in the
+              # three newly-added KTRADE shim files, never original donor logs.
+              $logLines=@(Get-Content -LiteralPath $privateLog -Encoding utf8 -ErrorAction SilentlyContinue)
+              $stageCodes=@($logLines | Where-Object {
+                $_ -cmatch 'D3G_[A-Z][A-Z0-9_]+_(FAILED|DRIFT|MISSING|UNAVAILABLE|INVALID|DENIED|NOT_CLEAN|MUTATED)'
+              } | ForEach-Object {
+                if($_ -cmatch '(D3G_[A-Z][A-Z0-9_]+_(?:FAILED|DRIFT|MISSING|UNAVAILABLE|INVALID|DENIED|NOT_CLEAN|MUTATED))'){
+                  $Matches[1]
+                }
+              } | Select-Object -Unique -First 6)
+              foreach($code in $stageCodes){Write-Host ('D3G_REDACTED_FAILURE_CODE='+$code)}
+              $testFailures=@($logLines | Where-Object {
+                $_ -cmatch '^--- FAIL: (TestC75D3F[A-Za-z0-9_]+)'
+              } | ForEach-Object {
+                if($_ -cmatch '^--- FAIL: (TestC75D3F[A-Za-z0-9_]+)'){$Matches[1]}
+              } | Select-Object -Unique -First 6)
+              foreach($name in $testFailures){Write-Host ('D3G_REDACTED_FAILED_TEST='+$name)}
+              $compileSites=@($logLines | Where-Object {
+                $_ -cmatch '(c75d3f_native_current_(?:vwap|donor_test|sidecar)\.go):(\d+):(\d+):'
+              } | ForEach-Object {
+                if($_ -cmatch '(c75d3f_native_current_(?:vwap|donor_test|sidecar)\.go):(\d+):(\d+):'){
+                  ($Matches[1]+':'+$Matches[2]+':'+$Matches[3])
+                }
+              } | Select-Object -Unique -First 6)
+              foreach($site in $compileSites){Write-Host ('D3G_REDACTED_COMPILER_SITE='+$site)}
               throw 'D3G_AUTHENTIC_ORIGINAL_NATIVE_QUALIFICATION_FAILED'
             }
             $lines=@(Get-Content -LiteralPath $privateLog -Encoding utf8)
