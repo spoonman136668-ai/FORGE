@@ -57,6 +57,8 @@ class OwnerNegativeStoreTests(unittest.TestCase):
         self.jobs=[
             {"id":rid+10,"run_id":rid,"name":"native-authorize",
              "status":"completed","conclusion":"success"},
+            {"id":rid+15,"run_id":rid,"name":"execute",
+             "status":"completed","conclusion":"skipped"},
             {"id":rid+11,"run_id":rid,"name":"native-execute (ubuntu-latest)",
              "status":"completed","conclusion":"failure"},
             {"id":rid+12,"run_id":rid,"name":"native-execute (windows-latest)",
