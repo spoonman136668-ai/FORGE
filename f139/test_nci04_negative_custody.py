@@ -30,6 +30,8 @@ class NegativeCustodyTests(unittest.TestCase):
         self.jobs = [
             {"id":rid+10, "run_id":rid,"name":"native-authorize",
              "status":"completed","conclusion":"success"},
+            {"id":rid+15,"run_id":rid,"name":"execute",
+             "status":"completed","conclusion":"skipped"},
             {"id":rid+11, "run_id":rid,"name":"native-execute (ubuntu-latest)",
              "status":"completed","conclusion":"failure"},
             {"id":rid+12, "run_id":rid,"name":"native-execute (windows-latest)",
@@ -87,6 +89,7 @@ class NegativeCustodyTests(unittest.TestCase):
     def test_both_os_and_authorizer_jobs_must_match_real_run(self):
         variants = [
             self.jobs[:2],
+            [j for j in self.jobs if j["name"]!="execute"],
             [{**self.jobs[0],"conclusion":"failure"},*self.jobs[1:]],
             [self.jobs[0],{**self.jobs[1],"conclusion":"success"},self.jobs[2]],
             [self.jobs[0],{**self.jobs[1],"status":"in_progress"},self.jobs[2]],
