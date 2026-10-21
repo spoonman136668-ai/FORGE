@@ -1,0 +1,55 @@
+name: FORGE NCI-04G7C independent source-intake
+# Data-only external source identity qualification: NO evaluator or FSA first-use.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/nci04g7c/**'
+      - '.github/workflows/forge-nci04g7c-source-intake.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  external-source-custody-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout source-custody proposal
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout pinned independent Go source (no execution)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: google/uuid
+          ref: 2d3c2a9cc518326daf99a383f07c4d3c44317e4d
+          path: external/uuid
+          persist-credentials: false
+      - name: Checkout pinned independent gridworld source (no execution)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Farama-Foundation/Minigrid
+          ref: 7f5853792ea7f04f75614661006d87fcf949f26d
+          path: external/minigrid
+          persist-credentials: false
+      - name: Verify exact external commits, blob custody and three tamper negatives
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B research/nci04g7c/verify_sources.py \
+            --wingless-checkout external/uuid \
+            --yggdrasil-checkout external/minigrid
+      - name: Verify evidence-only edit scope and no first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD)" = 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0
+          changed="$(git diff --name-only 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD | sort)"
+          expected="$(printf '%s\n' '.github/workflows/forge-nci04g7c-source-intake.yml' 'research/nci04g7c/external_sources.json' 'research/nci04g7c/verify_sources.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --quiet
+          echo NCI04G7C_INDEPENDENT_SOURCE_BYTES=VERIFIED
+          echo NCI04G7C_RESERVED_FIRST_USE=UNTOUCHED
+          echo NCI04G7C_LANE_EVALUATION=NOT_PERFORMED
+          echo NCI04G7C_SCIENTIFIC_ADMISSION=BLOCKED
