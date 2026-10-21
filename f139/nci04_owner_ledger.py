@@ -49,8 +49,23 @@ def verified_historical_foundation(db):
     verified = list(db.conn.execute(
         "SELECT ticket,stage,run_id,evidence_sha FROM tasks "
         "WHERE ticket LIKE 'f139-d2c-%' OR ticket LIKE 'f139-d2j-%'"))
+    seal = db.conn.execute("SELECT sha FROM events WHERE seq=23").fetchone()
+    require(seal is not None
+            and seal["sha"] == "eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87",
+            "ORIGINAL_23_EVENT_PIN_DRIFT")
+    # Real authenticated first-use-safe D2K receipt transitions, not just
+    # artificially constructed task records with a matching high-water.
+    for number, runid in ((687, 39513293606), (688, 39513381790)):
+        row = db.conn.execute(
+            "SELECT stage,run_id,evidence_sha FROM tasks "
+            "WHERE ticket LIKE ?", ("f139-d2k-i" + str(number) + "-%",)).fetchall()
+        require(len(row) == 1 and row[0]["stage"] == "VERIFIED"
+                and row[0]["run_id"] == runid
+                and isinstance(row[0]["evidence_sha"], str)
+                and SHA64.fullmatch(row[0]["evidence_sha"]) is not None,
+                "D2K_LOCAL_CUSTODY_NOT_VERIFIED")
     require(meta["enabled"] == 1 and meta["legacy_suspended"] == 1
-            and meta["head_seq"] >= 23
+            and meta["head_seq"] >= 40
             and len(verified) == 4
             and sum(r["ticket"].startswith("f139-d2c-") for r in verified) == 2
             and sum(r["ticket"].startswith("f139-d2j-") for r in verified) == 2
