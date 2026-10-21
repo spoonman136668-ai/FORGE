@@ -64,6 +64,15 @@ jobs:
               $code=if($tokens.Count){$tokens[0]}else{'UNCLASSIFIED'}
               Write-Host ('UQ79D_FAILURE_STAGE='+$label)
               Write-Host ('UQ79D_FAILURE_CODE='+$code)
+              $nonblank=@($errorBody -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+              $last=if($nonblank.Count -gt 0){[string]$nonblank[-1]}else{'NO_NATIVE_STDERR'}
+              $last=[regex]::Replace($last,'(?i)[A-Z]:\\[^\s:\)\]]+','<PRIVATE_PATH>')
+              $last=[regex]::Replace($last,'https?://[^\s]+','<SOURCE_URL>')
+              $last=[regex]::Replace($last,'[a-fA-F0-9]{32,}','<DIGEST>')
+              $last=[regex]::Replace($last,'[\x00-\x1f\x7f]',' ')
+              if($last.Length -gt 220){$last=$last.Substring(0,220)}
+              Write-Host ('UQ79D_REDACTED_NATIVE_ERROR='+$last)
+
               throw ('UQ79D_NATIVE_FAILED_'+$label+'_EXIT_'+$p.ExitCode)
             }
             Write-Host ('UQ79D_'+$label.ToUpperInvariant()+'=PASS')
