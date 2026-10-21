@@ -110,6 +110,7 @@ def phased(label,repo,test_ps,output_root):
             if wpf.poll() is not None:break
             time.sleep(.10)
         if not ready.exists():raise RuntimeError("WPF_CONSUMER_UNAVAILABLE")
+        print("KTERM_RC2T_"+label.upper()+"_RECEIVER_READY=PASS",flush=True)
         pattern="^(?:"+"|".join((GO_TEST,*GO_CTRL))+")$"
         started=time.monotonic()
         try:
@@ -119,12 +120,39 @@ def phased(label,repo,test_ps,output_root):
         except subprocess.TimeoutExpired:
             raise RuntimeError("GO_PROCESS_TIMEOUT")
         go_elapsed=round(time.monotonic()-started,3)
+        good_in_go, go_flags, failed_parse=parse_go(go.stdout)
+        raw_compiler=go.stdout+"\\n"+go.stderr
+        compiler_lines=sorted(set(re.findall(
+            r"rc2t_correlated_transient_test.go:([0-9]{1,4}):([0-9]{1,3})",
+            raw_compiler)))[:8]
+        compiler_error=sorted(set(x for x,pattern in (
+            ("GO_UNDEFINED_SYMBOL",r"undefined: "),
+            ("GO_TYPE_MISMATCH",r"cannot use "),
+            ("GO_FAIL_ASSERTION",r"--- FAIL:"),
+            ("GO_PANIC",r"panic:"),
+            ("GO_TEST_SETUP",r"setup failed"),
+            ("GO_BUILD_FAILED",r"build failed"),
+            ("GO_NO_TEST",r"no tests to run"))
+            if re.search(pattern,raw_compiler,re.IGNORECASE)))
+        print("KTERM_RC2T_"+label.upper()+"_GO_EXIT="+str(go.returncode),flush=True)
+        print("KTERM_RC2T_"+label.upper()+"_GO_ERROR_CLASSES="+",".join(compiler_error),flush=True)
+        print("KTERM_RC2T_"+label.upper()+"_GO_PROBE_LINES="+str(compiler_lines),flush=True)
+        if go.returncode!=0:
+            return {"source":label,"result":"FAIL_NOT_WAIVED",
+                "go_exit":go.returncode,"wpf_exit":None,
+                "go_elapsed_s":go_elapsed,"original_controls_pass":good_in_go,
+                "failure_classes":compiler_error+go_flags+failed_parse,
+                "correlated_phases":[],"correlated_samples":0,
+                "shipping_display_frame_measured":False,
+                "actual_paper_engine_fill_measured":False}
+
         try:
             stdout,stderr=wpf.communicate(timeout=30)
         except subprocess.TimeoutExpired:
             raise RuntimeError("WPF_CONSUMER_TIMEOUT")
         actual_go=go.returncode
         actual_wpf=wpf.returncode
+        print("KTERM_RC2T_"+label.upper()+"_WPF_EXIT="+str(actual_wpf),flush=True)
         go_ok,go_issues,parse_issues=parse_go(go.stdout)
         completed=(actual_go==0 and go_ok and
                    "RC2T_NATIVE_REDUCER_AND_PRODUCTION_UI_PUBLISHER=PASS" in go_issues)
