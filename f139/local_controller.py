@@ -1029,6 +1029,10 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None,
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
     db.verify()
+    from f139.nci04_owner_ledger import verify_native_activation
+    # Original Tick/Loop now recognizes only a genuine append-only owner
+    # activation event, not an issue label, environment toggle or auto-setup.
+    native_enabled = bool(native_enabled or verify_native_activation(db))
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
     require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
@@ -1138,6 +1142,8 @@ def cli(argv=None):
     sub.add_parser("status")
     enable=sub.add_parser("activate");enable.add_argument("--legacy-suspended-evidence",type=Path,required=True)
     sub.add_parser("tick")
+    owner_native=sub.add_parser("activate-native")
+    owner_native.add_argument("--approval",type=Path,required=True)
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1166,6 +1172,26 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="activate-native":
+            # Owner-only, explicit admission. Does not create a second task or
+            # controller and does not dispatch work. The existing scheduled
+            # tick picks up only this authenticated SQLite activation event.
+            require(os.name=="nt","OWNER_WINDOWS_ONLY_FOR_ACTIVATION")
+            require(GitHub().protected_main()==db.meta()["source_sha"],
+                    "NATIVE_ACTIVATION_GITHUB_SOURCE_DRIFT")
+            GitHub().legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            from f139.nci04_owner_ledger import activate_native
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"OWNER_APPROVAL_FILE_UNQUALIFIED")
+            approval=json.loads(raw)
+            with SingleOwner(args.db.with_suffix(".lock")):
+                result=activate_native(db,approval)
+                print(json.dumps({"native_development_activated":result,
+                                  "source_sha":db.meta()["source_sha"],
+                                  "event_head":db.meta()["head_hash"],
+                                  "scientific_first_use":False},
+                                 sort_keys=True))
         elif args.verb=="tick":
             with SingleOwner(args.db.with_suffix(".lock")):
                 result=run_once(db,GitHub(),args.db,os.environ.get("F139_WORKER_HMAC_KEY",""))
