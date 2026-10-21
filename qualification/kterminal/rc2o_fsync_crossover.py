@@ -67,17 +67,19 @@ def summarize(report):
         key=x["source"]+"_"+x["mode"]
         spans=x.get("native_span_aggregates",{})
         samples=x["samples"]
-        profiles=[{
-            "last_deadline_remaining_us":
-               p.get("phases",[{}])[-1].get("deadline_remaining_us"),
-            "first_attempt_elapsed_us":
-               p.get("phases",[{}])[0].get("elapsed_from_start_us"),
-            "last_attempt_elapsed_us":
-               p.get("phases",[{}])[-1].get("elapsed_from_start_us"),
-            "all_nine_posts":
-               p.get("phases",[{}])[-1].get("after_posts") if p.get("phases") else None,
-            "status":p.get("status"),"reasons":p.get("reason_classes")
-        } for p in samples]
+        profiles=[]
+        for trial in samples:
+            phases=trial.get("phases") or []
+            first=phases[0] if phases else {}
+            last=phases[-1] if phases else {}
+            profiles.append({
+                "last_deadline_remaining_us":last.get("deadline_remaining_us"),
+                "first_attempt_elapsed_us":first.get("elapsed_from_start_us"),
+                "last_attempt_elapsed_us":last.get("elapsed_from_start_us"),
+                "all_nine_posts":last.get("after_posts"),
+                "status":trial.get("status"),
+                "reasons":trial.get("reason_classes")
+            })
         out[key]={"state":x["state"],"success":x["successful_repeats"],
             "failed":x["failed_repeats"],
             "phase_maxima_us":x.get("phase_maxima_us",{}),
