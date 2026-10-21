@@ -69,15 +69,17 @@ func TestRC2QNativePaperOneOrderReceiptAndDashboardPublication(t *testing.T) {
   if readyAt.Before(entryStart)||resultAt.Before(readyAt)||returnedAt.Before(resultAt) {
     t.Fatal("PAPER_EVENT_CLOCK_ORDER_INVALID")
   }
-  if _,ok:=result.(*OrderResponse);!ok {
-    t.Fatalf("PAPER_RESPONSE_TYPE_UNEXPECTED %T",result)
+  // The *application* contract is a validated preview, not a synthetic
+  // filled/working order. Never reinterpret the transport's paper- ID as
+  // an accepted exchange or paper-engine order.
+  paperResult,ok:=result.(map[string]interface{})
+  if !ok || paperResult["status"]!="PAPER_ORDER_READY" ||
+     paperResult["client_order_id"]!=requestID {
+    t.Fatal("PAPER_READY_PREVIEW_CONTRACT_NOT_PRESERVED")
   }
-  orderResponse:=result.(*OrderResponse)
+  // The display update below is an explicit test-only injected observation.
+  // No production event publisher is claimed for this preview.
   expectedOrderID:="paper-"+requestID
-  if !orderResponse.Success||orderResponse.OrderID!=expectedOrderID||
-     orderResponse.ClientOrderID!=requestID {
-    t.Fatal("PAPER_RESPONSE_IDENTITY_INCORRECT")
-  }
   receiptName:=nativeReceiptKey(n.Signal)+".json"
   receiptInfo,e:=os.Stat(filepath.Join(receiptRoot,receiptName))
   if e!=nil||receiptInfo.Size()==0 {t.Fatal("PAPER_RECEIPT_NOT_DURABLE")}
@@ -151,5 +153,5 @@ func TestRC2QNativePaperOneOrderReceiptAndDashboardPublication(t *testing.T) {
     receiptSyncUs,trancheSyncUs,evidenceSyncUs,
     dupDuration.Microseconds(),uiModelUs,uiWriteUs,fillModelUs,
     postHTTP,len(ctrl.state.Reservations),n.Requests,requestReady)
-  if strings.TrimSpace(orderResponse.OrderID)=="" {t.Fatal("PAPER_ACK_ID_EMPTY")}
+  if strings.TrimSpace(requestID)=="" {t.Fatal("PAPER_PREVIEW_CLIENT_ID_EMPTY")}
 }
