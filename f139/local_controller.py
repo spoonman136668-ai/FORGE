@@ -317,6 +317,11 @@ class Database:
                          if row["source_sha"] in historical_sources and row["stage"] == "VERIFIED")
             require(admitted >= source_transitions[-1]["verified_historical_tasks"],
                     "SOURCE_TRANSITION_HISTORIC_COUNT_INVALID")
+        # NCI04 admission is additive; historic F139/D2K event semantics stay
+        # exact. Check native admission against the original SHA-linked SQLite
+        # chain, preventing cross-kind issue replay and fabricated task records.
+        from f139.nci04_owner_ledger import audit_native_events
+        audit_native_events(self)
         active = self.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')").fetchone()[0]
         require(active <= 1, "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
 
@@ -918,7 +923,8 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     # it cannot be replayed or mistaken for fully accepted evidence on recovery.
     return (str(folder),hash_bytes(payload))
 
-def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
+def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None,
+             native_enabled=False):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
     db.verify()
@@ -971,20 +977,42 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             if db.admit_d2k_issue(item):
                 ready=db.ready()
             break
+    if ready is None and native_enabled:
+        # Inert in the shipping controller. Exact future source-transition and
+        # owner activation are mandatory before this gate can be called.
+        # Same single-owner lock, SQLite ledger and once-only budget as D2K.
+        from f139.nci04_owner_ledger import admit_native_issue
+        known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
+        for native_issue in api.native_eligible_issues(meta["source_sha"]):
+            if native_issue.ticket in known:
+                continue
+            if admit_native_issue(db, native_issue, timestamp):
+                ready = db.ready()
+            break
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
     db.claim(task["ticket"],timestamp)
     from f139.verify_ticket import signature as sign_worker_ticket
     d2k=db.d2k_fields(task["ticket"])
-    signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
-                                 task["source_sha"],str(meta["epoch"]),
-                                 **(d2k or {}))
-    if d2k is not None:
-        api.dispatch(task["ticket"],task["lane"],task["source_sha"],
-                     meta["epoch"],signature,d2k_fields=d2k)
+    native = task["ticket"].startswith("f139-nci04-")
+    if native:
+        require(native_enabled, "NATIVE_DISPATCH_NOT_ACTIVATED")
+        from f139.nci04_owner_ledger import frozen_native_issue
+        from f139.nci04_owner_issue import make_signed_dispatch_inputs
+        issue = frozen_native_issue(db, task["ticket"])
+        fields = make_signed_dispatch_inputs(
+            issue, owner_hmac_key=hmac_key, epoch=meta["epoch"])
+        api.dispatch_native(fields, issue)
     else:
-        api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
+        signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
+                                     task["source_sha"],str(meta["epoch"]),
+                                     **(d2k or {}))
+        if d2k is not None:
+            api.dispatch(task["ticket"],task["lane"],task["source_sha"],
+                         meta["epoch"],signature,d2k_fields=d2k)
+        else:
+            api.dispatch(task["ticket"],task["lane"],task["source_sha"],meta["epoch"],signature)
     db.dispatch_observed(task["ticket"])
     return {"disposition":"DEVELOPMENT_DISPATCHED_ONCE","ticket":task["ticket"],"science_authorized":False}
 
