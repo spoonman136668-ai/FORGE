@@ -1340,8 +1340,13 @@ def cli(argv=None):
             head=subprocess.run(["git","-C",str(checkout),"rev-parse","HEAD"],
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,
                 stdin=subprocess.DEVNULL,timeout=15,check=False)
-            require(head.returncode==0 and
-                    head.stdout.decode().strip()==api.protected_main(),
+            clean=subprocess.run(["git","-C",str(checkout),"status","--porcelain",
+                                  "--untracked-files=all"],stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
+                                 timeout=15,check=False)
+            require(head.returncode==0 and clean.returncode==0
+                    and not clean.stdout.strip()
+                    and head.stdout.decode().strip()==api.protected_main(),
                     "NEGATIVE_CUSTODY_CHECKOUT_NOT_PROTECTED_MAIN")
             api.legacy_dispatchers_disabled()
             hmac_key=os.environ.get("F139_WORKER_HMAC_KEY","")
