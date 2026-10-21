@@ -1,0 +1,109 @@
+name: RC2-P5 Synthetic three-boundary construction measurement
+on:
+  push:
+    branches: [qualification/kterminal-rc2-p5-three-boundaries-20261021]
+permissions:
+  contents: read
+jobs:
+  timing-boundaries:
+    runs-on: windows-latest
+    timeout-minutes: 16
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTELEMETRY: 'off'
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify isolated frozen FORGE test authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-rc2-p5-three-boundaries-20261021' -or
+              $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+              $env:K_TERMINAL_P5_LATENCY -cne '0') { throw 'RC2_P5_RUNNER_ISOLATION_FAIL' }
+          $diff=@(git diff --name-only 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD)
+          if (($diff -join '|') -cne '.github/workflows/forge-kterminal-rc2-p5-boundaries.yml') { throw 'RC2_P5_FORGE_SCOPE_FAIL' }
+          foreach ($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+                           'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) {
+              throw 'RC2_P5_BROKER_CREDENTIAL_BLOCK'
+            }
+          }
+          Write-Host 'RC2_P5_ISOLATION=PASS'
+      - name: Checkout frozen test-only K-Terminal candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: 38f42c3c7a8a05092445a9d8b8ce4141a28aa025
+          path: kterminal-private
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Verify exact one-file test-only change and compiler identity
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 38f42c3c7a8a05092445a9d8b8ce4141a28aa025
+          test "$(git diff --name-only ca0f2ce5c518620ab50f6f75bfa12d25f2b55de1 HEAD)" = 'pkg/rc2-p5-three-boundary-synthetic_test.go'
+          go version | grep -q 'go1.26.5 windows/amd64'
+          echo RC2_P5_TEST_ONLY_SCOPE=PASS
+      - name: Original request plus synthetic delayed phases in PAPER-safe fake transport
+        shell: bash
+        working-directory: kterminal-private
+        run: |
+          set -euo pipefail
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=7m '-run=^TestRC2P5SyntheticSevenSecondBoundaryAttribution$' ./pkg > "$RUNNER_TEMP/rc2-p5-three-boundaries-private.jsonl" 2> "$RUNNER_TEMP/rc2-p5-three-boundaries-private.stderr"
+          code=$?
+          set -e
+          export RC2_P5_EXIT="$code"
+          python -B - <<'PY'
+          import json,os,pathlib,re,sys
+          file=pathlib.Path(os.environ['RUNNER_TEMP'])/'rc2-p5-three-boundaries-private.jsonl'
+          if not file.is_file() or file.stat().st_size>45000000:
+              print('RC2_P5_OUTPUT_BOUND=FAIL');sys.exit(2)
+          expected={'before_request_ready','between_request_ready_and_transport_ready','after_transport_ready_exchange_response'}
+          data={}
+          failed=set()
+          invalid=0
+          for line in file.open(encoding='utf-8',errors='replace'):
+              try:r=json.loads(line)
+              except ValueError:invalid+=1;continue
+              name=r.get('Test','')
+              if r.get('Action')=='fail' and isinstance(name,str):
+                  failed.add(name.split('/')[-1][:70])
+              if r.get('Action')!='output':continue
+              s=r.get('Output','')
+              if not isinstance(s,str):continue
+              m=re.search(r'RC2_P5_SYNTHETIC_ONLY phase=([a-z_]+) request_ready_ms=([0-9]+) transport_ready_ms=([0-9]+) response_return_ms=([0-9]+)',s)
+              if m:data[m.group(1)]=[int(z) for z in m.groups()[1:]]
+          print('RC2_P5_SOURCE=FROZEN_TEST_ONLY_GO')
+          print('RC2_P5_MODE=SIMULATED_NO_BROKER_CALL')
+          for name in sorted(expected):
+              values=data.get(name)
+              print('RC2_P5_PHASE_'+name+'='+('PASS '+str(values[0])+','+str(values[1])+','+str(values[2]) if values else 'NOT_COMPLETED'))
+          print('RC2_P5_FAILED_SUBTESTS='+(','.join(sorted(failed)) if failed else 'NONE'))
+          print('RC2_P5_JSON_INVALID='+str(invalid))
+          if int(os.environ['RC2_P5_EXIT']) or expected-set(data) or failed or invalid:
+              print('RC2_P5_SIMULATED_BOUNDARY_ACCEPTANCE=FAIL_NOT_WAIVED');sys.exit(1)
+          print('RC2_P5_SIMULATED_BOUNDARY_ACCEPTANCE=PASS')
+          print('RC2_P5_REAL_SEVEN_SECOND_EVENT=NOT_AVAILABLE')
+          print('RC2_P5_FULL_REGRESSION=NOT_RERUN')
+          PY
