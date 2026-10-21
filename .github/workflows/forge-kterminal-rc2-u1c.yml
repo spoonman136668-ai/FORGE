@@ -1,0 +1,123 @@
+name: FORGE RC2-U1C K-Terminal inherited build failure control
+on:
+  push:
+    branches: [qualification/kterminal-rc2-u1c-failure-control-20261021]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-rc2-u1c
+  cancel-in-progress: false
+jobs:
+  matched-frozen-build-control:
+    runs-on: windows-latest
+    timeout-minutes: 18
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTELEMETRY: 'off'
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - name: Checkout independent FORGE isolated qualification branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify frozen FORGE scope and paper-only custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-rc2-u1c-failure-control-20261021' -or
+              $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER') {
+            throw 'RC2_U1C_RUNNER_OR_PAPER_IDENTITY_FAILED'
+          }
+          $change = @(git diff --name-only 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD)
+          if (($change -join '|') -cne '.github/workflows/forge-kterminal-rc2-u1c.yml') {
+            throw 'RC2_U1C_FORGE_SCOPE_DRIFT'
+          }
+          foreach ($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+                           'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) {
+              throw 'RC2_U1C_CREDENTIALS_PRESENT'
+            }
+          }
+          Write-Host 'RC2_U1C_FORGE_ISOLATION=PASS'
+      - name: Read exact original private K-Terminal baseline
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: eb5d225ae73b698a59c68d840daf1ec678e1a0ec
+          path: kterm-original
+          persist-credentials: false
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Read exact RC2-U1A instrumentation candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: fb3f0d6a69c5ffafbb17af069a8403c72657a5fe
+          path: kterm-candidate
+          persist-credentials: false
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Set up exact Go 1.26.5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Matched original vs candidate compile-only attribution without private log export
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cases = @(
+            @{ Name='ORIGINAL'; Dir='kterm-original'; SHA='eb5d225ae73b698a59c68d840daf1ec678e1a0ec' },
+            @{ Name='CANDIDATE'; Dir='kterm-candidate'; SHA='fb3f0d6a69c5ffafbb17af069a8403c72657a5fe' }
+          )
+          foreach ($case in $cases) {
+            $name=$case.Name
+            Push-Location -LiteralPath $case.Dir
+            try {
+              if ((git rev-parse HEAD).Trim() -cne $case.SHA) { throw 'RC2_U1C_KTERM_SHA_DRIFT' }
+              $output=Join-Path $env:RUNNER_TEMP ('rc2-u1c-private-' + $name + '.log')
+              # Compile every Go package without executing original tests: isolate source/build failures.
+              & go test -run '^$' -count=1 -p=1 -parallel=1 -timeout=6m ./... *> $output
+              $rc=$LASTEXITCODE
+              $private=[IO.File]::ReadAllText($output)
+              if ($private.Length -gt 12000000) { throw 'RC2_U1C_PRIVATE_OUTPUT_OVERSIZE' }
+              $graphify=($private -match '(?i)(?:tools[\\/]graphify)' -and
+                        $private -match '(?i)(?:redeclared|already declared|duplicate)')
+              $buildFailure=($private -match '(?i)build failed|FAIL')
+              # Intentionally emit only fixed classification, never source paths, logs or test data.
+              $category=if ($rc -eq 0) { 'COMPILATION_PASS' }
+                        elseif ($graphify) { 'GRAPHIFY_DUPLICATE_DECLARATIONS' }
+                        elseif ($buildFailure) { 'OTHER_BUILD_FAILURE_REQUIRES_BOUNDED_DIAGNOSTIC' }
+                        else { 'UNKNOWN_EXIT_REQUIRES_BOUNDED_DIAGNOSTIC' }
+              Write-Host ('RC2_U1C_' + $name + '_EXIT=' + $rc)
+              Write-Host ('RC2_U1C_' + $name + '_CLASS=' + $category)
+              if ($rc -ne 0 -and $graphify) {
+                Write-Host ('RC2_U1C_' + $name + '_GRAPHIFY_DUPLICATE=YES')
+              }
+              if ($name -eq 'ORIGINAL') { $script:originalExit=$rc; $script:originalClass=$category }
+              else { $script:candidateExit=$rc; $script:candidateClass=$category }
+            } finally { Pop-Location }
+          }
+          if ($script:originalClass -eq 'GRAPHIFY_DUPLICATE_DECLARATIONS' -and
+              $script:candidateClass -eq 'GRAPHIFY_DUPLICATE_DECLARATIONS') {
+            Write-Host 'RC2_U1C_MATCHED_INHERITED_GRAPHIFY_COMPILE=PASS'
+            Write-Host 'RC2_U1C_FULL_RUNTIME_TEST_ATTRIBUTION=UNDETERMINED'
+          } elseif ($script:originalExit -eq 0 -and $script:candidateExit -eq 0) {
+            Write-Host 'RC2_U1C_COMPILE_CONTROL_BOTH_PASS'
+            Write-Host 'RC2_U1C_FULL_RUNTIME_TEST_ATTRIBUTION=UNDETERMINED'
+          } else {
+            Write-Host 'RC2_U1C_COMPILE_CONTROL=NOT_MATCHED'
+            throw 'RC2_U1C_REQUIRE_FOCUSED_DIAGNOSTIC'
+          }
+          Write-Host 'RC2_U1C_NO_SOURCE_MUTATION=PASS'
+          Write-Host 'RC2_U1C_NO_FIELD_LATENCY=PASS'
