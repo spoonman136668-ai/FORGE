@@ -69,9 +69,37 @@ jobs:
               Write-Host ('UQ51_FAILURE_TEST='+$name)
               Write-Host ('UQ51_FAILURE_CODE='+$code)
               Write-Host ('UQ51_FAILURE_CLASS='+$class)
+              $outText=[IO.File]::ReadAllText($stdout)
+              $joined=$errText + [Environment]::NewLine + $outText
+              # Emit only whitelisted test source locations and fixed diagnostic phrases.
+              $locations=@([regex]::Matches($joined,'(?i)(Test-UpdateCheckpoint|update-checkpoint|remote-snapshot|Test-RepoSourceTransaction|mind)\.ps1:(\d{1,4})'))
+              if($locations.Count -gt 0){
+                $last=$locations[-1]
+                Write-Host ('UQ51_SAFE_FAILURE_LOCATION='+$last.Groups[1].Value+':'+$last.Groups[2].Value)
+              }
+              $phrases=@(
+                @('fixture git clone failed','FIXTURE_CLONE'),
+                @('fixture baseline repo must be clean','FIXTURE_BASELINE_DIRTY'),
+                @('fixture merge target missing','FIXTURE_MERGE_TARGET'),
+                @('merge/provenance fixture','FIXTURE_MERGE_PROVENANCE'),
+                @('checkpoint validate returned no output','VALIDATE_NO_OUTPUT'),
+                @('checkpoint validate schema mismatch','VALIDATE_SCHEMA'),
+                @('checkpoint validate should be ready','VALIDATE_NOT_READY'),
+                @('checkpoint validation did not preserve','CANONICAL_SNAPSHOT_CONTRACT'),
+                @('Windows PowerShell checkpoint compatibility validation failed','PS5_COMPATIBILITY'),
+                @('checkpoint commit contained unexpected path','CHECKPOINT_PATHS'),
+                @('checkpoint commit returned no output','CHECKPOINT_NO_OUTPUT'),
+                @('checkpoint fixture did not commit','CHECKPOINT_COMMIT'),
+                @('stale remote snapshots should block checkpoint','STALE_SNAPSHOT_DENIAL'),
+                @('NativeCommandError','NATIVE_COMMAND_ERROR')
+              )
+              foreach($pair in $phrases){
+                if($joined.Contains($pair[0])){Write-Host ('UQ51_SAFE_FAILURE_REASON='+$pair[1]);break}
+              }
               if($name -ceq 'full'){
-                $lines=@([regex]::Matches([IO.File]::ReadAllText($stdout),'RUN Test-[A-Za-z0-9_-]+\.ps1') | ForEach-Object {$_.Value})
-                Write-Host ('UQ51_LAST_FULL_TEST='+(if($lines.Count -gt 0){$lines[-1]}else{'NONE'}))
+                $lines=@([regex]::Matches($outText,'RUN Test-[A-Za-z0-9_-]+\.ps1') | ForEach-Object {$_.Value})
+                $lastTest=if($lines.Count -gt 0){$lines[-1]}else{'NONE'}
+                Write-Host ('UQ51_LAST_FULL_TEST='+$lastTest)
               }
               throw ('UQ51_TEST_FAILED_'+$name+'_EXIT_'+$p.ExitCode)
             }
@@ -90,11 +118,10 @@ jobs:
             foreach($p in $guard){
               $baseline[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
             }
-            RunTest 'uq51-transaction' 'Test-RepoSourceTransaction.ps1'
-            RunTest 'uq53-crash' 'Test-RepoSourceCrashRecovery.ps1'
-            RunTest 'uq55-fencing' 'Test-RepoSourceWriterFencing.ps1'
-            RunTest 'mind-checkpoint' 'Test-MindCheckpoint.ps1'
+            # Reuse exact-tree UQ51/UQ53/UQ55 focused PASS from run 39624303925.
+            # Diagnose the only known unreconciled full-suite failure before another regression.
             RunTest 'update-checkpoint' 'Test-UpdateCheckpoint.ps1'
+            RunTest 'mind-checkpoint' 'Test-MindCheckpoint.ps1'
             RunTest 'full' 'Test-All.ps1'
             foreach($p in $guard){
               $hash=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
