@@ -104,3 +104,49 @@ jobs:
             Write-Host 'F139_EXISTING_RUNNER_OWNER_CUTOVER=BLOCKED'
           }
           Write-Host 'F139_EXISTING_RUNNER_READ_ONLY=PASS'
+      - name: Check original source ledger and GitHub provider evidence without mutation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $txt=[string]$task.Actions[0].Arguments
+          function TaskArg([string]$n) {
+            $m=[regex]::Match($txt,'(?i)(?:^|\s)-'+[regex]::Escape($n)+'\s+"([^"]+)"')
+            if(!$m.Success) { throw 'F139_OWNER_ARG_ABSENT' }
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $python=TaskArg 'PythonExe'
+          $db=TaskArg 'Database'
+          $sha=(& git -C $root rev-parse HEAD)
+          if($LASTEXITCODE -ne 0) { throw 'F139_OWNER_GIT_READ_FAILED' }
+          Push-Location $root
+          try {
+            $raw=& $python -B -m f139.local_controller --db $db status
+            if($LASTEXITCODE -ne 0) { throw 'F139_OWNER_LEDGER_READ_FAILED' }
+            $s=($raw -join "`n" | ConvertFrom-Json).status
+          } finally { Pop-Location }
+          $bad=@($s.tasks | Where-Object {$_.stage -eq 'QUARANTINED'})
+          $good=@($s.tasks | Where-Object {$_.stage -eq 'VERIFIED'})
+          Write-Host ("F139_OWNER_SOURCE=" + $s.meta.source_sha)
+          Write-Host ("F139_OWNER_SOURCE_CHECKOUT_IDENTICAL=" + ($sha -ceq $s.meta.source_sha))
+          Write-Host ("F139_OWNER_EVENT_COUNT=" + $s.meta.head_seq)
+          Write-Host ("F139_OWNER_EVENT_HEAD=" + $s.meta.head_hash)
+          Write-Host ("F139_OWNER_VERIFIED_TASKS=" + $good.Count)
+          Write-Host ("F139_OWNER_QUARANTINED_TASKS=" + $bad.Count)
+          Write-Host ("F139_OWNER_QUARANTINED_ISSUE696=" +
+            (@($bad | Where-Object {$_.ticket -like 'f139-nci04-i696-*'}).Count -eq 1))
+          $main=(& gh api 'repos/spoonman136668-ai/FORGE/git/ref/heads/main') | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0) { throw 'F139_MAIN_READ_FAILED' }
+          Write-Host ("F139_PROTECTED_MAIN=" + $main.object.sha)
+          $artifact=(& gh api 'repos/spoonman136668-ai/FORGE/actions/runs/39571372972/artifacts?per_page=100') | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0) { throw 'F139_ORIGINAL_ARTIFACT_LIST_FAILED' }
+          $found=@($artifact.artifacts | Where-Object {$_.id -eq 12332695987})
+          Write-Host ("F139_NEGATIVE_ARTIFACT_IDENTITY_VERIFIED=" +
+            ($found.Count -eq 1 -and
+             $found[0].digest -ceq 'sha256:2092c9dae526689a4b8ac4392b3b053dd088beb4b83b29ba09ac730aeef63c06' -and
+             !$found[0].expired))
+          Write-Host 'F139_OWNER_BOUNDARY_READ_ONLY=PASS'
+
