@@ -46,14 +46,19 @@ def verified_negative_provider_original(*, run: dict, jobs: list,
             and run["repository"].get("full_name") ==
                 "spoonman136668-ai/FORGE",
             "FAILED_PROVIDER_RUN_SOURCE_OR_ATTEMPT_DRIFT")
-    require(isinstance(jobs, list) and len(jobs) == 3 and
+    # The original native workflow also creates a legacy 'execute' job
+    # that is *skipped* by design. Preserve that original provider record;
+    # reject any additional job, re-run, or unrecognized worker.
+    require(isinstance(jobs, list) and len(jobs) == 4 and
             all(isinstance(j, dict) and type(j.get("id")) is int
                 and j["id"] > 0 and j.get("status") == "completed"
                 and j.get("run_id") == run["id"]
-                for j in jobs),
+                for j in jobs)
+            and len({j["id"] for j in jobs}) == 4,
             "FAILED_PROVIDER_JOB_SET_INVALID")
     state = {j.get("name"):j.get("conclusion") for j in jobs}
-    require(len(state) == 3 and
+    require(len(state) == 4 and
+            state.get("execute") == "skipped" and
             state.get("native-authorize") == "success" and
             state.get("native-execute (ubuntu-latest)") == "failure" and
             state.get("native-execute (windows-latest)") in
