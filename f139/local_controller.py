@@ -876,7 +876,13 @@ class GitHub:
 
 
 def native_original_owner_profile(db_path: Path) -> bool:
-    """Read-only Windows owner/task custody assertion before any A6 mutation."""
+    """Read-only SID, DB and *scheduled source root* custody check.
+
+    The installed PowerShell wrapper can reside in the historical D2N tree,
+    but its -RepositoryRoot parameter MUST equal the exact Python checkout
+    executing a native source transition or activation. Never inspect or
+    print DPAPI key material or the raw scheduled task command line.
+    """
     require(os.name=="nt","NATIVE_OWNER_MUST_BE_WINDOWS")
     profile=os.environ.get("LOCALAPPDATA","")
     require(bool(profile),"OWNER_LOCALAPPDATA_MISSING")
@@ -895,15 +901,31 @@ def native_original_owner_profile(db_path: Path) -> bool:
         "[Security.Principal.SecurityIdentifier]).Value}catch{};"
         "if($principal -ine $who.Name -and $sid -ne $who.User.Value){exit 42};"
         "if($t.State -notin @('Ready','Running')){exit 43};"
+        "if(@($t.Actions).Count -ne 1){exit 44};"
+        "$a=$t.Actions[0];"
+        "if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe'){exit 45};"
+        "$opts=[string]$a.Arguments;"
+        "$root=[regex]::Match($opts,'(?i)(?:^|\\s)-RepositoryRoot\\s+\"([^\"]+)\"');"
+        "$db=[regex]::Match($opts,'(?i)(?:^|\\s)-Database\\s+\"([^\"]+)\"');"
+        "$wrapper=[regex]::Match($opts,'(?i)(?:^|\\s)-File\\s+\"([^\"]+)\"');"
+        "if(-not($root.Success -and $db.Success -and $wrapper.Success)){exit 46};"
+        "if([IO.Path]::GetFileName($wrapper.Groups[1].Value) -cne 'Run-FORGE-F139.ps1'){exit 47};"
+        "if([IO.Path]::GetFullPath($root.Groups[1].Value) -ine "
+        "[IO.Path]::GetFullPath($env:F139_EXPECTED_TASK_SOURCE_ROOT)){exit 48};"
+        "if([IO.Path]::GetFullPath($db.Groups[1].Value) -ine "
+        "[IO.Path]::GetFullPath($env:F139_EXPECTED_TASK_DATABASE)){exit 49};"
         "Write-Output 'F139_NATIVE_ORIGINAL_OWNER_PROFILE=PASS'"
     )
+    env={**os.environ,
+         "F139_EXPECTED_TASK_SOURCE_ROOT":str(Path(__file__).resolve().parent.parent),
+         "F139_EXPECTED_TASK_DATABASE":str(Path(db_path).resolve())}
     result=subprocess.run(
         [source,"-NoProfile","-NonInteractive","-Command",script],
         stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-        stdin=subprocess.DEVNULL,timeout=20,check=False)
+        stdin=subprocess.DEVNULL,env=env,timeout=20,check=False)
     require(result.returncode==0 and
             result.stdout.strip()==b"F139_NATIVE_ORIGINAL_OWNER_PROFILE=PASS",
-            "ORIGINAL_OWNER_PROFILE_OR_TASK_NOT_VERIFIED")
+            "ORIGINAL_OWNER_PROFILE_TASK_ROUTE_OR_DB_DRIFT")
     return True
 
 
