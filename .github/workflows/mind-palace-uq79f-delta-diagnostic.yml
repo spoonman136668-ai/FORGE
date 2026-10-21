@@ -80,7 +80,61 @@ jobs:
             Pin ('refs/heads/'+$branch) $sha
             Write-Host 'UQ79F_PROTECTED_HASH_PARITY=PASS'
             Write-Host 'UQ79F_PRODUCTION_WRITES=0'
-            Require ($p.ExitCode -eq 0) 'DELTA_REGRESSION_FAIL'
+            # Keep the original fail-closed run negative. The following is an
+            # explicitly non-admissible scratch-only pin-migration hypothesis.
+            Require ($p.ExitCode -ne 0) 'SOURCE_NEGATIVE_NOT_REPRODUCED'
+            $statePath=Join-Path $root '.ice/chat-delta-state.json'
+            $originalState=[IO.File]::ReadAllText($statePath)
+            $oldPin='7eb06b1a04525a074df6a9f7ac6fc901ca5a19f3'
+            $newPin=(& git.exe -C $root rev-parse 'HEAD:tools/mind.ps1' | Out-String).Trim()
+            Require ($LASTEXITCODE -eq 0 -and $newPin -cmatch '^[a-f0-9]{40}            Write-Host 'UQ79F_DELTA_NATIVE=PASS'
+          }finally{
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_RETAINED'
+            Write-Host 'UQ79F_SCRATCH_CLEAN=PASS'
+          }
+ -and $newPin -cne $oldPin) 'CANNOT_GET_NEW_SOURCE_PIN'
+            Require ($originalState.Contains($oldPin)) 'OLD_PIN_NOT_EXACT'
+            function RunSynthetic([string]$label,[string]$relative){
+              $stderr=Join-Path $scratch ($label+'.err')
+              $stdout=Join-Path $scratch ($label+'.out')
+              $target=Join-Path $root $relative
+              $process=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$target+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+              Write-Host ('UQ79F_SYNTHETIC_'+$label.ToUpperInvariant()+'_EXIT='+$process.ExitCode)
+              $output=[IO.File]::ReadAllText($stdout)
+              $lastRun=@([regex]::Matches($output,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object {$_.Value})
+              if($lastRun.Count){Write-Host ('UQ79F_SYNTHETIC_'+$label.ToUpperInvariant()+'_LAST_TEST='+$lastRun[-1])}
+              if($process.ExitCode -ne 0){
+                $lines=@([IO.File]::ReadAllLines($stderr)|Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+                foreach($line in ($lines|Select-Object -Last 5)){Write-Host ('UQ79F_SYNTHETIC_'+$label.ToUpperInvariant()+'_ERROR='+(Redact ([string]$line)))}
+              }
+              return $process.ExitCode
+            }
+            try {
+              [IO.File]::WriteAllText($statePath,$originalState.Replace($oldPin,$newPin),[Text.UTF8Encoding]::new($false))
+              & git.exe -C $root add -- '.ice/chat-delta-state.json'
+              Require ($LASTEXITCODE -eq 0) 'SYNTHETIC_STAGE_FAILED'
+              & git.exe -C $root -c 'user.name=Mind-Palace UQ79F isolated synthetic' -c 'user.email=synthetic@invalid.local' commit --quiet -m 'synthetic fixture only: re-pin retrieval engine in disposable repo'
+              Require ($LASTEXITCODE -eq 0) 'SYNTHETIC_COMMIT_FAILED'
+              Write-Host 'UQ79F_SCRATCH_ONLY_RETRIEVAL_REPIN=ACTIVE_NOT_PRODUCTION'
+              $focusedResult=RunSynthetic 'delta' 'tests/Test-ChatDeltaIngest.ps1'
+              if($focusedResult -eq 0) {
+                Write-Host 'UQ79F_SYNTHETIC_DELTA_PIN_HYPOTHESIS=PASS'
+                $fullResult=RunSynthetic 'full' 'tests/Test-All.ps1'
+                if($fullResult -eq 0){Write-Host 'UQ79F_SYNTHETIC_FULL_WINDOWS=PASS_NOT_ADMISSION'}
+                else{Write-Host 'UQ79F_SYNTHETIC_FULL_WINDOWS=FAIL_NOT_ADMISSION'}
+              }else {
+                Write-Host 'UQ79F_SYNTHETIC_DELTA_PIN_HYPOTHESIS=FAIL'
+              }
+            }finally{
+              & git.exe -C $root reset --hard $sha | Out-Null
+              Require ($LASTEXITCODE -eq 0 -and (& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $sha) 'SYNTHETIC_RESTORE_FAILED'
+              Require ([IO.File]::ReadAllText($statePath) -ceq $originalState) 'SYNTHETIC_STATE_BYTES_NOT_RESTORED'
+              foreach($f in $guard){Require ($before[$f] -ceq (Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()) ('SYNTHETIC_PROTECTED_DRIFT_'+$f)}
+              Require (@(& git.exe -C $root status --porcelain=v1 --untracked-files=no).Count -eq 0) 'SYNTHETIC_SOURCE_DIRTY'
+              Write-Host 'UQ79F_SYNTHETIC_PIN_AND_SOURCE_FULLY_RESTORED=PASS'
+            }
+            Write-Host 'UQ79F_SOURCE_CURRENT_PR79_STILL_BLOCKED=TRUE'
             Write-Host 'UQ79F_DELTA_NATIVE=PASS'
           }finally{
             if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
