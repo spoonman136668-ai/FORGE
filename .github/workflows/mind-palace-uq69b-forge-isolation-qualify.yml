@@ -62,7 +62,22 @@ jobs:
             $p=Start-Process -FilePath 'powershell.exe' -ArgumentList @(
               '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$scriptPath
             ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-            Require ($p.ExitCode -eq 0) ('TEST_FAILED_'+$Name+'_EXIT_'+$p.ExitCode)
+            if($p.ExitCode -ne 0){
+              # Deliberately expose only bounded diagnostic tokens on the PUBLIC FORGE runner.
+              # Raw stderr/stdout stay under private scratch and are destroyed in finally.
+              $failureText=[IO.File]::ReadAllText($err)
+              $codeMatches=@([regex]::Matches($failureText,'UQ69B_STOP_[A-Z0-9_]+|UQ69B_[A-Z0-9_]*(?:FAIL|MISMATCH|MISSING|DRIFT|BLOCKED)') |
+                ForEach-Object { $_.Value } | Select-Object -Unique)
+              $classMatches=@([regex]::Matches($failureText,
+                'ParserError|ParameterBindingException|PropertyNotFoundException|CommandNotFoundException|RuntimeException|MethodException|InvalidOperation|ParseException') |
+                ForEach-Object { $_.Value } | Select-Object -Unique)
+              $reported=if($codeMatches.Count -gt 0){$codeMatches[0]}else{'UNCLASSIFIED'}
+              $failureClass=if($classMatches.Count -gt 0){$classMatches[0]}else{'UNCLASSIFIED'}
+              Write-Host ('UQ69B_PRIVATE_FAILURE_STAGE='+$Name)
+              Write-Host ('UQ69B_PRIVATE_FAILURE_CODE='+$reported)
+              Write-Host ('UQ69B_PRIVATE_FAILURE_CLASS='+$failureClass)
+              throw ('UQ69B_TEST_FAILED_'+$Name+'_EXIT_'+$p.ExitCode)
+            }
             if($Name -ceq 'native'){
               $body=[IO.File]::ReadAllText($out)
               foreach($marker in @('UQ69B_NATIVE_EXACT_SUPERSEDE=PASS',
