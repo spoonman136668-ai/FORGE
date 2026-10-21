@@ -36,6 +36,7 @@ func TestRC2TCorrelatedSyntheticConfirmedEventAndDashboardPublication(t *testing
         SnapshotPreparedNs int64 `json:"snapshot_prepared_ns"`
         PublishedNs int64 `json:"published_ns"`
         ModelUpdatedAtNs int64 `json:"model_updated_at_ns"`
+        ModelUpdatedAt string `json:"model_updated_at"`
         Quantity float64 `json:"quantity"`
         SourceTickerSimulated bool `json:"source_ticker_simulated"`
     }
@@ -86,6 +87,7 @@ func TestRC2TCorrelatedSyntheticConfirmedEventAndDashboardPublication(t *testing
             SnapshotPreparedNs:prepared.UnixNano(),
             PublishedNs:published.UnixNano(),
             ModelUpdatedAtNs:model.UpdatedAt.UnixNano(),
+            ModelUpdatedAt:model.UpdatedAt.Format(time.RFC3339Nano),
             Quantity:after.Quantity,SourceTickerSimulated:k==1,
         })
         // The consumer independently correlates the current actual JSON
