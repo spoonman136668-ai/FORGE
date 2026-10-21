@@ -68,7 +68,7 @@ def parse_metrics(output,target):
         name=ev.get("Test")
         action=ev.get("Action")
         if action=="run" and name==target:
-            current={"status":"INCOMPLETE","phases":[],"fixture":{},"reason_classes":[]}
+            current={"status":"INCOMPLETE","phases":[],"fixture":{},"native_spans":{},"native_summary":{},"reason_classes":[]}
             trials.append(current)
         elif current is not None and action in ("pass","fail") and name==target:
             current["status"]=action.upper()
@@ -80,6 +80,23 @@ def parse_metrics(output,target):
         for reason,text in FAILURE_CLASSES.items():
             if text in message and reason not in current["reason_classes"]:
                 current["reason_classes"].append(reason)
+        if "RC2N_NATIVE_SPAN stage=" in message:
+            m=re.search(r"RC2N_NATIVE_SPAN stage=([A-Za-z0-9_.-]+) calls=([0-9]+) total_us=([0-9]+) peak_us=([0-9]+)",message)
+            if m:
+                current["native_spans"][m.group(1)]={
+                    "calls":int(m.group(2)),
+                    "total_us":int(m.group(3)),
+                    "peak_us":int(m.group(4))}
+            else:
+                current["reason_classes"].append("BAD_NATIVE_SPAN_RECORD")
+        if "RC2N_NATIVE_SUMMARY span_types=" in message:
+            m=re.search(r"span_types=([0-9]+) dropped_spans=([0-9]+) total_spans=([0-9]+)",message)
+            if m:
+                current["native_summary"]={"span_types":int(m.group(1)),
+                    "dropped_spans":int(m.group(2)),
+                    "total_spans":int(m.group(3))}
+            else:
+                current["reason_classes"].append("BAD_NATIVE_SPAN_SUMMARY")
         for kind in ("RC2N_FIXTURE","RC2N_PHASE"):
             if kind not in message:continue
             rest=message.split(kind,1)[1]
@@ -98,6 +115,8 @@ def parse_metrics(output,target):
                     [x.get("attempt") for x in attempts]==list(range(1,10)) and
                     attempts[-1].get("after_posts")==9):
                 trial["reason_classes"].append("NINE_ATTEMPT_METRICS_INCOMPLETE")
+            if os.environ.get("KTERM_RC2N_NATIVE_SPANS")=="1" and not trial["native_spans"]:
+                trial["reason_classes"].append("MISSING_NATIVE_SUBSPAN_DATA")
             if trial["status"]=="PASS" and (not attempts or
                 attempts[-1].get("deadline_remaining_us",0)<=0):
                 trial["reason_classes"].append("PASS_WITH_NO_REMAINING_RECEIPT_BUDGET")
@@ -214,7 +233,8 @@ def main():
             added.append(dest)
         for label,src,_ in sources:
             for condition in ("normal","contended"):
-                for mode,count in (("phase_probe",5),("original_test",5)):
+                modes=(("phase_probe",3),) if os.environ.get("KTERM_RC2N_NATIVE_SPANS")=="1" else (("phase_probe",5),("original_test",5))
+                for mode,count in modes:
                     summary=run_case(src,label,condition,mode,count,out)
                     report["results"].append(summary)
     finally:
