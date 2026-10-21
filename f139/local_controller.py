@@ -278,15 +278,15 @@ class Database:
                     isinstance(doc, dict)
                     and doc.get("schema") == "forge.f139.source-transition.v2"
                     and set(doc) == base_fields | {"custodied_negative_tasks"})
-                require(isinstance(doc, dict)
-                        and (set(doc) == base_fields
-                             or is_negative_transition),
-                        "SOURCE_TRANSITION_EVENT_FIELDS")
-                require(doc["schema"] in ("forge.f139.source-transition.v1",
-                                         "forge.f139.source-transition.v2")
-                        and (not is_negative_transition or
-                             type(doc["custodied_negative_tasks"]) is int
-                             and doc["custodied_negative_tasks"] == 1)
+                require(isinstance(doc, dict) and (
+                    doc.get("schema") == "forge.f139.source-transition.v1"
+                    and set(doc) == base_fields
+                    or doc.get("schema") == "forge.f139.source-transition.v2"
+                    and is_negative_transition),
+                    "SOURCE_TRANSITION_EVENT_FIELDS")
+                require((doc["schema"] == "forge.f139.source-transition.v1"
+                         or type(doc["custodied_negative_tasks"]) is int
+                         and doc["custodied_negative_tasks"] == 1)
                         and isinstance(doc["from_source_sha"], str)
                         and SHA.fullmatch(doc["from_source_sha"])
                         and isinstance(doc["to_source_sha"], str)
