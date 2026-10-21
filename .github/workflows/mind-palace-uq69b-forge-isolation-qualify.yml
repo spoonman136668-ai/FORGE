@@ -1,0 +1,112 @@
+name: UQ69B Mind-Palace isolated FORGE policy correction qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq69b-forge-isolation-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq69b-one-shot-source-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact diagnostics event
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Pinned private-source qualification, one complete Windows regression, zero writes
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+             throw 'UQ69B_RUNNER_OR_EVENT_IDENTITY_MISMATCH'
+          }
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(Test-Path -LiteralPath $native -PathType Container){$env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath}
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $pinnedHead='3829a1e4a94913f0ba802d121b545d2ccad26710'
+          $pinnedMain='5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $branch='maintenance/forge-isolation-record-correction-20261021'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq69b-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $logs=Join-Path $scratch 'logs'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Require([bool]$OK,[string]$Message) {
+            if(-not $OK){throw ('UQ69B_'+$Message)}
+          }
+          function Pin([string]$ref,[string]$expected){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $expected) ('REF_DRIFT_'+$ref)
+          }
+          function RunPrivate([string]$Name,[string]$Relative){
+            $out=Join-Path $logs ($Name+'.out')
+            $err=Join-Path $logs ($Name+'.err')
+            $scriptPath=Join-Path $root $Relative
+            Require (Test-Path -LiteralPath $scriptPath -PathType Leaf) ('TEST_MISSING_'+$Name)
+            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$scriptPath
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            Require ($p.ExitCode -eq 0) ('TEST_FAILED_'+$Name+'_EXIT_'+$p.ExitCode)
+            if($Name -ceq 'native'){
+              $body=[IO.File]::ReadAllText($out)
+              foreach($marker in @('UQ69B_NATIVE_EXACT_SUPERSEDE=PASS',
+                'UQ69B_WRONG_HEAD_FAIL_CLOSED=PASS','UQ69B_PROTECTED_HASH_PARITY=PASS',
+                'UQ69B_NATIVE_SOURCE_QUALIFICATION=PASS')){
+                Require ($body.Contains($marker)) ('MISSING_MARKER_'+$marker)
+              }
+            }
+            Write-Host ('UQ69B_'+$Name.ToUpperInvariant()+'=PASS')
+          }
+          if(Test-Path -LiteralPath $scratch){throw 'UQ69B_STALE_PRIVATE_SCRATCH'}
+          New-Item -ItemType Directory -Path $logs -Force|Out-Null
+          try {
+            Pin 'refs/heads/main' $pinnedMain
+            Pin ('refs/heads/'+$branch) $pinnedHead
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+            Require ($head -ceq $pinnedHead) 'SOURCE_HEAD_DRIFT'
+            $before=@{}
+            foreach($item in $guard){
+              $before[$item]=(Get-FileHash -LiteralPath (Join-Path $root $item) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            RunPrivate 'native' 'tests/Test-UQ69ForgeIsolationQualify.ps1'
+            RunPrivate 'focused-ingest' 'tests/Test-IngestClassification.ps1'
+            RunPrivate 'focused-collector' 'tests/Test-CollectorBatch.ps1'
+            RunPrivate 'focused-supersession' 'tests/Test-BackfillSupersede.ps1'
+            RunPrivate 'full-regression' 'tests/Test-All.ps1'
+            foreach($item in $guard){
+              $after=(Get-FileHash -LiteralPath (Join-Path $root $item) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Require ($after -ceq $before[$item]) ('DURABLE_HASH_DRIFT_'+$item)
+            }
+            $dirty=(& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()
+            Require ($LASTEXITCODE -eq 0 -and -not $dirty) 'CHECKOUT_DIRTY'
+            Pin 'refs/heads/main' $pinnedMain
+            Pin ('refs/heads/'+$branch) $pinnedHead
+            Write-Host 'UQ69B_NINE_PROTECTED_HASHES=PASS'
+            Write-Host 'UQ69B_SOURCE_BRANCH_AND_MAIN_STABLE=PASS'
+            Write-Host 'UQ69B_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ69B_GIT_PUSHES=0'
+            Write-Host 'UQ69B_CODEX_AND_PAID_INFERENCE=0'
+            Write-Host 'UQ69B_FULL_WINDOWS_QUALIFICATION=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){throw 'UQ69B_PRIVATE_SCRATCH_RETAINED'}
+            Write-Host 'UQ69B_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
