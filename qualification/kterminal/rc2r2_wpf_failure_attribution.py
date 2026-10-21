@@ -48,6 +48,15 @@ def main():
             exit=124
             combined=""
             receipt=False
+        # The exact field name in a Windows PowerShell strict-property
+        # exception is safe to retain only as a short lexical identifier.
+        # Never export stack traces, source lines or absolute file paths.
+        missing_fields=sorted(set(re.findall(
+            r"The property ['\\\"]([A-Za-z_][A-Za-z0-9_]{0,63})['\\\"] cannot be found",
+            combined,re.IGNORECASE)))[:6]
+        line_numbers=sorted(set(int(z) for z in re.findall(
+            r"(?:test-dashboard-presentation[.]ps1|dashboard-ui[.]ps1):([0-9]{1,5})",
+            combined,re.IGNORECASE)))[:8]
         failure_classes=sorted(k for k,pattern in PATTERNS.items()
             if re.search(pattern,combined,re.IGNORECASE))
         # Windows PowerShell normally prints a FullyQualifiedErrorId; its
@@ -57,6 +66,8 @@ def main():
         result={"source":label,"exit":exit,
             "pass_marker":receipt,"elapsed_s":round(time.monotonic()-before,3),
             "failure_classes":failure_classes,
+            "missing_property_names":missing_fields,
+            "source_line_numbers":line_numbers,
             "powershell_error_identifiers":fqids,
             "status":"PASS" if exit==0 and receipt else "FAIL_NOT_WAIVED"}
         results.append(result)
@@ -64,6 +75,7 @@ def main():
         print("KTERM_RC2R2_"+label.upper()+"_CAUSE="+
           ",".join(failure_classes or (["NO_ALLOWLIST_MATCH"] if exit else ["NO_PASS_MARKER"])),flush=True)
         print("KTERM_RC2R2_"+label.upper()+"_EXIT="+str(exit),flush=True)
+        print("KTERM_RC2R2_"+label.upper()+"_MISSING_FIELD="+",".join(missing_fields or ["NONE"]),flush=True)
     (out/"rc2r2-redacted-wpf-identity.json").write_text(json.dumps(
         {"schema":"kterminal.rc2r2.wpf-fixture-control-attribution.v1",
          "source_sha":PINS,"source_modified":False,"results":results,
