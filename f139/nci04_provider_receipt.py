@@ -36,7 +36,8 @@ def require(ok, reason):
 
 def native_receipt_from_zip(raw: bytes, meta: dict, task: dict,
                             run_id: int, oslabel: str, epoch: int,
-                            issue: NativeIssue, *, owner_hmac_key: str):
+                            issue: NativeIssue, *, owner_hmac_key: str,
+                            expect_qualified: bool = True):
     require(isinstance(raw, bytes) and 0<len(raw)<MAX_ZIP
             and isinstance(meta, dict)
             and meta.get("digest")=="sha256:"+digest(raw)
@@ -98,6 +99,25 @@ def native_receipt_from_zip(raw: bytes, meta: dict, task: dict,
     # Same complete authenticated report/receipt, not a partial/malleable
     # subset. Receiver does not trust unchecked claimed 'native_qualified'.
     require(receipt==expected, "NATIVE_RECEIPT_OR_RESULT_DRIFT")
-    require(expected["native_qualified"] is True,
+    # Existing positive callers still require PASS by default. This private
+    # opt-in negative path exists ONLY to certify a failed provider original;
+    # it never marks a failed task VERIFIED or authorizes a successor.
+    require(type(expect_qualified) is bool and
+            expected["native_qualified"] is expect_qualified,
             "NATIVE_FULL_REGRESSION_INCOMPLETE")
     return expected
+
+
+def native_negative_from_zip(raw: bytes, meta: dict, task: dict,
+                             run_id: int, oslabel: str, epoch: int,
+                             issue: NativeIssue, *, owner_hmac_key: str):
+    """Authenticate a signed FAILED original without promoting its status.
+
+    Uses identical full intent/HMAC/receipt/ZIP byte verification as positive
+    custody, but asserts native_qualified=False; never returns a PASS.
+    """
+    negative = native_receipt_from_zip(
+        raw, meta, task, run_id, oslabel, epoch, issue,
+        owner_hmac_key=owner_hmac_key, expect_qualified=False)
+    require(negative["native_qualified"] is False, "FALSE_NEGATIVE")
+    return negative
