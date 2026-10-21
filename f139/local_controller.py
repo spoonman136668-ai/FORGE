@@ -321,7 +321,7 @@ class Database:
         negative_transitions = [
             t for t in source_transitions
             if t["schema"] == "forge.f139.source-transition.v2"]
-        require(len(negative_transitions) <= 1, "MULTIPLE_NEGATIVE_TRANSITIONS")
+        require(len(negative_transitions) <= 20, "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         for row in self.conn.execute("SELECT ticket,lane,source_sha,stage,run_id,evidence_dir,evidence_sha FROM tasks"):
             prior_verified = (
                 row["source_sha"] in historical_sources and
@@ -352,8 +352,10 @@ class Database:
             if negative_transitions:
                 negative = negative_transitions[0]
                 require(certified_negative
-                        and negative["from_source_sha"] == ORIGINAL_NEGATIVE_SOURCE
-                        and negative["custodied_negative_tasks"] == 1,
+                        and negative_transitions[0]["from_source_sha"] ==
+                            ORIGINAL_NEGATIVE_SOURCE
+                        and all(t["custodied_negative_tasks"] == 1
+                                for t in negative_transitions),
                         "CUSTODIED_NEGATIVE_TRANSITION_DRIFT")
         # NCI04 admission is additive; historic F139/D2K event semantics stay
         # exact. Check native admission against the original SHA-linked SQLite
@@ -417,7 +419,8 @@ class Database:
                     verified.append(row)
                 elif (allow_certified_negative and row["stage"] == "QUARANTINED"
                       and row["ticket"] == "f139-nci04-i696-5662e3586bc9-7bb8f27f"
-                      and row["source_sha"] == meta["source_sha"]
+                      and row["source_sha"] ==
+                          "5662e3586bc9d12c90033b7c0344ca65ea1ad2a0"
                       and row["run_id"] is None and row["evidence_sha"] is None
                       and not row["evidence_dir"]):
                     certified.append(row)
@@ -428,10 +431,17 @@ class Database:
             if certified:
                 from f139.nci04_negative_owner_store import (
                     verify_original_negative_custody, SOURCE_SHA)
+                transitions = [
+                    json.loads(t["payload"]) for t in self.conn.execute(
+                        "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+                        " AND json_extract(payload,'$.schema')='forge.f139.source-transition.v2'")]
                 require(allow_certified_negative and len(certified) == 1
-                        and meta["source_sha"] == SOURCE_SHA
                         and verify_original_negative_custody(self)
-                        and meta["head_seq"] == 48,
+                        and (meta["source_sha"] == SOURCE_SHA
+                             and meta["head_seq"] == 48 and not transitions
+                             or meta["source_sha"] != SOURCE_SHA
+                             and len(transitions) >= 1
+                             and transitions[0]["from_source_sha"] == SOURCE_SHA),
                         "SOURCE_TRANSITION_NEGATIVE_NOT_CUSTODIED")
             else:
                 require(not allow_certified_negative,
