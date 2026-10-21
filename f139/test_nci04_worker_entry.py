@@ -100,6 +100,11 @@ class NativeExecutionBoundaryTests(unittest.TestCase):
         with mock.patch.dict(os.environ,self.env,clear=True):
             auth=authorize()
         env={k:v for k,v in self.env.items() if k!="F139_WORKER_HMAC_KEY"}
+        # Preserve only OS process-location variables for real Windows git.
+        for key in ("PATH","SystemRoot","WINDIR","ComSpec","PATHEXT",
+                    "TEMP","TMP","USERPROFILE","HOME"):
+            if key in os.environ:
+                env[key]=os.environ[key]
         env.update({
             "F139_NATIVE_AUTHORIZATION_SHA256":auth["authorization_sha256"],
             "F139_NATIVE_AUTHENTICATION_PASSED":"true",
