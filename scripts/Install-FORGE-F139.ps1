@@ -46,6 +46,20 @@ if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
     throw 'F139_BATTERY_POLICY_NOT_ADMISSIBLE'
   }
   Write-Host 'F139_BATTERY_ADMISSION_CONFIG=PASS'
+  # This block creates inert CIM trigger objects even in default dry-run mode,
+  # so Windows 5.1 hosted source qualification proves trigger representation.
+  $owner = ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
+  $logon = New-ScheduledTaskTrigger -AtLogOn -User $owner
+  $shortWake = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
+    -RepetitionInterval (New-TimeSpan -Minutes 10) `
+    -RepetitionDuration (New-TimeSpan -Days 365)
+  $dailyWake = New-ScheduledTaskTrigger -Daily -At '00:05'
+  $trigger = @($logon, $shortWake, $dailyWake)
+  if (@($trigger).Count -ne 3 -or $null -eq $shortWake.Repetition `
+      -or $shortWake.Repetition.Interval -ne 'PT10M') {
+    throw 'F139_SINGLE_TASK_WAKE_TRIGGERS_UNQUALIFIED'
+  }
+  Write-Host 'F139_EXISTING_TASK_WAKE_10MIN_AND_DAILY=PASS'
 }
 if (-not ($Apply -or $Remove -or $ConfigureKey)) {
   Write-Host 'F139_INSTALL=DRY_RUN_NO_CHANGES'
@@ -72,24 +86,11 @@ if ($Apply) {
     '-RepositoryRoot',('"'+$RepositoryRoot+'"'),'-Database',('"'+$db+'"'),
     '-EncryptedKeyFile',('"'+$key+'"')) -join ' '
   $action = New-ScheduledTaskAction -Execute $ps -Argument $arg
-  # Reuse ONE original task; ignore overlapping starts while its job
-  # supervisor owns the long-running Python process. Re-wake after unexpected
-  # stop or console-control termination without a second scheduler/controller.
-  $owner = ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
-  $logon = New-ScheduledTaskTrigger -AtLogOn -User $owner
-  $shortWake = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
-    -RepetitionInterval (New-TimeSpan -Minutes 10) `
-    -RepetitionDuration (New-TimeSpan -Days 365)
-  # The daily long-lived fallback survives expiry of the bounded 365-day
-  # short wake; source-qualified reinstall can renew the 10-minute horizon.
-  $dailyWake = New-ScheduledTaskTrigger -Daily -At '00:05'
-  $trigger = @($logon, $shortWake, $dailyWake)
-  if (@($trigger).Count -ne 3 -or $null -eq $shortWake.Repetition `
-      -or $shortWake.Repetition.Interval -ne 'PT10M') {
-    throw 'F139_SINGLE_TASK_WAKE_TRIGGERS_UNQUALIFIED'
+  # Reuse the three already-validated, source-qualified trigger objects:
+  # logon + one 10-minute re-wake + a long-term daily fallback. One task only.
+  if ($null -eq $settings -or @($trigger).Count -ne 3) {
+    throw 'F139_TASK_SETTINGS_OR_REWAKE_ABSENT'
   }
-  Write-Host 'F139_EXISTING_TASK_WAKE_10MIN_AND_DAILY=PASS'
-  if ($null -eq $settings) { throw 'F139_TASK_SETTINGS_ABSENT' }
   $task = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings
   Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
   Write-Host 'F139_TASK_INSTALLED_INERT_UNTIL_SEPARATE_VERIFIED_CUTOVER'
