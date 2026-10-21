@@ -23,8 +23,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ((& git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'A8E1B_SOURCE_DRIFT' }
           $worker = Get-Content -Raw -LiteralPath '.github/workflows/forge-f139-development-worker.yml'
-          $expected = "python-version: " + '${{ matrix.os == ''windows-latest'' && ''3.11.9'' || ''3.11.11'' }}'
-          if ([regex]::Matches($worker,[regex]::Escape($expected)).Count -ne 1) { throw 'A8E1B_NATIVE_SELECTOR_DRIFT' }
+          $selector = @($worker -split "`n" | Where-Object { $_ -match 'python-version:\s*\$\{\{\s*matrix\.os' })
+          if ($selector.Count -ne 1 -or $selector[0] -notmatch 'windows-latest' -or $selector[0] -notmatch '3\.11\.9' -or $selector[0] -notmatch '3\.11\.11') { throw 'A8E1B_NATIVE_SELECTOR_DRIFT' }
           Write-Host 'F139_A8E1B_NATIVE_SELECTOR_PINNED=PASS'
       - uses: actions/setup-python@v5
         with:
