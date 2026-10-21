@@ -1143,6 +1143,8 @@ def cli(argv=None):
     sub.add_parser("tick")
     owner_native=sub.add_parser("activate-native")
     owner_native.add_argument("--approval",type=Path,required=True)
+    transition=sub.add_parser("transition-qualified-native")
+    transition.add_argument("--approval",type=Path,required=True)
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1171,6 +1173,56 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="transition-qualified-native":
+            # The owner must run this exact, qualified, protected-main checkout;
+            # never rewrite historical identities or reset the event chain.
+            require(os.name=="nt","OWNER_WINDOWS_ONLY_FOR_TRANSITION")
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"SOURCE_APPROVAL_FILE_INVALID")
+            proof=json.loads(raw)
+            from f139.nci04_owner_ledger import SEALED_OWNER_PREFIX_HEAD
+            expected={"schema","from_source_sha","to_source_sha",
+                      "expected_event_head_sha256","sealed_23_event_head_sha256",
+                      "native_development_only","scientific_first_use",
+                      "new_controller","paid_api_calls"}
+            require(isinstance(proof,dict) and set(proof)==expected
+                    and proof["schema"]==
+                       "forge.f139.nci04.owner-source-transition-approval.v1"
+                    and proof["from_source_sha"]==db.meta()["source_sha"]
+                    and proof["expected_event_head_sha256"]==db.meta()["head_hash"]
+                    and proof["sealed_23_event_head_sha256"]==SEALED_OWNER_PREFIX_HEAD
+                    and proof["native_development_only"] is True
+                    and proof["scientific_first_use"] is False
+                    and proof["new_controller"] is False
+                    and type(proof["paid_api_calls"]) is int
+                    and proof["paid_api_calls"]==0
+                    and isinstance(proof["to_source_sha"],str)
+                    and SHA.fullmatch(proof["to_source_sha"]) is not None,
+                    "SOURCE_TRANSITION_APPROVAL_INVALID")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"TRANSITION_CHECKOUT_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git_read("rev-parse","HEAD")==proof["to_source_sha"]
+                    and _git_read("status","--porcelain","--untracked-files=all")=="",
+                    "TRANSITION_CHECKOUT_NOT_EXACT_CLEAN_SOURCE")
+            api=GitHub()
+            require(api.protected_main()==proof["to_source_sha"],
+                    "TRANSITION_PROTECTED_MAIN_UNQUALIFIED")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                require(db.meta()["head_hash"]==proof["expected_event_head_sha256"],
+                        "TRANSITION_EVENT_HEAD_CHANGED")
+                db.transition_source(proof["to_source_sha"])
+                print(json.dumps({"native_source_transition":"PASS",
+                    "source_sha":db.meta()["source_sha"],
+                    "head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
         elif args.verb=="activate-native":
             # Owner-only, explicit admission. Does not create a second task or
             # controller and does not dispatch work. The existing scheduled
