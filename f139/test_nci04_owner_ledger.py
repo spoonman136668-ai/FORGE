@@ -32,16 +32,16 @@ class LedgerTests(unittest.TestCase):
         patcher = mock.patch("f139.nci04_owner_ledger.SEALED_OWNER_PREFIX_HEAD", seq23)
         patcher.start()
         self.addCleanup(patcher.stop)
-        for lane, ticket in (
+        for ix, (lane, ticket) in enumerate((
             ("Qualification", "f139-d2c-qualification-659bb1f4d751"),
             ("Wingless", "f139-d2c-wingless-659bb1f4d751"),
             ("Wingless", "f139-d2j-wingless-5a252f8dde24"),
             ("Yggdrasil", "f139-d2j-yggdrasil-5a252f8dde24"),
             ("Wingless", "f139-d2k-i687-5a252f8dde24-5a2ecddb"),
             ("Yggdrasil", "f139-d2k-i688-5a252f8dde24-02ded761"),
-        ):
+        )):
             rid = 39513293606 if "i687" in ticket else (
-                39513381790 if "i688" in ticket else 42)
+                39513381790 if "i688" in ticket else 42 + ix)
             self.db.conn.execute(
                 "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
                 "run_id,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?)",
