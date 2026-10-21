@@ -25,6 +25,9 @@ class SuccessionFromCertifiedNegative(unittest.TestCase):
         # The A8B test fixture is isolated and pins synthetic original heads.
         OwnerNegativeStoreTests.setUp(self)
 
+    def admit(self, **kw):
+        return OwnerNegativeStoreTests.admit(self, **kw)
+
     def approve(self, source):
         return {
             "schema":APPROVAL_SCHEMA,
