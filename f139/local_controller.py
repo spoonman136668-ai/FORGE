@@ -402,7 +402,8 @@ class Database:
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
         from f139.nci04_negative_owner_store import (
-            SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE)
+            SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE,
+            TICKET as ORIGINAL_NEGATIVE_TICKET)
         with self.transaction():
             self.verify()
             meta = self.meta()
@@ -420,7 +421,7 @@ class Database:
                     and row["evidence_dir"]):
                     verified.append(row)
                 elif (allow_certified_negative and row["stage"] == "QUARANTINED"
-                      and row["ticket"] == "f139-nci04-i696-5662e3586bc9-7bb8f27f"
+                      and row["ticket"] == ORIGINAL_NEGATIVE_TICKET
                       and row["source_sha"] == ORIGINAL_NEGATIVE_SOURCE
                       and row["run_id"] is None and row["evidence_sha"] is None
                       and not row["evidence_dir"]):
