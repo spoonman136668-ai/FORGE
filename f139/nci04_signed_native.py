@@ -109,7 +109,12 @@ def admit_native_intent(inputs: dict, native_intent_raw: bytes, *,
     # Existing ticket must pass the real F139 HMAC, epoch, run source/event
     # check before any candidate bytes are considered. It must be a distinct
     # native ticket; D2K and frozen historical tickets are never upcast.
-    admit_controller_ticket(inputs)
+    # F139 V1 HMAC signs the original ticket/lane/source/epoch ONLY.
+    # Native issue identity is independently covered by the domain-separated
+    # NCI04 HMAC below. Never smuggle native fields into old D2K V2 semantics.
+    legacy_inputs = {**inputs, "issue_number": "", "issue_id": "",
+                     "body_sha256": "", "target_package": ""}
+    admit_controller_ticket(legacy_inputs)
     candidate = parse_intent(native_intent_raw, protected_main=authenticated_main_sha,
                              target_commit=authenticated_target_commit,
                              target_tree_sha=authenticated_target_tree)
