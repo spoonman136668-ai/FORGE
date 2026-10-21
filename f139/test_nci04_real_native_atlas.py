@@ -33,7 +33,14 @@ class NativeAtlasIntegration(unittest.TestCase):
         self.assertEqual(git("rev-parse","HEAD"),NATIVE_COMMIT)
         self.assertEqual(git("rev-parse","HEAD^{tree}"),NATIVE_TREE)
         self.assertEqual(git("status","--porcelain","--untracked-files=all"),"")
-        before = (source / PATH).read_bytes()
+        # Use authenticated git object bytes, NOT platform-converted
+        # working-tree bytes (Windows checkout may be CRLF while the signed
+        # committed source/blob and isolated native stage are LF).
+        original = subprocess.run(
+            ["git","-C",str(source),"show","HEAD:"+PATH],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+            timeout=15,check=True)
+        before = original.stdout
         # Different, purely synthetic code comment from issue #696: never
         # replay the quarantined owner's signed native candidate.
         synthetic = b"\n# PR-only G29 native checkout separation fixture\n"
