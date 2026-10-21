@@ -1,0 +1,145 @@
+name: FORGE RC2-U1B K-Terminal source qualification
+on:
+  push:
+    branches: [qualification/kterminal-rc2-u1b-20261021]
+permissions:
+  contents: read
+concurrency:
+  group: forge-kterminal-rc2-u1b
+  cancel-in-progress: false
+jobs:
+  original-windows-source:
+    runs-on: windows-latest
+    timeout-minutes: 39
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      K_TERMINAL_P5_LATENCY: '0'
+      K_TERMINAL_NATIVE_TIMING: '0'
+      GOTELEMETRY: 'off'
+      GOTOOLCHAIN: local
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - name: Checkout pinned FORGE qualification workflow without credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify independent FORGE source scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-rc2-u1b-20261021' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+              $env:RUNNER_OS -cne 'Windows') { throw 'RC2_U1B_FORGE_RUNNER_IDENTITY_FAIL' }
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'RC2_U1B_FORGE_HEAD_MISMATCH' }
+          $changed = @(git diff --name-only 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD)
+          if ($changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/forge-kterminal-rc2-u1b.yml') {
+            throw 'RC2_U1B_FORGE_CHANGE_SCOPE_MISMATCH'
+          }
+          Write-Host 'RC2_U1B_FORGE_HOSTED_WINDOWS_SOURCE=PASS'
+      - name: Read exact private K-Terminal PR candidate using existing read-only credential
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: fb3f0d6a69c5ffafbb17af069a8403c72657a5fe
+          path: kterminal-private
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - name: Pin Go 1.26.5 for original Windows tests
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Source scope, opt-in privacy shape, PowerShell parser and dispatcher API
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER' -or
+              $env:K_TERMINAL_P5_LATENCY -cne '0' -or
+              $env:K_TERMINAL_NATIVE_TIMING -cne '0') { throw 'RC2_U1B_PAPER_ISOLATION_FAIL' }
+          foreach ($name in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME',
+              'CDP_API_KEY_PRIVATE_KEY','K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name))) {
+              throw 'RC2_U1B_BROKER_CREDENTIAL_ENV_BLOCKED'
+            }
+          }
+          if ((git rev-parse HEAD).Trim() -cne 'fb3f0d6a69c5ffafbb17af069a8403c72657a5fe') {
+            throw 'RC2_U1B_PRIVATE_SOURCE_DRIFT'
+          }
+          $changed = @(git diff --name-only eb5d225ae73b698a59c68d840daf1ec678e1a0ec HEAD)
+          $expected = @('dashboard-ui.ps1','pkg/p5-runtime-latency-observer.go')
+          if (($changed -join '|') -cne ($expected -join '|')) { throw 'RC2_U1B_APP_SOURCE_SCOPE_FAIL' }
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path 'dashboard-ui.ps1').Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if (@($errors).Count -ne 0) { throw 'RC2_U1B_WPF_POWERSHELL_PARSER_FAIL' }
+          Add-Type -AssemblyName WindowsBase -ErrorAction Stop
+          $dispatcherType = [type]'System.Windows.Threading.Dispatcher'
+          if ($null -eq $dispatcherType) { throw 'RC2_U1B_WPF_DISPATCHER_ABSENT' }
+          $source = [IO.File]::ReadAllText((Resolve-Path 'dashboard-ui.ps1').Path)
+          foreach ($marker in @("K_TERMINAL_P5_LATENCY","Invoke-KTerminalP5DesktopProbe",
+              "wpf_poll_until_result_observed","wpf_result_observed_to_row",
+              "wpf_row_to_render_priority","operator_event_wall_age_coarse")) {
+            if (-not $source.Contains($marker)) { throw 'RC2_U1B_P5_SOURCE_MARKER_MISSING' }
+          }
+          if (-not $source.Contains('p5DesktopRecords -ge 64')) {
+            throw 'RC2_U1B_DIAGNOSTIC_RATE_CAP_MISSING'
+          }
+          $oldBlob = (git rev-parse 'eb5d225ae73b698a59c68d840daf1ec678e1a0ec:dashboard-ui.ps1').Trim()
+          $oldP5 = (git rev-parse 'eb5d225ae73b698a59c68d840daf1ec678e1a0ec:pkg/p5-runtime-latency-observer.go').Trim()
+          if ($oldBlob -cne '3d74de7be0f57e3385500912a63ec1b413e628d3' -or
+              $oldP5 -cne 'b9d3a64b8334a2f674cea35fe2ae1b397ce52d31') {
+            throw 'RC2_U1B_PREDECESSOR_BLOB_DRIFT'
+          }
+          Write-Host 'RC2_U1B_STATIC_AND_PARSER=PASS'
+          Write-Host 'RC2_U1B_DESKTOP_PROCESS_RUNNING=NO'
+      - name: Run original focused P5 tests without exporting private output
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'rc2-u1b-focused-private.log'
+          & go test -count=1 -p=1 -parallel=1 -timeout=9m '-run=^TestP5' ./pkg *> $output
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'RC2_U1B_GO_P5_FOCUSED=FAIL'
+            throw 'RC2_U1B_FOCUSED_TEST_FAILED_NO_PRIVATE_LOG_EXPORT'
+          }
+          Write-Host 'RC2_U1B_GO_P5_FOCUSED=PASS'
+      - name: One original complete Windows regression
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'rc2-u1b-full-private.log'
+          & go test -count=1 -p=1 -parallel=1 -timeout=22m ./... *> $output
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'RC2_U1B_FULL_WINDOWS_REGRESSION=FAIL_NOT_WAIVED'
+            throw 'RC2_U1B_ORIGINAL_REGRESSION_FAILED_NO_PRIVATE_LOG_EXPORT'
+          }
+          Write-Host 'RC2_U1B_FULL_WINDOWS_REGRESSION=PASS'
+      - name: Vet original K-Terminal source
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'rc2-u1b-vet-private.log'
+          & go vet ./... *> $output
+          if ($LASTEXITCODE -ne 0) { throw 'RC2_U1B_VET_FAILED_NO_PRIVATE_LOG_EXPORT' }
+          Write-Host 'RC2_U1B_ORIGINAL_VET=PASS'
+      - name: Build original Windows executable without running it
+        shell: pwsh
+        working-directory: kterminal-private
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $output = Join-Path $env:RUNNER_TEMP 'rc2-u1b-build-private.log'
+          & go build -o (Join-Path $env:RUNNER_TEMP 'kterminal-rc2-u1b.exe') . *> $output
+          if ($LASTEXITCODE -ne 0) { throw 'RC2_U1B_BUILD_FAILED_NO_PRIVATE_LOG_EXPORT' }
+          Write-Host 'RC2_U1B_STOPPED_WINDOWS_BUILD=PASS'
+          Write-Host 'RC2_U1B_FIELD_SEVEN_SECOND_ATTRIBUTION=NOT_MEASURED'
