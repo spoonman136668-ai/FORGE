@@ -432,9 +432,10 @@ class Database:
                 from f139.nci04_negative_owner_store import (
                     verify_original_negative_custody, SOURCE_SHA)
                 transitions = [
-                    json.loads(t["payload"]) for t in self.conn.execute(
-                        "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
-                        " AND json_extract(payload,'$.schema')='forge.f139.source-transition.v2'")]
+                    parsed for parsed in (
+                        json.loads(t["payload"]) for t in self.conn.execute(
+                            "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")
+                    ) if parsed["schema"] == "forge.f139.source-transition.v2"]
                 require(allow_certified_negative and len(certified) == 1
                         and verify_original_negative_custody(self)
                         and (meta["source_sha"] == SOURCE_SHA
