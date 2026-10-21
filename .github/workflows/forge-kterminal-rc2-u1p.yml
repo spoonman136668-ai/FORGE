@@ -1,0 +1,109 @@
+name: RC2-U1P two residual Windows regression test roots
+on:
+  push:
+    branches: [qualification/kterminal-rc2-u1p-two-original-roots-20261021]
+permissions:
+  contents: read
+jobs:
+  bounded:
+    runs-on: windows-latest
+    timeout-minutes: 27
+    env:
+      K_TERMINAL_EXECUTION_MODE: PAPER
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      CGO_ENABLED: '0'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify isolated FORGE qualification identity and PAPER
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/kterminal-rc2-u1p-two-original-roots-20261021' -or
+              $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $env:K_TERMINAL_EXECUTION_MODE -cne 'PAPER') {throw 'RC2_U1P_ISOLATION_FAIL'}
+          $d=@(git diff --name-only 5662e3586bc9d12c90033b7c0344ca65ea1ad2a0 HEAD)
+          if (($d -join '|') -cne '.github/workflows/forge-kterminal-rc2-u1p.yml') {throw 'RC2_U1P_SCOPE_FAIL'}
+          foreach ($n in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY',
+                           'K_TERMINAL_API_KEY','K_TERMINAL_API_SECRET')) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($n))) {throw 'RC2_U1P_BROKER_ENV_BLOCKED'}
+          }
+          Write-Host 'RC2_U1P_ISOLATION=PASS'
+      - name: Read exact combined source without changing application
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Kboomllc/K-Terminal
+          ref: ca0f2ce5c518620ab50f6f75bfa12d25f2b55de1
+          path: kterm
+          persist-credentials: false
+          fetch-depth: 1
+          token: ${{ secrets.FORGE_KTERM_QUAL }}
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version: '1.26.5'
+          cache: false
+      - name: Bounded two-root regression failure cause
+        shell: bash
+        working-directory: kterm
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = ca0f2ce5c518620ab50f6f75bfa12d25f2b55de1
+          go version | grep -q 'go1.26.5 windows/amd64'
+          ws="$RUNNER_TEMP/rc2-u1p/workspace"
+          mkdir -p "$ws/auth" "$ws/tail" "$ws/private"
+          export K_TERMINAL_TEST_WORKSPACE="$ws"
+          export KABOOM_STAGE3_AUTHENTICATED_POST_RETENTION_ROOT="$ws/auth"
+          export KABOOM_STAGE3_NATIVE_TAIL_RETENTION_ROOT="$ws/tail"
+          export KABOOM_STAGE3_PRIVATE_V2_RETENTION_ROOT="$ws/private"
+          echo RC2_U1P_NESTED_FIXTURES=PASS
+          set +e
+          go test -json -count=1 -p=1 -parallel=1 -timeout=19m '-run=^(TestNativeMakerRetriesKeepOriginalValuationAfterQuoteExpires|TestStage3NativeActiveProductionShutdown)$' ./pkg > "$RUNNER_TEMP/rc2-u1p-private.jsonl" 2> "$RUNNER_TEMP/rc2-u1p-private.stderr"
+          rc=$?
+          set -e
+          export RC2_U1P_EXIT="$rc"
+          python -B - <<'PY'
+          import json,os,pathlib,re,sys
+          tmp=pathlib.Path(os.environ['RUNNER_TEMP'])
+          p=tmp/'rc2-u1p-private.jsonl';e=tmp/'rc2-u1p-private.stderr'
+          if not p.is_file() or not e.is_file() or p.stat().st_size>130000000:
+              print('RC2_U1P_LOG_BOUND=FAIL');sys.exit(2)
+          roots=['TestNativeMakerRetriesKeepOriginalValuationAfterQuoteExpires','TestStage3NativeActiveProductionShutdown']
+          acts={name:[] for name in roots};sites=[];cats=set();bad=0
+          for line in p.open(encoding='utf-8',errors='replace'):
+              try:r=json.loads(line)
+              except ValueError:bad+=1;continue
+              t=r.get('Test');action=r.get('Action')
+              if t in acts and action in ('run','pass','fail','skip'):acts[t].append(action)
+              if action!='output' or not isinstance(r.get('Output'),str):continue
+              out=r['Output']
+              for m in re.finditer(r'([A-Za-z0-9_.-]+_test\.go):([1-9][0-9]{0,4}):',out):
+                  site=m.group(1)+':'+m.group(2)
+                  if site not in sites:sites.append(site)
+              for phrase,category in [
+                  ('test timed out','TIMEOUT'),('quote retry changed original valuation','VALUATION'),
+                  ('later maker attempt stopped on original quote','MAKER_RETRY'),
+                  ('genuine checkpoint overlap was not exercised','SHUTDOWN_CHECKPOINT'),
+                  ('owned child identity/production lifecycle witness mismatch','SHUTDOWN_LIFECYCLE'),
+                  ('actual cold recovery changed exact committed accounting','SHUTDOWN_ACCOUNTING')
+              ]:
+                  if phrase in out:cats.add(category)
+          if 'test timed out' in e.read_text(encoding='utf-8',errors='replace').lower():cats.add('TIMEOUT')
+          for name in roots:
+              a=acts[name]
+              print('RC2_U1P_'+name+'='+('FAIL' if 'fail' in a else 'PASS' if 'pass' in a else 'INCOMPLETE'))
+          print('RC2_U1P_GO_EXIT='+os.environ['RC2_U1P_EXIT'])
+          print('RC2_U1P_FAILURE_CLASSES='+(','.join(sorted(cats)) if cats else 'NOT_CLASSIFIED'))
+          print('RC2_U1P_LAST_SOURCE_SITE='+ (sites[-1] if sites else 'NOT_REPORTED'))
+          print('RC2_U1P_JSON_INVALID='+str(bad))
+          print('RC2_U1P_FULL_REGRESSION=NOT_RERUN')
+          print('RC2_U1P_RELEASE=BLOCKED')
+          if bad:sys.exit(2)
+          PY
