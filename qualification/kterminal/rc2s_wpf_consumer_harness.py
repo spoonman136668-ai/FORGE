@@ -73,6 +73,7 @@ def testcase(repo,source_label,ps,out):
          and len(data.get("samples",[]))==6 and
          data.get("production_Update_Dashboard_callback") is True and
          data.get("shipping_window_pixel_paint_measured") is False)
+    failure_stage=re.findall(r"KTERM_RC2S_FAILURE_STAGE=([A-Z_]{3,55})",output)
     classifications=sorted(k for k,x in FAIL_CODES.items()
         if re.search(x,output,re.IGNORECASE))
     if not valid and not classifications:classifications=["UNCLASSIFIED_FAILURE"]
@@ -80,6 +81,7 @@ def testcase(repo,source_label,ps,out):
       "source":source_label,"result":"PASS" if valid else "FAIL_NOT_WAIVED",
       "exit_code":rc,"wall_s":round(time.monotonic()-before,3),
       "reason_classes":classifications,
+      "failed_phase":failure_stage[-1] if failure_stage else None,
       "safe_error_identity":safe_ps_failure_identity(output,"rc2s_wpf_snapshot_probe.ps1"),
       "sample_count":len(data["samples"]) if data else 0,
       "observations":data["samples"] if data and len(data.get("samples",[]))==6 else [],
@@ -93,6 +95,7 @@ def testcase(repo,source_label,ps,out):
           for k in fields}
     print("KTERM_RC2S_"+source_label.upper()+"_SNAPSHOT_TO_WPF="+result["result"],flush=True)
     print("KTERM_RC2S_"+source_label.upper()+"_PS_ERROR="+json.dumps(result["safe_error_identity"],sort_keys=True),flush=True)
+    print("KTERM_RC2S_"+source_label.upper()+"_FAILED_PHASE="+str(result["failed_phase"]),flush=True)
     return result
 def layout_attribution(repo,label,out):
     # Read-only original failing fixture. No source or assertion relaxation.
