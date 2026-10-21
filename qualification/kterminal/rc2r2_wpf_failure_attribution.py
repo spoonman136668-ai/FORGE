@@ -52,7 +52,7 @@ def main():
         # exception is safe to retain only as a short lexical identifier.
         # Never export stack traces, source lines or absolute file paths.
         missing_fields=sorted(set(re.findall(
-            r"The property ['\\\"]([A-Za-z_][A-Za-z0-9_]{0,63})['\\\"] cannot be found",
+            r"The property .([A-Za-z_][A-Za-z0-9_]{0,63}). cannot be found",
             combined,re.IGNORECASE)))[:6]
         line_numbers=sorted(set(int(z) for z in re.findall(
             r"(?:test-dashboard-presentation[.]ps1|dashboard-ui[.]ps1):([0-9]{1,5})",
