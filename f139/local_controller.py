@@ -774,16 +774,24 @@ class GitHub:
             "repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
             "-f","ref=main",
         ]
-        for key in ("ticket","lane","source_sha","epoch","signature",
-                    "native_signature","issue_number","issue_id","body_sha256",
-                    "qualification_key","target_commit","target_tree_sha"):
+        # GitHub workflow_dispatch supports only TEN input keys; legacy
+        # endpoint already consumes nine. Keep those exact preexisting fields
+        # and add ONE source-bound, typed, encoded native bundle.
+        for key in ("ticket","lane","source_sha","epoch","signature"):
             value=signed_fields[key]
             require(isinstance(value,str) and 0<len(value)<=128,
                     "NATIVE_DISPATCH_FIELD_INVALID")
             payload.extend(["-f","inputs["+key+"]="+value])
-        encoded=base64.b64encode(issue.intent_raw).decode("ascii")
-        require(len(encoded)<59000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
-        payload.extend(["-f","inputs[intent_base64]="+encoded])
+        bundle = {
+            key:signed_fields[key]
+            for key in ("native_signature","issue_number","issue_id",
+                        "body_sha256","qualification_key",
+                        "target_commit","target_tree_sha")
+        }
+        bundle["intent_base64"] = base64.b64encode(issue.intent_raw).decode("ascii")
+        encoded=base64.b64encode(canonical(bundle)).decode("ascii")
+        require(0<len(encoded)<=60000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
+        payload.extend(["-f","inputs[native_bundle]="+encoded])
         self.runner(payload)
 
     def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str, *, d2k_fields=None):
