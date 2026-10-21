@@ -1298,6 +1298,7 @@ def cli(argv=None):
     owner_native.add_argument("--approval",type=Path,required=True)
     transition=sub.add_parser("transition-qualified-native")
     transition.add_argument("--approval",type=Path,required=True)
+    sub.add_parser("custody-original-native-negative")
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1326,6 +1327,59 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="custody-original-native-negative":
+            # One authorized, development-only owner CLI. No GitHub dispatch
+            # method, second task, new controller or scientific first-use.
+            from f139.nci04_negative_owner_store import (
+                admit_original_negative_custody, RUN_ID as NEGATIVE_RUN_ID,
+                ARTIFACT_ID as NEGATIVE_ARTIFACT_ID)
+            native_original_owner_profile(args.db)
+            legacy_windows_task_disabled()
+            api=GitHub()
+            checkout=Path(__file__).resolve().parent.parent
+            head=subprocess.run(["git","-C",str(checkout),"rev-parse","HEAD"],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,timeout=15,check=False)
+            require(head.returncode==0 and
+                    head.stdout.decode().strip()==api.protected_main(),
+                    "NEGATIVE_CUSTODY_CHECKOUT_NOT_PROTECTED_MAIN")
+            api.legacy_dispatchers_disabled()
+            hmac_key=os.environ.get("F139_WORKER_HMAC_KEY","")
+            require(len(hmac_key)>=32,"NEGATIVE_CUSTODY_OWNER_HMAC_UNAVAILABLE")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                # Verify original owner database is unchanged BEFORE making
+                # any external retrieval. Never issue workflow_dispatch.
+                from f139.nci04_negative_owner_store import (
+                    OWNER_HEAD, SOURCE_SHA as NEGATIVE_SOURCE)
+                meta=db.meta()
+                require(meta["source_sha"]==NEGATIVE_SOURCE
+                        and meta["head_seq"]==47
+                        and meta["head_hash"]==OWNER_HEAD,
+                        "NEGATIVE_CUSTODY_NOT_ORIGINAL_47_EVENT_BOUNDARY")
+                run=api.get(f"repos/{REPO}/actions/runs/{NEGATIVE_RUN_ID}")
+                run_jobs=api.get(
+                    f"repos/{REPO}/actions/runs/{NEGATIVE_RUN_ID}/jobs?per_page=100")
+                job_list=run_jobs.get("jobs")
+                require(isinstance(job_list,list)
+                        and run_jobs.get("total_count")==4
+                        and len(job_list)==4,
+                        "NEGATIVE_CUSTODY_PROVIDER_JOBS_INVALID")
+                artifacts=api.get(
+                    f"repos/{REPO}/actions/runs/{NEGATIVE_RUN_ID}/artifacts?per_page=100")
+                archive_list=artifacts.get("artifacts")
+                require(isinstance(archive_list,list)
+                        and artifacts.get("total_count")==1
+                        and len(archive_list)==1
+                        and archive_list[0].get("id")==NEGATIVE_ARTIFACT_ID,
+                        "NEGATIVE_CUSTODY_PROVIDER_ARTIFACT_INVALID")
+                artifact=archive_list[0]
+                archive=api.artifact(NEGATIVE_ARTIFACT_ID)
+                result=admit_original_negative_custody(
+                    db,run=run,jobs=job_list,artifact=artifact,
+                    archive=archive,owner_hmac_key=hmac_key,
+                    epoch=meta["epoch"])
+                print(json.dumps(result,sort_keys=True))
         elif args.verb=="transition-qualified-native":
             # The owner must run this exact, qualified, protected-main checkout;
             # never rewrite historical identities or reset the event chain.
@@ -1371,7 +1425,20 @@ def cli(argv=None):
                 db.verify()
                 require(db.meta()["head_hash"]==proof["expected_event_head_sha256"],
                         "TRANSITION_EVENT_HEAD_CHANGED")
-                db.transition_source(proof["to_source_sha"])
+                from f139.nci04_negative_owner_store import (
+                    verify_original_negative_custody, TICKET as NEGATIVE_TICKET)
+                excluded=list(db.conn.execute(
+                    "SELECT ticket,stage FROM tasks WHERE stage!='VERIFIED'"))
+                has_certified_negative=(
+                    len(excluded)==1
+                    and excluded[0]["ticket"]==NEGATIVE_TICKET
+                    and excluded[0]["stage"]=="QUARANTINED"
+                    and verify_original_negative_custody(db))
+                require(not excluded or has_certified_negative,
+                        "NEGATIVE_HISTORY_NOT_SAFELY_CUSTODIED")
+                db.transition_source(
+                    proof["to_source_sha"],
+                    allow_certified_negative=has_certified_negative)
                 print(json.dumps({"native_source_transition":"PASS",
                     "source_sha":db.meta()["source_sha"],
                     "head_sha256":db.meta()["head_hash"],
