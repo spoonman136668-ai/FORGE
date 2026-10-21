@@ -19,6 +19,7 @@ ADMISSION_SCHEMA = "forge.f139.nci04.owner-native-ledger.v1"
 KIND = "NATIVE_DEVELOPMENT_ADMITTED"
 MAX_DAILY = 2
 MAX_TOTAL = 20
+SEALED_OWNER_PREFIX_HEAD = "eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87"
 FIELDS = frozenset({
     "schema", "ticket", "issue_number", "issue_id", "lane",
     "source_sha", "issue_body_sha256", "native_intent_sha256",
@@ -51,7 +52,7 @@ def verified_historical_foundation(db):
         "WHERE ticket LIKE 'f139-d2c-%' OR ticket LIKE 'f139-d2j-%'"))
     seal = db.conn.execute("SELECT sha FROM events WHERE seq=23").fetchone()
     require(seal is not None
-            and seal["sha"] == "eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87",
+            and seal["sha"] == SEALED_OWNER_PREFIX_HEAD,
             "ORIGINAL_23_EVENT_PIN_DRIFT")
     # Real authenticated first-use-safe D2K receipt transitions, not just
     # artificially constructed task records with a matching high-water.
