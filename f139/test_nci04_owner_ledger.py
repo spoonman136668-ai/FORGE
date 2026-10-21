@@ -190,6 +190,7 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(self.db.active()["stage"],"WAIT_PROVIDER")
         self.db.close()
         self.db=Database(self.path)
+        self.addCleanup(self.db.close)
         again=run_once(self.db,gh,self.path,HMAC,
                        now="2026-10-21T10:01:00Z",native_enabled=True)
         self.assertEqual(again["disposition"],"QUEUE_EMPTY_NO_SCIENCE")
