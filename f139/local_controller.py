@@ -401,6 +401,8 @@ class Database:
         """
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
+        from f139.nci04_negative_owner_store import (
+            SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE)
         with self.transaction():
             self.verify()
             meta = self.meta()
