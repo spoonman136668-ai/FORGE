@@ -150,3 +150,22 @@ jobs:
              !$found[0].expired))
           Write-Host 'F139_OWNER_BOUNDARY_READ_ONLY=PASS'
 
+
+      - name: Inspect source syntax without executing staged owner cutover
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://raw.githubusercontent.com/spoonman136668-ai/FORGE/audit/f139-existing-runner-owner-custody-20261021/scripts/Cutover-FORGE-F139-A8-Runner.ps1'
+          $response = Invoke-WebRequest -Uri $url -UseBasicParsing
+          $scriptText = [string]$response.Content
+          if ($scriptText.Length -lt 8000) { throw 'F139_CUTOVER_SCRIPT_UNEXPECTED_SIZE' }
+          $tokens = $null
+          $parseErrors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+              $scriptText, [ref]$tokens, [ref]$parseErrors)
+          if (@($parseErrors).Count -ne 0) {
+            throw 'F139_A8_CUTOVER_SOURCE_PARSE_FAILED'
+          }
+          if ($null -eq $ast) { throw 'F139_A8_NO_PARSED_SOURCE' }
+          Write-Host 'F139_A8_CUTOVER_POWERSHELL_SYNTAX=PASS'
+          Write-Host 'F139_A8_CUTOVER_SCRIPT_NOT_EXECUTED=TRUE'
