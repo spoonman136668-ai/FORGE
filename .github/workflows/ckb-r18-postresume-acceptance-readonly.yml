@@ -63,6 +63,13 @@ jobs:
            vals={x[0]:x[1] for x in db.execute("select key,value from settings where key in ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
            vals['leases']=db.execute('select count(*) from worker_leases').fetchone()[0]
            vals['nonterminal']=db.execute("select count(*) from queue_items where state not in ('COMPLETED','REVIEWED')").fetchone()[0]
+           import re
+           err=db.execute("select value from settings where key='autonomy_status'").fetchone()
+           raw=(err[0] if err else '')
+           vals['status_code_tokens']=re.findall(r'(?<![a-zA-Z])[A-Z][A-Z0-9_]{3,}',raw)[:18]
+           vals['status_indicators']=[k for k in ['preservation','yaml','unmarshal','parse','timeout','authority','error','supervisor','source','blocked','paused'] if k in raw.lower()]
+           vals['recent_event_types']=[(x[0],x[1]) for x in db.execute("select type,severity from events order by id desc limit 5")]
+           vals['diagnostic_keys']=[x[0] for x in db.execute("select key from settings where lower(key) like '%error%' or lower(key) like '%status%' or lower(key) like '%blocker%' limit 16")]
            print(json.dumps(vals,separators=(',',':')))
           finally:db.close()
           '@
@@ -71,6 +78,15 @@ jobs:
             return $out[0]|ConvertFrom-Json
           }
           $first=Snapshot
+          Write-Host ('R18_OBSERVED_PAUSED='+[string]$first.paused)
+          Write-Host ('R18_OBSERVED_GENERATION='+[string]$first.autonomy_generation)
+          Write-Host ('R18_OBSERVED_AUTHORITY='+[string]$first.autonomy_authority)
+          Write-Host ('R18_OBSERVED_LEASES='+[string]$first.leases)
+          Write-Host ('R18_OBSERVED_HEARTBEAT='+[string]$first.autonomy_heartbeat)
+          Write-Host ('R18_OBSERVED_STATUS_CODE_TOKENS='+(@($first.status_code_tokens) -join ','))
+          Write-Host ('R18_OBSERVED_STATUS_INDICATORS='+(@($first.status_indicators) -join ','))
+          Write-Host ('R18_OBSERVED_RECENT_EVENT_TYPES='+((@($first.recent_event_types)|ForEach-Object {(@($_) -join ':')}) -join ','))
+          Write-Host ('R18_OBSERVED_DIAGNOSTIC_KEYS='+(@($first.diagnostic_keys) -join ','))
           $pid1=(OwnerProcess).ProcessId
           if($first.paused -cne 'false' -or $first.autonomy_authority -cne 'plane' -or
              $first.autonomy_generation -cne '6' -or [int]$first.leases -ne 0){throw 'R18_NOT_UNPAUSED_ON_INITIAL_SNAPSHOT'}
