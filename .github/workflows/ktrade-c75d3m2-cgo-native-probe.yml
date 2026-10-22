@@ -1,0 +1,47 @@
+name: R25-C75D3M2 ephemeral native C toolchain preflight
+on:
+  push:
+    branches: [qualification/ktrade-c75d3m2-cgo-native-probe-20261022]
+    paths: [.github/workflows/ktrade-c75d3m2-cgo-native-probe.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-native-cgo-probe-m2
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    env:
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Read-only identify installed local C compilers without secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-c75d3m2-cgo-native-probe-20261022' -or
+             $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0'){
+             throw 'D3M2_UNQUALIFIED_RUNNER'
+          }
+          $choices=@(
+            'gcc','clang','zig','x86_64-w64-mingw32-gcc',
+            'C:\msys64\mingw64\bin\gcc.exe',
+            'C:\msys64\ucrt64\bin\gcc.exe',
+            'C:\Program Files\LLVM\bin\clang.exe',
+            'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe',
+            'C:\ProgramData\chocolatey\bin\gcc.exe',
+            'C:\mingw64\bin\gcc.exe'
+          )
+          foreach($choice in $choices){
+             $found=Get-Command $choice -ErrorAction SilentlyContinue
+             if($found){Write-Host ('D3M2_AVAILABLE_C_COMPILER='+($choice -replace '[^a-zA-Z0-9_.-]','_'))}
+          }
+          Write-Host ('D3M2_WINDOWS_GO_CGO_DEFAULT='+((& go env CGO_ENABLED).Trim()))
+          Write-Host 'D3M2_OWNER_PROFILE_INSPECTED=FALSE'
+          Write-Host 'D3M2_SOURCE_EXPORTED=FALSE'
