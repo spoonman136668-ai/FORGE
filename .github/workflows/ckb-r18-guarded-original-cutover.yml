@@ -82,8 +82,8 @@ jobs:
           }
           if((Sha $oldExe) -cne $oldHash -or
              (Sha $config) -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c' -or
-             (Sha $candidate) -cne $newHash -or
-             (Test-Path -LiteralPath $new)){throw 'R18_SOURCE_OR_RELEASE_IDENTITY_CHANGED'}
+             (Sha $candidate) -cne $newHash){throw 'R18_SOURCE_OR_RELEASE_IDENTITY_CHANGED'}
+          if(Test-Path -LiteralPath $new){if((Sha $newExe) -cne $newHash){throw 'R18_EXISTING_STAGED_RELEASE_CHANGED'}}
           $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
           if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){throw 'R18_SCHEDULED_TASK_DRIFT'}
           [void](One $oldExe)
@@ -101,7 +101,7 @@ jobs:
           Write-Host 'R18_ALL_PREMUTATION_CUSTODY_AND_IDLE_CHECKS=PASS'
           $stopped=$false;$swapped=$false
           try {
-            Copy-Item -LiteralPath $old -Destination $new -Recurse -ErrorAction Stop
+            if(!(Test-Path -LiteralPath $new)){Copy-Item -LiteralPath $old -Destination $new -Recurse -ErrorAction Stop}
             Copy-Item -LiteralPath $candidate -Destination $newExe -Force -ErrorAction Stop
             if((Sha $newExe) -cne $newHash -or (Sha $oldExe) -cne $oldHash){throw 'R18_CANDIDATE_STAGING_INVALID'}
             Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
@@ -130,15 +130,14 @@ jobs:
             $status=($raw -join [Environment]::NewLine)|ConvertFrom-Json
             if($status.authority -cne 'plane' -or [string]$status.generation -cne '6'){throw 'R18_AUTHORITY_CHANGED'}
             Write-Host 'R18_HISTORICAL_STATUS_FIXED=PASS'
-            & $newExe controller resume --config $config | Out-Null
-            if($LASTEXITCODE -ne 0){throw 'R18_CONTROLLER_RESUME_FAILED'}
-            Start-Sleep -Seconds 22
+            Start-Sleep -Seconds 12
             $after=ReadState
             [void](One $newExe)
-            if($after.paused -cne 'false' -or $after.autonomy_authority -cne 'plane' -or
-               $after.autonomy_generation -cne '6' -or [int]$after.leases -ne 0 -or [int]$after.pending -ne 0){throw 'R18_CONTROLLER_REPAUSED_OR_QUEUE_DRIFT'}
+            if($after.paused -cne 'true' -or $after.autonomy_authority -cne 'plane' -or
+               $after.autonomy_generation -cne '6' -or [int]$after.leases -ne 0 -or [int]$after.pending -ne 0){throw 'R18_IDLE_CONTROLLER_STATE_DRIFT'}
             if(((Get-Date).ToUniversalTime()-[datetime]::Parse([string]$after.autonomy_heartbeat).ToUniversalTime()).TotalSeconds -gt 60){throw 'R18_HEARTBEAT_STALE'}
-            Write-Host 'R18_GUARDED_ORIGINAL_CONTROLLER_RECOVERED=PASS'
+            Write-Host 'R18_GUARDED_LIVE_STATUS_REPAIR_INSTALLED=PASS'
+            Write-Host 'R18_CONTROLLER_PAUSED_PENDING_AUTHENTICATED_BRIDGE_RESUME=TRUE'
             Write-Host ('R18_PROMOTED_BINARY_SHA256='+$newHash)
           }catch{
             Write-Host ('R18_REPAIR_BLOCKED='+[string]$_.Exception.Message)
