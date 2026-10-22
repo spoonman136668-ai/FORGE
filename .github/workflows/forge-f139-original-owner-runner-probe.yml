@@ -1,0 +1,115 @@
+name: FORGE F139 original-owner runner identity (read-only)
+on:
+  push:
+    branches: [proposal/f139-owner-runner-probe-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-runner-probe
+  cancel-in-progress: false
+jobs:
+  identity-only:
+    # Discovery only: the generic Windows label can select a remote runner.
+    # Never assume this job runs on the original F139 owner workstation.
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 8
+    steps:
+      - name: Establish owner SID and task route without modifying custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-owner-runner-probe-20261022') {
+            throw 'F139_PROBE_UNEXPECTED_REPOSITORY_OR_REF'
+          }
+          Write-Output 'F139_PROBE_MODE=READ_ONLY'
+          Write-Output 'F139_EVENT58_ACTIVATION=NOT_ATTEMPTED'
+          Write-Output 'F139_SCHEDULER_MUTATION=NONE'
+          Write-Output 'F139_DPAPI_OR_SQLITE_READ=NONE'
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue
+          if ($null -eq $task) {
+            Write-Output 'F139_ORIGINAL_TASK_FOUND=NO'
+            throw 'F139_RUNNER_NOT_CONFIRMED_ORIGINAL_OWNER_HOST'
+          }
+          Write-Output 'F139_ORIGINAL_TASK_FOUND=YES'
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [string]$task.Principal.UserId
+          try {
+            $sid = if ($principal -match '^S-1-') {
+              $principal
+            } else {
+              (New-Object Security.Principal.NTAccount($principal)).Translate(
+                [Security.Principal.SecurityIdentifier]).Value
+            }
+          } catch {
+            throw 'F139_SCHEDULED_OWNER_SID_NOT_RESOLVABLE'
+          }
+          $ownerMatches = $who.User.Value -eq $sid
+          Write-Output ('F139_RUNNER_ORIGINAL_OWNER_SID=' +
+            $(if ($ownerMatches) { 'MATCH' } else { 'MISMATCH' }))
+          $admin = (New-Object Security.Principal.WindowsPrincipal($who)).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Output ('F139_RUNNER_ELEVATED_ADMIN_TOKEN=' +
+            $(if ($admin) { 'YES' } else { 'NO' }))
+          $disabled = ([string]$task.State -eq 'Disabled')
+          Write-Output ('F139_ORIGINAL_TASK_DISABLED=' +
+            $(if ($disabled) { 'YES' } else { 'NO' }))
+          if (@($task.Actions).Count -ne 1) {
+            throw 'F139_ORIGINAL_TASK_ACTION_COUNT_DRIFT'
+          }
+          $a = $task.Actions[0]
+          if ([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe') {
+            throw 'F139_ORIGINAL_TASK_EXECUTABLE_DRIFT'
+          }
+          $opts = @{}
+          foreach ($name in @('File','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match([string]$a.Arguments,
+              '(?i)(?:^|\s)-' + $name + '\s+"([^"]+)"')
+            if (-not $match.Success) {
+              throw ('F139_SCHEDULED_ARG_MISSING_' + $name)
+            }
+            $opts[$name] = $match.Groups[1].Value
+          }
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedKey = Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
+          $route = (
+            [IO.Path]::GetFileName($opts['File']) -ceq 'Run-FORGE-F139.ps1' -and
+            [IO.Path]::GetFullPath($opts['Database']) -ieq
+              [IO.Path]::GetFullPath($expectedDb) -and
+            [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ieq
+              [IO.Path]::GetFullPath($expectedKey) -and
+            (Test-Path -LiteralPath $expectedDb -PathType Leaf) -and
+            (Test-Path -LiteralPath $expectedKey -PathType Leaf)
+          )
+          Write-Output ('F139_OWNER_PROFILE_TASK_ROUTE=' +
+            $(if ($route) { 'PASS' } else { 'BLOCKED' }))
+          $root = $opts['RepositoryRoot']
+          $cleanSource = $false
+          if (Test-Path -LiteralPath (Join-Path $root 'f139\local_controller.py') -PathType Leaf) {
+            $sha = (& git -C $root rev-parse HEAD 2>$null | Out-String).Trim()
+            if ($LASTEXITCODE -eq 0 -and
+                $sha -ceq '536b91a392b7bbc50200a6e8842d152f2e23d8bb') {
+              $status = (& git -C $root status --porcelain --untracked-files=all 2>$null |
+                Out-String).Trim()
+              $cleanSource = ($LASTEXITCODE -eq 0 -and $status.Length -eq 0)
+            }
+          }
+          Write-Output ('F139_QUALIFIED_SOURCE_CHECKOUT=' +
+            $(if ($cleanSource) { 'PASS' } else { 'BLOCKED' }))
+          $other = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object {
+              $_.Name -in @('python.exe','pythonw.exe') -and
+              $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($opts['Database'])
+            })
+          $quiet = ($other.Count -eq 0)
+          Write-Output ('F139_ORIGINAL_CONTROLLER_QUIESCENT=' +
+            $(if ($quiet) { 'PASS' } else { 'BLOCKED' }))
+          if (-not ($ownerMatches -and $disabled -and $route -and
+                    $cleanSource -and $quiet)) {
+            Write-Output 'F139_RUNNER_OWNER_DIRECT_EXECUTION=NOT_QUALIFIED'
+            throw 'F139_RUNNER_OWNER_IDENTITY_GATE_BLOCKED'
+          }
+          Write-Output 'F139_RUNNER_OWNER_DIRECT_EXECUTION=IDENTITY_QUALIFIED_ONLY'
+          Write-Output 'F139_R10_APPROVAL_OR_ACTIVATION=STILL_SEPARATE'
