@@ -1,0 +1,53 @@
+name: FORGE F139 R15 isolated known-repair red-green proof
+# Push-only finite source test; not a scheduler, admission or original owner.
+on:
+  push:
+    branches: [proposal/f139-r15-isolated-autorepair-proof-20261022]
+permissions:
+  contents: read
+jobs:
+  bounded-known-repair:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout source-only proof under exact branch head
+        uses: actions/checkout@v4
+        with:
+          path: proof
+          persist-credentials: false
+      - name: Original protected FORGE source, pinned
+        uses: actions/checkout@v4
+        with:
+          ref: 536b91a392b7bbc50200a6e8842d152f2e23d8bb
+          path: original
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Previously qualified bounded native recovery, pinned
+        uses: actions/checkout@v4
+        with:
+          ref: 6068f39b5b85cdb4b7770e6700a72077636af679
+          path: repaired
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Automatically reproduce, repair in isolation, and qualify
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r15-isolated-autorepair-proof-20261022' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R15_ISOLATION_OR_SOURCE_DRIFT'
+          }
+          python -B proof/f139/r15_isolated_autorepair.py original repaired
+          if ($LASTEXITCODE -ne 0) { throw 'R15_GENUINE_REPAIR_REHEARSAL_FAILED' }
+          Write-Output 'R15_ISOLATED_RED_GREEN_NATIVE_REPAIR=PASS'
+          Write-Output 'R15_OWNER_CONTROLLER_AND_SCIENCE_UNTOUCHED=TRUE'
