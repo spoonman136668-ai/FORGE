@@ -121,7 +121,13 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if(!$ready){throw 'R18_SCHEDULER_NOT_READY_AFTER_STOP'}
-            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($originalText.Replace($old,$new)))
+            $errlog=Join-Path $new 'statusfix-startup-error.log'
+            if(Test-Path -LiteralPath $errlog){throw 'R18_PREVIOUS_DIAGNOSTIC_COLLISION'}
+            $normalWrapper=$originalText.Replace($old,$new)
+            $call="& '"+$newExe+"' @runArgs;exit"
+            if(!$normalWrapper.Contains($call)){throw 'R18_NATIVE_START_COMMAND_MISMATCH'}
+            $instrumented=$normalWrapper.Replace($call,("& '"+$newExe+"' @runArgs 2> '"+$errlog+"';exit"))
+            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($instrumented))
             $swapped=$true
             Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
             $started=$false
@@ -153,11 +159,22 @@ jobs:
             if($after.paused -cne 'true' -or $after.autonomy_authority -cne 'plane' -or
                $after.autonomy_generation -cne '6' -or [int]$after.leases -ne 0 -or [int]$after.pending -ne 0){throw 'R18_IDLE_CONTROLLER_STATE_DRIFT'}
             if(((Get-Date).ToUniversalTime()-[datetime]::Parse([string]$after.autonomy_heartbeat).ToUniversalTime()).TotalSeconds -gt 60){throw 'R18_HEARTBEAT_STALE'}
+            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($normalWrapper))
+            Write-Host 'R18_STARTUP_DIAGNOSTIC_WRAPPER_RESTORED=PASS'
             Write-Host 'R18_GUARDED_LIVE_STATUS_REPAIR_INSTALLED=PASS'
             Write-Host 'R18_CONTROLLER_PAUSED_PENDING_AUTHENTICATED_BRIDGE_RESUME=TRUE'
             Write-Host ('R18_PROMOTED_BINARY_SHA256='+$newHash)
           }catch{
             Write-Host ('R18_REPAIR_BLOCKED='+[string]$_.Exception.Message)
+            if($errlog -and (Test-Path -LiteralPath $errlog -PathType Leaf)){
+              $errorLines=@([IO.File]::ReadAllLines($errlog)|Where-Object {$_ -match '(?i)error|fail|unavailable|refused|cannot|invalid|listen|bind|denied' -and $_ -notmatch '(?i)password|secret|token|credential|authorization|bearer'})
+              foreach($line in ($errorLines|Select-Object -First 6)){
+                $safe=$line -replace '(?i)[A-Z]:\\[^\s]+','<FILEPATH>'
+                if($safe.Length -gt 220){$safe=$safe.Substring(0,220)}
+                Write-Host ('R18_REDACTED_STARTUP_ERROR='+$safe)
+              }
+              Write-Host ('R18_STARTUP_ERROR_RECORD_PRESENT='+([bool]$errorLines.Count))
+            }
             if($stopped){
               try{
                 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
