@@ -1,0 +1,81 @@
+name: CKB R18 R3 failed health predicate read-only forensic
+on:
+  push:
+    branches: [audit/ckb-r18-r3-status-health-20261022]
+    paths: [.github/workflows/ckb-r18-r3-status-health.yml]
+permissions:
+  contents: read
+jobs:
+  owner-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Diagnose exact rejected health fields while original R1P remains sole owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($me)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r3-status-health-20261022' -or
+              $me.Name -ine 'LINKDEADKB\camar' -or
+              !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_R3_HEALTH_AUDIT_OWNER_CUSTODY_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
+          $out='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39801077826\status.stdout'
+          $err='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39801077826\status.stderr'
+          $expectedNew='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          $expectedOld='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if ($task.State -ne 'Running' -or @($task.Actions).Count -ne 1 -or
+              [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*' -or
+              $procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $old) {
+            throw 'R18_R3_ROLLBACK_NOT_STABLY_ORIGINAL'
+          }
+          if ((Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedOld -or
+              (Get-FileHash -LiteralPath $new -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedNew) {
+            throw 'R18_R3_BINARY_IDENTITIES_DRIFTED'
+          }
+          if (!(Test-Path -LiteralPath $out -PathType Leaf) -or
+              (Get-Item -LiteralPath $out).Length -gt 16777216) {
+            throw 'R18_R3_NATIVE_STATUS_EVIDENCE_MISSING_OR_OVERSIZED'
+          }
+          $parsed=Get-Content -LiteralPath $out -Raw | ConvertFrom-Json -ErrorAction Stop
+          $names=@($parsed.PSObject.Properties.Name | Sort-Object)
+          $st=[string]$parsed.controller_status
+          $blockers=@($parsed.blockers)
+          $sentinel=if($st -match '^([A-Za-z_]+)(:|$)'){$Matches[1]}else{'OTHER'}
+          $observed=[ordered]@{
+            schema='ckb-plane.r18.r3-rejected-native-status-evidence.v1'
+            stdout_sha256=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+            stdout_bytes=[int64](Get-Item -LiteralPath $out).Length
+            stderr_bytes=if(Test-Path -LiteralPath $err -PathType Leaf){[int64](Get-Item -LiteralPath $err).Length}else{$null}
+            json_field_names=$names
+            authority=[string]$parsed.authority
+            generation=[string]$parsed.generation
+            paused=[bool]$parsed.paused
+            heartbeat_stale=[bool]$parsed.heartbeat_stale
+            heartbeat_at_present=![string]::IsNullOrWhiteSpace([string]$parsed.heartbeat_at)
+            controller_status_class=$sentinel
+            controller_status_starts_idle=$st.StartsWith('IDLE:')
+            controller_status_length=$st.Length
+            blocker_count=$blockers.Count
+            queue_count=@($parsed.queue).Count
+            job_count=@($parsed.jobs).Count
+            predicate_authority_is_plane=([string]$parsed.authority -ceq 'plane')
+            predicate_paused_false=($parsed.paused -eq $false)
+            predicate_heartbeat_fresh=($parsed.heartbeat_stale -eq $false)
+            predicate_status_is_idle=$st.StartsWith('IDLE:')
+            original_owner_process_count=$procs.Count
+            original_owner_pid=[int]$procs[0].ProcessId
+            original_task_running=$true
+            live_mutation=$false
+          }
+          $json=$observed|ConvertTo-Json -Compress -Depth 5
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_R3_HEALTH_RECEIPT_OVERSIZED'}
+          Write-Host ('R18_R3_REJECTED_HEALTH_PREDICATES='+$json)
+          Write-Host 'R18_R3_READONLY_REJECTED_STATUS_AUDIT=PASS'
