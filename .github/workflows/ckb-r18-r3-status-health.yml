@@ -78,4 +78,28 @@ jobs:
           $json=$observed|ConvertTo-Json -Compress -Depth 5
           if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_R3_HEALTH_RECEIPT_OVERSIZED'}
           Write-Host ('R18_R3_REJECTED_HEALTH_PREDICATES='+$json)
+          $classifications=@(
+            foreach($x in @($parsed.blockers)) {
+              $raw=[string]$x
+              if($raw -match '^([A-Z][A-Z0-9_]{2,64})(?::|$)') {
+                [string]$Matches[1]
+              } elseif($raw -match '^([A-Z][A-Z0-9_]{2,64})\\b') {
+                [string]$Matches[1]
+              } else {
+                'UNCLASSIFIED'
+              }
+            }
+          )
+          $result=[ordered]@{
+            schema='ckb-plane.r18.r3-blocker-classification.v1'
+            total=$classifications.Count
+            category_names=$classifications
+            status_paused=[bool]$parsed.paused
+            heartbeat_stale=[bool]$parsed.heartbeat_stale
+            authority=[string]$parsed.authority
+            read_only=$true
+          }
+          $json=$result|ConvertTo-Json -Compress -Depth 4
+          if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 2048) {throw 'R18_BLOCKER_CLASSIFICATION_TOO_LARGE'}
+          Write-Host ('R18_R3_BLOCKER_CLASSIFICATION='+$json)
           Write-Host 'R18_R3_READONLY_REJECTED_STATUS_AUDIT=PASS'
