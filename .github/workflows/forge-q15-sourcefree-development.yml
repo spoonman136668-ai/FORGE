@@ -1,0 +1,133 @@
+name: Q15 NCI-04 source-free training and development
+on:
+  push:
+    branches: [research/q15-nci04-sourcefree-state-20261022]
+    paths: [.github/workflows/forge-q15-sourcefree-development.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q15-sourcefree-frozen-exact-20261022
+  cancel-in-progress: false
+jobs:
+  windows-native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 80
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fail closed on frozen original source and additive scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $parent='5be9070c71371b3661c3c5fd7fec282e2884d797'
+          if(((& git.exe rev-parse HEAD^).Trim()) -cne $parent){throw 'Q15_SOURCE_PARENT_DRIFT'}
+          $expected=@(
+            '.github/workflows/forge-q15-sourcefree-development.yml',
+            'research/q15_sourcefree_state/FROZEN_PROTOCOL.json',
+            'research/q15_sourcefree_state/experiment.py',
+            'research/q15_sourcefree_state/test_experiment.py'
+          )
+          $actual=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $actual)){throw 'Q15_ONLY_FOUR_ADDITIVE_FILES'}
+          $pins=@(
+            @('research/q15_sourcefree_state/FROZEN_PROTOCOL.json','3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05'),
+            @('research/q15_sourcefree_state/experiment.py','cf7a579344642b7dc9be9864c2ece224fbf47238'),
+            @('research/q15_sourcefree_state/test_experiment.py','b5fde0c2462111cbc8df8631aac832463306a12b')
+          )
+          foreach($pin in $pins){
+            $blob=(& git.exe rev-parse ('HEAD:'+$pin[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $blob-cne$pin[1]){throw ('Q15_BLOB_DRIFT_'+$pin[0])}
+          }
+          Write-Host 'Q15_EXACT_ADD_ONLY_FROZEN_SOURCE=PASS'
+      - name: Focused gradient and held-exclusion tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+          if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Q15_LOCAL_PYTHON_RUNTIME_MISSING'}
+          & $py -B -m unittest discover -s research/q15_sourcefree_state -p test_experiment.py -v
+          if($LASTEXITCODE-ne0){throw 'Q15_SOURCEFREE_TESTS_FAILED'}
+          & $py -B research/q15_sourcefree_state/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q15_SELFTEST_FAILED'}
+          Write-Host 'Q15_FOCUSED_NATIVE_TESTS=PASS'
+      - name: Train all five models on source-free TRAIN and report development only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'q15-windows-train-dev.log'
+          if(Test-Path -LiteralPath $log){throw 'Q15_RUN_LOG_ALREADY_EXISTS'}
+          & $py -B research/q15_sourcefree_state/experiment.py --mode train-dev 2>&1 | Tee-Object -FilePath $log
+          if($LASTEXITCODE-ne0){throw 'Q15_TRAIN_DEV_SCRIPT_FAILED'}
+          $text=[IO.File]::ReadAllText($log)
+          if(!$text.Contains('Q15_RESULT_JSON=') -or !$text.Contains('Q15_HELD_FAMILIES=NOT_GENERATED')){
+            throw 'Q15_NO_FINAL_RESULT_OR_HELD_SCOPE_INVALID'
+          }
+          $reportLine=@(Get-Content -LiteralPath $log | Where-Object{$_ -like 'Q15_RESULT_JSON=*'})
+          if($reportLine.Count-ne1){throw 'Q15_RESULT_LINE_CARDINALITY_INVALID'}
+          $receipt=ConvertFrom-Json $reportLine[0].Substring(16)
+          if($receipt.original_source_episodes-ne0 -or
+             $receipt.unfamiliar_family_F_C_or_F_D_generated-ne$false -or
+             $receipt.protected_scientific_first_use-ne$false){
+            throw 'Q15_FALSE_SCIENTIFIC_STATUS'
+          }
+          Write-Host ('Q15_LOG_SHA256='+((Get-FileHash $log -Algorithm SHA256).Hash.ToLowerInvariant()))
+          Write-Host 'Q15_ALL_FIVE_MODELS_TRAINED_DEV_EVALUATED=PASS'
+          Write-Host 'Q15_PROTECTED_FIRST_USE=NONE'
+      - name: One full native FORGE Go regression vet and build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & go.exe test -count=1 ./...
+          if($LASTEXITCODE-ne0){throw 'Q15_FULL_GO_REGRESSION_FAILED'}
+          & go.exe vet ./...
+          if($LASTEXITCODE-ne0){throw 'Q15_GO_VET_FAILED'}
+          & go.exe build ./...
+          if($LASTEXITCODE-ne0){throw 'Q15_GO_BUILD_FAILED'}
+          Write-Host 'Q15_NATIVE_FULL_REGRESSION_AND_BUILD=PASS'
+      - name: Verify source worktree unchanged
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $changed=@(& git.exe status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne0){throw 'Q15_WORKTREE_MUTATION'}
+          Write-Host 'Q15_SOURCE_WORKTREE_CLEAN=PASS'
+          Write-Host 'Q15_ORIGINAL_SOURCE_AND_HELD_COHORTS_UNTOUCHED=TRUE'
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Independent Linux replay of frozen source-free cohort
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 5be9070c71371b3661c3c5fd7fec282e2884d797
+          test "$(git rev-parse HEAD:research/q15_sourcefree_state/FROZEN_PROTOCOL.json)" = 3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05
+          test "$(git rev-parse HEAD:research/q15_sourcefree_state/experiment.py)" = cf7a579344642b7dc9be9864c2ece224fbf47238
+          python -B -m unittest discover -s research/q15_sourcefree_state -p test_experiment.py -v
+          python -B research/q15_sourcefree_state/experiment.py --mode selftest
+          python -B research/q15_sourcefree_state/experiment.py --mode train-dev | tee "$RUNNER_TEMP/q15-linux-run.log"
+          grep -q '^Q15_RESULT_JSON=' "$RUNNER_TEMP/q15-linux-run.log"
+          grep -q '^Q15_HELD_FAMILIES=NOT_GENERATED$' "$RUNNER_TEMP/q15-linux-run.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum "$RUNNER_TEMP/q15-linux-run.log"
+          echo Q15_LINUX_FIVE_MODEL_DEV=PASS
+          echo Q15_ORIGINAL_SOURCES_AND_UNFAMILIAR_HOLDOUT=UNTOUCHED
