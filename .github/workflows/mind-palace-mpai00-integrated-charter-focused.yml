@@ -1,0 +1,103 @@
+name: Mind-Palace MP-AI00 repaired-source integrated charter focused qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-integrated-charter-focused.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai00-integrated-focused
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Qualify one original charter proposal on exact repaired source
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI00_INTEGRATED_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai00-charter-on-qualified-repair-20261022'
+          $source='d9f745893df11e9222d71edf5c56a2c79f666245'
+          $repair='54661851cadb699f45205338a43183c5220bafd1'
+          $original='059688ee9c9f102216acf378b087b51b6a106025'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-integrated-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $scope=@('docs/AGENTIC_IMPROVEMENT_NORTH_STAR.md',
+            'pilots/mixed-source/2026-10-22-mp-ai00-universal-agentic-charter.batch.json',
+            'tests/Test-MPAI00CharterDecision.ps1')
+          function Pin([string]$ref,[string]$sha){
+            $lines=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and
+              (([string]$lines[0] -split '\s+')[0]) -ceq $sha) ('PIN_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $before=@{}
+          $hashed=$false
+          try{
+            Pin ('refs/heads/'+$branch) $source
+            Pin 'refs/heads/proposal/mp-agentic-hindsight-harness2-20261022' $original
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'HEAD'
+            & git.exe -C $root merge-base --is-ancestor $repair $source
+            Need ($LASTEXITCODE -eq 0) 'REPAIR_ANCESTRY'
+            $changed=@(& git.exe -C $root diff --name-only $repair $source)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed|Sort-Object)-join '|') -ceq (($scope|Sort-Object)-join '|')) 'THREE_FILE_SCOPE'
+            foreach($f in $guard){
+              $before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed=$true
+            $stdout=Join-Path $scratch 'focused.stdout'
+            $stderr=Join-Path $scratch 'focused.stderr'
+            $test=Join-Path $root 'tests/Test-MPAI00CharterDecision.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"'),
+              '-ExpectedHead',$source) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if($p.ExitCode -ne 0){
+              $details=([IO.File]::ReadAllText($stderr))
+              $codes=@([regex]::Matches($details,'MPAI00_[A-Z0-9_]+') | ForEach-Object{$_.Value}|Select-Object -Unique)
+              if($codes.Count){Write-Host ('MPAI00_INTEGRATED_FAILURE_CODE='+$codes[0])}
+              throw 'MPAI00_INTEGRATED_NATIVE_FOCUSED_FAILED'
+            }
+            $lines=[IO.File]::ReadAllText($stdout)
+            foreach($marker in @('MPAI00_SOURCE_IDENTITY=PASS','MPAI00_ONE_NEW_NO_REVIEW=PASS',
+              'MPAI00_SOURCE_LEDGER_UNPROCESSED=PASS','MPAI00_NINE_PROTECTED_HASHES=PASS',
+              'MPAI00_PRODUCTION_MEMORY_WRITES=0')){
+              Need ($lines.Contains($marker)) ('MARKER_MISSING_'+$marker)
+            }
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI00_INTEGRATED_CHARTER_FOCUSED=PASS'
+            Write-Host 'MPAI00_INTEGRATED_SCIENTIFIC_IMPROVEMENT=UNTESTED'
+            Write-Host 'MPAI00_INTEGRATED_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI00_INTEGRATED_PAID_API_CALLS=0'
+          } finally {
+            if($hashed){
+              foreach($f in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$f]) ('PROTECTED_HASH_'+$f)
+              }
+              Write-Host 'MPAI00_INTEGRATED_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_UNCLEAN'
+            Write-Host 'MPAI00_INTEGRATED_SCRATCH_CLEAN=PASS'
+          }
