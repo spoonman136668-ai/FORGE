@@ -106,6 +106,28 @@ jobs:
           Write-Host ('CKB_ORIGINAL_WORKDIR_HAS_GIT='+[bool](Test-Path -LiteralPath $gitDir))
           $children=@(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction Stop | ForEach-Object {$_.Name} | Where-Object {$_ -in @('internal','snapshot','source','src','cmd','.git','releases','config')})
           Write-Host ('CKB_ORIGINAL_SOURCE_DIRS='+($children -join ','))
+          $aut=Join-Path $root 'internal\plane\autonomy.go'
+          $text=[IO.File]::ReadAllText($aut)
+          $patterns=@('AutonomyStatus','AutonomyTick','AutonomyLoop','QueueList')
+          $codeFacts=@()
+          foreach($name in $patterns){
+             $needle='func (p *Engine) '+$name+'('
+             $start=$text.IndexOf($needle,[StringComparison]::Ordinal)
+             if($start -lt 0){$codeFacts+=($name+':ABSENT');continue}
+             $stop=$text.IndexOf("`nfunc ",$start+1,[StringComparison]::Ordinal)
+             if($stop -lt 0){$stop=$text.Length}
+             $body=$text.Substring($start,$stop-$start)
+             $listCount=[regex]::Matches($body,'Store\.List\(').Count
+             $getCount=[regex]::Matches($body,'Store\.Get\(').Count
+             $parseCount=[regex]::Matches($body,'ParseOrder\(').Count
+             $codeFacts+=($name+':LIST='+$listCount+':GET='+$getCount+':PARSE='+$parseCount)
+          }
+          Write-Host ('CKB_ORIGINAL_CONTROLLER_CALL_SHAPE='+($codeFacts -join ','))
+          $activeBinary=Join-Path $root 'bin\ckb-plane.exe'
+          if(Test-Path -LiteralPath $activeBinary -PathType Leaf){
+            $activeHash=(Get-FileHash -LiteralPath $activeBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Host ('CKB_ORIGINAL_BINARY_HASH_MATCHES_SEALED_RELEASE='+($activeHash -ceq 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'))
+          }
           Write-Host 'CKB_ORIGINAL_SOURCE_INSPECTION=READ_ONLY'
       - name: Check existing scoped donor read access without exposing credentials
         shell: pwsh
