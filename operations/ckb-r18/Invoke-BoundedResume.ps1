@@ -137,6 +137,68 @@ function AssertNative([string]$exe,[bool]$expectedPaused) {
     }
     return $view
 }
+function AssertOriginalTask([object]$expected) {
+    $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    if (@($task.Actions).Count -ne 1 -or
+        [string]$task.Actions[0].Execute -cne [string]$expected.Execute -or
+        [string]$task.Actions[0].Arguments -cne [string]$expected.Arguments -or
+        [string]$task.Actions[0].WorkingDirectory -cne [string]$expected.WorkingDirectory -or
+        [string]$task.Principal.UserId -cne [string]$expected.UserId) {
+        throw 'CKB_R18_ORIGINAL_TASK_ACTION_OR_PRINCIPAL_DRIFT'
+    }
+    return $task
+}
+function CountCKBProcesses {
+    return @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+}
+function AwaitStopped([object]$taskIdentity) {
+    for($i=0;$i -lt 90;$i++){
+        $task=AssertOriginalTask $taskIdentity
+        $procs=@(CountCKBProcesses)
+        if($procs.Count -eq 0 -and [string]$task.State -ceq 'Ready'){return}
+        if($procs.Count -gt 1){throw 'CKB_R18_STOP_SINGLETON_DRIFT'}
+        Start-Sleep -Milliseconds 500
+    }
+    throw 'CKB_R18_GRACEFUL_STOP_NOT_COMPLETE'
+}
+function EnsureOriginalController([object]$taskIdentity,[string]$exePath) {
+    $task=AssertOriginalTask $taskIdentity
+    $procs=@(CountCKBProcesses)
+    if($procs.Count -gt 1){throw 'CKB_R18_RESTART_MULTIPLE_PROCESSES'}
+    if($procs.Count -eq 0) {
+        if([string]$task.State -cne 'Ready') {
+            throw 'CKB_R18_RESTART_TASK_NOT_READY'
+        }
+        if((Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedExe -or
+           (Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedConfig){
+            throw 'CKB_R18_RESTART_PREIMAGE_CHANGED'
+        }
+        Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    }
+    for($i=0;$i -lt 100;$i++){
+        try {
+            $restored=IdentifyController
+            if($restored.exe -ine $exePath){throw 'CKB_R18_RESTORED_EXECUTABLE_PATH_CHANGED'}
+            return $restored
+        } catch {
+            if(@(CountCKBProcesses).Count -gt 1){throw 'CKB_R18_RESTART_MULTIPLE_PROCESSES'}
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    throw 'CKB_R18_ORIGINAL_TASK_RESTART_NOT_VERIFIED'
+}
+function AssertPausedAfterRestart([string]$exePath) {
+    for($i=0;$i -lt 40;$i++){
+        try {
+            [void](QueryFrozenQueue 'true')
+            [void](AssertNative $exePath $true)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    throw 'CKB_R18_RESTART_PAUSED_STATE_NOT_VERIFIED'
+}
 $before=IdentifyController
 [void](QueryFrozenQueue 'true')
 [void](AssertNative $before.exe $true)
@@ -146,28 +208,46 @@ if (!$Execute) {
     Write-Host 'CKB_R18_DISPATCH_RESUMED=FALSE'
     return
 }
+$originalTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+$taskIdentity=[pscustomobject]@{
+    Execute=[string]$originalTask.Actions[0].Execute
+    Arguments=[string]$originalTask.Actions[0].Arguments
+    WorkingDirectory=[string]$originalTask.Actions[0].WorkingDirectory
+    UserId=[string]$originalTask.Principal.UserId
+}
+[void](AssertOriginalTask $taskIdentity)
 $attempted=$false
+$stopAttempted=$false
 try {
     $attempted=$true
-    # Ask the installed native controller to issue its own Windows qualification.
-    # The prechecked release and config identities must remain unchanged.
+    # No leases or eligible work; stop only the existing paused native controller.
+    $stopAttempted=$true
+    $stopResult=NativeClient $before.exe 'stop'
+    if($stopResult.stopping -ne $true){throw 'CKB_R18_NATIVE_GRACEFUL_STOP_REFUSED'}
+    AwaitStopped $taskIdentity
+    [void](QueryFrozenQueue 'true')
+    Write-Host 'CKB_R18_EXISTING_CONTROLLER_GRACEFULLY_STOPPED=PASS'
+    # The native qualifier takes the exclusive controller lock and issues its own
+    # source/config-bound Windows evidence. It cannot run while the service owns it.
     $qualification=NativeClient $before.exe 'qualify'
     if([string]$qualification.schema -cne 'ckb-plane.windows-qualification.v1' -or
        $qualification.passed -ne $true -or
        $qualification.model_worker_launched -ne $false -or
        $qualification.ckb_source_mutated -ne $false){
-      throw 'CKB_R18_NATIVE_QUALIFICATION_REFUSED_OR_INVALID'
+        throw 'CKB_R18_NATIVE_QUALIFICATION_REFUSED_OR_INVALID'
     }
     [void](QueryFrozenQueue 'true')
-    [void](AssertNative $before.exe $true)
-    [void](IdentifyController)
     Write-Host 'CKB_R18_NATIVE_WINDOWS_REQUALIFICATION=PASS'
-    [void](NativeClient $before.exe 'resume')
+    # Start only the unchanged, preexisting Windows Scheduled Task.
+    $active=EnsureOriginalController $taskIdentity $before.exe
+    AssertPausedAfterRestart $active.exe
+    Write-Host 'CKB_R18_ORIGINAL_CONTROLLER_RESTARTED_PAUSED=PASS'
+    [void](NativeClient $active.exe 'resume')
     [void](QueryFrozenQueue 'false')
-    [void](AssertNative $before.exe $false)
+    [void](AssertNative $active.exe $false)
     $after=IdentifyController
-    if ($after.pid -ne $before.pid -or $after.exe -ine $before.exe) {
-        throw 'CKB_R18_PROCESS_CHANGED_DURING_BOUNDED_RESUME'
+    if($after.pid -ne $active.pid -or $after.exe -ine $before.exe){
+        throw 'CKB_R18_PROCESS_CHANGED_AFTER_RESTART_AND_RESUME'
     }
     Write-Host 'CKB_R18_OWNER_APPROVED_NATIVE_RESUME=PASS'
     Write-Host 'CKB_R18_NO_ELIGIBLE_QUEUE_OR_WORKER_LEASE=PASS'
@@ -175,15 +255,21 @@ try {
     Write-Host 'CKB_R18_NO_NEW_WORK_DISPATCHED=PASS'
 } catch {
     $originalFailure=$_.Exception.Message
-    if ($attempted) {
+    if($attempted){
         try {
-            [void](NativeClient $before.exe 'pause')
+            if($stopAttempted){
+                $restored=EnsureOriginalController $taskIdentity $before.exe
+            } else {
+                $restored=IdentifyController
+            }
+            [void](NativeClient $restored.exe 'pause')
             [void](QueryFrozenQueue 'true')
-            [void](AssertNative $before.exe $true)
-            $after=IdentifyController
-            if ($after.pid -ne $before.pid) {throw 'CKB_R18_CONTROLLER_IDENTITY_CHANGED'}
+            AssertPausedAfterRestart $restored.exe
+            [void](IdentifyController)
             Write-Host 'CKB_R18_AUTOMATIC_OPERATOR_PAUSE_RESTORED=PASS'
         } catch {
+            # No force-kill, service duplication, source/config overwrite, or
+            # alternative scheduler is permitted as a recovery shortcut.
             throw ('CKB_R18_BOUND_RESUME_FAILED_MANUAL_PAUSE_CUSTODY_REQUIRED: '+$originalFailure)
         }
     }
