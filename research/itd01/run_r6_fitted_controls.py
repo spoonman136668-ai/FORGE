@@ -37,9 +37,26 @@ def episode_key(role, model_seed, fi, index):
     return f"R6-PUBLIC:{role}:{model_seed}:{fi}:{index}"
 
 
+def contract_episode_id(external_id):
+    """Lossless, injective R6 external-id encoding for the R1 DEV wire format.
+
+    Frozen R6 prereg uses R6-PUBLIC:ROLE:seed:family:index; the existing
+    R1 world API accepts only DEV-prefixed alphanumeric/hyphen IDs. Preserve
+    the external identity and translate exclusively at the DEV interface.
+    This translation does not alter numerical source seeds or role custody.
+    """
+    if (not isinstance(external_id, str) or not external_id.startswith("R6-PUBLIC:")
+            or len(external_id.split(":")) != 5):
+        raise ValueError("ITD01_R6_EXTERNAL_ID_DRIFT")
+    encoded = "DEV-" + external_id.replace(":", "-")
+    if len(encoded) > 64:
+        raise ValueError("ITD01_R6_CONTRACT_ID_TOO_LONG")
+    return encoded
+
+
 def public_teacher_trajectory(family, seed, episode_id):
     """Teacher gets only copied reset and copied public action callback."""
-    world = R5CausalWorld(family, episode_id, seed)
+    world = R5CausalWorld(family, contract_episode_id(episode_id), seed)
     first = json.loads(canonical(world.reset()))
     def step(public_action):
         return json.loads(canonical(world.step(public_action)))
@@ -84,7 +101,7 @@ def score(agent, seed, role, episodes_per_family, mode="normal"):
     for fi, family in enumerate(PUBLIC_FAMILIES):
         trials = [r5_rollout_public_only(
             agent, family, role_seed(role, seed, fi, i),
-            episode_key(role, seed, fi, i), mode=mode)
+            contract_episode_id(episode_key(role, seed, fi, i)), mode=mode)
             for i in range(episodes_per_family)]
         out[family] = {
             "n": episodes_per_family,
