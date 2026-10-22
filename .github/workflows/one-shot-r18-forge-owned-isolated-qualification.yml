@@ -127,9 +127,39 @@ jobs:
               & $go test -vet=off -p 2 -run '^TestR18HostedQualificationRejectsContractDrift$' -count=1 -v ./internal/plane
               if($LASTEXITCODE -ne 0){throw 'FORGE_R18_FOCUSED_TEST_FAILED'}
               Write-Host 'FORGE_R18_FOCUSED_SOURCE_TEST=PASS'
-              & $go test -p 2 ./...
-              if($LASTEXITCODE -ne 0){throw 'FORGE_R18_ONE_FULL_REGRESSION_FAILED'}
-              Write-Host 'FORGE_R18_ONE_FULL_REGRESSION=PASS'
+              # Keep Git fixture paths short on Windows; do not mutate the installed source.
+              $shortTemp='C:\R18Q-'+$env:GITHUB_RUN_ID
+              if(Test-Path -LiteralPath $shortTemp){throw 'FORGE_R18_SHORT_TEMP_ALREADY_EXISTS'}
+              [void](New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop)
+              $previousTemp=$env:TEMP; $previousTmp=$env:TMP
+              try{
+                $env:TEMP=$shortTemp; $env:TMP=$shortTemp
+                & $go test -vet=off -p 2 -run '^TestRoadmapCurrentFrontierPostBTVMaterializesBTV03              & $go vet -p 2 ./...
+              if($LASTEXITCODE -ne 0){throw 'FORGE_R18_VET_FAILED'}
+              Write-Host 'FORGE_R18_VET=PASS'
+              $exe=Join-Path $temp 'r18-contract-qualified.exe'
+              & $go build -p 2 -o $exe ./cmd/ckb-plane
+              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){throw 'FORGE_R18_WINDOWS_BUILD_FAILED'}
+              Write-Host 'FORGE_R18_WINDOWS_BUILD=PASS'
+            }finally{Pop-Location}
+            Write-Host 'FORGE_R18_LOCAL_R5_PAUSE=UNCHANGED'
+            Write-Host 'FORGE_R18_NO_PRODUCTION_SOURCE_OR_DB_WRITE=PASS'
+            Write-Host 'FORGE_R18_SCIENTIFIC_FIRST_USE=NOT_ATTEMPTED'
+          }finally{
+            if(Test-Path -LiteralPath $temp){
+              Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop
+            }
+          }
+ -count=1 -v ./internal/plane
+                if($LASTEXITCODE -ne 0){throw 'FORGE_R18_SHORT_TEMP_FOCUSED_FAILED'}
+                Write-Host 'FORGE_R18_SHORT_TEMP_FOCUSED=PASS'
+                & $go test -p 2 ./...
+                if($LASTEXITCODE -ne 0){throw 'FORGE_R18_ONE_FULL_REGRESSION_FAILED'}
+                Write-Host 'FORGE_R18_ONE_FULL_REGRESSION=PASS'
+              }finally{
+                $env:TEMP=$previousTemp; $env:TMP=$previousTmp
+                Remove-Item -LiteralPath $shortTemp -Recurse -Force -ErrorAction Stop
+              }
               & $go vet -p 2 ./...
               if($LASTEXITCODE -ne 0){throw 'FORGE_R18_VET_FAILED'}
               Write-Host 'FORGE_R18_VET=PASS'
