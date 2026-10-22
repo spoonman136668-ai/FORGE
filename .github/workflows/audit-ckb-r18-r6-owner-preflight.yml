@@ -1,0 +1,143 @@
+name: CKB R18-R6 owner rollback and queue read-only preflight
+on:
+  push:
+    branches: [audit/ckb-r18-r6-readonly-preflight-20261022]
+    paths: [.github/workflows/audit-ckb-r18-r6-owner-preflight.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r6-readonly-preflight-20261022
+  cancel-in-progress: false
+jobs:
+  owner-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - name: Verify exact owner runner and source-only admission scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $base='ab0501fef246cb2274e08b66f062fec18e577e11'
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($owner)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r6-readonly-preflight-20261022' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:RUNNER_OS -cne 'Windows' -or
+              $owner.Name -ine 'LINKDEADKB\camar' -or
+              !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+              (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+              (& git.exe merge-base $base HEAD) -cne $base -or
+              @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_R6_OWNER_OR_BRANCH_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if ($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+              $changed[0] -cne '.github/workflows/audit-ckb-r18-r6-owner-preflight.yml') {
+            throw 'R18_R6_UNREVIEWED_FILE_CHANGE'
+          }
+          $script='operations/ckb-r18/Invoke-GuardedR18Cutover.ps1'
+          $sha=(& git.exe hash-object $script).Trim()
+          if ($LASTEXITCODE -ne 0 -or
+              $sha -cne 'a46b0f5488e27220561794fb0cfa5595d77a83dc') {
+            throw 'R18_R6_PROPOSED_SWITCHER_BLOB_DRIFT'
+          }
+          Write-Host 'R18_R6_OWNER_AND_SOURCE_PIN=PASS'
+          Write-Host 'R18_R6_OPERATIONAL_BRANCH=UNCHANGED'
+      - name: Verify R1P singleton, task identity, original release, sealed candidate and rollback evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $oldLauncher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          $rootExe='C:\Users\camar\GolandProjects\ckb-plane\bin\ckb-plane.exe'
+          $priorRollback='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570\rollback'
+          $hashes=@(
+            @{path=$old;sha='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{path=$new;sha='63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'},
+            @{path=$config;sha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'},
+            @{path=$rootExe;sha='70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6'},
+            @{path=$oldLauncher;sha='66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce'}
+          )
+          foreach($h in $hashes) {
+            $f=Get-Item -LiteralPath $h.path -ErrorAction Stop
+            if($f.PSIsContainer -or ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $h.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $h.sha) {
+               throw 'R18_R6_PROTECTED_SHA_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1 -or
+             [string]$procs[0].ExecutablePath -ine $old -or
+             [string]$task.State -cne 'Running' -or
+             [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_R6_EXISTING_CONTROLLER_CUSTODY_DRIFT'
+          }
+          $rb1=Get-ScheduledTask -TaskName 'CKB-RB1-ReleaseSwitcher' -ErrorAction Stop
+          if([string]$rb1.State -cne 'Ready'){throw 'R18_R6_RB1_SWITCHER_DRIFT'}
+          $rollback=@('original-task.xml','original-autonomy.yaml',
+                     'original-launcher.ps1','autonomy.db')
+          foreach($name in $rollback) {
+            $f=Get-Item -LiteralPath (Join-Path $priorRollback $name) -ErrorAction Stop
+            if($f.PSIsContainer -or $f.Length -le 0 -or
+               ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+              throw 'R18_R6_PRIOR_ROLLBACK_FILE_INVALID'
+            }
+          }
+          Write-Host 'R18_R6_ORIGINAL_R1P_SINGLETON_TASK_AND_PINS=PASS'
+          Write-Host 'R18_R6_RB1_UNRELATED_SWITCHER=READY_UNCHANGED'
+          Write-Host 'R18_R6_PRIOR_ROLLBACK_FILE_CUSTODY=PASS'
+          Write-Host ('R18_R6_CURRENT_TASK_LAST_RESULT='+[string]$info.LastTaskResult)
+          Write-Host 'R18_R6_FRESH_OFFLINE_ROLLBACK_SNAPSHOT=NOT_TAKEN'
+      - name: Verify immutable historical orders and no active leases through read-only SQLite snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $code=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          # The source is opened read only. SQLite backup copies its
+          # consistent transactional view to a memory-only destination.
+          src=sqlite3.connect("file:"+db.as_posix()+"?mode=ro",uri=True,timeout=5)
+          dst=sqlite3.connect(":memory:")
+          try:
+              src.execute("PRAGMA query_only=ON")
+              src.backup(dst,pages=64,sleep=0.05)
+              check=dst.execute("PRAGMA quick_check").fetchall()
+              if check != [("ok",)]:
+                  raise RuntimeError("R18_R6_SNAPSHOT_QUICK_CHECK_FAILED")
+              rows=int(dst.execute("SELECT count(*) FROM work_orders").fetchone()[0])
+              pending=int(dst.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0])
+              leases=int(dst.execute("SELECT count(*) FROM worker_leases").fetchone()[0])
+              if rows != 198 or pending != 0 or leases != 0:
+                  raise RuntimeError("R18_R6_QUEUE_NOT_FROZEN")
+              print("R18_R6_ONLINE_TRANSACTIONALLY_CONSISTENT_READONLY_SNAPSHOT=PASS")
+              print("R18_R6_HISTORICAL_WORK_ORDERS="+str(rows))
+              print("R18_R6_ACTIVE_WORK_ORDERS="+str(pending))
+              print("R18_R6_ACTIVE_WORKER_LEASES="+str(leases))
+          finally:
+              dst.close()
+              src.close()
+          '@
+          $out=@(& $py -B -c $code $db 2>&1)
+          if($LASTEXITCODE -ne 0){throw ('R18_R6_SQLITE_READONLY_SNAPSHOT_FAILED_'+$LASTEXITCODE)}
+          foreach($line in $out){Write-Host ([string]$line)}
+          Write-Host 'R18_R6_DB_OR_QUEUE_MUTATION=NOT_ATTEMPTED'
+          Write-Host 'R18_R6_OWNER_PROMOTION_APPROVAL=NOT_INFERRED'
+          Write-Host 'R18_R6_SWITCHER_EXECUTION=NOT_ATTEMPTED'
+          Write-Host 'R18_R6_DIAGNOSTIC_CUTOVER=NOT_ATTEMPTED'
