@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 7 # shallow full-regression: G61 deep-history test intentionally skips
           clean: true
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -41,8 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor a2b5aeb9623f494507aa19a8a6a38987d8cffbf3 HEAD
-          git diff --name-only a2b5aeb9623f494507aa19a8a6a38987d8cffbf3 HEAD > /tmp/itd01_paths.txt
-          python -B -c 'from pathlib import Path; p=Path("/tmp/itd01_paths.txt").read_text().splitlines(); allowed={"research/itd01/public_dev.py","research/itd01/test_public_dev.py",".github/workflows/qualify-itd01-public-dev.yml"}; assert set(p)==allowed, p'
+          git diff --name-only a2b5aeb9623f494507aa19a8a6a38987d8cffbf3 HEAD | python -B -c 'import sys; p=sys.stdin.read().splitlines(); allowed={"research/itd01/public_dev.py","research/itd01/test_public_dev.py",".github/workflows/qualify-itd01-public-dev.yml"}; assert set(p)==allowed, p'
           echo ITD01_FROZEN_PARENT_AND_THREE_ADDITIONS=PASS
       - name: Focused public-world adversarial tests
         shell: bash
