@@ -1,0 +1,124 @@
+name: CKB R18 owner-elevated original-controller cutover preflight READ ONLY
+on:
+  push:
+    branches: [audit/ckb-r18-owner-cutover-preflight-20261022]
+    paths: [.github/workflows/ckb-r18-owner-cutover-preflight.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-owner-cutover-readiness-20261022
+  cancel-in-progress: false
+jobs:
+  owner-preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify existing elevated owner authority, original controller custody and idle source state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($wid)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-owner-cutover-preflight-20261022' -or
+             $wid.Name -ine 'LINKDEADKB\camar' -or
+             !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_OPERATOR_ADMIN_OR_WORKFLOW_BOUNDARY_DRIFT'
+          }
+          function Hashed([string]$p,[string]$expected) {
+            if (!(Test-Path -LiteralPath $p -PathType Leaf)) {throw 'R18_EXPECTED_PROTECTED_FILE_MISSING'}
+            $h=(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            if ($h -cne $expected) {throw 'R18_ORIGINAL_PREIMAGE_DRIFT'}
+            return $h
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $state=Join-Path $root 'state\autonomy.db'
+          $oldExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $launcher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          $oldHash=Hashed $oldExe '3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
+          $cfgHash=Hashed $cfg '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+          $launcherHash=Hashed $launcher '66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $action=@($task.Actions)
+          if ($task.State -ne 'Running' -or [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar') -or
+              $action.Count -ne 1 -or
+              [string]$action[0].Arguments -notlike '*Start-R1P-Controller.ps1*') {
+            throw 'R18_ORIGINAL_TASK_LAUNCHER_OR_OWNER_DRIFT'
+          }
+          $all=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if ($all.Count -ne 1 -or [string]$all[0].ExecutablePath -ine $oldExe) {
+            throw 'R18_ORIGINAL_PROCESS_NOT_PINNED_SINGLETON'
+          }
+          $switcher=Get-ScheduledTask -TaskName 'CKB-RB1-ReleaseSwitcher' -ErrorAction Stop
+          if ($switcher.State -ne 'Ready') {throw 'R18_EXISTING_RB1_SWITCHER_STATE_DRIFT'}
+          $dbReadable=Test-Path -LiteralPath $state -PathType Leaf
+          if (!$dbReadable) {throw 'R18_ORIGINAL_STATE_DATABASE_MISSING'}
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $temp=Join-Path $env:RUNNER_TEMP ('r18-cutover-readonly-'+$env:GITHUB_RUN_ID+'.py')
+          if (Test-Path -LiteralPath $temp) {throw 'R18_PREFLIGHT_TEMP_COLLISION'}
+          $source=@'
+          import json, sqlite3, sys
+          from pathlib import Path
+          if len(sys.argv)!=2: raise SystemExit("R18_DB_PATH_ARGUMENTS_INVALID")
+          p=Path(sys.argv[1]).resolve(strict=True)
+          db=sqlite3.connect("file:"+p.as_posix()+"?mode=ro",uri=True,timeout=3)
+          try:
+              db.execute("PRAGMA query_only=ON")
+              tables=set(x[0] for x in db.execute("SELECT name FROM sqlite_master WHERE type='table'"))
+              if not {"work_orders","worker_leases"}.issubset(tables):
+                  raise ValueError("R18_WORK_ORDER_OR_LEASE_TABLE_MISSING")
+              count=db.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+              if count>5000: raise ValueError("R18_STORED_WORK_ORDERS_EXCEED_BOUND")
+              statuses=db.execute("SELECT state,count(*) FROM work_orders GROUP BY state ORDER BY state").fetchall()
+              active=sum(n for state,n in statuses if state in ("PENDING","QUEUED","RUNNING","RETRY_WAIT","FINALIZING","ACCEPTING"))
+              leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              print("R18_READONLY_DB="+json.dumps({"total":count,"states":dict(statuses),"active":active,"leases":leases},separators=(",",":")))
+          finally: db.close()
+          '@
+          [IO.File]::WriteAllText($temp,$source,(New-Object Text.UTF8Encoding($false)))
+          try {
+            $output=@(& $py -B $temp $state)
+            if ($LASTEXITCODE -ne 0 -or $output.Count -ne 1 -or $output[0] -cnotmatch '^R18_READONLY_DB=\{') {
+              throw 'R18_DB_QUERY_FAILED_CLOSED'
+            }
+            $scan=([string]$output[0]).Substring('R18_READONLY_DB='.Length) | ConvertFrom-Json
+          } finally {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+          }
+          $status=if ($scan.active -eq 0 -and $scan.leases -eq 0) {'IDLE_STORAGE_NO_WORKER_LEASES'} else {'ACTIVE_WORK_OR_LEASES'}
+          $receipt=[ordered]@{
+            schema='ckb-plane.r18.owner-cutover-readiness.v1'
+            run_id=$env:GITHUB_RUN_ID
+            owner_identity=$wid.Name
+            elevated=$true
+            original_executable_sha256=$oldHash
+            original_launcher_sha256=$launcherHash
+            live_config_sha256=$cfgHash
+            controller_task_state=[string]$task.State
+            controller_task_principal=[string]$task.Principal.UserId
+            controller_task_runlevel=[string]$task.Principal.RunLevel
+            pinned_process_count=$all.Count
+            process_pid=[int]$all[0].ProcessId
+            old_switcher_state=[string]$switcher.State
+            sqlite_order_count=[int]$scan.total
+            sqlite_order_states=$scan.states
+            active_work_order_count=[int]$scan.active
+            active_worker_lease_count=[int]$scan.leases
+            quiescence=$status
+            delegated_r18_switcher_admitted=$false
+            live_mutation=$false
+            cutover_attempted=$false
+          }
+          $json=$receipt|ConvertTo-Json -Depth 5 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192){throw 'R18_PREFLIGHT_RECEIPT_OVERSIZED'}
+          Write-Host ('R18_OWNER_ADMIN_PREFLIGHT='+$json)
+          Write-Host 'R18_OWNER_ADMIN_CUSTODY=PASS'
+          if ($scan.active -eq 0 -and $scan.leases -eq 0) {
+            Write-Host 'R18_RELEASE_QUIESCENCE=PASS'
+          } else {
+            Write-Host 'R18_RELEASE_QUIESCENCE=BLOCKED_ACTIVE_WORK'
+          }
+          Write-Host 'R18_LIVE_STATE_UNCHANGED=TRUE'
