@@ -117,6 +117,7 @@ jobs:
               "path/filepath"
               "strings"
               "testing"
+              "time"
               _ "modernc.org/sqlite"
           )
           func TestR18ReadOnlyLiveContract(t *testing.T) {
@@ -148,6 +149,7 @@ jobs:
               var receipt struct{
                   Passed bool `json:"passed"`
                   Digest string `json:"config_and_tool_digest"`
+                  Observed string `json:"observed_at"`
               }
               if err=json.Unmarshal(raw,&receipt);err!=nil {t.Fatalf("R18_RECEIPT_JSON_INVALID: %T",err)}
               if !receipt.Passed||qualification==""||receipt.Digest!=qualification {t.Fatal("R18_STORED_QUALIFICATION_SELF_INCONSISTENT")}
@@ -172,6 +174,27 @@ jobs:
               }
               outcome:="MATCH"
               if computed!=qualification {outcome="MISMATCH"}
+              repeat:=p.contract(empty)
+              deterministic:=repeat==computed
+              if !deterministic {t.Fatal("R18_CONTRACT_NONDETERMINISTIC_UNDER_SAME_ENVIRONMENT")}
+              goVersionOutput,goVersionErr:=exec.Command(c.Tools.Go,"version").Output()
+              goVersion:="UNAVAILABLE"
+              if goVersionErr==nil{
+                  v:=strings.TrimSpace(string(goVersionOutput))
+                  if len(v)<=90 && strings.HasPrefix(v,"go version go") && strings.HasSuffix(v," windows/amd64"){goVersion=v}
+              }
+              goMatchesFrozenQualificationVersion:=(goVersion=="go version go1.25.5 windows/amd64")
+              observed,observedErr:=time.Parse(time.RFC3339Nano,receipt.Observed)
+              modifiedSinceReceipt:=0
+              if observedErr==nil {
+                  for _,v:=range paths{
+                      if v=="" {continue}
+                      resolved,err:=exec.LookPath(v)
+                      if err!=nil {continue}
+                      info,err:=os.Stat(resolved)
+                      if err==nil && info.ModTime().UTC().After(observed.UTC()){modifiedSinceReceipt++}
+                  }
+              }
               state:=map[string]interface{}{
                   "schema":"ckb-plane.r18.r5-exact-go-contract-readonly.v1",
                   "current_contract_matches_stored":computed==qualification,
@@ -181,6 +204,11 @@ jobs:
                   "tool_path_entries":used,
                   "tool_paths_not_absolute":notAbsolute,
                   "tool_executables_unavailable":unavailable,
+                  "contract_second_read_deterministic":deterministic,
+                  "configured_go_version":goVersion,
+                  "configured_go_matches_required_frozen_version":goMatchesFrozenQualificationVersion,
+                  "qualification_receipt_observed_time_present":observedErr==nil,
+                  "tool_files_modified_after_qualification_receipt":modifiedSinceReceipt,
                   "source_used":"owner-installed-source-isolated-copy",
                   "original_controller_started":false,
                   "qualify_or_resume_invoked":false,
