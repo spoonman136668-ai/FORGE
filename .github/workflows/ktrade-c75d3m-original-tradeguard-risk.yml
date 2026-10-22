@@ -103,12 +103,17 @@ jobs:
               'c75d3k_native_original_sell_fixture.go','c75d3m_original_native_guard_test.go')){
               Copy-Item -LiteralPath (Join-Path $source ('tests/donor-native-vwap/'+$n)) -Destination (Join-Path $donor ('pkg/'+$n)) -ErrorAction Stop
             }
-            foreach($pkg in @('paperproposal','papertrading')){
-              $dest=Join-Path $donor ('internal/'+$pkg)
-              if(Test-Path -LiteralPath $dest){throw 'D3M_ORIGINAL_INTERNAL_MODULE_COLLISION'}
-              New-Item -ItemType Directory -Path $dest | Out-Null
-              Copy-Item -Path (Join-Path $source ('internal/'+$pkg+'/*.go')) -Destination $dest -ErrorAction Stop
+            # The original frozen donor ALREADY contains the identical
+            # original FIFO papertrading module. Verify exact Git blob,
+            # rather than overwriting any existing original source.
+            $donorPaper=(& git -C $donor rev-parse 'HEAD:internal/papertrading/ledger.go').Trim()
+            if($donorPaper -cne $expected['internal/papertrading/ledger.go']){
+              throw 'D3M_ORIGINAL_PAPERTRADING_CODE_IDENTITY_MISMATCH'
             }
+            $dest=Join-Path $donor 'internal/paperproposal'
+            if(Test-Path -LiteralPath $dest){throw 'D3M_ORIGINAL_PAPERPROPOSAL_MODULE_COLLISION'}
+            New-Item -ItemType Directory -Path $dest | Out-Null
+            Copy-Item -Path (Join-Path $source 'internal/paperproposal/*.go') -Destination $dest -ErrorAction Stop
             $tracked=@(& git -C $donor diff --name-only)
             if($tracked.Count -ne 0){throw 'D3M_ORIGINAL_DONOR_TRACKED_SOURCE_MODIFIED'}
             Push-Location $donor
