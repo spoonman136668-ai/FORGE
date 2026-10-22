@@ -80,7 +80,19 @@ jobs:
               $modelRepo=[string]$model.repo
               $metaUrl='https://huggingface.co/api/models/'+$modelRepo
               $meta=Invoke-RestMethod -Uri $metaUrl -Method Get -TimeoutSec 50
-              Need ($meta.license -ceq 'apache-2.0' -or $meta.cardData.license -ceq 'apache-2.0') ('LICENSE_'+$key)
+              # Model API omits top-level 'license' on some repos; StrictMode
+              # requires checking property existence before reading it.
+              $license=''
+              if($null -ne $meta.PSObject.Properties['license']){
+                $license=[string]$meta.license
+              }
+              if(-not $license -and $null -ne $meta.PSObject.Properties['cardData']){
+                if($null -ne $meta.cardData -and
+                   $null -ne $meta.cardData.PSObject.Properties['license']){
+                  $license=[string]$meta.cardData.license
+                }
+              }
+              Need ($license -ceq 'apache-2.0') ('LICENSE_'+$key)
               $revision=[string]$meta.sha
               Need ($revision -cmatch '^[a-f0-9]{40}$') ('MODEL_REVISION_'+$key)
               $candidates=@($meta.siblings | Where-Object { [string]$_.rfilename -match '(?i)Q4_K_M[.]gguf$' })
@@ -133,7 +145,7 @@ jobs:
             Need ($receipt.model_trials.Count -eq 2) 'TWO_DISTINCT_MODELS'
             Need ($receipt.model_trials[0].gguf_sha256 -cne $receipt.model_trials[1].gguf_sha256) 'DUPLICATE_MODEL_BYTES'
             $manifest=Join-Path $results 'receipt.json'
-            [IO.File]::WriteAllText($manifest,((ConvertTo-Json -InputObject $receipt -Depth 12)+'\n'),[Text.UTF8Encoding]::new($false))
+            [IO.File]::WriteAllText($manifest,((ConvertTo-Json -InputObject $receipt -Depth 12)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
             $completed=$true
             Write-Host 'MPAI05_TWO_DISTINCT_LOCAL_LLMS=PASS'
             Write-Host 'MPAI05_GENUINE_CROSS_MODEL_TRANSFER=NOT_TESTED'
