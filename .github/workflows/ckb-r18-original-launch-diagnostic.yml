@@ -1,0 +1,66 @@
+name: CKB R18 original wrapper launch diagnosis read only
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-original-launch-diagnostic.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - name: Read only original start wrapper controls and prior failed task diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !([Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA){throw 'R18_READONLY_LAUNCH_DIAGNOSTIC_CUSTODY_INVALID'}
+          $taskName='CKB-plane Controller'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1){throw 'R18_TASK_SHAPE_DRIFT'}
+          $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
+          if(!$m.Success){throw 'R18_ORIGINAL_WRAPPER_MISSING'}
+          $wrapper=$m.Groups[1].Value.Trim('"',"'"," ")
+          $hash=(Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($hash -cne 'e25977f2e887d665f1458d3f085d5eacf71c824ac0f27cf3ebafe7e9bd074a3b'){throw 'R18_WRAPPER_NOT_ROLLED_BACK'}
+          $text=[IO.File]::ReadAllText($wrapper)
+          $lines=$text -split '\r?\n'
+          Write-Host ('R18_ORIGINAL_WRAPPER_LINES='+$lines.Count)
+          Write-Host ('R18_ORIGINAL_WRAPPER_REQUIRES_TLS='+[bool]($text -match '(?i)tls|https'))
+          Write-Host ('R18_ORIGINAL_WRAPPER_SHA_PIN_CHECK='+[bool]($text -match '(?i)Get-FileHash|sha256'))
+          Write-Host ('R18_ORIGINAL_WRAPPER_HAS_PROCESS_WAIT='+[bool]($text -match '(?i)Start-Process|Wait-Process|WaitForExit'))
+          Write-Host ('R18_ORIGINAL_WRAPPER_HAS_EXIT_HANDLER='+[bool]($text -match '(?i)exit|throw|catch'))
+          Write-Host ('R18_ORIGINAL_WRAPPER_HAS_WORKDIR_PIN='+[bool]($text -match '(?i)Push-Location|WorkingDirectory|Set-Location'))
+          $markers=@([regex]::Matches($text,'\b(?:R18|CKB|PLANE)_[A-Z0-9_]{4,}\b')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          Write-Host ('R18_ORIGINAL_WRAPPER_ERROR_MARKERS='+($markers -join ','))
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5'
+          $candidate=$old+'-STATUSFIX-20261022'
+          $newExe=Join-Path $candidate 'bin\ckb-plane.exe'
+          Write-Host ('R18_STAGED_RELEASE_EXISTS='+[bool](Test-Path -LiteralPath $candidate))
+          if(Test-Path -LiteralPath $newExe -PathType Leaf){
+            Write-Host ('R18_STAGED_BINARY_SHA256='+((Get-FileHash -LiteralPath $newExe -Algorithm SHA256).Hash.ToLowerInvariant()))
+          }
+          $state=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+          Write-Host ('R18_ROLLED_BACK_TASK_RUNNING='+([string]$task.State -ceq 'Running'))
+          Write-Host ('R18_ROLLED_BACK_TASK_LAST_RESULT='+[string]$state.LastTaskResult)
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          $originalExe=Join-Path $old 'bin\ckb-plane.exe'
+          Write-Host ('R18_ROLLED_BACK_SINGLETON='+[bool]($processes.Count -eq 1 -and [string]$processes[0].ExecutablePath -ieq $originalExe))
+          $logname='Microsoft-Windows-TaskScheduler/Operational'
+          try{
+             $events=@(Get-WinEvent -FilterHashtable @{LogName=$logname;StartTime=(Get-Date).AddMinutes(-35)} -MaxEvents 120 -ErrorAction Stop |
+               Where-Object {$_.Id -in @(101,102,103,200,201,202,203,204)} | Select-Object -First 14)
+             $ids=@($events | ForEach-Object {($_.TimeCreated.ToUniversalTime().ToString('HH:mm:ss'))+':'+$_.Id} )
+             Write-Host ('R18_RECENT_SCHEDULER_EVENT_IDS='+($ids -join ','))
+          }catch{Write-Host 'R18_SCHEDULER_EVENT_HISTORY_UNAVAILABLE'}
+          Write-Host 'R18_ORIGINAL_STARTUP_DIAGNOSTIC_READONLY=PASS'
