@@ -1,0 +1,73 @@
+name: CKB R18 R3 post-rollback status health shape read only
+on:
+  push:
+    branches: [audit/ckb-r18-r3-health-shape-20261022]
+    paths: [.github/workflows/ckb-r18-r3-health-shape.yml]
+permissions:
+  contents: read
+jobs:
+  owner-health:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read bounded saved R3 status, health keys, and restored original task only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($me)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r3-health-shape-20261022' -or
+             $me.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_R3_STATUS_SHAPE_OWNER_AUTHORITY_INVALID'
+          }
+          $root='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39801077826'
+          $stdout=Join-Path $root 'status.stdout'
+          $stderr=Join-Path $root 'status.stderr'
+          if(!(Test-Path -LiteralPath $stdout -PathType Leaf)){throw 'R18_R3_SAVED_NATIVE_STATUS_MISSING'}
+          $bytes=(Get-Item -LiteralPath $stdout).Length
+          if($bytes -le 0 -or $bytes -gt 524288){throw 'R18_R3_SAVED_STATUS_SIZE_INVALID'}
+          $status=Get-Content -LiteralPath $stdout -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          $keys=@($status.PSObject.Properties.Name | Sort-Object)
+          if($keys.Count -gt 90){throw 'R18_R3_STATUS_KEYSET_TOO_LARGE'}
+          $selected=[ordered]@{}
+          $allow=@('authority','controller_status','paused','heartbeat_stale','running','status','phase','state','controller_running','controller_phase','controller_state','active','head_seq','controller_last_error','controller_error')
+          foreach($p in $status.PSObject.Properties){
+            if($allow -contains $p.Name) {
+              $v=$p.Value
+              if($null -eq $v -or $v -is [bool] -or $v -is [int] -or $v -is [long]) {
+                $selected[$p.Name]=$v
+              }elseif($v -is [string] -and $p.Name -notin @('controller_last_error','controller_error')){
+                if($v.Length -gt 120){throw 'R18_STATUS_VALUE_TOO_LONG'}
+                $selected[$p.Name]=$v
+              }elseif($p.Name -in @('controller_last_error','controller_error')){
+                $selected[$p.Name]=if($v){'PRESENT'}else{'EMPTY'}
+              }else{$selected[$p.Name]='COMPLEX_VALUE_OMITTED'}
+            }
+          }
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
+          $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $classes=@(foreach($x in $p) {
+            if([string]$x.ExecutablePath -ieq $old){'R1P'}
+            elseif([string]$x.ExecutablePath -ieq $new){'R3'}
+            else{'OTHER'}
+          })
+          $msg=[ordered]@{
+            schema='ckb-plane.r18.r3-health-shape-readonly.v1'
+            status_bytes=$bytes
+            status_keys=$keys
+            health_fields=$selected
+            stderr_bytes=if(Test-Path -LiteralPath $stderr -PathType Leaf){(Get-Item -LiteralPath $stderr).Length}else{$null}
+            task_state=[string]$task.State
+            task_action_class=if([string]$task.Actions[0].Arguments -like '*Start-R1P-Controller.ps1*'){'R1P'}else{'OTHER'}
+            process_count=$p.Count
+            process_classes=$classes
+            read_only=$true
+          }
+          $j=$msg|ConvertTo-Json -Depth 5 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($j) -gt 12000){throw 'R18_R3_HEALTH_SHAPE_RECEIPT_LIMIT'}
+          Write-Host ('R18_R3_HEALTH_SHAPE='+$j)
+          Write-Host 'R18_R3_STATUS_SHAPE_AUDIT=PASS'
