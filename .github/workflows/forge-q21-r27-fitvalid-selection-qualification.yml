@@ -1,0 +1,74 @@
+name: Q21 R27 validation-only model choice qualification
+on:
+  push:
+    branches: [qualification/q21-r27-fitvalid-arm-selection-20261022]
+permissions:
+  contents: read
+jobs:
+  validate-scientific-guard:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: research/q21_information_budget
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: db423f528baec095b0c359f5821609519701d66a
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Pin parent and exact bounded source diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          original=cd25470fd6ca5e2b1adf5b29c84ad1f15b83fb1f
+          candidate=db423f528baec095b0c359f5821609519701d66a
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test "$(git rev-list --count "$original"..HEAD)" = "2"
+          expected="$(printf 'research/q21_information_budget/evaluator.py\nresearch/q21_information_budget/test_evaluator.py')"
+          test "$(git diff --name-only "$original" "$candidate")" = "$expected"
+          before="$(git show "$original":research/q21_information_budget/evaluator.py | sha256sum | cut -d ' ' -f1)"
+          after="$(sha256sum research/q21_information_budget/evaluator.py | cut -d ' ' -f1)"
+          test "$before" != "$after"
+          echo R27_SOURCE_BOUNDARY=PASS
+          echo "R27_PREIMAGE_SHA256=$before"
+          echo "R27_PATCHED_SHA256=$after"
+          echo R27_DEV_COHORT_GENERATION=NOT_AUTHORIZED
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: All Q21 source-only guard tests, no actual frozen cohorts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/q21_information_budget -p 'test_*.py' -v
+          echo R27_FOCUSED_Q21_SOURCE_ONLY_TESTS=PASS
+      - name: Final regression once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          echo R27_FINAL_REGRESSION=PASS
+      - name: Build and no-science boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m compileall -q research/q21_information_budget
+          go build ./...
+          echo R27_NATIVE_BUILD=PASS
+          echo R27_SCIENTIFIC_FIRST_USE=FALSE
+          echo R27_PROTECTED_SOURCE_MUTATIONS=0
+          echo R27_EXISTING_SCIENTIFIC_AUTHORITY=UNCHANGED
