@@ -1,0 +1,57 @@
+name: R18 installed recovery source identity read only
+on:
+  push:
+    branches: [audit/ckb-r18-recovery-file-20261022]
+    paths: [.github/workflows/ckb-r18-recovery-file.yml]
+permissions:
+  contents: read
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read exact installed recovery file and cold-start parser evidence only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($ident)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-recovery-file-20261022' -or
+              $ident.Name -ine 'LINKDEADKB\camar' -or
+              !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_RECOVERY_SOURCE_AUDIT_AUTHORITY_DRIFT'
+          }
+          $path='C:\Users\camar\GolandProjects\ckb-plane\internal\plane\recovery.go'
+          if (!(Test-Path -LiteralPath $path -PathType Leaf) -or
+              ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'R18_RECOVERY_SOURCE_NOT_REGULAR'
+          }
+          $lines=@(Get-Content -LiteralPath $path -ErrorAction Stop)
+          $full=[IO.File]::ReadAllText($path)
+          $signature='func (p *Engine) recoverInterrupted() error {'
+          if ($full.Split(@($signature),[StringSplitOptions]::None).Count -ne 2) {
+            throw 'R18_RECOVERY_SOURCE_FUNCTION_NOT_UNIQUE'
+          }
+          $start=-1
+          for($i=0;$i -lt $lines.Count;$i++){
+            if ($lines[$i] -eq $signature){$start=$i;break}
+          }
+          if($start -lt 0){throw 'R18_RECOVERY_SOURCE_FUNCTION_NOT_FOUND'}
+          $out=[ordered]@{
+            schema='ckb-plane.r18.live-recovery-source.v1'
+            sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            bytes=(Get-Item -LiteralPath $path).Length
+            lines=$lines.Count
+            function_line=$start+1
+            recovers_by_full_store_list=$full.Contains('jobs, e := p.Store.List()')
+            uses_active_only_query=$full.Contains("SELECT id FROM work_orders WHERE state IN")
+            text_sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            readonly=$true
+          }
+          Write-Host ('R18_LIVE_RECOVERY_SOURCE_IDENTITY='+($out|ConvertTo-Json -Compress))
+          $end=[Math]::Min($lines.Count-1,$start+78)
+          for($j=$start;$j -le $end;$j++){
+            Write-Host ('R18_RECOVERY_LINE_'+($j+1)+'='+[string]$lines[$j])
+          }
+          Write-Host 'R18_NO_INSTALLED_SOURCE_MUTATION=TRUE'
