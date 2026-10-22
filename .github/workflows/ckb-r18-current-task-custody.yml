@@ -200,3 +200,48 @@ jobs:
             Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
           }
           Write-Host 'R18_CKB_QUEUE_INSPECTED_WITHOUT_RESUME=PASS'
+      - name: Read-only CKB qualification receipt and authority custody inspection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-current-task-custody-20261022' -or
+             $who.Name -ine 'LINKDEADKB\camar') {throw 'R18_QUAL_CUSTODY_WRONG_OWNER'}
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $path=Join-Path $env:RUNNER_TEMP ('r18-qual-custody-'+$env:GITHUB_RUN_ID+'.py')
+          if(Test-Path -LiteralPath $path){throw 'R18_QUAL_TEMP_PATH_REUSED'}
+          $code=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          s=sqlite3.connect('file:'+p.as_posix()+'?mode=ro',uri=True,timeout=3)
+          try:
+           s.execute('PRAGMA query_only=ON')
+           data=dict(s.execute("SELECT key,value FROM settings WHERE key IN ('qualification_digest','qualification_receipt','autonomy_authority','autonomy_generation','paused')"))
+           path=data.get('qualification_receipt','')
+           receipt=None
+           if path and Path(path).is_file():
+            if Path(path).stat().st_size > 65536: raise ValueError('R18_QUALIFICATION_RECEIPT_TOO_LARGE')
+            receipt=json.loads(Path(path).read_text('utf-8'))
+           result={'digest_setting_present':bool(data.get('qualification_digest')),
+           'receipt_path_configured':bool(path),'receipt_present':bool(receipt),
+           'receipt_passed':receipt.get('passed') if receipt else None,
+           'receipt_digest_equals_db':(receipt.get('config_and_tool_digest')==data.get('qualification_digest')) if receipt else None,
+           'authority':data.get('autonomy_authority'),
+           'generation':data.get('autonomy_generation'),'paused':data.get('paused')}
+           print('R18_QUALIFICATION_CUSTODY='+json.dumps(result,separators=(',',':')))
+          finally:s.close()
+          '@
+          [IO.File]::WriteAllText($path,$code,(New-Object Text.UTF8Encoding($false)))
+          try{
+            $output=@(& $py -B $path $db)
+            if($LASTEXITCODE -ne 0 -or $output.Count -ne 1 -or [string]$output[0] -cnotmatch '^R18_QUALIFICATION_CUSTODY=\{'){
+              throw 'R18_QUALIFICATION_QUERY_FAILED'
+            }
+            Write-Host ([string]$output[0])
+          } finally {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host 'R18_QUALIFICATION_READONLY_PROBE=PASS'
