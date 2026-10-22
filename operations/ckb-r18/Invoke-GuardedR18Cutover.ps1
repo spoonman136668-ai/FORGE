@@ -73,6 +73,86 @@ function WaitNewController([string]$path) {
     }
     return $false
 }
+# Failure-only R18 startup observation. This is read-only for the native controller,
+# task scheduler, SQLite, configuration, and the original rollback path.
+# A task LastTaskResult is a scheduler result code, not an observed Go process exit.
+function ReportR18StartupFailure([datetime]$startedUtc,[string]$candidatePath,[string]$originalPath,[string]$destination) {
+    $item=[ordered]@{
+        schema='ckb-plane.r18.startup-failure-custody.v1'
+        started_utc=$startedUtc.ToString('o')
+        original_controller_rollback_required=$true
+        scheduler_observed=$false
+        task_state='UNAVAILABLE'
+        task_last_result='UNAVAILABLE'
+        task_last_run_utc='UNAVAILABLE'
+        native_process_exit_code='NOT_OBSERVED'
+        native_process_count='UNAVAILABLE'
+        process_class='UNAVAILABLE'
+        ps4100_event_count=0
+        ps4100_system_error_number='NOT_OBSERVED'
+        ps4100_event_query='UNAVAILABLE'
+        raw_event_or_error_text_exported=$false
+        diagnostic_only=$true
+    }
+    try {
+        $t=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+        $info=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+        $item.scheduler_observed=$true
+        $item.task_state=[string]$t.State
+        $item.task_last_result=[string]$info.LastTaskResult
+        if ($null -ne $info.LastRunTime) {
+            $item.task_last_run_utc=$info.LastRunTime.ToUniversalTime().ToString('o')
+        }
+    } catch {
+        $item.scheduler_observed=$false
+    }
+    try {
+        $procs=@(NativeProcesses)
+        $item.native_process_count=$procs.Count
+        if ($procs.Count -eq 0) {
+            $item.process_class='NONE'
+        } elseif ($procs.Count -eq 1) {
+            $p=[string]$procs[0].ExecutablePath
+            if ($p -ieq $candidatePath) {$item.process_class='R18'}
+            elseif ($p -ieq $originalPath) {$item.process_class='R1P'}
+            else {$item.process_class='UNKNOWN'}
+        } else {
+            $item.process_class='MULTIPLE'
+        }
+    } catch {
+        $item.process_class='UNAVAILABLE'
+    }
+    try {
+        $matched=@(Get-WinEvent -FilterHashtable @{
+            LogName='Microsoft-Windows-PowerShell/Operational'
+            Id=4100
+            StartTime=$startedUtc.ToLocalTime()
+            EndTime=[DateTime]::Now
+        } -MaxEvents 120 -ErrorAction Stop | Where-Object {
+            [string]$_.Message -like '*Start-R18-Controller*'
+        })
+        $item.ps4100_event_query='AVAILABLE'
+        $item.ps4100_event_count=$matched.Count
+        if ($matched.Count -eq 1) {
+            $m=[regex]::Match([string]$matched[0].Message,
+                '(?i)\bSystem\s+error\s*(?:[.:]?\s*Code\s*[:=]?\s*|[.:]?\s*)([0-9]{1,7})\b')
+            if ($m.Success) {$item.ps4100_system_error_number=$m.Groups[1].Value}
+        }
+    } catch {
+        $item.ps4100_event_query='UNAVAILABLE'
+    }
+    $json=$item|ConvertTo-Json -Depth 4 -Compress
+    if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 3072) {
+        throw 'R18_STARTUP_DIAGNOSTIC_SIZE_REFUSED'
+    }
+    # Durable failure-only proof is stored beside existing rollback custody,
+    # never in the controller's config, database, source checkout or task.
+    $receipt=Join-Path $destination 'startup-failure-diagnostic.json'
+    if (Test-Path -LiteralPath $receipt) {throw 'R18_STARTUP_DIAGNOSTIC_COLLISION'}
+    [IO.File]::WriteAllText($receipt,$json,[Text.UTF8Encoding]::new($false))
+    Write-Host ('R18_STARTUP_FAILURE_EVIDENCE='+$json)
+}
+
 function CheckReadOnlyQuiescence {
     $py=(Get-Command python.exe -ErrorAction Stop).Source
     $qfile=Join-Path $env:RUNNER_TEMP ('R18Query-'+$env:GITHUB_RUN_ID+'.py')
@@ -137,6 +217,7 @@ $cutoverAttempted=$false
 $taskChanged=$false
 $controllerStopped=$false
 $dbSnapshotComplete=$false
+$startupProbeUtc=$null
 $releaseDir=$null
 $cutoverDir=$null
 $rollbackDir=$null
@@ -234,6 +315,7 @@ try {
     $dbSnapshotComplete=$true
     $taskChanged=$true  # rollback even if task action partially updates then throws
     Set-ScheduledTask -TaskName $taskName -Action $newAction -ErrorAction Stop | Out-Null
+    $startupProbeUtc=[DateTime]::UtcNow
     Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
     if (!(WaitNewController $newExe)) {throw 'R18_NEW_CONTROLLER_NOT_SINGLETON'}
     $newTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
@@ -287,6 +369,10 @@ try {
 } catch {
     $errorCause=$_.Exception.Message
     Write-Host ('R18_CUTOVER_BLOCKED_OR_FAILED='+$errorCause)
+    if ($null -ne $startupProbeUtc) {
+        try {ReportR18StartupFailure $startupProbeUtc $newExe $oldExe $cutoverDir}
+        catch {Write-Host 'R18_STARTUP_DIAGNOSTIC_UNAVAILABLE=TRUE'}
+    }
     if ($controllerStopped) {
         try {
             $active=@(NativeProcesses)
