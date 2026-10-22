@@ -177,11 +177,17 @@ def rollout(agent,family,seed,episode_id,history_mode="normal"):
     raise ValueError("ITD01_R4_DEV_ACTION_CAP_BYPASS")
 
 
-def eval_agent(agent,seed,count_per_family,mode):
+def eval_agent(agent,seed,count_per_family,mode,split="challenge"):
+    if split not in ("validation","challenge"):
+        raise ValueError("ITD01_R4_DEV_SPLIT_INVALID")
+    intervention = ("erase" if mode=="erase" else
+                    "blind_delayed" if mode=="blind_delayed" else "normal")
     out={}
     for fi,family in enumerate(PUBLIC_FAMILIES):
-        samples=[rollout(agent,family,850000+seed*10000+fi*100000+i,
-                         f"DEV-R4-EVAL-{mode}-{seed}-{fi}-{i}",mode)
+        samples=[rollout(agent,family,(920000 if split=="validation" else 1720000)
+                         +seed*10000+fi*100000+i,
+                         f"DEV-R4-{split}-{mode}-{seed}-{fi}-{i}",
+                         intervention)
                  for i in range(count_per_family)]
         out[family]={"n":len(samples),
                      "success":sum(x["reward"] for x in samples)/len(samples),
