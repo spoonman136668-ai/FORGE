@@ -1,0 +1,184 @@
+{
+  "schema": "forge.nci04.q18.shared-edge-causal-graph-transfer.v1",
+  "status": "PREREGISTERED_SOURCE_FREE_TRAIN_DEV_ONLY",
+  "parent_protected_forge_sha": "ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f",
+  "predecessors": {
+    "Q17A": "exactly identical passive causal structures; interventions make DAG direction distinguishable (information-sufficiency PASS)",
+    "Q17B": "learned two-edge factorization DEV NO-GO; stronger flat comparator, oracle gap; no holdout",
+    "Q17C": "1-ULP platform tanh difference at frozen initial RNN hidden update; entire training divergence not proven"
+  },
+  "hypothesis": "A single shared learned edge-evidence calibration, composed by topology-aware path enumeration without hardwired edge identities, can predict path existence after structural rewiring better than fully trained flat path-feature, graph-sequence recurrent and symbolic threshold controls, at equal public interventions and bounded memory.",
+  "data": {
+    "world": "Directed acyclic graph, public ordered node IDs, public candidate edge skeleton and query from first to last node; each candidate edge independently either causally present or absent (equal prior); only compositional query ground truth (reachable from source to sink) is supervised.",
+    "evidence": "Each publicly listed potential edge receives exactly 12 randomized do(source) probes; observed terminal match count k is binomial(12, 0.8) if causal edge exists, binomial(12,0.5) if absent. All models receive edge endpoints, public skeleton, number of probes and all match counts. The generation of k is blinded to learners and to inference; no edge-presence labels.",
+    "fit_templates": [
+      {
+        "name": "FIT3_CHAIN",
+        "nodes": 3,
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        "episodes": 160
+      },
+      {
+        "name": "FIT4_CHAIN",
+        "nodes": 4,
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "episodes": 160
+      }
+    ],
+    "dev_templates": [
+      {
+        "name": "DEV4_DIAMOND",
+        "nodes": 4,
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "episodes": 64
+      },
+      {
+        "name": "DEV4_SKIP",
+        "nodes": 4,
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            0,
+            2
+          ]
+        ],
+        "episodes": 64
+      }
+    ],
+    "unknown_future_held_families_NO_GENERATION": [
+      "HELD5_BRANCHING",
+      "HELD5_REVERSED_ROLE"
+    ],
+    "seed": "first 64 bits SHA256('q18:v1:'+cohort+':'+template+':'+decimal_episode_number)",
+    "public_data_only": true,
+    "train_labels": "only full path reachability yes/no, never individual latent edge presence",
+    "learner_cannot_observe_world_latents": true,
+    "no_dev_gradient_updates": true,
+    "no_held_or_original_sources": true
+  },
+  "models": {
+    "candidate": {
+      "name": "SHARED_EDGE_CAUSAL_COMPOSITOR",
+      "form": "q_uv=sigmoid(a*(k_uv/12-0.5)+b); P(path)=sum over all 2^E latent edge presence patterns [I(reachable)*prod_edge Bernoulli(q_uv)]",
+      "trainable_parameters": 2,
+      "edge_probability_online_scalars_max": 4
+    },
+    "flat": {
+      "name": "TRAINED_TOPOLOGY_PATH_FEATURES",
+      "form": "sigmoid(linear weights on [1, mean evidence, minimum edge evidence, maximum path-min evidence, largest path-product evidence, edge count/4, path count/2])",
+      "trainable_parameters": 7
+    },
+    "recurrent": {
+      "name": "TRAINED_TWO_STATE_GRAPH_RNN",
+      "form": "two tanh states sequentially read edge evidence and node-span; output sigmoid(v0*h0+v1*h1+b) with 11 trainable params",
+      "trainable_parameters": 11,
+      "online_state_scalars": 2
+    },
+    "symbolic": {
+      "name": "TRAINED_SYMBOLIC_REACHABILITY",
+      "form": "fit one integer threshold 0..12 on FIT composed labels, infer edge presence if matches >=threshold, exact Boolean reachability; FIT-only Laplace calibrated positive/negative output probabilities",
+      "trainable_threshold_candidates": 13
+    },
+    "bayes": {
+      "name": "KNOWN_LAW_ORACLE_BAYES",
+      "form": "exact posterior edge presence from specified true 0.8/0.5 emission probabilities and 0.5 prior followed by exact path enumeration",
+      "privileged_generator_law": true,
+      "not_fully_empirical": true
+    }
+  },
+  "fit": {
+    "trained_models": [
+      "SHARED_EDGE_CAUSAL_COMPOSITOR",
+      "TRAINED_TOPOLOGY_PATH_FEATURES",
+      "TRAINED_TWO_STATE_GRAPH_RNN",
+      "TRAINED_SYMBOLIC_REACHABILITY"
+    ],
+    "optimizer": "finite difference Adam on Bernoulli cross-entropy using FIT composed labels only, 2 preregistered restarts and fixed minibatch shuffles",
+    "epochs": 12,
+    "mini_batch_episodes": 40,
+    "restarts": [
+      0,
+      1
+    ],
+    "lr": 0.05,
+    "finite_difference_delta": 0.0001,
+    "gradient_clip": 4,
+    "init_seed": "first 64 bits SHA256('q18:init:'+model+':'+restart)",
+    "select_checkpoint": "one selection at last epoch using 128 DEV loss across two restarts, no gradient on DEV",
+    "accounting": "Measure complete training CPU process time, inference CPU process time, Python memory tracemalloc peak, checkpoint bytes and actual online state scalar usage; Linux and Windows numeric differences must be reported, not silently treated as identical"
+  },
+  "frozen_gate": {
+    "dev_gain_over_best_fitted_control_min_nats_per_episode": 0.015,
+    "candidate_vs_privileged_oracle_max_nats_gap": 0.035,
+    "ablation_min_loss_increase_when_edge_evidence_reassigned": 0.015,
+    "candidate_cpu_fit_plus_eval_limit_vs_graph_rnn": 1.15,
+    "candidate_state_budget_max_scalars": 8,
+    "dev_positive_gain_on_each_rewired_family": true,
+    "decision_success": "DEV_COMPOSITION_CANDIDATE_ONLY_NOT_UNFAMILIAR_TRANSFER",
+    "decision_failure": "DEV_NO_GO_RETAIN_NEGATIVE_NO_HELD",
+    "no_claim_of_native_cognition_or_independent_transfer": true,
+    "no_post_result_tuning": true
+  },
+  "safeguards": {
+    "no_real_original_minigrid_pycolab_or_CKB_source": true,
+    "no_original_scientific_first_use": true,
+    "no_controller_dispatch_or_unpause": true,
+    "no_Q17A_Q17B_exposed_dev_or_held_used": true,
+    "unfamiliar_five_node_held_unopened": true,
+    "no_live_broker_or_KTRADE_changes": true,
+    "no_full_FORGE_G61_qualification_claim": true,
+    "equal_public_intervention_observations_for_all_models": true,
+    "privileged_oracle_separate_from_fitted_controls": true,
+    "all_negative_results_retained": true
+  }
+}
