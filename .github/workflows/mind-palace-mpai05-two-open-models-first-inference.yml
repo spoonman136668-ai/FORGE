@@ -106,8 +106,14 @@ jobs:
               $len=(Get-Item -LiteralPath $file).Length
               Need ($len -ge 500MB -and $len -le 4GB) ('MODEL_SIZE_'+$key)
               $modelHash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
-              if($null -ne $candidates[0].lfs -and $null -ne $candidates[0].lfs.sha256){
-                Need ($modelHash -ceq [string]$candidates[0].lfs.sha256) ('MODEL_LFS_SHA256_'+$key)
+              # The default Hugging Face siblings projection excludes LFS
+              # metadata. Verify it if present; otherwise retain exact model
+              # Git revision and computed full file SHA-256 for independent audit.
+              $candidate=$candidates[0]
+              if($null -ne $candidate.PSObject.Properties['lfs'] -and
+                 $null -ne $candidate.lfs -and
+                 $null -ne $candidate.lfs.PSObject.Properties['sha256']){
+                Need ($modelHash -ceq [string]$candidate.lfs.sha256) ('MODEL_LFS_SHA256_'+$key)
               }
               Write-Host ('MPAI05_'+$key.ToUpperInvariant()+'_WEIGHTS_SOURCE_PINNED=PASS')
               $output=Join-Path $tmp ($key+'.stdout')
