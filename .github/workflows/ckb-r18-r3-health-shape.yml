@@ -97,19 +97,19 @@ jobs:
           $py=Join-Path $env:RUNNER_TEMP ('R18Parity-'+$env:GITHUB_RUN_ID+'.py')
           if(Test-Path -LiteralPath $py){throw 'R18_PARITY_TEMP_REUSED'}
           $code=@'
-import sqlite3,sys,json
-from pathlib import Path
-p=Path(sys.argv[1]).resolve(strict=True)
-cx=sqlite3.connect("file:"+p.as_posix()+"?mode=ro",uri=True,timeout=3)
-try:
-    cx.execute("PRAGMA query_only=ON")
-    want=["paused","autonomy_authority","autonomy_generation"]
-    got=dict(cx.execute("SELECT key,value FROM settings WHERE key in (?,?,?)",want).fetchall())
-    if set(got)!=set(want):raise ValueError("R18_PAUSE_PARITY_KEYS_MISSING")
-    print(json.dumps({"paused":got["paused"],"authority":got["autonomy_authority"],
-                      "generation":got["autonomy_generation"]},separators=(",",":")))
-finally:cx.close()
-'@
+          import sqlite3,sys,json
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          cx=sqlite3.connect("file:"+p.as_posix()+"?mode=ro",uri=True,timeout=3)
+          try:
+              cx.execute("PRAGMA query_only=ON")
+              want=["paused","autonomy_authority","autonomy_generation"]
+              got=dict(cx.execute("SELECT key,value FROM settings WHERE key in (?,?,?)",want).fetchall())
+              if set(got)!=set(want):raise ValueError("R18_PAUSE_PARITY_KEYS_MISSING")
+              print(json.dumps({"paused":got["paused"],"authority":got["autonomy_authority"],
+                                "generation":got["autonomy_generation"]},separators=(",",":")))
+          finally:cx.close()
+          '@
           [IO.File]::WriteAllText($py,$code,(New-Object Text.UTF8Encoding($false)))
           try{
             $value=@(& python.exe -B $py $db)
