@@ -1,0 +1,160 @@
+name: Mind-Palace MP-AI05 real two local open-model inference smoke
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai05-two-open-models-first-inference.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-two-models-no-paid-api
+  cancel-in-progress: false
+jobs:
+  two_local_models:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run pinned CPU llama.cpp against two Apache-2.0 open models without paid APIs
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code){ if(-not $ok){throw ('MPAI05_'+$code)} }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_SCOPE'
+          # This runs only local executable GGUF inference. Never reuse ambient
+          # OpenAI/Codex credentials or any provider-billed inference endpoint.
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:HF_TOKEN,Env:HUGGING_FACE_HUB_TOKEN,Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $tmp=Join-Path $env:RUNNER_TEMP ('mpai05-open-models-'+$env:GITHUB_RUN_ID)
+          $binary=Join-Path $tmp 'llama-cpu-b11669.zip'
+          $unpacked=Join-Path $tmp 'runtime'
+          $results=Join-Path $env:GITHUB_WORKSPACE ('mpai05-local-evidence-'+$env:GITHUB_RUN_ID)
+          Need (-not(Test-Path -LiteralPath $tmp)) 'SCRATCH_COLLISION'
+          Need (-not(Test-Path -LiteralPath $results)) 'RESULT_COLLISION'
+          $drive=[System.IO.DriveInfo]::new([IO.Path]::GetPathRoot($env:RUNNER_TEMP))
+          Need ($drive.AvailableFreeSpace -ge (7GB)) 'INSUFFICIENT_TEMP_SPACE'
+          New-Item -ItemType Directory -Path $tmp,$unpacked,$results -Force|Out-Null
+          $completed=$false
+          $receipt=[ordered]@{
+            schema='mind-palace.mpai05-two-independent-local-llm-smoke.v1'
+            project='Mind-Palace'
+            kind='development_smoke_not_scientific_transfer'
+            runner_scope='FORGE-CODEX-REMOTE'
+            runtime_tag='b11669'
+            runtime_asset='llama-b11669-bin-win-cpu-x64.zip'
+            input_task='7 times 8 integer only (public smoke prompt)'
+            model_trials=@()
+            independent_provider_verified=$false
+            cloud_chatgpt_consumer_tested=$false
+            codex_consumer_tested=$false
+            cross_agent_transfer_tested=$false
+            scientific_improvement_qualified=$false
+            production_writes=0
+            paid_api_calls=0
+          }
+          try{
+            $url='https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-win-cpu-x64.zip'
+            & curl.exe -fsSL --retry 2 --connect-timeout 25 --max-time 900 -o $binary $url
+            Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $binary)) 'LLAMA_BINARY_DOWNLOAD'
+            $binaryHash=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            Need ($binaryHash -ceq '37b3efcf962847ca869745fd4ccf7f5e7e8dacfeff9fa3523b4ca8cdc66d632b') 'LLAMA_BINARY_UNVERIFIED'
+            Write-Host 'MPAI05_OFFICIAL_LLAMA_CPP_SHA256=PASS'
+            Expand-Archive -LiteralPath $binary -DestinationPath $unpacked -Force
+            $executables=@(Get-ChildItem -LiteralPath $unpacked -Recurse -File -Filter 'llama-cli.exe' -ErrorAction Stop)
+            Need ($executables.Count -eq 1) 'LLAMA_CLI_BINARY_COUNT'
+            $exe=$executables[0].FullName
+            Write-Host 'MPAI05_PORTABLE_RUNTIME=READY'
+            # Read only official public Hugging Face model repository metadata.
+            $models=@(
+              @{key='qwen';repo='Qwen/Qwen2.5-1.5B-Instruct-GGUF'},
+              @{key='granite';repo='ibm-granite/granite-3.3-2b-instruct-GGUF'}
+            )
+            foreach($model in $models){
+              $key=[string]$model.key
+              $modelRepo=[string]$model.repo
+              $metaUrl='https://huggingface.co/api/models/'+$modelRepo
+              $meta=Invoke-RestMethod -Uri $metaUrl -Method Get -TimeoutSec 50
+              Need ($meta.license -ceq 'apache-2.0' -or $meta.cardData.license -ceq 'apache-2.0') ('LICENSE_'+$key)
+              $revision=[string]$meta.sha
+              Need ($revision -cmatch '^[a-f0-9]{40}$') ('MODEL_REVISION_'+$key)
+              $candidates=@($meta.siblings | Where-Object { [string]$_.rfilename -match '(?i)Q4_K_M[.]gguf$' })
+              Need ($candidates.Count -eq 1) ('QUANT_FILE_AMBIGUITY_'+$key)
+              $name=[string]$candidates[0].rfilename
+              Need ($name -match '^[A-Za-z0-9_.-]+$') ('MODEL_FILENAME_'+$key)
+              $file=Join-Path $tmp ($key+'.gguf')
+              $modelUrl='https://huggingface.co/'+$modelRepo+'/resolve/'+$revision+'/'+$name
+              & curl.exe -fsSL --retry 2 --connect-timeout 35 --max-time 1800 -o $file $modelUrl
+              Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $file)) ('MODEL_DOWNLOAD_'+$key)
+              $len=(Get-Item -LiteralPath $file).Length
+              Need ($len -ge 500MB -and $len -le 4GB) ('MODEL_SIZE_'+$key)
+              $modelHash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($null -ne $candidates[0].lfs -and $null -ne $candidates[0].lfs.sha256){
+                Need ($modelHash -ceq [string]$candidates[0].lfs.sha256) ('MODEL_LFS_SHA256_'+$key)
+              }
+              Write-Host ('MPAI05_'+$key.ToUpperInvariant()+'_WEIGHTS_SOURCE_PINNED=PASS')
+              $output=Join-Path $tmp ($key+'.stdout')
+              $stderr=Join-Path $tmp ($key+'.stderr')
+              $prompt='You are running a controlled local inference smoke test. What is 7 times 8? Reply with only the integer.'
+              $arguments=@('-m',$file,'-p',$prompt,'-n','32','-c','1024','-t','8','--temp','0','-ngl','0')
+              $watch=[Diagnostics.Stopwatch]::StartNew()
+              $exit=-1
+              try{
+                & $exe @arguments 1> $output 2> $stderr
+                $exit=$LASTEXITCODE
+              }catch{$exit=-1}
+              $watch.Stop()
+              $outText=if(Test-Path -LiteralPath $output){[IO.File]::ReadAllText($output)}else{''}
+              $bytes=[Text.Encoding]::UTF8.GetByteCount($outText)
+              $outHash=if(Test-Path -LiteralPath $output){(Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash.ToLowerInvariant()}else{''}
+              $answerHas56=[regex]::IsMatch($outText,'(?<!\d)56(?!\d)')
+              $receipt.model_trials+=@([ordered]@{
+                model_repo=$modelRepo;model_revision=$revision;gguf_filename=$name
+                gguf_sha256=$modelHash;gguf_bytes=$len
+                backend='official_cpu_llama_cpp_b11669'
+                process_exit=$exit;elapsed_ms=$watch.ElapsedMilliseconds
+                output_bytes=$bytes;output_sha256=$outHash
+                smoke_output_contains_expected_56=$answerHas56
+                provider_identity_authenticated=$false
+                holdout_first_use_verified=$false
+                scientific_gain_verified=$false
+              })
+              Need ($exit -eq 0 -and $bytes -gt 0 -and $answerHas56) ('REAL_LOCAL_INFERENCE_FAILED_'+$key)
+              Write-Host ('MPAI05_'+$key.ToUpperInvariant()+'_REAL_LOCAL_INFERENCE=PASS')
+              Write-Host ('MPAI05_'+$key.ToUpperInvariant()+'_ELAPSED_MS='+$watch.ElapsedMilliseconds)
+              # Avoid sharing full model output or model weights. Keep hashes only.
+              Remove-Item -LiteralPath $file,$output,$stderr -Force -ErrorAction Stop
+            }
+            Need ($receipt.model_trials.Count -eq 2) 'TWO_DISTINCT_MODELS'
+            Need ($receipt.model_trials[0].gguf_sha256 -cne $receipt.model_trials[1].gguf_sha256) 'DUPLICATE_MODEL_BYTES'
+            $manifest=Join-Path $results 'receipt.json'
+            [IO.File]::WriteAllText($manifest,((ConvertTo-Json -InputObject $receipt -Depth 12)+'\n'),[Text.UTF8Encoding]::new($false))
+            $completed=$true
+            Write-Host 'MPAI05_TWO_DISTINCT_LOCAL_LLMS=PASS'
+            Write-Host 'MPAI05_GENUINE_CROSS_MODEL_TRANSFER=NOT_TESTED'
+            Write-Host 'MPAI05_CHATGPT_AND_CODEX_COMPARISON=NOT_TESTED'
+            Write-Host 'MPAI05_PAID_API_CALLS=0'
+            Write-Host 'MPAI05_PRODUCTION_WRITES=0'
+          }finally{
+            if(Test-Path -LiteralPath $tmp){
+              Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Stop
+            }
+            Need (-not(Test-Path -LiteralPath $tmp)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI05_MODEL_WEIGHTS_AND_RUNTIME_SCRATCH_CLEAN=PASS'
+            if(-not $completed -and (Test-Path -LiteralPath $results)){
+              Remove-Item -LiteralPath $results -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+      - name: Publish minimal source-bound local model receipt (no weights or prompts)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpai05-two-independent-local-models
+          path: mpai05-local-evidence-*/
+          retention-days: 3
+          if-no-files-found: error
