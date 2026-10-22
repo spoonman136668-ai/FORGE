@@ -190,8 +190,8 @@ try {
     }
     # Retain the original task, principal, triggers and user context. No
     # additional schedule or new controller can be created by this workflow.
+    $controllerStopped=$true  # rollback even if stop partially succeeds then throws
     Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
-    $controllerStopped=$true
     if (!(WaitStopped)) {throw 'R18_OLD_CONTROLLER_DID_NOT_STOP'}
     # Snapshot the original SQLite + WAL/SHM only after it is closed.
     foreach($suffix in @('','-wal','-shm')) {
@@ -204,23 +204,33 @@ try {
         throw 'R18_ORIGINAL_DATABASE_SNAPSHOT_MISSING'
     }
     $dbSnapshotComplete=$true
+    $taskChanged=$true  # rollback even if task action partially updates then throws
     Set-ScheduledTask -TaskName $taskName -Action $newAction -ErrorAction Stop | Out-Null
-    $taskChanged=$true
     Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
     if (!(WaitNewController $newExe)) {throw 'R18_NEW_CONTROLLER_NOT_SINGLETON'}
     $newTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
     if ($newTask.State -ne 'Running' -or [string]$newTask.Actions[0].Arguments -cne $newArgs) {
         throw 'R18_NEW_TASK_ACTION_OR_STATE_INVALID'
     }
-    $raw=@(& $newExe controller status --config $config 2>&1)
-    if ($LASTEXITCODE -ne 0) {throw 'R18_NEW_CONTROLLER_STATUS_PARSE_OR_EXECUTION_FAILED'}
-    $status=$raw|Out-String|ConvertFrom-Json -ErrorAction Stop
+    $statusStdout=Join-Path $cutoverDir 'status.stdout'
+    $statusStderr=Join-Path $cutoverDir 'status.stderr'
+    $probe=Start-Process -FilePath $newExe -ArgumentList @('controller','status','--config',('"' + $config + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $statusStdout -RedirectStandardError $statusStderr -ErrorAction Stop
+    if (!$probe.WaitForExit(45000)) {
+        try {$probe.Kill()} catch {}
+        throw 'R18_NEW_CONTROLLER_STATUS_PROBE_TIMEOUT'
+    }
+    if ($probe.ExitCode -ne 0) {throw 'R18_NEW_CONTROLLER_STATUS_PARSE_OR_EXECUTION_FAILED'}
+    if ((Get-Item -LiteralPath $statusStdout).Length -gt 16777216) {throw 'R18_STATUS_OUTPUT_EXCEEDS_SAFETY_BOUND'}
+    $raw=[IO.File]::ReadAllText($statusStdout)
+    $status=ConvertFrom-Json -InputObject $raw -ErrorAction Stop
     if ($status.authority -ne 'plane' -or $status.paused -eq $true -or
         $status.heartbeat_stale -eq $true -or
         [string]$status.controller_status -notlike 'IDLE:*') {
         throw 'R18_NEW_CONTROLLER_NATIVE_STATUS_UNHEALTHY'
     }
     if (@(NativeProcesses).Count -ne 1) {throw 'R18_CONTROLLER_SINGLETON_POST_START_FAILED'}
+    CheckReadOnlyQuiescence
+    Write-Host 'R18_HISTORICAL_ORDER_COUNT_AND_NO_WORKER_LEASES=PASS'
     AssertSha $newExe $candidateSha
     AssertSha $config $configSha
     # Preserve the original task XML and the complete DB snapshot for later audit.
