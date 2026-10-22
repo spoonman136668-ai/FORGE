@@ -1,0 +1,122 @@
+name: CKB R18 owner elevated release custody - read only
+on:
+  push:
+    branches: [audit/ckb-r18-owner-admin-custody-20261022]
+    paths: [.github/workflows/ckb-r18-owner-admin-custody.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-owner-custody-readonly-20261022
+  cancel-in-progress: false
+jobs:
+  owner-custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Confirm actual pre-existing elevated owner identity and exact GitHub scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-owner-admin-custody-20261022') {
+            throw 'R18_OWNER_RUNNER_OR_REPO_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($identity)
+          if ($identity.Name -ine 'LINKDEADKB\camar' -or
+              !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_EXISTING_OWNER_ADMIN_TOKEN_NOT_VERIFIED'
+          }
+          Write-Host 'R18_ELEVATED_OWNER_RUNNER_IDENTITY=PASS'
+          Write-Host 'R18_OPERATOR_TOKEN=ELEVATED_ADMINISTRATOR'
+          Write-Host 'R18_CKB_PLANE_MUTATION=NONE'
+      - name: Inventory original CKB controller release and delegated switcher strictly read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          function HashOrState([string]$file) {
+            if (!(Test-Path -LiteralPath $file -PathType Leaf)) {return 'MISSING'}
+            try {
+              if (((Get-Item -LiteralPath $file).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                return 'REPARSE_POINT_BLOCKED'
+              }
+              return (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            } catch {return 'NOT_READABLE'}
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $r1p='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $expectedOld='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
+          $exe=HashOrState (Join-Path $root 'bin\ckb-plane.exe')
+          $cfg=HashOrState (Join-Path $root 'config\autonomy.yaml')
+          $old=HashOrState $r1p
+          if ($old -cne $expectedOld -or
+              $exe -cne '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6' -or
+              $cfg -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c') {
+            throw 'R18_EXISTING_LIVE_RELEASE_PREIMAGE_CHANGED'
+          }
+          $controllers=@(Get-CimInstance -ClassName Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $descs=@()
+          foreach($proc in $controllers) {
+            $class='OTHER_OR_UNKNOWN'
+            if ([string]$proc.ExecutablePath -ieq $r1p) {$class='R1P_PINNED_RELEASE'}
+            elseif ([string]$proc.ExecutablePath -ieq (Join-Path $root 'bin\ckb-plane.exe')) {$class='WORKTREE_BINARY'}
+            $descs+=@([ordered]@{pid=[int]$proc.ProcessId;binary_class=$class})
+          }
+          $taskSpecs=@(
+            @{name='CKB-plane Controller';class='controller'},
+            @{name='CKB-RB1-ReleaseSwitcher';class='rb1'}
+          )
+          $taskFacts=@()
+          foreach($spec in $taskSpecs) {
+            try {
+              $t=Get-ScheduledTask -TaskName $spec.name -ErrorAction Stop
+              $actionKind='UNKNOWN'
+              if (@($t.Actions).Count -eq 1) {
+                $a=$t.Actions[0]
+                if ($spec.class -eq 'controller' -and [string]$a.Arguments -like '*Start-R1P-Controller.ps1*') {
+                  $actionKind='ORIGINAL_R1P_LAUNCHER'
+                } elseif ($spec.class -eq 'rb1') {
+                  $actionKind='RB1_SWITCHER_ACTION_NOT_R18'
+                }
+              }
+              $taskFacts+=@([ordered]@{
+                name=$spec.name
+                found=$true
+                state=[string]$t.State
+                principal=[string]$t.Principal.UserId
+                runlevel=[string]$t.Principal.RunLevel
+                action_count=@($t.Actions).Count
+                action_class=$actionKind
+                trigger_count=@($t.Triggers).Count
+              })
+            } catch {
+              $taskFacts+=@([ordered]@{name=$spec.name;found=$false})
+            }
+          }
+          $receipt=[ordered]@{
+            schema='ckb-plane.r18.owner-elevated-custody.v1'
+            runner='FORGE-CODEX-REMOTE'
+            windows_identity='LINKDEADKB\camar'
+            token='elevated_administrator'
+            source_authority='read_only'
+            original_r1p_sha256=$old
+            worktree_exe_sha256=$exe
+            original_config_sha256=$cfg
+            observed_processes=$descs
+            scheduled_tasks=$taskFacts
+            dedicated_r18_switcher_verified=$false
+            sealed_candidate_approved=$false
+            controller_stopped=$false
+            scheduled_task_modified=$false
+            database_modified=$false
+            configuration_modified=$false
+            cutover_attempted=$false
+          }
+          $encoded=$receipt | ConvertTo-Json -Compress -Depth 6
+          if ([Text.Encoding]::UTF8.GetByteCount($encoded) -gt 6144) {throw 'R18_OWNER_RECEIPT_OVERSIZE'}
+          Write-Host ('R18_OWNER_CUSTODY_RECEIPT='+$encoded)
+          Write-Host 'R18_ELEVATED_READ_ONLY_CUSTODY=PASS'
