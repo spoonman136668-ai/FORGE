@@ -91,12 +91,26 @@ class NativeResourceQualification(unittest.TestCase):
                 r.process_io_bytes()
 
     def test_no_execution_or_original_source_imports(self):
+        import ast
         from pathlib import Path
-        text = Path(r.__file__).read_text(encoding="utf-8").lower()
-        for term in ("import subprocess", "import requests", "import socket",
-                     "import minigrid", "import pycolab",
-                     "import ckb", "dispatch", "tradeguard"):
-            self.assertNotIn(term, text)
+        tree = ast.parse(Path(r.__file__).read_text(encoding="utf-8"))
+        allowed_import_roots = {"__future__", "ctypes", "json", "os",
+                                "platform", "sys", "time", "resource",
+                                "hashlib", "argparse"}
+        blocked_call_names = {"dispatch", "system", "Popen", "exec", "eval",
+                              "compile", "__import__"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    self.assertIn(alias.name.split(".")[0], allowed_import_roots)
+            elif isinstance(node, ast.ImportFrom):
+                self.assertIn((node.module or "").split(".")[0],
+                              allowed_import_roots)
+            elif isinstance(node, ast.Call):
+                called = node.func
+                name = (called.id if isinstance(called, ast.Name) else
+                        called.attr if isinstance(called, ast.Attribute) else "")
+                self.assertNotIn(name, blocked_call_names)
 
 if __name__ == "__main__":
     unittest.main()
