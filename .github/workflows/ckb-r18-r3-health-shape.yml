@@ -71,3 +71,69 @@ jobs:
           if([Text.Encoding]::UTF8.GetByteCount($j) -gt 12000){throw 'R18_R3_HEALTH_SHAPE_RECEIPT_LIMIT'}
           Write-Host ('R18_R3_HEALTH_SHAPE='+$j)
           Write-Host 'R18_R3_STATUS_SHAPE_AUDIT=PASS'
+      - name: Confirm paused parity from original SQLite settings with R1P still active
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($me)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r3-health-shape-20261022' -or
+             $me.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_SQLITE_PARITY_OWNER_CUSTODY_DRIFT'
+          }
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $saved='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39801077826\status.stdout'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $status=Get-Content -LiteralPath $saved -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($process.Count -ne 1 -or [string]$process[0].ExecutablePath -ine $old -or
+             $task.State -ne 'Running' -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*') {
+            throw 'R18_PARITY_REQUIRES_ORIGINAL_R1P_RUNNING'
+          }
+          $py=Join-Path $env:RUNNER_TEMP ('R18Parity-'+$env:GITHUB_RUN_ID+'.py')
+          if(Test-Path -LiteralPath $py){throw 'R18_PARITY_TEMP_REUSED'}
+          $code=@'
+import sqlite3,sys,json
+from pathlib import Path
+p=Path(sys.argv[1]).resolve(strict=True)
+cx=sqlite3.connect("file:"+p.as_posix()+"?mode=ro",uri=True,timeout=3)
+try:
+    cx.execute("PRAGMA query_only=ON")
+    want=["paused","autonomy_authority","autonomy_generation"]
+    got=dict(cx.execute("SELECT key,value FROM settings WHERE key in (?,?,?)",want).fetchall())
+    if set(got)!=set(want):raise ValueError("R18_PAUSE_PARITY_KEYS_MISSING")
+    print(json.dumps({"paused":got["paused"],"authority":got["autonomy_authority"],
+                      "generation":got["autonomy_generation"]},separators=(",",":")))
+finally:cx.close()
+'@
+          [IO.File]::WriteAllText($py,$code,(New-Object Text.UTF8Encoding($false)))
+          try{
+            $value=@(& python.exe -B $py $db)
+            if($LASTEXITCODE -ne 0 -or $value.Count -ne 1){throw 'R18_PARITY_SQLITE_READ_FAILED'}
+            $state=$value[0]|ConvertFrom-Json -ErrorAction Stop
+          }finally{
+            Remove-Item -LiteralPath $py -Force -ErrorAction SilentlyContinue
+          }
+          $samePause=(([string]$state.paused -ceq 'true') -eq [bool]$status.paused)
+          if(!$samePause -or $state.authority -cne 'plane' -or $status.authority -cne 'plane' -or
+             $status.controller_status -cne 'PAUSED' -or $status.heartbeat_stale -ne $false) {
+            throw 'R18_PAUSED_STATUS_NOT_PROVEN_TO_MATCH_ORIGINAL_STATE'
+          }
+          $result=[ordered]@{
+            schema='ckb-plane.r18.paused-state-parity.v1'
+            original_sqlite_paused=[string]$state.paused
+            original_authority=[string]$state.authority
+            paused_parity=$samePause
+            candidate_status=[string]$status.controller_status
+            candidate_stale_heartbeat=[bool]$status.heartbeat_stale
+            original_task_running=$true
+            original_singleton=$true
+            db_writes=$false
+            promotion_attempted=$false
+          }
+          Write-Host ('R18_R3_PAUSED_PARITY='+($result|ConvertTo-Json -Compress))
+          Write-Host 'R18_PAUSED_PARITY_READ_ONLY=PASS'
