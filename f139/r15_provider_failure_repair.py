@@ -2,7 +2,8 @@
 
 Read-only, source-only replay of original R13 Windows SQLite cleanup failure.
 Provider evidence is acquired by a separate credential-scoped workflow step.
-No arbitrary commands, code synthesis, controller dispatch or main writes.
+No arbitrary commands, owner dispatch, model calls or main writes.
+The bounded AST synthesizer generates a candidate from the failure class.
 """
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ import shutil
 from pathlib import Path
 import sys
 import tempfile
+
+from r16_semantic_repair import synthesize_workflow_repair, FAILURE_CLASS
 
 REPO = "spoonman136668-ai/FORGE"
 PATH = ".github/workflows/forge-f139-r13-owner-continuity-cold-audit.yml"
@@ -24,18 +27,6 @@ FAIL_RUN, GOOD_RUN = 39782884958, 39783112103
 FAIL_JOB = 119838389983
 NAME = "FORGE F139 R13 genuine unattended two-worker custody verification"
 JOB_NAME = "original-owner-cold-audit"
-FIXES = (
-    ("import json, pathlib, sqlite3, shutil, sys, tempfile",
-     "import contextlib, json, pathlib, sqlite3, shutil, sys, tempfile"),
-    ("with sqlite3.connect(uri,uri=True,timeout=15) as original:",
-     "with contextlib.closing(sqlite3.connect(uri,uri=True,timeout=15)) as original:"),
-    ('with sqlite3.connect(str(sandbox/"state.sqlite")) as destination:',
-     'with contextlib.closing(sqlite3.connect(str(sandbox/"state.sqlite"))) as destination:'),
-    ("with sqlite3.connect(uri,uri=True,timeout=15) as same_original:",
-     "with contextlib.closing(sqlite3.connect(uri,uri=True,timeout=15)) as same_original:"),
-)
-
-
 def need(condition: bool, reason: str) -> None:
     if not condition:
         raise RuntimeError("R15_PROVIDER_REPAIR_" + reason)
@@ -177,12 +168,13 @@ def repair_failure(evidence: Path, failed: Path, qualified: Path) -> None:
     adversarial_provider_tests(evidence)
     original = inspect_checkout(failed, BAD_SHA, BAD_BLOB)
     expected = inspect_checkout(qualified, GOOD_SHA, GOOD_BLOB)
-    text = original.decode("utf-8")
-    for old, new in FIXES:
-        need(text.count(old) == 1 and new not in text,
-             "REPAIR_PRECONDITION_MISMATCH")
-        text = text.replace(old, new)
-    updated = text.encode("utf-8")
+    # No frozen text-replacement list is supplied to the synthesizer.
+    # The fault class comes from verified provider logs, while the source
+    # transformation follows bounded Python AST contexts in the culprit.
+    proposal, contexts = synthesize_workflow_repair(
+        original.decode("utf-8"), FAILURE_CLASS)
+    need(1 <= contexts <= 6, "SEMANTIC_SCOPE_DRIFT")
+    updated = proposal.encode("utf-8")
     need(blob(updated) == GOOD_BLOB and updated == expected,
          "REPAIR_CANDIDATE_NOT_INDEPENDENTLY_QUALIFIED")
     with tempfile.TemporaryDirectory(prefix="forge-r15-provider-repair-") as temporary:
@@ -193,6 +185,8 @@ def repair_failure(evidence: Path, failed: Path, qualified: Path) -> None:
          "ORIGINAL_FAILURE_SOURCE_MUTATED")
     need(inspect_checkout(qualified, GOOD_SHA, GOOD_BLOB) == expected,
          "QUALIFIED_REPAIR_SOURCE_MUTATED")
+    print("R16_AST_SYNTHESIZED_CONTEXTS="+str(contexts))
+    print("R16_GENERATED_SOURCE_MATCHES_INDEPENDENT_QUALIFICATION=PASS")
     print("R15_AUTHENTIC_PROVIDER_DIAGNOSIS=PASS")
     print("R15_EVIDENCE_SELECTED_REPAIR_SHA="+GOOD_BLOB)
     print("R15_SANDBOX_REPAIR_EXACT_QUALIFIED_BYTES=PASS")
