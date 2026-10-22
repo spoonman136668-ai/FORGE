@@ -1,0 +1,152 @@
+name: R18 R5 reissue expiring original authority proof under owner custody
+on:
+  push:
+    branches: [operate/ckb-r18-r5-local-proof-20261022]
+    paths: [.github/workflows/ckb-r18-r5-renew-local-proof.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r18-r5-original-authority-proof-one-shot-20261022
+  cancel-in-progress: false
+jobs:
+  renew-proof-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Reverify independent original inactivity then renew exact expiring proof; retain controller pause
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='85227d6cf4091a94a5d22b2b2865526cbdc3b42d'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-r5-local-proof-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_R5_LOCAL_PROOF_RENEWAL_SOURCE_OR_OWNER_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-r5-renew-local-proof.yml') {
+            throw 'R18_R5_LOCAL_PROOF_CHANGE_SCOPE_INVALID'
+          }
+          $originalRunner='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'
+          $service=Get-CimInstance Win32_Service -Filter "Name='$originalRunner'" -ErrorAction Stop
+          if([string]$service.State -cne 'Stopped' -or [int]$service.ProcessId -ne 0) {
+            throw 'R18_R5_ORIGINAL_OWNER_RUNNER_IS_ACTIVE'
+          }
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          $env:GH_PROMPT_DISABLED='1'
+          $repo='spoonman136668-ai/ckb'
+          foreach($name in @('ckb-codex-worker.yml','ckb-fast-continuation-poller.yml','ckb-dh-candidate-hygiene-repair.yml')){
+            $result=@(& $gh api ('repos/'+$repo+'/actions/workflows/'+$name) --jq '.state' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or [string]$result[0] -cne 'disabled_manually'){
+              throw ('R18_R5_ORIGINAL_WORKFLOW_NOT_INACTIVE_'+$name)
+            }
+          }
+          foreach($state in @('queued','in_progress','waiting','pending','requested')){
+            $result=@(& $gh api ('repos/'+$repo+'/actions/runs?per_page=1&status='+$state) --jq '.total_count' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or [string]$result[0] -cne '0'){
+              throw ('R18_R5_ORIGINAL_REPO_ACTIVE_OR_NOT_OBSERVABLE_'+$state)
+            }
+          }
+          Write-Host 'R18_ORIGINAL_WORKFLOW_AND_SERVICE_REATTESTATION=PASS'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $proof=Join-Path $root 'state\original-authority-inactive-r6.json'
+          if((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2' -or
+             (Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c' -or
+             (Get-FileHash -LiteralPath $proof -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'b2eb91fcce7704720e7e5820998af302a1a17bc78b22e1f9268a0d1b433a0049'){
+            throw 'R18_R5_PROTECTED_SOURCE_OR_PRIOR_PROOF_CHANGED'
+          }
+          $t=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$t.State -cne 'Running' -or
+             [string]$t.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $proc.Count -ne 1 -or [string]$proc[0].ExecutablePath -ine $r5){
+            throw 'R18_R5_PAUSED_SINGLETON_NOT_VERIFIED'
+          }
+          $old=Get-Content -LiteralPath $proof -Raw -ErrorAction Stop | ConvertFrom-Json
+          if([string]$old.schema -cne 'ckb-plane.original-authority-inactive.v1' -or
+             [string]$old.runner_service -cne $originalRunner -or
+             $old.accepted_ref_mutation_allowed -ne $false -or
+             $old.runtime_launch_allowed -ne $false -or
+             $old.local_original_authority_only -ne $true -or
+             [string]$old.authority -cne 'plane' -or
+             [string]$old.repository -cne $repo) {
+            throw 'R18_R5_HISTORICAL_PROOF_POLICY_OR_IDENTITY_DRIFT'
+          }
+          $stateDB=Join-Path $root 'state\autonomy.db'
+          $query=@'
+          import sqlite3,sys
+          p=sys.argv[1]
+          d=sqlite3.connect("file:"+p.replace("\\","/")+"?mode=ro",uri=True,timeout=5)
+          try:
+              d.execute("PRAGMA query_only=ON")
+              q=dict(d.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              n=d.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              jobs=d.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+              if q.get('paused')!='true' or q.get('autonomy_authority')!='plane' or q.get('autonomy_generation')!='6' or n!=0 or jobs!=198:
+                  raise RuntimeError('R18_R5_PROOF_REFRESH_PAUSE_OR_DB_DRIFT')
+              print("PASS")
+          finally:d.close()
+          '@
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $checked=@(& $py -B -c $query $stateDB 2>&1)
+          if($LASTEXITCODE -ne 0 -or $checked.Count -ne 1 -or [string]$checked[0] -cne 'PASS') {
+            throw 'R18_R5_NOT_PAUSED_OR_WORK_NOT_DRAINED'
+          }
+          $now=[DateTimeOffset]::UtcNow
+          $renewed=[ordered]@{
+            schema='ckb-plane.original-authority-inactive.v1'
+            created_at_utc=$now.ToString('o')
+            expires_at_utc=$now.AddHours(1).ToString('o')
+            authority='plane'
+            repository=[string]$old.repository
+            work_order_id=[string]$old.work_order_id
+            runner_service=$originalRunner
+            runner_service_status='Stopped'
+            accepted_ref_mutation_allowed=$false
+            runtime_launch_allowed=$false
+            local_original_authority_only=$true
+          }
+          $tmp=$proof+'.new-'+$env:GITHUB_RUN_ID
+          $backup=$proof+'.pre-r18-'+$env:GITHUB_RUN_ID
+          if((Test-Path -LiteralPath $tmp) -or (Test-Path -LiteralPath $backup)){
+            throw 'R18_R5_PROOF_ATOMIC_RENEWAL_COLLISION'
+          }
+          [IO.File]::WriteAllText($tmp,(($renewed|ConvertTo-Json -Depth 5)+[Environment]::NewLine),[Text.UTF8Encoding]::new($false))
+          $validated=Get-Content -LiteralPath $tmp -Raw | ConvertFrom-Json
+          if($validated.runtime_launch_allowed -ne $false -or
+             $validated.accepted_ref_mutation_allowed -ne $false -or
+             $validated.local_original_authority_only -ne $true) {
+            throw 'R18_R5_NEW_LOCAL_PROOF_POLICY_INVALID'
+          }
+          [IO.File]::Replace($tmp,$proof,$backup,$true)
+          $saved=Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json
+          if([string]$saved.created_at_utc -cne [string]$renewed.created_at_utc -or
+             [string]$saved.expires_at_utc -cne [string]$renewed.expires_at_utc -or
+             (Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'b2eb91fcce7704720e7e5820998af302a1a17bc78b22e1f9268a0d1b433a0049'){
+            throw 'R18_R5_PROOF_RENEWAL_POSTWRITE_INTEGRITY_FAILED'
+          }
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($after.Count -ne 1 -or [string]$after[0].ExecutablePath -ine $r5 -or [string]$task.State -cne 'Running') {
+            throw 'R18_R5_CONTINUING_CONTROLLER_CUSTODY_DRIFT'
+          }
+          Write-Host ('R18_R5_RENEWED_PROOF_EXPIRES_UTC='+$renewed.expires_at_utc)
+          Write-Host ('R18_R5_RENEWED_PROOF_SHA256='+(Get-FileHash -LiteralPath $proof -Algorithm SHA256).Hash.ToLowerInvariant())
+          Write-Host 'R18_R5_ORIGINAL_PROOF_RENEWAL=PASS'
+          Write-Host 'R18_R5_PAUSE_RETAINED=TRUE'
+          Write-Host 'R18_R5_AUTONOMOUS_WORK_NOT_DISPATCHED=TRUE'
