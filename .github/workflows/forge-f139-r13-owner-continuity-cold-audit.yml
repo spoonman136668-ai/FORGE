@@ -312,7 +312,7 @@ jobs:
               throw 'R14_ORIGINAL_OWNER_CHECKOUT_DRIFT'
             }
             $script = @'
-          import json, pathlib, sqlite3, shutil, sys, tempfile
+          import contextlib, json, pathlib, sqlite3, shutil, sys, tempfile
           from f139.local_controller import Database
           from f139.nci04_negative_owner_store import TICKET as NEG_696
           from f139.nci04_split_negative_owner_store import TICKET as NEG_706
@@ -324,14 +324,14 @@ jobs:
           uri=src.as_uri()+"?mode=ro"
           with tempfile.TemporaryDirectory(prefix="f139-r14-transition-rehearsal-") as tmp:
               sandbox=pathlib.Path(tmp)
-              with sqlite3.connect(uri,uri=True,timeout=15) as original:
+              with contextlib.closing(sqlite3.connect(uri,uri=True,timeout=15)) as original:
                   original.row_factory=sqlite3.Row
                   original.execute("PRAGMA query_only=ON")
                   current=dict(original.execute("SELECT * FROM meta WHERE id=1").fetchone())
                   need(current["source_sha"]==fromsha and current["head_seq"]==68 and
                        current["head_hash"]==head68 and current["enabled"]==1 and
                        current["legacy_suspended"]==1,"OWNER_UNEXPECTED_STATE")
-                  with sqlite3.connect(str(sandbox/"state.sqlite")) as destination:
+                  with contextlib.closing(sqlite3.connect(str(sandbox/"state.sqlite"))) as destination:
                       original.backup(destination)
               negative_base=src.parent/"native-negative"
               need(negative_base.is_dir() and not negative_base.is_symlink(),"ORIGINAL_NEGATIVE_DIR_INVALID")
@@ -373,7 +373,7 @@ jobs:
                        "TRANSITION_POLICY_DRIFT")
               finally:
                   proof.close()
-              with sqlite3.connect(uri,uri=True,timeout=15) as same_original:
+              with contextlib.closing(sqlite3.connect(uri,uri=True,timeout=15)) as same_original:
                   same_original.row_factory=sqlite3.Row
                   now=dict(same_original.execute("SELECT * FROM meta WHERE id=1").fetchone())
                   need(now["source_sha"]==fromsha and now["head_seq"]==68 and
