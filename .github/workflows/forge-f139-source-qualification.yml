@@ -66,6 +66,26 @@ jobs:
           $after = @(Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue)
           if ($before.Count -ne $after.Count) { throw 'F139_WINDOWS_TASK_MUTATED_BY_DRY_RUN' }
           Write-Host 'F139_WINDOWS_POWERSHELL_51_DRY_RUN=PASS'
+          # Parse actual owner runner in Windows PowerShell 5.1; verify that
+          # accidental combined custody flags are rejected before key access,
+          # SQLite opening, process creation, or controller startup.
+          $wrapper = (Resolve-Path 'scripts/Run-FORGE-F139.ps1').Path
+          $command = Get-Command -Name $wrapper -ErrorAction Stop
+          if (-not $command.Parameters.ContainsKey('CustodyOriginalNativeSplitNegative')) {
+            throw 'F139_SPLIT_CUSTODY_SWITCH_NOT_PRESENT'
+          }
+          $blocked = $false
+          try {
+            & $wrapper -PythonExe 'inert' -RepositoryRoot 'inert' -Database 'inert' -EncryptedKeyFile 'inert' -CustodyOriginalNativeNegative -CustodyOriginalNativeSplitNegative
+          } catch {
+            if ($_.Exception.Message -eq 'F139_CONFLICTING_OWNER_CUSTODY_ACTIONS') {
+              $blocked = $true
+            } else {
+              throw
+            }
+          }
+          if (-not $blocked) { throw 'F139_SPLIT_CUSTODY_DUAL_FLAG_NOT_BLOCKED' }
+          Write-Host 'F139_ORIGINAL_OWNER_SPLIT_CUSTODY_WRAPPER_PARSER=PASS'
       - name: Exercise actual disabled launcher under Windows PowerShell 5.1
         if: runner.os == 'Windows'
         shell: powershell
