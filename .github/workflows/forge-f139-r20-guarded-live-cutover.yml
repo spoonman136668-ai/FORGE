@@ -68,9 +68,48 @@ jobs:
           need(head68==oldhead,"ORIGINAL_EVENT68_NOT_PRESERVED")
           need(meta["head_seq"]==seq and meta["head_hash"]==previous,
                "OWNER_HEAD_CHAIN_DISAGREEMENT")
+          need(seq==69 and previous=="32ddad1d02c5353a596443f156153e02662abf5fea80ac1c59b898323aa4d92a"
+               and meta["source_sha"]=="ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f"
+               and meta["enabled"]==1 and meta["legacy_suspended"]==1
+               and last_event=="SOURCE_TRANSITION_ADMITTED",
+               "AUTHENTIC_EVENT69_SOURCE_TRANSITION_MISMATCH")
           need(len(tasks)==11 and sum(t["stage"]=="VERIFIED" for t in tasks)==9
               and sum(t["stage"]=="QUARANTINED" for t in tasks)==2,
               "ORIGINAL_TASKS_CHANGED")
+          negatives={t["ticket"] for t in tasks if t["stage"]=="QUARANTINED"}
+          need(negatives=={"f139-nci04-i696-5662e3586bc9-7bb8f27f",
+                          "f139-nci04-i706-09f3d7447900-09dc99f4"},
+               "HISTORICAL_NEGATIVE_SET_DRIFT")
+          custody=(filename.parent/"evidence").resolve(strict=True)
+          zip_count=0
+          for t in tasks:
+              if t["stage"]!="VERIFIED":
+                  need(t["run_id"] is None and not t["evidence_sha"] and not t["evidence_dir"],
+                       "HISTORICAL_NEGATIVE_EVIDENCE_DRIFT")
+                  continue
+              location=pathlib.Path(t["evidence_dir"]).resolve(strict=True)
+              need(location.parent.parent==custody and
+                   location.parent.name==t["ticket"] and
+                   location.name==str(t["run_id"]), "VERIFIED_ARCHIVE_PATH_DRIFT")
+              expected={"manifest.json","ubuntu-latest.zip","windows-latest.zip"}
+              members={p.name:p for p in location.iterdir()}
+              need(set(members)==expected and all(p.is_file() and not p.is_symlink()
+                       for p in members.values()),"VERIFIED_ARCHIVE_MEMBERS_DRIFT")
+              doc=members["manifest.json"].read_bytes()
+              need(hashlib.sha256(doc).hexdigest()==t["evidence_sha"],
+                   "VERIFIED_MANIFEST_DIGEST_DRIFT")
+              manifest=json.loads(doc)
+              need(manifest["ticket"]==t["ticket"] and manifest["run_id"]==t["run_id"]
+                   and manifest["scientific_originals"]==0
+                   and manifest["approved_science"] is False,
+                   "VERIFIED_EVIDENCE_AUTHORITY_DRIFT")
+              for platform in ("ubuntu-latest","windows-latest"):
+                  need(hashlib.sha256(members[platform+".zip"].read_bytes()).hexdigest()
+                       ==manifest["sha256"][platform],
+                       "VERIFIED_ZIP_BYTES_CHANGED")
+                  zip_count+=1
+          need(zip_count==18,"VERIFIED_ZIP_COUNT_DRIFT")
+          print("R20_RECOVERY_ORIGINAL_PROVIDER_ZIPS=18_OF_18_PASS")
           print("R20_RECOVERY_TASKS=9_VERIFIED_2_QUARANTINED")
           print("R20_RECOVERY_SOURCE_SHA="+meta["source_sha"])
           print("R20_RECOVERY_EVENT_SEQ="+str(seq))
@@ -91,3 +130,53 @@ jobs:
              $_.CommandLine.Contains($opts['Database'])})
           Write-Output ('R20_RECOVERY_RUNNING_CONTROLLER_COUNT='+$controller.Count)
           Write-Output 'R20_READONLY_ORIGINAL_SOURCE_AND_EVENT_CUSTODY=PASS'
+          # The source transition is already committed. Never merge or invoke
+          # transition-qualified-native again. Restart only the exact owner task.
+          if ([string]$task.State -cne 'Disabled' -or $controller.Count -ne 0) {
+            throw 'R20_RESTART_REQUIRES_DISABLED_AND_QUIESCED_ORIGINAL_TASK'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=New-Object Security.Principal.WindowsPrincipal($identity)
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R20_RESTART_OWNER_ELEVATION_MISSING'
+          }
+          $user=[string]$task.Principal.UserId
+          $sid=if ($user -match '^S-1-') {$user} else {
+            (New-Object Security.Principal.NTAccount($user)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($sid -cne $identity.User.Value) {throw 'R20_RESTART_OWNER_SID_DRIFT'}
+          $initial=(Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController')
+          if ([string]$initial.State -cne 'Disabled') {
+            throw 'R20_RESTART_TASK_STATE_CHANGED_DURING_AUTHENTICATION'
+          }
+          $restored=$false
+          try {
+            Enable-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+            for ($poll=0; $poll -lt 24; $poll++) {
+              Start-Sleep -Seconds 2
+              $stateNow=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+              $processNow=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($opts['Database']) })
+              if ([string]$stateNow.State -ceq 'Running' -and $processNow.Count -eq 1) {
+                $restored=$true
+                break
+              }
+            }
+            if (-not $restored) {
+              throw 'R20_EXISTING_OWNER_CONTROLLER_RESTART_NOT_VERIFIED'
+            }
+            Write-Output 'R20_GENUINE_ORIGINAL_OWNER_CONTROLLER_RUNNING=PASS'
+            Write-Output 'R20_SINGLE_OWNER_PROCESS_COUNT=1'
+            Write-Output 'R20_EVENT69_SOURCE_TRANSITION_ALREADY_ADMITTED=PASS'
+            Write-Output 'R20_OWNER_SOURCE_MERGE_ALREADY_ADMITTED=PASS'
+            Write-Output 'R20_NEW_CONTROLLER_CREATED=NO'
+            Write-Output 'R20_SCIENTIFIC_FIRST_USE=FALSE'
+          } catch {
+            Disable-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue | Out-Null
+            Stop-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction SilentlyContinue
+            Write-Output 'R20_POST_TRANSITION_RESTART_UNVERIFIED_FAIL_CLOSED'
+            throw
+          }
