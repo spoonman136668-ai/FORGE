@@ -1,0 +1,70 @@
+name: FORGE F139 R14 native-output receipt qualification
+# Single-bounded branch/PR engineering qualification only.
+# Does not dispatch F139, use owner credentials, or open scientific first use.
+on:
+  push:
+    branches:
+      - proposal/f139-r14-native-recovery-20261022
+  pull_request:
+    branches: [main]
+    paths:
+      - 'f139/nci04_native_worker.py'
+      - 'f139/test_nci04_output_capture.py'
+      - '.github/workflows/forge-f139-r14-native-output.yml'
+permissions:
+  contents: read
+concurrency:
+  group: forge-f139-r14-native-output-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native-output-and-receipt:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Assert qualification isolation and patch identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R14_SOURCE_OR_CREDENTIAL_ISOLATION_DRIFT'
+          }
+          $dirty = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+            throw 'R14_CHECKOUT_DIRTY'
+          }
+          $sourceBlob = (& git hash-object f139/nci04_native_worker.py | Out-String).Trim()
+          $testBlob = (& git hash-object f139/test_nci04_output_capture.py | Out-String).Trim()
+          if ($sourceBlob -cne 'c92d0002a2882bc171a66526da64f24962369847' -or
+              $testBlob -cne 'd8bfcbd88a71e7bd2cde827ab2cc90a9705c4a91') {
+            throw 'R14_PATCH_BYTES_DRIFT'
+          }
+          Write-Output 'R14_EXACT_SOURCE_BYTES=PASS'
+      - name: Test bounded real-process capture and native worker
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest -v f139.test_nci04_native_worker f139.test_nci04_output_capture
+          if ($LASTEXITCODE -ne 0) { throw 'R14_FOCUSED_NEGATIVE' }
+          Write-Output 'R14_FOCUSED_OUTPUT_CUSTODY=PASS'
+      - name: Full affected NCI-04 contract and original receipt regression
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s f139 -p 'test_nci04*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'R14_NATIVE_RECEIPT_REGRESSION_NEGATIVE' }
+          Write-Output 'R14_NATIVE_RECEIPT_REGRESSION=PASS'

@@ -9,15 +9,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
 from f139.nci04_native_contract import Candidate, NativeContractError, digest, parse_intent
 
 MAX_CAPTURE_BYTES = 1_000_000
+# The signed provider limits each command excerpt to 4096 UTF-8 bytes.
+MAX_EXCERPT_BYTES = 4096
 # No user text, issue contents or candidate code may select the command line.
 COMMANDS = {
     "Wingless": (
@@ -113,6 +117,94 @@ def stage_candidate(candidate: Candidate, checkout: Path,
         raise
 
 
+def _stop_native_tree(process):
+    """Terminate fixed native test commands and inherited descendants.
+
+    This is best-effort process-tree cleanup, NOT a full OS-job security
+    sandbox; the worker must remain credential-free and separately isolated.
+    """
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, check=False, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if process.poll() is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+
+
+def _bounded_capture(argv, *, cwd, env, timeout_seconds):
+    """Capture at most 1 MB without blocking on a descendant-held pipe.
+
+    os.read returns available pipe bytes without waiting to fill 64 KiB.
+    A new process group permits best-effort cleanup of native descendants.
+    No untrusted argv, shell commands, credentials or native policy flags.
+    """
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    process = subprocess.Popen(list(argv), cwd=cwd, env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               stdin=subprocess.DEVNULL, creationflags=flags,
+                               start_new_session=(os.name != "nt"))
+    output = bytearray()
+    over_limit = threading.Event()
+    capture_errors = []
+
+    def drain():
+        try:
+            while True:
+                # BufferedIOBase.read(65536) could block while descendants
+                # held stdout open, even if the parent already overproduced.
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                remaining = MAX_CAPTURE_BYTES - len(output)
+                if len(chunk) > remaining:
+                    output.extend(chunk[:remaining])
+                    over_limit.set()
+                    _stop_native_tree(process)
+                    break
+                output.extend(chunk)
+        except OSError as exc:
+            if not over_limit.is_set():
+                capture_errors.append(exc)
+                _stop_native_tree(process)
+
+    reader = threading.Thread(target=drain, name="f139-native-output", daemon=True)
+    reader.start()
+    timed_out = False
+    try:
+        returncode = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _stop_native_tree(process)
+        returncode = process.wait(timeout=5)
+    # A successful parent must not conceal native descendants still writing.
+    reader.join(timeout=2)
+    orphaned_output = reader.is_alive() and not timed_out and not over_limit.is_set()
+    if reader.is_alive():
+        _stop_native_tree(process)
+        reader.join(timeout=5)
+    if reader.is_alive() or capture_errors:
+        raise NativeContractError("F139_NCI04_NATIVE_OUTPUT_READ_FAILED")
+    process.stdout.close()
+    if over_limit.is_set():
+        return bytes(output), -1, "OUTPUT_LIMIT"
+    if timed_out:
+        return bytes(output), -1, "TIMEOUT"
+    if orphaned_output:
+        return bytes(output), -1, "ORPHANED_OUTPUT"
+    return bytes(output), returncode, "PASS" if returncode == 0 else "TEST_FAILURE"
+
+
 def verify_fixed_commands(candidate: Candidate, stage: Path, *,
                           runner=None, timeout_seconds=600):
     """Run the fixed focused/complete/build inventory with no shell commands.
@@ -142,25 +234,62 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
     for argv in COMMANDS[candidate.lane]:
         started = time.monotonic()
         try:
-            p = run(list(argv), cwd=root, env=env,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL, check=False,
-                    timeout=timeout_seconds)
-            output = p.stdout or b""
-            returncode = p.returncode
-            outcome = "PASS" if returncode == 0 else "TEST_FAILURE"
+            if runner is None:
+                output, returncode, outcome = _bounded_capture(
+                    argv, cwd=root, env=env, timeout_seconds=timeout_seconds)
+            else:
+                # An injected test runner retains the prior fixed-command API.
+                p = run(list(argv), cwd=root, env=env,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, check=False,
+                        timeout=timeout_seconds)
+                output = p.stdout or b""
+                returncode = p.returncode
+                outcome = "PASS" if returncode == 0 else "TEST_FAILURE"
+                if len(output) > MAX_CAPTURE_BYTES:
+                    output = output[:MAX_CAPTURE_BYTES]
+                    returncode, outcome = -1, "OUTPUT_LIMIT"
         except subprocess.TimeoutExpired as ex:
             output = (ex.stdout or b"") if isinstance(ex.stdout, bytes) else b""
+            output = output[:MAX_CAPTURE_BYTES]
             returncode = -1
             outcome = "TIMEOUT"
         require(isinstance(output, bytes), "CHILD_OUTPUT_INVALID")
+        # The existing F139 provider receipt contract permits only PASS,
+        # TEST_FAILURE (positive exit code), and TIMEOUT (-1). An internal
+        # OUTPUT_LIMIT must become an explicitly annotated, schema-compatible
+        # negative; otherwise the original failure cannot be custodied.
+        diagnostic = ""
+        if outcome == "OUTPUT_LIMIT":
+            diagnostic = ("F139_NATIVE_OUTPUT_LIMIT: worker-generated "
+                          "TEST_FAILURE/1; native child killed; first "
+                          f"{MAX_CAPTURE_BYTES} bytes retained; tail unknown\n")
+            outcome, returncode = "TEST_FAILURE", 1
+        elif outcome == "ORPHANED_OUTPUT":
+            diagnostic = ("F139_NATIVE_ORPHANED_STDOUT_PIPE: native parent "
+                          "exited but descendants held the pipe; "
+                          "worker-generated TEST_FAILURE/1; "
+                          "process-tree cleanup attempted\n")
+            outcome, returncode = "TEST_FAILURE", 1
+        elif outcome == "TEST_FAILURE" and returncode <= 0:
+            diagnostic = ("F139_NATIVE_ABNORMAL_EXIT: "
+                          f"native_returncode={returncode}; worker-generated "
+                          "TEST_FAILURE/1\n")
+            returncode = 1
+        if outcome == "TIMEOUT" and len(output) == MAX_CAPTURE_BYTES:
+            diagnostic = "F139_NATIVE_TIMEOUT_CAPTURE_TRUNCATED\n"
+        # Preserve the digest/byte count of actually captured native stdout;
+        # annotate truncation in the excerpt, never forge a full-output hash.
+        preview = (diagnostic + output[:MAX_EXCERPT_BYTES].decode(
+            "utf-8", errors="replace")).encode("utf-8")[:MAX_EXCERPT_BYTES]
+        excerpt = preview.decode("utf-8", errors="ignore")
         results.append({
             "command": list(argv), "outcome": outcome,
             "returncode": returncode,
             "elapsed_ms": int((time.monotonic() - started) * 1000),
             "output_sha256": digest(output),
             "output_bytes": len(output),
-            "excerpt": output[:4096].decode("utf-8", errors="replace"),
+            "excerpt": excerpt,
         })
         if outcome != "PASS":
             break
