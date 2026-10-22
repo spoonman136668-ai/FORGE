@@ -148,7 +148,7 @@ class ReadOnlyReplayQualification(unittest.TestCase):
         out = self.check()
         self.assertTrue(out["numerical_agreement_within_frozen_tolerance"])
         self.assertTrue(out["q21_dev_threshold_signal"])
-        self.assertTrue(out["identical_trained_checkpoint_bytes"])
+        self.assertTrue(out["matching_reported_checkpoint_hashes"])
         self.assertEqual(out["original_scientific_first_use"], "NOT_PERFORMED")
         self.assertEqual(out["execution_authority"], "NONE")
         self.assertIn("REQUIRED", out["advisory_disposition"])
@@ -157,7 +157,7 @@ class ReadOnlyReplayQualification(unittest.TestCase):
         self.linux["by_family"][src.FAMILIES[0]]["arm_results"][
             ev.HISTORY[0]]["fit_cost"]["checkpoint_sha256"] = "c"*64
         out = self.check()
-        self.assertFalse(out["identical_trained_checkpoint_bytes"])
+        self.assertFalse(out["matching_reported_checkpoint_hashes"])
         self.assertEqual(len(out["checkpoint_hash_divergences"]), 1)
 
     def test_cross_os_data_and_source_identity_drift_are_fatal(self):
@@ -222,6 +222,17 @@ class ReadOnlyReplayQualification(unittest.TestCase):
         self.windows["by_family"][src.FAMILIES[0]][
             "gain"]["replicates"] = 2000
         with self.assertRaisesRegex(ValueError, "BOOTSTRAP_CONTRACT_DRIFT"):
+            self.check()
+
+    def test_cross_os_threshold_decision_must_match_even_within_float_tolerance(self):
+        # Two CI runs can agree within 1e-6 in all reported NLLs yet
+        # disagree on a binary threshold. That is not a reproducible GO.
+        a = self.windows["by_family"][src.FAMILIES[0]]["gain"]
+        b = self.linux["by_family"][src.FAMILIES[0]]["gain"]
+        a["lower_95"] = .00200005
+        b["lower_95"] = .00199995
+        with self.assertRaisesRegex(ValueError,
+                                    "CROSS_OS_SCIENTIFIC_DECISION_DRIFT"):
             self.check()
 
     def test_reconciliation_source_has_no_generator_training_or_dispatch_calls(self):
