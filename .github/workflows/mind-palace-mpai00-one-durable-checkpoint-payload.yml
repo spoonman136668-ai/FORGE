@@ -1,0 +1,140 @@
+name: Mind-Palace MP-AI00 sealed one-record checkpoint payload qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-one-durable-checkpoint-payload.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Native single-record promote, ledger, remote snapshots and validation in disposable main clone
+        id: qualify
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI00_PAYLOAD_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $expected='540bb8826f028f099ad3222ac21f17bbda7b8655'
+          $runRoot=Join-Path $env:RUNNER_TEMP ('mpai00-one-checkpoint-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $runRoot 'repo'
+          $outdir=Join-Path $env:GITHUB_WORKSPACE ('mpai00-one-checkpoint-'+$env:GITHUB_RUN_ID)
+          $files=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          Need (-not(Test-Path $runRoot)) 'RUNROOT_COLLISION'
+          Need (-not(Test-Path $outdir)) 'OUTPUT_COLLISION'
+          New-Item -ItemType Directory -Path $runRoot,$outdir -Force|Out-Null
+          $complete=$false
+          try {
+            $current=@(& git.exe ls-remote --exit-code $remote 'refs/heads/main')
+            Need ($LASTEXITCODE -eq 0 -and $current.Count -eq 1 -and
+              (([string]$current[0] -split '\s+')[0]) -ceq $expected) 'MAIN_REF_DRIFT'
+            & git.exe clone --quiet --single-branch --branch main $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $expected) 'CLONE_SOURCE'
+            $existing=@{}
+            $records=Join-Path $root '.ice/records.json'
+            $originalRecords=ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($records))
+            Need (@($originalRecords|Where-Object{$_.id -ceq 'decision/mp-ai-00-universal-agentic-improvement'}).Count -eq 0) 'EXISTING_RECORD'
+            foreach($x in $originalRecords){$existing[[string]$x.id]=$x}
+            $batch=Join-Path $root 'pilots/mixed-source/2026-10-22-mp-ai00-universal-agentic-charter.batch.json'
+            $collector=Join-Path $root 'tools/collect.ps1'
+            $classFile=Join-Path $runRoot 'classification.json'
+            $classText=(& $collector classify -InputPath $batch|Out-String).Trim()
+            $class=$classText | ConvertFrom-Json
+            Need ($class.result.counts.new -eq 1 -and $class.result.counts.review -eq 0 -and
+              $class.result.counts.supersede -eq 0 -and
+              $class.project_discovery.review -eq 0) 'CLASSIFY_CHANGED'
+            [IO.File]::WriteAllText($classFile,$classText)
+            $staged=((& $collector stage -InputPath $batch|Out-String).Trim()) | ConvertFrom-Json
+            Need ($staged.result.counts.new -eq 1 -and $staged.result.counts.review -eq 0) 'STAGE_CHANGED'
+            $pending=Join-Path $root '.mind-runtime/pending.jsonl'
+            Need (Test-Path $pending -PathType Leaf) 'PENDING_ABSENT'
+            Need (@([IO.File]::ReadAllLines($pending)|Where-Object{$_}).Count -eq 1) 'NOT_EXACT_ONE'
+            $response=(& (Join-Path $root 'tools/mind.ps1') checkpoint|Out-String).Trim()
+            Need ($response -match 'promoted=1 duplicates=0 retired=0') 'CHECKPOINT_PROMOTION'
+            $newRecords=ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($records))
+            Need (@($newRecords).Count -eq (@($originalRecords).Count+1)) 'RECORD_COUNT'
+            foreach($r in $newRecords){
+              if($r.id -ceq 'decision/mp-ai-00-universal-agentic-improvement'){
+                Need ($r.status -ceq 'observed' -and $r.project -ceq 'Mind-Palace') 'RECORD_STATUS'
+                Need ($r.details.canonical_key -ceq 'MP-AI-00-UNIVERSAL-AGENTIC-IMPROVEMENT') 'RECORD_MISSION'
+              } else {
+                Need ($existing.ContainsKey([string]$r.id)) 'UNEXPECTED_RECORD'
+                $before=ConvertTo-Json -InputObject $existing[[string]$r.id] -Depth 20 -Compress
+                $after=ConvertTo-Json -InputObject $r -Depth 20 -Compress
+                Need ($before -ceq $after) ('EXISTING_RECORD_CHANGED_'+[string]$r.id)
+              }
+            }
+            $ledgerText=(& (Join-Path $root 'tools/source-ledger.ps1') record -BatchPath $batch -ClassificationPath $classFile|Out-String).Trim()
+            $ledger=$ledgerText | ConvertFrom-Json
+            Need ($ledger.entries_added -eq 1 -and $ledger.already_recorded -eq 0) 'LEDGER_ENTRY'
+            & pwsh.exe -NoProfile -NonInteractive -File (Join-Path $root 'tools/remote-snapshot.ps1') -RepoRoot $root | Out-Null
+            Need ($LASTEXITCODE -eq 0) 'RENDER'
+            $validation=(& (Join-Path $root 'tools/update-checkpoint.ps1') validate|Out-String).Trim()
+            Need ($validation.Length -gt 0) 'CHECKPOINT_VALIDATE_EMPTY'
+            $state=@(& git.exe -C $root diff --name-only)
+            Need ($LASTEXITCODE -eq 0 -and $state.Count -ge 3) 'NO_DURABLE_CHANGES'
+            $allowed=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+              '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+              '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+            Need (@($state|Where-Object{$allowed -cnotcontains $_}).Count -eq 0) 'OUTSIDE_DURABLE_SCOPE'
+            Need ($state -contains '.ice/records.json' -and
+              $state -contains '.ice/source-ledger.json' -and
+              $state -contains '.ice/remote-index.ndjson') 'NECESSARY_MEMORY_SURFACES'
+            $manifest=[ordered]@{
+              schema='mind-palace.mpai00-sealed-checkpoint-payload.v1'
+              base_sha=$expected
+              record_id='decision/mp-ai-00-universal-agentic-improvement'
+              changed_paths=@($state|Sort-Object)
+              blobs=@()
+              new_record_count=1
+              ledger_entry_count=1
+              native_checkpoint_validation='PASS'
+              production_writes=0
+            }
+            foreach($p in $state){
+              $dataPath=Join-Path $root $p
+              $artifactPath=Join-Path $outdir $p
+              $folder=Split-Path -Parent $artifactPath
+              New-Item -ItemType Directory -Path $folder -Force|Out-Null
+              Copy-Item -LiteralPath $dataPath -Destination $artifactPath -Force
+              $blobHash=(Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              $manifest.blobs+=@([ordered]@{path=$p;sha256=$blobHash;size=(Get-Item $artifactPath).Length})
+            }
+            $json=(ConvertTo-Json -InputObject $manifest -Depth 9)+[Environment]::NewLine
+            [IO.File]::WriteAllText((Join-Path $outdir 'checkpoint-receipt.json'),$json)
+            Write-Host 'MPAI00_PAYLOAD_ONE_NEW_RECORD=PASS'
+            Write-Host 'MPAI00_PAYLOAD_SOURCE_LEDGER_ONE=PASS'
+            Write-Host 'MPAI00_PAYLOAD_NATIVE_CHECKPOINT_VALIDATE=PASS'
+            Write-Host ('MPAI00_PAYLOAD_CHANGED_PATHS='+$state.Count)
+            Write-Host 'MPAI00_PAYLOAD_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MPAI00_PAYLOAD_PAID_MODEL_CALLS=0'
+            $complete=$true
+          }finally{
+            if(Test-Path $runRoot){Remove-Item -LiteralPath $runRoot -Force -Recurse}
+            Need (-not(Test-Path $runRoot)) 'PRIVATE_SCRATCH_CLEAN'
+            if(-not $complete -and (Test-Path $outdir)){Remove-Item -LiteralPath $outdir -Force -Recurse}
+          }
+      - name: Preserve qualified private exact-bytes memory delta only
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpai00-one-checkpoint-payload
+          path: mpai00-one-checkpoint-${{ github.run_id }}/
+          if-no-files-found: error
+          retention-days: 3
