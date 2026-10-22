@@ -1,0 +1,138 @@
+name: CKB R18 KTRADE existing-queue and worker readiness READ ONLY
+on:
+  push:
+    branches: [audit/ckb-r18-ktrade-intake-readiness-20261022]
+    paths: [.github/workflows/ckb-r18-ktrade-intake-readiness.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-ktrade-intake-audit-20261022
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Pin original owner and single read-only KTRADE audit source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $base='261948b786f1934dffa20c6c7d40f61cd14b1ddd'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $p=[Security.Principal.WindowsPrincipal]::new($id)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-ktrade-intake-readiness-20261022' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $id.Name -ine 'LINKDEADKB\camar' -or
+              !$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+              (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+              (& git.exe merge-base $base HEAD) -cne $base -or
+              @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'CKB_KTRADE_OWNER_OR_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-ktrade-intake-readiness.yml'){
+            throw 'CKB_KTRADE_NON_AUDIT_SOURCE_DRIFT'
+          }
+          Write-Host 'CKB_KTRADE_AUDIT_OWNER_SOURCE=PASS'
+      - name: Confirm existing R5 pause, sole controller and original worker exclusion
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2' -or
+             (Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'){
+            throw 'CKB_KTRADE_LIVE_SOURCE_OR_CONFIG_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $oldRunner=Get-CimInstance Win32_Service -Filter "Name='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'" -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or
+             @($t.Actions).Count -ne 1 -or
+             [string]$t.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $processes.Count -ne 1 -or [string]$processes[0].ExecutablePath -ine $r5 -or
+             [string]$oldRunner.State -cne 'Stopped' -or [int]$oldRunner.ProcessId -ne 0){
+            throw 'CKB_KTRADE_R5_PROCESS_TASK_EXCLUSIVITY_FAIL'
+          }
+          Write-Host 'CKB_KTRADE_R5_SINGLETON_EXCLUSIVE=PASS'
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          $env:GH_PROMPT_DISABLED='1'
+          foreach($workflow in @('ckb-codex-worker.yml','ckb-fast-continuation-poller.yml')){
+            $state=@(& $gh api ('repos/spoonman136668-ai/ckb/actions/workflows/'+$workflow) --jq '.state' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $state.Count -ne 1) {throw 'CKB_KTRADE_ORIGINAL_WORKER_ROUTE_UNVERIFIED'}
+            Write-Host ('CKB_KTRADE_WORKFLOW_STATE_'+$workflow+'='+[string]$state[0])
+          }
+      - name: Read-only consistent SQLite KTRADE work-order and queue dedup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $code=@'
+          import json,sqlite3,sys,re
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          conn=sqlite3.connect("file:"+p.as_posix()+"?mode=ro",uri=True,timeout=5)
+          snapshot=sqlite3.connect(":memory:")
+          try:
+              conn.execute("PRAGMA query_only=ON")
+              conn.backup(snapshot,pages=64,sleep=0.05)
+              if snapshot.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
+                  raise ValueError("CKB_KTRADE_SQLITE_QUICK_CHECK_FAILED")
+              settings=dict(snapshot.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              if settings!={'paused':'true','autonomy_authority':'plane','autonomy_generation':'6'}:
+                  raise ValueError("CKB_KTRADE_PAUSE_GENERATION_DRIFT")
+              total=snapshot.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+              leases=snapshot.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              active=snapshot.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0]
+              if total!=198 or leases!=0 or active!=0:
+                  raise ValueError("CKB_KTRADE_WORKORDER_HISTORY_OR_LEASE_DRIFT")
+              order_rows=snapshot.execute("SELECT id,state FROM work_orders ORDER BY rowid").fetchall()
+              def matches(x):
+                  text=str(x).upper()
+                  return any(tag in text for tag in ('KTRADE','C75D3B2','RB1_SINGLE_TRACK','PBL0'))
+              def safe(x):
+                  x=str(x)
+                  return x if len(x)<=120 and re.fullmatch(r'[A-Za-z0-9_.:-]+',x) else 'REDACTED_INVALID_IDENTIFIER'
+              prior=[{'id':safe(i),'state':str(s)} for i,s in order_rows if matches(i)]
+              table=snapshot.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='queue_items'").fetchone()[0]
+              if table!=1:raise ValueError("CKB_KTRADE_QUEUE_TABLE_MISSING")
+              columns={str(c[1]) for c in snapshot.execute("PRAGMA table_info(queue_items)").fetchall()}
+              eligible=snapshot.execute("SELECT count(*) FROM queue_items WHERE state IN ('PENDING','QUEUED','RETRY_WAIT')").fetchone()[0]
+              queue_states=dict(snapshot.execute("SELECT state,count(*) FROM queue_items GROUP BY state"))
+              chosen=next((c for c in ('id','work_order_id','queue_id') if c in columns),None)
+              if not chosen:raise ValueError("CKB_KTRADE_QUEUE_IDENTITY_COLUMN_MISSING")
+              matches_queue=[]
+              for ident,state in snapshot.execute("SELECT "+chosen+",state FROM queue_items"):
+                  if matches(ident):
+                      matches_queue.append({'id':safe(ident),'state':str(state)})
+              result={'schema':'ckb-plane.r18.ktrade-readiness.v1','controller':'R18_R5',
+                      'generation':6,'paused':True,'native_queue_submitted':False,
+                      'work_orders_total':total,'active_workorders':active,'worker_leases':leases,
+                      'historical_ktrade_order_count':len(prior),'historical_ktrade_orders':prior[:24],
+                      'queue_state_counts':queue_states,'eligible_queue_count':eligible,
+                      'ktrade_queue_match_count':len(matches_queue),
+                      'ktrade_queue_matches':matches_queue[:24],
+                      'id_column':chosen,'quick_check':'ok','no_mutation':True}
+              out=json.dumps(result,separators=(',',':'))
+              if len(out.encode('utf-8'))>8500:raise ValueError("CKB_KTRADE_RECEIPT_UNBOUNDED")
+              print('CKB_KTRADE_NATIVE_INTAKE_RECEIPT='+out)
+          finally:
+              snapshot.close();conn.close()
+          '@
+          $python=(Get-Command python.exe -ErrorAction Stop).Source
+          $result=@(& $python -B -c $code $db 2>&1)
+          if($LASTEXITCODE -ne 0 -or $result.Count -ne 1 -or
+             [string]$result[0] -notlike 'CKB_KTRADE_NATIVE_INTAKE_RECEIPT=*'){
+            throw 'CKB_KTRADE_READONLY_INTAKE_QUERY_FAILED'
+          }
+          Write-Host ([string]$result[0])
+          Write-Host 'CKB_KTRADE_QUEUE_AND_HISTORY_AUDIT=PASS'
+          Write-Host 'CKB_KTRADE_WORKER_DISPATCH=NOT_ATTEMPTED'
+          Write-Host 'CKB_KTRADE_RESUME_OR_UNPAUSE=NOT_ATTEMPTED'
