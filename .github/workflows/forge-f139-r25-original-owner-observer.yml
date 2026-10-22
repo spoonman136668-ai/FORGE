@@ -137,9 +137,33 @@ jobs:
           '@
           Push-Location -LiteralPath $opts['RepositoryRoot']
           try {
-            $lines = & $opts['PythonExe'] -B -c $script $opts['Database'] $main
-            if ($LASTEXITCODE -ne 0) { throw 'R25_LIVE_EVENT_OR_ACTIVATION_UNVERIFIED' }
+            # Read-only observation until the authentic scheduled owner finishes
+            # its provider receipt, never invoke tick or dispatch manually.
+            $terminal = $false
+            for ($poll = 0; $poll -lt 13; $poll++) {
+              $lines = & $opts['PythonExe'] -B -c $script $opts['Database'] $main
+              if ($LASTEXITCODE -ne 0) { throw 'R25_LIVE_EVENT_OR_ACTIVATION_UNVERIFIED' }
+              $terminal = @($lines | Where-Object {
+                  $_ -match '^R25_NATIVE_STAGE=(VERIFIED|QUARANTINED)
+          } finally { Pop-Location }
+          $processes = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($opts['Database']) })
+          Write-Output ('R25_OWNER_TASK_STATE=' + [string]$ownerTask.State)
+          Write-Output ('R25_OWNER_CONTROLLER_PROCESS_COUNT=' + $processes.Count)
+          if ([string]$ownerTask.State -cne 'Running' -or $processes.Count -ne 1) {
+            throw 'R25_ORIGINAL_OWNER_NOT_RUNNING_ONCE'
+          }
+          Write-Output 'R25_WORKER_ACTIONS=NONE'
+          Write-Output 'R25_OWNER_PREEXISTING_STATE_UNCHANGED=TRUE'
+
+                }).Count -gt 0
+              if ($terminal) { break }
+              if ($poll -lt 12) { Start-Sleep -Seconds 10 }
+            }
             $lines | ForEach-Object { Write-Output $_ }
+            if (-not $terminal) { throw 'R25_NATIVE_ORIGINAL_OWNER_TERMINAL_NOT_OBSERVED' }
+            Write-Output 'R25_ORIGINAL_OWNER_NATIVE_TERMINAL_OBSERVED=PASS'
           } finally { Pop-Location }
           $processes = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
             Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
