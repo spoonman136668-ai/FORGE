@@ -1,0 +1,52 @@
+name: R18 R4 release identity collision read-only custody
+on:
+  push:
+    branches: [audit/ckb-r18-r4-collision-20261022]
+    paths: [.github/workflows/ckb-r18-r4-collision.yml]
+permissions:
+  contents: read
+jobs:
+  owner-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Record existing R4 release identity and original controller status without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[Security.Principal.WindowsPrincipal]::new($me)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r4-collision-20261022' -or
+             $me.Name -ine 'LINKDEADKB\camar' -or
+             !$owner.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_R4_COLLISION_AUDIT_OWNER_DRIFT'
+          }
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R4'
+          $exe=Join-Path $release 'bin\ckb-plane.exe'
+          $expected='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $state=[ordered]@{
+            schema='ckb-plane.r18.r4-preexisting-directory-custody.v1'
+            r4_release_directory_exists=Test-Path -LiteralPath $release -PathType Container
+            r4_release_directory_created_utc=if(Test-Path -LiteralPath $release -PathType Container){(Get-Item -LiteralPath $release).CreationTimeUtc.ToString('o')}else{$null}
+            r4_binary_exists=Test-Path -LiteralPath $exe -PathType Leaf
+            r4_binary_sha256=if(Test-Path -LiteralPath $exe -PathType Leaf){(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()}else{$null}
+            r4_binary_matches_sealed=if(Test-Path -LiteralPath $exe -PathType Leaf){(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $expected}else{$false}
+            r4_release_file_count=if(Test-Path -LiteralPath $release -PathType Container){@(Get-ChildItem -LiteralPath $release -File -Recurse).Count}else{0}
+            controller_task_state=[string]$task.State
+            controller_task_owner=[string]$task.Principal.UserId
+            controller_task_action=if([string]$task.Actions[0].Arguments -like '*Start-R1P-Controller.ps1*'){'R1P'}elseif([string]$task.Actions[0].Arguments -like '*Start-R18-Controller.ps1*'){'R18'}else{'UNKNOWN'}
+            controller_process_count=$proc.Count
+            controller_process_roles=@(foreach($x in $proc){if([string]$x.ExecutablePath -ieq $old){'R1P'}elseif([string]$x.ExecutablePath -ieq $exe){'R4'}else{'OTHER'}})
+            cutover_folder_exists=Test-Path -LiteralPath 'C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39808643557' -PathType Container
+            read_only=$true
+            source_modified=$false
+            task_modified=$false
+          }
+          $json=$state|ConvertTo-Json -Depth 6 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_COLLISION_RECEIPT_OVERSIZE'}
+          Write-Host ('R18_R4_RELEASE_COLLISION_AUDIT='+$json)
+          Write-Host 'R18_R4_COLLISION_READONLY_AUDIT=PASS'
