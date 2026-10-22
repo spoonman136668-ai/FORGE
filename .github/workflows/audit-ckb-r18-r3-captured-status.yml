@@ -1,0 +1,112 @@
+name: CKB R18 R3 failed cutover captured candidate status read only
+on:
+  push:
+    branches: [audit/ckb-r18-r3-captured-status-20261022]
+    paths: [.github/workflows/audit-ckb-r18-r3-captured-status.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r3-captured-status-readonly-20261022
+  cancel-in-progress: false
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - name: Check exact source and original R1P rollback identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='dad989c4fd1e0bbab6182114b9d962e7ca39ddf1'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r3-captured-status-20261022' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_R3_CAPTURE_OWNER_OR_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/audit-ckb-r18-r3-captured-status.yml'){
+            throw 'R18_R3_CAPTURE_SCOPE_NOT_READ_ONLY'
+          }
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($running.Count -ne 1 -or [string]$running[0].ExecutablePath -ine $old -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*' -or
+             (Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+                '3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'){
+            throw 'R18_R3_CAPTURE_R1P_ORIGINAL_NOT_RESTORED'
+          }
+          Write-Host 'R18_R3_CAPTURE_OWNER_SOURCE=PASS'
+          Write-Host 'R18_R3_CAPTURE_ORIGINAL_R1P_RESTORED=PASS'
+      - name: Read candidate native status recorded by failed 39801077826 before rollback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $dir='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39801077826'
+          $stdout=Join-Path $dir 'status.stdout'
+          $stderr=Join-Path $dir 'status.stderr'
+          if(!(Test-Path -LiteralPath $dir -PathType Container)){
+            throw 'R18_R3_FAILED_ATTEMPT_DIRECTORY_MISSING'
+          }
+          if(!(Test-Path -LiteralPath $stdout -PathType Leaf)){
+            Write-Host 'R18_R3_CAPTURED_NATIVE_STATUS=MISSING'
+            Write-Host 'R18_R3_CAPTURED_ROOT_CAUSE=NOT_DETERMINABLE'
+            return
+          }
+          $file=Get-Item -LiteralPath $stdout -ErrorAction Stop
+          if($file.PSIsContainer -or
+             ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+             $file.Length -lt 2 -or $file.Length -gt 16777216){
+            throw 'R18_R3_CAPTURE_INVALID_OR_OVERSIZED'
+          }
+          $capture=Get-Content -LiteralPath $stdout -Raw -ErrorAction Stop | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+          $fields=@('authority','controller_status','paused','heartbeat_stale','observed_at','heartbeat_at')
+          foreach($key in @('authority','controller_status','paused','heartbeat_stale')){
+            if(!$capture.Contains($key)){throw ('R18_R3_CAPTURE_MISSING_'+$key)}
+          }
+          $queueCount=if($capture.Contains('queue') -and $capture.queue -is [System.Collections.IDictionary]){
+            @($capture.queue.Keys).Count
+          }else{-1}
+          $blockerCount=if($capture.Contains('blockers') -and $capture.blockers -is [array]){
+            @($capture.blockers).Count
+          }else{-1}
+          $summary=[ordered]@{
+            schema='ckb-plane.r18.r3-pre-rollback-candidate-health.v1'
+            failure_run=39801077826
+            status_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant()
+            status_bytes=[int64]$file.Length
+            authority=[string]$capture.authority
+            controller_status=[string]$capture.controller_status
+            paused=[bool]$capture.paused
+            heartbeat_stale=[bool]$capture.heartbeat_stale
+            queue_field_count=[int]$queueCount
+            blockers_count=[int]$blockerCount
+            stderr_bytes=if(Test-Path -LiteralPath $stderr -PathType Leaf){[int64](Get-Item -LiteralPath $stderr).Length}else{-1}
+            raw_status_or_stderr_exported=$false
+            original_controller_modified=$false
+          }
+          if($summary.authority.Length -gt 64 -or
+             $summary.controller_status.Length -gt 150){
+            throw 'R18_R3_CAPTURE_UNBOUNDED_STATUS_FIELD'
+          }
+          $json=$summary|ConvertTo-Json -Depth 3 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 3072){throw 'R18_R3_CAPTURE_SUMMARY_OVERSIZED'}
+          Write-Host ('R18_R3_CAPTURED_PRE_ROLLBACK_STATUS='+$json)
+          Write-Host 'R18_R3_CAPTURE_NATIVE_HEALTH_READONLY=PASS'
+          Write-Host 'R18_R3_NO_CONTROLLER_RESTART=TRUE'
+          Write-Host 'R18_R3_NO_SCIENTIFIC_DISPATCH=TRUE'
