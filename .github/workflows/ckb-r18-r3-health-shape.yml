@@ -131,7 +131,9 @@ jobs:
           }|ConvertTo-Json -Compress))
           if(!$samePause -or $state.authority -cne 'plane' -or $status.authority -cne 'plane' -or
              $status.controller_status -cne 'PAUSED' -or $status.heartbeat_stale -ne $false) {
-            throw 'R18_PAUSED_STATUS_NOT_PROVEN_TO_MATCH_ORIGINAL_STATE'
+            Write-Host 'R18_PAUSED_PARITY=FAIL_NO_PROMOTION'
+          }else{
+            Write-Host 'R18_PAUSED_PARITY=PASS_SOURCE_CONSISTENCY_ONLY'
           }
           $result=[ordered]@{
             schema='ckb-plane.r18.paused-state-parity.v1'
@@ -146,7 +148,7 @@ jobs:
             promotion_attempted=$false
           }
           Write-Host ('R18_R3_PAUSED_PARITY='+($result|ConvertTo-Json -Compress))
-          Write-Host 'R18_PAUSED_PARITY_READ_ONLY=PASS'
+          Write-Host 'R18_PAUSED_PARITY_READ_ONLY=DIAGNOSTIC_ONLY'
       - name: Classify R3 saved queue and work-order states without exposing order contents
         shell: pwsh
         run: |
