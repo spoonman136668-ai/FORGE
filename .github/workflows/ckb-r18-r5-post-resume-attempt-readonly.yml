@@ -1,0 +1,157 @@
+name: CKB R18 R5 post-rejected-resume custody independent read only
+on:
+  push:
+    branches: [audit/ckb-r18-r5-after-resume-attempt-20261022]
+    paths: [.github/workflows/ckb-r18-r5-post-resume-attempt-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-post-rejected-resume-audit-20261022
+  cancel-in-progress: false
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Bind existing owner and exact independent audit-only source scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='7af471ea146401d1926b9189f03b2ca10f6c0eee'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr=[Security.Principal.WindowsPrincipal]::new($id)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-after-resume-attempt-20261022' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $id.Name -ine 'LINKDEADKB\camar' -or
+             !$pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_POSTRESUME_OWNER_OR_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-r5-post-resume-attempt-readonly.yml'){
+            throw 'R18_POSTRESUME_NOT_A_SINGLE_AUDIT_WORKFLOW'
+          }
+          Write-Host 'R18_POSTRESUME_READONLY_SOURCE_SCOPE=PASS'
+      - name: Reattest original R18 owner task and old authority shutdown
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $r1='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          foreach($pin in @(
+            @{p=$r5;sha='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{p=$r1;sha='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{p=$config;sha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $f=Get-Item -LiteralPath $pin.p -ErrorAction Stop
+            if($f.PSIsContainer -or ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $pin.p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sha){
+              throw 'R18_POSTRESUME_RELEASE_IDENTITY_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $svc=Get-CimInstance Win32_Service -Filter "Name='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'" -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar') -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R18-Controller.ps1*' -or
+             $p.Count -ne 1 -or [string]$p[0].ExecutablePath -ine $r5 -or
+             [string]$svc.State -cne 'Stopped' -or [int]$svc.ProcessId -ne 0){
+            throw 'R18_POSTRESUME_CONTROLLER_SINGLETON_OR_ORIGINAL_AUTHORITY_DRIFT'
+          }
+          $baseDir='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564'
+          foreach($relative in @('cutover-receipt.json','rollback\original-task.xml',
+                                 'rollback\original-autonomy.yaml','rollback\original-launcher.ps1',
+                                 'rollback\autonomy.db')){
+            $file=Get-Item -LiteralPath (Join-Path $baseDir $relative) -ErrorAction Stop
+            if($file.PSIsContainer -or $file.Length -le 0 -or
+               ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+              throw 'R18_POSTRESUME_ROLLBACK_FILE_UNAVAILABLE'
+            }
+          }
+          Write-Host 'R18_POSTRESUME_R5_EXCLUSIVE_OWNER_TASK=PASS'
+          Write-Host 'R18_POSTRESUME_OLD_RUNNER_STOPPED=PASS'
+          Write-Host 'R18_POSTRESUME_ROLLBACK_CUSTODY=PASS'
+      - name: Verify native PAUSED health and two consistent read-only SQLite snapshots
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $stdout=Join-Path $env:RUNNER_TEMP ('R18-AfterResume-'+$env:GITHUB_RUN_ID+'.out')
+          $stderr=Join-Path $env:RUNNER_TEMP ('R18-AfterResume-'+$env:GITHUB_RUN_ID+'.err')
+          if((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)){
+            throw 'R18_POSTRESUME_STATUS_SCRATCH_COLLISION'
+          }
+          try{
+            $proc=Start-Process -FilePath $r5 -ArgumentList @('controller','status','--config',('"' + $cfg + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr -ErrorAction Stop
+            if(!$proc.WaitForExit(30000)){
+              try{$proc.Kill()}catch{}
+              throw 'R18_POSTRESUME_NATIVE_STATUS_TIMEOUT'
+            }
+            if($proc.ExitCode -ne 0){throw 'R18_POSTRESUME_NATIVE_STATUS_EXIT_NONZERO'}
+            $f=Get-Item -LiteralPath $stdout -ErrorAction Stop
+            if($f.Length -lt 2 -or $f.Length -gt 8388608){throw 'R18_POSTRESUME_STATUS_SIZE_INVALID'}
+            $s=Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json -ErrorAction Stop
+            if([string]$s.authority -cne 'plane' -or
+               [string]$s.generation -cne '6' -or
+               [string]$s.controller_status -cne 'PAUSED' -or
+               $s.paused -ne $true -or
+               $s.heartbeat_stale -ne $false -or
+               $s.accepted_ref_mutation_allowed -ne $false -or
+               $null -ne $s.blockers -or @($s.jobs).Count -ne 198){
+              throw 'R18_POSTRESUME_PAUSE_OR_AUTHORITY_CHANGED'
+            }
+          }finally{
+            Remove-Item -LiteralPath $stdout,$stderr -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host 'R18_POSTRESUME_NATIVE_PAUSED_FRESH_HEARTBEAT=PASS'
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $code=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          source=sqlite3.connect('file:'+p.as_posix()+'?mode=ro',uri=True,timeout=5)
+          copy=sqlite3.connect(':memory:')
+          try:
+              source.execute('PRAGMA query_only=ON')
+              source.backup(copy,pages=64,sleep=0.05)
+              if copy.execute('PRAGMA quick_check').fetchall()!=[('ok',)]:
+                  raise RuntimeError('R18_POSTRESUME_SQLITE_INTEGRITY_INVALID')
+              settings=dict(copy.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              total=copy.execute('SELECT count(*) FROM work_orders').fetchone()[0]
+              active=copy.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0]
+              leases=copy.execute('SELECT count(*) FROM worker_leases').fetchone()[0]
+              q=dict(copy.execute('SELECT state,count(*) FROM queue_items GROUP BY state'))
+              eligible=copy.execute("SELECT count(*) FROM queue_items WHERE state IN ('PENDING','QUEUED','RETRY_WAIT')").fetchone()[0]
+              if settings!={'paused':'true','autonomy_authority':'plane','autonomy_generation':'6'} or total!=198 or active!=0 or leases!=0 or eligible!=0 or q!={'COMPLETED':131,'REVIEWED':70}:
+                  raise RuntimeError('R18_POSTRESUME_PAUSE_HISTORY_OR_QUEUE_DRIFT')
+              print(json.dumps({'schema':'ckb-plane.r18.after-failed-resume-readonly.v1','decision':'PAUSED_RETAINED','authority':'plane','generation':'6','work_orders':total,'active_work_orders':active,'worker_leases':leases,'queue_states':q,'eligible_queue':eligible,'quick_check':'ok','read_only':True,'autonomous_dispatch':False},separators=(',',':')))
+          finally:
+              copy.close();source.close()
+          '@
+          for($i=1;$i -le 2;$i++){
+            $res=@(& $py -B -c $code $db 2>&1)
+            if($LASTEXITCODE -ne 0 -or $res.Count -ne 1){throw 'R18_POSTRESUME_TRANSACTIONAL_AUDIT_FAILED'}
+            [void](ConvertFrom-Json -InputObject ([string]$res[0]) -ErrorAction Stop)
+            Write-Host ('R18_POSTRESUME_SQLITE_SAMPLE_'+$i+'='+[string]$res[0])
+            if($i -eq 1){Start-Sleep -Seconds 2}
+          }
+          Write-Host 'R18_POSTRESUME_TWO_INDEPENDENT_SNAPSHOTS=PASS'
+          Write-Host 'R18_POSTRESUME_RELEASE_UNPAUSED=FALSE'
+          Write-Host 'R18_POSTRESUME_RESEARCH_DISPATCH=NOT_ATTEMPTED'
+          Write-Host 'R18_POSTRESUME_AUTHORITY_DECISION=NO_GO'
