@@ -1,0 +1,47 @@
+name: CKB R18 original first-tick reconcilers source read-only
+on:
+  push:
+    branches: [audit/ckb-r18-first-tick-reconcilers-20261022]
+    paths: [.github/workflows/ckb-r18-first-tick-reconcilers.yml]
+permissions:
+  contents: read
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Inspect exact installed reconcile functions with bounded source excerpts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($me)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-first-tick-reconcilers-20261022' -or
+             $me.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+             throw 'R18_FIRST_TICK_SOURCE_AUDIT_OWNER_BOUNDARY'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane\internal\plane'
+          $files=@(Get-ChildItem -LiteralPath $root -File -Filter '*.go' -ErrorAction Stop)
+          if($files.Count -gt 700){throw 'R18_INSTALLED_GO_SOURCE_COUNT_OUT_OF_BOUNDS'}
+          $targets=@('reconcileObjectives','reconcilePineSuccessor','reconcileExternalOrchestratorHandoffs')
+          $seen=@{}
+          foreach($file in $files){
+            if(($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'R18_SOURCE_SYMLINK_REJECTED'}
+            $lines=@(Get-Content -LiteralPath $file.FullName -ErrorAction Stop)
+            for($i=0;$i -lt $lines.Count;$i++){
+              foreach($name in $targets){
+                if($lines[$i] -notmatch ('^func \(p \*Engine\) '+$name+'\(')){continue}
+                if($seen.ContainsKey($name)){throw 'R18_RECONCILER_FUNCTION_DUPLICATE'}
+                $seen[$name]=$file.Name
+                Write-Host ('R18_RECONCILER_NAME='+$name+' FILE='+$file.Name+' SHA256='+(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+' START='+($i+1))
+                $finish=[Math]::Min($lines.Count-1,$i+138)
+                for($n=$i;$n -le $finish;$n++){
+                  Write-Host ('R18_SOURCE_'+($n+1)+'='+[string]$lines[$n])
+                }
+              }
+            }
+          }
+          foreach($needed in $targets){if(!$seen.ContainsKey($needed)){throw 'R18_INSTALLED_RECONCILER_MISSING'}}
+          Write-Host 'R18_FIRST_TICK_RECONCILER_CODE_AUDIT=PASS_READ_ONLY'
