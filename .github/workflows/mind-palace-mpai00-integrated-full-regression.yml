@@ -1,0 +1,108 @@
+name: Mind-Palace MP-AI00 integrated charter exact-source full Windows regression
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-integrated-full-regression.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai00-integrated-full-regression
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One final Windows full regression at immutable integrated charter head
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$value,[string]$why){if(-not $value){throw ('MPAI00_FULL_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai00-charter-on-qualified-repair-20261022'
+          $source='d9f745893df11e9222d71edf5c56a2c79f666245'
+          $parent='54661851cadb699f45205338a43183c5220bafd1'
+          $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-full-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $out=Join-Path $scratch 'full.stdout'
+          $err=Join-Path $scratch 'full.stderr'
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $scope=@('docs/AGENTIC_IMPROVEMENT_NORTH_STAR.md',
+            'pilots/mixed-source/2026-10-22-mp-ai00-universal-agentic-charter.batch.json',
+            'tests/Test-MPAI00CharterDecision.ps1')
+          function Pin([string]$ref,[string]$sha){
+            $v=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $v.Count -eq 1 -and
+              (([string]$v[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          $hashes=@{}
+          $captured=$false
+          try {
+            Pin ('refs/heads/'+$branch) $source
+            Pin 'refs/heads/repair/mpai00-crlf-checkpoint-20261022' $parent
+            Pin 'refs/heads/main' $main
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'HEAD_IDENTITY'
+            & git.exe -C $root merge-base --is-ancestor $parent $source
+            Need ($LASTEXITCODE -eq 0) 'PARENT_ANCESTRY'
+            $changed=@(& git.exe -C $root diff --name-only $parent $source)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed|Sort-Object)-join '|') -ceq (($scope|Sort-Object)-join '|')) 'SOURCE_SCOPE'
+            foreach($p in $protected){
+              $hashes[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $captured=$true
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $run=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')
+            ) -WorkingDirectory $root -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
+            $stdout=[IO.File]::ReadAllText($out)
+            if($run.ExitCode -ne 0){
+              $last=@([regex]::Matches($stdout,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object{$_.Value})
+              if($last.Count -gt 0){Write-Host ('MPAI00_FULL_LAST_TEST='+[string]$last[-1])}
+              $errors=@([IO.File]::ReadAllLines($err)|Where-Object{$_ -match 'Exception|Error|failed|throw'}|Select-Object -Last 5)
+              foreach($line in $errors){
+                $short=[string]$line
+                if($short.Length -gt 210){$short=$short.Substring(0,210)}
+                Write-Host ('MPAI00_FULL_ERROR_DETAIL='+$short)
+              }
+              throw 'MPAI00_FULL_REGRESSION_FAILED'
+            }
+            Need ($stdout.Contains('Mind-Palace regression suite passed')) 'FULL_PASS_MARKER_MISSING'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
+            Pin ('refs/heads/'+$branch) $source
+            Pin 'refs/heads/repair/mpai00-crlf-checkpoint-20261022' $parent
+            Pin 'refs/heads/main' $main
+            Write-Host 'MPAI00_INTEGRATED_FULL_WINDOWS_REGRESSION=PASS'
+            Write-Host 'MPAI00_INTEGRATED_SOURCE_IDENTITY=PASS'
+            Write-Host 'MPAI00_INTEGRATED_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI00_INTEGRATED_PAID_MODEL_CALLS=0'
+          } finally {
+            if($captured){
+              foreach($p in $protected){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('PROTECTED_HASH_DRIFT_'+$p)
+              }
+              Write-Host 'MPAI00_INTEGRATED_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI00_INTEGRATED_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
