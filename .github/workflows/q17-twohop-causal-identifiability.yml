@@ -1,0 +1,90 @@
+name: Q17 frozen two-hop causal identifiability source-only Windows Linux
+on:
+  push:
+    branches: [research/q17-twohop-intervention-identifiability-20261022]
+    paths: [.github/workflows/q17-twohop-causal-identifiability.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q17-frozen-sourceonly-20261022
+  cancel-in-progress: false
+jobs:
+  exact-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows
+            runs_on: '["self-hosted", "Windows", "forge-codex-isolated"]'
+          - os: linux
+            runs_on: '["ubuntu-24.04"]'
+    runs-on: ${{ fromJSON(matrix.runs_on) }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Pin source and verify exactly four new files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $parent='6b8d9264cc7b563a7a55843d3fa1d31568946e37'
+          $actual=(& git rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $actual-cne$parent){throw 'Q17_WORKFLOW_PARENT_DRIFT'}
+          $ancestor=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$base){throw 'Q17_FROZEN_BASE_NOT_ANCESTOR'}
+          $expected=@(
+            '.github/workflows/q17-twohop-causal-identifiability.yml',
+            'research/q17_twohop_identifiability/FROZEN_PROTOCOL.json',
+            'research/q17_twohop_identifiability/screen.py',
+            'research/q17_twohop_identifiability/test_screen.py'
+          )
+          $paths=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $paths)){throw 'Q17_SCOPE_NOT_EXACT_FOUR_ADDITIONS'}
+          foreach($pin in @(
+            @('research/q17_twohop_identifiability/FROZEN_PROTOCOL.json','18fcff8607d93b9596cb22e5b190ac9fda8bd61f'),
+            @('research/q17_twohop_identifiability/screen.py','f7f164c776c8343dc060d79b3639161350220cee'),
+            @('research/q17_twohop_identifiability/test_screen.py','e0b9be415b401717d6cfe1e695b72a5ee095347b')
+          )){
+            $sha=(& git rev-parse ('HEAD:'+$pin[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $sha-cne$pin[1]){throw ('Q17_FROZEN_GIT_BLOB_DRIFT_'+$pin[0])}
+          }
+          $bytes=(& git hash-object --no-filters -- research/q17_twohop_identifiability/FROZEN_PROTOCOL.json).Trim()
+          if($LASTEXITCODE-ne0 -or $bytes-cne'18fcff8607d93b9596cb22e5b190ac9fda8bd61f'){throw 'Q17_DISK_PREIMAGE_DRIFT'}
+          Write-Host 'Q17_FROZEN_PREEXECUTION_GIT_AND_DISK_SCOPE=PASS'
+      - name: Set Python platform runtime and execute source-only exact test suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -ceq 'Windows'){
+            $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+            if(!(Test-Path -LiteralPath $py -PathType Leaf)){throw 'Q17_EXISTING_NATIVE_PYTHON_MISSING'}
+          }else{
+            $py='python3'
+          }
+          & $py -B -m unittest discover -s research/q17_twohop_identifiability -p test_screen.py -v
+          if($LASTEXITCODE-ne0){throw 'Q17_EXACT_SOURCE_FOCUSED_UNIT_FAIL'}
+          & $py -B research/q17_twohop_identifiability/screen.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q17_FORMAL_CUSTODY_SELFTEST_FAIL'}
+          & $py -B research/q17_twohop_identifiability/screen.py --mode information-screen
+          if($LASTEXITCODE-ne0){throw 'Q17_EXACT_CAUSAL_INFORMATION_SCREEN_FAIL'}
+          Write-Host 'Q17_SOURCEONLY_EXACT_BAYES_SYMBOLIC_SCREEN=PASS'
+          Write-Host 'Q17_LEARNED_COGNITION_AND_SCIENTIFIC_FIRST_USE=NOT_CLAIMED'
+      - name: Verify no source or original science mutations
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q17_SOURCE_TREE_DIRTY'}
+          Write-Host 'Q17_WORKTREE_UNCHANGED=PASS'
+          Write-Host 'Q17_G61_FULL_FORGE_REGRESSION=NOT_RUN_IN_SOURCE_ONLY_SCREEN'
+          Write-Host 'Q17_PROTECTED_HELD_AND_ORIGINAL_SOURCE=NOT_CONSUMED'
