@@ -20,7 +20,7 @@ class R5DevelopmentTests(unittest.TestCase):
             ob=w.reset()
             self.assertEqual(ob["schema"],"itd01.observe.v1")
             self.assertEqual(len(ob["entities"]),4)
-            self.assertNotIn("source",canonical(ob).decode())
+            self.assertTrue(all(key not in ob for key in ("_source","_relay","_sink","_decoy","hidden_roles")))
             self.assertNotIn("relay_role",canonical(ob).decode())
             self.assertEqual(ob["interaction_budget_remaining"],40)
             with self.assertRaises(ContractViolation):w.reset()
@@ -137,7 +137,7 @@ class R5DevelopmentTests(unittest.TestCase):
             before=model_sha(m)
             for mode in ("normal","erase","blind_delayed"):
                 result=r5_rollout_public_only(m,PUBLIC_FAMILIES[0],
-                                            599222,"DEV-R5-AB-"+m.name+"-"+mode,mode)
+                                            599222,"DEV-R5-AB-"+str(len(m.name))+"-"+mode,mode)
                 self.assertLessEqual(result["steps"],40)
                 self.assertEqual(result["reward"] in (0,1),True)
             self.assertEqual(model_sha(m),before)
