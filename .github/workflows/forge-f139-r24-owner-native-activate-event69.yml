@@ -1,0 +1,195 @@
+name: FORGE F139 R24 owner native activation at event 69
+on:
+  push:
+    branches: [proposal/f139-r24-owner-native-activate-event69-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-mutations
+  cancel-in-progress: false
+jobs:
+  original-owner-native-activate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Authenticate, quiesce, activate once, verify, restore existing owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $source = 'ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $head69 = '32ddad1d02c5353a596443f156153e02662abf5fea80ac1c59b898323aa4d92a'
+          $taskName = 'FORGE-F139-UnifiedController'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r24-owner-native-activate-event69-20261022' -or
+              $env:GITHUB_EVENT_NAME -cne 'push' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R24_UNQUALIFIED_RUNNER_ACTOR_OR_PAID_API'
+          }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = New-Object Security.Principal.WindowsPrincipal($who)
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R24_OWNER_ADMIN_TOKEN_MISSING'
+          }
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or
+              [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe') {
+            throw 'R24_ORIGINAL_SCHEDULED_TASK_IDENTITY_DRIFT'
+          }
+          $taskUser = [string]$task.Principal.UserId
+          $taskSid = if ($taskUser -match '^S-1-') { $taskUser } else {
+            (New-Object Security.Principal.NTAccount($taskUser)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($taskSid -cne $who.User.Value) { throw 'R24_OWNER_SID_MISMATCH' }
+          $opts = @{}
+          foreach ($key in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match([string]$task.Actions[0].Arguments,
+                '(?i)(?:^|\s)-' + $key + '\s+"([^"]+)"')
+            if (-not $match.Success) { throw ('R24_MISSING_ORIGINAL_TASK_ARG_' + $key) }
+            $opts[$key] = $match.Groups[1].Value
+          }
+          $root = $opts['RepositoryRoot']
+          $python = $opts['PythonExe']
+          $db = $opts['Database']
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedKey = Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine
+                [IO.Path]::GetFullPath($expectedKey) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $expectedKey -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $db -PathType Leaf)) {
+            throw 'R24_ORIGINAL_OWNER_PROFILE_DRIFT'
+          }
+          $localSha = (& git -C $root rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $localSha -cne $source) {
+            throw 'R24_ORIGINAL_CHECKOUT_SOURCE_DRIFT'
+          }
+          $dirty = (& git -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+            throw 'R24_ORIGINAL_CHECKOUT_NOT_CLEAN'
+          }
+          $main = (& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha' |
+            Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $main -cne $source) {
+            throw 'R24_PROTECTED_MAIN_CHANGED'
+          }
+          Push-Location -LiteralPath $root
+          $taskTouched = $false
+          $approvalFile = $null
+          try {
+            function Read-OwnerStatus {
+              $raw = & $python -B -m f139.local_controller --db $db status
+              if ($LASTEXITCODE -ne 0) { throw 'R24_ORIGINAL_LEDGER_READ_FAILED' }
+              return (($raw | Out-String | ConvertFrom-Json).status)
+            }
+            function Assert-Owner69($state) {
+              $negative = @($state.tasks | Where-Object { $_.stage -ceq 'QUARANTINED' })
+              $negNames = @($negative | ForEach-Object { $_.ticket } | Sort-Object)
+              if ($state.meta.head_seq -ne 69 -or
+                  $state.meta.head_hash -cne $head69 -or
+                  $state.meta.source_sha -cne $source -or
+                  $state.meta.enabled -ne 1 -or
+                  $state.meta.legacy_suspended -ne 1 -or
+                  @($state.tasks).Count -ne 11 -or
+                  @($state.tasks | Where-Object { $_.stage -ceq 'VERIFIED' }).Count -ne 9 -or
+                  $negative.Count -ne 2 -or
+                  $negNames[0] -cne 'f139-nci04-i696-5662e3586bc9-7bb8f27f' -or
+                  $negNames[1] -cne 'f139-nci04-i706-09f3d7447900-09dc99f4' -or
+                  @($state.tasks | Where-Object { $_.stage -in @('READY','CLAIMED','START_RISK') }).Count -ne 0) {
+                throw 'R24_EVENT69_OR_NEGATIVE_CUSTODY_CHANGED'
+              }
+            }
+            function Owner-Processes {
+              return @(Get-CimInstance Win32_Process -ErrorAction Stop |
+                Where-Object { $_.Name -in @('python.exe','pythonw.exe') -and
+                  $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($db) })
+            }
+            $before = Read-OwnerStatus
+            Assert-Owner69 $before
+            if ([string](Get-ScheduledTask -TaskName $taskName).State -cne 'Running' -or
+                @(Owner-Processes).Count -ne 1) {
+              throw 'R24_EXISTING_OWNER_NOT_SINGLE_RUNNING_PROCESS'
+            }
+            Write-Output 'R24_EVENT69_AUTHENTICATED=PASS'
+            Write-Output 'R24_OWNER_SINGLE_PROCESS=PASS'
+            $taskTouched = $true
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            $quiesced = $false
+            for ($poll = 0; $poll -lt 20; $poll++) {
+              Start-Sleep -Seconds 2
+              if ([string](Get-ScheduledTask -TaskName $taskName).State -ceq 'Disabled' -and
+                  @(Owner-Processes).Count -eq 0) {
+                $quiesced = $true
+                break
+              }
+            }
+            if (-not $quiesced) { throw 'R24_OWNER_NOT_QUIESCED_NO_MUTATION' }
+            $stopped = Read-OwnerStatus
+            Assert-Owner69 $stopped
+            Write-Output 'R24_ORIGINAL_OWNER_QUIESCED=PASS'
+            $approval = [ordered]@{
+              schema = 'forge.f139.nci04.owner-native-approval.v1'
+              source_sha = $source
+              expected_event_head_sha256 = $head69
+              native_development_approved = $true
+              scientific_first_use = $false
+              create_controller = $false
+              paid_api_calls = 0
+            }
+            $approvalFile = [IO.Path]::GetTempFileName()
+            [IO.File]::WriteAllText($approvalFile,
+              ($approval | ConvertTo-Json -Compress),
+              (New-Object System.Text.UTF8Encoding($false)))
+            $activated = & $python -B -m f139.local_controller --db $db activate-native --approval $approvalFile
+            if ($LASTEXITCODE -ne 0) { throw 'R24_OWNER_NATIVE_ACTIVATION_FAILED' }
+            $after = Read-OwnerStatus
+            if ($after.meta.head_seq -ne 70 -or $after.meta.source_sha -cne $source -or
+                @($after.tasks).Count -ne 11 -or
+                @($after.tasks | Where-Object { $_.stage -ceq 'VERIFIED' }).Count -ne 9 -or
+                @($after.tasks | Where-Object { $_.stage -ceq 'QUARANTINED' }).Count -ne 2) {
+              throw 'R24_EVENT70_COLD_READBACK_FAILED'
+            }
+            $readback = 'from pathlib import Path; import sys; from f139.local_controller import Database; from f139.nci04_owner_ledger import verify_native_activation; d=Database(Path(sys.argv[1])); r=d.conn.execute("SELECT kind,prior_sha FROM events WHERE seq=70").fetchone(); m=d.meta(); ok=(verify_native_activation(d) and r is not None and r["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED" and r["prior_sha"]==sys.argv[2] and m["source_sha"]==sys.argv[3]); print("PASS" if ok else "BLOCKED"); d.close()'
+            $verified = (& $python -B -c $readback $db $head69 $source | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $verified -cne 'PASS') {
+              throw 'R24_NATIVE_ACTIVATION_CHAIN_PROOF_FAILED'
+            }
+            Write-Output 'R24_NATIVE_ACTIVATION_EVENT70=PASS'
+            Write-Output ('R24_EVENT70_HEAD=' + [string]$after.meta.head_hash)
+            Write-Output 'R24_ORIGINAL_NEGATIVES=PRESERVED'
+            Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $restored = $false
+            for ($poll = 0; $poll -lt 20; $poll++) {
+              Start-Sleep -Seconds 2
+              if ([string](Get-ScheduledTask -TaskName $taskName).State -ceq 'Running' -and
+                  @(Owner-Processes).Count -eq 1) {
+                $restored = $true
+                break
+              }
+            }
+            if (-not $restored) { throw 'R24_ORIGINAL_OWNER_RESTART_UNVERIFIED' }
+            Write-Output 'R24_ORIGINAL_CONTROLLER_RESTORED=PASS'
+            Write-Output 'R24_NATIVE_DEVELOPMENT_ACTIVATED=TRUE'
+            Write-Output 'R24_NO_NEW_CONTROLLER=PASS'
+            Write-Output 'R24_SCIENTIFIC_FIRST_USE=FALSE'
+            Write-Output 'R24_NEW_DISPATCHES_BY_ACTIVATION=0'
+          } catch {
+            if ($taskTouched) {
+              Disable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
+              Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+              Write-Output 'R24_FAIL_CLOSED_ORIGINAL_CONTROLLER_DISABLED_REVIEW_REQUIRED'
+            }
+            throw
+          } finally {
+            if ($approvalFile -and (Test-Path -LiteralPath $approvalFile)) {
+              Remove-Item -LiteralPath $approvalFile -Force -ErrorAction SilentlyContinue
+            }
+            Pop-Location
+          }
