@@ -164,3 +164,61 @@ jobs:
           Write-Host ('CKB_KTRADE_PENDING_FILES_READONLY='+$json)
           Write-Host 'CKB_KTRADE_PENDING_QUEUE_RECONCILIATION=PASS'
           Write-Host 'CKB_KTRADE_NO_NATIVE_WORKORDER_SUBMISSION=TRUE'
+      - name: Match each pending envelope against original terminal queue state without replay
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $pending='C:\Users\camar\GolandProjects\ckb-plane\workorders\pending'
+          $code=@'
+          import sqlite3,sys,json,re
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          pending=Path(sys.argv[2]).resolve(strict=True)
+          conn=sqlite3.connect("file:"+db.as_posix()+"?mode=ro",uri=True,timeout=5)
+          memory=sqlite3.connect(":memory:")
+          try:
+              conn.execute("PRAGMA query_only=ON")
+              conn.backup(memory,pages=64,sleep=0.05)
+              if memory.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
+                  raise RuntimeError("CKB_PENDING_DB_INTEGRITY_FAIL")
+              entries=sorted(pending.glob("*.json"))
+              if len(entries)>5000:raise RuntimeError("CKB_PENDING_SCAN_OVERSIZED")
+              items=[]
+              summary={"TERMINAL_INDEXED":0,"INDEXED_NONTERMINAL":0,"UNINDEXED":0}
+              for p in entries:
+                  if p.is_symlink() or not p.is_file():raise RuntimeError("CKB_PENDING_FILE_NOT_REGULAR")
+                  ident=p.stem
+                  if not re.fullmatch(r'[A-Za-z0-9_-]{1,120}',ident):raise RuntimeError("CKB_PENDING_FILE_ID_INVALID")
+                  rows=memory.execute("SELECT state,authorization,mode FROM queue_items WHERE id=?",(ident,)).fetchall()
+                  wo=memory.execute("SELECT state FROM work_orders WHERE id=?",(ident,)).fetchone()
+                  if len(rows)>1:raise RuntimeError("CKB_PENDING_DUPLICATE_DB_ID")
+                  if not rows:
+                      category="UNINDEXED"
+                      state="ABSENT"
+                      authorization="ABSENT"
+                      mode="ABSENT"
+                  else:
+                      state,authorization,mode=rows[0]
+                      category="TERMINAL_INDEXED" if state in ("COMPLETED","REVIEWED") else "INDEXED_NONTERMINAL"
+                  summary[category]+=1
+                  items.append({"id":ident,"classification":category,"queue_state":state,
+                      "authorization":authorization,"mode":mode,
+                      "workorder_state":wo[0] if wo else "ABSENT"})
+              result={"schema":"ckb-plane.r18.ktrade-pending-dedup.v1",
+                  "pending_count":len(items),"categories":summary,"pending_records":items,
+                  "mutated":False,"eligible_authorized_to_dispatch":False}
+              out=json.dumps(result,separators=(",",":"))
+              if len(out.encode("utf-8"))>12000:raise RuntimeError("CKB_PENDING_DEDUP_RECEIPT_TOO_LARGE")
+              print("CKB_KTRADE_PENDING_DEDUP_RECEIPT="+out)
+          finally:
+              memory.close();conn.close()
+          '@
+          $python=(Get-Command python.exe -ErrorAction Stop).Source
+          $out=@(& $python -B -c $code $db $pending 2>&1)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or
+             [string]$out[0] -notlike 'CKB_KTRADE_PENDING_DEDUP_RECEIPT=*'){
+            throw 'CKB_PENDING_HISTORIC_QUEUE_RECONCILIATION_FAILED'
+          }
+          Write-Host ([string]$out[0])
+          Write-Host 'CKB_KTRADE_DEDUP_NO_QUEUE_OR_CONTROLLER_MUTATION=PASS'
