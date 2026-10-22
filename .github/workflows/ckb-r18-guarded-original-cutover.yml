@@ -36,11 +36,25 @@ jobs:
           $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STATUSFIX-20261022'
           $oldExe=Join-Path $old 'bin\ckb-plane.exe'
           $newExe=Join-Path $new 'bin\ckb-plane.exe'
-          $candidate='C:\actions-runner-ktrade\_work\_temp\R18Parity-39867583388\r18-qualified-candidate.exe'
+          $incoming=Join-Path $env:RUNNER_TEMP ('r18-retained-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $incoming){throw 'R18_ARTIFACT_STAGING_PATH_REUSED'}
+          New-Item -Path $incoming -ItemType Directory -ErrorAction Stop|Out-Null
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          & $gh run download 39868468278 -R spoonman136668-ai/ckb-plane -n r18-exact-source-controller-candidate -D $incoming
+          if($LASTEXITCODE -ne 0){throw 'R18_QUALIFIED_ARTIFACT_DOWNLOAD_NOT_AUTHORIZED'}
+          $manifestFile=Join-Path $incoming 'manifest.json'
+          $manifest=Get-Content -LiteralPath $manifestFile -Raw|ConvertFrom-Json
+          if($manifest.schema -cne 'ckb-plane.r18-statusfix-candidate.v1' -or
+             $manifest.build_run -cne '39868468278' -or
+             $manifest.parity_run -cne '39867583388' -or
+             $manifest.reviewed_patch -cne '05e80b854ca106ce0469768e3c19bd508ad17016' -or
+             $manifest.sha256 -cne 'da8f5f7fb159025b337d77db6d778b332be12679d098aafb192a3f0a668f690b' -or
+             $manifest.not_authorized_for_execution -ne $true){throw 'R18_TRANSFER_MANIFEST_SOURCE_DRIFT'}
+          $candidate=Join-Path $incoming 'ckb-plane.exe'
           $config=Join-Path $root 'config\autonomy.yaml'
           $db=Join-Path $root 'state\autonomy.db'
           $oldHash='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
-          $newHash='b9e4230bcf7f717679fef4b33638b3aaa6cf5471ff38f2f8a7baa38513fb74f6'
+          $newHash='da8f5f7fb159025b337d77db6d778b332be12679d098aafb192a3f0a668f690b'
           $wrapperHash='e25977f2e887d665f1458d3f085d5eacf71c824ac0f27cf3ebafe7e9bd074a3b'
           $taskName='CKB-plane Controller'
           function Sha([string]$path){(Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
