@@ -66,7 +66,7 @@ class PublicTranscript:
         x += [float(self.public_confirmed == n) for n in self.names]
         x += [min(self.ticks_after_act, 4) / 4., min(observation["turn"], 40)/40.]
         x += [float(self.family_on == "fill"),
-              float(self.previous_action is not None and self.previous_action["verb"] == "wait")]
+              float(any(e.get("kind") in ("relay_pulse", "inflow_arrived") for e in self.active_events))]
         assert len(x) == N_INPUT, len(x)
         return x
 
