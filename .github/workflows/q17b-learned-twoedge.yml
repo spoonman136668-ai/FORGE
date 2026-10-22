@@ -1,0 +1,124 @@
+name: Q17B learned two-edge causal composition source-free dev
+on:
+  push:
+    branches: [research/q17b-learned-twoedge-composition-20261022]
+    paths: [.github/workflows/q17b-learned-twoedge.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q17b-synthetic-frozen-first-development-20261022
+  cancel-in-progress: false
+jobs:
+  sourcefree:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: owner-windows
+            host: '["self-hosted", "Windows", "forge-codex-isolated"]'
+          - name: hosted-linux
+            host: '["ubuntu-24.04"]'
+    runs-on: ${{ fromJSON(matrix.host) }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          clean: true
+      - name: Frozen source exact identity and add-only scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $parent='45f19e01c5d56e6ede5e791b926512ddd823bef1'
+          $got=(& git rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $got-cne$parent){throw 'Q17B_PREEXECUTION_PARENT_DRIFT'}
+          $root=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $root-cne$base){throw 'Q17B_RESEARCH_BASE_DRIFT'}
+          $paths=@(
+            '.github/workflows/q17b-learned-twoedge.yml',
+            'research/q17b_twoedge/FROZEN_PROTOCOL.json',
+            'research/q17b_twoedge/experiment.py',
+            'research/q17b_twoedge/test_experiment.py'
+          )
+          $changes=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $changes $paths)){
+            throw 'Q17B_EXACT_FOUR_ADDITIONS_ONLY'
+          }
+          foreach($entry in @(
+            @('research/q17b_twoedge/FROZEN_PROTOCOL.json','7b09596afb9a3e2859f2de20e470c91416d94578'),
+            @('research/q17b_twoedge/experiment.py','ba447295eaedd094907e56faef67fad2bfc283c3'),
+            @('research/q17b_twoedge/test_experiment.py','b3c0051234312280c0fc286e016320e6156b17df')
+          )){
+            $blob=(& git rev-parse ('HEAD:'+$entry[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $blob-cne$entry[1]){
+              throw ('Q17B_FROZEN_BLOB_CHANGED_'+$entry[0])
+            }
+          }
+          $worktreeBlob=(& git hash-object --no-filters -- research/q17b_twoedge/FROZEN_PROTOCOL.json).Trim()
+          if($LASTEXITCODE-ne0 -or $worktreeBlob-cne'7b09596afb9a3e2859f2de20e470c91416d94578'){
+            throw 'Q17B_PROTOCOL_BYTES_DIFFER_ON_DISK'
+          }
+          Write-Host 'Q17B_FROZEN_PROTOCOL_PREEXECUTION_AND_SCOPE=PASS'
+      - name: Source-free tests and independent control checks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -ceq 'Windows'){
+            $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+            if(!(Test-Path -LiteralPath $py -PathType Leaf)){
+              throw 'Q17B_OWNER_EXISTING_PYTHON_MISSING'
+            }
+          }else{
+            $py='python3'
+          }
+          & $py -B -m unittest discover -s research/q17b_twoedge -p test_experiment.py -v
+          if($LASTEXITCODE-ne0){throw 'Q17B_FOCUSED_TESTS_FAILED'}
+          & $py -B research/q17b_twoedge/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q17B_CAUSAL_COMPOSITION_SELFTEST_FAILED'}
+          Write-Host 'Q17B_FULL_FOCUSED_SOURCEFREE_TESTS=PASS'
+      - name: Train all matched-label empirical models and report privileged oracle separately
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_OS -ceq 'Windows'){
+            $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+          }else{
+            $py='python3'
+          }
+          $log=Join-Path $env:RUNNER_TEMP ('q17b-'+$env:RUNNER_OS+'-'+$env:GITHUB_RUN_ID+'.log')
+          if(Test-Path -LiteralPath $log){throw 'Q17B_EXISTING_RESULT_NOT_OVERWRITTEN'}
+          & $py -B research/q17b_twoedge/experiment.py --mode train-dev 2>&1 |
+            Tee-Object -FilePath $log
+          if($LASTEXITCODE-ne0){throw 'Q17B_DEV_REAL_MODEL_TRAINING_FAILED'}
+          $result=@(Get-Content -LiteralPath $log |
+            Where-Object {$_ -like 'Q17B_RESULT_JSON=*'})
+          if($result.Count-ne1){throw 'Q17B_RESULT_CARDINALITY_INVALID'}
+          $receipt=$result[0].Substring(17) | ConvertFrom-Json
+          if($receipt.fit_count-ne256 -or $receipt.dev_count-ne64 -or
+             $receipt.unfamiliar_held_generated-ne$false -or
+             $receipt.original_scientific_source_episodes-ne0 -or
+             $receipt.scientific_first_use-ne$false -or
+             $receipt.oracle_has_privileged_known_law-ne$true){
+            throw 'Q17B_FALSE_SCIENCE_OR_COHORT_CLAIM'
+          }
+          $sha=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host ('Q17B_COMPLETE_TRAIN_DEV_LOG_SHA256='+$sha)
+          Write-Host 'Q17B_TRAINED_COMPOSITION_AND_CONTROLS=PASS'
+          Write-Host 'Q17B_NO_ORIGINAL_SOURCES_NO_HELD=PASS'
+      - name: Fail on source mutations or implicit FORGE gate bypass
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q17B_RESEARCH_WORKTREE_DIRTY'}
+          Write-Host 'Q17B_FROZEN_SOURCE_UNCHANGED=PASS'
+          Write-Host 'Q17B_FULL_FORGE_G61_REGRESSION=NOT_CLAIMED'
+          Write-Host 'Q17B_SCIENTIFIC_FIRST_USE=BLOCKED'
