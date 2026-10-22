@@ -1,0 +1,48 @@
+name: CKB R18 inspect exact staged launcher structure read only
+on:
+  push:
+    branches: [audit/ckb-r18-r2-launcher-inspect-20261022]
+    paths: [.github/workflows/ckb-r18-r2-launcher-inspect.yml]
+permissions:
+  contents: read
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read sanitized staged controller launcher and nearby diagnostic file names
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($wid)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r2-launcher-inspect-20261022' -or
+              $wid.Name -ine 'LINKDEADKB\camar' -or
+              !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_R2_STATIC_LAUNCHER_ACCESS_BOUNDARY_FAILED'
+          }
+          $launcher='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570\Start-R18-Controller.ps1'
+          $text=@(Get-Content -LiteralPath $launcher -ErrorAction Stop)
+          if ($text.Count -gt 120) {throw 'R18_LAUNCHER_LINE_LIMIT'}
+          for ($i=0;$i -lt $text.Count;$i++) {
+            $line=[string]$text[$i]
+            if ($line -match '(?i)token|secret|password|credential|authorization|api.?key') {
+              Write-Host ('R18_LAUNCHER_LINE_'+($i+1)+'=[REDACTED_SENSITIVE_LINE]')
+            } else {
+              Write-Host ('R18_LAUNCHER_LINE_'+($i+1)+'='+$line)
+            }
+          }
+          $dirs=@(
+            'C:\ProgramData\CKBR\logs',
+            'C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570',
+            'C:\Users\camar\GolandProjects\ckb-plane\logs'
+          )
+          foreach($d in $dirs) {
+            if(!(Test-Path -LiteralPath $d -PathType Container)){continue}
+            $files=@(Get-ChildItem -LiteralPath $d -File -ErrorAction Stop | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 25)
+            foreach($f in $files) {
+              Write-Host ('R18_LOG_METADATA_DIR='+$(Split-Path -Leaf $d)+' FILE='+$f.Name+' BYTES='+$f.Length+' MODIFIED_UTC='+$f.LastWriteTimeUtc.ToString('o'))
+            }
+          }
+          Write-Host 'R18_LAUNCHER_STATIC_INSPECTION=PASS'
