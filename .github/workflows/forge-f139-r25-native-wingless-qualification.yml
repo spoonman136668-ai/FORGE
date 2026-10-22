@@ -1,0 +1,85 @@
+name: F139 R25 original-source native Wingless candidate qualification
+on:
+  push:
+    branches: [qualification/f139-r25-native-wingless-20261022]
+permissions:
+  contents: read
+jobs:
+  original-native-bounded:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable candidate (not protected main)
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: b846e59e661e8d21f9a3a4d99b1604cef9881347
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authenticate preexisting source and one-file candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          original=e8cb9f05a933c5b48f2b4a5caf60d26d2d73e17a
+          candidate=b846e59e661e8d21f9a3a4d99b1604cef9881347
+          test "$(git rev-parse HEAD)" = "$candidate"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test "$(git rev-list --count "$original"..HEAD)" = 1
+          test "$(git diff --name-only "$original" "$candidate")" = cognition/latent_bind.go
+          before="$(git show "$original":cognition/latent_bind.go | sha256sum | cut -d ' ' -f1)"
+          after="$(sha256sum cognition/latent_bind.go | cut -d ' ' -f1)"
+          test "$before" != "$after"
+          printf 'R25_ORIGINAL_SHA=%s\nR25_CANDIDATE_SHA=%s\n' "$original" "$candidate"
+          printf 'R25_BEFORE_SHA256=%s\nR25_AFTER_SHA256=%s\n' "$before" "$after"
+          printf 'R25_SINGLE_ALLOWED_NATIVE_FILE=PASS\n'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - name: Focused native cognition regression
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go test -count=1 ./cognition
+          echo R25_WINGLESS_FOCUSED_NATIVE=PASS
+      - name: Native vet
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go vet ./cognition
+          echo R25_WINGLESS_NATIVE_VET=PASS
+      - name: One complete full regression
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          echo R25_WINGLESS_FULL_REGRESSION=PASS
+      - name: Build all native modules
+        shell: bash
+        env:
+          GOTOOLCHAIN: local
+          GOPROXY: 'off'
+          GOSUMDB: 'off'
+        run: |
+          set -euo pipefail
+          go build ./...
+          echo R25_WINGLESS_NATIVE_BUILD=PASS
+          echo R25_SCIENTIFIC_FIRST_USE=FALSE
+          echo R25_PROTECTED_MAIN_MUTATIONS=0
+          echo R25_CONTROLLER_DISPATCH=NOT_ATTEMPTED_BY_QUALIFICATION
