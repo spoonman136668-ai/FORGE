@@ -60,4 +60,21 @@ jobs:
           Write-Host ('R18_PROCESS_CLI_CONTROLLER_RUN='+([string]$proc[0].CommandLine -match '(?i)controller\s+run'))
           Write-Host ('R18_PROCESS_CLI_BRIDGE_CONFIG='+([string]$proc[0].CommandLine -match '(?i)--bridge-config'))
           Write-Host ('R18_TASK_PRINCIPAL_SYSTEM='+($task.Principal.UserId -in @('SYSTEM','S-1-5-18')))
+          $m=[regex]::Match($args,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
+          $hasScript=$m.Success
+          Write-Host ('R18_TASK_SCRIPT_REFERENCE_PRESENT='+$hasScript)
+          if($hasScript){
+            $scriptPath=$m.Groups[1].Value.Trim('"',"'"," ")
+            Write-Host ('R18_TASK_SCRIPT_BASENAME='+(Split-Path -Path $scriptPath -Leaf))
+            if(Test-Path -LiteralPath $scriptPath -PathType Leaf){
+              Write-Host ('R18_TASK_SCRIPT_SHA256='+((Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()))
+              $scriptText=[IO.File]::ReadAllText($scriptPath)
+              Write-Host ('R18_WRAPPER_HAS_OLD_RELEASE='+($scriptText.Contains('PLANE-R18-OWNER-PAUSED-R5')))
+              Write-Host ('R18_WRAPPER_HAS_RELEASE_STORE='+($scriptText.Contains('release-store')))
+              Write-Host ('R18_WRAPPER_HAS_CURRENT_POINTER='+($scriptText -match '(?i)current|active-release'))
+              Write-Host ('R18_WRAPPER_HAS_DPAPI='+($scriptText -match '(?i)dpapi|SecureString'))
+            }else{Write-Host 'R18_TASK_SCRIPT_NOT_A_REGULAR_READABLE_FILE'}
+          }
+          Write-Host ('R18_TASK_USES_ENCODEDCOMMAND='+($args -match '(?i)-EncodedCommand'))
+          Write-Host ('R18_TASK_ARGS_LENGTH='+$args.Length)
           Write-Host 'R18_ORIGINAL_TASK_AND_CONTROLLER_PRESERVED=PASS'
