@@ -1,0 +1,55 @@
+name: FORGE F139 R13 read-only event sequence diagnostic
+on:
+  push:
+    branches: [proposal/f139-r13-sequence-audit-diagnostic-20261022]
+permissions: {}
+jobs:
+  original-owner-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect exact two historical source-bound D2K task dates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r13-sequence-audit-diagnostic-20261022'){
+             throw 'R13D_WRONG_ROUTE'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $a=[string]$t.Actions[0].Arguments
+          $m=[regex]::Match($a,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          $p=[regex]::Match($a,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          $r=[regex]::Match($a,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if(-not ($m.Success -and $p.Success -and $r.Success)){throw 'R13D_TASK_ARGS_UNQUALIFIED'}
+          Push-Location -LiteralPath $r.Groups[1].Value
+          try{
+            $raw=& $p.Groups[1].Value -B -m f139.local_controller --db $m.Groups[1].Value status
+            if($LASTEXITCODE -ne 0){throw 'R13D_LEDGER_COLD_READ_FAILED'}
+            $state=($raw|Out-String|ConvertFrom-Json).status
+            Write-Output ('R13D_LEDGER_SEQ='+$state.meta.head_seq)
+            Write-Output ('R13D_LEDGER_HEAD='+$state.meta.head_hash)
+            $one=@($state.tasks|Where-Object{$_.ticket -like 'f139-d2k-i714-536b91a392b7-*'})
+            $two=@($state.tasks|Where-Object{$_.ticket -like 'f139-d2k-i715-536b91a392b7-*'})
+            if($one.Count -ne 1 -or $two.Count -ne 1){throw 'R13D_TASK_COUNT_DRIFT'}
+            foreach($x in @($one[0],$two[0])){
+              $report=[ordered]@{
+                ticket=$x.ticket
+                stage=$x.stage
+                run_id=$x.run_id
+                started_at=$x.started_at
+                completed_at=$x.completed_at
+                evidence_present=([string]::IsNullOrEmpty([string]$x.evidence_dir) -eq $false)
+                evidence_sha=$x.evidence_sha
+              }
+              Write-Output ('R13D_TASK_METADATA='+($report|ConvertTo-Json -Compress))
+            }
+            $first=$one[0]; $second=$two[0]
+            Write-Output ('R13D_RUN_ID_DISTINCT='+($first.run_id -ne $second.run_id))
+            Write-Output ('R13D_FIRST_COMPLETED_PRESENT='+(-not [string]::IsNullOrEmpty([string]$first.completed_at)))
+            Write-Output ('R13D_SECOND_STARTED_PRESENT='+(-not [string]::IsNullOrEmpty([string]$second.started_at)))
+            Write-Output ('R13D_WORKERS_SEQUENTIAL='+(
+               ([datetimeoffset]$second.started_at -ge [datetimeoffset]$first.completed_at)))
+            Write-Output 'R13D_READ_ONLY=PASS'
+          } finally{Pop-Location}
