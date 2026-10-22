@@ -153,12 +153,15 @@ try {
         $receipt.promotion_approved -ne $false -or
         $receipt.complete_native_go_tests -cne 'PASS' -or
         $receipt.vet_and_build -cne 'PASS' -or
-        $receipt.preexisting_r1p_executable_sha256 -cne $oldExeSha -or
+        $receipt.original_r1p_sha256 -cne $oldExeSha -or
         $receipt.live_config_sha256 -cne $configSha -or
         $receipt.live_recovery_go_preimage -cne 'c6c25f773bd2ea09999963b37746d820a1a303876b2664f5c88ba8bf1720fa83' -or
         $receipt.original_objective_hold_retained -ne $true -or
         $receipt.terminal_legacy_yaml_untouched -ne $true -or
-        $receipt.malformed_active_yaml_rejected -ne $true) {
+        $receipt.malformed_active_yaml_rejected -ne $true -or
+        $receipt.controller_was_not_started -ne $true -or
+        $receipt.previous_qualified_installed_shadow -cne '852fbcb854b28bd7f8c902aed65a404c83f29911' -or
+        $receipt.source_workflow_sha -cne 'f464f39c6f782a7372d553f4470ecb6e7d5d13d8') {
         throw 'R18_SEALED_CANDIDATE_PROVENANCE_INVALID'
     }
     $oldText=[IO.File]::ReadAllText($oldLauncher)
