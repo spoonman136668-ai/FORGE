@@ -1,0 +1,52 @@
+name: CKB R18 bounded controller resume native-owner preflight
+on:
+  push:
+    branches: [operate/ckb-r18-bounded-resume-20261022]
+    paths: [.github/workflows/ckb-r18-bounded-resume.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-bounded-owner-resume-20261022
+  cancel-in-progress: false
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 16
+          persist-credentials: false
+      - name: Verify exact owner, single operation source and PowerShell syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          $base='f94f16fd3e07d8ad31ea9934407c616f88e79001'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-bounded-resume-20261022' -or
+              $who.Name -ine 'LINKDEADKB\camar' -or
+              !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+              (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+              (& git.exe merge-base $base HEAD) -cne $base -or
+              @(& git.exe status --porcelain).Count -ne 0) {throw 'CKB_R18_RESUME_OWNER_SOURCE_DRIFT'}
+          $allowed=@('.github/workflows/ckb-r18-bounded-resume.yml','operations/ckb-r18/Invoke-BoundedResume.ps1')|Sort-Object
+          $actual=@(& git.exe diff --name-only $base HEAD|Sort-Object)
+          if($LASTEXITCODE -ne 0 -or (@($actual)-join '|') -cne (@($allowed)-join '|')) {
+            throw 'CKB_R18_RESUME_SOURCE_SCOPE_EXPANDED'
+          }
+          $parse=$null;$tokens=$null
+          [void][Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'operations/ckb-r18/Invoke-BoundedResume.ps1').Path,
+            [ref]$tokens,[ref]$parse)
+          if ($parse.Count -ne 0) {throw 'CKB_R18_RESUME_POWERSHELL_SYNTAX_FAILURE'}
+          Write-Host 'CKB_R18_BOUNDED_RESUME_OWNER_SOURCE_QUALIFICATION=PASS'
+      - name: Read-only bounded native resume preflight — no live control change
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          & ./operations/ckb-r18/Invoke-BoundedResume.ps1
+          Write-Host 'CKB_R18_NO_LIVE_RESUME_ATTEMPTED=TRUE'
