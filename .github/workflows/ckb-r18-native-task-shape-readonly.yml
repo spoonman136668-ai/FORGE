@@ -1,0 +1,63 @@
+name: CKB R18 original owner task-action exact cutover shape
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-native-task-shape-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - name: Confirm original owner and reveal task action shape only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+             throw 'R18_OWNER_TASK_SOURCE_OR_AUTHORITY_DRIFT'
+          }
+          $allowed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or (@($allowed | Where-Object {$_ -notin @('.github/workflows/ckb-rb1-live-admission-readonly.yml','.github/workflows/ckb-r18-native-task-shape-readonly.yml')}).Count -ne 0)) {
+            throw 'R18_OWNER_TASK_WORKFLOW_SCOPE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if((Get-FileHash -LiteralPath $release -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2' -or
+             (Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c' -or
+             [string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){
+             throw 'R18_ORIGINAL_RELEASE_OR_SCHEDULER_IDENTITY_DRIFT'
+          }
+          $action=$task.Actions[0]
+          $exe=[string]$action.Execute
+          $args=[string]$action.Arguments
+          $psShell=($exe -match '(?i)powershell(\.exe)?$')
+          $direct=($exe -ieq $release)
+          $oldArg=($args.Contains($release))
+          $wrap=($args -match '(?i)Start-CKBPlane\.ps1')
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($proc.Count -ne 1 -or [string]$proc[0].ExecutablePath -ine $release){throw 'R18_LIVE_CONTROLLER_SINGLETON_DRIFT'}
+          Write-Host ('R18_TASK_EXEC_DIRECT='+$direct)
+          Write-Host ('R18_TASK_EXEC_POWERSHELL='+$psShell)
+          Write-Host ('R18_TASK_ARGS_OLD_RELEASE='+$oldArg)
+          Write-Host ('R18_TASK_ARGS_START_SCRIPT='+$wrap)
+          Write-Host ('R18_TASK_WORKING_DIR_PRESENT='+(![string]::IsNullOrWhiteSpace([string]$action.WorkingDirectory)))
+          Write-Host ('R18_PROCESS_CLI_CONTROLLER_RUN='+([string]$proc[0].CommandLine -match '(?i)controller\s+run'))
+          Write-Host ('R18_PROCESS_CLI_BRIDGE_CONFIG='+([string]$proc[0].CommandLine -match '(?i)--bridge-config'))
+          Write-Host ('R18_TASK_PRINCIPAL_SYSTEM='+($task.Principal.UserId -in @('SYSTEM','S-1-5-18')))
+          Write-Host 'R18_ORIGINAL_TASK_AND_CONTROLLER_PRESERVED=PASS'
