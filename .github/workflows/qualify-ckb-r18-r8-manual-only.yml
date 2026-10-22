@@ -1,0 +1,88 @@
+name: CKB R18-R8 manual-only owner gate source qualification
+on:
+  push:
+    branches: [proposal/ckb-r18-r8-manual-boundary-20261022]
+    paths: [.github/workflows/qualify-ckb-r18-r8-manual-only.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r8-static-qualification-only-20261022
+  cancel-in-progress: false
+jobs:
+  owner-source-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Validate owner identity and immutable source-only diff
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='3965989ece69273a820656bd5fab05cae41b46df'
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($owner)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/proposal/ckb-r18-r8-manual-boundary-20261022' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+             throw 'R18_R8_SOURCE_AUTHORITY_DRIFT'
+          }
+          $actual=@(& git.exe diff --name-only $base HEAD | Sort-Object)
+          $expected=@(
+             '.github/workflows/ckb-r18-r8-manual-owner-gate.yml',
+             '.github/workflows/qualify-ckb-r18-r8-manual-only.yml'
+          )|Sort-Object
+          if($LASTEXITCODE -ne 0 -or ($actual -join '|') -cne ($expected -join '|')){
+            throw 'R18_R8_PRODUCTION_OR_OTHER_FILES_CHANGED'
+          }
+          if((& git.exe hash-object 'operations/ckb-r18/Invoke-GuardedR18Cutover.ps1') -cne
+             '3026fd792db4a2233b517301849090603ea74bbd'){
+            throw 'R18_R8_SWITCHER_SOURCE_SHA_DRIFT'
+          }
+          Write-Host 'R18_R8_EXACT_OWNER_AND_TWO_WORKFLOW_SCOPE=PASS'
+          Write-Host 'R18_R8_R3_SWITCHER_UNCHANGED=PASS'
+      - name: Independently prove push cannot execute any controller cutover path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $path='.github/workflows/ckb-r18-r8-manual-owner-gate.yml'
+          $content=[IO.File]::ReadAllText((Resolve-Path -LiteralPath $path).Path)
+          $n=$content.Replace(([string][char]13+[char]10),[string][char]10)
+          if(!$n.StartsWith("name: CKB R18-R8 explicit owner manual-only release gate"+[char]10) -or
+             $n -notmatch '(?m)^on:\s*\n\s{2}workflow_dispatch:\s*$' -or
+             $n -match '(?m)^\s{2}(push|schedule|workflow_run|repository_dispatch):' -or
+             $n -notmatch '(?m)^\s{2}workflow_dispatch:\s*$' -or
+             $n -notmatch 'github\.event_name == ''.?workflow_dispatch' -or
+             $n -notmatch 'github\.actor == ''spoonman136668-ai''' -or
+             $n -notmatch 'github\.triggering_actor == ''spoonman136668-ai''' -or
+             $n -notmatch 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' -or
+             $n -notmatch 'github\.run_attempt' -and $n -notmatch 'GITHUB_RUN_ATTEMPT'){
+            throw 'R18_R8_MANUAL_ONLY_OWNER_DISPATCH_CONTRACT_DRIFT'
+          }
+          $sourceCommit='3965989ece69273a820656bd5fab05cae41b46df'
+          $binarySha='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          if($n.Split($sourceCommit).Count -lt 3 -or $n.Split($binarySha).Count -lt 3 -or
+             !$n.Contains("if: "+[char]36+"{{ inputs.operation == 'guarded_cutover' }}") -or
+             $n.Split("Invoke-GuardedR18Cutover.ps1 -Execute").Count -ne 2 -or
+             $n.Split("Invoke-GuardedR18Cutover.ps1"+[char]10).Count -ne 2 -or
+             !$n.Contains("R18-R3-COLDSTART-SINGLE-CUTOVER-APPROVED") -or
+             !$n.Contains("group: ckb-r18-r3-owner-transition-20261022") -or
+             !$n.Contains("cancel-in-progress: false") -or
+             !$n.Contains("default: preflight")){
+            throw 'R18_R8_MANUAL_CUTOVER_OR_PINNING_CONTRACT_DRIFT'
+          }
+          Write-Host 'R18_R8_NO_PUSH_TO_CUTOVER_ROUTE=PASS'
+          Write-Host 'R18_R8_MANUAL_SHA_AND_OPERATOR_INTENT=PASS'
+          Write-Host 'R18_R8_PREVIEW_PREFLIGHT_DEFAULT=PASS'
+          Write-Host 'R18_R8_MANUAL_GATE_MAIN_REGISTRATION=NOT_PERFORMED'
+          Write-Host 'R18_R8_LIVE_CONTROLLER_CUTOVER=NOT_ATTEMPTED'
+          Write-Host 'R18_R8_MR34I9_DISPATCH=NOT_ATTEMPTED'
