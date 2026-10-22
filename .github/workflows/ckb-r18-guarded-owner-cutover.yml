@@ -1,4 +1,4 @@
-name: CKB R18 R5 paused-state promotion owner preflight
+name: CKB R18 R5 guarded paused-controller promotion
 on:
   push:
     branches: [operate/ckb-r18-paused-r5-20261022]
@@ -45,9 +45,9 @@ jobs:
           [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $psfile).Path,[ref]$tokens,[ref]$errors)
           if ($errors.Count -gt 0) {throw 'R18_SWITCHER_SYNTAX_QUALIFICATION_FAILED'}
           Write-Host 'R18_SWITCHER_BOUNDED_SOURCE_AND_OWNER=PASS'
-      - name: Preflight R5 sealed paused-state controller without live changes
+      - name: Execute bounded owner-authorized R5 promotion with automatic original rollback
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
-          & ./operations/ckb-r18/Invoke-GuardedR18Cutover.ps1
-          Write-Host 'R18_R5_PAUSED_RELEASE_OWNER_DRY_RUN=PASS'
+          & ./operations/ckb-r18/Invoke-GuardedR18Cutover.ps1 -Execute
+          Write-Host 'R18_R5_PAUSED_CONTROLLER_CUTOVER_COMPLETED_WITHOUT_SCRIPT_ERROR=TRUE'
