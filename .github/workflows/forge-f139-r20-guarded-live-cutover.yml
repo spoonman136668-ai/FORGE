@@ -21,14 +21,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $blob = (& git -C r20 rev-parse HEAD:scripts/R20-F139-GuardedCutover.ps1 | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or $blob -cne '1a0503f7471fc79492699830de05c950dd613b1b') {
+          if ($LASTEXITCODE -ne 0 -or $blob -cne '177ad51d3d0f7e948249b7929934024ba6ac8e8d') {
             throw 'R20_ORIGINAL_OWNER_CUTOVER_SCRIPT_SOURCE_DRIFT'
           }
           Write-Output 'R20_CUTOVER_PROCEDURE_GIT_BLOB=PASS'
-      - name: Execute the explicitly owner-authorized conditional merge and single original controller transition
+      - name: Verify revised guarded candidate in read-only original-owner mode
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          & pwsh -NoProfile -NonInteractive -File r20/scripts/R20-F139-GuardedCutover.ps1 -Apply
+          & pwsh -NoProfile -NonInteractive -File r20/scripts/R20-F139-GuardedCutover.ps1
           if ($LASTEXITCODE -ne 0) { throw 'R20_GUARDED_ADMISSION_STOPPED_FAIL_CLOSED' }
-          Write-Output 'R20_AUTHORIZED_COORDINATED_ADMISSION=PASS'
+          Write-Output 'R20_UPDATED_PROTECTED_CANDIDATE_READONLY=PASS'

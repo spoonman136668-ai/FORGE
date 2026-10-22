@@ -4,7 +4,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='spoonman136668-ai/FORGE'
 $source='536b91a392b7bbc50200a6e8842d152f2e23d8bb'
-$candidate='dcdd09d49792bb1c6cbd0a56dd157db005d5edd5'
+$candidate='129f8fd6fde579d001606039dff94cc812f9bd45'
 $head68='ff4405b7a9c00e514708490787174ce5a77c19ac812bb59462363d6851896174'
 $sealed='eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87'
 $taskName='FORGE-F139-UnifiedController'
@@ -241,9 +241,9 @@ try{
     'f139/nci04_native_worker.py'='c92d0002a2882bc171a66526da64f24962369847'
     'f139/test_nci04_output_capture.py'='d8bfcbd88a71e7bd2cde827ab2cc90a9705c4a91'
     'f139/r15_isolated_autorepair.py'='0898dc8e26818f8dcc117cfcb2baeb8ceace9748'
-    'f139/r15_provider_failure_repair.py'='c92096e87214590e74fb0681d243aa6ce410d84c'
-    'f139/r16_semantic_repair.py'='72a0a1f6f99168a30e6b116cea9bbd4a5d4f70be'
-    'f139/test_r16_semantic_repair.py'='819e39821053efc19d04c11d4da0d46b85ef3785'
+    'f139/r15_provider_failure_repair.py'='3deeba788d0838f24935866347c816f17d8d2f36'
+    'f139/r16_semantic_repair.py'='2b2aee0aa3556546b3f38176f7e9db8b0e234032'
+    'f139/test_r16_semantic_repair.py'='2b42fc60a6db1e64430c6a4b0162733145bc7468'
   }
   foreach($item in $known.GetEnumerator()){
     $observed=(& git -C $root rev-parse ('HEAD:'+$item.Key) | Out-String).Trim()
