@@ -1,0 +1,103 @@
+name: CKB R18 guarded reconciliation of detached original R1P scheduled task
+on:
+  push:
+    branches: [operate/ckb-r18-reconcile-r1p-task-20261022]
+    paths: [.github/workflows/ckb-r18-reconcile-r1p-task.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-owner-original-controller-reconciliation-20261022
+  cancel-in-progress: false
+jobs:
+  owner-reconcile:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Request native graceful stop for exact detached original, then restore existing task ownership
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-reconcile-r1p-task-20261022' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+              $who.Name -ine 'LINKDEADKB\camar' -or
+              !$pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_RECONCILE_OWNER_AUTHORITY_FAILED'
+          }
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $launcher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          $sha=@(
+            @{path=$old;hash='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{path=$cfg;hash='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'},
+            @{path=$launcher;hash='66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce'}
+          )
+          foreach($f in $sha) {
+            if (!(Test-Path -LiteralPath $f.path -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $f.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $f.hash) {
+              throw 'R18_RECONCILE_PROTECTED_ORIGINAL_IDENTITY_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($task.State -ne 'Ready' -or @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*' -or
+             [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar')){
+            throw 'R18_RECONCILE_TASK_NOT_EXPECTED_DETACHED_R1P'
+          }
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($ps.Count -ne 1 -or [string]$ps[0].ExecutablePath -ine $old) {
+            throw 'R18_RECONCILE_PROCESS_NOT_ORIGINAL_SINGLETON'
+          }
+          $before=[int]$ps[0].ProcessId
+          $out=Join-Path $env:RUNNER_TEMP ('R18Stop-'+$env:GITHUB_RUN_ID+'.out')
+          $err=Join-Path $env:RUNNER_TEMP ('R18Stop-'+$env:GITHUB_RUN_ID+'.err')
+          $client=Start-Process -FilePath $old -ArgumentList @('controller','stop','--config',('"' + $cfg + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -ErrorAction Stop
+          if (!$client.WaitForExit(45000)) {
+            try {$client.Kill()} catch {}
+            throw 'R18_RECONCILE_STOP_CLIENT_TIMEOUT_CONTROLLER_STATE_UNCERTAIN'
+          }
+          if ($client.ExitCode -ne 0) {
+            Write-Host 'R18_GRACEFUL_STOP=REJECTED_OR_UNREACHABLE'
+            throw 'R18_RECONCILE_NATIVE_STOP_FAILED_NO_TASK_RESTART'
+          }
+          $stopped=$false
+          for($n=0;$n -lt 80;$n++){
+            if(@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop).Count -eq 0){
+              $stopped=$true;break
+            }
+            Start-Sleep -Milliseconds 500
+          }
+          if (!$stopped) {throw 'R18_RECONCILE_ORIGINAL_PROCESS_DID_NOT_EXIT_TASK_UNCHANGED'}
+          Write-Host 'R18_ORIGINAL_NATIVE_GRACEFUL_STOP=PASS'
+          # The old task was never re-bound. Start only after proving there is
+          # no controller process, preventing a second concurrent controller.
+          $nowTask=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if ($nowTask.State -ne 'Ready' -or
+              [string]$nowTask.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*') {
+            throw 'R18_RECONCILE_TASK_CHANGED_DURING_GRACEFUL_STOP'
+          }
+          Start-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $restored=$false;$newPid=$null
+          for($i=0;$i -lt 90;$i++){
+            $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if($process.Count -eq 1 -and [string]$process[0].ExecutablePath -ieq $old) {
+              $restored=$true
+              $newPid=[int]$process[0].ProcessId
+              break
+            }
+            if($process.Count -gt 1){throw 'R18_RECONCILE_DUPLICATE_CONTROLLER_DETECTED'}
+            Start-Sleep -Milliseconds 500
+          }
+          $finalTask=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if (!$restored -or $finalTask.State -ne 'Running') {
+            throw 'R18_RECONCILE_ORIGINAL_CONTROLLER_RESTART_UNVERIFIED'
+          }
+          if($newPid -eq $before){throw 'R18_RECONCILE_ORIGINAL_PID_DID_NOT_TRANSITION'}
+          Write-Host 'R18_EXISTING_R1P_TASK_AND_SINGLETON_RESTORED=PASS'
+          Write-Host ('R18_RESTARTED_ORIGINAL_PID='+$newPid)
+          Write-Host 'R18_R1P_RELEASE_SHA256=UNCHANGED'
+          Write-Host 'R18_CONTROLLER_ACTION=ORIGINAL_R1P_ONLY'
+          Write-Host 'R18_R18_CANDIDATE_NOT_ACTIVATED=TRUE'
