@@ -10,7 +10,7 @@ $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
 $wp=[Security.Principal.WindowsPrincipal]::new($wid)
 if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
    $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' -or
+   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-r4-paused-health-20261022' -or
    $wid.Name -ine 'LINKDEADKB\camar' -or
    !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'R18_OWNER_ELEVATION_OR_EXECUTION_SCOPE_CHANGED'
@@ -170,7 +170,7 @@ try {
     # launcher computes its configuration path rather than embedding it.
     # Configuration identity is independently pinned at each cutover boundary.
     # Syntax-check the intended launcher before any persistent writes.
-    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
+    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R4\bin\ckb-plane.exe'
     $newText=$oldText.Replace($oldExe,$predictedRelease)
     $tokens=$null;$parseErrors=$null
     [void][Management.Automation.Language.Parser]::ParseInput($newText,[ref]$tokens,[ref]$parseErrors)
@@ -183,7 +183,7 @@ try {
         return
     }
     $cutoverAttempted=$true
-    $releaseName='PLANE-R18-OWNER-STATUS-R3'
+    $releaseName='PLANE-R18-OWNER-STATUS-R4'
     $releaseDir=Join-Path 'C:\ProgramData\CKBR\release-store\ckb-plane\releases' $releaseName
     $cutoverDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('PLANE-R18-OWNER-CUTOVER-'+$env:GITHUB_RUN_ID)
     $rollbackDir=Join-Path $cutoverDir 'rollback'
@@ -257,11 +257,20 @@ try {
     if ((Get-Item -LiteralPath $statusStdout).Length -gt 16777216) {throw 'R18_STATUS_OUTPUT_EXCEEDS_SAFETY_BOUND'}
     $raw=[IO.File]::ReadAllText($statusStdout)
     $status=ConvertFrom-Json -InputObject $raw -ErrorAction Stop
-    if ($status.authority -ne 'plane' -or $status.paused -eq $true -or
-        $status.heartbeat_stale -eq $true -or
-        [string]$status.controller_status -notlike 'IDLE:*') {
-        throw 'R18_NEW_CONTROLLER_NATIVE_STATUS_UNHEALTHY'
+    # The original plane's durable operator pause is intentional custody,
+    # not a failed controller start. Restore the *same paused posture*; never
+    # convert a release operation into research/work-order activation.
+    $blocked=@($status.blockers | Where-Object { $null -ne $_ })
+    if ([string]$status.authority -cne 'plane' -or
+        [string]$status.generation -cne '6' -or
+        $status.paused -ne $true -or
+        [string]$status.controller_status -cne 'PAUSED' -or
+        $status.heartbeat_stale -ne $false -or
+        [string]::IsNullOrWhiteSpace([string]$status.heartbeat_at) -or
+        $blocked.Count -ne 0) {
+        throw 'R18_NEW_CONTROLLER_PAUSED_HEALTH_OR_BLOCKER_UNHEALTHY'
     }
+    Write-Host 'R18_PAUSED_OPERATOR_AUTHORITY_AND_HEARTBEAT=PASS'
     if (@(NativeProcesses).Count -ne 1) {throw 'R18_CONTROLLER_SINGLETON_POST_START_FAILED'}
     CheckReadOnlyQuiescence
     Write-Host 'R18_HISTORICAL_ORDER_COUNT_AND_NO_WORKER_LEASES=PASS'
@@ -281,13 +290,15 @@ try {
         restored_historical_rows=0
         config_sha256=$configSha
         authority='plane'
-        status='IDLE'
+        status='PAUSED'
+        autonomous_dispatch_admitted=$false
         ktrade_registered=$false
         trading_action_performed=$false
     }
     [IO.File]::WriteAllText((Join-Path $cutoverDir 'cutover-receipt.json'),($record|ConvertTo-Json -Depth 4),(New-Object Text.UTF8Encoding($false)))
     Write-Host 'R18_LIVE_CONTROLLER_CUTOVER=PASS'
-    Write-Host 'R18_LIVE_STATUS_AND_SINGLETON=PASS'
+    Write-Host 'R18_LIVE_PAUSED_STATUS_AND_SINGLETON=PASS'
+    Write-Host 'R18_AUTONOMOUS_DISPATCH=NOT_AUTHORIZED_BY_RELEASE'
     Write-Host 'R18_DATABASE_AND_CONFIG_PRESERVED=PASS'
     Write-Host 'R18_KTRADE_REGISTRATION=NOT_ATTEMPTED'
 } catch {
