@@ -1,0 +1,141 @@
+name: CKB R18 R5 failed resume admission prerequisites forensic read only
+on:
+  push:
+    branches: [audit/ckb-r18-r5-resume-qualification-diagnosis-20261022]
+    paths: [.github/workflows/ckb-r18-r5-resume-qualification-diagnosis.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-failed-resume-prerequisites-20261022
+  cancel-in-progress: false
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 10
+      - name: Lock one-file source, owner and unchanged R5 singleton
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='261948b786f1934dffa20c6c7d40f61cd14b1ddd'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($identity)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-resume-qualification-diagnosis-20261022' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $identity.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_RESUME_FORENSIC_OWNER_SOURCE_DRIFT'
+          }
+          $diff=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $diff.Count -ne 1 -or
+             $diff[0] -cne '.github/workflows/ckb-r18-r5-resume-qualification-diagnosis.yml'){
+            throw 'R18_RESUME_FORENSIC_ONLY_READONLY_WORKFLOW_REQUIRED'
+          }
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2' -or
+             (Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'){
+            throw 'R18_RESUME_FORENSIC_R5_OR_CONFIG_HASH_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $process.Count -ne 1 -or [string]$process[0].ExecutablePath -ine $r5){
+            throw 'R18_RESUME_FORENSIC_LIVE_R5_SINGLETON_DRIFT'
+          }
+          Write-Host 'R18_RESUME_FORENSIC_SOURCE_RELEASE_AND_OWNER=PASS'
+          Write-Host 'R18_RESUME_FORENSIC_LIVE_SINGLETON=PASS'
+      - name: Inspect original native sourceAuthority preconditions from SQLite and on-disk qualification receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $code=@'
+          import datetime,json,os,sqlite3,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]).resolve(strict=True)
+          db=root/'state'/'autonomy.db'
+          conn=sqlite3.connect('file:'+db.as_posix()+'?mode=ro',uri=True,timeout=5)
+          snap=sqlite3.connect(':memory:')
+          def load_receipt(path):
+              if not path: return ('SETTING_MISSING',False,False)
+              try:
+                  p=Path(path).resolve(strict=True)
+              except (OSError,RuntimeError):return ('FILE_MISSING_OR_INACCESSIBLE',False,False)
+              try:
+                  p.relative_to(root)
+              except ValueError:return ('OUTSIDE_PINNED_PLANE_ROOT',False,False)
+              if p.is_symlink() or not p.is_file() or p.stat().st_size>65536:
+                  return ('IRREGULAR_OR_OVERSIZED_FILE',False,False)
+              try:
+                  value=json.loads(p.read_bytes())
+              except (OSError,ValueError):return ('INVALID_RECEIPT_JSON',False,False)
+              return ('READABLE',value.get('passed') is True,value.get('config_and_tool_digest'))
+          try:
+              conn.execute('PRAGMA query_only=ON')
+              conn.backup(snap,pages=64,sleep=0.05)
+              if snap.execute('PRAGMA quick_check').fetchall()!=[('ok',)]:
+                  raise RuntimeError('R18_FORENSIC_SQLITE_NOT_INTEGRAL')
+              keys=('paused','autonomy_authority','autonomy_generation',
+                    'qualification_digest','qualification_receipt')
+              vals=dict(snap.execute('SELECT key,value FROM settings WHERE key IN ('+','.join('?' for _ in keys)+')',keys))
+              count=int(snap.execute('SELECT count(*) FROM work_orders').fetchone()[0])
+              leases=int(snap.execute('SELECT count(*) FROM worker_leases').fetchone()[0])
+              active=int(snap.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0])
+              if vals.get('paused')!='true' or vals.get('autonomy_authority')!='plane' or vals.get('autonomy_generation')!='6' or count!=198 or leases!=0 or active!=0:
+                  raise RuntimeError('R18_FORENSIC_LIVE_STATE_NOT_SAFE')
+              digest=vals.get('qualification_digest','')
+              receipt_path=vals.get('qualification_receipt','')
+              state,passed,receipt_digest=load_receipt(receipt_path)
+              local=root/'state'/'original-authority-inactive-r6.json'
+              proof_status='MISSING_OR_UNREADABLE'
+              proof_fresh=False
+              if local.exists() and local.is_file() and not local.is_symlink():
+                  data=local.read_bytes()
+                  if data and len(data)<=65536:
+                      try:
+                          proof=json.loads(data)
+                          expires=datetime.datetime.fromisoformat(proof['expires_at_utc'].replace('Z','+00:00'))
+                          proof_fresh=(expires.tzinfo is not None and datetime.datetime.now(datetime.timezone.utc)<expires)
+                          proof_status=('FRESH_LOCAL_ONLY' if proof_fresh else 'EXPIRED_LOCAL_ONLY') if proof.get('schema')=='ckb-plane.original-authority-inactive.v1' else 'SCHEMA_INVALID'
+                      except (KeyError,ValueError,TypeError):
+                          proof_status='MALFORMED_LOCAL_PROOF'
+              # Do not expose qualification digests, file paths or secrets.
+              out={
+                  'schema':'ckb-plane.r18.r5-source-authority-prerequisites.v1',
+                  'historical_work_orders':count,'active_work_orders':active,'worker_leases':leases,
+                  'paused':True,'authority':'plane','generation':'6',
+                  'qualification_digest_present':bool(digest),
+                  'qualification_receipt_setting_present':bool(receipt_path),
+                  'qualification_receipt_state':state,
+                  'qualification_receipt_passed':passed,
+                  'receipt_matches_stored_digest':isinstance(receipt_digest,str) and bool(digest) and receipt_digest==digest,
+                  'current_live_contract_digest_computed':False,
+                  'local_original_proof_status':proof_status,
+                  'local_original_proof_fresh':proof_fresh,
+                  'native_resume_invoked':False,'config_modified':False,'database_modified':False
+              }
+              print('R18_RESUME_READONLY_AUTHORITY_PREREQUISITES='+json.dumps(out,separators=(',',':')))
+          finally:
+              snap.close();conn.close()
+          '@
+          $out=@(& $py -B -c $code $root 2>&1)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1){throw 'R18_FORENSIC_QUALIFICATION_QUERY_FAILED'}
+          $line=[string]$out[0]
+          if([Text.Encoding]::UTF8.GetByteCount($line) -gt 4096){throw 'R18_FORENSIC_UNBOUNDED'}
+          Write-Host $line
+          Write-Host 'R18_RESUME_SOURCE_AUTHORITY_PREREQUISITE_AUDIT=PASS'
+          Write-Host 'R18_RESUME_NATIVE_COMMAND_NOT_INVOKED=TRUE'
+          Write-Host 'R18_RESUME_CONTROLLER_PAUSE=UNCHANGED'
