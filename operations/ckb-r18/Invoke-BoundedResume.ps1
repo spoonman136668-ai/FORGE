@@ -149,6 +149,19 @@ if (!$Execute) {
 $attempted=$false
 try {
     $attempted=$true
+    # Ask the installed native controller to issue its own Windows qualification.
+    # The prechecked release and config identities must remain unchanged.
+    $qualification=NativeClient $before.exe 'qualify'
+    if([string]$qualification.schema -cne 'ckb-plane.windows-qualification.v1' -or
+       $qualification.passed -ne $true -or
+       $qualification.model_worker_launched -ne $false -or
+       $qualification.ckb_source_mutated -ne $false){
+      throw 'CKB_R18_NATIVE_QUALIFICATION_REFUSED_OR_INVALID'
+    }
+    [void](QueryFrozenQueue 'true')
+    [void](AssertNative $before.exe $true)
+    [void](IdentifyController)
+    Write-Host 'CKB_R18_NATIVE_WINDOWS_REQUALIFICATION=PASS'
     [void](NativeClient $before.exe 'resume')
     [void](QueryFrozenQueue 'false')
     [void](AssertNative $before.exe $false)
