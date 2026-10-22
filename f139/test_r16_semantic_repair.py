@@ -26,7 +26,7 @@ class R16SynthesisTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertIn("import contextlib, json, os, sqlite3, tempfile",
                       candidate)
-        self.assertIn('contextlib.closing(sqlite3.connect(t+"/db"))',
+        self.assertIn('contextlib.closing(sqlite3.connect(t+"/db")) as x, x:',
                       candidate)
         self.assertIn("name: original", candidate)
 
@@ -41,7 +41,7 @@ class R16SynthesisTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertIn(
             "contextlib.closing(sqlite3.connect("
-            "str(pathlib.Path(t)/file),timeout=3))", candidate)
+            "str(pathlib.Path(t)/file),timeout=3)) as db, db:", candidate)
 
     def test_multiple_distinct_connections(self):
         src = 'import sqlite3, tempfile\nwith tempfile.TemporaryDirectory() as t:\n'
@@ -70,13 +70,18 @@ class R16SynthesisTests(unittest.TestCase):
             '    with sqlite3.connect(str(location), timeout=4) as holding:\n'
             '        holding.execute("create table native (value integer)")\n'
             '        holding.execute("insert into native values (17)")\n'
+            '    inspect = sqlite3.connect(str(location))\n'
+            '    try:\n'
+            '        count = inspect.execute("select count(*) from native").fetchone()[0]\n'
+            '        if count != 1: raise RuntimeError("R17_COMMIT_LOST")\n'
+            '    finally: inspect.close()\n'
             '    print("R17_SQLITE_WORK_FINISHED")\n'
             'print("R17_TEMPORARY_DIRECTORY_CLEANED")\n'
         )
         original = wrap(script)
         suggested, changed = synthesize_workflow_repair(original, FAILURE_CLASS)
         self.assertEqual(changed, 1)
-        self.assertIn('contextlib.closing(sqlite3.connect(str(location), timeout=4))',
+        self.assertIn('contextlib.closing(sqlite3.connect(str(location), timeout=4)) as holding, holding:',
                       suggested)
         opener = "      $script = @'\n"
         first = suggested.index(opener) + len(opener)
@@ -101,6 +106,47 @@ class R16SynthesisTests(unittest.TestCase):
         self.assertEqual(after.returncode, 0,
                          after.stderr.decode(errors="replace"))
         self.assertIn(b"R17_TEMPORARY_DIRECTORY_CLEANED", after.stdout)
+
+    def test_native_transaction_rollback_and_close(self):
+        """A rolled-back insert must remain absent; all handles must close."""
+        import subprocess
+        import sys
+        script = (
+            'import pathlib, sqlite3, tempfile\n'
+            'with tempfile.TemporaryDirectory(prefix="forge-r18-rollback-") as area:\n'
+            '    file = pathlib.Path(area) / "rollback.db"\n'
+            '    with sqlite3.connect(str(file)) as first:\n'
+            '        first.execute("create table x (value integer)")\n'
+            '    try:\n'
+            '        with sqlite3.connect(str(file)) as second:\n'
+            '            second.execute("insert into x values (99)")\n'
+            '            raise ValueError("expected rollback")\n'
+            '    except ValueError: pass\n'
+            '    inspect = sqlite3.connect(str(file))\n'
+            '    try:\n'
+            '        assert inspect.execute("select count(*) from x").fetchone()[0] == 0\n'
+            '    finally: inspect.close()\n'
+            'print("R18_ROLLBACK_AND_HANDLE_CLEANUP_PRESERVED")\n'
+        )
+        proposal, changed = synthesize_workflow_repair(wrap(script), FAILURE_CLASS)
+        self.assertEqual(changed, 2)
+        first = proposal.index("      $script = @'\n") + len("      $script = @'\n")
+        last = proposal.index("          '@\n", first)
+        repaired = "".join(line[10:] for line in proposal[first:last].splitlines(keepends=True))
+        process = subprocess.run(
+            [sys.executable, "-B", "-c", repaired],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False, timeout=20)
+        self.assertEqual(process.returncode, 0, process.stderr.decode(errors="replace"))
+        self.assertIn(b"R18_ROLLBACK_AND_HANDLE_CLEANUP_PRESERVED", process.stdout)
+
+    def test_missing_connection_binding_is_fail_closed(self):
+        script = ('import sqlite3, tempfile\n'
+                  'with tempfile.TemporaryDirectory() as tmp:\n'
+                  '    with sqlite3.connect(tmp+"/db"):\n'
+                  '        pass\n')
+        with self.assertRaisesRegex(UnsafeRepair, "CONNECTION_BINDING_REQUIRED"):
+            synthesize_workflow_repair(wrap(script), FAILURE_CLASS)
 
     def test_idempotent_reapplication_refused(self):
         src = ('import sqlite3, tempfile\n'

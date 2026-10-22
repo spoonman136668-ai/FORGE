@@ -67,9 +67,17 @@ def _repair_python(script: str) -> tuple[str, int]:
         require(isinstance(raw, str) and raw.startswith("sqlite3.connect(")
                 and raw.endswith(")") and "\n" not in raw,
                 "SOURCE_CONTEXT_DRIFT")
+        # Preserve the transaction manager's commit/rollback, then close.
+        # A closing() replacement by itself rolls back pending writes.
+        binding = items[0].optional_vars
+        require(isinstance(binding, ast.Name)
+                and binding.lineno == context.lineno
+                and binding.end_lineno == context.lineno,
+                "CONNECTION_BINDING_REQUIRED")
         changes.append((context.lineno - 1, context.col_offset,
-                        context.end_col_offset,
-                        "contextlib.closing(" + raw + ")"))
+                        binding.end_col_offset,
+                        "contextlib.closing(" + raw + ") as " +
+                        binding.id + ", " + binding.id))
     require(1 <= len(changes) <= 6, "NO_BOUNDED_CONNECTION_LEAK")
     imp = imports[0]
     require(imp.lineno == imp.end_lineno, "COMPLEX_IMPORT")
@@ -99,7 +107,26 @@ def _repair_python(script: str) -> tuple[str, int]:
         and n.func.value.id == "contextlib"
         and n.func.attr == "closing"
     ]
-    require(len(closing) == len(changes) and repaired != script,
+    # For every closing(), a second comma-separated context must enter the
+    # same sqlite3.Connection before closing() exits, preserving transaction
+    # commit on success and rollback on exception.
+    managed = []
+    for node in ast.walk(next_tree):
+        if not isinstance(node, ast.With) or len(node.items) != 2:
+            continue
+        first, second = node.items
+        if (isinstance(first.context_expr, ast.Call)
+                and isinstance(first.context_expr.func, ast.Attribute)
+                and isinstance(first.context_expr.func.value, ast.Name)
+                and first.context_expr.func.value.id == "contextlib"
+                and first.context_expr.func.attr == "closing"):
+            managed.append(
+                isinstance(first.optional_vars, ast.Name)
+                and isinstance(second.context_expr, ast.Name)
+                and second.context_expr.id == first.optional_vars.id
+                and second.optional_vars is None)
+    require(len(closing) == len(changes) == len(managed)
+            and all(managed) and repaired != script,
             "POST_REPAIR_AST_DRIFT")
     return repaired, len(changes)
 

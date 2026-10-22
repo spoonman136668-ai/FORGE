@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
 import sys
@@ -175,21 +176,31 @@ def repair_failure(evidence: Path, failed: Path, qualified: Path) -> None:
         original.decode("utf-8"), FAILURE_CLASS)
     need(1 <= contexts <= 6, "SEMANTIC_SCOPE_DRIFT")
     updated = proposal.encode("utf-8")
-    need(blob(updated) == GOOD_BLOB and updated == expected,
-         "REPAIR_CANDIDATE_NOT_INDEPENDENTLY_QUALIFIED")
+    # Independently authenticate the historic candidate, but reject its
+    # transaction-losing closing()-only behavior. The new oracle adds SQLite's
+    # original transaction context inside each closing context.
+    reference = expected.decode("utf-8")
+    for name in ("original", "destination", "same_original"):
+        pattern = (r"(with contextlib\.closing\(sqlite3\.connect\([^\n]*\)\) as "
+                   + name + r"):")
+        reference, count = re.subn(pattern, r"\1, " + name + ":", reference)
+        need(count == 1, "INDEPENDENT_TRANSACTION_ORACLE_SCOPE_DRIFT")
+    need(updated == reference.encode("utf-8") and blob(updated) != GOOD_BLOB,
+         "TRANSACTION_PRESERVING_CANDIDATE_NOT_INDEPENDENTLY_ATTESTED")
     with tempfile.TemporaryDirectory(prefix="forge-r15-provider-repair-") as temporary:
         dest = Path(temporary) / "repaired-workflow.yml"
         dest.write_bytes(updated)
-        need(blob(dest.read_bytes()) == GOOD_BLOB, "SANDBOX_REPAIR_BYTES_DRIFT")
+        need(blob(dest.read_bytes()) == blob(updated),
+             "SANDBOX_REPAIR_BYTES_DRIFT")
     need(inspect_checkout(failed, BAD_SHA, BAD_BLOB) == original,
          "ORIGINAL_FAILURE_SOURCE_MUTATED")
     need(inspect_checkout(qualified, GOOD_SHA, GOOD_BLOB) == expected,
          "QUALIFIED_REPAIR_SOURCE_MUTATED")
     print("R16_AST_SYNTHESIZED_CONTEXTS="+str(contexts))
-    print("R16_GENERATED_SOURCE_MATCHES_INDEPENDENT_QUALIFICATION=PASS")
+    print("R18_TRANSACTION_PRESERVING_REPAIR_ORACLE=PASS")
     print("R15_AUTHENTIC_PROVIDER_DIAGNOSIS=PASS")
-    print("R15_EVIDENCE_SELECTED_REPAIR_SHA="+GOOD_BLOB)
-    print("R15_SANDBOX_REPAIR_EXACT_QUALIFIED_BYTES=PASS")
+    print("R18_CORRECTED_REPAIR_BLOB="+blob(updated))
+    print("R18_SANDBOX_REPAIR_TRANSACTION_SEMANTICS=PASS")
     print("R15_UNKNOWN_FAILURES_AND_SOURCE_DRIFT=FAIL_CLOSED")
     print("R15_OWNER_DATABASE_WRITES=0")
     print("R15_CONTROLLER_RESTARTS=0")
