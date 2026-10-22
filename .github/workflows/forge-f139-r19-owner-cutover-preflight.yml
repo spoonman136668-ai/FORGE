@@ -87,36 +87,86 @@ jobs:
               throw 'R19_ORIGINAL_OWNER_CHECKOUT_NOT_EXACT_CLEAN_MAIN'
             }
             $readOnlyPython = @'
-          import pathlib, sqlite3, sys
+          import contextlib, hashlib, json, pathlib, sqlite3, sys
           source, expected, seq, sha = sys.argv[1:]
           source=pathlib.Path(source).resolve(strict=True)
-          if source.name!="state.sqlite" or source.is_symlink():
-              raise RuntimeError("R19_OWNER_DB_PATH_INVALID")
-          with sqlite3.connect(source.as_uri()+"?mode=ro",uri=True,timeout=10) as db:
+          def require(ok, msg):
+              if not ok: raise RuntimeError("R19_"+msg)
+          def canonical(obj):
+              return (json.dumps(obj,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode()
+          def hashed(obj):
+              return hashlib.sha256(canonical(obj)).hexdigest()
+          require(source.name=="state.sqlite" and not source.is_symlink(),"OWNER_DB_PATH_INVALID")
+          with contextlib.closing(sqlite3.connect(source.as_uri()+"?mode=ro",uri=True,timeout=10)) as db:
               db.row_factory=sqlite3.Row
               db.execute("PRAGMA query_only=ON")
               meta=dict(db.execute("SELECT * FROM meta WHERE id=1").fetchone())
               rows=[dict(x) for x in db.execute("SELECT * FROM tasks ORDER BY ticket")]
-              kinds=[dict(x) for x in db.execute("SELECT seq,kind,sha FROM events ORDER BY seq DESC LIMIT 1")]
-          if not (meta["source_sha"]==expected and meta["head_seq"]==int(seq)
-                  and meta["head_hash"]==sha and meta["enabled"]==1
-                  and meta["legacy_suspended"]==1 and len(kinds)==1
-                  and kinds[0]["seq"]==int(seq) and kinds[0]["sha"]==sha):
-              raise RuntimeError("R19_OWNER_EVENT_CHAIN_OR_SOURCE_DRIFT")
-          stages=[x["stage"] for x in rows]
-          print("R19_OBSERVED_STAGE_INVENTORY="+",".join(
-              str(stage)+":"+str(stages.count(stage)) for stage in sorted(set(stages))),
-              flush=True)
-          print("R19_OBSERVED_TASK_COUNT="+str(len(rows)),flush=True)
-          if stages.count("VERIFIED")!=4 or stages.count("QUARANTINED")!=2 or len(rows)!=6:
-              raise RuntimeError("R19_OWNER_TASKS_PENDING_UNVERIFIED_OR_MISSING")
+              stages=[x["stage"] for x in rows]
+              print("R19_OBSERVED_STAGE_INVENTORY="+",".join(
+                  str(stage)+":"+str(stages.count(stage)) for stage in sorted(set(stages))),flush=True)
+              print("R19_OBSERVED_TASK_COUNT="+str(len(rows)),flush=True)
+              require(meta["source_sha"]==expected and meta["head_seq"]==int(seq)
+                      and meta["head_hash"]==sha and meta["enabled"]==1
+                      and meta["legacy_suspended"]==1,"OWNER_EVENT_OR_SOURCE_DRIFT")
+              previous="0"*64
+              count=0
+              for e in db.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  count+=1
+                  require(e["seq"]==count and e["prior_sha"]==previous,
+                          "EVENT_SEQUENCE_OR_LINK_TAMPERED")
+                  payload=json.loads(e["payload"])
+                  require(canonical(payload).decode()==e["payload"],"NONCANONICAL_EVENT")
+                  previous=hashed({"seq":count,"prior_sha":previous,
+                                   "kind":e["kind"],"payload":payload})
+                  require(previous==e["sha"],"EVENT_CHAIN_HASH_TAMPERED")
+              require(count==int(seq) and previous==sha,"ORIGINAL_EVENT68_HEAD_DRIFT")
+          require(stages.count("VERIFIED")==9 and stages.count("QUARANTINED")==2
+                  and len(rows)==11,"OWNER_TASKS_PENDING_UNVERIFIED_OR_MISSING")
           negatives={x["ticket"] for x in rows if x["stage"]=="QUARANTINED"}
-          if negatives!={"f139-nci04-i696-5662e3586bc9-7bb8f27f",
-                        "f139-nci04-i706-09f3d7447900-09dc99f4"}:
-              raise RuntimeError("R19_OWNER_CERTIFIED_NEGATIVES_DRIFT")
-          print("R19_ORIGINAL_EVENT68_SOURCE_AND_IDLE_TASKS=PASS")
-          print("R19_VERIFIED_ORIGINAL_TASKS=4")
+          require(negatives=={"f139-nci04-i696-5662e3586bc9-7bb8f27f",
+                             "f139-nci04-i706-09f3d7447900-09dc99f4"},
+                  "OWNER_CERTIFIED_NEGATIVES_DRIFT")
+          for t in rows:
+              if t["stage"]=="QUARANTINED":
+                  require(t["run_id"] is None and t["evidence_sha"] is None and
+                          not t["evidence_dir"],"HISTORICAL_NEGATIVE_CUSTODY_DRIFT")
+          evidence_root=(source.parent/"evidence").resolve(strict=True)
+          count_archives=0
+          for t in rows:
+              if t["stage"]!="VERIFIED":continue
+              run_id=t["run_id"]
+              require(type(run_id) is int and run_id>0 and
+                      type(t["evidence_sha"]) is str and len(t["evidence_sha"])==64
+                      and t["evidence_dir"],"HISTORICAL_VERIFIED_ROW_INCOMPLETE")
+              directory=pathlib.Path(t["evidence_dir"]).resolve(strict=True)
+              require(directory.is_dir() and not directory.is_symlink()
+                      and directory.parent.parent==evidence_root
+                      and directory.name==str(run_id)
+                      and directory.parent.name==t["ticket"],
+                      "HISTORICAL_EVIDENCE_OUTSIDE_OWNER_CUSTODY")
+              members={p.name:p for p in directory.iterdir()}
+              require(set(members)=={"manifest.json","ubuntu-latest.zip","windows-latest.zip"}
+                      and all(p.is_file() and not p.is_symlink() for p in members.values()),
+                      "HISTORICAL_PROVIDER_ARCHIVE_SET_DRIFT")
+              manifest_raw=members["manifest.json"].read_bytes()
+              require(hashlib.sha256(manifest_raw).hexdigest()==t["evidence_sha"],
+                      "HISTORICAL_RECEIPT_DIGEST_DRIFT")
+              manifest=json.loads(manifest_raw)
+              require(manifest["ticket"]==t["ticket"] and manifest["run_id"]==run_id
+                      and manifest["scientific_originals"]==0
+                      and manifest["approved_science"] is False,
+                      "HISTORICAL_RECEIPT_AUTHORITY_DRIFT")
+              for osname in ("ubuntu-latest","windows-latest"):
+                  require(hashlib.sha256(members[osname+".zip"].read_bytes()).hexdigest()
+                          ==manifest["sha256"][osname],"PROVIDER_ZIP_DIGEST_DRIFT")
+                  count_archives+=1
+          require(count_archives==18,"HISTORICAL_PROVIDER_ARCHIVE_COUNT_DRIFT")
+          print("R19_ORIGINAL_EVENT68_HASH_CHAIN=PASS")
+          print("R19_VERIFIED_ORIGINAL_TASKS=9")
           print("R19_QUARANTINED_NEGATIVES=2")
+          print("R19_PROVIDER_ORIGINAL_ZIPS=18_OF_18_PASS")
+          print("R19_NO_READY_WAIT_PROVIDER_OR_START_RISK=PASS")
           print("R19_OWNER_DATABASE_WRITES=0")
           '@
             $output = & $options['PythonExe'] -B -c $readOnlyPython $options['Database'] $from '68' $head68
