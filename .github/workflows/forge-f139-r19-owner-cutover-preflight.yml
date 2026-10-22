@@ -202,4 +202,18 @@ jobs:
           } else {
             Write-Output 'R19_PRIVILEGED_TASK_CUTOVER=ELIGIBLE_SUBJECT_TO_SEPARATE_LIVE_APPROVAL'
           }
+          # Verify owner checkout's existing authentication can read the new
+          # protected commit after admission; never prompt or change credentials.
+          $repoPermissions = & gh api "repos/$repo" | Out-String | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $repoPermissions.permissions.push -ne $true) {
+            throw 'R19_OWNER_GITHUB_MERGE_CREDENTIALS_NOT_AUTHORIZED'
+          }
+          $env:GIT_TERMINAL_PROMPT = '0'
+          $env:GCM_INTERACTIVE = 'Never'
+          $remote = (& git -C $options['RepositoryRoot'] ls-remote origin refs/heads/main | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $remote -notmatch ('^'+$from+'\\s+refs/heads/main)) {
+            throw 'R19_OWNER_ORIGINAL_CHECKOUT_REMOTE_AUTH_UNAVAILABLE'
+          }
+          Write-Output 'R19_OWNER_GITHUB_WRITE_PERMISSION=PASS'
+          Write-Output 'R19_OWNER_CHECKOUT_PRIVATE_REMOTE_READ=PASS'
           Write-Output 'R19_READONLY_EVIDENCE=PASS'
