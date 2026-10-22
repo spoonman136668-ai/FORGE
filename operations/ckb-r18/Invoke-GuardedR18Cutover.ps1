@@ -10,7 +10,7 @@ $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
 $wp=[Security.Principal.WindowsPrincipal]::new($wid)
 if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
    $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-guarded-owner-cutover-20261022' -or
+   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' -or
    $wid.Name -ine 'LINKDEADKB\camar' -or
    !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'R18_OWNER_ELEVATION_OR_EXECUTION_SCOPE_CHANGED'
@@ -25,7 +25,7 @@ $oldExeSha='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
 $rootExeSha='70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6'
 $configSha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
 $launcherSha='66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce'
-$candidateSha='63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'
+$candidateSha='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
 $taskName='CKB-plane Controller'
 function AssertSha([string]$path,[string]$expected) {
     if (!(Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -141,21 +141,24 @@ $releaseDir=$null
 $cutoverDir=$null
 $rollbackDir=$null
 try {
-    & $gh run download 39766883139 --repo spoonman136668-ai/ckb-plane --name r18-sealed-nondeployable-candidate-39766883139 --dir $scratch
+    & $gh run download 39792168352 --repo spoonman136668-ai/ckb-plane --name r18-coldstart-nondeployable-39792168352 --dir $scratch
     if ($LASTEXITCODE -ne 0) {throw 'R18_PRIVATE_GITHUB_ARTIFACT_UNAVAILABLE'}
-    $artifactExe=Join-Path $scratch 'ckb-plane-status-candidate.exe'
+    $artifactExe=Join-Path $scratch 'ckb-plane-r18-coldstart-candidate.exe'
     $receiptPath=Join-Path $scratch 'receipt.json'
     if (!(Test-Path -LiteralPath $receiptPath -PathType Leaf)) {throw 'R18_CANDIDATE_RECEIPT_MISSING'}
     AssertSha $artifactExe $candidateSha
     $receipt=Get-Content -LiteralPath $receiptPath -Raw -ErrorAction Stop|ConvertFrom-Json
-    if ($receipt.schema -cne 'ckb-plane.r18.status-candidate-seal.v1' -or
+    if ($receipt.schema -cne 'ckb-plane.r18.coldstart-seal.v1' -or
         $receipt.executable_sha256 -cne $candidateSha -or
-        $receipt.release_approved -ne $false -or
-        $receipt.native_windows_full_go_regression -cne 'PASS' -or
-        $receipt.native_windows_vet -cne 'PASS' -or
-        $receipt.native_windows_build -cne 'PASS' -or
-        $receipt.install_target_original_sha256 -cne $rootExeSha -or
-        $receipt.install_config_original_sha256 -cne $configSha) {
+        $receipt.promotion_approved -ne $false -or
+        $receipt.complete_native_go_tests -cne 'PASS' -or
+        $receipt.vet_and_build -cne 'PASS' -or
+        $receipt.preexisting_r1p_executable_sha256 -cne $oldExeSha -or
+        $receipt.live_config_sha256 -cne $configSha -or
+        $receipt.live_recovery_go_preimage -cne 'c6c25f773bd2ea09999963b37746d820a1a303876b2664f5c88ba8bf1720fa83' -or
+        $receipt.original_objective_hold_retained -ne $true -or
+        $receipt.terminal_legacy_yaml_untouched -ne $true -or
+        $receipt.malformed_active_yaml_rejected -ne $true) {
         throw 'R18_SEALED_CANDIDATE_PROVENANCE_INVALID'
     }
     $oldText=[IO.File]::ReadAllText($oldLauncher)
@@ -164,7 +167,7 @@ try {
     # launcher computes its configuration path rather than embedding it.
     # Configuration identity is independently pinned at each cutover boundary.
     # Syntax-check the intended launcher before any persistent writes.
-    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
     $newText=$oldText.Replace($oldExe,$predictedRelease)
     $tokens=$null;$parseErrors=$null
     [void][Management.Automation.Language.Parser]::ParseInput($newText,[ref]$tokens,[ref]$parseErrors)
@@ -177,7 +180,7 @@ try {
         return
     }
     $cutoverAttempted=$true
-    $releaseName='PLANE-R18-OWNER-STATUS-R2'
+    $releaseName='PLANE-R18-OWNER-STATUS-R3'
     $releaseDir=Join-Path 'C:\ProgramData\CKBR\release-store\ckb-plane\releases' $releaseName
     $cutoverDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('PLANE-R18-OWNER-CUTOVER-'+$env:GITHUB_RUN_ID)
     $rollbackDir=Join-Path $cutoverDir 'rollback'
