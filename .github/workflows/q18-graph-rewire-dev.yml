@@ -1,0 +1,118 @@
+name: Q18 source-free graph rewiring causal composition - Windows Linux
+on:
+  push:
+    branches: [research/q18-rewirable-causal-path-state-20261022]
+    paths: [.github/workflows/q18-graph-rewire-dev.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q18-frozen-sourcefree-rewire-development-20261022
+  cancel-in-progress: false
+jobs:
+  frozen-development:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            host: '["windows-2022"]'
+          - name: linux
+            host: '["ubuntu-24.04"]'
+    runs-on: ${{ fromJSON(matrix.host) }}
+    timeout-minutes: 70
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Require exact frozen source bytes and only four added paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $parent='ae241c4b2515834050981a72ce1554da3681ec6d'
+          $real=(& git rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $real-cne$parent){
+            throw 'Q18_PREQUAL_SOURCE_HEAD_DRIFT'
+          }
+          $ancestor=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$base){
+            throw 'Q18_PROTECTED_MAIN_SOURCE_PARENT_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/q18-graph-rewire-dev.yml',
+            'research/q18_rewire/FROZEN_PROTOCOL.json',
+            'research/q18_rewire/experiment.py',
+            'research/q18_rewire/test_experiment.py'
+          )
+          $modified=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $modified)){
+            throw 'Q18_NOT_FOUR_ADDITIVE_PATHS'
+          }
+          foreach($entry in @(
+            @('research/q18_rewire/FROZEN_PROTOCOL.json','1d3d37ccb11c0877b165cc13bd7ead3e75cf9a26'),
+            @('research/q18_rewire/experiment.py','d3dda0140b10ff6367ba5bedafbd25aa5c062230'),
+            @('research/q18_rewire/test_experiment.py','4eb5f4f9da618ee17004d37883c35b4f1c79cb78')
+          )){
+            $actual=(& git rev-parse ('HEAD:'+$entry[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $actual-cne$entry[1]){
+              throw ('Q18_FROZEN_GIT_BLOB_CHANGED_'+$entry[0])
+            }
+            $disk=(& git hash-object --no-filters -- $entry[0]).Trim()
+            if($LASTEXITCODE-ne0 -or $disk-cne$entry[1]){
+              throw ('Q18_DISK_BYTES_DIFFER_FROM_GIT_'+$entry[0])
+            }
+          }
+          Write-Host 'Q18_EXACT_PREEXECUTION_SOURCE_AND_ADD_ONLY_SCOPE=PASS'
+      - name: Adversarial topology, information and heldout isolation suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s research/q18_rewire -p test_experiment.py -v
+          if($LASTEXITCODE-ne0){throw 'Q18_FROZEN_FOCUSED_TEST_FAILURE'}
+          & python -B research/q18_rewire/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q18_SELFTEST_OR_HELD_CUSTODY_FAILURE'}
+          Write-Host 'Q18_FOCUSED_SOURCEFREE_TOPOLOGY_TESTS=PASS'
+      - name: Fit causal edge sharing and all strong controls on same synthetic cohort
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:RUNNER_TEMP ('q18-'+$env:RUNNER_OS+'-'+$env:GITHUB_RUN_ID+'.log')
+          if(Test-Path -LiteralPath $log){throw 'Q18_RESULT_NOT_APPENDONLY'}
+          & python -B research/q18_rewire/experiment.py --mode train-dev 2>&1 |
+            Tee-Object -FilePath $log
+          if($LASTEXITCODE-ne0){throw 'Q18_SOURCEFREE_TRAIN_DEV_FAILED'}
+          $result=@(Get-Content -LiteralPath $log |
+            Where-Object {$_ -like 'Q18_RESULT_JSON=*'})
+          if($result.Count-ne1){throw 'Q18_MISSING_OR_DUPLICATE_RECEIPT'}
+          $receipt=$result[0].Substring(16)|ConvertFrom-Json
+          if($receipt.fit_episodes-ne320 -or $receipt.dev_episodes-ne128 -or
+             $receipt.unknown_held_five_node_generated-ne$false -or
+             $receipt.original_source_engine_episodes-ne0 -or
+             $receipt.scientific_first_use-ne$false -or
+             $receipt.unfamiliar_transfer_accepted-ne$false){
+            throw 'Q18_FALSE_ACCURACY_OR_SCIENCE_CUSTODY'
+          }
+          Write-Host ('Q18_RECEIPT_SHA256='+((Get-FileHash $log -Algorithm SHA256).Hash.ToLowerInvariant()))
+          Write-Host 'Q18_FIVE_MODEL_REWIRED_DEVELOPMENT_COMPLETE=PASS'
+          Write-Host 'Q18_HELD_AND_ORIGINAL_SOURCES_UNOPENED=PASS'
+      - name: End-to-end no source mutation or external admission
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q18_RESEARCH_SOURCE_DIRTY'}
+          Write-Host 'Q18_REPOSITORY_CLEAN=PASS'
+          Write-Host 'Q18_FULL_FORGE_G61_REGRESSION_NOT_CLAIMED'
+          Write-Host 'Q18_NATIVE_UNFAMILIAR_TRANSFER_NOT_ATTESTED'
+          Write-Host 'Q18_ORIGINAL_SCIENTIFIC_FIRST_USE=BLOCKED'
