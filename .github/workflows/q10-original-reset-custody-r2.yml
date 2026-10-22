@@ -1,0 +1,82 @@
+name: Q10 original-source reset ledger inventory - owner read only
+on:
+  push:
+    branches: [audit/q10-original-reset-custody-r2-20261022]
+    paths: [.github/workflows/q10-original-reset-custody-r2.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q10-owner-frozen-reset-ledger-inventory
+  cancel-in-progress: false
+jobs:
+  read-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Confirm owner identity and sanctioned original source directories
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($id)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/q10-original-reset-custody-r2-20261022' -or
+             $id.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'Q10_OWNER_AUDIT_SCOPE_OR_ADMIN_MISMATCH'
+          }
+          $root='C:\ProgramData\CKBR\research'
+          if(!(Test-Path -LiteralPath $root -PathType Container) -or
+             ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
+             throw 'Q10_CANONICAL_CKB_RESEARCH_ROOT_UNAVAILABLE'
+          }
+          Write-Host 'Q10_EXISTING_OWNER_AND_CKB_RESEARCH_ROOT=VERIFIED'
+          Write-Host 'Q10_DISPATCH_CONTROLLER_SOURCE_DATA_MUTATION=NONE'
+      - name: Enumerate bounded prospective original-source register filenames without reading content
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $roots=@('C:\ProgramData\CKBR\research','C:\Users\camar\GolandProjects\ckb-plane\research')
+          $matched=@(); $directories=0; $scanned=0; $missing=0
+          $pattern='(?i)(source[-_]?birth|(?:minigrid|pycolab).*(?:reset|seed|episode|ledger)|(?:reset|seed|episode).*(?:minigrid|pycolab)|(?:reset[-_]?consum|consumed[-_]?seed))'
+          foreach($root in $roots){
+            if(!(Test-Path -LiteralPath $root -PathType Container)) {
+              $missing++; continue
+            }
+            $stack=[System.Collections.Generic.Stack[object]]::new()
+            $stack.Push(@{path=$root;depth=0})
+            while($stack.Count-gt 0){
+              $node=$stack.Pop(); $directories++
+              if($directories -gt 2000){throw 'Q10_BOUNDED_DIRECTORY_BUDGET_EXCEEDED'}
+              $items=@(Get-ChildItem -LiteralPath $node.path -Force -ErrorAction Stop)
+              foreach($item in $items){
+                $scanned++
+                if($scanned-gt 10000){throw 'Q10_FILE_INVENTORY_BUDGET_EXCEEDED'}
+                if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){continue}
+                if($item.PSIsContainer){
+                  if($node.depth-lt4 -and $item.Name -notin @('.git','.venv','venv','node_modules')){
+                    $stack.Push(@{path=$item.FullName;depth=$node.depth+1})
+                  }
+                } elseif($item.Name -match $pattern) {
+                  $matched+=@([ordered]@{
+                    prefix=if($root -like 'C:\ProgramData*'){'persistent'}else{'source'}
+                    name=$item.Name.ToLowerInvariant()
+                    length=[int64]$item.Length
+                  })
+                }
+              }
+            }
+          }
+          $items=@($matched|Sort-Object prefix,name,length)
+          $serialized=if($items.Count -eq 0){'[]'}else{ConvertTo-Json -InputObject $items -Compress -Depth 3}
+          $blob=[Text.Encoding]::UTF8.GetBytes($serialized)
+          $fingerprint=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($blob)).ToLowerInvariant()
+          Write-Host ('Q10_BOUNDED_FILESYSTEM_ITEMS_SCANNED='+$scanned)
+          Write-Host ('Q10_BOUNDED_DIRECTORIES_SCANNED='+$directories)
+          Write-Host ('Q10_OPTIONAL_ROOTS_UNAVAILABLE='+$missing)
+          Write-Host ('Q10_ORIGINAL_SOURCE_RESET_LEDGER_FILENAME_CANDIDATES='+$items.Count)
+          Write-Host ('Q10_NONCONTENT_INVENTORY_DIGEST_SHA256='+$fingerprint)
+          Write-Host 'Q10_GLOBAL_ORIGINAL_RESET_SEED_LEDGER_ATTESTED=FALSE'
+          Write-Host 'Q10_SOURCE_BIRTH_OR_NATIVE_EPISODE_EXECUTION=NONE'
+          Write-Host 'Q10_SCIENTIFIC_FIRST_USE=BLOCKED'
