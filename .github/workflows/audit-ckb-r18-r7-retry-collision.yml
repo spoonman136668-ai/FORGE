@@ -1,0 +1,97 @@
+name: CKB R18-R7 repeated-release identity collision audit READ ONLY
+on:
+  push:
+    branches: [audit/ckb-r18-r7-retry-collision-20261022]
+    paths: [.github/workflows/audit-ckb-r18-r7-retry-collision.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r7-owner-audit-only-20261022
+  cancel-in-progress: false
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Verify audit scope and owner identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='458e7fa09e8ea8052ac1a6a199308ed32df49f44'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($identity)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r7-retry-collision-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $identity.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_R7_OWNER_SCOPE_OR_PARENT_DRIFT'
+          }
+          $diff=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $diff.Count -ne 1 -or
+             $diff[0] -cne '.github/workflows/audit-ckb-r18-r7-retry-collision.yml'){
+            throw 'R18_R7_SOURCE_SCOPE_NOT_READONLY_WORKFLOW'
+          }
+          Write-Host 'R18_R7_OWNER_AND_ONE_FILE_AUDIT_SCOPE=PASS'
+      - name: Prove whether R18 R2 fixed release directory makes identical retry impossible
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $source='operations/ckb-r18/Invoke-GuardedR18Cutover.ps1'
+          $src=[IO.File]::ReadAllText((Resolve-Path -LiteralPath $source).Path)
+          $expected='    '+[char]36+"releaseName='PLANE-R18-OWNER-STATUS-R2'"
+          $guard="        throw 'R18_RELEASE_OR_ROLLBACK_DESTINATION_ALREADY_EXISTS'"
+          if($src.Split($expected).Count -ne 2 -or
+             $src.Split($guard).Count -ne 2 -or
+             $src.IndexOf($guard) -le $src.IndexOf($expected)){
+            throw 'R18_R7_SWITCHER_FIXED_IDENTITY_BOUNDARY_DRIFT'
+          }
+          $r2='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2'
+          $r2exe=Join-Path $r2 'bin\ckb-plane.exe'
+          $previous='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570'
+          $launcher=Join-Path $previous 'Start-R18-Controller.ps1'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          foreach($record in @(
+             @{path=$r2exe;hash='63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'},
+             @{path=$launcher;hash='071a4434f008b684a6b9bdc75e430008100021c1d11a1848e22660f00a2cda05'},
+             @{path=$old;hash='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+             @{path=$config;hash='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $i=Get-Item -LiteralPath $record.path -ErrorAction Stop
+            if($i.PSIsContainer -or
+               ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $record.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $record.hash){
+              throw 'R18_R7_PROTECTED_OR_STAGED_FILE_DRIFT'
+            }
+          }
+          if(!(Test-Path -LiteralPath $r2 -PathType Container) -or
+             !(Test-Path -LiteralPath $previous -PathType Container)){
+            throw 'R18_R7_EXPECTED_PREEXISTING_RELEASE_DIR_MISSING'
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($procs.Count -ne 1 -or
+             [string]$procs[0].ExecutablePath -ine $old -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_R7_ORIGINAL_CONTROLLER_IDENTITY_DRIFT'
+          }
+          Write-Host 'R18_R7_ORIGINAL_R1P_SINGLETON_AND_PINS=PASS'
+          Write-Host 'R18_R7_PREVIOUS_R2_RELEASE_PATH=EXISTS'
+          Write-Host 'R18_R7_PREVIOUS_R2_CUTOVER_RECORD=EXISTS'
+          Write-Host 'R18_R7_STAGED_R2_BINARY=HASH_MATCH'
+          Write-Host 'R18_R7_IDENTICAL_SWITCHER_RETRY=BLOCKED_BY_PREEXISTING_RELEASE_DIR'
+          Write-Host 'R18_R7_FRESH_RELEASE_IDENTITY_REQUIRED=TRUE'
+          Write-Host 'R18_R7_PREVIOUS_R2_CUSTODY=UNMODIFIED'
+          Write-Host 'R18_R7_SOURCE_MERGE=NOT_ATTEMPTED'
+          Write-Host 'R18_R7_CUTOVER=NOT_ATTEMPTED'
+          Write-Host 'R18_R7_RESEARCH_DISPATCH=NOT_ATTEMPTED'
