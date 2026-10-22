@@ -308,12 +308,30 @@ class Database:
                         TICKET as NEGATIVE_706, SOURCE as SOURCE_706, KIND as SECOND_KIND)
                     second = self.conn.execute(
                         "SELECT seq,sha FROM events WHERE kind=?", (SECOND_KIND,)).fetchall()
-                    require(row["seq"] == 57 and len(second) == 1
-                            and second[0]["seq"] == 56
-                            and second[0]["sha"] == row["prior_sha"]
-                            and doc["from_source_sha"] == SOURCE_706
-                            and doc["custodied_negative_tickets"] == [NEGATIVE_696, NEGATIVE_706],
+                    previous_v3 = [
+                        t for t in source_transitions
+                        if t["schema"] == "forge.f139.source-transition.v3"]
+                    require(len(second) == 1 and second[0]["seq"] == 56
+                            and doc["custodied_negative_tickets"] ==
+                                [NEGATIVE_696, NEGATIVE_706],
                             "SOURCE_TRANSITION_V3_IDENTITY_DRIFT")
+                    if not previous_v3:
+                        # Original source transition remains exactly event 57.
+                        require(row["seq"] == 57
+                                and second[0]["sha"] == row["prior_sha"]
+                                and doc["from_source_sha"] == SOURCE_706,
+                                "SOURCE_TRANSITION_V3_ORIGINAL_DRIFT")
+                    else:
+                        # Only later manually approved transitions may retain
+                        # both immutable negatives, never a second custody event.
+                        require(row["seq"] > 57
+                                and source_transitions[-1]["schema"] ==
+                                    "forge.f139.source-transition.v3"
+                                and doc["from_source_sha"] ==
+                                    source_transitions[-1]["to_source_sha"]
+                                and doc["to_source_sha"] not in {
+                                    t["to_source_sha"] for t in previous_v3},
+                                "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -338,7 +356,7 @@ class Database:
         negative_v3 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v3"]
         negative_transitions = negative_v2 + negative_v3
-        require(len(negative_transitions) <= 20 and len(negative_v3) <= 1,
+        require(len(negative_transitions) <= 20 and len(negative_v3) <= 10,
                 "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         require(not negative_v3 or certified_negative and certified_second,
                 "SECOND_NEGATIVE_CUSTODY_MISSING")
@@ -383,11 +401,12 @@ class Database:
                         "CUSTODIED_NEGATIVE_TRANSITION_DRIFT")
             if negative_v3:
                 require(certified_second and certified_negative
-                        and len(negative_v3) == 1
                         and negative_v3[0]["from_source_sha"] == SECOND_NEGATIVE_SOURCE
-                        and negative_v3[0]["custodied_negative_tasks"] == 2
-                        and negative_v3[0]["custodied_negative_tickets"] ==
-                            [ORIGINAL_NEGATIVE_TICKET, SECOND_NEGATIVE_TICKET],
+                        and all(
+                            t["custodied_negative_tasks"] == 2
+                            and t["custodied_negative_tickets"] ==
+                                [ORIGINAL_NEGATIVE_TICKET, SECOND_NEGATIVE_TICKET]
+                            for t in negative_v3),
                         "SECOND_NEGATIVE_TRANSITION_DRIFT")
         # NCI04 admission is additive; historic F139/D2K event semantics stay
         # exact. Check native admission against the original SHA-linked SQLite
@@ -425,7 +444,7 @@ class Database:
 
     def transition_source(self, new_source_sha: str, *,
                           allow_certified_negative: bool = False):
-        """Admit only v1 zero, original v2 single, or exact first v3 double negative."""
+        """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
         from f139.nci04_negative_owner_store import (
@@ -481,15 +500,27 @@ class Database:
                 transitions = [
                     json.loads(r["payload"]) for r in self.conn.execute(
                         "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+                previous_v3 = [
+                    t for t in transitions
+                    if t["schema"] == "forge.f139.source-transition.v3"]
+                original_boundary = (
+                    meta["source_sha"] == SOURCE_706
+                    and meta["head_seq"] == 56
+                    and not previous_v3)
+                successor_boundary = (
+                    bool(previous_v3)
+                    and len(previous_v3) < 10
+                    and transitions[-1]["schema"] ==
+                        "forge.f139.source-transition.v3"
+                    and meta["source_sha"] == previous_v3[-1]["to_source_sha"]
+                    and new_source_sha not in {
+                        t["to_source_sha"] for t in previous_v3})
                 require(tickets == {NEGATIVE_696, NEGATIVE_706}
-                        and meta["source_sha"] == SOURCE_706
-                        and meta["head_seq"] == 56
+                        and (original_boundary or successor_boundary)
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and any(t["schema"] == "forge.f139.source-transition.v2"
                                 and t["from_source_sha"] == SOURCE_696 for t in transitions)
-                        and not any(t["schema"] == "forge.f139.source-transition.v3"
-                                    for t in transitions)
                         and self.active() is None and self.ready() is None,
                         "SOURCE_TRANSITION_TWO_NEGATIVES_NOT_CUSTODIED")
                 schema = "forge.f139.source-transition.v3"
