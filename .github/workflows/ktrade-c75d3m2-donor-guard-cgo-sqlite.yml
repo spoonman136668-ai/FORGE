@@ -1,0 +1,187 @@
+name: R25-C75D3M2 original CKB TradeGuard and CGO SQLite in same process
+on:
+  push:
+    branches: [qualification/ktrade-c75d3m2-donor-guard-cgo-sqlite-20261022]
+    paths: [.github/workflows/ktrade-c75d3m2-donor-guard-cgo-sqlite.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-operator-c75d3m2-ephemeral
+  cancel-in-progress: false
+jobs:
+  native-guard-sqlite:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: 'Never'
+      GOWORK: 'off'
+      GOTOOLCHAIN: 'local'
+      CGO_ENABLED: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Execute original donor TradeGuard and native CGO atomic SQLite together
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-c75d3m2-donor-guard-cgo-sqlite-20261022' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_PROMOTION_ALLOWED -cne '0'){
+            throw 'D3M2_RUNNER_OR_AUTHORITY_DRIFT'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'D3M2_BROKER_CREDENTIAL_PRESENT_ABORT'}
+          }
+          # Verified in preflight run #39795239522. C compiler is present
+          # and can be used without installation, elevated access or a
+          # permanent change to the FORGE runner host.
+          $compiler='C:\msys64\ucrt64\bin\gcc.exe'
+          if(!(Test-Path -LiteralPath $compiler -PathType Leaf)){
+            throw 'D3M2_NO_VERIFIED_NATIVE_C_COMPILER'
+          }
+          $env:CC=$compiler
+          $env:PATH=([IO.Path]::GetDirectoryName($compiler))+';'+$env:PATH
+          if((& go env CGO_ENABLED).Trim() -cne '1'){throw 'D3M2_CGO_SQLITE_DISABLED'}
+          Write-Host 'D3M2_ORIGINAL_WINDOWS_NATIVE_CGO_COMPILER=PASS'
+          $native='061d080eefca1e7d33627805e42a43699db6c541'
+          $parent='5dbce2af7ade9efd94eb8c9701b6c4c7dc14330e'
+          $donorSha='520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc'
+          $donorTree='b74808f35e798b1b72e8fb31a49a5f4664ca87b5'
+          $expected=@{
+            'tests/donor-native-vwap/c75d3m2_native_tradeguard_sqlite_test.go'='13d52bb87affe2a11704d2991d61e0d2fb65da48'
+            'tests/donor-native-vwap/c75d3m_original_native_guard_test.go'='c740ad5978a49325eb8b2d176d39798cdf1b5f59'
+            'tests/donor-native-vwap/c75d3f_native_current_vwap.go'='70a912177ba86fb71d059d440a3b1b39ee70674d'
+            'tests/donor-native-vwap/c75d3h_native_decision_noorders.go'='2f7494d22eba4cc189045c47eeac9be2aebc1cd5'
+            'tests/donor-native-vwap/c75d3k_native_original_sell_fixture.go'='2ce08cc9f7e9c893f94da352e3f63899e5268d1a'
+            'internal/papertrading/ledger.go'='d44341253e7d4b51d31b03cea26a77cbbb534f7b'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('ktrade-d3m2-nativetrial-'+[guid]::NewGuid().ToString('N'))
+          $source=Join-Path $root 'ktrade-candidate'
+          $donor=Join-Path $root 'frozen-ckb'
+          $log=Join-Path $root 'private-output.log'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ktrade.git $source *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M2_EXISTING_KTRADE_READ_UNAVAILABLE'}
+            & git -C $source checkout --quiet --detach $native *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M2_KTRADE_CANDIDATE_NOT_AVAILABLE'}
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ckb.git $donor *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M2_EXISTING_ORIGINAL_CKB_READ_UNAVAILABLE'}
+            & git -C $donor checkout --quiet --detach $donorSha *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M2_FROZEN_CKB_SOURCE_NOT_AVAILABLE'}
+            if((& git -C $source rev-parse HEAD).Trim() -cne $native -or
+               (& git -C $donor rev-parse HEAD).Trim() -cne $donorSha -or
+               (& git -C $donor rev-parse 'HEAD^{tree}').Trim() -cne $donorTree){
+              throw 'D3M2_FROZEN_SOURCE_IDENTITY_DRIFT'
+            }
+            $delta=@(& git -C $source diff --name-only $parent $native)
+            if($delta.Count -ne 1 -or $delta[0] -cne 'tests/donor-native-vwap/c75d3m2_native_tradeguard_sqlite_test.go'){
+              throw 'D3M2_SOURCE_DELTA_DRIFT'
+            }
+            foreach($p in $expected.Keys){
+              if((& git -C $source rev-parse ('HEAD:'+$p)).Trim() -cne $expected[$p]){
+                throw 'D3M2_GIT_BLOB_IDENTITY_DRIFT'
+              }
+            }
+            if((& git -C $donor rev-parse 'HEAD:internal/papertrading/ledger.go').Trim() -cne $expected['internal/papertrading/ledger.go']){
+              throw 'D3M2_ORIGINAL_FIFO_LEDGER_SOURCE_MISMATCH'
+            }
+            Write-Host 'D3M2_GENUINE_ORIGINAL_DONOR_AND_KTRADE_PINNED=PASS'
+            # Add the exact versioned CGO driver to the ephemeral frozen donor
+            # module without modifying any original Git object or protected branch.
+            Push-Location $donor
+            try{
+              & go mod edit -require=github.com/mattn/go-sqlite3@v1.14.18 *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3M2_EPHEMERAL_GO_MOD_EDIT_FAILED'}
+              $env:GOMODCACHE=Join-Path $root 'isolated-module-cache'
+              $env:GOPROXY='https://proxy.golang.org'
+              $env:GOSUMDB='sum.golang.org'
+              & go mod download github.com/mattn/go-sqlite3@v1.14.18 *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3M2_PINNED_SQLITE_MODULE_UNAVAILABLE'}
+              & go mod download *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3M2_FROZEN_DONOR_MODULES_UNAVAILABLE'}
+            }finally{Pop-Location}
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            foreach($n in @('c75d3f_native_current_vwap.go','c75d3h_native_decision_noorders.go',
+              'c75d3k_native_original_sell_fixture.go','c75d3m_original_native_guard_test.go',
+              'c75d3m2_native_tradeguard_sqlite_test.go')){
+              Copy-Item -LiteralPath (Join-Path $source ('tests/donor-native-vwap/'+$n)) -Destination (Join-Path $donor ('pkg/'+$n)) -ErrorAction Stop
+            }
+            foreach($pkg in @('paperproposal','paperreconcile','paperlifecycle')){
+              $dest=Join-Path $donor ('internal/'+$pkg)
+              if(Test-Path -LiteralPath $dest){throw 'D3M2_ORIGINAL_INTERNAL_SOURCE_COLLISION'}
+              New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
+              $srcFolder=Join-Path $source ('internal/'+$pkg)
+              $items=@(Get-ChildItem -LiteralPath $srcFolder -Filter '*.go' -File | Where-Object {$_.Name -notlike '*_test.go'})
+              if($items.Count -lt 1){throw 'D3M2_REQUIRED_NATIVE_PACKAGE_MISSING'}
+              foreach($item in $items){
+                Copy-Item -LiteralPath $item.FullName -Destination $dest -ErrorAction Stop
+              }
+            }
+            $tracked=@(& git -C $donor diff --name-only | Sort-Object)
+            if(@(Compare-Object $tracked @('go.mod','go.sum')).Count -ne 0){
+              throw 'D3M2_EPHEMERAL_DONOR_CHANGED_OUTSIDE_MODULE_MANIFEST'
+            }
+            Write-Host 'D3M2_NATIVE_SQLITE_DRIVER_AND_DONOR_SHADOW_PREPARED=PASS'
+            Push-Location $donor
+            try{
+              & go test -mod=mod -tags=ktrade_donor_shadow -count=1 -timeout=10m -run '^TestC75D3M2' ./pkg *> $log
+              if($LASTEXITCODE -ne 0){
+                $lines=@(Get-Content -LiteralPath $log)
+                foreach($line in $lines){
+                  if($line -match '^--- FAIL: (TestC75D3M2[A-Za-z0-9_]+)'){
+                    Write-Host ('D3M2_FAILED_TEST='+$Matches[1])
+                  }
+                  if($line -match '(c75d3m2_native_tradeguard_sqlite_test\.go):(\d+):'){
+                    Write-Host ('D3M2_FAILURE_TEST_LINE='+$Matches[2])
+                  }
+                  if($line -match '^(?:internal/[a-z0-9_/]+/)?[a-z0-9_]+\.go:(\d+):(\d+):'){
+                    Write-Host ('D3M2_COMPILE_SOURCE_LINE='+$Matches[1]+':'+$Matches[2])
+                  }
+                }
+                throw 'D3M2_REAL_ORIGINAL_GUARD_AND_SQLITE_INTEGRATION_FAILED'
+              }
+              Write-Host 'D3M2_ORIGINAL_GUARD_PLUS_SQLITE_ATOMIC_BUY_SELL=PASS'
+              & go vet -mod=mod -tags=ktrade_donor_shadow ./pkg ./internal/paperlifecycle ./internal/paperproposal ./internal/paperreconcile *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3M2_NATIVE_ORIGINAL_GUARD_SQLITE_VET_FAILED'}
+              Write-Host 'D3M2_ORIGINAL_TRADEGUARD_SQLITE_CGO_VET=PASS'
+              $binary=Join-Path $root 'native-guard-sqlite.test.exe'
+              & go test -c -mod=mod -tags=ktrade_donor_shadow -o $binary ./pkg *> $log
+              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $binary -PathType Leaf)){
+                throw 'D3M2_ORIGINAL_DONOR_NATIVE_TEST_BUILD_FAILED'
+              }
+              Write-Host 'D3M2_ORIGINAL_GUARD_SQLITE_TEST_EXE_BUILD=PASS'
+              Write-Host ('D3M2_ORIGINAL_GUARD_SQLITE_EXE_SHA256='+((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()))
+            }finally{Pop-Location}
+            $final=@(& git -C $donor diff --name-only | Sort-Object)
+            if(@($final | Where-Object {$_ -notin @('go.mod','go.sum')}).Count -gt 0){
+              throw 'D3M2_FROZEN_DONOR_TRACKED_SOURCE_MODIFIED'
+            }
+            if((& git -C $donor rev-parse 'HEAD^{tree}').Trim() -cne $donorTree){
+              throw 'D3M2_ORIGINAL_FROZEN_DONOR_TREE_CHANGED'
+            }
+            Write-Host 'D3M2_ORIGINAL_CKB_PROTECTED_SOURCE_UNCHANGED=PASS'
+            Write-Host 'D3M2_SYNTHETIC_ONLY_TRADEGUARD_AND_SQLITE=TRUE'
+            Write-Host 'D3M2_ORIGINAL_NATIVE_SOURCE_BIRTH_SIGNATURE=NOT_QUALIFIED'
+            Write-Host 'D3M2_REAL_OWNER_CUSTODY=NOT_ACCESSED'
+            Write-Host 'D3M2_REAL_PAPER_TRADING_AUTHORITY=FALSE'
+            Write-Host 'D3M2_LIVE_BROKER_CONNECTED=FALSE'
+          } finally{
+            if(Test-Path -LiteralPath $root){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host 'D3M2_PRIVATE_SOURCE_OR_OWNER_DATA_EXPORTED=FALSE'
+          }
