@@ -186,6 +186,78 @@ class TwoNegativeControllerIntegration(unittest.TestCase):
             self.db.transition_source(SOURCE_706, allow_certified_negative=True)
         self.assertEqual(self.db.meta()["head_seq"], 56)
 
+    def activate_current(self):
+        meta = self.db.meta()
+        approval = {
+            "schema": APPROVAL_SCHEMA, "source_sha": meta["source_sha"],
+            "expected_event_head_sha256": meta["head_hash"],
+            "native_development_approved": True,
+            "scientific_first_use": False, "create_controller": False,
+            "paid_api_calls": 0,
+        }
+        with mock.patch(
+            "f139.nci04_owner_ledger.verified_historical_foundation",
+            return_value=None):
+            self.assertTrue(activate_native(self.db, approval))
+
+    def test_second_protected_transition_keeps_originals_and_new_owner_gate(self):
+        self.append_second()
+        self.transition()
+        self.activate_current()
+        self.assertTrue(verify_native_activation(self.db))
+        third_source = "e" * 40
+        self.db.transition_source(third_source, allow_certified_negative=True)
+        self.db.verify()
+        self.assertEqual(self.db.meta()["head_seq"], 59)
+        self.assertEqual(self.db.meta()["source_sha"], third_source)
+        self.assertFalse(verify_native_activation(self.db))
+        preserved = [dict(r) for r in self.db.conn.execute(
+            "SELECT seq,kind,payload,prior_sha,sha FROM events "
+            "WHERE seq<=55 ORDER BY seq")]
+        self.assertEqual(preserved, self.original_55)
+        transitions = [
+            json.loads(row["payload"]) for row in self.db.conn.execute(
+                "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+                " ORDER BY seq")]
+        self.assertEqual(transitions[-2]["schema"], "forge.f139.source-transition.v3")
+        self.assertEqual(transitions[-1]["schema"], "forge.f139.source-transition.v3")
+        self.assertEqual(transitions[-1]["custodied_negative_tickets"],
+                         [TICKET_696, TICKET_706])
+        for ticket in (TICKET_696, TICKET_706):
+            self.assertEqual(self.db.conn.execute(
+                "SELECT stage FROM tasks WHERE ticket=?",
+                (ticket,)).fetchone()["stage"], "QUARANTINED")
+        self.db.close()
+        self.db = Database(self.path)
+        self.addCleanup(self.db.close)
+        self.db.verify()
+        self.assertFalse(verify_native_activation(self.db))
+        self.activate_current()
+        self.assertTrue(verify_native_activation(self.db))
+        self.db.verify()
+        self.assertEqual(self.db.meta()["head_seq"], 60)
+
+    def test_later_transition_rejects_original_source_reuse(self):
+        self.append_second()
+        self.transition()
+        self.activate_current()
+        with self.assertRaises(F139Error):
+            self.db.transition_source(SOURCE_706, allow_certified_negative=True)
+        self.assertEqual(self.db.meta()["head_seq"], 58)
+        self.assertEqual(self.db.meta()["source_sha"], NEW_SOURCE)
+
+    def test_later_transition_rejects_missing_second_custody(self):
+        self.append_second()
+        self.transition()
+        self.activate_current()
+        with mock.patch(
+            "f139.nci04_split_negative_owner_store.verify_second_negative_custody",
+            return_value=False):
+            with self.assertRaises(F139Error):
+                self.db.transition_source("e" * 40,
+                                          allow_certified_negative=True)
+        self.assertEqual(self.db.meta()["head_seq"], 58)
+
     def test_native_activation_after_exact_v3_only(self):
         self.append_second()
         self.transition()
