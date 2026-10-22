@@ -12,6 +12,7 @@ import tracemalloc
 
 import sourcefree as p
 import models as m
+import resource_meter as rm
 
 ARM_NAMES = ('FULL_CURRENT_COUNTS', 'TRAINED_CURRENT_LOGISTIC',
              'LAGGED_PUBLIC_COUNTS', 'TRAINED_2_STATE_ACTION_RNN',
@@ -132,6 +133,65 @@ def evaluate_one_family(by_role,family,doc):
             'gain':gains,'privileged_oracle_nll':oracle['mean_nll'],
             'oracle_is_not_matched_comparator':True,
             'public_oracle_headroom':arms[best_current]['result']['mean_nll']-oracle['mean_nll'],
+            'native_peak_rss_qualified':False,
+            'protected_scientific_first_use':False}
+
+
+
+def evaluate_with_native_resource_census(by_role, family, doc, *,
+                                         generation_snapshots, adapter_mode,
+                                         wire_bytes=None, adapter_bytes=None):
+    """Advisory whole-process resource census; never an execution grant.
+
+    The existing CKB-owned caller must perform source generation and retain
+    its two actual native snapshots. This function cannot instantiate episodes,
+    and a self-reported receipt cannot establish scientific source custody.
+    Per-arm Python tracemalloc is NOT native/isolated model RSS.
+    """
+    p.require(type(generation_snapshots) in (tuple,list)
+              and len(generation_snapshots)==2
+              and all(type(s) is dict for s in generation_snapshots),
+              'Q21_GENERATION_NATIVE_SNAPSHOTS_REQUIRED')
+    generation=rm.measured_delta(generation_snapshots[0],
+                                 generation_snapshots[1],'source_generation')
+    # Require explicit transport declaration, never silently assume free I/O.
+    transport=rm.communication_receipt(adapter_mode,wire_bytes=wire_bytes,
+                                       adapter_bytes=adapter_bytes)
+    evaluation_start=rm.snapshot()
+    # Account for collector/evaluator handoff CPU and I/O too; all snapshots
+    # must be from one monotonically increasing OS process counter domain.
+    handoff=rm.measured_delta(generation_snapshots[1],evaluation_start,
+                             'generation_to_evaluation_handoff')
+    p.require(generation['platform']==evaluation_start['platform'],
+              'Q21_SOURCE_GENERATION_PLATFORM_MISMATCH')
+    public_input=rm.canonical_payload_size(
+        {role:by_role[role] for role in ('FIT_TRAIN','FIT_VALID','DEV')})
+    result=evaluate_one_family(by_role,family,doc)
+    evaluation_end=rm.snapshot()
+    evaluation=rm.measured_delta(evaluation_start,evaluation_end,
+                                 'model_fit_validation_dev_oracle_bootstrap')
+    # This is serialized model size, NOT a claim any checkpoint was persisted.
+    state_bytes=sum(arm['fit_cost']['checkpoint_bytes']
+                    for arm in result['arm_results'].values())
+    p.require(type(state_bytes) is int and state_bytes >= 0,
+              'Q21_MODEL_CHECKPOINT_BYTES_INVALID')
+    cost={
+        'schema':'forge.q21.native-resource-census.v1',
+        'source_generation':generation,
+        'generation_to_evaluation_handoff':handoff,
+        'fit_dev_oracle_bootstrap':evaluation,
+        'total_process_cpu_seconds':sum(
+            x['process_cpu_seconds'] for x in (generation,handoff,evaluation)),
+        'process_peak_rss_bytes':evaluation['process_peak_rss_bytes'],
+        'rss_scope':'CUMULATIVE_PROCESS_HIGH_WATER_NOT_ISOLATED_MODEL',
+        'public_input_serialization':public_input,
+        'all_seven_model_serialized_checkpoint_bytes':state_bytes,
+        'checkpoint_persisted_bytes':'NOT_MEASURED_NO_PERSISTENCE_CLAIM',
+        'adapter_transport':transport,
+        'scientific_qualification':'NOT_AUTHORIZED_BY_RESOURCE_CENSUS',
+    }
+    return {**result,'native_resource_census':cost,
+            'native_peak_rss_measured':True,
             'native_peak_rss_qualified':False,
             'protected_scientific_first_use':False}
 
