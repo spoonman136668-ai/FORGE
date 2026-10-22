@@ -1,0 +1,105 @@
+{
+  "schema": "forge.nci04.q17b.learned_twoedge_composition.v1",
+  "status": "FROZEN_BEFORE_IMPLEMENTATION_SOURCE_FREE_DEVELOPMENT",
+  "source_parent": "ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f",
+  "predecessor": "Q17A PR #725 exact interventional identifiability PASS, without using its exposed C17_dev_a/b seeds",
+  "hypothesis": "Fit two reusable causal edge-confidence variables from public interventions with ONLY the composed target A->C label as supervision; test whether their product predicts conjunction of causal edges more efficiently/accurately than strong equally informed learned flat, recurrent, symbolic and exact-oracle Bayesian controls.",
+  "causal_world": {
+    "latent": "two independent edge existence bits E_AB and E_BC with probability 1/2; target label T=E_AB AND E_BC",
+    "public_episode": "16 intervention probes for A->B plus 16 probes for B->C, with uniformly chosen do(A=a)/do(B=b) and outcome matches action; public records only probe edge/type, action, outcome",
+    "law": "when edge is present P(outcome=intervened action)=4/5; when absent probability=1/2",
+    "training_labels": "only composed T available to all trained methods, NEVER the two edge existence labels",
+    "inference": "episode events only, hidden edge bits, target labels, generator seed and family identity unavailable"
+  },
+  "cohorts": {
+    "fit": {
+      "episodes_per_structure": 64,
+      "total_episodes": 256
+    },
+    "development": {
+      "episodes_per_structure": 16,
+      "total_episodes": 64
+    },
+    "independent_sourcefree_future_held_NOT_GENERATED": [
+      "Q17B_H3",
+      "Q17B_H4"
+    ],
+    "seed_rule": "SHA256('q17b-v1:'+role+':'+structure_index+':'+episode_index) 64bit big-endian; RNG standard Python 3.12",
+    "predeclared_structure_balance": "structure_index in [0,1,2,3] meaning E_AB=(index>>1)&1 E_BC=index&1; both labels available only to generator",
+    "role_disjointness": true,
+    "no_dev_model_update": true
+  },
+  "models": {
+    "candidate": {
+      "name": "LEARNED_FACTORIZED_CAUSAL_EDGES",
+      "params": 4,
+      "online_state_scalars": 2,
+      "form": "P(T=1)=sigmoid(wA*centered_matchA+bA)*sigmoid(wB*centered_matchB+bB); two edge confidences fitted from composed-only label by Bernoulli NLL"
+    },
+    "flat": {
+      "name": "TRAINED_FLAT_INTERACTION",
+      "params": 4,
+      "online_state_scalars": 2,
+      "form": "sigmoid(b+wA*xA+wB*xB+wAB*xA*xB)"
+    },
+    "recurrent": {
+      "name": "TRAINED_TWO_STATE_TANH_RNN",
+      "params": 9,
+      "online_state_scalars": 2,
+      "form": "for each public typed probe update only the matching one of two tanh states h_i=tanh(a_i*h_i+w_i*success_sign+b_i); output sigmoid(vA*hA+vB*hB+vAB*hA*hB+b)"
+    },
+    "symbolic": {
+      "name": "TRAINED_SYMBOLIC_TWO_THRESHOLD_AND",
+      "online_state_scalars": 2,
+      "form": "grid fit both count thresholds from FIT labels, AND decisions; Laplace-smoothed positive probability for true/false symbolic decisions learned on FIT, with no oracle edge labels"
+    },
+    "bayes": {
+      "name": "ORACLE_BAYES_TWO_EDGE_POSTERIOR",
+      "online_state_scalars": 2,
+      "form": "exact P(E_AB=1|public probes)*P(E_BC=1|public probes) using explicitly known synthetic law and prior; privileged theoretical upper bound, not eligible to claim candidate advantage over oracle"
+    }
+  },
+  "training": {
+    "epochs": 24,
+    "restarts": [
+      0,
+      1
+    ],
+    "batch_episodes": 32,
+    "adam_lr": 0.05,
+    "clip_grad_norm": 4,
+    "finite_difference_epsilon": 0.0001,
+    "init_seed": "SHA256('q17b-init:'+model+':'+restart)",
+    "select_restart": "after epoch24 only; min frozen development loss among two restarts, no DEV gradient updates",
+    "trained_arms": [
+      "LEARNED_FACTORIZED_CAUSAL_EDGES",
+      "TRAINED_FLAT_INTERACTION",
+      "TRAINED_TWO_STATE_TANH_RNN"
+    ],
+    "loss": "episode Bernoulli log-loss on composed target T, no intermediate edge labels",
+    "oracle_receives_extra_known_law": "yes; separate upper bound, not matched empirical source information",
+    "runtime": "measure full model training process_time and tracemalloc peak; development process CPU, final parameter/online-state count, serialize checkpoint bytes, include all attempts"
+  },
+  "acceptance": {
+    "hard_pass_all": [
+      "candidate loss within 0.015 nats/episode of privileged exact Bayesian oracle",
+      "candidate improves loss vs both flat and 2state tanh recurrent by at least 0.010 nats/episode",
+      "candidate improves over trained symbolic AND by at least 0.010 nats/episode",
+      "candidate fit+DEV CPU <=1.10x trained recurrent on same host",
+      "candidate online state <=2 scalars; identical public FIT/DEV episodes across models"
+    ],
+    "decision_pass": "DEV_ONLY_COMPOSITION_REPRESENTATION_CANDIDATE_NOT_TRANSFER",
+    "decision_failure": "DEV_NO_GO_RETAIN_NEGATIVE_NO_HELD",
+    "no_claim_of_unfamiliar_task_transfer": true,
+    "no_original_scientific_execution": true,
+    "no_further_tuning_after_dev": true
+  },
+  "guardrails": [
+    "No original-source episodes, no real MiniGrid/Pycolab, no CKB controller or queue writes",
+    "No Q17A reserved C17_hold_c/d or exposed dev cohorts reused",
+    "No Q15/Q16 holdout generation or model retuning",
+    "No independent transfer claims from training/dev synthetic sources",
+    "No full FORGE G61 regression bypass: source-only qualification separate",
+    "Do not run new held on failure"
+  ]
+}
