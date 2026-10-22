@@ -92,7 +92,29 @@ function NativeClient([string]$exe,[string]$operation) {
             try {$client.Kill()} catch {}
             throw ('CKB_R18_'+$operation.ToUpperInvariant()+'_CLI_TIMEOUT')
         }
-        if ($client.ExitCode -ne 0) {throw ('CKB_R18_'+$operation.ToUpperInvariant()+'_CLI_REJECTED')}
+        if ($client.ExitCode -ne 0) {
+            # Classify only known native authority-fence errors; never log
+            # stderr, command environment, tokens, credentials or paths.
+            $failureText=([IO.File]::ReadAllText($err)+' '+[IO.File]::ReadAllText($out))
+            $classes=@(
+                'WINDOWS_QUALIFICATION_REQUIRED_OR_CONFIGURATION_CHANGED',
+                'QUALIFICATION_RECEIPT_MISSING','QUALIFICATION_RECEIPT_INVALID',
+                'ORIGINAL_AUTHORITY_GUARD_NOT_CONFIGURED',
+                'ORIGINAL_WORKFLOW_NOT_DISABLED',
+                'ORIGINAL_REPOSITORY_HAS_ACTIVE_RUNS',
+                'ORIGINAL_REPOSITORY_MISMATCH',
+                'ORIGINAL_ARCHITECTURE_REMAINS_AUTHORITY',
+                'AUTONOMY_NOT_CONFIGURED',
+                'AUTHORITY_REPOSITORY_MISMATCH',
+                'R4C1_NATIVE_PROOF_REQUIRED_BEFORE_CUTOVER',
+                'ORIGINAL_AUTHORITY_LOCAL_PROOF_REQUIRED'
+            )
+            $reason='OTHER_REJECTED_BY_NATIVE_GUARD'
+            foreach($candidate in $classes) {
+                if ($failureText.Contains($candidate)) {$reason=$candidate;break}
+            }
+            throw ('CKB_R18_'+$operation.ToUpperInvariant()+'_CLI_REJECTED_'+$reason)
+        }
         if ((Get-Item -LiteralPath $out).Length -gt 16777216) {throw 'CKB_R18_NATIVE_OUTPUT_EXCEEDS_BOUND'}
         $raw=[IO.File]::ReadAllText($out)
         return ConvertFrom-Json -InputObject $raw -ErrorAction Stop
