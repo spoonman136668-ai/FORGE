@@ -142,3 +142,61 @@ jobs:
           if([Text.Encoding]::UTF8.GetByteCount($json) -gt 20000){throw 'R18_DIAGNOSTIC_OVERSIZED'}
           Write-Host ('R18_STARTUP_DIAGNOSTIC_RECEIPT='+$json)
           Write-Host 'R18_STARTUP_DIAGNOSTIC_NO_MUTATION=TRUE'
+
+      - name: Classify launcher PowerShell 4100 startup error without exporting message contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $start=[DateTimeOffset]::Parse('2026-10-22T12:15:20+00:00')
+          $end=[DateTimeOffset]::Parse('2026-10-22T12:15:55+00:00')
+          $ev=@(Get-WinEvent -FilterHashtable @{
+             LogName='Microsoft-Windows-PowerShell/Operational'
+             Id=4100
+             StartTime=$start.LocalDateTime
+             EndTime=$end.LocalDateTime
+          } -MaxEvents 60 -ErrorAction Stop | Where-Object {
+             $_.Message -like '*Start-R18-Controller*'
+          })
+          if($ev.Count -ne 1){throw ('R18_LAUNCHER_4100_EVENT_COUNT_'+$ev.Count)}
+          $txt=[string]$ev[0].Message
+          # Hash raw error locally; export only a hash, source line number if bounded,
+          # fixed predefined error class and a safe, short FQID.
+          $msgbytes=[Text.Encoding]::UTF8.GetBytes($txt)
+          $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($msgbytes)).ToLowerInvariant()
+          $safe=@(
+            @{category='DPAPI_OR_SECURESTRING';rx='(?i)(CryptographicException|Key not valid for use|CryptUnprotectData|ConvertTo-SecureString|ProtectedData|SecureString)'},
+            @{category='ACCESS_DENIED';rx='(?i)(UnauthorizedAccessException|Access is denied|PermissionDenied)'},
+            @{category='FILE_PATH_NOT_FOUND';rx='(?i)(DirectoryNotFoundException|FileNotFoundException|Cannot find path|PathNotFound)'},
+            @{category='COMMAND_NOT_FOUND';rx='(?i)(CommandNotFoundException|is not recognized as the name of)'},
+            @{category='POWERSHELL_PARAMETER';rx='(?i)(ParameterBindingException|NamedParameterNotFound)'},
+            @{category='PROCESS_EXECUTION';rx='(?i)(NativeCommandError|ProgramFailedToStart|Win32Exception|Exception calling.*Start)'},
+            @{category='SOCKET_BIND';rx='(?i)(Only one usage of each socket address|bind:|address already in use)'},
+            @{category='PARSER';rx='(?i)(ParserError|ParseException|UnexpectedToken)'}
+          )
+          # PowerShell 4100 message contains message, script stack and/or lines.
+          # Match only a bounded Error Message field when present; classify
+          # broader context separately to prevent line-source false positives.
+          $errorField=[regex]::Match($txt,'(?im)^\s*Error Message\s*[:=]\s*(.{0,500})$')
+          $description=if($errorField.Success){$errorField.Groups[1].Value}else{''}
+          $cats=@()
+          foreach($entry in $safe){if($description -match $entry.rx){$cats+=@($entry.category)}}
+          $fq=[regex]::Match($txt,'(?im)^\s*Fully Qualified Error ID\s*[:=]\s*([A-Za-z0-9_.-]{1,120})\s*$')
+          $num=[regex]::Match($txt,'(?im)^\s*(?:Line Number|Script Line Number)\s*[:=]\s*([0-9]{1,4})\s*$')
+          $output=[ordered]@{
+            schema='ckb-plane.r18.powershell4100-safe-classification.v1'
+            event_id=4100
+            event_utc=$ev[0].TimeCreated.ToUniversalTime().ToString('o')
+            message_sha256=$sha
+            message_utf8_bytes=$msgbytes.Length
+            error_field_present=$errorField.Success
+            canonical_categories=$cats
+            safe_fqid=if($fq.Success){$fq.Groups[1].Value}else{'UNAVAILABLE'}
+            source_line=if($num.Success){$num.Groups[1].Value}else{'UNAVAILABLE'}
+            raw_error_exported=$false
+            original_controller_modified=$false
+            classification_only=$true
+          }
+          $json=$output|ConvertTo-Json -Depth 5 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_4100_CLASSIFICATION_OVERSIZED'}
+          Write-Host ('R18_POWERSHELL_4100_SAFE_CLASSIFICATION='+$json)
+          Write-Host 'R18_4100_CLASSIFICATION_READONLY=PASS'
