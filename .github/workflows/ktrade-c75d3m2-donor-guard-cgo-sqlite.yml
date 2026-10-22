@@ -129,15 +129,24 @@ jobs:
               'c75d3m2_native_tradeguard_sqlite_test.go')){
               Copy-Item -LiteralPath (Join-Path $source ('tests/donor-native-vwap/'+$n)) -Destination (Join-Path $donor ('pkg/'+$n)) -ErrorAction Stop
             }
+            # Minimal dependency closure; never import unrelated
+            # owner-recovery/provider code into the frozen donor. Only
+            # existing C75D2 SQLite authority and required DTO/risk structs.
+            $closure=@{
+              'paperproposal'=@('proposal.go')
+              'paperreconcile'=@('reconcile.go','risk_replay.go','original_risk_custody.go')
+              'paperlifecycle'=@('authority.go')
+            }
             foreach($pkg in @('paperproposal','paperreconcile','paperlifecycle')){
               $dest=Join-Path $donor ('internal/'+$pkg)
               if(Test-Path -LiteralPath $dest){throw 'D3M2_ORIGINAL_INTERNAL_SOURCE_COLLISION'}
               New-Item -ItemType Directory -Path $dest -ErrorAction Stop | Out-Null
-              $srcFolder=Join-Path $source ('internal/'+$pkg)
-              $items=@(Get-ChildItem -LiteralPath $srcFolder -Filter '*.go' -File | Where-Object {$_.Name -notlike '*_test.go'})
-              if($items.Count -lt 1){throw 'D3M2_REQUIRED_NATIVE_PACKAGE_MISSING'}
-              foreach($item in $items){
-                Copy-Item -LiteralPath $item.FullName -Destination $dest -ErrorAction Stop
+              foreach($n in $closure[$pkg]){
+                $src=Join-Path $source ('internal/'+$pkg+'/'+$n)
+                if(!(Test-Path -LiteralPath $src -PathType Leaf)){
+                  throw 'D3M2_PINNED_DEPENDENCY_SOURCE_MISSING'
+                }
+                Copy-Item -LiteralPath $src -Destination (Join-Path $dest $n) -ErrorAction Stop
               }
             }
             $tracked=@(& git -C $donor diff --name-only | Sort-Object)
