@@ -320,6 +320,7 @@ def main():
     fit=make_episodes("fit",doc)
     dev=make_episodes("dev",doc)
     costs={};scores={};params={}
+    chosen_candidate=None
     for kind in KINDS:
         if kind==ORACLE:
             p=None
@@ -328,6 +329,8 @@ def main():
         elif kind==SYM:p,cost=fit_symbolic(fit)
         else:p,cost=fit_gradient(kind,fit,dev,doc["fit"])
         model=score(kind,p,dev)
+        if kind==CAND:
+            chosen_candidate=p[:]
         costs[kind]=cost
         scores[kind]=model
         params[kind]=sha(json.dumps(p,sort_keys=True).encode())
@@ -336,13 +339,9 @@ def main():
     gain=scores[best]["nll"]-scores[CAND]["nll"]
     per={fam:scores[best]["dev_by_template"][fam]-
          scores[CAND]["dev_by_template"][fam] for fam in DEV_TEMPLATES}
-    ablated=ablation(CAND,
-                     # No DEV parameter modification, retrieve trained final
-                     # candidate checkpoint without any fitting here.
-                     chosen_candidate,dev) if False else None
-    # The training loop retains complete winning checkpoints only in this
-    # one-shot development execution; never refit on DEV for ablation.
-    # The selected candidate is stored directly below by a local capture.
+    must(chosen_candidate is not None,"MISSING_FROZEN_CANDIDATE_CHECKPOINT")
+    ablated_nll=ablation(CAND,chosen_candidate,dev)
+    ablation_increase=ablated_nll-scores[CAND]["nll"]
     checks={
         "gain_vs_best_fitted":gain>=doc["frozen_gate"][
             "dev_gain_over_best_fitted_control_min_nats_per_episode"],
@@ -352,7 +351,8 @@ def main():
         "cpu_vs_recurrent":(costs[CAND]["fit_cpu_seconds"]+
             scores[CAND]["eval_cpu_seconds"])<=1.15*(
             costs[RNN]["fit_cpu_seconds"]+scores[RNN]["eval_cpu_seconds"]),
-        "memory_budget":scores[CAND]["max_online_state_scalars"]<=8
+        "memory_budget":scores[CAND]["max_online_state_scalars"]<=8,
+        "causal_edge_alignment_ablation":ablation_increase>=doc["frozen_gate"]["ablation_min_loss_increase_when_edge_evidence_reassigned"]
     }
     report={
         "schema":"forge.nci04.q18.frozen-rewired-fit-dev-result.v1",
@@ -363,6 +363,8 @@ def main():
         "checkpoint_sha256":params,
         "best_fitted_control":best,
         "candidate_gain_nats":gain,"gain_by_rewired_family":per,
+        "edge_alignment_ablation_nll":ablated_nll,
+        "edge_alignment_ablation_increase_nats":ablation_increase,
         "frozen_gate_checks":checks,
         "unknown_held_five_node_generated":False,
         "original_source_engine_episodes":0,
