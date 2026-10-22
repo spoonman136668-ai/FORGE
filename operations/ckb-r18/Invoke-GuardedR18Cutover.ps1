@@ -213,7 +213,12 @@ try {
     RequestNativeStop $oldExe
     if (!(WaitStopped)) {throw 'R18_NATIVE_OLD_CONTROLLER_DID_NOT_STOP'}
     $controllerStopped=$true
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    $preTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    if ($preTask.State -eq 'Running') {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+    } elseif ($preTask.State -ne 'Ready') {
+        throw 'R18_TASK_NOT_READY_AFTER_NATIVE_STOP'
+    }
     if (!(WaitStopped)) {throw 'R18_CONTROLLER_RESTARTED_WHILE_TASK_STOPPING'}
     Write-Host 'R18_NATIVE_OLD_CONTROLLER_STOP=PASS'
     # Snapshot the original SQLite + WAL/SHM only after it is closed.
