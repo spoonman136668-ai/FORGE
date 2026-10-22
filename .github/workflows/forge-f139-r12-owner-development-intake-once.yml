@@ -1,0 +1,203 @@
+name: FORGE F139 R12 owner-source development succession intake once
+on:
+  push:
+    branches: [proposal/f139-r12-owner-source-bound-d2k-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-mutations
+  cancel-in-progress: false
+jobs:
+  owner-intake:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Admit two genuine, owner-authored, source-qualified development diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $source = '536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $event58 = '995143ce24e6c5aa1e3a28b77d5f9fe71c9ec4f32d7aff95cc660f87d1762883'
+          $taskName = 'FORGE-F139-UnifiedController'
+          $repo = 'spoonman136668-ai/FORGE'
+          if ($env:GITHUB_REPOSITORY -cne $repo -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r12-owner-source-bound-d2k-20261022' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY) {
+            throw 'R12_UNAUTHORIZED_RUNNER_ACTOR_OR_PAID_API'
+          }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner = 'spoonman136668-ai'
+          if (-not (New-Object Security.Principal.WindowsPrincipal($who)).IsInRole(
+              [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R12_RUNNER_NOT_ADMIN'
+          }
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or
+              [string]$task.State -notin @('Running','Ready')) {
+            throw 'R12_ORIGINAL_CONTROLLER_NOT_ENABLED_UNIQUE'
+          }
+          $principal = [string]$task.Principal.UserId
+          $sid = if ($principal -match '^S-1-') {
+            $principal
+          } else {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($sid -ne $who.User.Value) { throw 'R12_ORIGINAL_OWNER_SID_DRIFT' }
+          $opts = @{}
+          foreach ($key in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-' + $key + '\s+"([^"]+)"')
+            if (-not $match.Success) { throw ('R12_TASK_ARGUMENT_MISSING_' + $key) }
+            $opts[$key] = $match.Groups[1].Value
+          }
+          $db = $opts['Database']
+          $python = $opts['PythonExe']
+          $root = $opts['RepositoryRoot']
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedKey = Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine
+                [IO.Path]::GetFullPath($expectedKey)) {
+            throw 'R12_ORIGINAL_PROFILE_OR_TASK_ROUTE_DRIFT'
+          }
+          $active = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object {
+              $_.Name -in @('python.exe','pythonw.exe') -and $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db)
+            })
+          if ($active.Count -ne 1) { throw 'R12_ORIGINAL_SINGLE_CONTROLLER_NOT_ACTIVE' }
+          Push-Location -LiteralPath $root
+          try {
+            $head = (& git rev-parse HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -cne $source) {
+              throw 'R12_QUALIFIED_SOURCE_CHECKOUT_DRIFT'
+            }
+            $dirty = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+              throw 'R12_ORIGINAL_SOURCE_DIRTY'
+            }
+            $protected = (& gh api "repos/$repo/branches/main" --jq '.commit.sha' |
+              Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $protected -cne $source) {
+              throw 'R12_PROTECTED_MAIN_DRIFT'
+            }
+            $auth = (& gh api user --jq '.login' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $auth -cne $owner) {
+              throw 'R12_GITHUB_ISSUE_AUTHOR_NOT_ORIGINAL_OWNER'
+            }
+            $status = & $python -B -m f139.local_controller --db $db status
+            if ($LASTEXITCODE -ne 0) { throw 'R12_OWNER_LEDGER_COLD_VERIFY_FAILED' }
+            $snapshot = ($status | Out-String | ConvertFrom-Json).status
+            if ($snapshot.meta.head_seq -ne 58 -or
+                $snapshot.meta.head_hash -cne $event58 -or
+                $snapshot.meta.source_sha -cne $source -or
+                $snapshot.meta.enabled -ne 1 -or
+                $snapshot.meta.legacy_suspended -ne 1 -or
+                @($snapshot.tasks).Count -ne 9 -or
+                @($snapshot.tasks | Where-Object { $_.stage -ceq 'VERIFIED' }).Count -ne 7 -or
+                @($snapshot.tasks | Where-Object { $_.stage -ceq 'QUARANTINED' }).Count -ne 2) {
+              throw 'R12_ORIGINAL_EVENT58_OR_TASK_HISTORY_DRIFT'
+            }
+            foreach ($pkg in @('planner','dreamrsi')) {
+              if (-not (Test-Path -LiteralPath (Join-Path $root $pkg) -PathType Container) -or
+                  @((Get-ChildItem -LiteralPath (Join-Path $root $pkg) -Filter '*_test.go' -File)).Count -lt 1) {
+                throw ('R12_REAL_SOURCE_DIAGNOSTIC_PACKAGE_MISSING_' + $pkg)
+              }
+            }
+            # No existing D2K source-eligible task may be silently replaced.
+            $existing = & gh api "repos/$repo/issues?state=open&labels=f139-development-eligible&per_page=100"
+            if ($LASTEXITCODE -ne 0) { throw 'R12_EXISTING_ELIGIBLE_ISSUE_CATALOG_UNAVAILABLE' }
+            if (@($existing | Out-String | ConvertFrom-Json).Count -ne 0) {
+              throw 'R12_EXISTING_ELIGIBLE_WORK_REQUIRES_RECONCILIATION'
+            }
+            Write-Output 'R12_SOURCE_OWNER_TASK_AND_EVENT58=PASS'
+            Write-Output 'R12_GITHUB_AUTHENTICATED_ISSUE_OWNER=PASS'
+            $proposals = @(
+              [ordered]@{
+                title = 'F139 R12A: source-pinned planner validation, development only'
+                lane = 'Qualification'
+                target_package = './planner'
+              },
+              [ordered]@{
+                title = 'F139 R12B: source-pinned Dream-RSI optimizer verification, development only'
+                lane = 'Wingless'
+                target_package = './dreamrsi'
+              }
+            )
+            # Unique once-only titles are an additional idempotency fence.
+            $allIssues = & gh api "repos/$repo/issues?state=all&per_page=100"
+            if ($LASTEXITCODE -ne 0) { throw 'R12_EXISTING_ISSUE_IDENTITY_UNAVAILABLE' }
+            $seen = @($allIssues | Out-String | ConvertFrom-Json)
+            foreach ($entry in $proposals) {
+              if (@($seen | Where-Object { $_.title -ceq $entry.title }).Count -ne 0) {
+                throw 'R12_ALREADY_ISSUED_NO_REPLAY'
+              }
+            }
+            $tempRoot = Join-Path $env:RUNNER_TEMP 'forge-f139-r12-owner-intake'
+            if (Test-Path -LiteralPath $tempRoot) { throw 'R12_SCRATCH_ALREADY_EXISTS' }
+            [IO.Directory]::CreateDirectory($tempRoot) | Out-Null
+            $utf8 = New-Object System.Text.UTF8Encoding($false)
+            $created = @()
+            foreach ($entry in $proposals) {
+              $body = [ordered]@{
+                schema = 'forge.f139.d2k.owner-development.v1'
+                source_sha = $source
+                lane = $entry.lane
+                kind = 'go-package-test-diagnostic'
+                target_package = $entry.target_package
+                scientific_first_use = $false
+                paid_model_calls = 0
+              } | ConvertTo-Json -Compress
+              $request = [ordered]@{
+                title = $entry.title
+                body = $body
+              } | ConvertTo-Json -Compress
+              $requestPath = Join-Path $tempRoot 'issue.json'
+              [IO.File]::WriteAllText($requestPath,$request,$utf8)
+              $response = & gh api --method POST "repos/$repo/issues" --input $requestPath
+              if ($LASTEXITCODE -ne 0) {
+                throw 'R12_ISSUE_CREATE_FAILED_STOP_INSPECT_NO_RETRY'
+              }
+              $issue = $response | Out-String | ConvertFrom-Json
+              if ($issue.state -cne 'open' -or
+                  $issue.user.login -cne $owner -or
+                  $issue.author_association -cne 'OWNER' -or
+                  $issue.body -cne $body -or
+                  $issue.number -le 0) {
+                throw 'R12_UNLABELED_ISSUE_NOT_AUTHENTIC_OWNER_INSPECT'
+              }
+              $issueNumber = [int]$issue.number
+              Write-Output ('R12_AUTHENTIC_UNLABELED_ISSUE=' + $issueNumber)
+              # This label is the existing qualified autonomous intake permit.
+              $labelPath = Join-Path $tempRoot 'label.json'
+              [IO.File]::WriteAllText($labelPath,
+                '{"labels":["f139-development-eligible"]}',$utf8)
+              $labelResponse = & gh api --method POST "repos/$repo/issues/$issueNumber/labels" --input $labelPath
+              if ($LASTEXITCODE -ne 0) {
+                throw 'R12_ISSUE_LABEL_FAILED_STOP_INSPECT_NO_RETRY'
+              }
+              $confirmed = & gh api "repos/$repo/issues/$issueNumber"
+              if ($LASTEXITCODE -ne 0) { throw 'R12_ISSUE_COLD_READ_FAILED' }
+              $readback = ($confirmed | Out-String | ConvertFrom-Json)
+              if ($readback.user.login -cne $owner -or
+                  $readback.author_association -cne 'OWNER' -or
+                  $readback.body -cne $body -or
+                  @($readback.labels | Where-Object { $_.name -ceq 'f139-development-eligible' }).Count -ne 1) {
+                throw 'R12_ISSUE_OWNER_POLICY_READBACK_FAILED'
+              }
+              Write-Output ('R12_SOURCE_QUALIFIED_OWNER_ISSUE=PASS #' + $issueNumber)
+              $created += $issueNumber
+            }
+            if ($created.Count -ne 2) { throw 'R12_TWO_WORK_ADMISSIONS_NOT_PREPARED' }
+            Write-Output ('R12_NEW_ELIGIBLE_ISSUES=' + ($created -join ','))
+            Write-Output 'R12_WORKER_DISPATCH=BY_ORIGINAL_CONTROLLER_ONLY'
+            Write-Output 'R12_SCIENTIFIC_FIRST_USE=BLOCKED'
+            Write-Output 'R12_CONTINUITY_VERIFICATION=PENDING_PROVIDER_AND_OWNER_EVIDENCE'
+          } finally {
+            Pop-Location
+          }
