@@ -1,0 +1,137 @@
+name: R25-C75D3L synthetic native decision atomic paper settlement
+on:
+  push:
+    branches: [qualification/ktrade-c75d3l-atomic-synthetic-paper-20261022]
+    paths: [.github/workflows/ktrade-c75d3l-atomic-synthetic-paper.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-c75d3l-atomic-paper
+  cancel-in-progress: false
+jobs:
+  synthetic-atomic-paper:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 22
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: 'Never'
+      GOWORK: 'off'
+      GOTOOLCHAIN: 'local'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Verify source then qualify existing atomic paper engine with synthetic native observation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-c75d3l-atomic-synthetic-paper-20261022' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_CI_PROMOTION_ALLOWED -cne '0'){
+            throw 'D3L_RUNNER_OR_TRADING_AUTHORITY_DRIFT'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'D3L_BROKER_CREDENTIAL_PRESENT_ABORT'}
+          }
+          $sourceSha='2cc4dab93bd6aee59ff3fde2f9a9c0b764ecff81'
+          $parent='795af17de8e371dee995dd89d5ff8c7d04acda0f'
+          $expected=@{
+            'internal/paperlifecycle/native_synthetic_atomic_bridge_shadow.go'='d0958fc1b24bb069bc650b6f56ef3f170ef6dac8'
+            'internal/paperlifecycle/native_synthetic_atomic_bridge_shadow_test.go'='e86cdc45c3f95fa41bb6403673b8a23f6df2a646'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('ktrade-d3l-'+[guid]::NewGuid().ToString('N'))
+          $source=Join-Path $root 'candidate'
+          $seed=Join-Path $root 'mod-seed'
+          $log=Join-Path $root 'private.log'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ktrade.git $source *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3L_EXISTING_MACHINE_KTRADE_READ_UNAVAILABLE'}
+            & git -C $source checkout --quiet --detach $sourceSha *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3L_PINNED_KTRADE_SOURCE_UNAVAILABLE'}
+            if((& git -C $source rev-parse HEAD).Trim() -cne $sourceSha){throw 'D3L_CANDIDATE_SHA_DRIFT'}
+            $delta=@(& git -C $source diff --name-only $parent $sourceSha | Sort-Object)
+            $want=@($expected.Keys | Sort-Object)
+            if($delta.Count -ne 2 -or @(Compare-Object $want $delta).Count -ne 0){
+              throw 'D3L_SOURCE_SCOPE_DRIFT'
+            }
+            foreach($p in $expected.Keys){
+              if((& git -C $source rev-parse ('HEAD:'+$p)).Trim() -cne $expected[$p]){
+                throw 'D3L_GIT_BLOB_DRIFT'
+              }
+            }
+            if(@(& git -C $source status --porcelain=v1 --untracked-files=all).Count -ne 0){
+              throw 'D3L_CHECKOUT_NOT_CLEAN'
+            }
+            Write-Host 'D3L_EXACT_SOURCE_TWO_FILE_DELTA=PASS'
+            New-Item -ItemType Directory -Path $seed | Out-Null
+            Copy-Item -LiteralPath (Join-Path $source 'go.mod') -Destination $seed
+            Copy-Item -LiteralPath (Join-Path $source 'go.sum') -Destination $seed
+            $env:GOMODCACHE=Join-Path $root 'go-module-cache'
+            $env:GOPROXY='https://proxy.golang.org'
+            $env:GOSUMDB='sum.golang.org'
+            Push-Location $seed
+            try{
+              & go mod download *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3L_PUBLIC_GO_DEPENDENCIES_UNAVAILABLE'}
+            }finally{Pop-Location}
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            Push-Location $source
+            try {
+              & go test -mod=readonly -tags=ktrade_donor_shadow -count=1 -timeout=8m -v -run '^TestC75D3L' ./internal/paperlifecycle *> $log
+              if($LASTEXITCODE -ne 0){
+                $ls=@(Get-Content -LiteralPath $log)
+                foreach($line in $ls){
+                  if($line -match '^--- FAIL: (TestC75D3L[A-Za-z0-9_]+)'){
+                    Write-Host ('D3L_FAILED_TEST='+$Matches[1])
+                  }
+                  if($line -match '(native_synthetic_atomic_bridge_shadow(?:_test)?\.go):(\d+):(\d+):'){
+                    Write-Host ('D3L_COMPILE_SITE='+$Matches[1]+':'+$Matches[2]+':'+$Matches[3])
+                  }
+                  if($line -match '^    --- FAIL: (TestC75D3L[A-Za-z0-9_]+)/([a-z0-9_]+)'){
+                    Write-Host ('D3L_FAILED_CASE='+$Matches[1]+'/'+$Matches[2])
+                  }
+                }
+                throw 'D3L_SYNTHETIC_NATIVE_ATOMIC_FOCUSED_FAILED'
+              }
+              Write-Host 'D3L_NATIVE_SYNTHETIC_ATOMIC_TRANSACTION_TESTS=PASS'
+              & go test -mod=readonly -tags=ktrade_donor_shadow -count=1 -timeout=10m ./internal/paperlifecycle ./internal/paperproposal ./internal/papertrading *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3L_EXISTING_PAPER_LIFECYCLE_REGRESSION_FAILED'}
+              Write-Host 'D3L_PAPER_LEDGER_AND_PROPOSAL_REGRESSION=PASS'
+              & go vet -mod=readonly -tags=ktrade_donor_shadow ./internal/paperlifecycle ./internal/paperproposal ./internal/papertrading *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3L_GO_VET_FAILED'}
+              Write-Host 'D3L_NATIVE_SHADOW_PAPER_VET=PASS'
+              $binary=Join-Path $root 'ktrade-stopped.exe'
+              & go build -mod=readonly -tags=ktrade_full -o $binary ./cmd/ktrade *> $log
+              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $binary -PathType Leaf)){
+                throw 'D3L_STOPPED_KTRADE_BUILD_FAILED'
+              }
+              Write-Host 'D3L_STOPPED_KTRADE_WINDOWS_BUILD=PASS'
+              Write-Host ('D3L_STOPPED_KTRADE_SHA256='+((Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()))
+            }finally{Pop-Location}
+            if(@(& git -C $source status --porcelain=v1 --untracked-files=all).Count -ne 0){
+              throw 'D3L_SOURCE_MODIFIED_BY_QUALIFICATION'
+            }
+            Write-Host 'D3L_SHIPPING_NATIVE_BRIDGE_EXCLUDED_BY_BUILD_TAG=TRUE'
+            Write-Host 'D3L_DONOR_TRADEGUARD_REAL_RUNTIME_INTEGRATION=NOT_RUN'
+            Write-Host 'D3L_OWNER_ACCOUNT_OR_BROKER_CONNECTED=FALSE'
+            Write-Host 'D3L_PAPER_RUNTIME_EXECUTION_AUTHORITY=FALSE'
+            Write-Host 'D3L_COMPLETE_ORIGINAL_DONOR_WINDOWS_REGRESSION=NOT_RUN'
+            Write-Host 'D3L_SYNTHETIC_TEMP_QUALIFICATION=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $root){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host 'D3L_NO_PRIVATE_ARTIFACT_EXPORTED=TRUE'
+          }
