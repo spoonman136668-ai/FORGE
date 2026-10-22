@@ -178,14 +178,14 @@ class PublicDevWorld:
                 turn_on = value in ("activate", "fill")
                 self._states[idx] = turn_on
                 lag = 2 if self._family == PUBLIC_FAMILIES[0] else 3
-                self._pending.append((self._tick + lag, idx, turn_on))
+                self._pending.append((self._tick + lag + 1, idx, turn_on))
             self._advance()
         self._turn += 1
         public = self._observation()
         result = {"schema": STEP_SCHEMA, "observation": public,
                   "reward": reward, "done": self._done}
         # Only public bytes are part of this DEV receipt. No hidden-target output.
-        record = {"action": proposed if type(proposed) is dict else "INVALID",
+        record = {"action": proposed if not violation else "INVALID",
                   "result": result, "prior_sha256": self._trace_head}
         self._trace_head = hashlib.sha256(canonical(record)).hexdigest()
         self._trace_records.append({"record_sha256": self._trace_head, **record})
