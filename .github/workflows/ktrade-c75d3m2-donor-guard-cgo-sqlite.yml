@@ -103,8 +103,17 @@ jobs:
             # module without modifying any original Git object or protected branch.
             Push-Location $donor
             try{
-              & go mod edit -require=github.com/mattn/go-sqlite3@v1.14.18 *> $log
-              if($LASTEXITCODE -ne 0){throw 'D3M2_EPHEMERAL_GO_MOD_EDIT_FAILED'}
+              # No CLI mod-edit dependency here: the qualified isolated
+              # Go flags are for compilation, not module manifest editing.
+              # Append an exact required version to the disposable manifest.
+              $manifest=Join-Path $donor 'go.mod'
+              $body=[IO.File]::ReadAllText($manifest)
+              if(-not $body.StartsWith("module ktrade") -or
+                 $body.Contains('github.com/mattn/go-sqlite3')){
+                throw 'D3M2_DONOR_GO_MODULE_IDENTITY_DRIFT'
+              }
+              [IO.File]::AppendAllText($manifest,([Environment]::NewLine+
+                'require github.com/mattn/go-sqlite3 v1.14.18'+[Environment]::NewLine))
               $env:GOMODCACHE=Join-Path $root 'isolated-module-cache'
               $env:GOPROXY='https://proxy.golang.org'
               $env:GOSUMDB='sum.golang.org'
