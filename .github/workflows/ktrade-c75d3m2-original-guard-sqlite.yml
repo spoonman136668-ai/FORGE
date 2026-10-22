@@ -173,53 +173,12 @@ jobs:
                   if($line -match '^(# ktrade/internal/|# ktrade/pkg)'){
                     Write-Host 'D3M2_COMPILE_FAILED_IN_QUALIFIED_PACKAGE'
                   }
-                  if($line -match '([^\\/\s:]+\.go):(\d+):(\d+):\s*(.+)
-                }
-                throw 'D3M2_REAL_DONOR_GUARD_SQLITE_TEST_FAILED'
-              }
-              Write-Host 'D3M2_ORIGINAL_TRADEGUARD_SQLITE_ONE_PROCESS=PASS'
-              & go vet -mod=readonly -tags=ktrade_donor_shadow ./pkg ./internal/paperlifecycle ./internal/paperreconcile ./internal/paperproposal ./internal/papertrading *> $log
-              if($LASTEXITCODE -ne 0){throw 'D3M2_NATIVE_SQLITE_VET_FAILED'}
-              Write-Host 'D3M2_NATIVE_DONOR_SQLITE_VET=PASS'
-              $exe=Join-Path $root 'd3m2-native.test.exe'
-              & go test -c -mod=readonly -tags=ktrade_donor_shadow -o $exe ./pkg *> $log
-              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){
-                throw 'D3M2_NATIVE_SQLITE_BUILD_FAILED'
-              }
-              Write-Host 'D3M2_NATIVE_SQLITE_EXE_BUILD=PASS'
-              Write-Host ('D3M2_NATIVE_SQLITE_EXE_SHA256='+((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()))
-            } finally {Pop-Location}
-            if((& git -C $donor rev-parse 'HEAD^{tree}').Trim() -cne $donorTree -or
-               @(& git -C $candidate status --porcelain=v1 --untracked-files=all).Count -ne 0){
-              throw 'D3M2_PROTECTED_ORIGINAL_IDENTITY_CHANGED'
-            }
-            Write-Host 'D3M2_FROZEN_DONOR_PROTECTED_SOURCE=UNCHANGED'
-            Write-Host 'D3M2_ACTUAL_OWNER_ACCOUNT_QUALIFIED=FALSE'
-            Write-Host 'D3M2_NETWORK_CANDLES_AUTHENTICATED=FALSE'
-            Write-Host 'D3M2_DURABLE_DECISION_PUBLISHER_AUTHENTICATED=FALSE'
-            Write-Host 'D3M2_REAL_PAPER_ORDER_AUTHORITY=FALSE'
-            Write-Host 'D3M2_FULL_WINDOWS_APP_REGRESSION=NOT_RUN'
-          }finally{
-            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
-            Write-Host 'D3M2_PRIVATE_DONOR_SOURCE_EXPORTED=FALSE'
-          }
-      - name: Clean up only ephemeral TEMP compiler
-        if: always()
-        shell: pwsh
-        run: |
-          $root=Join-Path $env:RUNNER_TEMP 'd3m2-tools'
-          if(Test-Path -LiteralPath $root -PathType Container){
-            Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
-          }
-          Write-Host 'D3M2_PERSISTENT_TOOLCHAIN_MODIFICATION=NONE'
-){
+                  if($line -match '([A-Za-z0-9_]+\.go):(\d+):(\d+):[ ]*(.+)$'){
                     $site=$Matches[1]+':'+$Matches[2]+':'+$Matches[3]
-                    $diagnostic=$Matches[4]
-                    # Report only identifier diagnostics, never source text,
-                    # private account values, repo paths or secrets.
-                    if($diagnostic -match '^undefined:\s*([A-Za-z_][A-Za-z0-9_]*)'){
+                    $reason=$Matches[4]
+                    if($reason -match '^undefined:[ ]*([A-Za-z_][A-Za-z0-9_]*)'){
                       Write-Host ('D3M2_COMPILER_UNDEFINED='+$site+':'+$Matches[1])
-                    }elseif($diagnostic -match '^(cannot use|too many arguments|not enough arguments|invalid operation|declared and not used|imported and not used)'){
+                    }elseif($reason -match '^(cannot use|too many arguments|not enough arguments|invalid operation|declared and not used|imported and not used)'){
                       Write-Host ('D3M2_COMPILER_KIND='+$site+':'+$Matches[1])
                     }else{
                       Write-Host ('D3M2_COMPILER_SITE='+$site)
