@@ -1,0 +1,155 @@
+name: R25-C75D3M frozen donor native signal to original TradeGuard risk
+on:
+  push:
+    branches: [qualification/ktrade-c75d3m-original-tradeguard-risk-20261022]
+    paths: [.github/workflows/ktrade-c75d3m-original-tradeguard-risk.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-c75d3m-donor-original-risk
+  cancel-in-progress: false
+jobs:
+  original-donor-native-risk:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: 'Never'
+      GOWORK: 'off'
+      GOTOOLCHAIN: 'local'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      CGO_ENABLED: '0'
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Execute frozen original CKB native observation through actual donor TradeGuard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-c75d3m-original-tradeguard-risk-20261022' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_CI_PROMOTION_ALLOWED -cne '0'){
+            throw 'D3M_RUNNER_AUTHORITY_OUT_OF_SCOPE'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'D3M_BROKER_CREDENTIAL_UNSAFE'}
+          }
+          $sourceSHA='5dbce2af7ade9efd94eb8c9701b6c4c7dc14330e'
+          $parentSHA='6b666d003a614df038bfb1d3422bb011c24d6903'
+          $donorSHA='520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc'
+          $donorTree='b74808f35e798b1b72e8fb31a49a5f4664ca87b5'
+          $expected=@{
+           'tests/donor-native-vwap/c75d3m_original_native_guard_test.go'='c740ad5978a49325eb8b2d176d39798cdf1b5f59'
+           'tests/donor-native-vwap/c75d3f_native_current_vwap.go'='70a912177ba86fb71d059d440a3b1b39ee70674d'
+           'tests/donor-native-vwap/c75d3h_native_decision_noorders.go'='2f7494d22eba4cc189045c47eeac9be2aebc1cd5'
+           'tests/donor-native-vwap/c75d3k_native_original_sell_fixture.go'='2ce08cc9f7e9c893f94da352e3f63899e5268d1a'
+           'internal/paperproposal/proposal.go'='b0c41b3bb69a51ef1528b52aa33245a11c4d0d3e'
+           'internal/papertrading/ledger.go'='d44341253e7d4b51d31b03cea26a77cbbb534f7b'
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('d3m-frozen-native-'+[guid]::NewGuid().ToString('N'))
+          $source=Join-Path $root 'candidate'
+          $donor=Join-Path $root 'original-donor'
+          $seed=Join-Path $root 'module-seed'
+          $log=Join-Path $root 'private-test.log'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try{
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ktrade.git $source *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M_PREEXISTING_KTRADE_MACHINE_READ_FAIL'}
+            & git -C $source checkout --quiet --detach $sourceSHA *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M_PINNED_KTRADE_COMMIT_MISSING'}
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ckb.git $donor *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M_PREEXISTING_CKB_MACHINE_READ_FAIL'}
+            & git -C $donor checkout --quiet --detach $donorSHA *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3M_PINNED_ORIGINAL_CKB_COMMIT_MISSING'}
+            if((& git -C $source rev-parse HEAD).Trim() -cne $sourceSHA -or
+               (& git -C $donor rev-parse HEAD).Trim() -cne $donorSHA -or
+               (& git -C $donor rev-parse 'HEAD^{tree}').Trim() -cne $donorTree){
+              throw 'D3M_FROZEN_GIT_SOURCE_IDENTITY_DRIFT'
+            }
+            $delta=@(& git -C $source diff --name-only $parentSHA $sourceSHA)
+            if($delta.Count -ne 1 -or $delta[0] -cne 'tests/donor-native-vwap/c75d3m_original_native_guard_test.go'){
+              throw 'D3M_UNEXPECTED_KTRADE_SOURCE_DELTA'
+            }
+            foreach($p in $expected.Keys){
+              if((& git -C $source rev-parse ('HEAD:'+$p)).Trim() -cne $expected[$p]){
+                throw 'D3M_KTRADE_GIT_BLOB_DRIFT'
+              }
+            }
+            Write-Host 'D3M_FROZEN_DONOR_AND_KTRADE_SOURCE=PASS'
+            New-Item -ItemType Directory -Path $seed | Out-Null
+            Copy-Item -LiteralPath (Join-Path $donor 'go.mod') -Destination $seed
+            Copy-Item -LiteralPath (Join-Path $donor 'go.sum') -Destination $seed
+            $env:GOMODCACHE=Join-Path $root 'go-mod-cache'
+            $env:GOPROXY='https://proxy.golang.org'
+            $env:GOSUMDB='sum.golang.org'
+            Push-Location $seed
+            try{
+              & go mod download *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3M_DONOR_PUBLIC_MODULE_DEPENDENCIES_MISSING'}
+            }finally{Pop-Location}
+            $env:GOPROXY='off'
+            $env:GOSUMDB='off'
+            foreach($n in @('c75d3f_native_current_vwap.go','c75d3h_native_decision_noorders.go',
+              'c75d3k_native_original_sell_fixture.go','c75d3m_original_native_guard_test.go')){
+              Copy-Item -LiteralPath (Join-Path $source ('tests/donor-native-vwap/'+$n)) -Destination (Join-Path $donor ('pkg/'+$n)) -ErrorAction Stop
+            }
+            foreach($pkg in @('paperproposal','papertrading')){
+              $dest=Join-Path $donor ('internal/'+$pkg)
+              if(Test-Path -LiteralPath $dest){throw 'D3M_ORIGINAL_INTERNAL_MODULE_COLLISION'}
+              New-Item -ItemType Directory -Path $dest | Out-Null
+              Copy-Item -LiteralPath (Join-Path $source ('internal/'+$pkg+'/*.go')) -Destination $dest -ErrorAction Stop
+            }
+            $tracked=@(& git -C $donor diff --name-only)
+            if($tracked.Count -ne 0){throw 'D3M_ORIGINAL_DONOR_TRACKED_SOURCE_MODIFIED'}
+            Push-Location $donor
+            try {
+              & go test -mod=readonly -tags=ktrade_donor_shadow -count=1 -timeout=8m -run '^TestC75D3M' ./pkg *> $log
+              if($LASTEXITCODE -ne 0){
+                $lines=@(Get-Content -LiteralPath $log)
+                foreach($line in $lines){
+                  if($line -match '^--- FAIL: (TestC75D3M[A-Za-z0-9_]+)'){
+                    Write-Host ('D3M_FAILED_TEST='+$Matches[1])
+                  }
+                  if($line -match '(c75d3m_original_native_guard_test\.go):(\d+):'){
+                    Write-Host ('D3M_SYNTHETIC_LINE='+$Matches[2])
+                  }
+                }
+                throw 'D3M_ORIGINAL_NATIVE_TRADEGUARD_INTEGRATION_FAILED'
+              }
+              Write-Host 'D3M_ORIGINAL_NATIVE_DECISION_TO_GENUINE_TRADEGUARD=PASS'
+              & go vet -mod=readonly -tags=ktrade_donor_shadow ./pkg ./internal/paperproposal ./internal/papertrading *> $log
+              if($LASTEXITCODE -ne 0){throw 'D3M_NATIVE_ORIGINAL_GUARD_VET_FAILED'}
+              Write-Host 'D3M_ORIGINAL_DONOR_RISK_NATIVE_VET=PASS'
+              $exe=Join-Path $root 'donor-guard-native.test.exe'
+              & go test -c -mod=readonly -tags=ktrade_donor_shadow -o $exe ./pkg *> $log
+              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){
+                throw 'D3M_NATIVE_DONOR_TEST_BINARY_FAILED'
+              }
+              Write-Host 'D3M_ORIGINAL_DONOR_TEST_EXECUTABLE_BUILD=PASS'
+              Write-Host ('D3M_ORIGINAL_DONOR_TEST_SHA256='+((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()))
+            }finally{Pop-Location}
+            if((& git -C $donor rev-parse 'HEAD^{tree}').Trim() -cne $donorTree){
+              throw 'D3M_DONOR_FROZEN_TREE_CHANGED'
+            }
+            Write-Host 'D3M_AUTHENTIC_ORIGINAL_CKB_GUARD_SOURCE_UNCHANGED=PASS'
+            Write-Host 'D3M_ATOMIC_SQLITE_END_TO_END=NOT_RUN'
+            Write-Host 'D3M_DURABLE_NATIVE_DECISION_AUTHENTICATION=NOT_QUALIFIED'
+            Write-Host 'D3M_OWNER_ACCOUNT_AUTHENTICATED=FALSE'
+            Write-Host 'D3M_PAPER_RUNTIME_AUTHORITY=FALSE'
+            Write-Host 'D3M_BROKER_CONNECTIVITY=FALSE'
+          } finally{
+            if(Test-Path -LiteralPath $root){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host 'D3M_PRIVATE_DONOR_SOURCE_EXPORTED=FALSE'
+          }
