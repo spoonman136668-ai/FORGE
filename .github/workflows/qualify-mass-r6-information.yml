@@ -1,0 +1,86 @@
+name: Mass Research R6 equal-public-information audit
+on:
+  pull_request:
+    branches: [research/itd01-r6-fitted-public-transfer-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: mass-r6-public-information-source-only
+  cancel-in-progress: false
+jobs:
+  independent-information-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 35
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact R6 predecessor, prereg-first, and bounded independent addition
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=b0074839fdc347d3ebf12f8d8806edf7bb0e76fa
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git rev-parse d711030b2b4cde75436a0b1b99e5dfa02aedee96^)" = "$base"
+          test "$(git show --format= --name-only d711030b2b4cde75436a0b1b99e5dfa02aedee96)" = "research/itd01/MASS_R6_FROZEN_INFORMATION_AUDIT.md"
+          git diff --name-only "$base" HEAD | python -B -c 'import sys; actual=set(sys.stdin.read().splitlines()); expected={"research/itd01/MASS_R6_FROZEN_INFORMATION_AUDIT.md","research/itd01/mass_r6_information_audit.py","research/itd01/test_mass_r6_information_audit.py",".github/workflows/qualify-mass-r6-information.yml"}; assert actual==expected,(actual,expected)'
+          for spec in research/itd01/R6_FROZEN_FITTED_PUBLIC_PROTOCOL.md:f380fd00c2d70f337b7da339d06ce595f5eb5227 research/itd01/run_r6_fitted_controls.py:865ff9411941ee0ed192a3884536618e4dfe6f2a research/itd01/MASS_R6_FROZEN_INFORMATION_AUDIT.md:9e7441d8efa4bd3c46f6142650cdc62131a98ef4 research/itd01/mass_r6_information_audit.py:0e0f693c845ec9859b9fbfa2c5f98237a6e0ca24 research/itd01/test_mass_r6_information_audit.py:62786708d873b09b45605aa7591c61f3cb9a73bc; do
+            path="${spec%%:*}"; expected="${spec#*:}"
+            test "$(git rev-parse HEAD:"$path")" = "$expected"
+            test "$(git hash-object --no-filters -- "$path")" = "$expected"
+          done
+          echo MASS_R6_FROZEN_IDENTITY=PASS
+      - name: Run independent fixed public teacher information and model-trainability check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_mass_r6_information_audit.py' -v
+          python -B research/itd01/mass_r6_information_audit.py > mass_r6_public_information.json
+          python -B -c 'import json; x=json.load(open("mass_r6_public_information.json")); assert x["classification"]=="UNUSABLE_PUBLIC_EVENT_VOCABULARY_IN_R4_FEATURE_PIPELINE" and x["baseline_semantic_feature_activations"]==0 and x["structured_planner_training_updates"]==0 and x["public_causal_events_seen"]>0; assert x["scope"]=="EXACTLY_EIGHT_NONPROTECTED_FIT_SMOKE_DEMONSTRATIONS" and not x["scientific_first_use"] and not x["independent_hidden_h1_h2_used"]; print("MASS_R6_INFORMATION_INEQUIVALENCE_REPLICATED=PASS")'
+          echo MASS_R6_OFFICIAL_FIT_VALID_DEV=NOT_RUN
+      - name: One full public source and FORGE regression, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_*.py'
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo MASS_R6_FULL_STANDARD_REGRESSION=PASS
+          echo MASS_R6_G61_DEEP_HISTORY=NOT_CLAIMED
+      - name: Confirm no source mutation, controller or original-first-use changes
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; x=sys.stdin.read().splitlines(); assert all(r=="?? mass_r6_public_information.json" for r in x),x'
+          echo MASS_R6_READONLY_EXECUTION=PASS
+          echo MASS_R6_PROTECTED_SCIENTIFIC_FIRST_USE=BLOCKED
+          echo MASS_R6_NATIVE_LEARNED_COGNITION=NOT_TESTED
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-r6-information-audit-${{ matrix.os }}
+          path: mass_r6_public_information.json
+          if-no-files-found: ignore
