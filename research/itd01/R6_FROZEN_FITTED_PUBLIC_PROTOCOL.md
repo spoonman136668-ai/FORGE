@@ -1,0 +1,32 @@
+# ITD-01 R6 — Preregistered fully fitted conventional controls on fresh R5 public causal worlds
+
+**Frozen before implementation, training or any R6 episode generation.** Frozen source parent: `ec2e2d88d06c7c8141949b9858c42c2d77849ff9` (R5, PR #748). This is PUBLIC DEVELOPMENT ONLY. No protected H1/H2, original scientific first-use, CKB-plane or F139 authority changes.
+
+## Why this study
+
+R4 conventional trained controls reached 100% on easy R4 public worlds, violating the frozen 40–85% calibration ceiling. R5's genuinely three-stage delayed-action public worlds were solvable by a PUBLIC-only scripted diagnostic oracle (100%) and NOT solved by any R4-trained control on cold R5 episodes (0%). R5's zero-shot result does not distinguish *lack of training on the new task* from architectural inability. R6 asks whether all three conventional comparator classes, supplied **equal new public R5 teacher experiences**, can acquire and generalize three-step causal action sequences.
+
+## Fixed source and roles
+
+- Reuse EXACT unchanged R5 public environment and PUBLIC oracle (R5 `r5_causal_dev.py`), and existing R4 baseline agent implementations (R4 `r4_sequential_controls.py`). New source code is additive only.
+- Two R5 PUBLIC families `A_delayed_relay_repair` and `B_threshold_resource_flow`. No original hidden-task H1/H2 or previous R4/R5 DEV episode reuse.
+- For each R4 source-seed `17, 31, 47`, independently instantiate and fully FIT all three declared baselines from scratch on identical prospective R6 source-free PUBLIC demonstration experiences: exactly 240 A and 240 B episodes/seed/model, using the same 480 trajectories (not different per model). The teacher is a disclosed algorithmic prior, uses copied public state/step records only, and is NOT an equally informed learned baseline. Its role as privileged teaching method is retained.
+- Original R4 BPTT model width 8, epochs 3 and learning rate 0.055; predictive transition-statistics planner and explicit case-memory implementations use their unchanged R4 training mechanisms and fixed settings. No new model capacity, class, handcrafted R5 strategy, threshold alteration, optimizer search or DEV retraining.
+- Deterministic disjoint R6 seed namespace for public world construction: episode seed `6_100_000 + role_index*1_000_000 + source_seed*10_000 + family_index*100_000 + episode_index`, with role indices FIT=0, VALID=1, DEV=2, and string episode identity `R6-PUBLIC:<role>:<source_seed>:<family_index>:<index>`. The R6 namespace is disjoint from R4 and R5 source labels/seeds. Every episode/world created only when its declared role executes.
+- **Segregated** VALID 80 A + 80 B new episodes per seed and per baseline. Use the same fresh VALID episodes for all arms; evaluation does not update weights. **New** DEV 80 A + 80 B episodes per seed/arm from separate role namespace, only after all model fits and VALID results/checkpoint identities are fixed; no second pass for tuning, no selection on DEV. All three arms are retained even when they fail.
+- For each fitted baseline, evaluate full PUBLIC event history at validation and development, and after checkpoint freeze run prospective `erase` and `blind_delayed` diagnostics on additional distinct role namespace 3 with 40 A + 40 B new episodes; the R5 full-state sanitized view MUST be applied to both public observation vector and history/state object. Compare to normal-mode DEV only as **different episode collections**, not paired-causal ablation effect. Declare this limitation; no claim of matched paired ablation until the same disjoint diagnostic episode IDs are used across modes. Fixed ablation set will be tested as paired mode reruns of the independent diagnostic role 3 seeds, not original DEV.
+- All actions use the PUBLIC R5 observation/action/step interface. No unmasked private roles in student data, no R5 world object passed as predictor input, no hidden labels in case memory.
+
+## Frozen objective and decisions
+
+The PUBLIC scripted diagnostic oracle retains previously observed R5 100% public solvability as context, not a freshly independent oracle, and is **not** compared as equally trained. The fixed/open-loop R5 negative 0% is a historical null.
+
+For each seed/model/family report independent 80-episode VALID and 80-episode DEV binary final-goal success, legality fraction, mean actions, checkpoint SHA-256, public teacher-training trace hash, fit CPU, val CPU, DEV CPU, diagnostic CPU, checkpoint bytes and shared process peak RSS. Stop on any illegal source identity, missing role, hidden target leakage, model update during evaluation, failure to keep model names immutable, nonfinite/negative cost, or unhandled R5 max-action cap. Preserve ALL positive and negative outcomes.
+
+- **BENCHMARK_CALIBRATED_PUBLIC_DEV_ONLY** iff the public R5 oracle previously passed >=0.80 in both source-free families, all models have >0 bona fide training updates, and **at least two independently FIT R5 comparator model classes** have *each-family* VALID success in the inclusive [0.40, 0.85] range and legal fraction 1.0, on all three seeds. This does not mean capability superiority.
+- Else **BENCHMARK_NOT_QUALIFIED_RETAIN_NEGATIVE**, distinguish ceiling saturation (every baseline >0.85), trainability floor (fewer than two models >=0.40), legality failure, or mixed/unstable outcome. Never rewrite the frozen 0.40/0.85 thresholds or reuse DEV to repair a failing baseline.
+- A positive DEV outcome cannot be accepted as cognitive transfer or novel Wingless/Yggdrasil improvement: these are known public families with disclosed scripted teacher and no native Wingless/Yggdrasil baseline adaptation. No original scientific first-use or promotion authority.
+
+## Engineering execution / limits
+
+Unprivileged GitHub-hosted Linux + Windows only; one official final full FORGE F139 Python+Go regression plus vet/build after focused R6 tests. All source-free episodes from original frozen fit/val/DEV role seeds. One full R6 run per seed and OS, store both OS original model/trace result JSON and SHA256 manifest including negative results. Max 480 training demonstrations, <=40 actions per episode, <=5,400 CPU process seconds total per seed, <=2 GiB peak process RSS, <=32 MiB each serialized learner, no paid API/GPU. Report whole-process shared resource limitation; do not call it per-model resource parity. Exact parent source + prereg FIRST commit then additive test/source/workflow, no changes to R1–R5, CKB/F139 controllers, protected accepted refs or historical outcomes.
