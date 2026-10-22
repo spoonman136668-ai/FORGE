@@ -1,0 +1,40 @@
+name: R18 safety cancel unauthorized queued scheduler unpause
+on:
+  push:
+    branches: [safety/r18-cancel-unapproved-resume-20261022]
+    paths: [.github/workflows/r18-cancel-unapproved-resume.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel exact queued R18 resume run after independent NO-GO
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "spoonman136668-ai/FORGE"
+          test "$GITHUB_REF" = "refs/heads/safety/r18-cancel-unapproved-resume-20261022"
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          TARGET="39814326956"
+          STATE="$(gh api "repos/spoonman136668-ai/FORGE/actions/runs/${TARGET}" --jq '.status')"
+          echo "R18_UNAUTHORIZED_RESUME_PRIOR_STATUS=$STATE"
+          if [ "$STATE" = "completed" ]; then
+            echo "R18_CANCEL_OUTCOME=ALREADY_COMPLETE_REQUIRES_STATE_AUDIT"
+            exit 0
+          fi
+          gh api -X POST "repos/spoonman136668-ai/FORGE/actions/runs/${TARGET}/cancel" --silent
+          echo "R18_CANCEL_REQUEST_SUBMITTED=PASS"
+          for i in 1 2 3 4 5; do
+            STATE="$(gh api "repos/spoonman136668-ai/FORGE/actions/runs/${TARGET}" --jq '.status')"
+            if [ "$STATE" = "completed" ]; then
+              echo "R18_TARGET_RUN_COMPLETED_AFTER_CANCEL_REQUEST=TRUE"
+              break
+            fi
+            sleep 2
+          done
+          echo "R18_TARGET_LAST_STATUS=$STATE"
+          echo "R18_RELEASE_NOT_AUTHORIZED_BY_INDEPENDENT_WITNESS=TRUE"
