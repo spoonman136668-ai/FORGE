@@ -1,0 +1,99 @@
+name: CKB R18-R8 explicit owner manual-only release gate
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Preflight by default; guarded_cutover requests one rollback-protected controller replacement"
+        type: choice
+        options: [preflight, guarded_cutover]
+        default: preflight
+        required: true
+      pinned_source_commit:
+        description: "Type the frozen qualified R3 switcher commit"
+        type: string
+        required: true
+      sealed_executable_sha256:
+        description: "Type the sealed cold-start executable SHA256"
+        type: string
+        required: true
+      authorization:
+        description: "For guarded_cutover type R18-R3-COLDSTART-SINGLE-CUTOVER-APPROVED"
+        type: string
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r3-owner-transition-20261022
+  cancel-in-progress: false
+jobs:
+  owner-manual:
+    # Manual-only event. This workflow must also be registered on the default
+    # branch and on the selected R3 branch to become dispatchable.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.actor == 'spoonman136668-ai' && github.triggering_actor == 'spoonman136668-ai' && github.ref == 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3965989ece69273a820656bd5fab05cae41b46df
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify real owner, frozen R3 source, manual request and candidate identity
+        shell: pwsh
+        env:
+          R18_REQUESTED_OPERATION: ${{ inputs.operation }}
+          R18_PINNED_SOURCE_COMMIT: ${{ inputs.pinned_source_commit }}
+          R18_SEALED_EXECUTABLE_SHA256: ${{ inputs.sealed_executable_sha256 }}
+          R18_OPERATOR_AUTHORIZATION: ${{ inputs.authorization }}
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $sha='3965989ece69273a820656bd5fab05cae41b46df'
+          $candidate='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($wid)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
+             $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_TRIGGERING_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $wid.Name -ine 'LINKDEADKB\camar' -or
+             !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $sha -or
+             (& git.exe hash-object 'operations/ckb-r18/Invoke-GuardedR18Cutover.ps1') -cne '3026fd792db4a2233b517301849090603ea74bbd' -or
+             @(& git.exe status --porcelain).Count -ne 0 -or
+             $env:R18_PINNED_SOURCE_COMMIT -cne $sha -or
+             $env:R18_SEALED_EXECUTABLE_SHA256 -cne $candidate) {
+            throw 'R18_R8_OWNER_MANUAL_SOURCE_OR_ARTIFACT_DRIFT'
+          }
+          if($env:R18_REQUESTED_OPERATION -cnotin @('preflight','guarded_cutover')){
+            throw 'R18_R8_INVALID_REQUESTED_OPERATION'
+          }
+          if($env:R18_REQUESTED_OPERATION -ceq 'guarded_cutover' -and
+             $env:R18_OPERATOR_AUTHORIZATION -cne 'R18-R3-COLDSTART-SINGLE-CUTOVER-APPROVED'){
+            throw 'R18_R8_EXPLICIT_CUTOVER_AUTHORIZATION_MISSING'
+          }
+          Write-Host 'R18_R8_REAL_OWNER_AND_MANUAL_SOURCE=PASS'
+          Write-Host 'R18_R8_FROZEN_R3_SHA_AND_CANDIDATE=PASS'
+          Write-Host ('R18_R8_MODE='+$env:R18_REQUESTED_OPERATION)
+      - name: Read-only sealed candidate and original R1P preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          & ./operations/ckb-r18/Invoke-GuardedR18Cutover.ps1
+          Write-Host 'R18_R8_MANUAL_PREFLIGHT=PASS'
+      - name: One guarded original task transition only when separately selected
+        if: ${{ inputs.operation == 'guarded_cutover' }}
+        shell: pwsh
+        env:
+          R18_OPERATOR_AUTHORIZATION: ${{ inputs.authorization }}
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          if($env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:R18_OPERATOR_AUTHORIZATION -cne 'R18-R3-COLDSTART-SINGLE-CUTOVER-APPROVED'){
+            throw 'R18_R8_CUTOVER_AUTHORITY_NOT_VERIFIED'
+          }
+          & ./operations/ckb-r18/Invoke-GuardedR18Cutover.ps1 -Execute
+          Write-Host 'R18_R8_GUARDED_CUTOVER_SCRIPT_COMPLETED=TRUE'
