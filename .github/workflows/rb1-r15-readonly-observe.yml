@@ -1,0 +1,33 @@
+name: RB1 R15 parallel read-only cutover observation
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r15-readonly-observe.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Observe release switcher, controller and receipt without modification
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $me.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'R15_OBSERVER_NOT_AUTHORIZED'}
+          foreach($name in @('CKB-RB1-ReleaseSwitcher','CKB-plane Controller')){
+            $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+            Write-Host "R15_OBSERVE_TASK=$name STATE=$($t.State) LAST_RESULT=$($info.LastTaskResult) LAST_RUN_UTC=$($info.LastRunTime.ToUniversalTime().ToString('o'))"
+          }
+          foreach($p in @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")){Write-Host "R15_OBSERVE_CONTROLLER_PID=$($p.ProcessId) PATH=$($p.ExecutablePath)"}
+          $receipt='C:\ProgramData\CKBR\release-switcher-status\last-receipt.json'
+          if(Test-Path -LiteralPath $receipt){
+            try{
+              $f=Get-Item -LiteralPath $receipt
+              $r=Get-Content -LiteralPath $receipt -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+              Write-Host "R15_OBSERVE_RECEIPT_TIMESTAMP=$($f.LastWriteTimeUtc.ToString('o')) STATUS=$($r.status) MODE=$($r.mode) RELEASE=$($r.release) DETAIL=$($r.detail)"
+            }catch{Write-Host "R15_OBSERVE_RECEIPT_UNREADABLE=$($_.Exception.Message)"}
+          }else{Write-Host 'R15_OBSERVE_RECEIPT_ABSENT=TRUE'}
+          Write-Host 'R15_OBSERVE_READ_ONLY=PASS'
