@@ -1,0 +1,69 @@
+name: CKB R18 candidate launcher permission parity audit READ ONLY
+on:
+  push:
+    branches: [audit/ckb-r18-launcher-acl-20261022]
+    paths: [.github/workflows/ckb-r18-launcher-acl.yml]
+permissions:
+  contents: read
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Compare known-good and failed-release file access for original task principal
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($me)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-launcher-acl-20261022' -or
+             $me.Name -ine 'LINKDEADKB\camar' -or
+             !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_ACL_AUDIT_OWNER_BOUNDARY_DRIFT'
+          }
+          $pairs=@(
+            @{name='executable';good='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe';new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'},
+            @{name='launcher';good='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1';new='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570\Start-R18-Controller.ps1'}
+          )
+          function Describe([string]$path){
+            $acl=Get-Acl -LiteralPath $path -ErrorAction Stop
+            $access=@(
+              foreach($ace in $acl.Access) {
+                $who=[string]$ace.IdentityReference
+                if($who -match '(?i)(\\camar$|\\Users$|Authenticated Users$|Everyone$|Administrators$|^BUILTIN\\Users$)') {
+                  [ordered]@{who=$who;type=[string]$ace.AccessControlType;rights=[string]$ace.FileSystemRights;inherited=[bool]$ace.IsInherited}
+                }
+              }
+            )
+            return [ordered]@{
+              owner=[string]$acl.Owner
+              inheritance_protected=[bool]$acl.AreAccessRulesProtected
+              relevant_ace=$access
+            }
+          }
+          $findings=@()
+          foreach($pair in $pairs){
+            if(!(Test-Path -LiteralPath $pair.good -PathType Leaf) -or
+               !(Test-Path -LiteralPath $pair.new -PathType Leaf)){
+              throw 'R18_ACL_FILE_PREIMAGE_MISSING'
+            }
+            $findings+=@([ordered]@{
+              component=$pair.name
+              good=Describe $pair.good
+              r18=Describe $pair.new
+            })
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $result=[ordered]@{
+            schema='ckb-plane.r18.launcher-acl-audit.v1'
+            original_task_owner=[string]$task.Principal.UserId
+            original_task_runlevel=[string]$task.Principal.RunLevel
+            file_access=$findings
+            read_only=$true
+            controller_restarted=$false
+          }
+          $json=$result | ConvertTo-Json -Depth 8 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 10000){throw 'R18_ACL_AUDIT_RECEIPT_OVERSIZED'}
+          Write-Host ('R18_LAUNCHER_PERMISSION_COMPARISON='+$json)
+          Write-Host 'R18_PERMISSIONS_NOT_MUTATED=TRUE'
