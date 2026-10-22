@@ -1,0 +1,122 @@
+name: Mind-Palace UQ79M custody child error isolation
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq79m-custody-cause.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq79m-custody-child-isolation
+  cancel-in-progress: false
+jobs:
+  custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: UQ53 unchanged negative assertion and bounded temporary child evidence
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$ok,[string]$reason) { if(-not $ok){ throw ('UQ79M_'+$reason) } }
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch = 'proposal/uq79k-nci04-on-qualified-retrieval-20261022'
+          $source = '964072f531f098bdb60a7be8305497f3fc9f8aa2'
+          $main = '5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $scratch = Join-Path $env:RUNNER_TEMP ('uq79m-isolated-'+$env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'repo'
+          $guard = @('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha){
+            $found = @(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $found.Count -eq 1 -and (([string]$found[0] -split '\s+')[0]) -ceq $sha) ('PIN_CHANGED_'+$ref)
+          }
+          function Sanitize([string]$t){
+            $t=[regex]::Replace($t,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
+            $t=[regex]::Replace($t,'https?://[^\s]+','<SOURCE_URL>')
+            $t=[regex]::Replace($t,'[a-fA-F0-9]{32,}','<DIGEST>')
+            $t=[regex]::Replace($t,'[\x00-\x1f\x7f]',' ')
+            if($t.Length -gt 170){$t=$t.Substring(0,170)}
+            return $t
+          }
+          Require (-not (Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $hashes=@{}
+          $script=$null
+          $originalBytes=$null
+          $captured=$false
+          try {
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0 -and (& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $source) 'SOURCE_IDENTITY'
+            foreach($p in $guard){$hashes[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $captured=$true
+            $script=Join-Path $root 'tests/Test-RepoSourceCrashRecovery.ps1'
+            $originalBytes=[IO.File]::ReadAllBytes($script)
+            $original=[IO.File]::ReadAllText($script)
+            $needle='if ($Stranded.Count -ne 1) { throw "UQ53_CUSTODY_NOT_DURABLE_AFTER_REAL_PROCESS_KILL" }'
+            Require ($original.Contains($needle)) 'ORIGINAL_ASSERTION_NOT_FOUND'
+            $logging=@'
+          if ($Stranded.Count -ne 1) {
+            Write-Output ("UQ53_DIAG_STRANDED_COUNT="+$Stranded.Count)
+            $childErr=if(Test-Path -LiteralPath $errFile){[IO.File]::ReadAllText($errFile)}else{''}
+            $childOut=if(Test-Path -LiteralPath $outFile){[IO.File]::ReadAllText($outFile)}else{''}
+            $tokens=@([regex]::Matches(($childErr+[Environment]::NewLine+$childOut),'(?:UQ[0-9]+[A-Z]?|ICE_STALE|CHAT_SOURCE_ALIAS)_[A-Z0-9_]+')|ForEach-Object {$_.Value}|Select-Object -Unique)
+            Write-Output ("UQ53_DIAG_CHILD_FAILURE_TOKEN="+$(if($tokens.Count){$tokens[0]}else{'NONE'}))
+            Write-Output ("UQ53_DIAG_CHILD_STDERR_BYTES="+$childErr.Length)
+            Write-Output ("UQ53_DIAG_CHILD_STDOUT_BYTES="+$childOut.Length)
+            $errs=@($childErr -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
+            $last=if($errs.Count){[string]$errs[-1]}else{'NO_STDERR'}
+            $last=[regex]::Replace($last,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
+            $last=[regex]::Replace($last,'https?://[^\s]+','<SOURCE_URL>')
+            $last=[regex]::Replace($last,'[a-fA-F0-9]{32,}','<DIGEST>')
+            $last=[regex]::Replace($last,'[\x00-\x1f\x7f]',' ')
+            if($last.Length -gt 130){$last=$last.Substring(0,130)}
+            Write-Output ("UQ53_DIAG_CHILD_LAST_ERROR="+$last)
+          }
+          '@
+            $instrumented=$original.Replace($needle,($logging+[Environment]::NewLine+$needle))
+            Require ($instrumented -cne $original) 'NO_INSTRUMENTATION'
+            [IO.File]::WriteAllText($script,$instrumented,[Text.UTF8Encoding]::new($false))
+            Write-Host 'UQ79M_SCRATCH_TEST_INSTRUMENTATION=ENABLED_ONLY_IN_DISPOSABLE_COPY'
+            $stdout=Join-Path $scratch 'test.out'
+            $stderr=Join-Path $scratch 'test.err'
+            $proc=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            Write-Host ('UQ79M_NATIVE_UQ53_EXIT='+$proc.ExitCode)
+            $out=[IO.File]::ReadAllText($stdout)
+            foreach($line in @($out -split '\r?\n'|Where-Object {$_ -match '^UQ53_DIAG_'})){Write-Host ('UQ79M_CHILD_DIAGNOSTIC='+(Sanitize ([string]$line)))}
+            foreach($line in @($out -split '\r?\n'|Where-Object {$_ -match '^UQ53_.*PASS'})){Write-Host ('UQ79M_FOCUSED_MARKER='+(Sanitize ([string]$line)))}
+            if($proc.ExitCode -ne 0){
+              $e=[IO.File]::ReadAllText($stderr)
+              $codes=@([regex]::Matches($e,'UQ[0-9]+[A-Z]?_[A-Z0-9_]+')|ForEach-Object {$_.Value}|Select-Object -Unique)
+              Write-Host ('UQ79M_PARENT_FAILURE='+$(if($codes.Count){$codes[0]}else{'UNCLASSIFIED'}))
+            }
+            [IO.File]::WriteAllBytes($script,$originalBytes)
+            Require ((Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash -ceq [BitConverter]::ToString([Security.Cryptography.SHA256]::HashData($originalBytes)).Replace('-','')) 'TEST_RESTORE_MISMATCH'
+            Require (@(& git.exe -C $root status --porcelain=v1 --untracked-files=no).Count -eq 0) 'TRACKED_SOURCE_DIRTY'
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'UQ79M_SOURCE_RESTORED=PASS'
+            if($proc.ExitCode -eq 0){Write-Host 'UQ79M_FOCUSED_UQ53=PASS'} else {Write-Host 'UQ79M_FOCUSED_UQ53=FAIL_RETAINED_NEGATIVE'}
+          }finally{
+            if($script -and $originalBytes -and (Test-Path -LiteralPath $script)){[IO.File]::WriteAllBytes($script,$originalBytes)}
+            if($captured){
+              foreach($f in $guard){
+                Require ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$f]) ('PROTECTED_HASH_DRIFT_'+$f)
+              }
+              Write-Host 'UQ79M_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
+            Write-Host 'UQ79M_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
