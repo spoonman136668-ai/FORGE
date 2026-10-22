@@ -90,7 +90,8 @@ jobs:
             & git.exe clone --quiet --single-branch --branch $sourceBranch $remote $root
             Require ($LASTEXITCODE -eq 0) 'PRIVATE_SOURCE_CLONE_FAILED'
             Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $sourceSha) 'SOURCE_COMMIT_DRIFT'
-            Require ((& git.exe -C $root rev-parse 'HEAD^' | Out-String).Trim() -ceq $parentSha) 'PARENT_SOURCE_DRIFT'
+            Require ((& git.exe -C $root rev-parse 'HEAD^' | Out-String).Trim() -ceq 'b2744cc96440e5671234c7500cdb966b133ef79f') 'RENAME_INTERMEDIATE_DRIFT'
+            Require ((& git.exe -C $root rev-parse 'HEAD~2' | Out-String).Trim() -ceq $parentSha) 'PARENT_SOURCE_DRIFT'
             Require ((& git.exe -C $root rev-parse ('HEAD:'+$candidateRel) | Out-String).Trim() -ceq $sourceFileBlob) 'CANDIDATE_UPSTREAM_BLOB_DRIFT'
             $pinState=[IO.File]::ReadAllText((Join-Path $root '.ice/chat-delta-state.json')) | ConvertFrom-Json
             Require ([string]$pinState.retrieval_tool_blobs.'tools/mind.ps1' -ceq 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130' -and -not [bool]$pinState.retrieval_code_changes_allowed) 'PARENT_RETRIEVAL_PIN_NOT_QUALIFIED'
