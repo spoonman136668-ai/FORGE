@@ -77,6 +77,25 @@ def score_predictions(rows, predictor):
             'dev_inference_cpu_s':time.process_time()-start}
 
 
+def select_pre_dev_arm(arms, names):
+    """Select by frozen FIT_VALID loss, before any DEV evaluation is inspected.
+
+    Every arm's DEV result remains in the report, but cannot influence the
+    selection or enable a post-hoc multiple-model advantage claim.
+    """
+    p.require(isinstance(arms,dict) and len(names)>0
+              and all(name in arms and type(arms[name]) is dict
+                      and type(arms[name].get('fit_cost')) is dict
+                      for name in names), 'VALIDATION_ARM_INVENTORY')
+    scores=[]
+    for name in names:
+        value=arms[name]['fit_cost'].get('fit_validation_nll')
+        p.require(type(value) in (int,float) and math.isfinite(value) and value>=0,
+                  'INVALID_FIT_VALID_SELECTION_SCORE')
+        scores.append((value,name))
+    return min(scores)[1]
+
+
 def evaluate_one_family(by_role,family,doc):
     """Development evaluation only. Caller must already have CKB admission."""
     p.require(family in p.FAMILIES,'UNKNOWN_EVALUATION_FAMILY')
@@ -87,6 +106,9 @@ def evaluate_one_family(by_role,family,doc):
     for name,history in ((ARM_NAMES[0],False),(ARM_NAMES[2],True)):
         table,cost=fit_counts_timed(fit,history)
         fn=lambda row,model=table,h=history:p.forecast_counts(model,row,h)
+        # The frozen family-selection decision is made from FIT_VALID alone.
+        # Development outcomes must never be used to select a winner.
+        cost['fit_validation_nll']=sum(p.nll(row,fn(row)) for row in val)/len(val)
         arms[name]={'result':score_predictions(dev,fn),'fit_cost':cost}
     for name in (m.MODEL_NAMES[0],m.MODEL_NAMES[1],m.MODEL_NAMES[2]):
         model,cost=m.fit_gradient(name,fit,val)
@@ -99,8 +121,8 @@ def evaluate_one_family(by_role,family,doc):
         arms[name]={'result':score_predictions(dev,lambda r,x=model:m.model_predict(x,r)),
                     'fit_cost':cost}
     p.require(set(arms)==set(ARM_NAMES),'EMPIRICAL_ARM_MISSING')
-    best_current=min(MEMORYLESS,key=lambda name:arms[name]['result']['mean_nll'])
-    best_history=min(HISTORY,key=lambda name:arms[name]['result']['mean_nll'])
+    best_current=select_pre_dev_arm(arms,MEMORYLESS)
+    best_history=select_pre_dev_arm(arms,HISTORY)
     oracle=score_predictions(dev,lambda row:p.marginalized_public_oracle(row,doc))
     gains=m.paired_episode_bootstrap(
         arms[best_current]['result']['episode_nll'],
