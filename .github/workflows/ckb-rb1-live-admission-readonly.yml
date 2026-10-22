@@ -123,6 +123,19 @@ jobs:
              $codeFacts+=($name+':LIST='+$listCount+':GET='+$getCount+':PARSE='+$parseCount)
           }
           Write-Host ('CKB_ORIGINAL_CONTROLLER_CALL_SHAPE='+($codeFacts -join ','))
+          $calls=@()
+          foreach($name in @('AutonomyTick','AutonomyLoop','QueueList')){
+             $token='func (p *Engine) '+$name+'('
+             $first=$text.IndexOf($token,[StringComparison]::Ordinal)
+             if($first -lt 0){continue}
+             $last=$text.IndexOf("`nfunc ",$first+1,[StringComparison]::Ordinal)
+             if($last -lt 0){$last=$text.Length}
+             $body=$text.Substring($first,$last-$first)
+             $names=@([regex]::Matches($body,'p\.([A-Za-z_][A-Za-z_0-9]*)\(') | ForEach-Object {$_.Groups[1].Value} | Select-Object -Unique)
+             $calls+=($name+':'+($names -join '|'))
+          }
+          Write-Host ('CKB_ORIGINAL_NATIVE_CALLS='+($calls -join ','))
+
           $activeBinary=Join-Path $root 'bin\ckb-plane.exe'
           if(Test-Path -LiteralPath $activeBinary -PathType Leaf){
             $activeHash=(Get-FileHash -LiteralPath $activeBinary -Algorithm SHA256).Hash.ToLowerInvariant()
