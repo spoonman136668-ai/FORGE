@@ -1,0 +1,83 @@
+name: RB1 R16 read-only failed cutover forensic custody
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r16-failed-cutover-forensics.yml]
+permissions:
+  contents: read
+jobs:
+  forensic:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect cutover artifacts, original state and scheduler records without modifying anything
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or $me.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'R16_WRONG_ADMIN_CONTEXT'}
+          Write-Host 'R16_CUSTODY_ADMIN_CONTEXT=PASS'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-switcher\sealed\PLANE-RB1-EXTENDED-COMPAT-R1\bin\ckb-plane.exe'
+          $originalLauncher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          foreach($f in @($cfg,$old,$new,$originalLauncher)){
+            if(Test-Path -LiteralPath $f -PathType Leaf){
+              $v=Get-Item -LiteralPath $f
+              Write-Host "R16_FILE=$f HASH=$((Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()) WRITTEN_UTC=$($v.LastWriteTimeUtc.ToString('o'))"
+            }else{Write-Host "R16_FILE_MISSING=$f"}
+          }
+          foreach($name in @('CKB-RB1-ReleaseSwitcher','CKB-plane Controller')){
+            $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+            Write-Host "R16_TASK=$name STATE=$($t.State) PRINCIPAL=$($t.Principal.UserId) RUNLEVEL=$($t.Principal.RunLevel) LAST_RESULT=$($info.LastTaskResult) LAST_RUN_UTC=$($info.LastRunTime.ToUniversalTime().ToString('o'))"
+            foreach($a in $t.Actions){Write-Host "R16_TASK_ACTION=$name EXECUTABLE=$($a.Execute) ARGUMENTS=$($a.Arguments)"}
+          }
+          foreach($p in @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")){Write-Host "R16_CONTROLLER_PROCESS=$($p.ProcessId) EXECUTABLE=$($p.ExecutablePath)"}
+          $root='C:\ProgramData\CKBR\release-switcher'
+          $logs=@(Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)(receipt|log|error|trace|transcript|stdout|stderr)' } | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 20)
+          foreach($f in $logs){
+            Write-Host "R16_LOG_FILE=$($f.FullName) BYTES=$($f.Length) WRITTEN_UTC=$($f.LastWriteTimeUtc.ToString('o'))"
+            if($f.Extension -eq '.json' -and $f.Length -lt 40000){
+              try{
+                $j=Get-Content -LiteralPath $f.FullName -Raw | ConvertFrom-Json
+                foreach($field in @('status','result','mode','release','detail','queue_submitted','worker_claimed','owner_data_changed')){
+                  if($null -ne $j.$field){Write-Host "R16_RECEIPT_FIELD=$field VALUE=$($j.$field)"}
+                }
+              }catch{Write-Host 'R16_RECEIPT_JSON_UNREADABLE=TRUE'}
+            }
+          }
+          $cutoverRoot=Join-Path $root 'cutovers'
+          if(Test-Path -LiteralPath $cutoverRoot){
+            foreach($d in @(Get-ChildItem -LiteralPath $cutoverRoot -Directory | Sort-Object CreationTimeUtc -Descending | Select-Object -First 5)){
+              Write-Host "R16_CUTOVER_DIR=$($d.FullName) CREATED_UTC=$($d.CreationTimeUtc.ToString('o'))"
+              foreach($f in @(Get-ChildItem -LiteralPath $d.FullName -File -Recurse -ErrorAction SilentlyContinue)){
+                Write-Host "R16_CUTOVER_MEMBER=$($f.FullName) LENGTH=$($f.Length)"
+              }
+            }
+          }else{Write-Host 'R16_CUTOVER_DIR_NONE=TRUE'}
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          foreach($suffix in @('','-wal','-shm')){
+            $p=$db+$suffix
+            if(Test-Path -LiteralPath $p){
+              $f=Get-Item -LiteralPath $p
+              Write-Host "R16_DB_SIDECAR=$suffix LENGTH=$($f.Length) WRITTEN_UTC=$($f.LastWriteTimeUtc.ToString('o'))"
+            }
+          }
+          try{
+            $statusRaw=@(& $old controller status --config $cfg 2>&1)
+            if($LASTEXITCODE -eq 0){
+              $status=($statusRaw -join [Environment]::NewLine)|ConvertFrom-Json
+              Write-Host "R16_CONTROLLER_STATUS_AUTHORITY=$($status.authority) PAUSED=$($status.paused) HEARTBEAT_STALE=$($status.heartbeat_stale) STATUS=$($status.controller_status)"
+            }else{Write-Host "R16_CONTROLLER_STATUS_FAILED_CODE=$LASTEXITCODE"}
+          }catch{Write-Host "R16_CONTROLLER_STATUS_READ_FAILURE=$($_.Exception.Message)"}
+          try{
+            $start=[datetime]::SpecifyKind([datetime]'2026-10-22T01:17:00',[DateTimeKind]::Utc).ToLocalTime()
+            $end=[datetime]::SpecifyKind([datetime]'2026-10-22T01:20:30',[DateTimeKind]::Utc).ToLocalTime()
+            $evts=@(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational';StartTime=$start;EndTime=$end} -MaxEvents 250 -ErrorAction Stop|Where-Object{$_.Message -match 'CKB-RB1-ReleaseSwitcher|CKB-plane Controller'})
+            foreach($e in $evts|Select-Object -First 35){
+              $msg=$e.Message -replace '\s+',' '
+              Write-Host "R16_SCHEDULER_EVENT=$($e.Id) UTC=$($e.TimeCreated.ToUniversalTime().ToString('o')) LEVEL=$($e.LevelDisplayName) MESSAGE=$($msg.Substring(0,[Math]::Min(400,$msg.Length)))"
+            }
+          }catch{Write-Host "R16_SCHEDULER_EVENTS_UNAVAILABLE=$($_.Exception.Message)"}
+          Write-Host 'R16_FORENSICS_NO_MUTATION=PASS'
