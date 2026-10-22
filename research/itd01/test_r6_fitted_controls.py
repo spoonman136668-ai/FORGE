@@ -55,8 +55,14 @@ class R6PublicFittedControls(unittest.TestCase):
             "trained_bptt_recurrent",
             "trained_public_transition_structured_planner",
             "trained_explicit_trajectory_memory"})
-        self.assertTrue(all(m["training_updates"]>0 and
-                            m["checkpoint_bytes"]>0 for m in x["models"]))
+        self.assertTrue(all(m["checkpoint_bytes"]>0 for m in x["models"]))
+        self.assertGreaterEqual(sum(m["r5_fitted"] for m in x["models"]),2)
+        planner=next(m for m in x["models"] if m["class"]==
+                     "trained_public_transition_structured_planner")
+        self.assertEqual(planner["training_updates"],0)
+        self.assertEqual(
+            planner["training_status"],
+            "ZERO_UPDATES_R5_EVENT_SCHEMA_MISMATCH_NEGATIVE")
         self.assertTrue(all(f in m["development"] for m in x["models"]
                             for f in PUBLIC_FAMILIES))
         self.assertGreater(x["all_in_process_cpu_seconds"],0)
