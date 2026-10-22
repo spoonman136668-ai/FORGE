@@ -1,0 +1,158 @@
+name: FORGE F139 R14 original-owner guarded readiness audit
+# Read-only original owner audit. No source transition, task restart, DB write,
+# queue dispatch, protected ref write, or scientific first use.
+on:
+  push:
+    branches: [proposal/f139-r14-native-recovery-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-r14-readonly
+  cancel-in-progress: false
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Check original owner identity and native candidate source without mutations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $repo = 'spoonman136668-ai/FORGE'
+          $source = '536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $originalHead = 'ff4405b7a9c00e514708490787174ce5a77c19ac812bb59462363d6851896174'
+          if ($env:GITHUB_REPOSITORY -cne $repo -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r14-native-recovery-20261022' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R14_OWNER_IDENTITY_OR_SECRET_INHERITANCE_INVALID'
+          }
+          $main = (& gh api "repos/$repo/branches/main" --jq '.commit.sha' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $main -cne $source) {
+            throw 'R14_PROTECTED_MAIN_NOT_FROZEN'
+          }
+          $pr = (& gh api "repos/$repo/pulls/718" | Out-String | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $pr.base.sha -cne $source -or
+              $pr.head.sha -cne $env:GITHUB_SHA -or
+              $pr.draft -ne $true -or $pr.merged -eq $true) {
+            throw 'R14_REPAIR_PROPOSAL_HEAD_OR_DRAFT_DRIFT'
+          }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or $task.State -eq 'Disabled') {
+            throw 'R14_ORIGINAL_SCHEDULED_OWNER_UNAVAILABLE'
+          }
+          $principal = [string]$task.Principal.UserId
+          $sid = if ($principal -match '^S-1-') {
+            $principal
+          } else {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($sid -cne $who.User.Value) {
+            throw 'R14_SCHEDULED_OWNER_SID_DRIFT'
+          }
+          $argsText = [string]$task.Actions[0].Arguments
+          $opts = @{}
+          foreach ($name in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match($argsText,
+              '(?i)(?:^|\s)-' + $name + '\s+"([^"]+)"')
+            if (-not $match.Success) { throw ('R14_OWNER_TASK_ARG_MISSING_' + $name) }
+            $opts[$name] = $match.Groups[1].Value
+          }
+          $state = Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $expectedDB = Join-Path $state 'state.sqlite'
+          $expectedKey = Join-Path $state 'worker-hmac.dpapi.xml'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($opts['Database']) -ine [IO.Path]::GetFullPath($expectedDB) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine [IO.Path]::GetFullPath($expectedKey)) {
+            throw 'R14_ORIGINAL_OWNER_TASK_ROUTE_DRIFT'
+          }
+          if (-not (Test-Path -LiteralPath $expectedDB -PathType Leaf)) {
+            throw 'R14_OWNER_DB_MISSING'
+          }
+          $native = @'
+          import hashlib, json, pathlib, sqlite3, sys
+          path = pathlib.Path(sys.argv[1]).resolve(strict=True)
+          expected = sys.argv[2]
+          head68 = sys.argv[3]
+          state = path.parent
+          def need(b, err):
+              if not b: raise RuntimeError("R14_"+err)
+          with sqlite3.connect(path.as_uri()+"?mode=ro", uri=True, timeout=10) as conn:
+              conn.row_factory = sqlite3.Row
+              conn.execute("PRAGMA query_only=ON")
+              m = dict(conn.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              need(m["source_sha"]==expected and m["enabled"]==1 and m["legacy_suspended"]==1, "SOURCE_OR_OWNER_STATE_DRIFT")
+              need(m["head_seq"]>=68 and m["starts"]>=2, "R13_SOURCE_CUSTODY_MISSING")
+              head="0"*64
+              count=0
+              orig68=None
+              for e in conn.execute("SELECT * FROM events ORDER BY seq"):
+                  count+=1
+                  need(e["seq"]==count and e["prior_sha"]==head, "EVENT_LINK_DRIFT")
+                  doc=json.loads(e["payload"])
+                  def canon(v):
+                      return (json.dumps(v, sort_keys=True, separators=(",",":"), ensure_ascii=True)+"\n").encode()
+                  need(canon(doc).decode()==e["payload"], "EVENT_ENCODING_DRIFT")
+                  record={"seq":count,"prior_sha":head,"kind":e["kind"],"payload":doc}
+                  head=hashlib.sha256(canon(record)).hexdigest()
+                  need(head==e["sha"], "EVENT_SHA_DRIFT")
+                  if count==68: orig68=head
+              need(count==m["head_seq"] and head==m["head_hash"], "EVENT_TIP_DRIFT")
+              need(orig68==head68, "R13_ORIGINAL_EVENT68_CUSTODY_DRIFT")
+              rows=[dict(x) for x in conn.execute("SELECT * FROM tasks ORDER BY ticket")]
+          negatives=("f139-nci04-i696-5662e3586bc9-7bb8f27f",
+                     "f139-nci04-i706-09f3d7447900-09dc99f4")
+          for ticket in negatives:
+              hits=[x for x in rows if x["ticket"]==ticket]
+              need(len(hits)==1 and hits[0]["stage"]=="QUARANTINED", "HISTORICAL_NATIVE_NEGATIVE_CHANGED")
+          verified=[]
+          for issue in (714,715):
+              prefix="f139-d2k-i"+str(issue)+"-"+expected[:12]+"-"
+              hits=[x for x in rows if x["ticket"].startswith(prefix)]
+              need(len(hits)==1 and hits[0]["stage"]=="VERIFIED" and int(hits[0]["run_id"])>0,
+                   "R13_ORIGINAL_VERIFIED_TASK_MISSING")
+              task=hits[0]
+              folder=pathlib.Path(task["evidence_dir"]).resolve(strict=True)
+              need(folder.parent.parent==(state/"evidence").resolve(), "ORIGINAL_EVIDENCE_SCOPE_DRIFT")
+              need(folder.name==str(task["run_id"]) and folder.parent.name==task["ticket"], "ORIGINAL_RECEIPT_ROUTE_DRIFT")
+              expected_files={"manifest.json","ubuntu-latest.zip","windows-latest.zip"}
+              need({p.name for p in folder.iterdir()}==expected_files, "ORIGINAL_RECEIPT_MEMBER_DRIFT")
+              manifest_raw=(folder/"manifest.json").read_bytes()
+              need(hashlib.sha256(manifest_raw).hexdigest()==task["evidence_sha"], "ORIGINAL_MANIFEST_SHA_DRIFT")
+              manifest=json.loads(manifest_raw)
+              need(manifest["ticket"]==task["ticket"] and manifest["run_id"]==task["run_id"] and
+                   manifest["scientific_originals"]==0 and manifest["approved_science"] is False, "ORIGINAL_MANIFEST_DRIFT")
+              for osname in ("ubuntu-latest","windows-latest"):
+                  need(hashlib.sha256((folder/(osname+".zip")).read_bytes()).hexdigest()==manifest["sha256"][osname], "ORIGINAL_PROVIDER_ZIP_DRIFT")
+              verified.append(task["ticket"])
+          outstanding=[x["ticket"] for x in rows if x["stage"] not in ("VERIFIED","QUARANTINED")]
+          result={
+              "schema":"forge.f139.r14.original-owner-readonly-readiness.v1",
+              "source_sha":expected,"event_sequence":count,"event_head_sha256":head,
+              "r13_original_event68_verified":True,
+              "original_native_negatives_retained":2,
+              "original_d2k_verified":len(verified),
+              "archived_d2k_provider_zips_verified":4,
+              "outstanding_tasks":len(outstanding),
+              "guarded_source_transition_ready":len(outstanding)==0,
+              "database_writes":0,"controller_restart":False,
+              "new_dispatches":0,"scientific_first_use":False
+          }
+          print(json.dumps(result, sort_keys=True, separators=(",",":")))
+          '@
+          $readBack = & $opts['PythonExe'] -B -c $native $expectedDB $source $originalHead
+          if ($LASTEXITCODE -ne 0) { throw 'R14_REAL_OWNER_CUSTODY_AUDIT_REJECTED' }
+          $record = ($readBack | Out-String | ConvertFrom-Json)
+          if ($record.schema -cne 'forge.f139.r14.original-owner-readonly-readiness.v1' -or
+              $record.database_writes -ne 0 -or $record.new_dispatches -ne 0 -or
+              $record.scientific_first_use -ne $false) { throw 'R14_CUSTODY_RECORD_INVALID' }
+          Write-Output ('R14_OWNER_READONLY_RESULT=' + ($record | ConvertTo-Json -Compress -Depth 5))
+          Write-Output 'R14_ORIGINAL_OWNER_CUSTODY=PASS'
+          if ($record.guarded_source_transition_ready -eq $true) {
+            Write-Output 'R14_GUARDED_TRANSITION_PRECONDITIONS=READY_READONLY_ONLY'
+          } else {
+            Write-Output 'R14_GUARDED_TRANSITION_PRECONDITIONS=ACTIVE_TASKS_DO_NOT_TRANSITION'
+          }
+          Write-Output 'R14_CONTROLLER_AND_RESEARCH_UNTOUCHED=TRUE'
