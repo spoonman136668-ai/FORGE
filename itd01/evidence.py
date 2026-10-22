@@ -60,7 +60,7 @@ def read_json(raw: bytes):
         return value
     try:
         return json.loads(raw, object_pairs_hook=unique)
-    except (ValueError, UnicodeError) as exc:
+    except (json.JSONDecodeError, UnicodeError) as exc:
         raise EvidenceRejected("ITD01_JSON_INVALID") from exc
 
 
