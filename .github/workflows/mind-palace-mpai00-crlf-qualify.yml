@@ -1,0 +1,128 @@
+name: Mind-Palace MP-AI00 CRLF checkpoint source-pinned Windows regression
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-crlf-qualify.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai00-crlf-native-qualify
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - name: Checkout isolated qualification workflow
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check strict CRLF handling and full Mind-Palace regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$Ok,[string]$Why){if(-not $Ok){throw ('MPAI00_CRLF_'+$Why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='repair/mpai00-crlf-checkpoint-20261022'
+          $source='afdbca86c03c9bac0ba8a9dee6ae2a1a6a189f1c'
+          $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-crlf-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $logs=Join-Path $scratch 'logs'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $scope=@('tools/update-checkpoint.ps1','tests/Test-CheckpointCRLFWhitespace.ps1')
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_'+$ref)
+          }
+          function Run-Test([string]$Tag,[string]$Rel,[string[]]$Markers){
+            $test=Join-Path $root $Rel
+            Need (Test-Path -LiteralPath $test -PathType Leaf) ('MISSING_'+$Tag)
+            $out=Join-Path $logs ($Tag+'.out')
+            $err=Join-Path $logs ($Tag+'.err')
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $stdout=[IO.File]::ReadAllText($out)
+            $stderr=[IO.File]::ReadAllText($err)
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPAI00_CRLF_FAILED_STAGE='+$Tag)
+              $last=@([regex]::Matches($stdout,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object{$_.Value})
+              if($last.Count){Write-Host ('MPAI00_CRLF_FULL_LAST_TEST='+[string]$last[-1])}
+              $errorLines=@($stderr -split '\r?\n' | Where-Object { $_ -match 'Exception|Error|throw|failed|not recognized|Whitespace' } | Select-Object -Last 8)
+              foreach($errorLine in $errorLines){
+                $brief=[string]$errorLine
+                if($brief.Length -gt 220){$brief=$brief.Substring(0,220)}
+                Write-Host ('MPAI00_CRLF_DIAG='+$brief)
+              }
+              throw ('MPAI00_CRLF_NATIVE_TEST_FAILED_'+$Tag)
+            }
+            foreach($marker in $Markers){
+              Need ($stdout.Contains($marker)) ('MISSING_MARKER_'+$Tag+'_'+$marker)
+            }
+            Write-Host ('MPAI00_CRLF_'+$Tag.ToUpperInvariant()+'=PASS')
+          }
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
+          $before=@{}
+          $hashed=$false
+          try{
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
+            Need ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'SOURCE_HEAD'
+            $changed=@(& git.exe -C $root diff --name-only $main $source)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 2 -and
+              (($changed|Sort-Object)-join '|') -ceq (($scope|Sort-Object)-join '|')) 'SOURCE_SCOPE'
+            foreach($f in $guard){
+              $before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed=$true
+            Run-Test 'focused_whitespace' 'tests/Test-CheckpointCRLFWhitespace.ps1' @(
+              'MPAI00_CRLF_VALID_EOL=PASS',
+              'MPAI00_CRLF_TRAILING_SPACE_REJECTED=PASS',
+              'MPAI00_CRLF_TRAILING_TAB_REJECTED=PASS',
+              'MPAI00_LF_TRAILING_SPACE_REJECTED=PASS',
+              'MPAI00_CRLF_POLICY_COMMAND_SCOPED=PASS',
+              'MPAI00_CRLF_SCRATCH_CLEAN=PASS')
+            Run-Test 'focused_checkpoint' 'tests/Test-UpdateCheckpoint.ps1' @('Update checkpoint regression passed')
+            Run-Test 'full_regression' 'tests/Test-All.ps1' @('Mind-Palace regression suite passed')
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI00_CRLF_EXACT_SOURCE_AND_MAIN_STABLE=PASS'
+            Write-Host 'MPAI00_CRLF_FULL_WINDOWS_QUALIFICATION=PASS'
+            Write-Host 'MPAI00_CRLF_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MPAI00_CRLF_PAID_MODEL_CALLS=0'
+          } finally {
+            if($hashed){
+              foreach($f in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$f]) ('PROTECTED_HASH_'+$f)
+              }
+              Write-Host 'MPAI00_CRLF_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){
+              $clean=$false
+              for($i=0;$i -lt 12;$i++){
+                try{
+                  Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop
+                  if(-not(Test-Path -LiteralPath $scratch)){$clean=$true;break}
+                }catch{}
+                Start-Sleep -Milliseconds 350
+              }
+              Need $clean 'SCRATCH_CLEANUP'
+            }
+            Write-Host 'MPAI00_CRLF_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
