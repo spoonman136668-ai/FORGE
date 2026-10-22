@@ -52,6 +52,56 @@ class R16SynthesisTests(unittest.TestCase):
         self.assertEqual(count, 3)
         self.assertEqual(candidate.count("contextlib.closing("), 3)
 
+    def test_real_sqlite_file_handle_release_on_unfamiliar_source(self):
+        """Native subprocess: Windows baseline must fail; repaired must clean up.
+
+        A SQLite connection used as a context manager commits/rolls back but
+        does not close. A live connection blocks Windows temporary-directory
+        removal, so this tests actual native resource ownership rather than
+        merely checking a generated diff or a golden output string.
+        """
+        import os
+        import subprocess
+        import sys
+        script = (
+            'import pathlib, sqlite3, tempfile\n'
+            'with tempfile.TemporaryDirectory(prefix="forge-r17-handle-") as area:\n'
+            '    location = pathlib.Path(area) / "heldout.db"\n'
+            '    with sqlite3.connect(str(location), timeout=4) as holding:\n'
+            '        holding.execute("create table native (value integer)")\n'
+            '        holding.execute("insert into native values (17)")\n'
+            '    print("R17_SQLITE_WORK_FINISHED")\n'
+            'print("R17_TEMPORARY_DIRECTORY_CLEANED")\n'
+        )
+        original = wrap(script)
+        suggested, changed = synthesize_workflow_repair(original, FAILURE_CLASS)
+        self.assertEqual(changed, 1)
+        self.assertIn('contextlib.closing(sqlite3.connect(str(location), timeout=4))',
+                      suggested)
+        opener = "      $script = @'\n"
+        first = suggested.index(opener) + len(opener)
+        last = suggested.index("          '@\n", first)
+        repaired_script = "".join(line[10:] for line in
+                                  suggested[first:last].splitlines(keepends=True))
+        self.assertNotEqual(script, repaired_script)
+        before = subprocess.run([sys.executable, "-B", "-c", script],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                check=False, timeout=20)
+        after = subprocess.run([sys.executable, "-B", "-c", repaired_script],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               check=False, timeout=20)
+        if os.name == "nt":
+            self.assertNotEqual(before.returncode, 0,
+                                before.stdout.decode(errors="replace"))
+            self.assertIn("PermissionError",
+                          before.stderr.decode(errors="replace"))
+        else:
+            self.assertEqual(before.returncode, 0,
+                             before.stderr.decode(errors="replace"))
+        self.assertEqual(after.returncode, 0,
+                         after.stderr.decode(errors="replace"))
+        self.assertIn(b"R17_TEMPORARY_DIRECTORY_CLEANED", after.stdout)
+
     def test_idempotent_reapplication_refused(self):
         src = ('import sqlite3, tempfile\n'
                'with tempfile.TemporaryDirectory() as d:\n'
