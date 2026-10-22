@@ -126,7 +126,7 @@ class PredictiveTransitionPlanner:
         for rows in data:
             for row in rows:
                 x=row["x"];family=int(x[22]>.5)
-                if sum(x[8:16])>.5:
+                if x[23]>.5 and sum(x[8:16])>.5:
                     lag=max(1,int(round(x[20]*4)))
                     self.delays[family][lag]+=1
                     if sum(x[12:16])>.5:self.partial_counts[family]+=1
