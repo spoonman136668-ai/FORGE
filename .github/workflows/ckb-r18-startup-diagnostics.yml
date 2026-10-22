@@ -1,0 +1,144 @@
+name: CKB R18 owner startup failure read-only evidence
+on:
+  push:
+    branches: [audit/ckb-r18-startup-diagnostics-20261022]
+    paths: [.github/workflows/ckb-r18-startup-diagnostics.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-owner-startup-diagnostics-20261022
+  cancel-in-progress: false
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Verify exact owner, source scope, and original controller custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='8686ead623411db799d9148ca8702fa6bfd1bce1'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-startup-diagnostics-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_DIAGNOSTIC_OWNER_OR_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-startup-diagnostics.yml'){
+            throw 'R18_DIAGNOSTIC_SCOPE_NOT_SINGLE_WORKFLOW'
+          }
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $launcher='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570\Start-R18-Controller.ps1'
+          $oldLauncher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          function Hasher([string]$p,[string]$expected){
+            $file=Get-Item -LiteralPath $p -ErrorAction Stop
+            if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+              throw 'R18_DIAGNOSTIC_IRREGULAR_FILE'
+            }
+            $sum=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($sum -cne $expected){throw 'R18_DIAGNOSTIC_FILE_HASH_DRIFT'}
+          }
+          Hasher $old '3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
+          Hasher $new '63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'
+          Hasher $config '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+          Hasher $oldLauncher '66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce'
+          Hasher $launcher '071a4434f008b684a6b9bdc75e430008100021c1d11a1848e22660f00a2cda05'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $old -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_DIAGNOSTIC_ORIGINAL_CONTROLLER_NOT_RESTORED'
+          }
+          $baseline=@{
+            task_state=[string]$task.State
+            task_last_result=[int]$taskInfo.LastTaskResult
+            task_principal=[string]$task.Principal.UserId
+            task_runlevel=[string]$task.Principal.RunLevel
+            process_count=$procs.Count
+            process_class='R1P'
+            owner_admin=$true
+          }
+          Write-Host ('R18_DIAGNOSTIC_CURRENT_CONTROLLER='+($baseline|ConvertTo-Json -Compress))
+          Write-Host 'R18_DIAGNOSTIC_OWNER_STATIC_PREIMAGES=PASS'
+          Write-Host 'R18_DIAGNOSTIC_LIVE_CONTROLLER_UNCHANGED=TRUE'
+      - name: Inspect historical failure window without enabling event logs or launching processes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $start=[DateTimeOffset]::Parse('2026-10-22T12:15:20+00:00')
+          $end=[DateTimeOffset]::Parse('2026-10-22T12:16:45+00:00')
+          $logs=@(
+            @{name='Microsoft-Windows-TaskScheduler/Operational';matches='CKB-plane Controller'},
+            @{name='Microsoft-Windows-PowerShell/Operational';matches='Start-R18-Controller'},
+            @{name='Application';matches='ckb-plane.exe'}
+          )
+          $findings=@()
+          foreach($log in $logs){
+            $state='UNKNOWN';$events=@();$reason=''
+            try{
+              $info=Get-WinEvent -ListLog $log.name -ErrorAction Stop
+              if(!$info.IsEnabled){$state='DISABLED'}
+              else {
+                $state='ENABLED'
+                try {
+                  $seen=@(Get-WinEvent -FilterHashtable @{
+                    LogName=$log.name
+                    StartTime=$start.LocalDateTime
+                    EndTime=$end.LocalDateTime
+                  } -MaxEvents 400 -ErrorAction Stop)
+                  foreach($e in $seen){
+                    if([string]$e.Message -like ('*'+$log.matches+'*')){
+                      $events+=@([ordered]@{
+                        utc=$e.TimeCreated.ToUniversalTime().ToString('o')
+                        id=[int]$e.Id
+                        level=[int]$e.Level
+                        provider=[string]$e.ProviderName
+                      })
+                    }
+                    if($events.Count -ge 30){break}
+                  }
+                }catch{
+                  $state='QUERY_FAILED_OR_EMPTY'
+                  $reason=$_.Exception.GetType().Name
+                }
+              }
+            }catch{
+              $state='UNAVAILABLE'
+              $reason=$_.Exception.GetType().Name
+            }
+            $findings+=@([ordered]@{log=$log.name;state=$state;reason_class=$reason;events=$events})
+          }
+          # Report only event ID/time and log state; never messages, usernames, args or secrets.
+          $report=[ordered]@{
+            schema='ckb-plane.r18.startup-window-readonly.v1'
+            attempted_failure_run=39776824570
+            from_utc=$start.ToString('o')
+            to_utc=$end.ToString('o')
+            logs=$findings
+            read_only=$true
+            diagnostic_complete=$true
+            failure_cause='UNVERIFIED'
+            cutover_attempted=$false
+            controller_restarted=$false
+          }
+          $json=$report|ConvertTo-Json -Depth 8 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 20000){throw 'R18_DIAGNOSTIC_OVERSIZED'}
+          Write-Host ('R18_STARTUP_DIAGNOSTIC_RECEIPT='+$json)
+          Write-Host 'R18_STARTUP_DIAGNOSTIC_NO_MUTATION=TRUE'
