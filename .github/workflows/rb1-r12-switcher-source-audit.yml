@@ -1,0 +1,48 @@
+name: RB1 R12 release switcher source and cutover preflight audit
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r12-switcher-source-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect exact staged release-switcher implementation and original controller without mutation
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $me.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'RB1_R12_ADMIN_RUNNER_IDENTITY_DRIFT'}
+          $paths=@('C:\ProgramData\CKBR\release-switcher\Invoke-CKBReleaseSwitcher.ps1','C:\Users\camar\Downloads\Repair-CKB-RB1-ReleaseSwitcher-Registration-R6.ps1')
+          foreach($p in $paths){
+            if(-not (Test-Path -LiteralPath $p -PathType Leaf)){throw "RB1_R12_STAGED_MISSING=$p"}
+            $f=Get-Item -LiteralPath $p
+            Write-Host "RB1_R12_FILE=$p LENGTH=$($f.Length) HASH=$((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant())"
+            $acl=Get-Acl -LiteralPath $p
+            Write-Host "RB1_R12_FILE_ACL_OWNER=$($acl.Owner) INHERITANCE_PROTECTED=$($acl.AreAccessRulesProtected)"
+            foreach($ace in $acl.Access){
+              [uint64]$mask=[int64][int]$ace.FileSystemRights -band 0xFFFFFFFFL
+              Write-Host ('RB1_R12_FILE_ACL={0} MASK=0x{1:X8} TYPE={2}' -f $ace.IdentityReference,$mask,$ace.AccessControlType)
+            }
+          }
+          $file='C:\ProgramData\CKBR\release-switcher\Invoke-CKBReleaseSwitcher.ps1'
+          $content=[IO.File]::ReadAllLines($file)
+          Write-Host "RB1_R12_SWITCHER_LINES=$($content.Length)"
+          for($i=0;$i -lt $content.Length;$i++){
+            $line=$content[$i]
+            if($line -match '(?i)(secret|password|token|api[_-]?key|private[_-]?key|credential|bearer)'){
+              Write-Host "RB1_R12_SCRIPT_LINE_$($i+1)=<redacted sensitive keyword>"
+            }else{
+              Write-Host "RB1_R12_SCRIPT_LINE_$($i+1)=$line"
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Write-Host "RB1_R12_ORIGINAL_TASK_STATE=$($task.State) PRINCIPAL=$($task.Principal.UserId)"
+          foreach($action in $task.Actions){Write-Host "RB1_R12_ORIGINAL_TASK_ACTION_EXE=$($action.Execute) ARGUMENTS=$($action.Arguments)"}
+          foreach($p in @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")){
+            Write-Host "RB1_R12_RUNNING_PROCESS=$($p.ProcessId) EXECUTABLE=$($p.ExecutablePath)"
+          }
+          Write-Host 'RB1_R12_NO_MUTATION=TRUE'
