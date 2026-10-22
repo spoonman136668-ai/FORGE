@@ -1,0 +1,84 @@
+name: Mass Research R5 independent public causal-event audit
+on:
+  pull_request:
+    branches: [research/itd01-r5-extended-causal-dev-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: mass-r5-public-interface-audit
+  cancel-in-progress: false
+jobs:
+  independent-audit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 30
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify exact unmodified R5 and R4 source with only three additive audit paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=ec2e2d88d06c7c8141949b9858c42c2d77849ff9
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --name-only "$base" HEAD | python -B -c 'import sys; actual=set(sys.stdin.read().splitlines()); expected={"research/itd01/mass_r5_event_audit.py","research/itd01/test_mass_r5_event_audit.py",".github/workflows/qualify-mass-r5-audit.yml"}; assert actual==expected,(actual,expected)'
+          for spec in research/itd01/R5_FROZEN_DEV_PROTOCOL.md:d1de623ea1e9492654bfc5b1240f2051f43b9c64 research/itd01/r5_causal_dev.py:d0d1bb7ad274486191640f4fbfd68d8774e8671f research/itd01/r4_public_experience.py:061b2834ae3080602fecbbda9db83da93bf62fbf research/itd01/mass_r5_event_audit.py:88420d47f7822ea873381a4c9f387849f11f8a64 research/itd01/test_mass_r5_event_audit.py:4d87806bef7afb9c77e6a9d849326697d3569625; do
+            path="${spec%%:*}"; expected="${spec#*:}"
+            test "$(git rev-parse HEAD:"$path")" = "$expected"
+            test "$(git hash-object --no-filters -- "$path")" = "$expected"
+          done
+          echo MASS_R5_EXACT_SOURCE_CUSTODY=PASS
+      - name: Reproduce causal-event accessibility finding without FIT or protected data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_mass_r5_event_audit.py' -v
+          python -B research/itd01/mass_r5_event_audit.py > mass_r5_public_audit.json
+          python -B -c 'import json; x=json.load(open("mass_r5_public_audit.json")); assert x["ckb_plane_admission"]=="NONE"; assert not x["qualifies_original_H1_H2"]; assert len(x["families"])==2; assert all(len(v)==4 and all(e["number_public_causal_events"]>0 and e["legacy_causal_feature_nonzero_at_causal_events"]==0 for e in v) for v in x["families"].values()); print("MASS_R5_EVENT_INACCESSIBILITY_REPRODUCED=PASS")'
+          echo MASS_R5_SCIENTIFIC_FIRST_USE=NOT_PERFORMED
+      - name: One focused R1-R5 regression, one full F139 regression, Go test/vet/build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_*.py'
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test ./...
+          go vet ./...
+          go build ./...
+          echo MASS_R5_FINAL_REGRESSION=PASS
+          echo MASS_R5_SPECIAL_G61_DEEP_HISTORY=NOT_CLAIMED
+      - name: Preserve exact advisory public audit and prove no mutation
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; lines=sys.stdin.read().splitlines(); assert all(x=="?? mass_r5_public_audit.json" for x in lines),lines'
+          echo MASS_R5_WORKTREE_EXCEPT_UNTRACKED_RECEIPT=CLEAN
+          echo MASS_R5_H1_H2_AND_ORIGINAL_FIRST_USE=UNTOUCHED
+          echo MASS_R5_NATIVE_ARCHITECTURE=NOT_EVALUATED
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-r5-interface-audit-${{ matrix.os }}
+          path: mass_r5_public_audit.json
+          if-no-files-found: ignore
