@@ -1,0 +1,36 @@
+name: RB1 R14 sealed R5 full preflight
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r14-cutover-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Execute exact SHA-pinned RB1 R5 cutover in preflight-only mode
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or $id.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'RB1_R14_ELEVATED_OWNER_RUNNER_REQUIRED'}
+          $task='CKB-plane Controller'
+          $oldXml=Export-ScheduledTask -TaskName $task -ErrorAction Stop
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $baselineHash=(Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($baselineHash -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'){throw 'RB1_R14_CONFIG_BASELINE_DRIFT'}
+          $r5='C:\ProgramData\CKBR\release-switcher\CKB-RB1-Admin-Cutover-R5.ps1'
+          if((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne '42fd885330a08aec83df76988e894918700a7840f3dadbe6c4917fe632ee7b50'){throw 'RB1_R14_SOURCE_HASH_MISMATCH'}
+          Write-Host 'RB1_R14_SEALED_R5_IDENTITY=PASS'
+          & $r5 -PreflightOnly
+          if(-not $?){throw 'RB1_R14_SCRIPT_EXITED_WITH_FAILURE'}
+          if((Export-ScheduledTask -TaskName $task -ErrorAction Stop) -cne $oldXml){throw 'RB1_R14_TASK_CHANGED_UNEXPECTEDLY'}
+          if((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne $baselineHash){throw 'RB1_R14_CONFIG_CHANGED_UNEXPECTEDLY'}
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($process.Count -ne 1 -or $process[0].ExecutablePath -ine $old){throw 'RB1_R14_LIVE_CONTROLLER_DRIFT'}
+          Write-Host 'RB1_R14_GUARDED_R5_PREFLIGHT=PASS'
+          Write-Host 'RB1_R14_CONTROLLER_UNCHANGED=PASS'
+          Write-Host 'RB1_R14_NO_CUTOVER=TRUE'
