@@ -1,0 +1,148 @@
+name: FORGE Qualify R18 pinned private contract on isolated owner source copy
+on:
+  push:
+    branches: [qualification/r18-private-hosted-forge-20261022]
+    paths: [.github/workflows/one-shot-r18-forge-owned-isolated-qualification.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r18-private-source-owner-offline-20261022
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 5
+      - name: Owner-only exact-source scope and currently installed controller custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($identity)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/r18-private-hosted-forge-20261022' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $identity.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git merge-base $base HEAD) -cne $base -or
+             @(& git status --porcelain).Count -ne 0){
+            throw 'FORGE_R18_OWNER_OFFLINE_IDENTITY_MISMATCH'
+          }
+          $allowed=@(
+            '.github/workflows/one-shot-r18-hosted-private-source-qualification.yml',
+            '.github/workflows/one-shot-r18-forge-owned-isolated-qualification.yml'
+          )|Sort-Object
+          $changed=@(& git diff --name-only $base HEAD|Sort-Object)
+          if($LASTEXITCODE -ne 0 -or ($changed -join '|') -cne ($allowed -join '|')){
+            throw 'FORGE_R18_OWNER_OFFLINE_SOURCE_SCOPE_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          foreach($pin in @(
+            @{path=$r5;hash='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{path=$config;hash='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $f=Get-Item -LiteralPath $pin.path -ErrorAction Stop
+            if($f.PSIsContainer -or
+               ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $pin.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.hash){
+              throw 'FORGE_R18_OWNER_OFFLINE_LIVE_PREIMAGE_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $procs.Count -ne 1 -or
+             [string]$procs[0].ExecutablePath -ine $r5){
+            throw 'FORGE_R18_OWNER_OFFLINE_NOT_ORIGINAL_R5'
+          }
+          Write-Host 'FORGE_R18_OWNER_RUNNER_SOURCE_CUSTODY=PASS'
+          Write-Host 'FORGE_R18_LIVE_CONTROLLER_UNCHANGED=TRUE'
+      - name: Qualify exact private test against copied local source, focused then full regression
+        shell: pwsh
+        timeout-minutes: 14
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $temp=Join-Path $env:RUNNER_TEMP ('FORGE-R18-Qualification-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $temp){throw 'FORGE_R18_QUALIFICATION_TEMP_REUSE'}
+          $test='internal\plane\r18_forge_hosted_qualification_test.go'
+          $go=(Get-Command go.exe -ErrorAction Stop).Source
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          $env:GH_PROMPT_DISABLED='1'
+          $env:GOTOOLCHAIN='local'
+          $env:GOWORK='off'
+          $env:GOTELEMETRY='off'
+          $env:GOFLAGS='-p=2'
+          $env:GOMAXPROCS='2'
+          $env:GOMEMLIMIT='1536MiB'
+          [void](New-Item -ItemType Directory -Path $temp -ErrorAction Stop)
+          try{
+            foreach($folder in @('internal','cmd')){
+              $folderPath=Join-Path $root $folder
+              $links=@(Get-ChildItem -LiteralPath $folderPath -Recurse -Force -ErrorAction Stop|
+                Where-Object {($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0})
+              if($links.Count -ne 0){throw 'FORGE_R18_QUALIFICATION_LIVE_SOURCE_REPARSE'}
+              Copy-Item -LiteralPath $folderPath -Destination $temp -Recurse -Force -ErrorAction Stop
+            }
+            foreach($file in @('go.mod','go.sum')){
+              Copy-Item -LiteralPath (Join-Path $root $file) -Destination $temp -Force -ErrorAction Stop
+            }
+            $contract=Get-Content -LiteralPath (Join-Path $temp 'internal\plane\contracts.go') -Raw -ErrorAction Stop
+            $guard=Get-Content -LiteralPath (Join-Path $temp 'internal\plane\autonomy_qualification.go') -Raw -ErrorAction Stop
+            if(!$contract.Contains('func (p *Engine) contract(w WorkOrder) string') -or
+               !$guard.Contains('WINDOWS_QUALIFICATION_REQUIRED_OR_CONFIGURATION_CHANGED')){
+              throw 'FORGE_R18_QUALIFICATION_CONTRACT_SOURCE_ANCHOR_DRIFT'
+            }
+            $endpoint='repos/spoonman136668-ai/ckb-plane/contents/snapshot/source/internal/plane/r18_forge_hosted_qualification_test.go?ref=0a51daf495b1116d9b1d4152e48d8b40c7a209c2'
+            $reply=@(& $gh api $endpoint 2>$null)
+            if($LASTEXITCODE -ne 0 -or $reply.Count -eq 0){
+              throw 'FORGE_R18_PINNED_PRIVATE_READ_UNAVAILABLE'
+            }
+            $meta=($reply -join [char]10)|ConvertFrom-Json -ErrorAction Stop
+            if([string]$meta.sha -cne 'd619a3483a7efc8a8f0a164fb1736694df01ec45' -or
+               [string]$meta.encoding -cne 'base64'){
+              throw 'FORGE_R18_PRIVATE_TEST_BLOB_IDENTITY_DRIFT'
+            }
+            $bytes=[Convert]::FromBase64String(([string]$meta.content -replace '\s',''))
+            $dest=Join-Path $temp $test
+            if(Test-Path -LiteralPath $dest){throw 'FORGE_R18_PRIVATE_QUALIFICATION_TEST_COLLISION'}
+            [IO.File]::WriteAllBytes($dest,$bytes)
+            Write-Host 'FORGE_R18_PINNED_PRIVATE_CONTRACT_TEST=PASS'
+            Push-Location $temp
+            try{
+              & $go version
+              if($LASTEXITCODE -ne 0){throw 'FORGE_R18_GO_NOT_AVAILABLE'}
+              & $go test -vet=off -p 2 -run '^TestR18HostedQualificationRejectsContractDrift$' -count=1 -v ./internal/plane
+              if($LASTEXITCODE -ne 0){throw 'FORGE_R18_FOCUSED_TEST_FAILED'}
+              Write-Host 'FORGE_R18_FOCUSED_SOURCE_TEST=PASS'
+              & $go test -p 2 ./...
+              if($LASTEXITCODE -ne 0){throw 'FORGE_R18_ONE_FULL_REGRESSION_FAILED'}
+              Write-Host 'FORGE_R18_ONE_FULL_REGRESSION=PASS'
+              & $go vet -p 2 ./...
+              if($LASTEXITCODE -ne 0){throw 'FORGE_R18_VET_FAILED'}
+              Write-Host 'FORGE_R18_VET=PASS'
+              $exe=Join-Path $temp 'r18-contract-qualified.exe'
+              & $go build -p 2 -o $exe ./cmd/ckb-plane
+              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe)){throw 'FORGE_R18_WINDOWS_BUILD_FAILED'}
+              Write-Host 'FORGE_R18_WINDOWS_BUILD=PASS'
+            }finally{Pop-Location}
+            Write-Host 'FORGE_R18_LOCAL_R5_PAUSE=UNCHANGED'
+            Write-Host 'FORGE_R18_NO_PRODUCTION_SOURCE_OR_DB_WRITE=PASS'
+            Write-Host 'FORGE_R18_SCIENTIFIC_FIRST_USE=NOT_ATTEMPTED'
+          }finally{
+            if(Test-Path -LiteralPath $temp){
+              Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop
+            }
+          }
