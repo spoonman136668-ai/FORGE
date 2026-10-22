@@ -330,7 +330,9 @@ class Database:
                                 and doc["from_source_sha"] ==
                                     source_transitions[-1]["to_source_sha"]
                                 and doc["to_source_sha"] not in {
-                                    t["to_source_sha"] for t in previous_v3},
+                                    value for t in source_transitions
+                                    for value in (t["from_source_sha"],
+                                                  t["to_source_sha"])},
                                 "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
@@ -516,7 +518,8 @@ class Database:
                     and meta["source_sha"] == previous_v3[-1]["to_source_sha"]
                     and verify_native_activation(self)
                     and new_source_sha not in {
-                        t["to_source_sha"] for t in previous_v3})
+                        value for t in transitions
+                        for value in (t["from_source_sha"], t["to_source_sha"])})
                 require(tickets == {NEGATIVE_696, NEGATIVE_706}
                         and (original_boundary or successor_boundary)
                         and verify_original_negative_custody(self)
