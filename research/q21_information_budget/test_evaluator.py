@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import patch
 import evaluator as e
+import resource_meter as rm
 import sourcefree as p
 
 
@@ -105,5 +106,52 @@ class Q21EvaluationAdmissionGuards(unittest.TestCase):
         self.assertGreaterEqual(valid_score,0)
         self.assertNotIn('dev_inference_cpu_s',cost)
 
+
+
+    def test_census_requires_real_generation_snapshot_and_declared_transport(self):
+        from unittest import mock
+        with mock.patch.object(e,'evaluate_one_family') as delegate:
+            with self.assertRaisesRegex(ValueError,'GENERATION_NATIVE_SNAPSHOTS_REQUIRED'):
+                e.evaluate_with_native_resource_census({},p.FAMILIES[0],{},
+                    generation_snapshots=None,adapter_mode='none')
+            delegate.assert_not_called()
+        # No transport declaration must never be interpreted as zero bytes.
+        begin=rm.snapshot()
+        with self.assertRaisesRegex(rm.ResourceUnavailable,'UNKNOWN_COMMUNICATION_MODE'):
+            e.evaluate_with_native_resource_census({},p.FAMILIES[0],{},
+                generation_snapshots=(begin,begin),adapter_mode='unknown')
+
+    def test_census_reports_native_process_highwater_without_claiming_admission(self):
+        from unittest import mock
+        first=rm.snapshot()
+        second=rm.snapshot()
+        fake_arms={name:{'fit_cost':{'checkpoint_bytes':7}} for name in e.ARM_NAMES}
+        fake_result={'arm_results':fake_arms, 'native_peak_rss_qualified':False}
+        with mock.patch.object(e,'evaluate_one_family',return_value=fake_result) as delegate:
+            out=e.evaluate_with_native_resource_census(
+                {'FIT_TRAIN':[], 'FIT_VALID':[], 'DEV':[]},
+                p.FAMILIES[0],{},generation_snapshots=(first,second),
+                adapter_mode='none')
+            delegate.assert_called_once()
+        cost=out['native_resource_census']
+        self.assertEqual(cost['all_seven_model_serialized_checkpoint_bytes'],49)
+        self.assertEqual(cost['adapter_transport']['wire_bytes'],0)
+        self.assertGreater(cost['process_peak_rss_bytes'],0)
+        self.assertGreaterEqual(cost['total_process_cpu_seconds'],0)
+        self.assertEqual(cost['rss_scope'],'CUMULATIVE_PROCESS_HIGH_WATER_NOT_ISOLATED_MODEL')
+        self.assertFalse(out['native_peak_rss_qualified'])
+        self.assertFalse(out['protected_scientific_first_use'])
+        self.assertEqual(cost['scientific_qualification'],
+                         'NOT_AUTHORIZED_BY_RESOURCE_CENSUS')
+
+    def test_census_fails_closed_on_os_counter_drift(self):
+        from unittest import mock
+        original=rm.snapshot()
+        later=dict(original,platform='mismatched_os')
+        with mock.patch.object(e,'evaluate_one_family') as delegate:
+            with self.assertRaisesRegex(rm.ResourceUnavailable,'CROSS_PLATFORM'):
+                e.evaluate_with_native_resource_census({},p.FAMILIES[0],{},
+                    generation_snapshots=(original,later),adapter_mode='none')
+            delegate.assert_not_called()
 
 if __name__=='__main__':unittest.main()
