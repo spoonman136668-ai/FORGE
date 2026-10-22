@@ -185,8 +185,10 @@ class PublicDevWorld:
         result = {"schema": STEP_SCHEMA, "observation": public,
                   "reward": reward, "done": self._done}
         # Only public bytes are part of this DEV receipt. No hidden-target output.
-        record = {"action": proposed if not violation else "INVALID",
-                  "result": result, "prior_sha256": self._trace_head}
+        # Snapshot public bytes now: caller mutation cannot rewrite custody.
+        record = {"action": json.loads(canonical(proposed)) if not violation else "INVALID",
+                  "result": json.loads(canonical(result)),
+                  "prior_sha256": self._trace_head}
         self._trace_head = hashlib.sha256(canonical(record)).hexdigest()
         self._trace_records.append({"record_sha256": self._trace_head, **record})
         return result
