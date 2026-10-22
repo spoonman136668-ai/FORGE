@@ -1,0 +1,220 @@
+name: CKB R18 R5 independent resumption NO-GO decision and truth-table
+on:
+  push:
+    branches: [audit/ckb-r18-r5-resumption-decision-20261022]
+    paths: [.github/workflows/ckb-r18-r5-resumption-decision-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-resumption-decision-readonly-20261022
+  cancel-in-progress: false
+jobs:
+  owner-observation:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+          persist-credentials: false
+      - name: Bind exact owner, scope and unchanged original R5/controller state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='85227d6cf4091a94a5d22b2b2865526cbdc3b42d'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-resumption-decision-20261022' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_ADMISSION_TRUTH_OWNER_OR_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-r5-resumption-decision-readonly.yml'){
+            throw 'R18_ADMISSION_TRUTH_SCOPE_DRIFT'
+          }
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $r1='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          foreach($pin in @(
+            @{file=$r5;sha='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{file=$r1;sha='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{file=$config;sha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $item=Get-Item -LiteralPath $pin.file -ErrorAction Stop
+            if($item.PSIsContainer -or
+               ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $pin.file -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sha){
+              throw 'R18_ADMISSION_TRUTH_PROTECTED_RELEASE_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$task.State -cne 'Running' -or
+             [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar') -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R18-Controller.ps1*' -or
+             $procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $r5){
+            throw 'R18_ADMISSION_TRUTH_LIVE_R5_SINGLETON_DRIFT'
+          }
+          $receipt='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564\cutover-receipt.json'
+          $r=Get-Content -LiteralPath $receipt -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          if([string]$r.result -cne 'PASS' -or
+             [string]$r.run_id -cne '39809195564' -or
+             [string]$r.status -cne 'PAUSED'){
+            throw 'R18_ADMISSION_TRUTH_PROMOTION_RECEIPT_DRIFT'
+          }
+          Write-Host 'R18_RESUME_DECISION_SOURCE_AND_R5_CUSTODY=PASS'
+      - name: Reattest disabled original runner/workflows and inspect native PAUSED health
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $originalService='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'
+          $service=Get-CimInstance Win32_Service -Filter "Name='$originalService'" -ErrorAction Stop
+          if([string]$service.State -cne 'Stopped' -or [int]$service.ProcessId -ne 0){
+            throw 'R18_RESUME_DECISION_LEGACY_RUNNER_ACTIVE'
+          }
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          $env:GH_PROMPT_DISABLED='1'
+          foreach($name in @('ckb-codex-worker.yml','ckb-fast-continuation-poller.yml','ckb-dh-candidate-hygiene-repair.yml')){
+            $v=@(& $gh api ('repos/spoonman136668-ai/ckb/actions/workflows/'+$name) --jq '.state' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or [string]$v[0] -cne 'disabled_manually'){
+              throw 'R18_RESUME_DECISION_LEGACY_WORKFLOW_ACTIVE_OR_UNVERIFIED'
+            }
+          }
+          foreach($state in @('queued','in_progress','waiting','pending','requested')){
+            $raw=@(& $gh api ('repos/spoonman136668-ai/ckb/actions/runs?per_page=1&status='+$state) --jq '.total_count' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $raw.Count -ne 1 -or [string]$raw[0] -cne '0'){
+              throw 'R18_RESUME_DECISION_LEGACY_ACTIVE_RUN_OR_UNVERIFIED'
+            }
+          }
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $out=Join-Path $env:RUNNER_TEMP ('R18Admission-'+$env:GITHUB_RUN_ID+'.out')
+          $err=Join-Path $env:RUNNER_TEMP ('R18Admission-'+$env:GITHUB_RUN_ID+'.err')
+          if((Test-Path -LiteralPath $out) -or (Test-Path -LiteralPath $err)){
+            throw 'R18_RESUME_DECISION_STATUS_SCRATCH_REUSE'
+          }
+          try {
+            $p=Start-Process -FilePath $r5 -ArgumentList @('controller','status','--config',('"' + $config + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -ErrorAction Stop
+            if(!$p.WaitForExit(30000)){
+              try{$p.Kill()}catch{}
+              throw 'R18_RESUME_DECISION_STATUS_TIMEOUT'
+            }
+            if($p.ExitCode -ne 0 -or (Get-Item -LiteralPath $out).Length -gt 8388608){
+              throw 'R18_RESUME_DECISION_STATUS_INVALID'
+            }
+            $v=Get-Content -LiteralPath $out -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if([string]$v.authority -cne 'plane' -or
+               [string]$v.generation -cne '6' -or
+               [string]$v.controller_status -cne 'PAUSED' -or
+               $v.paused -ne $true -or $v.heartbeat_stale -ne $false -or
+               $v.accepted_ref_mutation_allowed -ne $false -or
+               $null -ne $v.blockers -or @($v.jobs).Count -ne 198){
+              throw 'R18_RESUME_DECISION_PAUSED_NATIVE_IDENTITY_DRIFT'
+            }
+          } finally {
+            Remove-Item -LiteralPath $out,$err -Force -ErrorAction SilentlyContinue
+          }
+          Write-Host 'R18_RESUME_DECISION_ORIGINAL_WORKER_EXCLUSIVITY=PASS'
+          Write-Host 'R18_RESUME_DECISION_NATIVE_RETAINED_PAUSE=PASS'
+      - name: Independent read-only database decision and in-memory adversarial veto tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $proof='C:\Users\camar\GolandProjects\ckb-plane\state\original-authority-inactive-r6.json'
+          $code=@'
+          import json,sqlite3,sys,datetime,hashlib
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          proof=Path(sys.argv[2]).resolve(strict=True)
+          source=sqlite3.connect("file:"+db.as_posix()+"?mode=ro",uri=True,timeout=5)
+          snapshot=sqlite3.connect(":memory:")
+          try:
+              source.execute("PRAGMA query_only=ON")
+              source.backup(snapshot,pages=64,sleep=0.05)
+              if snapshot.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
+                  raise RuntimeError("R18_ADMISSION_SQLITE_QUICK_CHECK_FAILED")
+              settings=dict(snapshot.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              count=snapshot.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+              active=snapshot.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0]
+              leases=snapshot.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              queue=snapshot.execute("SELECT state,authorization,mode,count(*) FROM queue_items GROUP BY state,authorization,mode").fetchall()
+              eligible=sum(n for state,auth,mode,n in queue if state in ('QUEUED','PENDING','RETRY_WAIT') and auth=='operator' and mode=='source')
+              if settings!={'paused':'true','autonomy_authority':'plane','autonomy_generation':'6'} or count!=198 or active!=0 or leases!=0:
+                  raise RuntimeError("R18_ADMISSION_LIVE_PAUSE_AUTHORITY_OR_HISTORY_DRIFT")
+              data=proof.read_bytes()
+              if len(data)>65536 or not data:
+                  raise RuntimeError("R18_ADMISSION_PROOF_FILE_INVALID")
+              original=json.loads(data)
+              if original.get('schema')!='ckb-plane.original-authority-inactive.v1' or original.get('local_original_authority_only') is not True:
+                  raise RuntimeError("R18_ADMISSION_PRIOR_PROOF_CUSTODY_DRIFT")
+              expiry=datetime.datetime.fromisoformat(original['expires_at_utc'].replace('Z','+00:00'))
+              if expiry.tzinfo is None:raise RuntimeError("R18_ADMISSION_PROOF_TIMEZONE_MISSING")
+              expired=expiry<=datetime.datetime.now(datetime.timezone.utc)
+              required=('r5_valid','paused','original_inactive','original_proof_fresh','eligible_request','owner_explicit','witness_independent')
+              def decision(flags):
+                  return all(flags.get(k) is True for k in required)
+              good={k:True for k in required}
+              if not decision(good):
+                  raise RuntimeError('R18_ADMISSION_POSITIVE_SYNTHETIC_CONTROL_FAILED')
+              for key in required:
+                  test=dict(good)
+                  test[key]=False
+                  if decision(test):
+                      raise RuntimeError('R18_ADMISSION_NEGATIVE_SYNTHETIC_CONTROL_FAILED_'+key)
+              actual=dict(r5_valid=True,paused=True,original_inactive=True,
+                          original_proof_fresh=not expired,eligible_request=eligible>0,
+                          owner_explicit=False,witness_independent=False)
+              if decision(actual):
+                  raise RuntimeError('R18_ADMISSION_UNAUTHORIZED_GO')
+              blockers=[key for key in required if not actual[key]]
+              print(json.dumps({'schema':'ckb-plane.r18.r5-resumption-decision.v1',
+                                'decision':'NO_GO',
+                                'original_proof_fresh':not expired,
+                                'prior_proof_sha256':hashlib.sha256(data).hexdigest(),
+                                'original_proof_expires_utc':expiry.astimezone(datetime.timezone.utc).isoformat(),
+                                'operator_source_eligible':eligible,
+                                'work_orders':count,'active_orders':active,'worker_leases':leases,
+                                'paused':True,'authority':'plane','generation':'6',
+                                'synthetic_positive':1,'synthetic_negative':len(required),
+                                'unmet_requirements':blockers,
+                                'independent_witness_verified':False,
+                                'owner_resumption_authorized':False,
+                                'scientific_first_use':False,
+                                'side_effects':False},separators=(',',':')))
+          finally:
+              snapshot.close()
+              source.close()
+          '@
+          $result=@(& $py -B -c $code $db $proof 2>&1)
+          if($LASTEXITCODE -ne 0 -or $result.Count -ne 1){
+            throw 'R18_RESUME_DECISION_NATIVE_PROOF_OR_VETO_FAILED'
+          }
+          $json=[string]$result[0]
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){
+            throw 'R18_RESUME_DECISION_UNBOUNDED_RECEIPT'
+          }
+          $x=ConvertFrom-Json -InputObject $json -ErrorAction Stop
+          if($x.decision -cne 'NO_GO' -or
+             $x.scientific_first_use -ne $false -or
+             $x.side_effects -ne $false -or
+             $x.synthetic_positive -ne 1 -or $x.synthetic_negative -ne 7){
+            throw 'R18_RESUME_DECISION_FAIL_CLOSED_CONTRACT'
+          }
+          Write-Host ('R18_RESUME_DECISION_RECEIPT='+$json)
+          Write-Host 'R18_RESUME_DECISION_7_OF_7_NEGATIVE_VETOES=PASS'
+          Write-Host 'R18_RESUME_DECISION_LIVE_NO_GO=PASS'
+          Write-Host 'R18_CONTROLLER_PAUSE_UNCHANGED=TRUE'
+          Write-Host 'R18_SCIENTIFIC_DISPATCH=NOT_ATTEMPTED'
