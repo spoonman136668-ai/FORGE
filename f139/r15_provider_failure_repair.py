@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import sys
 import tempfile
@@ -131,8 +132,49 @@ def inspect_checkout(root: Path, expected_sha: str, expected_blob: str) -> bytes
     return content.stdout
 
 
+
+def adversarial_provider_tests(evidence: Path) -> None:
+    """Tampered evidence and unfamiliar failure cannot select any repair."""
+    names = ("failed-run.json", "passed-run.json", "failed-jobs.json",
+             "passed-jobs.json", "failed-log.txt")
+    cases = (
+        ("wrong_failed_commit", "failed-run.json", "head_sha", "0" * 40),
+        ("wrong_success_outcome", "passed-run.json", "conclusion", "failure"),
+        ("wrong_owner_runner", "failed-jobs.json", "runner_name", "UNKNOWN"),
+        ("unrecognized_failure", "failed-log.txt", "signature", ""),
+    )
+    for label, filename, field, replacement in cases:
+        with tempfile.TemporaryDirectory(prefix="forge-r15-untrusted-provider-") as t:
+            scratch = Path(t)
+            for name in names:
+                shutil.copyfile(evidence / name, scratch / name)
+            target = scratch / filename
+            if filename.endswith(".json"):
+                obj = json.loads(target.read_text(encoding="utf-8-sig"))
+                if field == "runner_name":
+                    obj["jobs"][0][field] = replacement
+                else:
+                    obj[field] = replacement
+                target.write_text(json.dumps(obj), encoding="utf-8")
+            else:
+                text = target.read_text(encoding="utf-8-sig", errors="replace")
+                need("PermissionError: [WinError 32]" in text,
+                     "ORIGINAL_FAILURE_SIGNATURE_ABSENT")
+                target.write_text(
+                    text.replace("PermissionError: [WinError 32]", replacement),
+                    encoding="utf-8")
+            try:
+                check_provider(scratch)
+            except RuntimeError as exc:
+                need(str(exc).startswith("R15_PROVIDER_REPAIR_"),
+                     "UNEXPECTED_NEGATIVE_CLASS")
+            else:
+                raise RuntimeError("R15_PROVIDER_REPAIR_FALSE_POSITIVE_" + label)
+    print("R15_FOUR_ADVERSARIAL_PROVIDER_FORGERIES=REJECTED")
+
 def repair_failure(evidence: Path, failed: Path, qualified: Path) -> None:
     check_provider(evidence)
+    adversarial_provider_tests(evidence)
     original = inspect_checkout(failed, BAD_SHA, BAD_BLOB)
     expected = inspect_checkout(qualified, GOOD_SHA, GOOD_BLOB)
     text = original.decode("utf-8")
