@@ -1,0 +1,83 @@
+name: ITD-01 R4 public sequential training DEV qualification
+on:
+  push:
+    branches: [research/itd01-r4-sequential-learners-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: itd01-r4-sequential-dev-20261022
+  cancel-in-progress: false
+jobs:
+  actual-public-training:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 38
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 40
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Immutable R3 parent, prereg first and exact additive scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 354b87303ef98d92191d58878d2d68cf0d4f854a HEAD
+          git show --format= --name-only cf1391277cc9d65459fb6fcf91679414c72abb5a | python -B -c 'import sys; p=sys.stdin.read().splitlines(); assert p==["research/itd01/R4_FROZEN_PROTOCOL.md"], p'
+          git diff --name-only 354b87303ef98d92191d58878d2d68cf0d4f854a HEAD | python -B -c 'import sys; p=set(sys.stdin.read().splitlines()); allowed={"research/itd01/R4_FROZEN_PROTOCOL.md","research/itd01/r4_public_experience.py","research/itd01/r4_sequential_controls.py","research/itd01/run_r4_sequential.py","research/itd01/test_r4_sequential.py",".github/workflows/qualify-itd01-r4.yml"}; assert p==allowed, (p,allowed)'
+          echo ITD01_R4_PREREG_BEFORE_FIT_AND_PARENT=PASS
+      - name: Focused R1 R2 R3 R4 public-only adversarial checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_*.py' -v
+          python -B research/itd01/run_r4_sequential.py --smoke > itd01_r4_smoke.json
+          python -B -c 'import json; d=json.load(open("itd01_r4_smoke.json")); assert len(d["models"])==3 and not d["scientific_first_use"]; print("ITD01_R4_ACTUAL_TRAINED_SMOKE=PASS")'
+          echo ITD01_R4_FOCUSED=PASS
+      - name: Genuine three-seed public-only BPTT predictor memory fits and disjoint DEV evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for seed in 17 31 47; do python -B research/itd01/run_r4_sequential.py --seed "$seed" > "itd01_r4_${seed}.json"; done
+          python -B -c 'import json; xs=[json.load(open("itd01_r4_%s.json"%s)) for s in (17,31,47)]; assert all(len(x["models"])==3 for x in xs); assert all(all(m["training_updates"]>0 for m in x["models"]) for x in xs); assert all(not x["scientific_first_use"] and not x["protected_H1_H2_born_or_used"] for x in xs); print("ITD01_R4_THREE_SEED_TRAIN_AND_DEV_CHALLENGE=PASS")'
+          sha256sum itd01_r4_*.json > itd01_r4_results.sha256
+      - name: One full existing FORGE regression Go vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test ./...
+          go vet ./...
+          go build ./...
+          echo ITD01_R4_EXISTING_REGRESSION=PASS
+      - name: Only declared public evidence files and frozen governance
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; p=sys.stdin.read().splitlines(); allowed={"?? itd01_r4_smoke.json","?? itd01_r4_17.json","?? itd01_r4_31.json","?? itd01_r4_47.json","?? itd01_r4_results.sha256"}; invalid=[r for r in p if r not in allowed]; assert not invalid,invalid'
+          echo ITD01_R4_SOURCE_CLEAN=PASS
+          echo ITD01_R4_PROTECTED_FIRST_USE=BLOCKED
+          echo ITD01_R4_NATIVE_TRANSFER=NOT_TESTED
+      - name: Preserve actual public trained results, including negatives
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd01-r4-public-training-${{ matrix.os }}
+          path: |
+            itd01_r4_*.json
+            itd01_r4_results.sha256
+          if-no-files-found: ignore
