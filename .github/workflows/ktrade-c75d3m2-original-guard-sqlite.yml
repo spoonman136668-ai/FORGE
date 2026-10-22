@@ -44,8 +44,14 @@ jobs:
           foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
             if([Environment]::GetEnvironmentVariable($key)){throw 'D3M2_BROKER_CREDENTIAL_PRESENT'}
           }
-          if(Get-Command gcc -ErrorAction SilentlyContinue){
+          $gcc=Get-Command gcc -ErrorAction SilentlyContinue
+          $knownCompiler='C:\msys64\ucrt64\bin\gcc.exe'
+          if($gcc){
             'needs_portable=false' >> $env:GITHUB_OUTPUT
+          }elseif(Test-Path -LiteralPath $knownCompiler -PathType Leaf){
+            'needs_portable=false' >> $env:GITHUB_OUTPUT
+            ('known_compiler='+$knownCompiler) >> $env:GITHUB_OUTPUT
+            Write-Host 'D3M2_PREINSTALLED_WINDOWS_UCRT_GCC=PASS'
           }else{
             'needs_portable=true' >> $env:GITHUB_OUTPUT
           }
@@ -65,9 +71,15 @@ jobs:
         shell: pwsh
         env:
           PORTABLE_GCC_ROOT: ${{ steps.portablegcc.outputs.msys2-location }}
+          EXISTING_CC: ${{ steps.toolchain.outputs.known_compiler }}
         run: |
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
+          if($env:EXISTING_CC){
+            if(!(Test-Path -LiteralPath $env:EXISTING_CC -PathType Leaf)){throw 'D3M2_PINNED_EXISTING_GCC_VANISHED'}
+            $env:CC=$env:EXISTING_CC
+            $env:PATH=([IO.Path]::GetDirectoryName($env:EXISTING_CC))+';'+$env:PATH
+          }
           if($env:PORTABLE_GCC_ROOT){
             $compiler=Join-Path $env:PORTABLE_GCC_ROOT 'ucrt64\bin\gcc.exe'
             if(!(Test-Path -LiteralPath $compiler -PathType Leaf)){
