@@ -1,0 +1,81 @@
+name: ITD-01 R3 public causal world qualification
+on:
+  push:
+    branches: [research/itd01-r3-causal-public-worlds-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: itd01-r3-public-only-20261022
+  cancel-in-progress: false
+jobs:
+  causal-public-dev:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          clean: true
+          fetch-depth: 34
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Prove frozen R2 source ancestor and bounded additive change
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 1a225f06dd0b0cb8b118e134aab43b93c2839c98 HEAD
+          git diff --name-only 1a225f06dd0b0cb8b118e134aab43b93c2839c98 HEAD | python -B -c 'import sys; p=sys.stdin.read().splitlines(); allowed={"research/itd01/public_dev_r3.py","research/itd01/test_public_dev_r3.py","research/itd01/run_r3_calibration.py",".github/workflows/qualify-itd01-r3-public.yml"}; assert set(p)==allowed, p'
+          echo ITD01_R3_FROZEN_PREDECESSOR_NO_DRIFT=PASS
+      - name: Focused all R1 R2 R3 public-only contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_public*.py' -v
+          python -B research/itd01/run_r3_calibration.py --smoke > itd01_r3_smoke.json
+          python -B -c 'import json; r=json.load(open("itd01_r3_smoke.json")); assert not r["scientific_first_use"] and len(r["cold_r2_baseline_results"])==3; print("ITD01_R3_PUBLIC_SMOKE=PASS")'
+      - name: Run three seed original R2 cold reuse and public intervention oracle calibration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for seed in 17 31 47; do python -B research/itd01/run_r3_calibration.py --seed "$seed" > "itd01_r3_${seed}.json"; done
+          python -B -c 'import json; xs=[json.load(open("itd01_r3_%s.json"%s)) for s in (17,31,47)]; assert all(all(b["public_oracle"]["success_rate"]>=.8 for b in r["dev_worlds"].values()) for r in xs); assert all(r["developer_eligibility_disposition"]=="NOT_QUALIFIED_NO_TWO_FULLY_R3_TRAINED_CONTROLS" for r in xs); assert all(not r["scientific_first_use"] for r in xs); print("ITD01_R3_DEV_ORACLE_AND_COLD_REUSE=PASS")'
+          sha256sum itd01_r3_*.json > itd01_r3_results.sha256
+      - name: Exactly one full preexisting FORGE Python Go vet build regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test ./...
+          go vet ./...
+          go build ./...
+          echo ITD01_R3_FULL_PREEXISTING_REGRESSION=PASS
+      - name: Enforce exact allowed artifacts and no scientific authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; rows=sys.stdin.read().splitlines(); allowed={"?? itd01_r3_smoke.json","?? itd01_r3_17.json","?? itd01_r3_31.json","?? itd01_r3_47.json","?? itd01_r3_results.sha256"}; invalid=[r for r in rows if r not in allowed]; assert not invalid, invalid'
+          echo ITD01_R3_SOURCE_CLEAN=PASS
+          echo ITD01_R3_ORIGINAL_FIRST_USE=NOT_ATTEMPTED
+          echo ITD01_R3_NATIVE_TRANSFER=NOT_TESTED
+      - name: Preserve measured source-free public developer receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd01-r3-public-dev-${{ matrix.os }}
+          path: |
+            itd01_r3_*.json
+            itd01_r3_results.sha256
+          if-no-files-found: ignore
