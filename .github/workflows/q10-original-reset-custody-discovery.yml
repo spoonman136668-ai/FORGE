@@ -69,7 +69,8 @@ jobs:
             }
           }
           $items=@($matched|Sort-Object prefix,name,length)
-          $blob=[Text.Encoding]::UTF8.GetBytes(($items|ConvertTo-Json -Compress -Depth 3))
+          $serialized=if($items.Count -eq 0){'[]'}else{ConvertTo-Json -InputObject $items -Compress -Depth 3}
+          $blob=[Text.Encoding]::UTF8.GetBytes($serialized)
           $fingerprint=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($blob)).ToLowerInvariant()
           Write-Host ('Q10_BOUNDED_FILESYSTEM_ITEMS_SCANNED='+$scanned)
           Write-Host ('Q10_BOUNDED_DIRECTORIES_SCANNED='+$directories)
