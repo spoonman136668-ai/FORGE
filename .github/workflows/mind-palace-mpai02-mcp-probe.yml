@@ -1,0 +1,87 @@
+name: Mind-Palace MP-AI02 exact-source shared MCP probe Windows qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai02-mcp-probe.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai02-native-focused
+  cancel-in-progress: false
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned Mind-Palace source, same-memory MCP, and read-only invariants
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$Ok,[string]$Code){if(-not $Ok){throw ('MPAI02_'+$Code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-ai02-mcp-probe-20261022'
+          $source='a6d4c672f1cc6d849459dd42157452d9caa89213'
+          $parent='f1a44397fe5973045f033c9ac2e3f6b8f2bdb1dd'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai02-mcp-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $expected=@('agentic/mpai01_probe.py','docs/MP-AI02-SHARED-PROBE-MCP.md',
+            'tests/test_mpai02_probe_mcp.py','tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py')
+          $suites=@('test_mpai01_reflect.py','test_mpai01_probe.py',
+            'test_mpai01_mcp_adapter.py','test_mpai02_probe_mcp.py','test_mpn1_mcp.py')
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $hashes=@{}
+          $captured=$false
+          try {
+            $v=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $v.Count -eq 1 -and
+              (([string]$v[0] -split '\s+')[0]) -ceq $source) 'SOURCE_REF_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'EXACT_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $parent $source
+            Need ($LASTEXITCODE -eq 0) 'PARENT_SOURCE_IDENTITY'
+            $paths=@(& git.exe -C $root diff --name-only $parent $source)
+            Need ($LASTEXITCODE -eq 0 -and $paths.Count -eq 5 -and
+              (($paths|Sort-Object) -join '|') -ceq (($expected|Sort-Object) -join '|')) 'SCOPE_DRIFT'
+            foreach($p in $guard){
+              $hashes[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $captured=$true
+            foreach($name in $suites){
+              & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p $name -v
+              Need ($LASTEXITCODE -eq 0) ('TEST_FAILURE_'+$name)
+              Write-Host ('MPAI02_SUITE_PASS='+$name)
+            }
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATION'
+            Write-Host 'MPAI02_FOCUSED_SOURCE_AND_TESTS=PASS'
+            Write-Host 'MPAI02_REAL_MODEL_CALLS=0'
+            Write-Host 'MPAI02_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI02_CLIENT_AUTHENTICITY=UNVERIFIED'
+            Write-Host 'MPAI02_SCIENTIFIC_IMPROVEMENT=NOT_ESTABLISHED'
+          } finally {
+            if($captured){
+              foreach($p in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('PROTECTED_DRIFT_'+$p)
+              }
+              Write-Host 'MPAI02_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_UNCLEAN'
+            Write-Host 'MPAI02_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
