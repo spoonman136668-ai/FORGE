@@ -1,0 +1,171 @@
+name: CKB R18 R5 guarded native scheduler resume, no queue submission
+on:
+  push:
+    branches: [operate/ckb-r18-r5-guarded-scheduler-resume-20261022]
+    paths: [.github/workflows/ckb-r18-r5-guarded-native-resume.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-one-shot-native-resume-20261022
+  cancel-in-progress: false
+jobs:
+  owner-resume:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+          persist-credentials: false
+      - name: Prove exact owner, release, expiry and empty dispatch opportunity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='ba6f057165c3ddadd1d22b4ca9e2f6de72e3d6f0'
+          $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($wid)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-r5-guarded-scheduler-resume-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $wid.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_R5_NATIVE_RESUME_OWNER_SOURCE_GUARD_DRIFT'
+          }
+          $diff=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $diff.Count -ne 1 -or
+             $diff[0] -cne '.github/workflows/ckb-r18-r5-guarded-native-resume.yml') {
+            throw 'R18_R5_NATIVE_RESUME_SCOPE_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $r1='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $proof=Join-Path $root 'state\original-authority-inactive-r6.json'
+          foreach($pin in @(
+            @{p=$r5;h='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{p=$r1;h='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{p=$cfg;h='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'},
+            @{p=$proof;h='8dba63a7b029f5a07be49d7271eaefa11bb79bf5ba2b9c93a2f668ff35f97c39'}
+          )){
+            if((Get-FileHash -LiteralPath $pin.p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne $pin.h) {
+              throw 'R18_NATIVE_RESUME_PROTECTED_PREIMAGE_DRIFT'
+            }
+          }
+          $proofData=Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json
+          $expiry=[datetimeoffset]::Parse([string]$proofData.expires_at_utc)
+          if($expiry -le [datetimeoffset]::UtcNow.AddMinutes(5) -or
+             $proofData.schema -cne 'ckb-plane.original-authority-inactive.v1' -or
+             $proofData.authority -cne 'plane' -or
+             $proofData.runner_service_status -cne 'Stopped' -or
+             $proofData.runtime_launch_allowed -ne $false -or
+             $proofData.accepted_ref_mutation_allowed -ne $false){
+            throw 'R18_NATIVE_RESUME_AUTHORITY_PROOF_NOT_VALID'
+          }
+          $svc=Get-CimInstance Win32_Service -Filter "Name='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'" -ErrorAction Stop
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($svc.State -ne 'Stopped' -or [int]$svc.ProcessId -ne 0 -or
+             $task.State -ne 'Running' -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $proc.Count -ne 1 -or [string]$proc[0].ExecutablePath -ine $r5){
+            throw 'R18_NATIVE_RESUME_ORIGINAL_AND_NEW_CONTROLLER_IDENTITY_DRIFT'
+          }
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $db=Join-Path $root 'state\autonomy.db'
+          $code=@'
+          import sys,sqlite3
+          c=sqlite3.connect("file:"+sys.argv[1].replace("\\","/")+"?mode=ro",uri=True,timeout=5)
+          try:
+              c.execute("PRAGMA query_only=ON")
+              s=dict(c.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              a=c.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0]
+              l=c.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              n=c.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+              q=c.execute("SELECT count(*) FROM queue_items WHERE state IN ('PENDING','QUEUED','RETRY_WAIT')").fetchone()[0]
+              if s!={'paused':'true','autonomy_authority':'plane','autonomy_generation':'6'} or a!=0 or l!=0 or n!=198 or q!=0: raise RuntimeError("R18_RESUME_NOT_SAFE_QUEUED_WORK_OR_AUTHORITY")
+              print("PASS")
+          finally:c.close()
+          '@
+          $v=@(& $py -B -c $code $db 2>&1)
+          if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or [string]$v[0] -cne 'PASS'){
+            throw 'R18_RESUME_PRECONDITION_QUEUES_NOT_EMPTY'
+          }
+          Write-Host 'R18_R5_RESUME_AUTHORITY_AND_ZERO_QUEUE_PREFLIGHT=PASS'
+      - name: Invoke the existing native guarded resume, verify idle healthy, otherwise restore pause
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          function Native([string]$action){
+            $stdout=Join-Path $env:RUNNER_TEMP ('R18Native-'+$env:GITHUB_RUN_ID+'-'+$action+'.out')
+            $stderr=Join-Path $env:RUNNER_TEMP ('R18Native-'+$env:GITHUB_RUN_ID+'-'+$action+'.err')
+            if((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)){
+              throw 'R18_NATIVE_RESUME_OUTPUT_COLLISION'
+            }
+            try{
+              $p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList @('controller',$action,'--config',('"' + $cfg + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr -ErrorAction Stop
+              if(!$p.WaitForExit(45000)){
+                try{$p.Kill()}catch{}
+                throw ('R18_NATIVE_'+$action+'_TIMEOUT')
+              }
+              if($p.ExitCode -ne 0){throw ('R18_NATIVE_'+$action+'_EXIT_NONZERO')}
+              if((Get-Item -LiteralPath $stdout -ErrorAction Stop).Length -gt 8388608){
+                throw 'R18_NATIVE_RESUME_STATUS_OVERSIZED'
+              }
+              return (Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json -ErrorAction Stop)
+            }finally{
+              Remove-Item -LiteralPath $stdout,$stderr -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $resumeAttempted=$false
+          $success=$false
+          try{
+            $before=Native 'status'
+            if($before.paused -ne $true -or [string]$before.authority -cne 'plane' -or
+               [string]$before.generation -cne '6' -or [string]$before.controller_status -cne 'PAUSED' -or
+               $before.heartbeat_stale -ne $false -or
+               @($before.jobs).Count -ne 198 -or $before.accepted_ref_mutation_allowed -ne $false){
+              throw 'R18_R5_RESUME_NATIVE_PRESTATUS_UNSAFE'
+            }
+            $resumeAttempted=$true
+            $reply=Native 'resume'
+            if($reply.paused -ne $false) {throw 'R18_NATIVE_RESUME_NOT_ACKNOWLEDGED'}
+            Start-Sleep -Seconds 5
+            $after=Native 'status'
+            if($after.paused -ne $false -or [string]$after.authority -cne 'plane' -or
+               [string]$after.generation -cne '6' -or $after.heartbeat_stale -ne $false -or
+               [string]$after.controller_status -notlike 'IDLE:*' -or
+               @($after.jobs).Count -ne 198 -or
+               $after.accepted_ref_mutation_allowed -ne $false) {
+              throw 'R18_R5_NATIVE_RESUMED_CONTROLLER_NOT_HEALTHY_IDLE'
+            }
+            $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if($process.Count -ne 1 -or [string]$process[0].ExecutablePath -ine $exe) {
+              throw 'R18_R5_AFTER_RESUME_NOT_SINGLETON'
+            }
+            $success=$true
+            Write-Host 'R18_R5_GUARDED_NATIVE_RESUME=PASS'
+            Write-Host 'R18_R5_RESUMED_HEALTHY_IDLE=PASS'
+            Write-Host 'R18_R5_SCIENTIFIC_FIRST_USE_DISPATCH=NOT_ATTEMPTED'
+            Write-Host 'R18_R5_KTRADE_LIVE_BROKER_ACCESS=NOT_ATTEMPTED'
+          }finally{
+            if($resumeAttempted -and !$success){
+              try{
+                $paused=Native 'pause'
+                $verified=Native 'status'
+                if($paused.paused -ne $true -or $verified.paused -ne $true) {
+                  throw 'R18_NATIVE_AUTOMATIC_REPAUSE_NOT_VERIFIED'
+                }
+                Write-Host 'R18_R5_AUTOMATIC_REPAUSE=PASS'
+              }catch{
+                Write-Host ('R18_R5_AUTOMATIC_REPAUSE=UNVERIFIED_'+$_.Exception.GetType().Name)
+                throw 'R18_NATIVE_PAUSE_RESTORATION_REQUIRES_OWNER_REVIEW'
+              }
+            }
+          }
