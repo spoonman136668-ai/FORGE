@@ -28,10 +28,11 @@ class Q21RunnerSourceOnly(unittest.TestCase):
         def fake(role,family,index,doc):
             data=src.public_episode(family,[(index%2,0),(0,1),(1,1)],[1,0])
             return data,{"secret_sensor_slot":index%2}
-        with mock.patch.object(src,"ROLE_COUNTS",{"FIT_TRAIN":2,"FIT_VALID":1,"DEV":1}):
-            with mock.patch.object(src,"generate",side_effect=fake) as invoked:
-                result,receipt=run.acquire_public_roles(src.FAMILIES[0],src.protocol())
-        self.assertEqual(invoked.call_count,4)
+        # Preserve frozen episode counts: patching ROLE_COUNTS itself would
+        # correctly trip the protocol identity guard.
+        with mock.patch.object(src,"generate",side_effect=fake) as invoked:
+            result,receipt=run.acquire_public_roles(src.FAMILIES[0],src.protocol())
+        self.assertEqual(invoked.call_count,sum(src.ROLE_COUNTS.values()))
         self.assertTrue(all(len(row)==3 for seq in result.values() for row in seq))
         self.assertGreater(receipt["payload"]["serialized_bytes"],0)
         self.assertGreater(receipt["process_peak_rss_bytes"],0)
