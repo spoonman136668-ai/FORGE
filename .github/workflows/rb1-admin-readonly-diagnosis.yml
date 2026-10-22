@@ -1,0 +1,67 @@
+name: RB1 administrator-runner guarded release-switcher diagnosis
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-admin-readonly-diagnosis.yml]
+permissions:
+  contents: read
+jobs:
+  diagnosis:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Record task identities, staged-file existence and exact ACL masks without mutation
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or $identity.Name -ine 'LINKDEADKB\camar' -or -not $admin){throw 'EXACT_AUTHORIZED_ADMIN_RUNNER_REQUIRED'}
+          Write-Host 'RB1_ADMIN_DIAG_AUTHORITY=PASS'
+          foreach($name in @('CKB-plane Controller','CKB-RB1-Delegation-Probe','CKB-RB1-ReleaseSwitcher')){
+            $t=Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+            if(-not $t){Write-Host "RB1_DIAG_TASK=$name ABSENT";continue}
+            $args=@($t.Actions | ForEach-Object {$_.Arguments}) -join ' | '
+            $paths=@($t.Actions | ForEach-Object {$_.Execute}) -join ' | '
+            Write-Host "RB1_DIAG_TASK=$name PRESENT STATE=$($t.State) USER=$($t.Principal.UserId) RUNLEVEL=$($t.Principal.RunLevel) TRIGGERS=@($($t.Triggers.Count))"
+            if($name -eq 'CKB-RB1-Delegation-Probe'){
+              Write-Host "RB1_DIAG_PROBE_EXE=$paths"
+              Write-Host "RB1_DIAG_PROBE_ARGUMENTS=$args"
+              $svc=New-Object -ComObject Schedule.Service
+              $svc.Connect()
+              $sddl=$svc.GetFolder('\').GetTask($name).GetSecurityDescriptor(4)
+              $descriptor=[Security.AccessControl.CommonSecurityDescriptor]::new($false,$false,$sddl)
+              foreach($ace in $descriptor.DiscretionaryAcl){
+                [uint64]$mask=([int64]$ace.AccessMask -band 0xFFFFFFFFL)
+                Write-Host ('RB1_DIAG_PROBE_ACE={0} MASK=0x{1:X8} TYPE={2}' -f $ace.SecurityIdentifier.Value,$mask,$ace.AceType)
+              }
+            }
+          }
+          $paths=@(
+            'C:\Users\camar\Downloads\Repair-CKB-RB1-ReleaseSwitcher-Registration-R6.ps1',
+            'C:\Users\camar\Downloads\ckb_rb1_release_switcher\Install-CKBReleaseSwitcher.ps1',
+            'C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-RB1-EXTENDED-COMPAT-R1\bin\ckb-plane.exe',
+            'C:\ProgramData\CKBR\release-switcher-status'
+          )
+          foreach($p in $paths){
+            $exists=Test-Path -LiteralPath $p
+            Write-Host "RB1_DIAG_PATH=$p EXISTS=$exists"
+            if($exists -and (Test-Path -LiteralPath $p -PathType Leaf)){
+              $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host "RB1_DIAG_SHA256=$p $sha"
+            }
+          }
+          $root='C:\ProgramData\CKBR'
+          foreach($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)release|cutover|switcher'})){
+            Write-Host "RB1_DIAG_DIR=$($d.FullName)"
+          }
+          $status='C:\ProgramData\CKBR\release-switcher-status'
+          if(Test-Path -LiteralPath $status){
+            $acl=Get-Acl -LiteralPath $status
+            Write-Host "RB1_DIAG_STATUS_OWNER=$($acl.Owner) INHERITANCE_PROTECTED=$($acl.AreAccessRulesProtected)"
+            foreach($ace in $acl.Access){
+              [uint64]$mask=([int64][int]$ace.FileSystemRights -band 0xFFFFFFFFL)
+              Write-Host ('RB1_DIAG_STATUS_ACL={0} MASK=0x{1:X8} TYPE={2}' -f $ace.IdentityReference,$mask,$ace.AccessControlType)
+            }
+          }
+          Write-Host 'RB1_ADMIN_DIAG_NO_MUTATION=PASS'
