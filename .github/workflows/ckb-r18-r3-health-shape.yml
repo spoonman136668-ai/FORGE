@@ -119,6 +119,16 @@ jobs:
             Remove-Item -LiteralPath $py -Force -ErrorAction SilentlyContinue
           }
           $samePause=(([string]$state.paused -ceq 'true') -eq [bool]$status.paused)
+          Write-Host ('R18_PAUSE_PARITY_DIAGNOSTIC='+([ordered]@{
+            original_paused=[string]$state.paused
+            original_authority=[string]$state.authority
+            original_generation=[string]$state.generation
+            candidate_paused=[bool]$status.paused
+            candidate_status=[string]$status.controller_status
+            candidate_authority=[string]$status.authority
+            candidate_generation=[string]$status.generation
+            parity=$samePause
+          }|ConvertTo-Json -Compress))
           if(!$samePause -or $state.authority -cne 'plane' -or $status.authority -cne 'plane' -or
              $status.controller_status -cne 'PAUSED' -or $status.heartbeat_stale -ne $false) {
             throw 'R18_PAUSED_STATUS_NOT_PROVEN_TO_MATCH_ORIGINAL_STATE'
