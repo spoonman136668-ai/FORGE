@@ -1,0 +1,74 @@
+name: CKB-plane R18 current owner task and process audit read only
+on:
+  push:
+    branches: [audit/ckb-r18-current-task-custody-20261022]
+    paths: [.github/workflows/ckb-r18-current-task-custody.yml]
+permissions:
+  contents: read
+jobs:
+  owner-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Classify the currently scheduled controller launcher and process under elevated owner identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-current-task-custody-20261022' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_CURRENT_CUSTODY_WRONG_OWNER'
+          }
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $r3='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
+          $r4='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R4\bin\ckb-plane.exe'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $actions=@($task.Actions)
+          $act=@(foreach($a in $actions) {
+            $args=[string]$a.Arguments
+            $classification=if($args -like '*Start-R1P-Controller.ps1*'){'R1P'}
+              elseif($args -like '*Start-R18-Controller.ps1*'){'R18'}
+              elseif($args -match '(?i)ckb-plane'){'CKB_OTHER'}
+              else{'UNKNOWN'}
+            [ordered]@{launcher_class=$classification;exec_basename=Split-Path -Leaf ([string]$a.Execute);
+              argument_sha256=([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args)))).ToLowerInvariant();
+              argument_bytes=[Text.Encoding]::UTF8.GetByteCount($args);
+              mentions_r1p=$args.Contains('PLANE-THROUGHPUT-R1P');mentions_r3=$args.Contains('PLANE-R18-OWNER-STATUS-R3');
+              mentions_r4=$args.Contains('PLANE-R18-OWNER-STATUS-R4')}
+          })
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $class=@(foreach($p in $procs){
+            $kind=if([string]$p.ExecutablePath -ieq $old){'R1P'}
+              elseif([string]$p.ExecutablePath -ieq $r3){'R18_R3'}
+              elseif([string]$p.ExecutablePath -ieq $r4){'R18_R4'}
+              elseif($null -eq $p.ExecutablePath){'INVISIBLE'}
+              else{'OTHER'}
+            $sha=$null
+            if($p.ExecutablePath -and (Test-Path -LiteralPath $p.ExecutablePath -PathType Leaf)) {
+              $sha=(Get-FileHash -LiteralPath $p.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            [ordered]@{pid=[int]$p.ProcessId;image_class=$kind;image_sha256=$sha}
+          })
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $result=[ordered]@{
+            schema='ckb-plane.r18.current-owner-task-custody.v1'
+            task_state=[string]$task.State
+            task_user=[string]$task.Principal.UserId
+            runlevel=[string]$task.Principal.RunLevel
+            action_count=$actions.Count
+            actions=$act
+            last_task_result=[int]$info.LastTaskResult
+            processes=$class
+            config_sha256=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+            task_mutated=$false
+            process_mutated=$false
+          }
+          $json=$result|ConvertTo-Json -Depth 6 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_TASK_REPORT_EXCEEDS_BOUND'}
+          Write-Host ('R18_CURRENT_CUSTODY='+$json)
+          Write-Host 'R18_READONLY_CUSTODY_AUDIT=PASS'
