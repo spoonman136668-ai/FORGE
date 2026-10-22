@@ -46,23 +46,23 @@ jobs:
             Need ($position -gt 0) 'INSTRUMENT_TARGET'
             # Inject only a diagnostic in the outer fixture cleanup, after an
             # authentic git --cached --check has failed and the tool has unstaged.
-            $addition=@'
-            finally {
-                if (Test-Path -LiteralPath $RepoRoot) {
-                    $actualDiff=(& git.exe -C $RepoRoot diff --check 2>&1|Out-String).Trim()
-                    $actualExit=$LASTEXITCODE
-                    Write-Host ('MPAI00_UNSTAGED_DIFF_CHECK_EXIT='+$actualExit)
-                    $lines=@($actualDiff -split '\r?\n'|Where-Object{$_})
-                    Write-Host ('MPAI00_UNSTAGED_DIFF_CHECK_COUNT='+$lines.Count)
-                    foreach($line in @($lines|Select-Object -First 12)){
-                        $v=[string]$line
-                        if($v.Length -gt 230){$v=$v.Substring(0,230)}
-                        Write-Host ('MPAI00_UNSTAGED_DIFF_CHECK_DETAIL='+$v)
-                    }
-                    $status=@(& git.exe -C $RepoRoot status --porcelain=v1 --untracked-files=no)
-                    Write-Host ('MPAI00_FIXTURE_DIRTY_FILES='+($status.Count))
-                }
-            '@
+            $addition = (@(
+              'finally {'
+              '    if (Test-Path -LiteralPath $RepoRoot) {'
+              '        $actualDiff=(& git.exe -C $RepoRoot diff --check 2>&1|Out-String).Trim()'
+              '        $actualExit=$LASTEXITCODE'
+              '        Write-Host (''MPAI00_UNSTAGED_DIFF_CHECK_EXIT=''+$actualExit)'
+              '        $lines=@($actualDiff -split ''\r?\n''|Where-Object{$_})'
+              '        Write-Host (''MPAI00_UNSTAGED_DIFF_CHECK_COUNT=''+$lines.Count)'
+              '        foreach($line in @($lines|Select-Object -First 12)){'
+              '            $v=[string]$line'
+              '            if($v.Length -gt 230){$v=$v.Substring(0,230)}'
+              '            Write-Host (''MPAI00_UNSTAGED_DIFF_CHECK_DETAIL=''+$v)'
+              '        }'
+              '        $status=@(& git.exe -C $RepoRoot status --porcelain=v1 --untracked-files=no)'
+              '        Write-Host (''MPAI00_FIXTURE_DIRTY_FILES=''+($status.Count))'
+              '    }'
+            ) -join [Environment]::NewLine) + [Environment]::NewLine
             $patched=$inputText.Substring(0,$position)+$addition+$inputText.Substring($position+$needle.Length)
             [IO.File]::WriteAllText($test,$patched)
             $log=Join-Path $scratch 'stdout.log'
