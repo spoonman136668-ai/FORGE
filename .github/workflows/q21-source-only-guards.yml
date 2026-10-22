@@ -7,6 +7,12 @@ on:
       - '.github/workflows/q21-source-only-guards.yml'
       - 'research/q21_information_budget/**'
 
+  pull_request:
+    branches: [research/q21-information-budget-preregister-20261022]
+    paths:
+      - '.github/workflows/q21-source-only-guards.yml'
+      - 'research/q21_information_budget/**'
+
 permissions:
   contents: read
 
@@ -32,12 +38,19 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-          fetch-depth: 0
+          # Standard regression uses bounded history; deep-history G61 is a
+          # separately qualified invariant, not silently claimed here.
+          fetch-depth: 30
           clean: true
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
+      - name: Set up Go for full native regression
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
       - name: Confirm exact frozen Git blobs and only ten additive paths
         shell: pwsh
         run: |
@@ -69,8 +82,8 @@ jobs:
             'research/q21_information_budget/resource_meter.py'='bc9b475347ca6ddd4a9d75cf1d5bb7d1df59a59e'
             'research/q21_information_budget/test_models.py'='9fda1a4f082c89c6126150b1d47e67e930ebb71b'
             'research/q21_information_budget/test_resource_meter.py'='84a87880f844dd301333a2c6b91d257bce5e57b1'
-            'research/q21_information_budget/evaluator.py'='4109e68a4fdc32d928343207eb53ce5be54b9003'
-            'research/q21_information_budget/test_evaluator.py'='ad3ded6450b39d37f52cb004872632e44bf7c425'
+            'research/q21_information_budget/evaluator.py'='cd84a19a660fa60e01d8e5630df73fda43ee84ca'
+            'research/q21_information_budget/test_evaluator.py'='3fd32cabb83be9f59d27671b8e0ad82470bb38c1'
           }
           foreach($path in $pins.Keys){
             $committed=(& git rev-parse ('HEAD:'+$path)).Trim()
@@ -95,6 +108,26 @@ jobs:
           Write-Host 'Q21_NATIVE_RESOURCE_PRECHECK=PASS'
           Write-Host 'Q21_SOURCE_ONLY_NATIVE_FOCUSED=PASS'
           Write-Host 'Q21_Q20_RESERVED_AND_SCIENTIFIC_FIRST_USE=UNTOUCHED'
+      - name: One final FORGE integration regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p 'test_*.py'
+          if($LASTEXITCODE-ne0){throw 'Q21_F139_FINAL_REGRESSION_FAILED'}
+          & go test -count=1 ./...
+          if($LASTEXITCODE-ne0){throw 'Q21_FULL_GO_REGRESSION_FAILED'}
+          & go vet ./...
+          if($LASTEXITCODE-ne0){throw 'Q21_GO_VET_FAILED'}
+          Write-Host 'Q21_FINAL_STANDARD_REGRESSION=PASS'
+          Write-Host 'Q21_SEPARATE_G61_DEEP_HISTORY=NOT_CLAIMED'
+      - name: Build source without launching research
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & go build ./...
+          if($LASTEXITCODE-ne0){throw 'Q21_GO_BUILD_FAILED'}
+          Write-Host 'Q21_NATIVE_BUILD=PASS'
+          Write-Host 'Q21_FROZEN_DEV_EXECUTION=NOT_PERFORMED'
       - name: Verify no generated source or admission side effects
         if: always()
         shell: pwsh
