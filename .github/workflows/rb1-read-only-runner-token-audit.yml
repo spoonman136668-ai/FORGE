@@ -1,0 +1,23 @@
+name: RB1 read-only existing FORGE runner token audit
+on:
+  push:
+    branches: [audit/rb1-existing-runner-token-20261021]
+    paths: [.github/workflows/rb1-read-only-runner-token-audit.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 3
+    steps:
+      - name: Identify preexisting Windows runner token, with no commands on services or tasks
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr=[Security.Principal.WindowsPrincipal]::new($id)
+          Write-Host "RB1_AUDIT_RUNNER=$env:RUNNER_NAME"
+          Write-Host "RB1_AUDIT_HOST=$env:COMPUTERNAME"
+          Write-Host "RB1_AUDIT_IDENTITY=$($id.Name)"
+          Write-Host "RB1_AUDIT_IS_ELEVATED_ADMIN=$($pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
+          Write-Host 'RB1_AUDIT_NO_MUTATIONS=TRUE'
