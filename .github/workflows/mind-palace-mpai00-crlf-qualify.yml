@@ -33,7 +33,7 @@ jobs:
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $branch='repair/mpai00-crlf-checkpoint-20261022'
-          $source='afdbca86c03c9bac0ba8a9dee6ae2a1a6a189f1c'
+          $source='54661851cadb699f45205338a43183c5220bafd1'
           $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
           $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-crlf-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -41,7 +41,8 @@ jobs:
           $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
             '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
             '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
-          $scope=@('tools/update-checkpoint.ps1','tests/Test-CheckpointCRLFWhitespace.ps1')
+          $scope=@('tools/update-checkpoint.ps1','tests/Test-CheckpointCRLFWhitespace.ps1',
+            'tests/Test-RemoteBootstrap.ps1')
           function Pin([string]$ref,[string]$sha){
             $rows=@(& git.exe ls-remote --exit-code $remote $ref)
             Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
@@ -84,7 +85,7 @@ jobs:
             Need ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
             Need ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'SOURCE_HEAD'
             $changed=@(& git.exe -C $root diff --name-only $main $source)
-            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 2 -and
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
               (($changed|Sort-Object)-join '|') -ceq (($scope|Sort-Object)-join '|')) 'SOURCE_SCOPE'
             foreach($f in $guard){
               $before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -98,6 +99,13 @@ jobs:
               'MPAI00_CRLF_POLICY_COMMAND_SCOPED=PASS',
               'MPAI00_CRLF_SCRATCH_CLEAN=PASS')
             Run-Test 'focused_checkpoint' 'tests/Test-UpdateCheckpoint.ps1' @('Update checkpoint regression passed')
+            Run-Test 'focused_remote' 'tests/Test-RemoteBootstrap.ps1' @(
+              'Remote bootstrap bridge regression passed',
+              'MPAI00_REMOTE_TEST_SOURCE_INTACT=PASS')
+            foreach($f in $guard){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$f]) ('FOCUSED_REMOTE_SOURCE_DRIFT_'+$f)
+            }
+            Write-Host 'MPAI00_CRLF_FOCUSED_REMOTE_PROTECTED=PASS'
             Run-Test 'full_regression' 'tests/Test-All.ps1' @('Mind-Palace regression suite passed')
             Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
             Pin 'refs/heads/main' $main
