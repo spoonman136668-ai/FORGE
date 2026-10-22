@@ -17,8 +17,6 @@ jobs:
     steps:
       - name: Exact source, controller privileges, task lease and ledger readiness (no mutation)
         shell: pwsh
-        env:
-          GH_TOKEN: \${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
@@ -46,7 +44,6 @@ jobs:
                 $_.head_sha -cne $candidate -or $_.status -cne 'completed' -or
                 $_.conclusion -cne 'success'
               }).Count -ne 0) { throw 'R19_CANDIDATE_GITHUB_QUALIFICATION_DRIFT' }
-          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
           $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
           $principal = New-Object Security.Principal.WindowsPrincipal($identity)
           $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
