@@ -1,0 +1,85 @@
+name: Mind-Palace MP-AI03 pinned Git evidence-custody native focused qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai03-sealed-evidence-qualify.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai03-exact-source-native-test
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check sealed preregistration Git ancestry and trial evidence in private scratch
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$Ok,[string]$Code){if(-not $Ok){throw ('MPAI03_'+$Code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-ai03-sealed-custody-20261022'
+          $source='a5f0f0baff41e5597b218cd481d27e2d3214cc2c'
+          $parent='a6d4c672f1cc6d849459dd42157452d9caa89213'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai03-evidence-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $allow=@('agentic/mpai03_git_custody.py','tests/test_mpai03_git_custody.py',
+            'docs/MP-AI03-GIT-EVIDENCE-CUSTODY.md')
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json')
+          $stored=@{}
+          $captured=$false
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          try {
+            $remoteRef=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $remoteRef.Count -eq 1 -and
+              (([string]$remoteRef[0] -split '\s+')[0]) -ceq $source) 'REMOTE_IDENTITY_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'CLONE_SOURCE'
+            & git.exe -C $root merge-base --is-ancestor $parent $source
+            Need ($LASTEXITCODE -eq 0) 'PARENT_IDENTITY'
+            $paths=@(& git.exe -C $root diff --name-only $parent $source)
+            Need ($LASTEXITCODE -eq 0 -and $paths.Count -eq 3 -and
+              (($paths|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'THREE_FILE_SCOPE'
+            foreach($p in $guard){
+              $stored[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $captured=$true
+            & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p 'test_mpai03_git_custody.py' -v
+            Need ($LASTEXITCODE -eq 0) 'NATIVE_TEST_FAILED'
+            Write-Host 'MPAI03_GIT_CUSTODY_TESTS=PASS'
+            Write-Host 'MPAI03_GENUINE_AGENT_EXECUTION=NOT_PROVEN'
+            Write-Host 'MPAI03_EXTERNAL_IDENTITY=NOT_VERIFIED'
+            Write-Host 'MPAI03_SCIENTIFIC_FIRST_USE=NOT_VERIFIED'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
+            Write-Host 'MPAI03_SOURCE_PIN_AND_SCOPE=PASS'
+            Write-Host 'MPAI03_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI03_PAID_MODEL_CALLS=0'
+          } finally {
+            if($captured){
+              foreach($p in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $stored[$p]) ('PROTECTED_HASH_DRIFT_'+$p)
+              }
+              Write-Host 'MPAI03_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEANUP'
+            Write-Host 'MPAI03_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
