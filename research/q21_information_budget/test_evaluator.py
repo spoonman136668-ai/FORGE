@@ -60,4 +60,50 @@ class Q21EvaluationAdmissionGuards(unittest.TestCase):
         self.assertEqual(result['full_integration_regression'],'NOT_RUN')
 
 
+    def test_arm_is_selected_on_fit_validation_not_best_dev_score(self):
+        # The DEV-winner has worse FIT_VALID and must not be selected.
+        # All DEV evidence can still be retained separately without leakage.
+        arms={
+            'frozen_fit_winner': {
+                'fit_cost':{'fit_validation_nll':.54},
+                'result':{'mean_nll':.68}},
+            'tempting_dev_winner': {
+                'fit_cost':{'fit_validation_nll':.60},
+                'result':{'mean_nll':.30}},
+        }
+        self.assertEqual(e.select_pre_dev_arm(
+            arms,('frozen_fit_winner','tempting_dev_winner')),
+            'frozen_fit_winner')
+        arms['tempting_dev_winner']['result']['mean_nll']=.01
+        self.assertEqual(e.select_pre_dev_arm(
+            arms,('frozen_fit_winner','tempting_dev_winner')),
+            'frozen_fit_winner')
+
+    def test_fit_valid_selection_fails_closed_on_missing_or_invalid_score(self):
+        import copy
+        import math
+        valid={'good':{'fit_cost':{'fit_validation_nll':.56},
+                       'result':{'mean_nll':.61}},
+               'other':{'fit_cost':{'fit_validation_nll':.57},
+                        'result':{'mean_nll':.59}}}
+        for replacement in (None,float('nan'),float('inf'),-1.,True):
+            arms=copy.deepcopy(valid)
+            arms['other']['fit_cost']['fit_validation_nll']=replacement
+            with self.subTest(value=replacement),self.assertRaisesRegex(
+                    ValueError,'INVALID_FIT_VALID_SELECTION_SCORE'):
+                e.select_pre_dev_arm(arms,('good','other'))
+        with self.assertRaisesRegex(ValueError,'VALIDATION_ARM_INVENTORY'):
+            e.select_pre_dev_arm(valid,('good','missing'))
+
+    def test_pre_dev_count_selection_must_be_scored_on_valid_only(self):
+        # Tiny handwritten PUBLIC fixtures; never create Q21 FIT/DEV cohorts.
+        train=[row(0),row(1)]
+        valid=[row(2)]
+        model,cost=e.fit_counts_timed(train,False)
+        valid_score=sum(p.nll(r,p.forecast_counts(model,r,False))
+                        for r in valid)/len(valid)
+        self.assertGreaterEqual(valid_score,0)
+        self.assertNotIn('dev_inference_cpu_s',cost)
+
+
 if __name__=='__main__':unittest.main()
