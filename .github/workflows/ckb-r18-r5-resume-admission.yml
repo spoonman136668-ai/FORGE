@@ -1,0 +1,151 @@
+name: CKB R18 R5 guarded resumption admission audit read only
+on:
+  push:
+    branches: [audit/ckb-r18-r5-resume-admission-20261022]
+    paths: [.github/workflows/ckb-r18-r5-resume-admission.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-resume-admission-readonly-20261022
+  cancel-in-progress: false
+jobs:
+  owner-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+          persist-credentials: false
+      - name: Guard the existing owner runner and single new read-only workflow
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $base='96c2fe9f28651de10d8dbf3a61392558795fb671'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-resume-admission-20261022' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_R5_RESUME_ADMISSION_OWNER_OR_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-r5-resume-admission.yml') {
+            throw 'R18_R5_RESUME_ADMISSION_SCOPE_DRIFT'
+          }
+          Write-Host 'R18_R5_RESUME_ADMISSION_BOUNDARY=PASS'
+      - name: Verify unchanged paused R5, original rollback and local authority proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $r1='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          foreach($v in @(
+            @{path=$r5;hash='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{path=$r1;hash='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{path=$cfg;hash='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $file=Get-Item -LiteralPath $v.path -ErrorAction Stop
+            if($file.PSIsContainer -or
+               ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $v.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $v.hash){
+              throw 'R18_R5_RESUME_ADMISSION_PROTECTED_PREIMAGE_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$task.State -cne 'Running' -or
+             [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar') -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $process.Count -ne 1 -or [string]$process[0].ExecutablePath -ine $r5){
+            throw 'R18_R5_RESUME_ADMISSION_CONTROLLER_NOT_SINGLETON'
+          }
+          $rollback='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564\rollback'
+          foreach($name in @('original-task.xml','original-autonomy.yaml','original-launcher.ps1','autonomy.db')){
+            $entry=Get-Item -LiteralPath (Join-Path $rollback $name) -ErrorAction Stop
+            if($entry.PSIsContainer -or $entry.Length -lt 1){throw 'R18_R5_RESUME_ROLLBACK_CUSTODY_UNVERIFIED'}
+          }
+          $proof=Join-Path $root 'state\original-authority-inactive-r6.json'
+          $classification='NO_VALID_LOCAL_PROOF'
+          $proofExpires=$null
+          if(Test-Path -LiteralPath $proof -PathType Leaf){
+            $proofData=Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json -ErrorAction Stop
+            $date=[datetimeoffset]::MinValue
+            $valid=[datetimeoffset]::TryParse([string]$proofData.expires_at_utc,[ref]$date)
+            if($valid){$proofExpires=$date.UtcDateTime.ToString('o')}
+            if($proofData.schema -ceq 'ckb-plane.original-authority-inactive.v1' -and
+               $proofData.authority -ieq 'plane' -and
+               $proofData.runner_service_status -ceq 'Stopped' -and
+               $proofData.accepted_ref_mutation_allowed -eq $false -and
+               $proofData.runtime_launch_allowed -eq $false -and
+               $proofData.local_original_authority_only -eq $true -and
+               $valid -and $date -gt [datetimeoffset]::UtcNow){
+              $classification='LOCAL_PROOF_FRESH_NOT_INDEPENDENTLY_RECHECKED'
+            }elseif($valid -and $date -le [datetimeoffset]::UtcNow){
+              $classification='LOCAL_PROOF_EXPIRED'
+            }else{$classification='LOCAL_PROOF_SCHEMA_OR_POLICY_INVALID'}
+          }
+          $receipt=[ordered]@{
+            schema='ckb-plane.r18.r5-resume-admission-owner.v1'
+            r5_owner_singleton='PASS'
+            r1p_rollback_custody='PASS'
+            original_inactive_proof_class=$classification
+            original_inactive_proof_expiry_utc=$proofExpires
+            proof_is_only_local_evidence=$true
+            native_source_authority_not_called=$true
+            paused_state_not_modified=$true
+            scientific_first_use_authorized=$false
+          }
+          Write-Host ('R18_R5_RESUME_AUTHORITY_PROOF='+($receipt|ConvertTo-Json -Compress))
+          Write-Host 'R18_R5_RESUME_ORIGINAL_CONTROLLER_CUSTODY=PASS'
+      - name: Read consistent queue-state classes without requesting work or releasing pause
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          $script=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          src=sqlite3.connect("file:"+db.as_posix()+"?mode=ro",uri=True,timeout=5)
+          snap=sqlite3.connect(":memory:")
+          try:
+              src.execute("PRAGMA query_only=ON")
+              src.backup(snap,pages=64,sleep=0.05)
+              if snap.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
+                  raise RuntimeError("R18_RESUME_ADMISSION_DB_NOT_INTEGRAL")
+              settings=dict(snap.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              count=int(snap.execute("SELECT count(*) FROM work_orders").fetchone()[0])
+              leases=int(snap.execute("SELECT count(*) FROM worker_leases").fetchone()[0])
+              queue=snap.execute("SELECT state,authorization,mode,count(*) FROM queue_items GROUP BY state,authorization,mode ORDER BY state,authorization,mode").fetchall()
+              grouped={}
+              for state,auth,mode,n in queue:
+                  key=str(state)
+                  grouped[key]=grouped.get(key,0)+int(n)
+              eligible=sum(int(n) for state,auth,mode,n in queue if state in ("QUEUED","PENDING","RETRY_WAIT") and auth=="operator" and mode=="source")
+              active=int(snap.execute("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").fetchone()[0])
+              if settings.get('paused')!='true' or settings.get('autonomy_authority')!='plane' or settings.get('autonomy_generation')!='6' or count!=198 or active!=0 or leases!=0:
+                  raise RuntimeError("R18_RESUME_ADMISSION_STATE_NOT_PAUSED_OR_STABLE")
+              out={"schema":"ckb-plane.r18.r5-resume-queue-readonly.v1","authority":"plane","generation":"6","paused":True,"work_orders":count,"worker_leases":leases,"active_workorders":active,"queue_total":sum(grouped.values()),"queue_states":grouped,"operator_source_queued_or_pending":eligible,"scientific_first_use_authorized":False,"resume_performed":False,"db_mutated":False}
+              print(json.dumps(out,separators=(",",":")))
+          finally:
+              snap.close();src.close()
+          '@
+          $rows=@(& $py -B -c $script $db 2>&1)
+          if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1){throw 'R18_RESUME_ADMISSION_QUERY_FAILED'}
+          $receipt=[string]$rows[0]
+          if([Text.Encoding]::UTF8.GetByteCount($receipt) -gt 4096){throw 'R18_RESUME_ADMISSION_QUEUE_RECEIPT_TOO_LARGE'}
+          [void](ConvertFrom-Json -InputObject $receipt -ErrorAction Stop)
+          Write-Host ('R18_R5_RESUME_QUEUE_CLASSES='+$receipt)
+          Write-Host 'R18_R5_RESUME_POLICY_AND_PAUSE_UNCHANGED=TRUE'
