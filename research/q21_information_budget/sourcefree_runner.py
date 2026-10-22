@@ -19,9 +19,13 @@ def sealed(doc):
 def measured(name, operation):
     initial=res.snapshot()
     value=operation()
+    # Serialization is actual computational work. It must occur before the
+    # closing CPU/I/O/RSS snapshot, otherwise the measured stage silently
+    # omits its own evidence-payload encoding. No bytes are persisted here.
+    payload=res.canonical_payload_size(value)
     final=res.snapshot()
     evidence=res.measured_delta(initial,final,name)
-    evidence["payload"]=res.canonical_payload_size(value)
+    evidence["payload"]=payload
     evidence["communication"]=res.communication_receipt("none")
     evidence["rss_scope"]="PROCESS_CUMULATIVE_HIGH_WATER_NOT_ISOLATED_PER_MODEL"
     return value,evidence
