@@ -1,0 +1,86 @@
+name: CKB R18 candidate CLI status read only with original controller untouched
+on:
+  push:
+    branches: [audit/ckb-r18-candidate-status-probe-20261022]
+    paths: [.github/workflows/ckb-r18-candidate-status-probe.yml]
+permissions:
+  contents: read
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Probe only R18 CLI status with bounded output while R1P stays running
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-candidate-status-probe-20261022' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_PROBE_OWNER_AUTHORITY_INVALID'
+          }
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if((Get-FileHash -LiteralPath $new -Algorithm SHA256).Hash.ToLowerInvariant() -cne '63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50' -or
+             (Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'){
+            throw 'R18_STATUS_PROBE_PREIMAGE_DRIFT'
+          }
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($running.Count -ne 1 -or [string]$running[0].ExecutablePath -ine $old -or
+             $task.State -ne 'Running' -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_STATUS_PROBE_ORIGINAL_NOT_STABLE'
+          }
+          $out=Join-Path $env:RUNNER_TEMP ('R18StatusProbe-'+$env:GITHUB_RUN_ID+'.out')
+          $err=Join-Path $env:RUNNER_TEMP ('R18StatusProbe-'+$env:GITHUB_RUN_ID+'.err')
+          $exit=$null;$timedOut=$false;$stdoutBytes=0;$stderrBytes=0;$parsed=$false;$authority=$null;$fieldPreservation=$false
+          try{
+            $probe=Start-Process -FilePath $new -ArgumentList @('controller','status','--config',('"' + $cfg + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -ErrorAction Stop
+            if(!$probe.WaitForExit(25000)){
+              $timedOut=$true
+              try{$probe.Kill()}catch{}
+            }else{$exit=[int]$probe.ExitCode}
+            if(Test-Path -LiteralPath $out){
+              $stdoutBytes=(Get-Item -LiteralPath $out).Length
+              if($stdoutBytes -lt 8388608 -and $stdoutBytes -gt 0){
+                try{
+                  $parsedJSON=Get-Content -LiteralPath $out -Raw|ConvertFrom-Json -ErrorAction Stop
+                  $parsed=$true
+                  $authority=[string]$parsedJSON.authority
+                }catch{}
+              }
+            }
+            if(Test-Path -LiteralPath $err){
+              $stderrBytes=(Get-Item -LiteralPath $err).Length
+              if($stderrBytes -lt 65536){
+                $stderr=[IO.File]::ReadAllText($err)
+                $fieldPreservation=$stderr.Contains('field preservation not found')
+              }
+            }
+          }finally{
+            Remove-Item -LiteralPath $out,$err -Force -ErrorAction SilentlyContinue
+          }
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $controllerSafe=($after.Count -eq 1 -and [string]$after[0].ExecutablePath -ieq $old)
+          if(!$controllerSafe){throw 'R18_READONLY_CLI_DID_NOT_PRESERVE_ORIGINAL_SINGLETON'}
+          $summary=[ordered]@{
+            schema='ckb-plane.r18.status-only-probe.v1'
+            status_command_only=$true
+            candidate_exit_code=$exit
+            status_timeout=$timedOut
+            stdout_bytes=$stdoutBytes
+            stderr_bytes=$stderrBytes
+            stdout_parsed_json=$parsed
+            parsed_authority=$authority
+            rejects_preservation=$fieldPreservation
+            original_controller_singleton_unchanged=$controllerSafe
+            task_modified=$false
+            database_mutated_by_workflow=$false
+          }
+          Write-Host ('R18_CANDIDATE_STATUS_PROBE='+($summary|ConvertTo-Json -Compress))
+          Write-Host 'R18_READONLY_CANDIDATE_STATUS_DIAGNOSIS=COMPLETE'
