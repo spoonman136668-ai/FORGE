@@ -1,0 +1,87 @@
+name: R18 native controller resumed-state assurance (read-only)
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-post-resume-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - name: Read-only verify native singleton, unpaused authority and subsequent heartbeat
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base 40335a2242f43d4b30ae12db999bf0f5eca7244b HEAD) -cne '40335a2242f43d4b30ae12db999bf0f5eca7244b' -or
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R18_POST_RESUME_OWNER_CUSTODY_DRIFT'}
+          $changed=@(& git.exe diff --name-only 40335a2242f43d4b30ae12db999bf0f5eca7244b HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-post-resume-readonly.yml'){throw 'R18_POST_RESUME_READONLY_SCOPE_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022'
+          $exe=Join-Path $release 'bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8' -or
+             (Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'){
+             throw 'R18_POST_RESUME_BINARY_OR_CONFIG_MISMATCH'
+          }
+          function ReadState {
+            $py=@'
+          import sqlite3,sys,json
+          db=sys.argv[1].replace('\\','/')
+          c=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=5)
+          try:
+            c.execute('PRAGMA query_only=ON')
+            v={a:b for a,b in c.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+            v['leases']=c.execute('SELECT count(*) FROM worker_leases').fetchone()[0]
+            v['nonterminal']=c.execute("SELECT count(*) FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED')").fetchone()[0]
+            print(json.dumps(v,separators=(',',':')))
+          finally:c.close()
+          '@
+            $lines=@(& python.exe -B -c $py $db)
+            if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1){throw 'R18_POST_RESUME_READONLY_DB_UNAVAILABLE'}
+            return ($lines[0]|ConvertFrom-Json)
+          }
+          function VerifySingleton {
+            $t=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+            $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if([string]$t.State -cne 'Running' -or $p.Count -ne 1 -or [string]$p[0].ExecutablePath -ine $exe){
+              throw 'R18_POST_RESUME_ORIGINAL_TASK_SINGLETON_FAILED'
+            }
+            return [int]$p[0].ProcessId
+          }
+          $pidOne=VerifySingleton
+          $a=ReadState
+          if($a.paused -cne 'false' -or $a.autonomy_authority -cne 'plane' -or $a.autonomy_generation -cne '6' -or [int]$a.leases -ne 0 -or [int]$a.nonterminal -ne 0){
+             throw 'R18_POST_RESUME_NATIVE_STATE_INVALID'
+          }
+          Write-Host 'R18_POST_RESUME_NATIVE_AUTHORITY_GEN6_UNPAUSED=PASS'
+          Write-Host 'R18_POST_RESUME_ACTIVE_JOBS_AND_LEASES_ZERO=PASS'
+          Start-Sleep -Seconds 36
+          $pidTwo=VerifySingleton
+          $b=ReadState
+          if($pidOne -ne $pidTwo -or $b.paused -cne 'false' -or $b.autonomy_authority -cne 'plane' -or $b.autonomy_generation -cne '6' -or [int]$b.leases -ne 0 -or [int]$b.nonterminal -ne 0){
+             throw 'R18_POST_RESUME_SECOND_CYCLE_STATE_DRIFT'
+          }
+          $first=[datetime]::Parse([string]$a.autonomy_heartbeat).ToUniversalTime()
+          $second=[datetime]::Parse([string]$b.autonomy_heartbeat).ToUniversalTime()
+          $now=(Get-Date).ToUniversalTime()
+          if($second -lt $first -or ($now-$second).TotalSeconds -gt 120){throw 'R18_POST_RESUME_HEARTBEAT_STALE_OR_REGRESSED'}
+          Write-Host ('R18_HEARTBEAT_ADVANCED='+($second -gt $first))
+          Write-Host 'R18_NATIVE_SINGLETON_STABLE_AFTER_36_SECONDS=PASS'
+          Write-Host 'R18_POST_RESUME_AUTHORITY_ALIVE=PASS'
+          Write-Host 'R18_NO_CONTROLLER_OR_SOURCE_MUTATION=TRUE'
