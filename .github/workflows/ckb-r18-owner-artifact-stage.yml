@@ -1,0 +1,78 @@
+name: CKB R18 elevated owner sealed candidate scratch-only admission
+on:
+  push:
+    branches: [audit/ckb-r18-owner-artifact-20261022]
+    paths: [.github/workflows/ckb-r18-owner-artifact-stage.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-owner-candidate-scratch-20261022
+  cancel-in-progress: false
+jobs:
+  owner-scratch:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify existing owner administrator and pin old launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($id)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-owner-artifact-20261022' -or
+              $id.Name -ine 'LINKDEADKB\camar' -or
+              !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_OWNER_SCRATCH_ADMIN_IDENTITY_DRIFT'
+          }
+          $launcher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          if (!(Test-Path -LiteralPath $launcher -PathType Leaf)) {throw 'R18_ORIGINAL_LAUNCHER_MISSING'}
+          $sha=(Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -cne '66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce') {
+            throw 'R18_ORIGINAL_LAUNCHER_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or $task.State -ne 'Running' -or
+              [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*') {
+            throw 'R18_ORIGINAL_TASK_ACTION_DRIFT'
+          }
+          Write-Host 'R18_OWNER_ORIGINAL_LAUNCHER_PREIMAGE=PASS'
+          Write-Host 'R18_EXISTING_R1P_TASK_ACTION=VERIFIED'
+          Write-Host 'R18_CONTROLLER_MODIFIED=FALSE'
+      - name: Inspect pinned private GitHub candidate in runner TEMP only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $env:GH_PROMPT_DISABLED='1'
+          $gh=(Get-Command gh -ErrorAction Stop).Source
+          $scratch=Join-Path $env:RUNNER_TEMP ('R18OwnerCandidate-'+$env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $scratch) {throw 'R18_SCRATCH_COLLISION'}
+          [void](New-Item -ItemType Directory -Path $scratch -ErrorAction Stop)
+          try {
+            & $gh run download 39766883139 --repo spoonman136668-ai/ckb-plane --name r18-sealed-nondeployable-candidate-39766883139 --dir $scratch
+            if ($LASTEXITCODE -ne 0) {throw 'R18_EXISTING_GH_IDENTITY_CANNOT_READ_PRIVATE_CANDIDATE'}
+            $exe=Join-Path $scratch 'ckb-plane-status-candidate.exe'
+            $receiptFile=Join-Path $scratch 'receipt.json'
+            if (!(Test-Path -LiteralPath $exe -PathType Leaf) -or
+                !(Test-Path -LiteralPath $receiptFile -PathType Leaf)) {
+              throw 'R18_CANDIDATE_SCRATCH_INCOMPLETE'
+            }
+            $sha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+            $receipt=Get-Content -LiteralPath $receiptFile -Raw | ConvertFrom-Json
+            if ($sha -cne '63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50' -or
+                $receipt.executable_sha256 -cne $sha -or
+                $receipt.schema -cne 'ckb-plane.r18.status-candidate-seal.v1' -or
+                $receipt.release_approved -ne $false -or
+                $receipt.native_windows_full_go_regression -cne 'PASS') {
+              throw 'R18_SEAL_OR_GOVERNANCE_INVALID'
+            }
+            Write-Host 'R18_OWNER_PRIVATE_CANDIDATE_DOWNLOAD=PASS'
+            Write-Host ('R18_OWNER_VERIFIED_CANDIDATE_SHA256='+$sha)
+            Write-Host 'R18_CANDIDATE_INSTALLED=FALSE'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Host 'R18_OWNER_SCRATCH_CLEARED=PASS'
