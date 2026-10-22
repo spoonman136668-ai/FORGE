@@ -1,0 +1,97 @@
+name: CKB R18 R2 startup failure owner read-only forensic inspection
+on:
+  push:
+    branches: [audit/ckb-r18-r2-startup-evidence-20261022]
+    paths: [.github/workflows/ckb-r18-r2-startup-evidence.yml]
+permissions:
+  contents: read
+jobs:
+  owner-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify original still active, inspect candidate launcher guards and task failure without alteration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $p=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r2-startup-evidence-20261022' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_R2_AUDIT_OWNER_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $oldExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $newExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+          $cut='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39776824570'
+          $oldLauncher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          $newLauncher=Join-Path $cut 'Start-R18-Controller.ps1'
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $classes=@(foreach($v in $proc) {
+            if([string]$v.ExecutablePath -ieq $oldExe) {'R1P'}
+            elseif([string]$v.ExecutablePath -ieq $newExe) {'R18'}
+            else {'UNKNOWN'}
+          })
+          $launcherData=[ordered]@{exists=$false}
+          if(Test-Path -LiteralPath $newLauncher -PathType Leaf){
+            $txt=[IO.File]::ReadAllText($newLauncher)
+            $old=[IO.File]::ReadAllText($oldLauncher)
+            $tokens=$null;$errors=$null
+            [void][Management.Automation.Language.Parser]::ParseInput($txt,[ref]$tokens,[ref]$errors)
+            $commandNames=@(
+              $tokens | Where-Object {$_.Kind.ToString() -eq 'Identifier'} |
+                ForEach-Object {$_.Text} | Where-Object {$_ -in @('Start-Process','Invoke-Expression','Start-Transcript','Join-Path','Exit','WaitForExit')} |
+                Select-Object -Unique
+            )
+            $launcherData=[ordered]@{
+              exists=$true
+              sha256=(Get-FileHash -LiteralPath $newLauncher -Algorithm SHA256).Hash.ToLowerInvariant()
+              byte_count=(Get-Item -LiteralPath $newLauncher).Length
+              parser_error_count=$errors.Count
+              mentions_old_release_sha=$txt.Contains('3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf')
+              mentions_new_release_sha=$txt.Contains('63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50')
+              mentions_old_release_name=$txt.Contains('PLANE-THROUGHPUT-R1P')
+              mentions_candidate_exe=$txt.Contains($newExe)
+              mentions_original_exe=$txt.Contains($oldExe)
+              old_hash_guard_present=$old.Contains('3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf')
+              exactly_expected_clone=$txt.Equals($old.Replace($oldExe,$newExe))
+              command_keyword_labels=$commandNames
+            }
+          }
+          $folderData=@()
+          if(Test-Path -LiteralPath $cut -PathType Container) {
+            foreach($f in @(Get-ChildItem -LiteralPath $cut -File -ErrorAction Stop)) {
+              $folderData+=@([ordered]@{name=$f.Name;bytes=[int64]$f.Length})
+            }
+          }
+          $events=@()
+          try {
+            $start=[DateTime]::Parse('2026-10-22T12:14:30Z').ToLocalTime()
+            $end=[DateTime]::Parse('2026-10-22T12:17:30Z').ToLocalTime()
+            foreach($e in @(Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-TaskScheduler/Operational';StartTime=$start;EndTime=$end} -MaxEvents 100 -ErrorAction Stop)) {
+              if([string]$e.Message -like '*CKB-plane Controller*') {
+                $events+=@([ordered]@{id=$e.Id;level=$e.LevelDisplayName;utc=$e.TimeCreated.ToUniversalTime().ToString('o')})
+              }
+              if($events.Count -ge 16){break}
+            }
+          } catch {$events+=@([ordered]@{source='EVENT_LOG_UNAVAILABLE'})}
+          $v=[ordered]@{
+            schema='ckb-plane.r18.r2-startup-owner-forensics.v1'
+            controller_task_state=[string]$task.State
+            controller_task_launcher=if([string]$task.Actions[0].Arguments -like '*Start-R1P-Controller.ps1*'){'R1P'}else{'OTHER'}
+            controller_task_last_result=[int]$taskInfo.LastTaskResult
+            controller_process_count=$proc.Count
+            controller_process_class=$classes
+            r18_staged_executable_sha256=if(Test-Path -LiteralPath $newExe -PathType Leaf){(Get-FileHash -LiteralPath $newExe -Algorithm SHA256).Hash.ToLowerInvariant()}else{$null}
+            r18_launcher=$launcherData
+            cutover_top_level_files=$folderData
+            task_events=$events
+            read_only=$true
+          }
+          $json=$v | ConvertTo-Json -Depth 6 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 8192){throw 'R18_R2_FORENSIC_OUTPUT_TOO_LARGE'}
+          Write-Host ('R18_R2_STARTUP_FORENSIC_RECEIPT='+$json)
+          Write-Host 'R18_R2_FORENSIC_NO_MUTATION=TRUE'
