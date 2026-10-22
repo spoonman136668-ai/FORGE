@@ -29,7 +29,7 @@ ORIGINAL_EVENTS = {
     "goal_confirmed": "observed-confirmation",
     "ambient_drift": "incidental-observation",
 }
-VALID_EVENT_STATUS = frozenset({"partial", "ready", "settled", "idle"})
+VALID_EVENT_STATUS = frozenset({"partial", "ready", "settled", "confirmed", "idle"})
 VALID_DIAGNOSTIC_SIGNAL = frozenset({"responsive", "idle"})
 
 
