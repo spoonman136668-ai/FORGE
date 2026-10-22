@@ -1,0 +1,95 @@
+name: RB1 R10 one-time verified release-switcher registration
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r10-one-time-switcher-registration.yml]
+permissions:
+  contents: read
+concurrency:
+  group: rb1-r10-one-time-switcher-registration
+  cancel-in-progress: false
+jobs:
+  register:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Preflight approved staged hashes then register no-trigger switcher with normalized execute-only ACL
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $administrator=[Security.Principal.WindowsPrincipal]::new($me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or $me.Name -ine 'LINKDEADKB\camar' -or -not $administrator){throw 'RB1_AUTHORIZED_ELEVATED_RUNNER_REQUIRED'}
+          Write-Host 'RB1_R10_ELEVATED_RUNNER=PASS'
+          $installer='C:\Users\camar\Downloads\Repair-CKB-RB1-ReleaseSwitcher-Registration-R6.ps1'
+          $sha='6c782bb144c93eeebdf03f4a26c36db152893dddbd9582d8fd7c96dc4f5c9249'
+          if(-not (Test-Path -LiteralPath $installer -PathType Leaf)){throw 'RB1_R10_EXPECTED_INSTALLER_NOT_FOUND'}
+          if((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sha){throw 'RB1_R10_ORIGINAL_INSTALLER_IDENTITY_DRIFT'}
+          & $installer -PreflightOnly
+          if(-not $?){throw 'RB1_R10_PREFLIGHT_FAILED'}
+          Write-Host 'RB1_R10_STAGED_IDENTITY_PREFLIGHT=PASS'
+          $oldName='CKB-plane Controller'
+          $old=Get-ScheduledTask -TaskName $oldName -ErrorAction Stop
+          $oldXml=Export-ScheduledTask -TaskName $oldName -ErrorAction Stop
+          if($old.State -ne 'Running' -or $old.Actions.Count -ne 1){throw 'RB1_R10_ORIGINAL_CONTROLLER_NOT_RUNNING'}
+          $newName='CKB-RB1-ReleaseSwitcher'
+          if(Get-ScheduledTask -TaskName $newName -ErrorAction SilentlyContinue){throw 'RB1_R10_SWITCHER_ALREADY_PRESENT_REFUSE'}
+          $root='C:\ProgramData\CKBR\release-switcher'
+          $exe="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+          $args='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+(Join-Path $root 'Invoke-CKBReleaseSwitcher.ps1')+'"'
+          $action=New-ScheduledTaskAction -Execute $exe -Argument $args -WorkingDirectory $root
+          $owner='LINKDEADKB\camar'
+          $principal=New-ScheduledTaskPrincipal -UserId $owner -LogonType Interactive -RunLevel Highest
+          $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 15) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+          $definition=New-ScheduledTask -Action $action -Principal $principal -Settings $settings
+          if(@($definition.Triggers | Where-Object {$null -ne $_}).Count -ne 0){throw 'RB1_R10_UNEXPECTED_TRIGGER'}
+          $registered=$false
+          try{
+            Register-ScheduledTask -TaskName $newName -InputObject $definition -ErrorAction Stop | Out-Null
+            $registered=$true
+            $service=New-Object -ComObject Schedule.Service
+            $service.Connect()
+            $comTask=$service.GetFolder('\').GetTask($newName)
+            $sid=$me.User.Value
+            $sddl="O:BAG:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGX;;;$sid)"
+            $comTask.SetSecurityDescriptor($sddl,0)
+            $observed=$comTask.GetSecurityDescriptor(4)
+            $security=[Security.AccessControl.RawSecurityDescriptor]::new($observed)
+            if(-not ($security.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent)){throw 'RB1_R10_TASK_DACL_MISSING'}
+            $aces=@($security.DiscretionaryAcl)
+            if($aces.Count -lt 3 -or $aces.Count -gt 4){throw "RB1_R10_TASK_ACE_COUNT_INVALID=$($aces.Count)"}
+            $fullCount=0; $adminCount=0; $execCount=0; $readCount=0
+            foreach($ace in $aces){
+              $subject=$ace.SecurityIdentifier.Value
+              [uint64]$mask=([int64]$ace.AccessMask -band 0xFFFFFFFFL)
+              if($ace.AceType -ne 'AccessAllowed' -or $ace.IsInherited){throw 'RB1_R10_TASK_UNEXPECTED_INHERITED_OR_DENY_ACE'}
+              if($subject -eq 'S-1-5-18' -and $mask -eq 0x001F01FFL){$fullCount++}
+              elseif($subject -eq 'S-1-5-32-544' -and $mask -eq 0x001F01FFL){$adminCount++}
+              elseif($subject -eq $sid -and $mask -eq 0x001200A9L){$execCount++}
+              elseif($subject -eq $sid -and $mask -eq 0x00120089L){$readCount++}
+              else{throw ('RB1_R10_TASK_INVALID_ACE={0} MASK=0x{1:X8}' -f $subject,$mask)}
+              Write-Host ('RB1_R10_TASK_ACE={0} MASK=0x{1:X8}' -f $subject,$mask)
+            }
+            if($fullCount -ne 1 -or $adminCount -ne 1 -or $execCount -ne 1 -or $readCount -gt 1){throw 'RB1_R10_TASK_EXECUTE_ACL_NOT_EXACT'}
+            $t=Get-ScheduledTask -TaskName $newName -ErrorAction Stop
+            if(@($t.Triggers | Where-Object {$null -ne $_}).Count -ne 0 -or $t.State -ne 'Ready'){throw 'RB1_R10_TASK_STATE_OR_TRIGGER_DRIFT'}
+            if($t.Actions.Count -ne 1 -or $t.Actions[0].Execute -ine $exe -or $t.Actions[0].Arguments -cne $args -or $t.Actions[0].WorkingDirectory -ine $root){throw 'RB1_R10_TASK_ACTION_DRIFT'}
+            if($t.Principal.RunLevel -ne 'Highest' -or $t.Principal.LogonType -ne 'Interactive'){throw 'RB1_R10_TASK_PRINCIPAL_INVALID'}
+            $observedOwner=([Security.Principal.NTAccount]::new($t.Principal.UserId)).Translate([Security.Principal.SecurityIdentifier]).Value
+            if($observedOwner -cne $sid){throw 'RB1_R10_TASK_OWNER_SID_INVALID'}
+            if((Export-ScheduledTask -TaskName $oldName -ErrorAction Stop) -cne $oldXml -or (Get-ScheduledTask -TaskName $oldName).State -ne 'Running'){throw 'RB1_R10_ORIGINAL_CONTROLLER_DRIFT'}
+            Write-Host 'RB1_R10_REGISTERED=PASS'
+            Write-Host 'RB1_R10_ADMINISTRATOR_ACL=PASS'
+            Write-Host 'RB1_R10_ON_DEMAND_NO_TRIGGERS=PASS'
+            Write-Host 'RB1_R10_ORIGINAL_CONTROLLER_UNCHANGED=PASS'
+            Write-Host 'RB1_R10_RELEASE_CUTOVER_NOT_RUN=TRUE'
+          }catch{
+            Write-Host "RB1_R10_ERROR=$($_.Exception.Message)"
+            if($registered){
+              Unregister-ScheduledTask -TaskName $newName -Confirm:$false -ErrorAction SilentlyContinue
+            }
+            if(Get-ScheduledTask -TaskName $newName -ErrorAction SilentlyContinue){throw 'RB1_R10_ROLLBACK_UNVERIFIED'}
+            Write-Host 'RB1_R10_ROLLBACK_TASK_ABSENT=PASS'
+            throw
+          }
