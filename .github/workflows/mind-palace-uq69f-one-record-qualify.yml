@@ -117,6 +117,12 @@ jobs:
             Write-Host 'UQ69F_FULL_WINDOWS_QUALIFICATION=PASS'
             Write-Host 'UQ69F_PRODUCTION_WRITES=0'
             Write-Host 'UQ69F_PAID_MODEL_CALLS=0'
+          }catch{
+            $problem=[string]$_.Exception.Message
+            $tokens=@([regex]::Matches($problem,'UQ69F_[A-Z0-9_]+')|ForEach-Object{$_.Value})
+            $code=if($tokens.Count -gt 0){[string]$tokens[0]}else{'UNCLASSIFIED'}
+            Write-Host ('UQ69F_PRIMARY_FAILURE_CODE='+$code)
+            throw 'UQ69F_QUALIFICATION_STOPPED'
           }finally{
             if($captured){
               foreach($f in $guard){
@@ -125,7 +131,20 @@ jobs:
               }
               Write-Host 'UQ69F_NINE_PROTECTED_HASHES=PASS'
             }
-            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
-            Need (-not(Test-Path $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
+            if(Test-Path -LiteralPath $scratch) {
+              $clean=$false
+              for($attempt=0;$attempt -lt 12;$attempt++){
+                try{
+                  Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+                  $clean=-not (Test-Path -LiteralPath $scratch)
+                  if($clean){break}
+                }catch{
+                  # Transient Windows file handles can survive the git child process briefly.
+                }
+                Start-Sleep -Milliseconds 350
+              }
+              Need $clean 'PRIVATE_SCRATCH_CLEANUP_LOCKED'
+            }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
             Write-Host 'UQ69F_PRIVATE_SCRATCH_CLEAN=PASS'
           }
