@@ -1,0 +1,81 @@
+name: Mind-Palace MP-AI04 isolate Codex subscription inference from MCP
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai04-codex-subscription-isolation.yml']
+permissions:
+  contents: read
+jobs:
+  session_probe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Single existing ChatGPT session inference with no MCP and no API key
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$label){if(-not $ok){throw ('MPAI04_ISOLATION_'+$label)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $codex=(Get-Command codex -ErrorAction Stop).Source
+          $login=(& $codex login status 2>&1|Out-String)
+          Need ($LASTEXITCODE -eq 0 -and $login -match '(?i)ChatGPT' -and
+            $login -notmatch '(?i)API key') 'SUBSCRIPTION_AUTH_MODE'
+          # Eliminate API-billing fallback; do not inspect or output credentials.
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai04-subscription-only-'+$env:GITHUB_RUN_ID)
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          try{
+            $out=Join-Path $scratch 'events.jsonl'
+            $err=Join-Path $scratch 'stderr.txt'
+            $last=Join-Path $scratch 'last.txt'
+            $argv=@('exec','--sandbox','read-only','--ephemeral',
+              '--skip-git-repo-check','--json','--cd',$scratch,
+              '--output-last-message',$last,
+              'Return exactly the ASCII text STATUS_OK. Do not use any tools or access files.')
+            Write-Host 'MPAI04_NO_MCP_CONTROL_STARTED=TRUE'
+            $p=Start-Process -FilePath $codex -ArgumentList $argv -WorkingDirectory $scratch -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+            $exited=$p.WaitForExit(150000)
+            if(-not $exited){
+              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+              Write-Host 'MPAI04_NO_MCP_TIMEOUT=TRUE'
+            }
+            $exit=if($exited){$p.ExitCode}else{-100}
+            $result=''
+            if(Test-Path -LiteralPath $last){$result=([IO.File]::ReadAllText($last)).Trim()}
+            $class='NONE'
+            if($exit -ne 0){
+              $text=''
+              if(Test-Path -LiteralPath $err){$text=[IO.File]::ReadAllText($err)}
+              if(Test-Path -LiteralPath $out){$text+=' '+[IO.File]::ReadAllText($out)}
+              if($text -match '(?i)401|unauthorized|authentication|login required|refresh token'){ $class='AUTHORIZATION_OR_REFRESH' }
+              elseif($text -match '(?i)403|forbidden|entitlement|subscription'){ $class='ACCESS_ENTITLEMENT' }
+              elseif($text -match '(?i)429|quota|usage.?limit|credits|rate.?limit'){ $class='QUOTA' }
+              elseif($text -match '(?i)model.*not available|unsupported model'){ $class='MODEL_ENTITLEMENT' }
+              elseif($text -match '(?i)invalid.*option|unexpected argument|invalid configuration'){ $class='CLI_CONFIGURATION' }
+              elseif($text -match '(?i)connection refused|dns|timed out|network'){ $class='NETWORK' }
+              else{$class='OTHER_REDACTED'}
+            }
+            Write-Host ('MPAI04_NO_MCP_EXEC_EXIT='+$exit)
+            Write-Host ('MPAI04_NO_MCP_FAILURE_CLASS='+$class)
+            Write-Host ('MPAI04_NO_MCP_EXACT_RESPONSE='+$(if($result -ceq 'STATUS_OK'){'PASS'}else{'NOT_PROVEN'}))
+            Write-Host 'MPAI04_MODEL_SOURCE=EXISTING_CHATGPT_SESSION'
+            Write-Host 'MPAI04_MCP_SERVER_REQUESTS=0'
+            Write-Host 'MPAI04_PAID_API_KEYS_USED=0'
+            Write-Host 'MPAI04_PRODUCTION_WRITES=0'
+            Need ($exit -eq 0 -and $result -ceq 'STATUS_OK') 'AUTHENTIC_INFERENCE_NOT_PROVEN'
+            Write-Host 'MPAI04_SUBSCRIPTION_ONLY_INFERENCE=PASS'
+          }finally{
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEANUP'
+            Write-Host 'MPAI04_SUBSCRIPTION_PROBE_SCRATCH_CLEAN=PASS'
+          }
