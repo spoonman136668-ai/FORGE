@@ -507,12 +507,14 @@ class Database:
                     meta["source_sha"] == SOURCE_706
                     and meta["head_seq"] == 56
                     and not previous_v3)
+                from f139.nci04_owner_ledger import verify_native_activation
                 successor_boundary = (
                     bool(previous_v3)
                     and len(previous_v3) < 10
                     and transitions[-1]["schema"] ==
                         "forge.f139.source-transition.v3"
                     and meta["source_sha"] == previous_v3[-1]["to_source_sha"]
+                    and verify_native_activation(self)
                     and new_source_sha not in {
                         t["to_source_sha"] for t in previous_v3})
                 require(tickets == {NEGATIVE_696, NEGATIVE_706}
