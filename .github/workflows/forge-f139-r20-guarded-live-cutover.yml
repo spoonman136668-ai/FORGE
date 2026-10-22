@@ -1,5 +1,4 @@
-name: FORGE F139 R20 owner coordinated cutover qualification
-# Fixed owner-only audited operator, not an evergreen scheduler.
+name: FORGE F139 R20 post-merge original-owner read-only custody audit
 on:
   push:
     branches: [proposal/f139-r20-guarded-live-cutover-20261022]
@@ -8,27 +7,87 @@ concurrency:
   group: forge-f139-r20-original-owner-single-transition
   cancel-in-progress: false
 jobs:
-  original-owner:
+  original-owner-forensic:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 20
+    timeout-minutes: 14
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: r20
-          persist-credentials: false
-      - name: Verify the exact source of the owner cutover procedure
+      - name: Audit merged exact checkout, scheduled task, and immutable owner ledger without mutation
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          $blob = (& git -C r20 rev-parse HEAD:scripts/R20-F139-GuardedCutover.ps1 | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or $blob -cne '177ad51d3d0f7e948249b7929934024ba6ac8e8d') {
-            throw 'R20_ORIGINAL_OWNER_CUTOVER_SCRIPT_SOURCE_DRIFT'
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R20_RECOVERY_READONLY_OWNER_DRIFT'
           }
-          Write-Output 'R20_CUTOVER_PROCEDURE_GIT_BLOB=PASS'
-      - name: Execute explicitly authorized conditional merge and guarded original-owner source transition
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & pwsh -NoProfile -NonInteractive -File r20/scripts/R20-F139-GuardedCutover.ps1 -Apply
-          if ($LASTEXITCODE -ne 0) { throw 'R20_GUARDED_ADMISSION_STOPPED_FAIL_CLOSED' }
-          Write-Output 'R20_AUTHORIZED_COORDINATED_ADMISSION=PASS'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1) {throw 'R20_RECOVERY_TASK_ACTION_DRIFT'}
+          $opts=@{}
+          foreach ($key in @('PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if (-not $m.Success) {throw ('R20_RECOVERY_TASK_ARG_MISSING_'+$key)}
+            $opts[$key]=$m.Groups[1].Value
+          }
+          $sha=(& git -C $opts['RepositoryRoot'] rev-parse HEAD | Out-String).Trim()
+          $dirty=(& git -C $opts['RepositoryRoot'] status --porcelain --untracked-files=all | Out-String).Trim()
+          $main=(& gh api 'repos/spoonman136668-ai/FORGE/branches/main' --jq '.commit.sha' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $main -cne 'ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f' -or
+              $sha -cne $main -or $dirty.Length -ne 0) {
+            throw 'R20_RECOVERY_MERGED_MAIN_OR_ORIGINAL_CHECKOUT_DRIFT'
+          }
+          $audit=@'
+          import contextlib,hashlib,json,pathlib,sqlite3,sys
+          filename=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          oldhead=sys.argv[2]
+          def need(ok,why):
+              if not ok:raise RuntimeError("R20_RECOVERY_"+why)
+          def encode(obj):
+              return (json.dumps(obj,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode()
+          need(filename.name=="state.sqlite" and not filename.is_symlink(),"DB_PATH_DRIFT")
+          with contextlib.closing(sqlite3.connect(filename.as_uri()+"?mode=ro",uri=True,timeout=15)) as db:
+              db.row_factory=sqlite3.Row
+              db.execute("PRAGMA query_only=ON")
+              meta=dict(db.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              tasks=[dict(row) for row in db.execute("SELECT * FROM tasks ORDER BY ticket")]
+              previous="0"*64
+              seq=0
+              head68=None
+              last_event=None
+              for event in db.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  seq+=1
+                  need(event["seq"]==seq and event["prior_sha"]==previous,"LEDGER_LINK_FAIL")
+                  payload=json.loads(event["payload"])
+                  need(encode(payload).decode()==event["payload"],"LEDGER_NONCANONICAL")
+                  nextsha=hashlib.sha256(encode({"seq":seq,"prior_sha":previous,
+                      "kind":event["kind"],"payload":payload})).hexdigest()
+                  need(nextsha==event["sha"],"LEDGER_HASH_MISMATCH")
+                  previous=nextsha
+                  if seq==68:head68=previous
+                  last_event=event["kind"]
+          need(head68==oldhead,"ORIGINAL_EVENT68_NOT_PRESERVED")
+          need(meta["head_seq"]==seq and meta["head_hash"]==previous,
+               "OWNER_HEAD_CHAIN_DISAGREEMENT")
+          need(len(tasks)==11 and sum(t["stage"]=="VERIFIED" for t in tasks)==9
+              and sum(t["stage"]=="QUARANTINED" for t in tasks)==2,
+              "ORIGINAL_TASKS_CHANGED")
+          print("R20_RECOVERY_TASKS=9_VERIFIED_2_QUARANTINED")
+          print("R20_RECOVERY_SOURCE_SHA="+meta["source_sha"])
+          print("R20_RECOVERY_EVENT_SEQ="+str(seq))
+          print("R20_RECOVERY_EVENT_HEAD="+previous)
+          print("R20_RECOVERY_LAST_EVENT_KIND="+str(last_event))
+          print("R20_RECOVERY_ENABLE_FLAG="+str(meta["enabled"]))
+          print("R20_RECOVERY_LEGACY_SUSPENDED="+str(meta["legacy_suspended"]))
+          print("R20_RECOVERY_ORIGINAL_EVENT68=PASS")
+          print("R20_RECOVERY_LEDGER_CHAIN=PASS")
+          print("R20_RECOVERY_DB_WRITES=0")
+          '@
+          $out=& $opts['PythonExe'] -B -c $audit $opts['Database'] 'ff4405b7a9c00e514708490787174ce5a77c19ac812bb59462363d6851896174'
+          if ($LASTEXITCODE -ne 0) {throw 'R20_RECOVERY_LEDGER_READONLY_REJECTED'}
+          $out | ForEach-Object {Write-Output $_}
+          Write-Output ('R20_RECOVERY_SCHEDULED_TASK_STATE='+[string]$task.State)
+          $controller=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object {
+             $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+             $_.CommandLine.Contains($opts['Database'])})
+          Write-Output ('R20_RECOVERY_RUNNING_CONTROLLER_COUNT='+$controller.Count)
+          Write-Output 'R20_READONLY_ORIGINAL_SOURCE_AND_EVENT_CUSTODY=PASS'
