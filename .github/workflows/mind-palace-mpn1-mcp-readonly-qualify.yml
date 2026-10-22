@@ -1,0 +1,265 @@
+name: Mind-Palace MP-N1 read-only MCP agent and HTTP parity Windows qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-mpn1-mcp-readonly-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mpn1-mcp-readonly-source-contract
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact draft PR84 cross-client MCP and one full native Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$ok,[string]$label){if(-not $ok){throw ('MPN1_'+$label)}}
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-n1-cross-client-readonly-mcp-20261022'
+          $expected='99b5a2c740c3dc7e8da0ef182cc8e45d9499f23e'
+          $previous='e1d56aaf37eeaed78b092f58dbef846ae5ac80bd'
+          $base='151206c7e04a3a349d1bce7fac8529e75fb37c75'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpn1-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('SOURCE_DRIFT_'+$ref)
+          }
+          function Redact([string]$s){
+            $s=[regex]::Replace($s,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
+            $s=[regex]::Replace($s,'https?://[^\s]+','<SOURCE_URL>')
+            $s=[regex]::Replace($s,'[a-f0-9]{32,}','<SHA>')
+            $s=[regex]::Replace($s,'[\x00-\x1f\x7f]',' ')
+            if($s.Length -gt 170){$s=$s.Substring(0,170)}
+            return $s
+          }
+          function RunTest([string]$tag,[string]$rel){
+            $out=Join-Path $scratch ($tag+'.stdout')
+            $err=Join-Path $scratch ($tag+'.stderr')
+            $script=Join-Path $root $rel
+            Require (Test-Path -LiteralPath $script -PathType Leaf) ('MISSING_TEST_'+$tag)
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            foreach($line in @([IO.File]::ReadAllLines($out)|Where-Object { $_ -match '^(MPN0|MPN1)_[A-Z0-9_]+=(PASS|[0-9]+) })){
+              Write-Host (Redact ([string]$line))
+            }
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPN1_FAILURE_STAGE='+$tag)
+              $body=[IO.File]::ReadAllText($err)
+              $tokens=@([regex]::Matches($body,'(?:MPN0|UQ[0-9]+[A-Z]?)_[A-Z0-9_]+')|ForEach-Object {$_.Value}|Select-Object -Unique)
+              Write-Host ('MPN1_FAILURE_TOKEN='+$(if($tokens.Count){$tokens[0]}else{'UNCLASSIFIED'}))
+              $filtered=@($body -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
+              foreach($line in ($filtered|Select-Object -Last 2)){Write-Host ('MPN1_REDACTED_ERROR='+(Redact ([string]$line)))}
+              throw ('MPN1_'+$tag+'_FAILED')
+            }
+            Write-Host ('MPN1_'+$tag+'=PASS')
+          }
+          function RunPython([string]$tag,[string]$rel){
+            $out=Join-Path $scratch ($tag+'.stdout')
+            $err=Join-Path $scratch ($tag+'.stderr')
+            $script=Join-Path $root $rel
+            $py=Get-Command python.exe -ErrorAction SilentlyContinue
+            Require ($null -ne $py) 'PYTHON_NOT_AVAILABLE'
+            Require (Test-Path -LiteralPath $script -PathType Leaf) 'PYTHON_TEST_MISSING'
+            $env:PYTHONDONTWRITEBYTECODE='1'
+            $p=Start-Process -FilePath $py.Source -ArgumentList @('-u',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            foreach($line in @([IO.File]::ReadAllLines($out)|Where-Object { $_ -match '^MPN1_[A-Z0-9_]+=(PASS|[0-9]+)$' })){
+              Write-Host (Redact ([string]$line))
+            }
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPN1_FAILURE_STAGE='+$tag)
+              $body=[IO.File]::ReadAllText($err)
+              $filtered=@($body -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
+              foreach($line in ($filtered|Select-Object -Last 6)){Write-Host ('MPN1_REDACTED_ERROR='+(Redact ([string]$line)))}
+              throw ('MPN1_'+$tag+'_FAILED')
+            }
+            Write-Host ('MPN1_'+$tag+'=PASS')
+          }
+          $before=@{}
+          $hasHashes=$false
+          Require (-not (Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -Path $scratch -ItemType Directory -Force | Out-Null
+          try {
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $expected
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
+            Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $expected) 'HEAD_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD^'|Out-String).Trim() -ceq $previous) 'DOC_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq 'df3651244a422b2647869f833dd7c5881cf8505f') 'TEST_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~3'|Out-String).Trim() -ceq '567e444b02ccb7e9a0e6de622d7e7aa92cfaed9c') 'TRANSPORT_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~4'|Out-String).Trim() -ceq '0ce6df7db82199e2222671f65049e4b41bc7644e') 'CORE_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~5'|Out-String).Trim() -ceq '2c42736795ec3336894f6ec5108922b5cd7d33e2') 'MPN1_PARENT_MISMATCH'
+            $delta=@(& git.exe -C $root diff --name-only '2c42736795ec3336894f6ec5108922b5cd7d33e2' HEAD)
+            $allowed=@('docs/MP-N1-READONLY-MCP.md','tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py','tools/mindpalace_readonly.py')
+            Require ($LASTEXITCODE -eq 0 -and $delta.Count -eq 4 -and (($delta|Sort-Object) -join '|') -ceq (($allowed|Sort-Object) -join '|')) 'FOUR_FILE_DELTA'
+            foreach($path in $guard){$before[$path]=(Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $hasHashes=$true
+            RunPython 'FOCUSED_MCP_TRANSPORT_PARITY' 'tests/test_mpn1_mcp.py'
+            RunTest 'FOCUSED_READ_CONTRACT' 'tests/Test-MPN0SharedReadContract.ps1'
+            RunTest 'FULL_WINDOWS_REGRESSION' 'tests/Test-All.ps1'
+            foreach($path in $guard){
+              Require ((Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$path]) ('PROTECTED_CHANGED_'+$path)
+            }
+            Require ((& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim().Length -eq 0) 'TRACKED_DIRTY'
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $expected
+            Write-Host 'MPN1_EXACT_SOURCE_AND_PARENT=PASS'
+            Write-Host 'MPN1_NINE_PROTECTED_HASHES=PASS'
+            Write-Host 'MPN1_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MPN1_SERVICE_DEPLOYMENT=NONE'
+            Write-Host 'MPN1_WINDOWS_SOURCE_CONTRACT_QUALIFIED=PASS'
+          } finally {
+            if($hasHashes){
+              foreach($path in $guard){Require ((Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$path]) ('FINAL_PROTECTED_DRIFT_'+$path)}
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPN1_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
+ })){
+              Write-Host (Redact ([string]$line))
+            }
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPN1_FAILURE_STAGE='+$tag)
+              $body=[IO.File]::ReadAllText($err)
+              $tokens=@([regex]::Matches($body,'(?:MPN0|UQ[0-9]+[A-Z]?)_[A-Z0-9_]+')|ForEach-Object {$_.Value}|Select-Object -Unique)
+              Write-Host ('MPN1_FAILURE_TOKEN='+$(if($tokens.Count){$tokens[0]}else{'UNCLASSIFIED'}))
+              $filtered=@($body -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
+              foreach($line in ($filtered|Select-Object -Last 2)){Write-Host ('MPN1_REDACTED_ERROR='+(Redact ([string]$line)))}
+              throw ('MPN1_'+$tag+'_FAILED')
+            }
+            Write-Host ('MPN1_'+$tag+'=PASS')
+          }
+          function RunPython([string]$tag,[string]$rel){
+            $out=Join-Path $scratch ($tag+'.stdout')
+            $err=Join-Path $scratch ($tag+'.stderr')
+            $script=Join-Path $root $rel
+            $py=Get-Command python.exe -ErrorAction SilentlyContinue
+            Require ($null -ne $py) 'PYTHON_NOT_AVAILABLE'
+            Require (Test-Path -LiteralPath $script -PathType Leaf) 'PYTHON_TEST_MISSING'
+            $env:PYTHONDONTWRITEBYTECODE='1'
+            $p=Start-Process -FilePath $py.Source -ArgumentList @('-u',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            foreach($line in @([IO.File]::ReadAllLines($out)|Where-Object { $_ -match '^(MPN0|MPN1)_[A-Z0-9_]+=(PASS|[0-9]+) })){
+              Write-Host (Redact ([string]$line))
+            }
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPN1_FAILURE_STAGE='+$tag)
+              $body=[IO.File]::ReadAllText($err)
+              $filtered=@($body -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
+              foreach($line in ($filtered|Select-Object -Last 6)){Write-Host ('MPN1_REDACTED_ERROR='+(Redact ([string]$line)))}
+              throw ('MPN1_'+$tag+'_FAILED')
+            }
+            Write-Host ('MPN1_'+$tag+'=PASS')
+          }
+          $before=@{}
+          $hasHashes=$false
+          Require (-not (Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -Path $scratch -ItemType Directory -Force | Out-Null
+          try {
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $expected
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
+            Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $expected) 'HEAD_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD^'|Out-String).Trim() -ceq $previous) 'DOC_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq 'df3651244a422b2647869f833dd7c5881cf8505f') 'TEST_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~3'|Out-String).Trim() -ceq '567e444b02ccb7e9a0e6de622d7e7aa92cfaed9c') 'TRANSPORT_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~4'|Out-String).Trim() -ceq '0ce6df7db82199e2222671f65049e4b41bc7644e') 'CORE_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~5'|Out-String).Trim() -ceq '2c42736795ec3336894f6ec5108922b5cd7d33e2') 'MPN1_PARENT_MISMATCH'
+            $delta=@(& git.exe -C $root diff --name-only '2c42736795ec3336894f6ec5108922b5cd7d33e2' HEAD)
+            $allowed=@('docs/MP-N1-READONLY-MCP.md','tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py','tools/mindpalace_readonly.py')
+            Require ($LASTEXITCODE -eq 0 -and $delta.Count -eq 4 -and (($delta|Sort-Object) -join '|') -ceq (($allowed|Sort-Object) -join '|')) 'FOUR_FILE_DELTA'
+            foreach($path in $guard){$before[$path]=(Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $hasHashes=$true
+            RunPython 'FOCUSED_MCP_TRANSPORT_PARITY' 'tests/test_mpn1_mcp.py'
+            RunTest 'FOCUSED_READ_CONTRACT' 'tests/Test-MPN0SharedReadContract.ps1'
+            RunTest 'FULL_WINDOWS_REGRESSION' 'tests/Test-All.ps1'
+            foreach($path in $guard){
+              Require ((Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$path]) ('PROTECTED_CHANGED_'+$path)
+            }
+            Require ((& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim().Length -eq 0) 'TRACKED_DIRTY'
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $expected
+            Write-Host 'MPN1_EXACT_SOURCE_AND_PARENT=PASS'
+            Write-Host 'MPN1_NINE_PROTECTED_HASHES=PASS'
+            Write-Host 'MPN1_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MPN1_SERVICE_DEPLOYMENT=NONE'
+            Write-Host 'MPN1_WINDOWS_SOURCE_CONTRACT_QUALIFIED=PASS'
+          } finally {
+            if($hasHashes){
+              foreach($path in $guard){Require ((Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$path]) ('FINAL_PROTECTED_DRIFT_'+$path)}
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPN1_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
+ })){
+              Write-Host (Redact ([string]$line))
+            }
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPN1_FAILURE_STAGE='+$tag)
+              $body=[IO.File]::ReadAllText($err)
+              $filtered=@($body -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
+              foreach($line in ($filtered|Select-Object -Last 6)){Write-Host ('MPN1_REDACTED_ERROR='+(Redact ([string]$line)))}
+              throw ('MPN1_'+$tag+'_FAILED')
+            }
+            Write-Host ('MPN1_'+$tag+'=PASS')
+          }
+          $before=@{}
+          $hasHashes=$false
+          Require (-not (Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -Path $scratch -ItemType Directory -Force | Out-Null
+          try {
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $expected
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
+            Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $expected) 'HEAD_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD^'|Out-String).Trim() -ceq $previous) 'DOC_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq 'df3651244a422b2647869f833dd7c5881cf8505f') 'TEST_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~3'|Out-String).Trim() -ceq '567e444b02ccb7e9a0e6de622d7e7aa92cfaed9c') 'TRANSPORT_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~4'|Out-String).Trim() -ceq '0ce6df7db82199e2222671f65049e4b41bc7644e') 'CORE_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~5'|Out-String).Trim() -ceq '2c42736795ec3336894f6ec5108922b5cd7d33e2') 'MPN1_PARENT_MISMATCH'
+            $delta=@(& git.exe -C $root diff --name-only '2c42736795ec3336894f6ec5108922b5cd7d33e2' HEAD)
+            $allowed=@('docs/MP-N1-READONLY-MCP.md','tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py','tools/mindpalace_readonly.py')
+            Require ($LASTEXITCODE -eq 0 -and $delta.Count -eq 4 -and (($delta|Sort-Object) -join '|') -ceq (($allowed|Sort-Object) -join '|')) 'FOUR_FILE_DELTA'
+            foreach($path in $guard){$before[$path]=(Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $hasHashes=$true
+            RunPython 'FOCUSED_MCP_TRANSPORT_PARITY' 'tests/test_mpn1_mcp.py'
+            RunTest 'FOCUSED_READ_CONTRACT' 'tests/Test-MPN0SharedReadContract.ps1'
+            RunTest 'FULL_WINDOWS_REGRESSION' 'tests/Test-All.ps1'
+            foreach($path in $guard){
+              Require ((Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$path]) ('PROTECTED_CHANGED_'+$path)
+            }
+            Require ((& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim().Length -eq 0) 'TRACKED_DIRTY'
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $expected
+            Write-Host 'MPN1_EXACT_SOURCE_AND_PARENT=PASS'
+            Write-Host 'MPN1_NINE_PROTECTED_HASHES=PASS'
+            Write-Host 'MPN1_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MPN1_SERVICE_DEPLOYMENT=NONE'
+            Write-Host 'MPN1_WINDOWS_SOURCE_CONTRACT_QUALIFIED=PASS'
+          } finally {
+            if($hasHashes){
+              foreach($path in $guard){Require ((Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$path]) ('FINAL_PROTECTED_DRIFT_'+$path)}
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPN1_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
