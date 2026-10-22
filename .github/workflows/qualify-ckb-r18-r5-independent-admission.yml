@@ -1,0 +1,180 @@
+name: CKB R18-R5 independent source admission without cutover
+on:
+  push:
+    branches: [audit/ckb-r18-r5-independent-admission-20261022]
+    paths: [.github/workflows/qualify-ckb-r18-r5-independent-admission.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-no-live-promotion-20261022
+  cancel-in-progress: false
+jobs:
+  independent-windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 16
+          persist-credentials: false
+      - name: Lock owner, branch and isolated source scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $base='cee91a268e9424773a3d03944af492a922ea2862'
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($owner)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-independent-admission-20261022' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_R5_OWNER_SOURCE_BOUNDARY_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/qualify-ckb-r18-r5-independent-admission.yml') {
+            throw 'R18_R5_SCOPE_NOT_REVIEW_WORKFLOW_ONLY'
+          }
+          & git.exe diff --check $base HEAD
+          if($LASTEXITCODE -ne 0){throw 'R18_R5_FORMAT_DRIFT'}
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          foreach($f in @(
+             @{path=$old; hash='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+             @{path=$new; hash='63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'},
+             @{path=$cfg; hash='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+             $item=Get-Item -LiteralPath $f.path -ErrorAction Stop
+             if($item.PSIsContainer -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                (Get-FileHash -LiteralPath $f.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $f.hash){
+               throw 'R18_R5_LIVE_PREIMAGE_DRIFT'
+             }
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $old -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_R5_ORIGINAL_CONTROLLER_NOT_RESTORED'
+          }
+          Write-Host 'R18_R5_EXACT_OWNER_AND_SOURCE=PASS'
+          Write-Host 'R18_R5_CURRENT_R1P_SINGLETON_AND_PINS=PASS'
+      - name: Independent byte-exact rollback preservation and diagnostic-only delta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $path='operations/ckb-r18/Invoke-GuardedR18Cutover.ps1'
+          $source=[IO.File]::ReadAllText((Resolve-Path $path).Path)
+          $errors=$null;$tokens=$null
+          [void][Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'R18_R5_INSTRUMENT_SOURCE_PARSE_FAILED'}
+          $python=(Get-Command python.exe -ErrorAction Stop).Source
+          $program=@'
+          import subprocess
+          from pathlib import Path
+          path="operations/ckb-r18/Invoke-GuardedR18Cutover.ps1"
+          base="1569970111f5ec49961d4e8a760044fcc7dda42c"
+          data=Path(path).read_bytes().replace(b"\r\n",b"\n")
+          original=subprocess.run(["git","show",f"{base}:{path}"],check=True,capture_output=True).stdout
+          src=data.decode("utf-8")
+          pos=src.index("# Failure-only R18 startup observation.")
+          finish=src.index("function CheckReadOnlyQuiescence {",pos)
+          helper=src[pos:finish]
+          if src.count("# Failure-only R18 startup observation.")!=1:
+              raise RuntimeError("R18_R5_HELPER_NOT_UNIQUE")
+          for forbidden in ["Stop-ScheduledTask","Start-ScheduledTask","Set-ScheduledTask",
+                            "Stop-Process","Start-Process","RequestNativeStop",
+                            "controller resume","Set-Content","Invoke-Expression","Remove-Item"]:
+              if forbidden.casefold() in helper.casefold():
+                  raise RuntimeError("R18_R5_HELPER_MUTATION_DETECTED")
+          src=src[:pos]+src[finish:]
+          substitutions=[
+              ("$dbSnapshotComplete=$false\n$startupProbeUtc=$null\n$releaseDir=$null",
+               "$dbSnapshotComplete=$false\n$releaseDir=$null"),
+              ("$startupProbeUtc=[DateTime]::UtcNow\n    Start-ScheduledTask -TaskName $taskName -ErrorAction Stop",
+               "Start-ScheduledTask -TaskName $taskName -ErrorAction Stop"),
+              ("    if ($null -ne $startupProbeUtc) {\n"
+               "        try {ReportR18StartupFailure $startupProbeUtc $newExe $oldExe $cutoverDir}\n"
+               "        catch {Write-Host 'R18_STARTUP_DIAGNOSTIC_UNAVAILABLE=TRUE'}\n"
+               "    }\n"
+               "    if ($controllerStopped) {",
+               "    if ($controllerStopped) {")
+          ]
+          for before,after in substitutions:
+              if src.count(before)!=1:
+                  raise RuntimeError("R18_R5_DELTA_BOUNDARY_NOT_EXACT")
+              src=src.replace(before,after,1)
+          if src.encode("utf-8")!=original:
+              raise RuntimeError("R18_R5_ORIGINAL_OPERATION_SOURCE_NOT_BYTE_IDENTICAL")
+          if data.count(b"R18_R1P_ROLLBACK=PASS")!=1:
+              raise RuntimeError("R18_R5_ROLLBACK_MARKER_DRIFT")
+          print("R18_R5_PREEXISTING_SWITCHER_BYTE_EXACT=PASS")
+          print("R18_R5_ONLY_DIAGNOSTIC_INSERTIONS=PASS")
+          print("R18_R5_NO_CONTROLLER_MUTATION_COMMAND_IN_REPORTER=PASS")
+          '@
+          $out=@(& $python -B -c $program 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R18_R5_INDEPENDENT_RECONSTRUCTION_FAILED'}
+          foreach($line in $out){Write-Host ([string]$line)}
+      - name: Independent synthetic failure and unavailable-telemetry acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $path=(Resolve-Path 'operations/ckb-r18/Invoke-GuardedR18Cutover.ps1').Path
+          $tokens=$null;$errors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'R18_R5_AST_INVALID'}
+          $fn=@($ast.FindAll({
+              param($node)
+              $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+              $node.Name -ceq 'ReportR18StartupFailure'
+          },$true))
+          if($fn.Count -ne 1){throw 'R18_R5_REPORTER_NOT_UNIQUE'}
+          Invoke-Expression $fn[0].Extent.Text
+          $taskName='CKB-plane Controller'
+          function Get-ScheduledTask {[pscustomobject]@{State='Ready'}}
+          function Get-ScheduledTaskInfo {[pscustomobject]@{LastTaskResult=2147942402;LastRunTime=[datetime]::UtcNow}}
+          function NativeProcesses {return @()}
+          function Get-WinEvent {throw [System.Exception]::new('Synthetic telemetry unavailable')}
+          $dir=Join-Path $env:RUNNER_TEMP ('R18R5Review-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $dir){throw 'R18_R5_SYNTHETIC_DIRECTORY_COLLISION'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+          try {
+             ReportR18StartupFailure ([DateTime]::UtcNow.AddSeconds(-10)) 'C:\r18.exe' 'C:\r1p.exe' $dir
+             $receipt=Join-Path $dir 'startup-failure-diagnostic.json'
+             $r=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
+             if([string]$r.schema -cne 'ckb-plane.r18.startup-failure-custody.v1' -or
+                [string]$r.task_last_result -cne '2147942402' -or
+                [string]$r.process_class -cne 'NONE' -or
+                [string]$r.ps4100_event_query -cne 'UNAVAILABLE' -or
+                [string]$r.native_process_exit_code -cne 'NOT_OBSERVED' -or
+                $r.raw_event_or_error_text_exported -ne $false -or
+                $r.diagnostic_only -ne $true) {
+               throw 'R18_R5_UNAVAILABLE_TELEMETRY_FAILURE'
+             }
+             if([IO.File]::ReadAllText($receipt).Contains('Synthetic telemetry unavailable')){
+               throw 'R18_R5_RAW_EXCEPTION_LEAK'
+             }
+             $threw=$false
+             try {
+               ReportR18StartupFailure ([DateTime]::UtcNow.AddSeconds(-10)) 'C:\r18.exe' 'C:\r1p.exe' $dir
+             }catch{
+               $threw=($_.Exception.Message -ceq 'R18_STARTUP_DIAGNOSTIC_COLLISION')
+             }
+             if(!$threw){throw 'R18_R5_DIAGNOSTIC_COLLISION_NOT_FAIL_CLOSED'}
+             Write-Host 'R18_R5_UNAVAILABLE_TELEMETRY_SAFE=PASS'
+             Write-Host 'R18_R5_DIAGNOSTIC_COLLISION_FAIL_CLOSED=PASS'
+          } finally {
+             if(Test-Path -LiteralPath $dir){Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop}
+          }
+          Write-Host 'R18_R5_INDEPENDENT_ADMISSION=SOURCE_ONLY_PASS'
+          Write-Host 'R18_R5_PRODUCTION_CUTOVER=NOT_ATTEMPTED'
+          Write-Host 'R18_R5_MR34I9_DISPATCH=NOT_ATTEMPTED'
