@@ -1,0 +1,74 @@
+name: Q15 independent clean Windows Go regression (no model replay)
+on:
+  push:
+    branches: [qualify/q15-clean-native-regression-20261022]
+    paths: [.github/workflows/q15-clean-native-regression.yml]
+permissions:
+  contents: read
+jobs:
+  clean-native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOMAXPROCS: '1'
+      GOFLAGS: '-p=1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Pin exact qualified negative and independent clean checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $q15='ac91fdba407b9f9088a86b9de2ea162ee1c4f997'
+          $parent=(& git.exe rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $parent-cne$q15){throw 'Q15_CLEAN_REGRESSION_PARENT_DRIFT'}
+          $paths=@(& git.exe diff-tree --no-commit-id --name-only -r HEAD)
+          if($LASTEXITCODE-ne0 -or $paths.Count-ne1 -or
+             $paths[0]-cne'.github/workflows/q15-clean-native-regression.yml'){
+            throw 'Q15_CLEAN_REGRESSION_WORKFLOW_ONLY'
+          }
+          $pins=@(
+            @('research/q15_sourcefree_state/FROZEN_PROTOCOL.json','3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05'),
+            @('research/q15_sourcefree_state/experiment.py','cf7a579344642b7dc9be9864c2ece224fbf47238'),
+            @('research/q15_sourcefree_state/test_experiment.py','b5fde0c2462111cbc8df8631aac832463306a12b')
+          )
+          foreach($pin in $pins) {
+            $actual=(& git.exe rev-parse ('HEAD:'+$pin[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $actual-cne$pin[1]){
+              throw ('Q15_FROZEN_NEGATIVE_SOURCE_BLOB_DRIFT_'+$pin[0])
+            }
+          }
+          $dirty=@(& git.exe status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q15_CLEAN_PRE_REGRESSION_DIRTY'}
+          Write-Host 'Q15_CLEAN_NATIVE_GIT_CHECKOUT=PASS'
+          Write-Host 'Q15_NEGATIVE_MODELS_NOT_RERUN=TRUE'
+      - name: One full FORGE native Go regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          & go.exe test -count=1 ./...
+          if($LASTEXITCODE-ne0){throw 'Q15_CLEAN_FULL_GO_REGRESSION_FAILED'}
+          & go.exe vet ./...
+          if($LASTEXITCODE-ne0){throw 'Q15_CLEAN_GO_VET_FAILED'}
+          & go.exe build ./...
+          if($LASTEXITCODE-ne0){throw 'Q15_CLEAN_GO_BUILD_FAILED'}
+          Write-Host 'Q15_INDEPENDENT_CLEAN_FULL_GO_REGRESSION_VET_BUILD=PASS'
+      - name: Verify source and original science never changed
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git.exe status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){
+            Write-Host 'Q15_DIRTY_PATHS_FROM_REGRESSION:'
+            foreach($line in $dirty){Write-Host $line}
+            throw 'Q15_CLEAN_REGRESSION_WORKTREE_DIRTY'
+          }
+          Write-Host 'Q15_POST_REGRESSION_CLEAN=PASS'
+          Write-Host 'Q15_SOURCE_FREE_DEV_NO_GO_RETAINED'
+          Write-Host 'Q15_NO_ORIGINAL_EPISODES_OR_HELD_HOLDOUT_GENERATED'
