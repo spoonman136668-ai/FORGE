@@ -1,0 +1,174 @@
+name: FORGE F139 live original-owner controller read-only status
+# Post-provider native run 39857300435: read-only original-owner reconciliation; no new scheduler,
+# no credential retrieval, no manual tick, no dispatch, no new science.
+on:
+  push:
+    branches: [diagnostics/f139-live-current-readonly-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-r25-owner-readonly-snapshot
+  cancel-in-progress: false
+jobs:
+  original-controller-observation:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Read owner task and original source identities, no state changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $repo = 'spoonman136668-ai/FORGE'
+          $main = 'ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          if ($env:GITHUB_REPOSITORY -cne $repo -or
+              $env:GITHUB_REF -cne 'refs/heads/diagnostics/f139-live-current-readonly-20261022' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R25B_WRONG_OWNER_OR_INHERITED_SECRETS'
+          }
+          $ownerTask = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($ownerTask.Actions).Count -ne 1) {
+            throw 'R25B_ORIGINAL_SCHEDULED_TASK_DRIFT'
+          }
+          $opts = @{}
+          foreach ($key in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $m = [regex]::Match([string]$ownerTask.Actions[0].Arguments,
+               '(?i)(?:^|\s)-' + $key + '\s+"([^"]+)"')
+            if (-not $m.Success) { throw ('R25B_OWNER_TASK_ARG_MISSING_' + $key) }
+            $opts[$key] = $m.Groups[1].Value
+          }
+          $owner = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = [string]$ownerTask.Principal.UserId
+          $taskSID = if ($principal -match '^S-1-') { $principal } else {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($taskSID -cne $owner.User.Value) { throw 'R25B_OWNER_SID_MISMATCH' }
+          $folder = Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($opts['Database']) -ine
+                [IO.Path]::GetFullPath((Join-Path $folder 'state.sqlite')) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine
+                [IO.Path]::GetFullPath((Join-Path $folder 'worker-hmac.dpapi.xml'))) {
+            throw 'R25B_OWNER_TASK_CUSTODY_DRIFT'
+          }
+          $repoHead = (& git -C $opts['RepositoryRoot'] rev-parse HEAD | Out-String).Trim()
+          $dirty = (& git -C $opts['RepositoryRoot'] status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $repoHead -cne $main -or $dirty.Length -ne 0) {
+            throw 'R25B_ORIGINAL_OWNER_SOURCE_DIRTY_OR_DRIFT'
+          }
+          $apiHead = (& gh api "repos/$repo/branches/main" --jq '.commit.sha' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $apiHead -cne $main) {
+            throw 'R25B_PROTECTED_MAIN_IDENTITY_DRIFT'
+          }
+          $script = @'
+          import contextlib, hashlib, json, pathlib, sqlite3, sys
+          from collections import Counter
+          from f139.nci04_owner_ledger import verify_native_activation
+          db_path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          target=sys.argv[2]
+          prior68="ff4405b7a9c00e514708490787174ce5a77c19ac812bb59462363d6851896174"
+          approved69="32ddad1d02c5353a596443f156153e02662abf5fea80ac1c59b898323aa4d92a"
+          def need(ok,code):
+              if not ok:raise RuntimeError("R25B_"+code)
+          def canonical(x):
+              return (json.dumps(x,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode()
+          need(db_path.name=="state.sqlite" and not db_path.is_symlink(),"OWNER_DB_INVALID")
+          with contextlib.closing(sqlite3.connect(db_path.as_uri()+"?mode=ro",uri=True,timeout=20)) as db:
+              db.row_factory=sqlite3.Row
+              db.execute("PRAGMA query_only=ON")
+              meta=dict(db.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              events=list(db.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"))
+              tasks=[dict(t) for t in db.execute("SELECT * FROM tasks ORDER BY ticket")]
+              chain="0"*64
+              kinds=[]
+              after=[]
+              for number,event in enumerate(events,1):
+                  need(event["seq"]==number and event["prior_sha"]==chain,
+                       "CHAIN_LINK_TAMPERED")
+                  payload=json.loads(event["payload"])
+                  need(canonical(payload).decode()==event["payload"],"EVENT_NONCANONICAL")
+                  chain=hashlib.sha256(canonical({"seq":number,"prior_sha":chain,
+                      "kind":event["kind"],"payload":payload})).hexdigest()
+                  need(chain==event["sha"],"CHAIN_HASH_TAMPERED")
+                  if number==68:need(chain==prior68,"PREVIOUS_EVENT68_DRIFT")
+                  if number==69:
+                      need(chain==approved69 and event["kind"]=="SOURCE_TRANSITION_ADMITTED"
+                           and payload["to_source_sha"]==target,"ADMITTED_SOURCE_EVENT69_DRIFT")
+                  if number==70:
+                      need(chain=="4bbb5a81cadd82e41e3ae4ba2c2fb540e193d17becc39993e39d827ac9378333"
+                           and event["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
+                           and payload["source_sha"]==target,
+                           "OWNER_EVENT70_NATIVE_ACTIVATION_MISMATCH")
+                  if number>69:after.append(event["kind"])
+                  kinds.append(event["kind"])
+              need(len(events)>=70 and meta["head_seq"]==len(events) and
+                   meta["head_hash"]==chain,"CURRENT_CHAIN_HEAD_DRIFT")
+              need(meta["source_sha"]==target and meta["enabled"]==1 and
+                   meta["legacy_suspended"]==1,"CURRENT_SOURCE_OR_AUTHORITY_DRIFT")
+              class Inspector:
+                  conn=db
+                  def meta(self):return meta
+              native=verify_native_activation(Inspector())
+              need(native,"CURRENT_NATIVE_ACTIVATION_MISSING")
+              stages=Counter(t["stage"] for t in tasks)
+              issues=[t for t in tasks if t["stage"] not in ("VERIFIED","QUARANTINED")]
+              need(any(t["ticket"].startswith("f139-nci04-i732-") and
+                       t["stage"]=="VERIFIED" for t in tasks),
+                   "FIRST_NATIVE_SUCCESS_NOT_PRESERVED")
+              need(stages["QUARANTINED"]==2, "ORIGINAL_NEGATIVES_CHANGED")
+              print("R25B_LIVE_CONTROLLER_SOURCE="+meta["source_sha"])
+              print("R25B_LIVE_EVENT_SEQ="+str(len(events)))
+              print("R25B_LIVE_EVENT_HEAD="+chain)
+              print("R25B_CURRENT_NATIVE_ACTIVATION="+str(native).upper())
+              print("R25B_CURRENT_NATIVE_ACTIVATIONS="+str(kinds.count("NATIVE_DEVELOPMENT_ACTIVATED")))
+              print("R25B_POST_TRANSITION_EVENT_COUNT="+str(len(after)))
+              print("R25B_POST_TRANSITION_EVENT_KINDS="+",".join(sorted(set(after))))
+              print("R25B_VERIFIED_TASKS="+str(stages["VERIFIED"]))
+              print("R25B_QUARANTINED_TASKS="+str(stages["QUARANTINED"]))
+              print("R25B_PENDING_OR_ACTIVE_TASKS="+str(len(issues)))
+              new=[t for t in tasks if t["ticket"].startswith("f139-nci04-i733-")]
+              print("R25B_SOURCE_AUTHENTIC_ISSUE733_TASK_COUNT="+str(len(new)))
+              for t in new:
+                  print("R25B_NATIVE_TICKET="+t["ticket"])
+                  print("R25B_NATIVE_STAGE="+t["stage"])
+                  print("R25B_NATIVE_RUN_ID="+str(t["run_id"]))
+              print("R25B_LIVE_NEW_DISPATCH_EVENTS="+str(sum(x in (
+                "WORKER_DISPATCH_OBSERVED","TASK_DISPATCH_OBSERVED","DEVELOPMENT_DISPATCHED")
+                for x in after)))
+              print("R25B_LEDGER_READONLY_COLD_AUDIT=PASS")
+              print("R25B_DATABASE_WRITES=0")
+          '@
+          Push-Location -LiteralPath $opts['RepositoryRoot']
+          try {
+            $terminal = $false
+            for ($poll = 0; $poll -lt 13; $poll++) {
+              $lines = & $opts['PythonExe'] -B -c $script $opts['Database'] $main
+              if ($LASTEXITCODE -ne 0) { throw 'R25B_LIVE_EVENT_OR_ACTIVATION_UNVERIFIED' }
+              $terminal = @($lines | Where-Object {
+                $_ -match '^R25B_NATIVE_STAGE=(VERIFIED|QUARANTINED)$'
+              }).Count -gt 0
+              if ($terminal) { break }
+              if ($poll -lt 12) { Start-Sleep -Seconds 10 }
+            }
+            $lines | ForEach-Object { Write-Output $_ }
+            if (-not $terminal) { throw 'R25B_NATIVE_ORIGINAL_OWNER_TERMINAL_NOT_OBSERVED' }
+            if (@($lines | Where-Object { $_ -ceq 'R25B_NATIVE_STAGE=VERIFIED' }).Count -ne 1 -or
+                @($lines | Where-Object { $_ -ceq 'R25B_NATIVE_RUN_ID=39857300435' }).Count -ne 1 -or
+                @($lines | Where-Object { $_ -ceq 'R25B_SOURCE_AUTHENTIC_ISSUE733_TASK_COUNT=1' }).Count -ne 1 -or
+                @($lines | Where-Object { $_ -ceq 'R25B_QUARANTINED_TASKS=2' }).Count -ne 1) {
+              throw 'R25B_SECOND_NATIVE_RECEIPT_OR_NEGATIVE_NOT_VERIFIED'
+            }
+            Write-Output 'R25B_TWO_CONSECUTIVE_NATIVE_CYCLES=PASS'
+            Write-Output 'R25B_ORIGINAL_OWNER_NATIVE_TERMINAL_OBSERVED=PASS'
+          } finally { Pop-Location }
+          $processes = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($opts['Database']) })
+          Write-Output ('R25B_OWNER_TASK_STATE=' + [string]$ownerTask.State)
+          Write-Output ('R25B_OWNER_CONTROLLER_PROCESS_COUNT=' + $processes.Count)
+          if ([string]$ownerTask.State -cne 'Running' -or $processes.Count -ne 1) {
+            throw 'R25B_ORIGINAL_OWNER_NOT_RUNNING_ONCE'
+          }
+          Write-Output 'R25B_WORKER_ACTIONS=NONE'
+          Write-Output 'R25B_OWNER_PREEXISTING_STATE_UNCHANGED=TRUE'
