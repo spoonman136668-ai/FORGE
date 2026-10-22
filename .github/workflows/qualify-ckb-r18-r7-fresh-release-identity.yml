@@ -1,0 +1,115 @@
+name: CKB R18-R7 fresh release identity source-only Windows qualification
+on:
+  push:
+    branches: [proposal/ckb-r18-r7-fresh-release-identity-20261022]
+    paths: [.github/workflows/qualify-ckb-r18-r7-fresh-release-identity.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r7-fresh-id-static-only-20261022
+  cancel-in-progress: false
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Verify exact owner, audit-only branch, and original controller custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='ab0501fef246cb2274e08b66f062fec18e577e11'
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($owner)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/proposal/ckb-r18-r7-fresh-release-identity-20261022' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_R7_OWNER_OR_BRANCH_DRIFT'
+          }
+          $actual=@(& git.exe diff --name-only $base HEAD | Sort-Object)
+          $want=@('.github/workflows/qualify-ckb-r18-r7-fresh-release-identity.yml',
+                  'operations/ckb-r18/Invoke-GuardedR18Cutover.ps1')|Sort-Object
+          if($LASTEXITCODE -ne 0 -or ($actual -join '|') -cne ($want -join '|')){
+            throw 'R18_R7_SCOPE_NOT_ONLY_SWITCHER_AND_QUALIFIER'
+          }
+          Write-Host 'R18_R7_FRESH_RELEASE_OWNER_AND_SOURCE=PASS'
+      - name: Qualify exact two-literal R3 delta and original R1P / R2 custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $sourcePath='operations/ckb-r18/Invoke-GuardedR18Cutover.ps1'
+          $src=[IO.File]::ReadAllText((Resolve-Path -LiteralPath $sourcePath).Path)
+          $baseText=@(& git.exe show 'ab0501fef246cb2274e08b66f062fec18e577e11:operations/ckb-r18/Invoke-GuardedR18Cutover.ps1') -join [char]10
+          if($LASTEXITCODE -ne 0){throw 'R18_R7_BASELINE_UNAVAILABLE'}
+          $nl=[string][char]10
+          $crlf=[string][char]13+$nl
+          $srcNorm=$src.Replace($crlf,$nl).TrimEnd([char[]]@([char]10,[char]13))
+          $oldNorm=$baseText.Replace($crlf,$nl).TrimEnd([char[]]@([char]10,[char]13))
+          $r2='PLANE-R18-OWNER-STATUS-R2'
+          $r3='PLANE-R18-OWNER-STATUS-R3'
+          if($oldNorm.Split($r2).Count -ne 3 -or
+             $srcNorm.Split($r3).Count -ne 3 -or
+             $srcNorm.Replace($r3,$r2) -cne $oldNorm){
+            throw 'R18_R7_DELTA_NOT_EXACT_TWO_RELEASE_NAME_LITERALS'
+          }
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseInput($src,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'R18_R7_POWERSHELL_PARSE_FAILED'}
+          if($srcNorm -notlike '*R18_R1P_ROLLBACK=PASS*' -or
+             $srcNorm -notlike '*ReportR18StartupFailure*' -or
+             $srcNorm -notlike '*R18_RELEASE_OR_ROLLBACK_DESTINATION_ALREADY_EXISTS*'){
+            throw 'R18_R7_ROLLBACK_OR_DIAGNOSTIC_DRIFT'
+          }
+          $oldExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $r2Dir='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2'
+          $r3Dir='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3'
+          $r2Exe=Join-Path $r2Dir 'bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          foreach($f in @(
+             @{path=$oldExe;sha='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+             @{path=$r2Exe;sha='63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'},
+             @{path=$config;sha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $item=Get-Item -LiteralPath $f.path -ErrorAction Stop
+            if($item.PSIsContainer -or
+               ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $f.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $f.sha){
+              throw 'R18_R7_BINARY_OR_CONFIG_PREIMAGE_DRIFT'
+            }
+          }
+          if(!(Test-Path -LiteralPath $r2Dir -PathType Container)){
+            throw 'R18_R7_R2_PRIOR_CUSTODY_MISSING'
+          }
+          if(Test-Path -LiteralPath $r3Dir){
+            throw 'R18_R7_NEW_R3_RELEASE_PATH_ALREADY_USED'
+          }
+          $cutoverPrefix='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-'
+          if(Test-Path -LiteralPath ($cutoverPrefix+$env:GITHUB_RUN_ID)){
+            throw 'R18_R7_NEW_CUTOVER_PATH_ALREADY_USED'
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $oldExe -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_R7_LIVE_R1P_SINGLETON_MISSING'
+          }
+          Write-Host 'R18_R7_EXACT_TWO_LITERAL_RELEASE_DELTA=PASS'
+          Write-Host 'R18_R7_POWER_SHELL_SYNTAX_AND_ROLLBACK=PASS'
+          Write-Host 'R18_R7_NEW_R3_RELEASE_PATH=ABSENT'
+          Write-Host 'R18_R7_OLD_R2_RELEASE_PATH=PRESERVED'
+          Write-Host 'R18_R7_ORIGINAL_R1P_SINGLETON=PASS'
+          Write-Host 'R18_R7_NEW_RELEASE_SOURCE=PROPOSAL_ONLY'
+          Write-Host 'R18_R7_LIVE_SWITCHER_ADMISSION=NOT_GRANTED'
+          Write-Host 'R18_R7_CONTROLLER_RESTART=NOT_ATTEMPTED'
+          Write-Host 'R18_R7_SCIENTIFIC_DISPATCH=NOT_ATTEMPTED'

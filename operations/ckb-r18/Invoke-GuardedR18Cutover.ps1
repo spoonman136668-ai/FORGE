@@ -245,7 +245,7 @@ try {
     # launcher computes its configuration path rather than embedding it.
     # Configuration identity is independently pinned at each cutover boundary.
     # Syntax-check the intended launcher before any persistent writes.
-    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
     $newText=$oldText.Replace($oldExe,$predictedRelease)
     $tokens=$null;$parseErrors=$null
     [void][Management.Automation.Language.Parser]::ParseInput($newText,[ref]$tokens,[ref]$parseErrors)
@@ -258,7 +258,7 @@ try {
         return
     }
     $cutoverAttempted=$true
-    $releaseName='PLANE-R18-OWNER-STATUS-R2'
+    $releaseName='PLANE-R18-OWNER-STATUS-R3'
     $releaseDir=Join-Path 'C:\ProgramData\CKBR\release-store\ckb-plane\releases' $releaseName
     $cutoverDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('PLANE-R18-OWNER-CUTOVER-'+$env:GITHUB_RUN_ID)
     $rollbackDir=Join-Path $cutoverDir 'rollback'
