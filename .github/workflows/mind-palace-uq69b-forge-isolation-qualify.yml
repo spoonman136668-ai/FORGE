@@ -37,8 +37,8 @@ jobs:
           $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
           if(Test-Path -LiteralPath $native -PathType Container){$env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath}
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
-          $pinnedHead='9b1b60a77a5376c8425d17a99f686cf4b4e80da7'
-          $pinnedMain='5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $pinnedHead='9299bf7467f7b745e82cc9cb2507299db6cbd556'
+          $pinnedMain='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
           $branch='maintenance/forge-isolation-record-correction-20261021'
           $scratch=Join-Path $env:RUNNER_TEMP ('uq69b-private-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -59,7 +59,7 @@ jobs:
             $err=Join-Path $logs ($Name+'.err')
             $scriptPath=Join-Path $root $Relative
             Require (Test-Path -LiteralPath $scriptPath -PathType Leaf) ('TEST_MISSING_'+$Name)
-            $p=Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
               '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$scriptPath
             ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
             if($p.ExitCode -ne 0){
@@ -119,6 +119,13 @@ jobs:
             Require ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
             $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
             Require ($head -ceq $pinnedHead) 'SOURCE_HEAD_DRIFT'
+            $allowed=@('pilots/mixed-source/2026-10-21-forge-isolation-record-correction.batch.json',
+              'tests/Test-UQ69ForgeIsolationQualify.ps1',
+              'tools/uq69-forge-isolation-qualify.ps1')
+            $delta=@(& git.exe -C $root diff --name-only $pinnedMain HEAD)
+            Require ($LASTEXITCODE -eq 0 -and $delta.Count -eq 3 -and
+              (($delta | Sort-Object) -join '|') -ceq (($allowed | Sort-Object) -join '|')) 'UNAUTHORIZED_PR_DIFF'
+            Write-Host 'UQ69B_EXACT_THREE_SOURCE_FILES=PASS'
             $before=@{}
             foreach($item in $guard){
               $before[$item]=(Get-FileHash -LiteralPath (Join-Path $root $item) -Algorithm SHA256).Hash.ToLowerInvariant()
