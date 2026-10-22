@@ -1,0 +1,222 @@
+name: FORGE F139 R13 genuine unattended two-worker custody verification
+on:
+  push:
+    branches: [proposal/f139-r13-owner-cold-continuity-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-readonly-continuity
+  cancel-in-progress: false
+jobs:
+  original-owner-cold-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Independently audit two original-owner D2K successors and their original provider receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $repo = 'spoonman136668-ai/FORGE'
+          $source = '536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $head58 = '995143ce24e6c5aa1e3a28b77d5f9fe71c9ec4f32d7aff95cc660f87d1762883'
+          $taskName = 'FORGE-F139-UnifiedController'
+          if ($env:GITHUB_REPOSITORY -cne $repo -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r13-owner-cold-continuity-20261022' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY) {
+            throw 'R13_RUNNER_SOURCE_OR_PAID_API_UNQUALIFIED'
+          }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or [string]$task.State -eq 'Disabled') {
+            throw 'R13_ORIGINAL_TASK_DISABLED_OR_ACTION_DRIFT'
+          }
+          $principal = [string]$task.Principal.UserId
+          $sid = if ($principal -match '^S-1-') {
+            $principal
+          } else {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($sid -ne $who.User.Value) { throw 'R13_ORIGINAL_OWNER_SID_DRIFT' }
+          $argsText = [string]$task.Actions[0].Arguments
+          $opts = @{}
+          foreach ($name in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match($argsText,
+              '(?i)(?:^|\s)-' + $name + '\s+"([^"]+)"')
+            if (-not $match.Success) { throw ('R13_SCHEDULED_ARGUMENT_MISSING_' + $name) }
+            $opts[$name] = $match.Groups[1].Value
+          }
+          $root = $opts['RepositoryRoot']
+          $python = $opts['PythonExe']
+          $db = $opts['Database']
+          $stateDir = Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          $expectedDB = Join-Path $stateDir 'state.sqlite'
+          $expectedKey = Join-Path $stateDir 'worker-hmac.dpapi.xml'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDB) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine
+              [IO.Path]::GetFullPath($expectedKey)) {
+            throw 'R13_OWNER_TASK_ROUTE_DRIFT'
+          }
+          Push-Location -LiteralPath $root
+          try {
+            $checkout = (& git rev-parse HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $checkout -cne $source) {
+              throw 'R13_SOURCE_CHECKOUT_DRIFT'
+            }
+            $dirty = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+              throw 'R13_CHECKOUT_NOT_CLEAN'
+            }
+            $head = (& gh api "repos/$repo/branches/main" --jq '.commit.sha' | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -cne $source) {
+              throw 'R13_PROTECTED_MAIN_DRIFT'
+            }
+            $prefixes = @('f139-d2k-i714-536b91a392b7-','f139-d2k-i715-536b91a392b7-')
+            $historicalNegatives = @(
+              'f139-nci04-i696-5662e3586bc9-7bb8f27f',
+              'f139-nci04-i706-09f3d7447900-09dc99f4'
+            )
+            $verified = $false
+            for ($poll=0; $poll -lt 35; $poll++) {
+              $output = & $python -B -m f139.local_controller --db $db status
+              if ($LASTEXITCODE -ne 0) { throw 'R13_NATIVE_SQLITE_COLD_VERIFICATION_FAILED' }
+              $data = ($output | Out-String | ConvertFrom-Json).status
+              if ($data.meta.source_sha -cne $source -or
+                  $data.meta.head_seq -lt 58 -or
+                  $data.meta.enabled -ne 1 -or
+                  $data.meta.legacy_suspended -ne 1) {
+                throw 'R13_OWNER_SOURCE_LEDGER_DRIFT'
+              }
+              if ($data.meta.head_seq -eq 58 -and $data.meta.head_hash -cne $head58) {
+                throw 'R13_EVENT58_ORIGINAL_HEAD_DRIFT'
+              }
+              foreach ($ticket in $historicalNegatives) {
+                $matches = @($data.tasks | Where-Object { $_.ticket -ceq $ticket })
+                if ($matches.Count -ne 1 -or $matches[0].stage -cne 'QUARANTINED') {
+                  throw 'R13_ORIGINAL_NEGATIVE_CUSTODY_DRIFT'
+                }
+              }
+              $found = @()
+              foreach ($prefix in $prefixes) {
+                $matches = @($data.tasks | Where-Object {
+                  $_.ticket.StartsWith($prefix,[StringComparison]::Ordinal)
+                })
+                if ($matches.Count -gt 1) {
+                  throw 'R13_DUPLICATE_ISSUE_TICKET'
+                }
+                if ($matches.Count -eq 1) {
+                  if ($matches[0].stage -ceq 'QUARANTINED') {
+                    throw 'R13_NEW_WORK_QUARANTINED_PRESERVE_FAILURE'
+                  }
+                  $found += $matches[0]
+                }
+              }
+              if ($found.Count -eq 2 -and
+                  @($found | Where-Object { $_.stage -ceq 'VERIFIED' }).Count -eq 2) {
+                $verified = $true
+                break
+              }
+              if ($poll -lt 34) { Start-Sleep -Seconds 15 }
+            }
+            if (-not $verified) {
+              Write-Output 'R13_TWO_WORKER_CUSTODY=PENDING_DO_NOT_CLAIM'
+              throw 'R13_AUTHENTIC_TWO_WORKER_CONTINUITY_NOT_YET_VERIFIED'
+            }
+            # Two genuinely sequential owner-ledger admission-to-terminal cycles.
+            $first = $found[0]
+            $second = $found[1]
+            if ([long]$first.run_id -le 0 -or [long]$second.run_id -le 0 -or
+                $first.run_id -eq $second.run_id -or
+                -not $first.started_at -or -not $first.completed_at -or
+                -not $second.started_at -or -not $second.completed_at -or
+                [datetimeoffset]$second.started_at -lt [datetimeoffset]$first.completed_at) {
+              throw 'R13_NOT_TWO_SEQUENTIAL_GENUINE_WORKER_RUNS'
+            }
+            foreach ($work in @($first,$second)) {
+              if ($work.source_sha -cne $source -or
+                  $work.stage -cne 'VERIFIED' -or
+                  $work.evidence_sha -cnotmatch '^[a-f0-9]{64}$' -or
+                  -not $work.evidence_dir -or
+                  -not $work.manifest_sha) {
+                throw 'R13_WORKER_LEDGER_CUSTODY_FIELDS_INVALID'
+              }
+              $evidence = [IO.Path]::GetFullPath([string]$work.evidence_dir)
+              $expectedPrefix = [IO.Path]::GetFullPath(
+                (Join-Path $stateDir 'evidence')) + [IO.Path]::DirectorySeparatorChar
+              if (-not $evidence.StartsWith($expectedPrefix,
+                   [StringComparison]::OrdinalIgnoreCase) -or
+                  [IO.Path]::GetFileName($evidence) -cne [string]$work.run_id -or
+                  [IO.Path]::GetFileName([IO.Path]::GetDirectoryName($evidence)) -cne
+                  [string]$work.ticket) {
+                throw 'R13_EVIDENCE_DESTINATION_OUTSIDE_ORIGINAL_OWNER_STORE'
+              }
+              if (-not (Test-Path -LiteralPath $evidence -PathType Container)) {
+                throw 'R13_EVIDENCE_DIRECTORY_MISSING'
+              }
+              $actual = @(Get-ChildItem -LiteralPath $evidence -File |
+                Select-Object -ExpandProperty Name | Sort-Object)
+              $expected = @('manifest.json','ubuntu-latest.zip','windows-latest.zip')
+              if (($actual -join '|') -cne ($expected -join '|')) {
+                throw 'R13_ORIGINAL_EVIDENCE_MEMBER_SET_DRIFT'
+              }
+              $manifestPath = Join-Path $evidence 'manifest.json'
+              $sha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($sha -cne $work.evidence_sha) {
+                throw 'R13_EVIDENCE_MANIFEST_HASH_DRIFT'
+              }
+              $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+              if ($manifest.schema -cne 'forge.f139.windows-evidence-manifest.v1' -or
+                  $manifest.ticket -cne $work.ticket -or
+                  [long]$manifest.run_id -ne [long]$work.run_id -or
+                  $manifest.scientific_originals -ne 0 -or
+                  $manifest.approved_science -ne $false) {
+                throw 'R13_EVIDENCE_ORIGINAL_CUSTODY_SCHEMA_DRIFT'
+              }
+              foreach ($oslabel in @('ubuntu-latest','windows-latest')) {
+                $zip = Join-Path $evidence ($oslabel + '.zip')
+                $zipsha = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($zipsha -cne [string]$manifest.sha256.PSObject.Properties[$oslabel].Value) {
+                  throw 'R13_ORIGINAL_PROVIDER_ZIP_HASH_DRIFT'
+                }
+              }
+              $provider = & gh api "repos/$repo/actions/runs/$($work.run_id)"
+              if ($LASTEXITCODE -ne 0) { throw 'R13_PROVIDER_RUN_UNREADABLE' }
+              $run = ($provider | Out-String | ConvertFrom-Json)
+              if ($run.event -cne 'workflow_dispatch' -or
+                  $run.head_sha -cne $source -or
+                  [int]$run.run_attempt -ne 1 -or
+                  $run.conclusion -cne 'success' -or
+                  $run.status -cne 'completed' -or
+                  $run.path -cne '.github/workflows/forge-f139-development-worker.yml' -or
+                  $run.display_title -cne ('F139 ' + [string]$work.ticket)) {
+                throw 'R13_PROVIDER_AUTHENTIC_SOURCE_EVENT_NOT_VERIFIED'
+              }
+              $jobOutput = & gh api "repos/$repo/actions/runs/$($work.run_id)/jobs?per_page=100"
+              if ($LASTEXITCODE -ne 0) { throw 'R13_PROVIDER_JOB_EVIDENCE_MISSING' }
+              $jobData = $jobOutput | Out-String | ConvertFrom-Json
+              $executed = @($jobData.jobs | Where-Object {
+                $_.name -cin @('execute (ubuntu-latest)','execute (windows-latest)')
+              })
+              if ($executed.Count -ne 2 -or
+                  @($executed | Where-Object { $_.conclusion -cne 'success' }).Count -ne 0) {
+                throw 'R13_PROVIDER_BOTH_OS_EXECUTIONS_NOT_VERIFIED'
+              }
+              Write-Output ('R13_GENUINE_WORKER_CUSTODY=PASS #' +
+                (($work.ticket -split '-i')[1] -split '-')[0] +
+                ' RUN=' + [string]$work.run_id)
+            }
+            $controller = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if ([string]$controller.State -eq 'Disabled') {
+              throw 'R13_ORIGINAL_CONTROLLER_UNEXPECTEDLY_DISABLED'
+            }
+            Write-Output ('R13_FINAL_LEDGER_EVENT_SEQUENCE=' + [string]$data.meta.head_seq)
+            Write-Output ('R13_FINAL_LEDGER_HEAD=' + [string]$data.meta.head_hash)
+            Write-Output 'R13_AUTONOMOUS_TWO_SUCCESSORS=PASS'
+            Write-Output 'R13_HISTORICAL_FAILURES=PRESERVED'
+            Write-Output 'R13_SCIENTIFIC_FIRST_USE=BLOCKED'
+            Write-Output 'R13_NEW_CONTROLLER=NONE'
+          } finally {
+            Pop-Location
+          }
