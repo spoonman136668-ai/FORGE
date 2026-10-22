@@ -173,6 +173,14 @@ jobs:
                   if($line -match '^(# ktrade/internal/|# ktrade/pkg)'){
                     Write-Host 'D3M2_COMPILE_FAILED_IN_QUALIFIED_PACKAGE'
                   }
+                  if($line -match 'authority\.go:20:2:[ ]*(.+)'){
+                    $reason=$Matches[1]
+                    foreach($signal in @('missing go.sum entry','no required module provides','module lookup disabled','cannot find module','build constraints exclude','download disabled','cannot find package','updates to go.mod needed','go.sum')){
+                      if($reason.Contains($signal)){
+                        Write-Host ('D3M2_PUBLIC_SQLITE_IMPORT_CAUSE='+($signal -replace ' ','_'))
+                      }
+                    }
+                  }
                   if($line -match '([A-Za-z0-9_]+\.go):(\d+):(\d+):[ ]*(.+)$'){
                     $site=$Matches[1]+':'+$Matches[2]+':'+$Matches[3]
                     $reason=$Matches[4]
