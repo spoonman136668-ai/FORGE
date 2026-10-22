@@ -136,3 +136,31 @@ jobs:
           Write-Host 'CKB_KTRADE_QUEUE_AND_HISTORY_AUDIT=PASS'
           Write-Host 'CKB_KTRADE_WORKER_DISPATCH=NOT_ATTEMPTED'
           Write-Host 'CKB_KTRADE_RESUME_OR_UNPAUSE=NOT_ATTEMPTED'
+      - name: Reconcile unindexed pending envelopes before any KTRADE submission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $root='C:\Users\camar\GolandProjects\ckb-plane\workorders\pending'
+          if (!(Test-Path -LiteralPath $root -PathType Container)) {
+            $result=[ordered]@{pending_directory='ABSENT';envelopes=0;matched_ktrade=0;names=@();no_mutation=$true}
+          } else {
+            $dir=Get-Item -LiteralPath $root -ErrorAction Stop
+            if(($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'CKB_KTRADE_PENDING_DIRECTORY_ALIAS'}
+            $files=@(Get-ChildItem -LiteralPath $root -File -Filter '*.json' -ErrorAction Stop)
+            if($files.Count -gt 5000){throw 'CKB_KTRADE_PENDING_ENVELOPES_UNBOUNDED'}
+            $names=@()
+            foreach($f in $files){
+              if(($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'CKB_KTRADE_PENDING_ENVELOPE_ALIAS'}
+              $id=[IO.Path]::GetFileNameWithoutExtension($f.Name)
+              if($id -cnotmatch '^[A-Za-z0-9_-]{1,120}$'){throw 'CKB_KTRADE_PENDING_IDENTITY_INVALID'}
+              if($id -match '(?i)KTRADE|C75D3B2|RB1|PBL0'){
+                $names+=@($id)
+              }
+            }
+            $result=[ordered]@{pending_directory='PRESENT';envelopes=$files.Count;matched_ktrade=$names.Count;names=@($names|Sort-Object|Select-Object -First 24);no_mutation=$true}
+          }
+          $json=$result|ConvertTo-Json -Depth 4 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'CKB_KTRADE_PENDING_RECEIPT_OVERSIZED'}
+          Write-Host ('CKB_KTRADE_PENDING_FILES_READONLY='+$json)
+          Write-Host 'CKB_KTRADE_PENDING_QUEUE_RECONCILIATION=PASS'
+          Write-Host 'CKB_KTRADE_NO_NATIVE_WORKORDER_SUBMISSION=TRUE'
