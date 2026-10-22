@@ -1,0 +1,53 @@
+name: CKB R18 original-owner genuine native qualification guarded preflight
+on:
+  push:
+    branches: [operate/ckb-r18-native-requalify-20261022]
+    paths: [.github/workflows/ckb-r18-native-requalify.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-original-owner-qualify-20261022
+  cancel-in-progress: false
+jobs:
+  owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - name: Frozen CKB-only change scope, original owner, and native script syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($ident)
+          $base='320d7fc3aa70a956d125300af69d361bff968c7f'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-native-requalify-20261022' -or
+             $ident.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'CKB_R18_NATIVE_REQUAL_SOURCE_OR_OWNER_DRIFT'
+          }
+          $allowed=@('.github/workflows/ckb-r18-native-requalify.yml','operations/ckb-r18/Invoke-NativeRequalify.ps1')|Sort-Object
+          $actual=@(& git.exe diff --name-only $base HEAD|Sort-Object)
+          if($LASTEXITCODE -ne 0 -or (@($actual)-join '|') -cne (@($allowed)-join '|')){
+            throw 'CKB_R18_NATIVE_REQUAL_SCOPE_EXPANDED'
+          }
+          $path=(Resolve-Path -LiteralPath 'operations/ckb-r18/Invoke-NativeRequalify.ps1').Path
+          $tokens=$null;$errs=$null
+          [void][Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errs)
+          if($errs.Count -gt 0){throw 'CKB_R18_REQUAL_SCRIPT_SYNTAX_FAILED'}
+          Write-Host 'CKB_R18_NATIVE_QUAL_OWNER_AND_SOURCE=PASS'
+      - name: Verify original R18 paused controller and frozen records without changing live state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          & ./operations/ckb-r18/Invoke-NativeRequalify.ps1
+          Write-Host 'CKB_R18_NATIVE_QUAL_DRY_RUN_ONLY=PASS'
