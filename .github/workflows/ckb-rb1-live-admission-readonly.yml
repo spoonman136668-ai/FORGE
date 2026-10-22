@@ -64,22 +64,22 @@ jobs:
           Write-Host ('RB1_CONFIG_REGISTRY_KEYS='+($names -join ','))
           Write-Host ('RB1_CONFIG_HAS_KTRADE='+([bool]($names -contains 'ktrade')).ToString().ToUpperInvariant())
           $src=@'
-import json,sqlite3,sys
-from pathlib import Path
-p=Path(sys.argv[1]).resolve(strict=True)
-con=sqlite3.connect('file:'+p.as_posix()+'?mode=ro',uri=True,timeout=4)
-try:
-    con.execute('PRAGMA query_only=ON')
-    con.execute('BEGIN')
-    st={k:v for k,v in con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
-    counts=dict(con.execute('SELECT state,COUNT(*) FROM queue_items GROUP BY state'))
-    work=dict(con.execute('SELECT state,COUNT(*) FROM work_orders GROUP BY state'))
-    leases=con.execute('SELECT COUNT(*) FROM worker_leases').fetchone()[0]
-    nonterminal=list(con.execute("SELECT id,state FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED') ORDER BY id LIMIT 15"))
-    matching=list(con.execute("SELECT id,state FROM work_orders WHERE lower(id) LIKE '%rb1%' OR lower(id) LIKE '%single_track%' ORDER BY id LIMIT 15"))
-    print('RB1_LIVE_STATE='+json.dumps(dict(settings=st,queue_counts=counts,work_counts=work,leases=leases,nonterminal=nonterminal,matching=matching),separators=(',',':')))
-finally: con.close()
-'@
+          import json,sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect('file:'+p.as_posix()+'?mode=ro',uri=True,timeout=4)
+          try:
+              con.execute('PRAGMA query_only=ON')
+              con.execute('BEGIN')
+              st={k:v for k,v in con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+              counts=dict(con.execute('SELECT state,COUNT(*) FROM queue_items GROUP BY state'))
+              work=dict(con.execute('SELECT state,COUNT(*) FROM work_orders GROUP BY state'))
+              leases=con.execute('SELECT COUNT(*) FROM worker_leases').fetchone()[0]
+              nonterminal=list(con.execute("SELECT id,state FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED') ORDER BY id LIMIT 15"))
+              matching=list(con.execute("SELECT id,state FROM work_orders WHERE lower(id) LIKE '%rb1%' OR lower(id) LIKE '%single_track%' ORDER BY id LIMIT 15"))
+              print('RB1_LIVE_STATE='+json.dumps(dict(settings=st,queue_counts=counts,work_counts=work,leases=leases,nonterminal=nonterminal,matching=matching),separators=(',',':')))
+          finally: con.close()
+          '@
           $out=@(& python.exe -B -c $src $db)
           if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or [string]$out[0] -notlike 'RB1_LIVE_STATE=*'){throw 'RB1_READONLY_SQLITE_PROBE_FAILED'}
           Write-Host $out[0]
