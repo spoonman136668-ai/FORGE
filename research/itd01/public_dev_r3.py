@@ -25,6 +25,7 @@ class PublicCausalDevWorld(PublicDevWorld):
         self._required = frozenset()
         self._ready = False
         self._completed = False
+        self._target_armed_at_action = False
         self._public_interventions = 0
 
     def _advance(self) -> None:
@@ -48,7 +49,8 @@ class PublicCausalDevWorld(PublicDevWorld):
                             else "inflow_arrived",
                     "entity": self._labels[self._downstream], "status": "ready",
                 })
-            elif idx == self._downstream and self._ready and self._states[self._upstream]:
+            elif (idx == self._downstream and self._target_armed_at_action
+                  and self._ready and self._states[self._upstream]):
                 self._completed = True
                 self._last_event.append({
                     "kind": "relay_stable" if self._family == PUBLIC_FAMILIES[0]
@@ -66,6 +68,13 @@ class PublicCausalDevWorld(PublicDevWorld):
     def step(self, proposed: object) -> dict:
         # Enforcement and immutable public hash-chain remain in the qualified
         # R1 parent. No private metadata are returned or serialized.
+        if (type(proposed) is dict and proposed.get("verb") == "intervene"
+                and proposed.get("target") == self._labels[self._downstream]):
+            # Critical causal ordering: authorization is evaluated when the
+            # agent ACTS, not when a previously scheduled consequence arrives.
+            self._target_armed_at_action = bool(
+                self._ready and self._states[self._upstream] and
+                proposed.get("value") in ("activate", "fill"))
         result = super().step(proposed)
         if type(proposed) is dict and proposed.get("verb") == "intervene":
             self._public_interventions += 1
