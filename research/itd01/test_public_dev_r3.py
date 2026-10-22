@@ -34,6 +34,20 @@ class R3CausalDEV(unittest.TestCase):
                     self.assertEqual(bool(events), tick == lag)
                 self.assertEqual(events[0]["entity"], world._labels[world._downstream])
 
+    def test_reservoir_needs_two_delayed_deliveries_not_relay_shortcut(self):
+        world = self.new(PUBLIC_FAMILIES[1], 47)
+        obs = world.reset()
+        src = world._labels[world._upstream]
+        dst = world._labels[world._downstream]
+        self.assertFalse(world.step(action("intervene", src, "fill"))["done"])
+        for _ in range(3):
+            first = world.step(action("wait"))
+        self.assertEqual(first["observation"]["delayed_events"][0]["status"], "partial")
+        world.step(action("intervene", dst, "fill"))
+        for _ in range(3):
+            world.step(action("wait"))
+        self.assertEqual(world.step(action("commit"))["reward"], 0)
+
     def test_no_public_inspection_role_oracle(self):
         for family in PUBLIC_FAMILIES:
             world = self.new(family)
