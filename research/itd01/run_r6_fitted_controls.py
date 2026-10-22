@@ -135,8 +135,12 @@ def experiment(seed, train_n=240, val_n=80, dev_n=80, ablate_n=40,
         start_fit = time.process_time()
         agent.train(train)
         fit_cpu = time.process_time() - start_fit
-        if agent.updates <= 0:
-            raise ValueError("ITD01_R6_UNTRAINED_" + agent.name)
+        # A truly mismatched PUBLIC feature schema is a genuine trainability
+        # negative, not a reason to manufacture updates. In particular, the
+        # frozen R4 statistics learner recognizes "relay_pulse"/"inflow_arrived",
+        # while R5 emits "feed_pulse"/"dependence_pulse". Preserve zero updates
+        # and exclude this arm from any fully trained benchmark admission.
+        fitted = agent.updates > 0
         checkpoint = model_sha(agent)
         bytes_fitted = model_bytes(agent)
         if bytes_fitted > 32*1024*1024:
@@ -148,6 +152,9 @@ def experiment(seed, train_n=240, val_n=80, dev_n=80, ablate_n=40,
             raise ValueError("ITD01_R6_VALID_CHANGED_WEIGHTS")
         trained.append((agent, {
             "class": agent.name, "training_updates": agent.updates,
+            "r5_fitted": fitted,
+            "training_status": ("FITTED" if fitted else
+                "ZERO_UPDATES_R5_EVENT_SCHEMA_MISMATCH_NEGATIVE"),
             "checkpoint_sha256": checkpoint, "checkpoint_bytes": bytes_fitted,
             "fit_cpu_seconds": round(fit_cpu, 6),
             "validation_cpu_seconds": round(val_cpu, 6),
@@ -169,7 +176,7 @@ def experiment(seed, train_n=240, val_n=80, dev_n=80, ablate_n=40,
         if model_sha(agent) != frozen:
             raise ValueError("ITD01_R6_EVAL_CHANGED_WEIGHTS")
     models=[row for _,row in trained]
-    eligible=sum(all(
+    eligible=sum(model["r5_fitted"] and all(
         .40 <= model["validation"][f]["success"] <= .85 and
         model["validation"][f]["legal_fraction"] == 1.0
         for f in PUBLIC_FAMILIES) for model in models)
