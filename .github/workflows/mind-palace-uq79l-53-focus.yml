@@ -66,15 +66,46 @@ jobs:
             foreach($file in $guard){$original[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash.ToLowerInvariant()}
             $haveHashes=$true
             $script=Join-Path $root 'tests/Test-RepoSourceCrashRecovery.ps1'
+            # Instrument only the disposable working copy of the original test.
+            # Preserve its original assertion and never check in this change.
+            $beforeTest=[IO.File]::ReadAllText($script)
+            $needle='if ($Stranded.Count -ne 1) { throw "UQ53_CUSTODY_NOT_DURABLE_AFTER_REAL_PROCESS_KILL" }'
+            Require ($beforeTest.Contains($needle)) 'EXACT_SOURCE_ASSERTION_CHANGED'
+            $extra=@'
+if ($Stranded.Count -ne 1) {
+    Write-Output ("UQ53_DIAG_STRANDED_COUNT=" + $Stranded.Count)
+    $childErrText = if (Test-Path -LiteralPath $errFile) { [IO.File]::ReadAllText($errFile) } else { '' }
+    $childOutText = if (Test-Path -LiteralPath $outFile) { [IO.File]::ReadAllText($outFile) } else { '' }
+    Write-Output ("UQ53_DIAG_CHILD_STDERR_BYTES=" + $childErrText.Length)
+    Write-Output ("UQ53_DIAG_CHILD_STDOUT_BYTES=" + $childOutText.Length)
+    $tokens=@([regex]::Matches(($childErrText + [Environment]::NewLine + $childOutText),'(?:UQ[0-9]+[A-Z]?|CHAT_SOURCE_ALIAS|ICE_STALE)_[A-Z0-9_]+') | ForEach-Object { $_.Value } | Select-Object -Unique)
+    $firstToken=if($tokens.Count -gt 0){[string]$tokens[0]}else{'NONE'}
+    Write-Output ("UQ53_DIAG_CHILD_FAILURE_TOKEN=" + $firstToken)
+    $nonblank=@($childErrText -split '\r?\n'|Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $last=if($nonblank.Count -gt 0){[string]$nonblank[-1]}else{'NO_STDERR'}
+    $last=[regex]::Replace($last,'(?i)[A-Z]:\\[^\s:\)\]]+','<PRIVATE_PATH>')
+    $last=[regex]::Replace($last,'https?://[^\s]+','<SOURCE_URL>')
+    $last=[regex]::Replace($last,'[a-fA-F0-9]{32,}','<DIGEST>')
+    $last=[regex]::Replace($last,'[\x00-\x1f\x7f]',' ')
+    if($last.Length -gt 140){$last=$last.Substring(0,140)}
+    Write-Output ("UQ53_DIAG_CHILD_LAST_ERROR=" + $last)
+    throw "UQ53_CUSTODY_NOT_DURABLE_AFTER_REAL_PROCESS_KILL"
+}
+'@
+            [IO.File]::WriteAllText($script,$beforeTest.Replace($needle,$extra),[Text.UTF8Encoding]::new($false))
+            Write-Host 'UQ79L_DISPOSABLE_ASSERTION_INSTRUMENTATION=ACTIVE'
             $proc=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
             $result=$proc.ExitCode
             Write-Host ('UQ79L_FOCUSED_UQ53_EXIT='+$result)
             $outBody=[IO.File]::ReadAllText($out)
+            foreach($line in @($outBody -split '\r?\n' | Where-Object { $_ -match '^UQ53_DIAG_' })) { Write-Host ('UQ79L_CHILD_DIAG='+(Redact ([string]$line))) }
             foreach($line in @($outBody -split '\r?\n' | Where-Object { $_ -match 'UQ53_[A-Z0-9_]+=(PASS|FAIL)' })){Write-Host ('UQ79L_UQ53_MARKER='+(Redact ([string]$line)))}
             if($result -ne 0){
               $lines=@([IO.File]::ReadAllLines($err)|Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
               foreach($line in ($lines | Select-Object -Last 5)){Write-Host ('UQ79L_FOCUS_REDACTED_ERROR='+(Redact ([string]$line)))}
             }
+            [IO.File]::WriteAllText($script,$beforeTest,[Text.UTF8Encoding]::new($false))
+            Require (@(& git.exe -C $root status --porcelain=v1 --untracked-files=no).Count -eq 0) 'SOURCE_NOT_RESTORED'
             Pin 'refs/heads/main' $base
             Pin ('refs/heads/'+$branch) $sha
           }finally{
