@@ -1,0 +1,109 @@
+name: CKB RB1 bounded read-only controller admission inventory
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-rb1-live-admission-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-rb1-one-shot-readonly-20261022
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify owner runner and pinned source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             @(& git status --porcelain).Count -ne 0){throw 'RB1_READONLY_OWNER_SOURCE_DRIFT'}
+          $allowed=@(& git diff --name-only ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f HEAD)
+          if($LASTEXITCODE -ne 0 -or $allowed.Count -ne 1 -or
+             $allowed[0] -cne '.github/workflows/ckb-rb1-live-admission-readonly.yml'){
+             throw 'RB1_READONLY_WORKFLOW_SCOPE_DRIFT'
+          }
+          Write-Host 'RB1_OWNER_READONLY_CUSTODY=PASS'
+      - name: Read-only original native controller and queue inventory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c' -or
+             (Get-FileHash -LiteralPath $release -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'){
+             throw 'RB1_INSTALLED_SOURCE_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$task.State -cne 'Running' -or $procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $release){
+             throw 'RB1_CONTROLLER_SINGLETON_NOT_RUNNING'
+          }
+          Write-Host 'RB1_INSTALLED_CONTROLLER_IDENTITY=PASS'
+          $raw=[IO.File]::ReadAllText($config)
+          $names=@()
+          $inRepos=$false
+          foreach($line in ($raw -split "\r?\n")){
+             if($line -match '^repos:\s*$'){$inRepos=$true;continue}
+             if($inRepos -and $line -match '^[A-Za-z_][A-Za-z0-9_-]*:\s*$'){break}
+             if($inRepos -and $line -match '^  ([A-Za-z0-9_-]+):\s*$'){$names+= $Matches[1]}
+          }
+          Write-Host ('RB1_CONFIG_REGISTRY_KEYS='+($names -join ','))
+          Write-Host ('RB1_CONFIG_HAS_KTRADE='+([bool]($names -contains 'ktrade')).ToString().ToUpperInvariant())
+          $src=@'
+import json,sqlite3,sys
+from pathlib import Path
+p=Path(sys.argv[1]).resolve(strict=True)
+con=sqlite3.connect('file:'+p.as_posix()+'?mode=ro',uri=True,timeout=4)
+try:
+    con.execute('PRAGMA query_only=ON')
+    con.execute('BEGIN')
+    st={k:v for k,v in con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+    counts=dict(con.execute('SELECT state,COUNT(*) FROM queue_items GROUP BY state'))
+    work=dict(con.execute('SELECT state,COUNT(*) FROM work_orders GROUP BY state'))
+    leases=con.execute('SELECT COUNT(*) FROM worker_leases').fetchone()[0]
+    nonterminal=list(con.execute("SELECT id,state FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED') ORDER BY id LIMIT 15"))
+    matching=list(con.execute("SELECT id,state FROM work_orders WHERE lower(id) LIKE '%rb1%' OR lower(id) LIKE '%single_track%' ORDER BY id LIMIT 15"))
+    print('RB1_LIVE_STATE='+json.dumps(dict(settings=st,queue_counts=counts,work_counts=work,leases=leases,nonterminal=nonterminal,matching=matching),separators=(',',':')))
+finally: con.close()
+'@
+          $out=@(& python.exe -B -c $src $db)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or [string]$out[0] -notlike 'RB1_LIVE_STATE=*'){throw 'RB1_READONLY_SQLITE_PROBE_FAILED'}
+          Write-Host $out[0]
+          Write-Host 'RB1_READONLY_NO_CONTROLLER_OR_SOURCE_MUTATION=PASS'
+      - name: Check existing scoped donor read access without exposing credentials
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $gh=Get-Command gh.exe -ErrorAction SilentlyContinue
+          if($null -eq $gh){Write-Host 'RB1_OWNER_GH_DONOR_READ=GH_UNAVAILABLE';exit 0}
+          $out=Join-Path $env:RUNNER_TEMP 'rb1-donor-read.out'
+          $err=Join-Path $env:RUNNER_TEMP 'rb1-donor-read.err'
+          if((Test-Path -LiteralPath $out) -or (Test-Path -LiteralPath $err)){throw 'RB1_READ_TEMP_CONFLICT'}
+          try{
+             $p=Start-Process -FilePath $gh.Source -ArgumentList @('api','repos/spoonman136668-ai/ckb/commits/520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc','--jq','(.sha+" "+.commit.tree.sha)') -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+             if($p.ExitCode -ne 0){
+                Write-Host 'RB1_OWNER_GH_DONOR_READ=AUTH_OR_ACCESS_FAILED'
+             }else{
+                $observed=([IO.File]::ReadAllText($out)).Trim()
+                if($observed -cne '520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc b74808f35e798b1b72e8fb31a49a5f4664ca87b5'){
+                   throw 'RB1_DONOR_SOURCE_IDENTITY_MISMATCH'
+                }
+                Write-Host 'RB1_OWNER_GH_DONOR_READ=PASS'
+             }
+          }finally{
+             Remove-Item -LiteralPath $out,$err -Force -ErrorAction SilentlyContinue
+          }
