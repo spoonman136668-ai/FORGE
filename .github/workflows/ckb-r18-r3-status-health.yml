@@ -102,4 +102,15 @@ jobs:
           $json=$result|ConvertTo-Json -Compress -Depth 4
           if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 2048) {throw 'R18_BLOCKER_CLASSIFICATION_TOO_LARGE'}
           Write-Host ('R18_R3_BLOCKER_CLASSIFICATION='+$json)
+          $rawBlockers=$parsed.blockers
+          $blockerSummary=[ordered]@{
+            blockers_property_is_null=($null -eq $rawBlockers)
+            blockers_type=if($null -eq $rawBlockers){'NULL'}else{$rawBlockers.GetType().FullName}
+            non_null_entries=@($rawBlockers | Where-Object {$null -ne $_}).Count
+            blocker_strings_with_operator_prefix=@($rawBlockers | Where-Object {$_ -is [string] -and $_ -match '^(OPERATOR_BLOCKED|QUEUE_RECONCILIATION_REQUIRED|QUEUE_JOB_STATE_MISMATCH):'}).Count
+            paused=[bool]$parsed.paused
+            controller_status_class=$sentinel
+            read_only=$true
+          }
+          Write-Host ('R18_R3_BLOCKERS_NULLABILITY='+($blockerSummary|ConvertTo-Json -Compress))
           Write-Host 'R18_R3_READONLY_REJECTED_STATUS_AUDIT=PASS'
