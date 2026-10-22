@@ -1,0 +1,96 @@
+name: R18 authenticated live controller sustained-unpaused acceptance
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-postresume-acceptance-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  accept:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 20
+          persist-credentials: false
+      - name: Verify exact qualified controller, original authority and two consecutive active cycles
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             !$([Security.Principal.WindowsPrincipal]::new($owner)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R18_VERIFICATION_OWNER_IDENTITY_DRIFT'}
+          $allowed=@('.github/workflows/ckb-rb1-live-admission-readonly.yml','.github/workflows/ckb-r18-native-task-shape-readonly.yml','.github/workflows/ckb-r18-original-launch-diagnostic.yml','.github/workflows/ckb-r18-guarded-original-cutover.yml','.github/workflows/ckb-r18-postresume-acceptance-readonly.yml')
+          $changed=@(& git.exe diff --name-only ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f HEAD)
+          if($LASTEXITCODE -ne 0 -or @($changed|Where-Object {$_ -notin $allowed}).Count -ne 0){throw 'R18_VERIFICATION_WORKFLOW_SCOPE_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022'
+          $exe=Join-Path $release 'bin\ckb-plane.exe'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          function Hash([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          if((Hash $exe) -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8' -or
+             (Hash $old) -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2' -or
+             (Hash $config) -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'){throw 'R18_LIVE_PREIMAGE_IDENTITY_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){throw 'R18_CONTROLLER_TASK_NOT_RUNNING'}
+          $match=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
+          if(!$match.Success){throw 'R18_CONTROLLER_WRAPPER_MISSING'}
+          $wrapper=$match.Groups[1].Value.Trim('"',"'"," ")
+          $script=[IO.File]::ReadAllText($wrapper)
+          if((Split-Path -Leaf $wrapper) -cne 'Start-R18-Controller.ps1' -or
+             ($script.Split(@($release),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R18_WRAPPER_SOURCE_OR_RELEASE_DRIFT'}
+          function OwnerProcess {
+            $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if($p.Count -ne 1 -or [string]$p[0].ExecutablePath -ine $exe -or
+               [string]$p[0].CommandLine -notmatch '(?i)controller\s+run'){throw 'R18_AUTHENTIC_NATIVE_SINGLETON_INVALID'}
+            return $p[0]
+          }
+          function Snapshot {
+            $script=@'
+          import sqlite3,json,sys
+          x=sys.argv[1].replace('\\','/')
+          db=sqlite3.connect('file:'+x+'?mode=ro',uri=True,timeout=5)
+          try:
+           db.execute('pragma query_only=on')
+           vals={x[0]:x[1] for x in db.execute("select key,value from settings where key in ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+           vals['leases']=db.execute('select count(*) from worker_leases').fetchone()[0]
+           vals['nonterminal']=db.execute("select count(*) from queue_items where state not in ('COMPLETED','REVIEWED')").fetchone()[0]
+           print(json.dumps(vals,separators=(',',':')))
+          finally:db.close()
+          '@
+            $out=@(& python.exe -B -c $script $db)
+            if($LASTEXITCODE -ne 0 -or $out.Count -ne 1){throw 'R18_READONLY_SQLITE_SNAPSHOT_FAILED'}
+            return $out[0]|ConvertFrom-Json
+          }
+          $first=Snapshot
+          $pid1=(OwnerProcess).ProcessId
+          if($first.paused -cne 'false' -or $first.autonomy_authority -cne 'plane' -or
+             $first.autonomy_generation -cne '6' -or [int]$first.leases -ne 0){throw 'R18_NOT_UNPAUSED_ON_INITIAL_SNAPSHOT'}
+          $firstBeat=[datetime]::Parse([string]$first.autonomy_heartbeat).ToUniversalTime()
+          $raw=@(& $exe controller status --config $config 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R18_LIVE_STATUS_READ_FAILED'}
+          $native=($raw -join [Environment]::NewLine)|ConvertFrom-Json
+          if($native.paused -ne $false -or $native.authority -cne 'plane' -or [string]$native.generation -cne '6'){
+             throw 'R18_LIVE_STATUS_MISMATCH'
+          }
+          Write-Host 'R18_REAL_NATIVE_STATUS_UNPAUSED=PASS'
+          Start-Sleep -Seconds 36
+          $second=Snapshot
+          $pid2=(OwnerProcess).ProcessId
+          $secondBeat=[datetime]::Parse([string]$second.autonomy_heartbeat).ToUniversalTime()
+          if($second.paused -cne 'false' -or $second.autonomy_authority -cne 'plane' -or
+             $second.autonomy_generation -cne '6' -or $pid2 -ne $pid1 -or
+             $secondBeat -le $firstBeat -or [int]$second.leases -ne 0){throw 'R18_CONSECUTIVE_UNPAUSED_CYCLES_FAILED'}
+          Write-Host 'R18_EXACT_RELEASE_AND_TASK_SINGLETON=PASS'
+          Write-Host 'R18_TWO_CONSECUTIVE_UNPAUSED_NATIVE_CYCLES=PASS'
+          Write-Host 'R18_HISTORICAL_RECORDS_STATUS_NO_PARSE_ERROR=PASS'
+          Write-Host ('R18_ACCEPTED_BINARY_SHA256='+((Hash $exe)))
+          Write-Host 'R18_PAPER_ONLY_NO_BROKER_ORDER_OR_SOURCE_MUTATION=PASS'
