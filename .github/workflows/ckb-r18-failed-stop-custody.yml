@@ -1,0 +1,67 @@
+name: CKB R18 failed stop original-controller ownership audit
+on:
+  push:
+    branches: [audit/ckb-r18-failed-stop-custody-20261022]
+    paths: [.github/workflows/ckb-r18-failed-stop-custody.yml]
+permissions:
+  contents: read
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Establish post-stop original controller and task state strictly read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $i=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $p=[Security.Principal.WindowsPrincipal]::new($i)
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-failed-stop-custody-20261022' -or
+              $i.Name -ine 'LINKDEADKB\camar' -or
+              !$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_OWNER_POSTSTOP_READONLY_AUTHORITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $original='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $candidate='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $proc=@()
+          foreach($x in $ps){
+            $kind='OTHER'
+            if([string]$x.ExecutablePath -ieq $original){$kind='ORIGINAL_R1P'}
+            elseif([string]$x.ExecutablePath -ieq $candidate){$kind='R18_CANDIDATE'}
+            elseif(!$x.ExecutablePath){$kind='UNKNOWN'}
+            $proc+=@([ordered]@{pid=[int]$x.ProcessId;parent_pid=[int]$x.ParentProcessId;image_kind=$kind;
+                creation_utc=if($x.CreationDate){([datetime]$x.CreationDate).ToUniversalTime().ToString('o')}else{$null}})
+          }
+          $action=[string]$task.Actions[0].Arguments
+          $class=if($action -like '*Start-R1P-Controller.ps1*'){'ORIGINAL_R1P_LAUNCHER'}
+                elseif($action -like '*Start-R18-Controller.ps1*'){'R18_LAUNCHER'}else{'UNKNOWN'}
+          $rootExe=Join-Path 'C:\Users\camar\GolandProjects\ckb-plane' 'bin\ckb-plane.exe'
+          $cutover='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39775677475'
+          $snap=Join-Path $cutover 'rollback\autonomy.db'
+          $r=[ordered]@{
+            schema='ckb-plane.r18.failed-stop-owner-audit.v1'
+            task_state=[string]$task.State
+            task_owner=[string]$task.Principal.UserId
+            task_action_class=$class
+            task_action_count=@($task.Actions).Count
+            task_last_result=[int]$info.LastTaskResult
+            task_last_run=[string]$info.LastRunTime
+            processes=$proc
+            installed_binary_sha256=(Get-FileHash -LiteralPath $rootExe -Algorithm SHA256).Hash.ToLowerInvariant()
+            config_sha256=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+            old_release_sha256=(Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant()
+            candidate_staged=(Test-Path -LiteralPath $candidate -PathType Leaf)
+            guarded_cutover_dir_exists=(Test-Path -LiteralPath $cutover -PathType Container)
+            prestop_db_snapshot_exists=(Test-Path -LiteralPath $snap -PathType Leaf)
+            no_state_change=$true
+          }
+          $json=$r|ConvertTo-Json -Depth 5 -Compress
+          if ([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_POSTSTOP_AUDIT_TOO_LARGE'}
+          Write-Host ('R18_FAILED_STOP_READONLY_AUDIT='+$json)
+          Write-Host 'R18_POSTSTOP_STATE_MUTATION=NONE'
