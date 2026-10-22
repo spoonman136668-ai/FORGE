@@ -182,8 +182,46 @@ jobs:
           foreach($entry in $safe){if($description -match $entry.rx){$cats+=@($entry.category)}}
           $fq=[regex]::Match($txt,'(?im)^\s*Fully Qualified Error ID\s*[:=]\s*([A-Za-z0-9_.-]{1,120})\s*$')
           $num=[regex]::Match($txt,'(?im)^\s*(?:Line Number|Script Line Number)\s*[:=]\s*([0-9]{1,4})\s*$')
+          # Emit ONLY tokens from a fixed generic Windows/PowerShell error
+          # vocabulary, never unknown words, paths, secret values or identifiers.
+          $generic=@('the','a','an','is','not','cannot','can','because','failed',
+            'with','error','exception','operation','term','command','found','recognized',
+            'access','denied','unauthorized','security','policy','script','file',
+            'path','running','disabled','digitally','signed','signature','loaded',
+            'permission','required','argument','invalid','parameter','directory',
+            'state','key','use','protected','string','secure','cryptographic',
+            'execution','execute','process','start','starting','stopped',
+            'refused','blocked','timed','out','unable','invocation','specified',
+            'module','type','assembly','entry','point','does','exist','method',
+            'property','null','value','object','target','cannot','find','get',
+            'create','new','system','network','read','write','available','runtime',
+            'controller','config','profile','storage','fatal','unexpected',
+            'drive','sharing','violation','already','in','only','one','duplicate',
+            'provided','format','supported','unknown','loading','decrypt','encryption',
+            'data','result','syntax','terminating','native','erroractionpreference')
+          $tokensSafe=@(
+            foreach($word in [regex]::Matches($description,'[A-Za-z]{2,30}')){
+              $w=$word.Value.ToLowerInvariant()
+              if($generic -ccontains $w){$w}
+            }
+          )
+          $highSignal=@(
+            @{label='SCRIPT_NOT_SIGNED';rx='(?i)(is not digitally signed|PSSecurityException|AuthorizationManagerCheckFailed)'},
+            @{label='SCRIPT_EXECUTION_POLICY';rx='(?i)(execution policy|running scripts is disabled|cannot be loaded)'},
+            @{label='READ_ONLY_VARIABLE';rx='(?i)(Cannot overwrite variable|read-only or constant)'},
+            @{label='POWERSHELL_PROPERTY';rx='(?i)(The property .* cannot be found|PropertyNotFoundException)'},
+            @{label='CANNOT_DECRYPT';rx='(?i)(decryp|CryptographicException|key not valid for use in specified state)'},
+            @{label='EXTERNAL_COMMAND';rx='(?i)(is not recognized as the name of|CommandNotFoundException)'},
+            @{label='FILE_READ_WRITE_DENIED';rx='(?i)(Access to the path|Access is denied|UnauthorizedAccessException|PSSecurityException)'},
+            @{label='PATH_INACCESSIBLE';rx='(?i)(cannot find path|does not exist|FileNotFoundException)'},
+            @{label='NATIVE_INVOCATION';rx='(?i)(NativeCommandError|ProgramFailedToStart|Exception calling.*Start)'}
+          )
+          $signals=@()
+          foreach($m in $highSignal){if($txt -match $m.rx){$signals+=@($m.label)}}
           $output=[ordered]@{
-            schema='ckb-plane.r18.powershell4100-safe-classification.v1'
+            schema='ckb-plane.r18.powershell4100-safe-classification.v2'
+            allowlisted_error_vocabulary=@($tokensSafe|Select-Object -First 40)
+            high_signal_categories=$signals
             event_id=4100
             event_utc=$ev[0].TimeCreated.ToUniversalTime().ToString('o')
             message_sha256=$sha
