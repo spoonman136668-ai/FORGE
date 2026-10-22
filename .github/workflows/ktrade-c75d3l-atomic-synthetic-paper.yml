@@ -93,6 +93,12 @@ jobs:
               if($LASTEXITCODE -ne 0){
                 $ls=@(Get-Content -LiteralPath $log)
                 foreach($line in $ls){
+                  if($line -match 'native_synthetic_atomic_bridge_shadow_test\.go:(\d+):'){
+                    # Only test-authored synthetic fixture diagnostics. Never
+                    # emit unfiltered runner/source/owner account logs.
+                    $clean=($line -replace '(?i)C:[\\/][^:\s]+','<local-path>')
+                    Write-Host ('D3L_FIXTURE_FAILURE='+$clean.Substring(0,[Math]::Min(280,$clean.Length)))
+                  }
                   if($line -match '^--- FAIL: (TestC75D3L[A-Za-z0-9_]+)'){
                     Write-Host ('D3L_FAILED_TEST='+$Matches[1])
                   }
