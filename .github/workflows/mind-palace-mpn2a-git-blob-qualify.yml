@@ -31,8 +31,8 @@ jobs:
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $branch='proposal/mp-n2a-immutable-git-blob-20261022'
-          $expected='0846bbaaef72a8ea6a9805c5697470f8e6d56d37'
-          $previous='69cf2ed0da86f5bbf36b91fef0b56a440656e868'
+          $expected='e458138a841f0ab1465086d41a3c416105dfbf2b'
+          $previous='5e453124c2580561accb405181376d4ccee37b26'
           $base='151206c7e04a3a349d1bce7fac8529e75fb37c75'
           $scratch=Join-Path $env:RUNNER_TEMP ('mpn2a-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -101,13 +101,9 @@ jobs:
             Require ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
             Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $expected) 'HEAD_MISMATCH'
             Require ((& git.exe -C $root rev-parse 'HEAD^'|Out-String).Trim() -ceq $previous) 'DOC_COMMIT_MISMATCH'
-            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq '02331123771f2d3416c454dcc45959753d7134f7') 'DOC_PATCH_ANCESTRY'
-            Require ((& git.exe -C $root rev-parse 'HEAD~3'|Out-String).Trim() -ceq '0c1fce73a65fc2ffb1ea93599822d519149023e2') 'TEST_PATCH_ANCESTRY'
-            Require ((& git.exe -C $root rev-parse 'HEAD~4'|Out-String).Trim() -ceq '8410f5aa1670064a74a62bfe015c4c5bc7a03041') 'CORE_PATCH_ANCESTRY'
-            Require ((& git.exe -C $root rev-parse 'HEAD~5'|Out-String).Trim() -ceq '71d133bd3c1d83f8a058c06027e695796a62f48c') 'DOC_BASE_ANCESTRY'
-            Require ((& git.exe -C $root rev-parse 'HEAD~6'|Out-String).Trim() -ceq '8184696780db93e5277fcecb7122b90b250ba50f') 'TEST_BASE_ANCESTRY'
-            Require ((& git.exe -C $root rev-parse 'HEAD~7'|Out-String).Trim() -ceq '413ea8e3e68432154dd75dbca8ed57971774d31d') 'CORE_BASE_ANCESTRY'
-            Require ((& git.exe -C $root rev-parse 'HEAD~8'|Out-String).Trim() -ceq '2a5b866ac8d8cae86349a9ad34e695d9b5e07062') 'MPN1_PARENT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq 'f1e3ed126d758121fe6aa4f74dc28a24a7c34cf0') 'CORE_PROJECTION_ANCESTRY'
+            Require ((& git.exe -C $root rev-parse 'HEAD~3'|Out-String).Trim() -ceq '0846bbaaef72a8ea6a9805c5697470f8e6d56d37') 'DIAGNOSTIC_ANCESTRY'
+            Require ((& git.exe -C $root rev-parse 'HEAD~11'|Out-String).Trim() -ceq '2a5b866ac8d8cae86349a9ad34e695d9b5e07062') 'MPN1_PARENT_MISMATCH'
             $delta=@(& git.exe -C $root diff --name-only '2a5b866ac8d8cae86349a9ad34e695d9b5e07062' HEAD)
             $allowed=@('docs/MP-N2A-SOURCE-AND-CONNECTION-BOUNDARY.md','tests/test_mpn2a_git_blob_identity.py','tools/mindpalace_readonly.py')
             Require ($LASTEXITCODE -eq 0 -and $delta.Count -eq 3 -and (($delta|Sort-Object) -join '|') -ceq (($allowed|Sort-Object) -join '|')) 'THREE_FILE_DELTA'
