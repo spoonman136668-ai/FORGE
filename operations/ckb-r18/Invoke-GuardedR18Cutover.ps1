@@ -10,7 +10,7 @@ $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
 $wp=[Security.Principal.WindowsPrincipal]::new($wid)
 if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
    $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' -or
+   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-paused-r4-20261022' -or
    $wid.Name -ine 'LINKDEADKB\camar' -or
    !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'R18_OWNER_ELEVATION_OR_EXECUTION_SCOPE_CHANGED'
