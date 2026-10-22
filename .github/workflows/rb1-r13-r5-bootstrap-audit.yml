@@ -1,0 +1,46 @@
+name: RB1 R13 read-only R5 bootstrap cutover assurance
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r13-r5-bootstrap-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Authenticate sealed R5 cutover script and preconditions without stopping production controller
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $me.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'RB1_R13_ADMIN_RUNNER_IDENTITY_DRIFT'}
+          $r5='C:\ProgramData\CKBR\release-switcher\CKB-RB1-Admin-Cutover-R5.ps1'
+          $r5hash='42fd885330a08aec83df76988e894918700a7840f3dadbe6c4917fe632ee7b50'
+          if((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne $r5hash){throw 'RB1_R13_R5_HASH_MISMATCH'}
+          Write-Host 'RB1_R13_R5_STAGED_SOURCE_IDENTITY=PASS'
+          $p=[IO.File]::ReadAllLines($r5)
+          Write-Host "RB1_R13_R5_SCRIPT_LINES=$($p.Length)"
+          for($i=0;$i -lt $p.Length;$i++){
+            if($p[$i] -match '(?i)(secret|password|token|api[_-]?key|private[_-]?key|credential|bearer)'){Write-Host "RB1_R13_R5_LINE_$($i+1)=<redacted>"}
+            else{Write-Host "RB1_R13_R5_LINE_$($i+1)=$($p[$i])"}
+          }
+          $expected=@{
+            'C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+            'C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
+            'C:\ProgramData\CKBR\release-switcher\sealed\PLANE-RB1-EXTENDED-COMPAT-R1\bin\ckb-plane.exe'='93c3111beb13e4464ed3bc3311855034fda49ddddc2f700a9e0104f0e6e0e3e3'
+          }
+          foreach($f in $expected.Keys){
+            $got=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($got -cne $expected[$f]){throw "RB1_R13_INPUT_IDENTITY_MISMATCH=$f"}
+            Write-Host "RB1_R13_INPUT_SHA256_PASS=$f"
+          }
+          $t=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($t.State -ne 'Running'){throw 'RB1_R13_ORIGINAL_CONTROLLER_NOT_RUNNING'}
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($procs.Count -ne 1 -or $procs[0].ExecutablePath -ine 'C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'){throw 'RB1_R13_RUNNING_PROCESS_IDENTITY_DRIFT'}
+          Write-Host 'RB1_R13_ORIGINAL_CONTROLLER_SINGLETON=PASS'
+          $receipt='C:\ProgramData\CKBR\release-switcher-status\last-receipt.json'
+          Write-Host "RB1_R13_RECEIPT_ALREADY_PRESENT=$(Test-Path -LiteralPath $receipt)"
+          Write-Host 'RB1_R13_NO_PRODUCTION_MUTATION=TRUE'
