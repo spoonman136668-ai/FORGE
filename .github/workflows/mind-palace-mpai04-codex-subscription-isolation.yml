@@ -43,13 +43,15 @@ jobs:
               '--output-last-message',$last,
               'Return exactly the ASCII text STATUS_OK. Do not use any tools or access files.')
             Write-Host 'MPAI04_NO_MCP_CONTROL_STARTED=TRUE'
-            $p=Start-Process -FilePath $codex -ArgumentList $argv -WorkingDirectory $scratch -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
-            $exited=$p.WaitForExit(150000)
-            if(-not $exited){
-              Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-              Write-Host 'MPAI04_NO_MCP_TIMEOUT=TRUE'
+            # PowerShell native argument passing preserves one prompt argument;
+            # Start-Process -ArgumentList joins and loses quotation boundaries.
+            $exit=-1
+            try {
+              & $codex @argv 1> $out 2> $err
+              $exit=$LASTEXITCODE
+            } catch {
+              $exit=-1
             }
-            $exit=if($exited){$p.ExitCode}else{-100}
             $result=''
             if(Test-Path -LiteralPath $last){$result=([IO.File]::ReadAllText($last)).Trim()}
             $class='NONE'
