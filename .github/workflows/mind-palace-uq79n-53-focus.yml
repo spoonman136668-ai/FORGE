@@ -1,0 +1,92 @@
+name: Mind-Palace UQ79N isolated UQ53 custody focus
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq79n-53-focus.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq79n-53-focus
+  cancel-in-progress: false
+jobs:
+  focus:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact PR82 read-only UQ53 focused custody test
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$condition,[string]$reason){ if(-not $condition){ throw ('UQ79N_'+$reason) } }
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_MISMATCH'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(Test-Path -LiteralPath $native -PathType Container){ $env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath }
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/uq79k-nci04-on-qualified-retrieval-20261022'
+          $sha='4e8ca6c5318a6ab56f5a698db6eaa28235752440'
+          $base='5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq79n-uq53-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $out=Join-Path $scratch 'focus.out'
+          $err=Join-Path $scratch 'focus.err'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json','.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson','.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$expected){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and (([string]$rows[0] -split '\s+')[0]) -ceq $expected) ('SOURCE_REF_DRIFT_'+$ref)
+          }
+          function Redact([string]$value){
+            $value=[regex]::Replace($value,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
+            $value=[regex]::Replace($value,'https?://[^\s]+','<SOURCE_URL>')
+            $value=[regex]::Replace($value,'[a-fA-F0-9]{32,}','<DIGEST>')
+            $value=[regex]::Replace($value,'[\x00-\x1f\x7f]',' ')
+            if($value.Length -gt 190){$value=$value.Substring(0,190)}
+            return $value
+          }
+          Require (-not (Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $original=@{}
+          $haveHashes=$false
+          $result=1
+          try{
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $sha
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
+            Require ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $sha) 'HEAD_MISMATCH'
+            foreach($file in $guard){$original[$file]=(Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $haveHashes=$true
+            $script=Join-Path $root 'tests/Test-RepoSourceCrashRecovery.ps1'
+            $proc=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$script+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $result=$proc.ExitCode
+            Write-Host ('UQ79N_FOCUSED_UQ53_EXIT='+$result)
+            $outBody=[IO.File]::ReadAllText($out)
+            foreach($line in @($outBody -split '\r?\n' | Where-Object { $_ -match 'UQ53_[A-Z0-9_]+=(PASS|FAIL)' })){Write-Host ('UQ79N_UQ53_MARKER='+(Redact ([string]$line)))}
+            if($result -ne 0){
+              $lines=@([IO.File]::ReadAllLines($err)|Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+              foreach($line in ($lines | Select-Object -Last 5)){Write-Host ('UQ79N_FOCUS_REDACTED_ERROR='+(Redact ([string]$line)))}
+            }
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $sha
+          }finally{
+            if($haveHashes){
+              foreach($file in $guard){
+                Require ((Get-FileHash -LiteralPath (Join-Path $root $file) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $original[$file]) ('PROTECTED_DRIFT_'+$file)
+              }
+              Write-Host 'UQ79N_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'UQ79N_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
+          Require ($result -eq 0) 'FOCUSED_UQ53_FAILED'
+          Write-Host 'UQ79N_FOCUSED_UQ53=PASS'
