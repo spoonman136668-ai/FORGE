@@ -1,0 +1,53 @@
+name: Mind-Palace MP-AI04 Codex login mode and ephemeral MCP config feasibility
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai04-cli-capability.yml']
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect supported CLI arguments without inference
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI04_CLI_RUNNER_DENIED'
+          }
+          $cmd=(Get-Command codex -ErrorAction Stop).Source
+          function Inspect([string[]]$Argv) {
+            try {
+              $output=(& $cmd @Argv 2>&1|Out-String)
+              return @{text=$output;exit=$LASTEXITCODE}
+            } catch { return @{text='';exit=-1} }
+          }
+          $identity=Inspect @('login','status')
+          $loginType='UNVERIFIED'
+          if($identity.exit -eq 0) {
+            if($identity.text -match '(?i)chatgpt'){
+              $loginType='CHATGPT_SESSION'
+            } elseif($identity.text -match '(?i)api key|api_key|openai_api_key') {
+              $loginType='API_KEY_MODE_BLOCKED'
+            } else {
+              $loginType='UNKNOWN_AUTHENTICATED_MODE'
+            }
+          }
+          Write-Host ('MPAI04_LOGIN_MODE='+$loginType)
+          $help=Inspect @('exec','--help')
+          $main=Inspect @('--help')
+          $mcp=Inspect @('mcp','add','--help')
+          Write-Host ('MPAI04_EXEC_HELP='+$(if($help.exit -eq 0){'AVAILABLE'}else{'UNAVAILABLE'}))
+          Write-Host ('MPAI04_READONLY_FLAG='+$(if($help.text -match '(?i)--sandbox'){'ADVERTISED'}else{'NOT_ADVERTISED'}))
+          Write-Host ('MPAI04_EPHEMERAL_CONFIG_OVERRIDE='+$(if($main.text -match '(?i)--config'){'ADVERTISED'}else{'NOT_ADVERTISED'}))
+          Write-Host ('MPAI04_MCP_ADD_COMMAND='+$(if($mcp.exit -eq 0){'AVAILABLE'}else{'UNAVAILABLE'}))
+          Write-Host 'MPAI04_MODEL_CALLS=0'
+          Write-Host 'MPAI04_PAID_API_CALLS=0'
+          Write-Host 'MPAI04_PRODUCTION_WRITES=0'
