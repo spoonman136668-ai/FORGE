@@ -1,0 +1,137 @@
+name: Q16 source-free locally gated predictive state development
+on:
+  push:
+    branches: [research/q16-predictive-write-gate-20261022]
+    paths: [.github/workflows/q16-sourcefree-write-gate.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q16-local-write-gate-frozen-once
+  cancel-in-progress: false
+jobs:
+  windows-native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Prevent Windows Git source-byte conversion before checkout
+        shell: pwsh
+        run: |
+          git.exe config --global core.autocrlf false
+          if($LASTEXITCODE-ne0){throw 'Q16_NATIVE_GIT_CONFIG_FAILED'}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - name: Pin exact frozen preregistration and add-only source identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $parent='2b7315d85bbc3ce7f89d74c390d1e989dafe349e'
+          $actual=(& git.exe rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $actual-cne$parent){throw 'Q16_EXACT_PREQUAL_PARENT_DRIFT'}
+          $expected=@(
+            '.github/workflows/q16-sourcefree-write-gate.yml',
+            'research/q16_write_gate/FROZEN_PROTOCOL.json',
+            'research/q16_write_gate/experiment.py',
+            'research/q16_write_gate/test_experiment.py'
+          )
+          $changes=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $changes)){
+            throw 'Q16_FOUR_NEW_FILES_SCOPE_DRIFT'
+          }
+          $pins=@(
+            @('research/q16_write_gate/FROZEN_PROTOCOL.json','f47e7a35093833f7b1692a39176aa2eb5093907b'),
+            @('research/q16_write_gate/experiment.py','bede556374d832e2c29b48f6b4286c7a204868b3'),
+            @('research/q16_write_gate/test_experiment.py','dc1ecb9e19ccccf42ad3503ae7ebcd8813b135e3')
+          )
+          foreach($pin in $pins){
+            $blob=(& git.exe rev-parse ('HEAD:'+$pin[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $blob-cne$pin[1]){
+              throw ('Q16_BLOB_IDENTITY_INVALID_'+$pin[0])
+            }
+          }
+          $python='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+          if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Q16_PINNED_PYTHON_MISSING'}
+          $protocol='research/q16_write_gate/FROZEN_PROTOCOL.json'
+          $onDisk=(& git.exe hash-object --no-filters -- $protocol).Trim()
+          if($LASTEXITCODE-ne0 -or $onDisk-cne'f47e7a35093833f7b1692a39176aa2eb5093907b'){
+            throw 'Q16_WINDOWS_PROTOCOL_ONDISK_BLOB_MISMATCH'
+          }
+          Write-Host 'Q16_FROZEN_PREEXECUTION_SCOPE_AND_BYTES=PASS'
+      - name: Windows source-free protocol and unit tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+          & $py -B -m unittest discover -s research/q16_write_gate -p test_experiment.py -v
+          if($LASTEXITCODE-ne0){throw 'Q16_WINDOWS_FOCUSED_TEST_FAILURE'}
+          & $py -B research/q16_write_gate/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q16_WINDOWS_FROZEN_ROLE_GUARD_FAILURE'}
+          Write-Host 'Q16_WINDOWS_FOCUSED_SOURCEFREE=PASS'
+      - name: Execute frozen candidate and four fully trained controls on TRAIN and DEV
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          [Diagnostics.Process]::GetCurrentProcess().PriorityClass='BelowNormal'
+          $py='C:\ProgramData\CKBR\research-sidecar-yggdrasil\python312\python.exe'
+          $log=Join-Path $env:RUNNER_TEMP 'q16-windows-dev.log'
+          if(Test-Path -LiteralPath $log){throw 'Q16_PREEXISTING_OUTPUT'}
+          & $py -B research/q16_write_gate/experiment.py --mode train-dev 2>&1 | Tee-Object -FilePath $log
+          if($LASTEXITCODE-ne0){throw 'Q16_WINDOWS_REAL_TRAIN_DEV_FAILED'}
+          $results=@(Get-Content -LiteralPath $log |
+            Where-Object {$_ -like 'Q16_RESULT_JSON=*'})
+          if($results.Count-ne1){throw 'Q16_RESULT_COUNT_INVALID'}
+          $report=$results[0].Substring(16)|ConvertFrom-Json
+          if($report.original_source_episodes-ne0 -or
+             $report.held_G_H_generated-ne$false -or
+             $report.scientific_first_use-ne$false -or
+             $report.train_count-ne96 -or $report.dev_count-ne48){
+            throw 'Q16_INVALID_ACCEPTANCE_EVIDENCE'
+          }
+          $sha=(Get-FileHash -LiteralPath $log -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host ('Q16_NATIVE_TRAIN_DEV_RECEIPT_SHA256='+$sha)
+          Write-Host 'Q16_WINDOWS_FIVE_MODEL_DEV_COMPLETE=PASS'
+      - name: Require source clean without skipping previous FORGE G61 authority
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git.exe status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q16_SOURCE_CHANGED'}
+          Write-Host 'Q16_WORKTREE_CLEAN=PASS'
+          Write-Host 'Q16_FULL_FORGE_G61_ACCEPTANCE=NOT_RUN_EXISTING_PINNED_LINEAGE_BLOCK'
+          Write-Host 'Q16_ORIGINAL_SOURCE_EPISODES=ZERO'
+          Write-Host 'Q16_HELD_AND_SCIENTIFIC_FIRST_USE=BLOCKED'
+  linux-independent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify frozen source, execute independent no-held train development
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 2b7315d85bbc3ce7f89d74c390d1e989dafe349e
+          test "$(git rev-parse HEAD:research/q16_write_gate/FROZEN_PROTOCOL.json)" = f47e7a35093833f7b1692a39176aa2eb5093907b
+          test "$(git rev-parse HEAD:research/q16_write_gate/experiment.py)" = bede556374d832e2c29b48f6b4286c7a204868b3
+          python -B -m unittest discover -s research/q16_write_gate -p test_experiment.py -v
+          python -B research/q16_write_gate/experiment.py --mode selftest
+          python -B research/q16_write_gate/experiment.py --mode train-dev | tee "$RUNNER_TEMP/q16-linux-dev.log"
+          grep -q '^Q16_RESULT_JSON=' "$RUNNER_TEMP/q16-linux-dev.log"
+          grep -q '^Q16_UNFAMILIAR_G_H=NOT_GENERATED$' "$RUNNER_TEMP/q16-linux-dev.log"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          sha256sum "$RUNNER_TEMP/q16-linux-dev.log"
+          echo Q16_LINUX_SOURCE_FREE_TRAIN_DEV=PASS
+          echo Q16_SCIENTIFIC_FIRST_USE=BLOCKED
