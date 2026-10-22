@@ -1,0 +1,131 @@
+name: Mind-Palace UQ69F one-record synthetic transaction qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq69f-one-record-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: uq69f-single-source-windows-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact diagnostics event
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Qualify exact isolated synthetic transaction and one complete regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$OK,[string]$Why){if(-not $OK){throw ('UQ69F_'+$Why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+             $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+             $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $moduleRoot=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(Test-Path $moduleRoot){$env:PSModulePath=$moduleRoot+[IO.Path]::PathSeparator+$env:PSModulePath}
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/uq69f-one-record-synthetic-20261022'
+          $source='d7964ced1bd1485465980e3ad8f5645f4feca07a'
+          $parent='9299bf7467f7b745e82cc9cb2507299db6cbd556'
+          $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq69f-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $logs=Join-Path $scratch 'logs'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+             '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+             '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$expected){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $expected) ('GIT_REF_DRIFT_'+$ref)
+          }
+          function TestNative([string]$tag,[string]$script){
+            $path=Join-Path $root $script
+            Need (Test-Path -LiteralPath $path -PathType Leaf) ('SCRIPT_NOT_FOUND_'+$tag)
+            $out=Join-Path $logs ($tag+'.out')
+            $err=Join-Path $logs ($tag+'.err')
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$path+'"')) -WorkingDirectory $root
+               -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if($p.ExitCode -ne 0){
+              $errorBody=[IO.File]::ReadAllText($err)
+              $matches=@([regex]::Matches($errorBody,'(?:UQ69F|UQ51|UQ53|UQ55)_[A-Z0-9_]+')|
+                ForEach-Object{$_.Value}|Select-Object -Unique)
+              $code=if($matches.Count -gt 0){[string]$matches[0]}else{'UNCLASSIFIED'}
+              Write-Host ('UQ69F_FAILURE_STAGE='+$tag)
+              Write-Host ('UQ69F_FAILURE_CODE='+$code)
+              if($tag -eq 'full'){
+                $seen=@([regex]::Matches([IO.File]::ReadAllText($out),'RUN Test-[A-Za-z0-9_-]+[.]ps1')|
+                  ForEach-Object{$_.Value})
+                if($seen.Count -gt 0){Write-Host ('UQ69F_FULL_LAST_TEST='+[string]$seen[-1])}
+              }
+              throw ('UQ69F_TEST_FAILED_'+$tag)
+            }
+            if($tag -ceq 'focused'){
+              $data=[IO.File]::ReadAllText($out)
+              foreach($marker in @('UQ69F_EXACT_PLAN=PASS','UQ69F_WRONG_HEAD_FAIL_CLOSED=PASS',
+                 'UQ69F_FAILURE_SCRATCH_CLEANUP=PASS','UQ69F_ONE_RECORD_TRANSACTION_SIMULATION=PASS',
+                 'UQ69F_NINE_PROTECTED_HASHES=PASS','UQ69F_PRODUCTION_MEMORY_WRITES=0')){
+                Need ($data.Contains($marker)) ('FOCUSED_MARKER_MISSING_'+$marker)
+              }
+            }
+            Write-Host ('UQ69F_'+$tag.ToUpperInvariant()+'=PASS')
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'STALE_SCRATCH'
+          New-Item -ItemType Directory -Path $logs -Force|Out-Null
+          $before=@{}
+          $captured=$false
+          try{
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            Need ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'SOURCE_HEAD_CHANGED'
+            & git.exe -C $root merge-base --is-ancestor $parent $source
+            Need ($LASTEXITCODE -eq 0) 'PARENT_NOT_ANCESTOR'
+            $files=@(& git.exe -C $root diff --name-only $parent $source)
+            $allow=@('tools/uq69-one-record-simulate.ps1','tests/Test-UQ69OneRecordSimulate.ps1')
+            Need ($LASTEXITCODE -eq 0 -and $files.Count -eq 2 -and
+              (($files|Sort-Object)-join '|') -ceq (($allow|Sort-Object)-join '|')) 'DELTA_SCOPE_CHANGED'
+            Need ((& git.exe -C $root rev-parse 'HEAD:tools/uq69-one-record-simulate.ps1'|Out-String).Trim() -ceq
+              '8a529e44111377503c12459c8b933522772f5264') 'NATIVE_TOOL_BLOB_CHANGED'
+            Need ((& git.exe -C $root rev-parse 'HEAD:tests/Test-UQ69OneRecordSimulate.ps1'|Out-String).Trim() -ceq
+              '555e43b6178cf9356c3097225349fb5b0dbd397b') 'NATIVE_TEST_BLOB_CHANGED'
+            foreach($f in $guard){
+              $before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $captured=$true
+            TestNative 'focused' 'tests/Test-UQ69OneRecordSimulate.ps1'
+            TestNative 'full' 'tests/Test-All.ps1'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_CHANGED'
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'UQ69F_EXACT_SOURCE_SCOPE=PASS'
+            Write-Host 'UQ69F_SOURCE_HEAD_AND_MAIN_STABLE=PASS'
+            Write-Host 'UQ69F_FULL_WINDOWS_QUALIFICATION=PASS'
+            Write-Host 'UQ69F_PRODUCTION_WRITES=0'
+            Write-Host 'UQ69F_PAID_MODEL_CALLS=0'
+          }finally{
+            if($captured){
+              foreach($f in $guard){
+                $now=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+                Need ($now -ceq $before[$f]) ('PROTECTED_HASH_CHANGED_'+$f)
+              }
+              Write-Host 'UQ69F_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Need (-not(Test-Path $scratch)) 'PRIVATE_SCRATCH_NOT_CLEAN'
+            Write-Host 'UQ69F_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
