@@ -70,11 +70,16 @@ jobs:
           try:
               db.execute('PRAGMA query_only=ON')
               db.execute('BEGIN')
-              st={k:v for k,v in db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+              st={k:v for k,v in db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat','autonomy_status')")}
+              status=st.pop('autonomy_status','')
+              status_class=('OPERATOR_BLOCKED' if status.startswith('OPERATOR_BLOCKED:')
+                            else 'PAUSED' if status=='PAUSED'
+                            else 'IDLE' if status.startswith('IDLE:')
+                            else 'OTHER_OR_UNKNOWN')
               q=dict(db.execute('SELECT state, COUNT(*) FROM queue_items GROUP BY state'))
               work=db.execute('SELECT count(*) FROM work_orders').fetchone()[0]
               leases=db.execute('SELECT count(*) FROM worker_leases').fetchone()[0]
-              print(json.dumps({'settings':st,'queue':q,'work':work,'leases':leases},sort_keys=True))
+              print(json.dumps({'settings':st,'queue':q,'work':work,'leases':leases,'status_class':status_class},sort_keys=True))
           finally: db.close()
           '@
           $results=@()
@@ -112,6 +117,7 @@ jobs:
           }
           $state=if($results[1]){'PAUSED'}else{'UNPAUSED_IDLE'}
           Write-Host ('R18_POSTRESUME_PERSISTED_STATE='+$state)
+          Write-Host ('R18_POSTRESUME_AUTONOMY_STATUS_CLASS='+$data.status_class)
           Write-Host 'R18_POSTRESUME_PAUSE_WRITER_ATTRIBUTION=NOT_AVAILABLE_FROM_STORE'
           Write-Host 'R18_POSTRESUME_LIVE_MUTATION=NONE'
           Write-Host 'R18_POSTRESUME_RESEARCH_DISPATCH=NOT_ATTEMPTED'
