@@ -1,0 +1,78 @@
+name: R18 R5 local proof postwrite custody and pause read only
+on:
+  push:
+    branches: [audit/ckb-r18-r5-proof-postwrite-20261022]
+    paths: [.github/workflows/ckb-r18-r5-proof-postwrite.yml]
+permissions:
+  contents: read
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Verify replaced local proof and original backup without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $w=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($w)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-proof-postwrite-20261022' -or
+             $w.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_PROOF_POSTWRITE_CUSTODY_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $proof=Join-Path $root 'state\original-authority-inactive-r6.json'
+          $backup=$proof+'.pre-r18-39813624809'
+          $expected='b2eb91fcce7704720e7e5820998af302a1a17bc78b22e1f9268a0d1b433a0049'
+          if (!(Test-Path -LiteralPath $proof -PathType Leaf) -or
+              !(Test-Path -LiteralPath $backup -PathType Leaf)) {
+            throw 'R18_PROOF_REPLACEMENT_OR_BACKUP_NOT_FOUND'
+          }
+          $b=(Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $n=(Get-FileHash -LiteralPath $proof -Algorithm SHA256).Hash.ToLowerInvariant()
+          $p=Get-Content -LiteralPath $proof -Raw | ConvertFrom-Json
+          $old=Get-Content -LiteralPath $backup -Raw | ConvertFrom-Json
+          $start=[datetimeoffset]::Parse([string]$p.created_at_utc).ToUniversalTime()
+          $expiry=[datetimeoffset]::Parse([string]$p.expires_at_utc).ToUniversalTime()
+          $t=[datetimeoffset]::UtcNow
+          $name='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'
+          $service=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $valid=($b -ceq $expected -and $n -cne $expected -and
+            $p.schema -ceq 'ckb-plane.original-authority-inactive.v1' -and
+            $p.authority -ceq 'plane' -and $p.repository -ceq 'spoonman136668-ai/ckb' -and
+            $p.runner_service -ceq $name -and $p.runner_service_status -ceq 'Stopped' -and
+            $p.accepted_ref_mutation_allowed -eq $false -and
+            $p.runtime_launch_allowed -eq $false -and
+            $p.local_original_authority_only -eq $true -and
+            $start -le $t -and $expiry -gt $t -and
+            ($expiry - $start).TotalMinutes -ge 59 -and
+            ($expiry - $start).TotalMinutes -le 61 -and
+            $service.State -eq 'Stopped' -and [int]$service.ProcessId -eq 0 -and
+            $task.State -eq 'Running' -and
+            $procs.Count -eq 1 -and [string]$procs[0].ExecutablePath -ieq $r5)
+          $result=[ordered]@{
+            schema='ckb-plane.r18.r5-proof-postwrite-custody.v1'
+            previous_backup_sha256=$b
+            expected_previous_backup=$expected
+            current_proof_sha256=$n
+            previous_expiry_utc=([datetimeoffset]::Parse([string]$old.expires_at_utc)).ToUniversalTime().ToString('o')
+            refreshed_created_utc=$start.ToString('o')
+            refreshed_expires_utc=$expiry.ToString('o')
+            remaining_minutes=[Math]::Round(($expiry-$t).TotalMinutes,2)
+            policy_restraints_preserved=($p.runtime_launch_allowed -eq $false -and $p.accepted_ref_mutation_allowed -eq $false)
+            owner_runner_still_stopped=($service.State -eq 'Stopped' -and [int]$service.ProcessId -eq 0)
+            active_r5_process_count=$procs.Count
+            original_rollback_proof_retained=($b -ceq $expected)
+            proof_valid_now=$valid
+            paused_flag_not_changed_by_audit=$true
+          }
+          $json=$result|ConvertTo-Json -Compress -Depth 4
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_PROOF_POSTWRITE_RECEIPT_OVERSIZED'}
+          Write-Host ('R18_R5_POSTWRITE_PROOF_RECEIPT='+$json)
+          if(!$valid){throw 'R18_R5_PROOF_NOT_SAFE_AFTER_WRITE'}
+          Write-Host 'R18_R5_PROOF_POSTWRITE_CUSTODY=PASS'
