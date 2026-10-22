@@ -1,0 +1,34 @@
+name: RB1 R9 task scheduler ACL normalization audit
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r9-task-sddl-normalization-audit.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Read only existing inert probe DACL flags and ACL ACE shape
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $me.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($me).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'ADMIN_TOKEN_MISMATCH'}
+          $svc=New-Object -ComObject Schedule.Service
+          $svc.Connect()
+          $task=$svc.GetFolder('\').GetTask('CKB-RB1-Delegation-Probe')
+          foreach($flags in @(4,7)){
+            $sddl=$task.GetSecurityDescriptor($flags)
+            $desc=[Security.AccessControl.CommonSecurityDescriptor]::new($false,$false,$sddl)
+            Write-Host "RB1_SDDL_FLAGS=$flags CONTROL_FLAGS=$($desc.ControlFlags) RAW_SDDL=$sddl"
+            foreach($ace in $desc.DiscretionaryAcl){
+              [uint64]$mask=([int64]$ace.AccessMask -band 0xFFFFFFFFL)
+              Write-Host ('RB1_SDDL_ACE={0} MASK=0x{1:X8} INHERITED={2}' -f $ace.SecurityIdentifier.Value,$mask,$ace.IsInherited)
+            }
+          }
+          $t=Get-ScheduledTask -TaskName 'CKB-RB1-ReleaseSwitcher' -ErrorAction SilentlyContinue
+          if($null -ne $t){throw 'R9_ROLLBACK_SWITCHER_NOT_ABSENT'}
+          Write-Host 'RB1_R9_FAILED_REGISTRATION_ROLLBACK_ABSENT=PASS'
+          Write-Host 'RB1_R9_NORMALIZATION_AUDIT_NO_MUTATION=TRUE'
