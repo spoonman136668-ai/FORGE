@@ -1,0 +1,151 @@
+name: FORGE F139 R19 original-owner live-admission readiness
+# Read-only owner preflight. No merge, task disable, DB writes, checkout update,
+# DPAPI access, restart, dispatch, paid API or scientific first-use.
+on:
+  push:
+    branches: [proposal/f139-r19-live-admission-preflight-20261022]
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: forge-f139-r19-owner-admission-readonly
+  cancel-in-progress: false
+jobs:
+  original-owner-cutover-readiness:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Exact source, controller privileges, task lease and ledger readiness (no mutation)
+        shell: pwsh
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $repo = 'spoonman136668-ai/FORGE'
+          $from = '536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $candidate = 'dcdd09d49792bb1c6cbd0a56dd157db005d5edd5'
+          $head68 = 'ff4405b7a9c00e514708490787174ce5a77c19ac812bb59462363d6851896174'
+          if ($env:GITHUB_REPOSITORY -cne $repo -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r19-live-admission-preflight-20261022' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:OPENAI_API_KEY -or $env:F139_WORKER_HMAC_KEY) {
+            throw 'R19_EXACT_OWNER_RUNNER_OR_CREDENTIAL_ISOLATION_DRIFT'
+          }
+          $main = (& gh api "repos/$repo/branches/main" --jq '.commit.sha' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $main -cne $from) { throw 'R19_MAIN_SOURCE_DRIFT' }
+          $pr = & gh api "repos/$repo/pulls/722" | Out-String | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $pr.base.sha -cne $from -or
+              $pr.head.sha -cne $candidate -or $pr.draft -ne $false -or
+              $pr.merged -eq $true -or $pr.mergeable -ne $true) {
+            throw 'R19_PR_722_CANDIDATE_IDENTITY_DRIFT'
+          }
+          $checks = & gh api "repos/$repo/commits/$candidate/check-runs?per_page=100" | Out-String | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $checks.total_count -ne 13 -or
+              @($checks.check_runs | Where-Object {
+                $_.head_sha -cne $candidate -or $_.status -cne 'completed' -or
+                $_.conclusion -cne 'success'
+              }).Count -ne 0) { throw 'R19_CANDIDATE_GITHUB_QUALIFICATION_DRIFT' }
+          Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+          $isElevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or [string]$task.State -eq 'Disabled') {
+            throw 'R19_ORIGINAL_TASK_UNEXPECTED_STATE'
+          }
+          $owner = [string]$task.Principal.UserId
+          $sid = if ($owner -match '^S-1-') {
+            $owner
+          } else {
+            (New-Object Security.Principal.NTAccount($owner)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($sid -cne $identity.User.Value) { throw 'R19_OWNER_SID_DRIFT' }
+          $options = @{}
+          foreach ($key in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $match = [regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-' + $key + '\s+"([^"]+)"')
+            if (-not $match.Success) { throw ('R19_ORIGINAL_TASK_ARG_MISSING_' + $key) }
+            $options[$key] = $match.Groups[1].Value
+          }
+          $state = Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          if ([IO.Path]::GetFileName($options['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($options['Database']) -ine
+                [IO.Path]::GetFullPath((Join-Path $state 'state.sqlite')) -or
+              [IO.Path]::GetFullPath($options['EncryptedKeyFile']) -ine
+                [IO.Path]::GetFullPath((Join-Path $state 'worker-hmac.dpapi.xml'))) {
+            throw 'R19_SCHEDULED_ORIGINAL_OWNER_ROUTE_DRIFT'
+          }
+          foreach ($key in @('PythonExe','Database','EncryptedKeyFile')) {
+            if (-not (Test-Path -LiteralPath $options[$key] -PathType Leaf)) {
+              throw ('R19_ORIGINAL_OWNER_FILE_ABSENT_' + $key)
+            }
+          }
+          Push-Location -LiteralPath $options['RepositoryRoot']
+          try {
+            $checkout = (& git rev-parse HEAD | Out-String).Trim()
+            $clean = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $checkout -cne $from -or $clean.Length -ne 0) {
+              throw 'R19_ORIGINAL_OWNER_CHECKOUT_NOT_EXACT_CLEAN_MAIN'
+            }
+            $readOnlyPython = @'
+          import pathlib, sqlite3, sys
+          source, expected, seq, sha = sys.argv[1:]
+          source=pathlib.Path(source).resolve(strict=True)
+          if source.name!="state.sqlite" or source.is_symlink():
+              raise RuntimeError("R19_OWNER_DB_PATH_INVALID")
+          with sqlite3.connect(source.as_uri()+"?mode=ro",uri=True,timeout=10) as db:
+              db.row_factory=sqlite3.Row
+              db.execute("PRAGMA query_only=ON")
+              meta=dict(db.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              rows=[dict(x) for x in db.execute("SELECT * FROM tasks ORDER BY ticket")]
+              kinds=[dict(x) for x in db.execute("SELECT seq,kind,sha FROM events ORDER BY seq DESC LIMIT 1")]
+          if not (meta["source_sha"]==expected and meta["head_seq"]==int(seq)
+                  and meta["head_hash"]==sha and meta["enabled"]==1
+                  and meta["legacy_suspended"]==1 and len(kinds)==1
+                  and kinds[0]["seq"]==int(seq) and kinds[0]["sha"]==sha):
+              raise RuntimeError("R19_OWNER_EVENT_CHAIN_OR_SOURCE_DRIFT")
+          stages=[x["stage"] for x in rows]
+          if stages.count("VERIFIED")!=4 or stages.count("QUARANTINED")!=2 or len(rows)!=6:
+              raise RuntimeError("R19_OWNER_TASKS_PENDING_UNVERIFIED_OR_MISSING")
+          negatives={x["ticket"] for x in rows if x["stage"]=="QUARANTINED"}
+          if negatives!={"f139-nci04-i696-5662e3586bc9-7bb8f27f",
+                        "f139-nci04-i706-09f3d7447900-09dc99f4"}:
+              raise RuntimeError("R19_OWNER_CERTIFIED_NEGATIVES_DRIFT")
+          print("R19_ORIGINAL_EVENT68_SOURCE_AND_IDLE_TASKS=PASS")
+          print("R19_VERIFIED_ORIGINAL_TASKS=4")
+          print("R19_QUARANTINED_NEGATIVES=2")
+          print("R19_OWNER_DATABASE_WRITES=0")
+          '@
+            $output = & $options['PythonExe'] -B -c $readOnlyPython $options['Database'] $from '68' $head68
+            if ($LASTEXITCODE -ne 0) { throw 'R19_READONLY_OWNER_LEDGER_REJECTED' }
+            $output | ForEach-Object { Write-Output $_ }
+          } finally { Pop-Location }
+          $controllerProcs = @(
+            Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($options['Database']) }
+          )
+          $result = [ordered]@{
+            schema = 'forge.f139.r19.owner-cutover-preflight.v1'
+            current_protected_main_verified = $true
+            qualified_integrated_pr_722_verified = $true
+            original_owner_sid_verified = $true
+            original_checkout_clean = $true
+            original_event68_and_idle_tasks_verified = $true
+            controller_task_state = [string]$task.State
+            runner_admin_token_elevated = [bool]$isElevated
+            controller_python_process_count = $controllerProcs.Count
+            owner_database_writes = 0
+            task_state_mutations = 0
+            protected_main_mutations = 0
+            scientific_first_use = $false
+          }
+          Write-Output ('R19_OWNER_ADMISSION_PREFLIGHT=' + ($result | ConvertTo-Json -Compress))
+          if (-not $isElevated) {
+            Write-Output 'R19_PRIVILEGED_TASK_CUTOVER=BLOCKED_NON_ELEVATED_OWNER_RUNNER'
+          } else {
+            Write-Output 'R19_PRIVILEGED_TASK_CUTOVER=ELIGIBLE_SUBJECT_TO_SEPARATE_LIVE_APPROVAL'
+          }
+          Write-Output 'R19_READONLY_EVIDENCE=PASS'
