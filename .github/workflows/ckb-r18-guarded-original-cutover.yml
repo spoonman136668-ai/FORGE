@@ -114,6 +114,13 @@ jobs:
             }
             Start-Sleep -Seconds 2
             if(@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'").Count -ne 0){throw 'R18_OLD_CONTROLLER_REMAINED_RUNNING'}
+            $ready=$false
+            for($j=0;$j -lt 30;$j++){
+              $st=[string](Get-ScheduledTask -TaskName $taskName).State
+              if($st -eq 'Ready'){$ready=$true;break}
+              Start-Sleep -Seconds 1
+            }
+            if(!$ready){throw 'R18_SCHEDULER_NOT_READY_AFTER_STOP'}
             [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($originalText.Replace($old,$new)))
             $swapped=$true
             Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
@@ -124,7 +131,17 @@ jobs:
               if($p.Count -gt 1){throw 'R18_MORE_THAN_ONE_CONTROLLER'}
               if($p.Count -eq 1 -and [string]$p[0].ExecutablePath -ieq $newExe){$started=$true;break}
             }
-            if(!$started){throw 'R18_NEW_CONTROLLER_NOT_RUNNING'}
+            if(!$started){
+              $currentTask=Get-ScheduledTask -TaskName $taskName
+              $taskInfo=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+              $seen=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+              Write-Host ('R18_LAUNCH_TASK_STATE='+[string]$currentTask.State)
+              Write-Host ('R18_LAUNCH_TASK_RESULT='+[string]$taskInfo.LastTaskResult)
+              Write-Host ('R18_LAUNCH_CONTROLLERS_SEEN='+$seen.Count)
+              Write-Host ('R18_LAUNCH_ORIGINAL_RUNNING='+[bool](@($seen|Where-Object {$_.ExecutablePath -ieq $oldExe}).Count))
+              Write-Host ('R18_LAUNCH_CANDIDATE_RUNNING='+[bool](@($seen|Where-Object {$_.ExecutablePath -ieq $newExe}).Count))
+              throw 'R18_NEW_CONTROLLER_NOT_RUNNING'
+            }
             $raw=@(& $newExe controller status --config $config 2>&1)
             if($LASTEXITCODE -ne 0){throw 'R18_LEGACY_STATUS_STILL_FAILS'}
             $status=($raw -join [Environment]::NewLine)|ConvertFrom-Json
