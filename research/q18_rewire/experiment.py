@@ -71,11 +71,15 @@ def graph_paths(nodes:int, edges:tuple)->tuple:
 
 
 def reach(nodes:int, edges:tuple, on:tuple)->bool:
-    seen={0}
-    for u,v in edges:
-        if u in seen and on[edges.index((u,v))]:
-            seen.add(v)
-    return nodes-1 in seen
+    """Topological node traversal: invariant to public edge list order."""
+    seen=[False]*nodes
+    seen[0]=True
+    for node in range(nodes):
+        if seen[node]:
+            for index,(u,v) in enumerate(edges):
+                if u==node and on[index]:
+                    seen[v]=True
+    return seen[-1]
 
 
 def make_episodes(role:str, doc:dict)->list:
