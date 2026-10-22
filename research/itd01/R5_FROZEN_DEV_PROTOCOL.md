@@ -1,0 +1,27 @@
+# ITD-01 R5 — Prospective developer-only three-stage causal composition and sanitized history gates
+
+**FROZEN BEFORE IMPLEMENTATION.** Source parent: `30c942d1caf0d62e38184307561d12a87aa07b0c` (R4). This is a NEW PUBLIC DEVELOPMENT generator and engineering check, not an independent H1/H2 source birth. All R23–R32, R1–R4 accepted positive/negative records and R4's invalid structured-control history ablations remain immutable.
+
+## Hypothesis and scientific boundary
+
+R4's public A/B were saturated (all fitted models 100%), therefore the frozen ITD-01 benchmark difficulty criterion was not qualified. R5 must first require **three** ordered causal actions (source -> relay -> sink), delayed events and distracting public events, with no exposed privileged source/relay/sink labels. The original frozen R4 models are treated strictly as **cold zero-shot diagnostic controls**; they are NOT fully R5-trained or equivalent resource-matched scientific controls. New source-free experience should demonstrate that a legal public-only planner can identify the hidden ordered causal chain within 40 actions.
+
+## Distinct public developmental environments
+
+Two branches of the exact preexisting R1 observation/action contract: 
+- DEV A: a three-stage delayed causal relay, one source pulse reveals relay, subsequent relay pulse reveals sink, then sink activation stabilizes.
+- DEV B: two delayed source deliveries are needed before relay becomes ready; relay then generates delayed signal to sink; sink stabilizes only if intervention occurs in correct causal order.
+- Four public entities with randomized names per reset; three private functional roles, one decoy. `inspect` reports device-level noisy health unrelated to role. Distinct source-free public event types `feed_pulse`, `dependence_pulse`, `goal_confirmed`; noninformative `ambient_drift` may accompany incorrect interventions. Each causal stage has 2-step A/3-step B latency; incorrect early interventions and open-loop source/relay/sink selection must not count as success.
+- Existing invalid-action fail-closed, 24 investigative and 16 execution action limits, 40 interactions before one commit, public transcript SHA, role/ground-truth isolation unchanged. No new controller authority or protected execution.
+
+**Public oracle:** a separately declared fully scripted diagnostic upper bound uses ONLY PUBLIC reset/step event dictionaries; it may sequentially test each candidate, retract wrong interventions, wait for delayed relevant events, and use those events to choose relay then sink. The oracle does not qualify as a native learned cognitive model.
+
+## Frozen R5 execution gates
+
+Public source-free calibration: fresh seeds `530000 + family_index*100000 + i`, 120 episodes/family for oracle and fixed; 48/family for each R4 frozen model per seed 17/31/47, independent episode labels. Hard FAIL if public scripted oracle goal success below 0.80 per family, fails >40 actions, or any private hidden role is passed into the oracle. Fixed/open-loop negative may succeed rarely but report rates honestly. Each R4 model remains its previously trained architecture after exactly 240 A + 240 B **R4 public demonstration** episodes, with unchanged R4 training budget and evaluation only; no R5 fit or held tuner. Record cold generalization scores as negative/diagnostic evidence, not independent family transfer.
+
+**History-view correction (R4 caveat, NEW prospective DEV cohorts only):** Apply a public-derived, deep-copy-only view to *all* agents, including structured and episodic agents. Under `erase`, clear recurrent/structured per-task model state before every decision, erase counters, learned public event history and names-to-event bindings while preserving the current public action catalogue, remaining-turn budget and goal. Under `blind_delayed`, replace delayed event observations and learned causal-event fields with empty values and remove their historical records, leaving public actions and action-count history accessible. Prove in adversarial unit tests that neither `choose()` features nor its `PublicTranscript` object retains unmasked historical events, names or learned state. Do not rerun R4's seen challenge: all history-ablation runs use NEW source-free R5 seeds.
+
+**Qualification:** first Git commit adds this prereg ONLY. All later new source/test/workflow files are additive; no R4/R3/CKB/Wingless/Yggdrasil changes. Test both OS, exact prereg-first source ancestry, source-only deterministic receipts, 1 focused suite R1–R5, one existing full FORGE Python and Go test/vet/build, two OS result artifacts with score and SHA, retain all failures. No per-model CPU/RSS nonregression claim from a shared runtime. Native Wingless/Yggdrasil do NOT yet run through this contract; after read-only source review add separate adapters **only when the native implementations and versioned input/output semantics have actually been verified**, never substitute their worker's LLM broker or a GRU.
+
+**Interpretation:** the calibrated public DEV action task is admissible for engineering ONLY if oracle>=.80 on A/B and no illegal actions. The full ITD-01 developer benchmark is STILL **NOT QUALIFIED** unless two independently FITTED R5 conventional controls reach each-family VAL success .40–.85; cold R4 agent scores can never be substituted. Original H1/H2 scientific first-use remains BLOCKED until independent source-birth and CKB owner first-use custody.

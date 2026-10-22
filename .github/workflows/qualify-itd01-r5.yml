@@ -1,0 +1,83 @@
+name: ITD-01 R5 public multi-hop causality qualification
+on:
+  push:
+    branches: [research/itd01-r5-extended-causal-dev-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: itd01-r5-public-qualify-20261022
+  cancel-in-progress: false
+jobs:
+  public-causal-r5:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 32
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          clean: true
+          persist-credentials: false
+          fetch-depth: 40
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Seal exact R4 predecessor, prereg-first and additive source isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 30c942d1caf0d62e38184307561d12a87aa07b0c HEAD
+          git show --format= --name-only 310cf16d577b96ca631719d57f1d774dcbb4e126 | python -B -c 'import sys; x=sys.stdin.read().splitlines(); assert x==["research/itd01/R5_FROZEN_DEV_PROTOCOL.md"],x'
+          git diff --name-only 30c942d1caf0d62e38184307561d12a87aa07b0c HEAD | python -B -c 'import sys; x=set(sys.stdin.read().splitlines()); allowed={"research/itd01/R5_FROZEN_DEV_PROTOCOL.md","research/itd01/r5_causal_dev.py","research/itd01/r5_history_boundary.py","research/itd01/run_r5_calibration.py","research/itd01/test_r5_causal_dev.py",".github/workflows/qualify-itd01-r5.yml"}; assert x==allowed,(x,allowed)'
+          echo ITD01_R5_FROZEN_SOURCE_PARENT=PASS
+      - name: Focused R1 through R5 DEV-only adversarial acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_*.py' -v
+          python -B research/itd01/run_r5_calibration.py --smoke > itd01_r5_smoke.json
+          python -B -c 'import json; x=json.load(open("itd01_r5_smoke.json")); assert len(x["models"])==3 and not x["scientific_first_use"]; print("ITD01_R5_REAL_SMOKE=PASS")'
+          echo ITD01_R5_FOCUSED=PASS
+      - name: Real source-free three-seed public oracle and frozen R4 agent challenge
+        shell: bash
+        run: |
+          set -euo pipefail
+          for seed in 17 31 47; do python -B research/itd01/run_r5_calibration.py --seed "$seed" > "itd01_r5_${seed}.json"; done
+          python -B -c 'import json; xs=[json.load(open("itd01_r5_%s.json"%s)) for s in (17,31,47)]; assert all(len(x["models"])==3 for x in xs); assert all(all(x["public_oracle_fixed"][f]["oracle"]["success"]>=.8 for f in x["public_oracle_fixed"]) for x in xs); assert all(x["developer_eligibility"]=="PUBLIC_WORLD_SOLVABLE_R5_BASELINE_ELIGIBILITY_NOT_QUALIFIED" for x in xs); assert all(not x["scientific_first_use"] and not x["native_wingless_yggdrasil_executed"] for x in xs); print("ITD01_R5_THREE_SEED_PUBLIC_CAUSAL_CALIBRATION=PASS")'
+          sha256sum itd01_r5_*.json > itd01_r5_results.sha256
+      - name: Exactly one full existing FORGE Python and Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test ./...
+          go vet ./...
+          go build ./...
+          echo ITD01_R5_FULL_FORGE_REGRESSION=PASS
+      - name: Enforce exact public evidence and no controller authority changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; x=sys.stdin.read().splitlines(); allowed={"?? itd01_r5_smoke.json","?? itd01_r5_17.json","?? itd01_r5_31.json","?? itd01_r5_47.json","?? itd01_r5_results.sha256"}; bad=[r for r in x if r not in allowed]; assert not bad,bad'
+          echo ITD01_R5_CLEAN_WORKTREE=PASS
+          echo ITD01_R5_PROTECTED_H1_H2=NOT_USED
+          echo ITD01_R5_NATIVE_COGNITION=NOT_TESTED
+      - name: Preserve actual public DEV evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd01-r5-public-dev-${{ matrix.os }}
+          path: |
+            itd01_r5_*.json
+            itd01_r5_results.sha256
+          if-no-files-found: ignore
