@@ -1,0 +1,116 @@
+name: Mind-Palace MP-AI04 admitted memory full native qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai04-admitted-full-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai04-admitted-native-full
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-source 86 focused tests and one complete Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI04_FULL_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-ai04-admitted-memory-integration-20261022'
+          $source='799fab19ada239187d088da5a7b214c5bd886c5b'
+          $base='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai04-admitted-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $allow=@('agentic/mpai01_probe.py','agentic/mpai01_reflect.py','agentic/mpai03_git_custody.py',
+            'docs/MP-AI01-REFLECT-PROPOSE.md','docs/MP-AI02-SHARED-PROBE-MCP.md',
+            'docs/MP-AI03-GIT-EVIDENCE-CUSTODY.md','tests/test_mpai01_mcp_adapter.py',
+            'tests/test_mpai01_probe.py','tests/test_mpai01_reflect.py','tests/test_mpai02_probe_mcp.py',
+            'tests/test_mpai03_git_custody.py','tests/test_mpai04_admitted_memory.py',
+            'tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py')
+          $suites=@('test_mpai01_reflect.py','test_mpai01_probe.py','test_mpai01_mcp_adapter.py',
+            'test_mpai02_probe_mcp.py','test_mpai03_git_custody.py','test_mpai04_admitted_memory.py',
+            'test_mpn1_mcp.py')
+          $checks=@{}
+          $hashed=$false
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_'+$ref)
+          }
+          try{
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'HEAD'
+            & git.exe -C $root merge-base --is-ancestor $base $source
+            Need ($LASTEXITCODE -eq 0) 'ADMITTED_ANCESTRY'
+            $paths=@(& git.exe -C $root diff --name-only $base $source)
+            Need ($LASTEXITCODE -eq 0 -and $paths.Count -eq 14 -and
+              (($paths|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'SOURCE_SCOPE'
+            foreach($p in $guard){
+              $checks[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed=$true
+            $tests=Join-Path $root 'tests'
+            foreach($suite in $suites){
+              & python.exe -B -m unittest discover -s $tests -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FAILED_'+$suite)
+              Write-Host ('MPAI04_FOCUSED_SUITE_PASS='+$suite)
+            }
+            Write-Host 'MPAI04_ADMITTED_MEMORY_86_TESTS=PASS'
+            foreach($p in $guard){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $checks[$p]) ('FOCUSED_HASH_'+$p)
+            }
+            $stdout=Join-Path $scratch 'full.stdout'
+            $stderr=Join-Path $scratch 'full.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $run=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $output=[IO.File]::ReadAllText($stdout)
+            if($run.ExitCode -ne 0){
+              $last=@([regex]::Matches($output,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object{$_.Value})
+              if($last.Count -gt 0){Write-Host ('MPAI04_LAST_REGRESSION_TEST='+[string]$last[-1])}
+              throw 'MPAI04_NATIVE_FULL_REGRESSION_FAILED'
+            }
+            Need ($output.Contains('Mind-Palace regression suite passed')) 'FULL_MARKER_MISSING'
+            Write-Host 'MPAI04_FULL_WINDOWS_REGRESSION=PASS'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI04_SOURCE_IDENTITY_AND_ADMITTED_PARENT=PASS'
+            Write-Host 'MPAI04_REAL_LLM_IMPROVEMENT=NOT_ESTABLISHED'
+            Write-Host 'MPAI04_PAID_MODEL_CALLS=0'
+            Write-Host 'MPAI04_PRODUCTION_WRITES=0'
+          } finally {
+            if($hashed){
+              foreach($p in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $checks[$p]) ('PROTECTED_HASH_DRIFT_'+$p)
+              }
+              Write-Host 'MPAI04_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI04_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
