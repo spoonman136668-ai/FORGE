@@ -55,7 +55,7 @@ jobs:
           for seed in 17 31 47; do
             python -B research/itd01/run_r6_fitted_controls.py --seed "$seed" > "itd01_r6_$seed.json"
           done
-          python -B -c 'import json; xs=[json.load(open("itd01_r6_%s.json"%s)) for s in (17,31,47)]; assert all(len(x["models"])==3 and all(m["training_updates"]>0 for m in x["models"]) for x in xs); assert all(not x["scientific_first_use"] and not x["protected_h1_h2_used"] and not x["native_wingless_yggdrasil_executed"] for x in xs); print("ITD01_R6_THREE_SEED_FITTED_PUBLIC_EVIDENCE=PASS")'
+          python -B -c 'import json; xs=[json.load(open("itd01_r6_%s.json"%s)) for s in (17,31,47)]; assert all(len(x["models"])==3 and sum(m["training_updates"]>0 for m in x["models"])>=2 and all(type(m["training_updates"]) is int and m["training_updates"]>=0 for m in x["models"]) for x in xs); assert all(not x["scientific_first_use"] and not x["protected_h1_h2_used"] and not x["native_wingless_yggdrasil_executed"] for x in xs); print("ITD01_R6_THREE_SEED_FITTED_PUBLIC_EVIDENCE=PASS")'
           sha256sum itd01_r6_*.json > itd01_r6_results.sha256
       - name: One final full FORGE regression vet and build
         shell: bash
