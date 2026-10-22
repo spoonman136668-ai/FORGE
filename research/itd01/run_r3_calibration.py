@@ -56,7 +56,7 @@ def cold_reuse(seed: int, episodes_per_family: int, fit_per_family: int) -> list
 
 
 def run(n: int = 120, seed: int = 17, cold_n: int = 36,
-        cold_fit: int = 140) -> dict:
+        cold_fit: int = 350) -> dict:
     t0, w0 = time.process_time(),time.perf_counter()
     controlled = development_calibration(n, seed_start=410000)
     cold = cold_reuse(seed, cold_n, cold_fit)
@@ -87,7 +87,7 @@ def main():
     p.add_argument("--seed",type=int,default=17)
     args=p.parse_args()
     r=run(16 if args.smoke else 120,args.seed,
-          4 if args.smoke else 36,18 if args.smoke else 140)
+          4 if args.smoke else 36,18 if args.smoke else 350)
     print(json.dumps(r,sort_keys=True,separators=(",", ":")))
     if not all(p["public_oracle"]["success_rate"]>=.8
                for p in r["dev_worlds"].values()):
