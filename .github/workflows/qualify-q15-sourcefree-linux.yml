@@ -1,0 +1,58 @@
+name: Q15 source-free frozen TRAIN-DEV on hosted Linux (no held)
+on:
+  push:
+    branches: [qualify/q15-sourcefree-linux-20261022]
+    paths: [.github/workflows/qualify-q15-sourcefree-linux.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q15-sourcefree-linux-one-preregistered-evaluation
+  cancel-in-progress: false
+jobs:
+  sourcefree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONHASHSEED: "0"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Verify exact frozen first-use chronology and source-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "8ca9b99d7833804855a6a584e7abd5dc2a8a732a"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = ".github/workflows/qualify-q15-sourcefree-linux.yml"
+          test "$(git rev-parse HEAD:research/q15_sourcefree_state/FROZEN_PROTOCOL.json)" = "3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05"
+          test "$(git rev-parse HEAD:research/q15_sourcefree_state/experiment.py)" = "cf7a579344642b7dc9be9864c2ece224fbf47238"
+          test "$(git rev-parse 'b3ee79aae482468e6c59288e5b5d28f6b000affb:research/q15_sourcefree_state/FROZEN_PROTOCOL.json')" = "3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05"
+          test -z "$(git status --porcelain)"
+          echo "Q15_FROZEN_PREIMPLEMENTATION_PROTOCOL_AND_IDENTICAL_CODE=PASS"
+      - name: Source-free held-evaluation prohibition and gradient selftest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/q15_sourcefree_state/experiment.py --mode selftest
+      - name: One preregistered five-arm synthetic TRAIN plus DEV comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/q15_sourcefree_state/experiment.py --mode train-dev
+          echo "Q15_LINUX_TRAIN_DEV_ONLY_EXECUTED=PASS"
+      - name: No scientific first-use and no repository changes
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          echo "Q15_LINUX_SOURCE_WORKTREE_CLEAN=PASS"
+          echo "Q15_ORIGINAL_ENGINE_EPISODES=0"
+          echo "Q15_PROTECTED_HOLDOUT_SCIENCE=BLOCKED"
+          echo "Q15_CKB_CONTROLLER_OR_PRODUCTION_MUTATION=NONE"
