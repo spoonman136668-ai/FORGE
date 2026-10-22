@@ -120,7 +120,10 @@ jobs:
           print("R19_OWNER_DATABASE_WRITES=0")
           '@
             $output = & $options['PythonExe'] -B -c $readOnlyPython $options['Database'] $from '68' $head68
-            if ($LASTEXITCODE -ne 0) { throw 'R19_READONLY_OWNER_LEDGER_REJECTED' }
+            if ($LASTEXITCODE -ne 0) {
+              $output | Where-Object { $_ -match '^R19_OBSERVED_' } | ForEach-Object { Write-Output $_ }
+              throw 'R19_READONLY_OWNER_LEDGER_REJECTED'
+            }
             $output | ForEach-Object { Write-Output $_ }
           } finally { Pop-Location }
           $controllerProcs = @(
