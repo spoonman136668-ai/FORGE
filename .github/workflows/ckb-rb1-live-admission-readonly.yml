@@ -98,7 +98,7 @@ jobs:
           from pathlib import Path
           db=Path(sys.argv[1]).resolve(strict=True)
           previous=None
-          for sample in range(75):
+          for sample in range(45):
               con=sqlite3.connect('file:'+db.as_posix()+'?mode=ro',uri=True,timeout=4)
               try:
                   con.execute('PRAGMA query_only=ON')
@@ -109,6 +109,15 @@ jobs:
               codes=re.findall(r'[A-Z][A-Z0-9_]{3,}',status)[:12]
               state=(info.get('paused'),tuple(codes))
               if state!=previous:
+                  if 'OPERATOR_BLOCKED' in codes:
+                      import hashlib
+                      reason=status.partition('OPERATOR_BLOCKED:')[2].strip()
+                      redacted=re.sub(r'https?://\\S+','[url]',reason)
+                      redacted=re.sub(r'[A-Za-z]:\\\\\\S+','[path]',redacted)
+                      redacted=re.sub(r'\\S+@\\S+','[email]',redacted)
+                      redacted=re.sub(r'[A-Za-z0-9_+/=-]{32,}','[opaque]',redacted)
+                      redacted=redacted[:300]
+                      print('CKB_NATIVE_PAUSE_ERROR='+json.dumps(dict(classified=redacted,sha256=hashlib.sha256(reason.encode()).hexdigest()),separators=(',',':')),flush=True)
                   print('CKB_NATIVE_PAUSE_TRANSITION='+json.dumps(dict(sample=sample,paused=state[0],codes=codes,generation=info.get('autonomy_generation'),heartbeat=info.get('autonomy_heartbeat')),separators=(',',':')),flush=True)
                   previous=state
               time.sleep(1)
