@@ -1,0 +1,53 @@
+name: CKB R18 one-shot owner release switcher qualification preflight
+on:
+  push:
+    branches: [operate/ckb-r18-guarded-owner-cutover-20261022]
+    paths: [.github/workflows/ckb-r18-guarded-owner-cutover.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-existing-owner-controller-transition-20261022
+  cancel-in-progress: false
+jobs:
+  owner-cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Verify exact owner authority and bounded switcher source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($wid)
+          $base='6895ab81811db049db057d147073add23be918f7'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-guarded-owner-cutover-20261022' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $wid.Name -ine 'LINKDEADKB\camar' -or
+              !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+              (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+              (& git.exe merge-base $base HEAD) -cne $base -or
+              @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_SWITCHER_ADMISSION_SCOPE_DRIFT'
+          }
+          $allowed=@('.github/workflows/ckb-r18-guarded-owner-cutover.yml','operations/ckb-r18/Invoke-GuardedR18Cutover.ps1')|Sort-Object
+          $actual=@(& git.exe diff --name-only $base HEAD|Sort-Object)
+          if ($LASTEXITCODE -ne 0 -or (@($actual)-join '|') -cne (@($allowed)-join '|')) {
+            throw 'R18_SWITCHER_UNQUALIFIED_CHANGE_SCOPE'
+          }
+          $psfile='operations/ckb-r18/Invoke-GuardedR18Cutover.ps1'
+          $tokens=$null;$errors=$null
+          [void][Management.Automation.Language.Parser]::ParseFile((Resolve-Path -LiteralPath $psfile).Path,[ref]$tokens,[ref]$errors)
+          if ($errors.Count -gt 0) {throw 'R18_SWITCHER_SYNTAX_QUALIFICATION_FAILED'}
+          Write-Host 'R18_SWITCHER_BOUNDED_SOURCE_AND_OWNER=PASS'
+      - name: Verify dedicated one-shot switcher and private release candidate without touching controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          & ./operations/ckb-r18/Invoke-GuardedR18Cutover.ps1
+          if ($LASTEXITCODE -ne 0) {throw 'R18_DEDICATED_SWITCHER_PREFLIGHT_FAILED'}
+          Write-Host 'R18_PREFLIGHT_ONLY=PASS'
