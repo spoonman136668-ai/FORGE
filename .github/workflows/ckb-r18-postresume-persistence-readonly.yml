@@ -1,0 +1,117 @@
+name: R18 read-only pause persistence after native resume
+on:
+  push:
+    branches: [audit/ckb-r18-postresume-persistence-readonly-20261022]
+    paths: [.github/workflows/ckb-r18-postresume-persistence-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r18-postresume-state-audit-20261022
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - name: Require owner runner and single source-only audit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-postresume-persistence-readonly-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base){
+             throw 'R18_READONLY_OWNER_SOURCE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-postresume-persistence-readonly.yml'){
+             throw 'R18_READONLY_SOURCE_SCOPE_DRIFT'
+          }
+          Write-Host 'R18_POSTRESUME_OWNER_READONLY_SCOPE=PASS'
+      - name: Two owner-host native and SQLite read-only snapshots
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          foreach($pin in @(
+            @{path=$exe;sha='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{path=$config;sha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            if((Get-FileHash -LiteralPath $pin.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pin.sha){
+              throw 'R18_POSTRESUME_BIN_OR_CONFIG_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$task.State -cne 'Running' -or $procs.Count -ne 1 -or
+             [string]$procs[0].ExecutablePath -ine $exe){
+             throw 'R18_POSTRESUME_CONTROLLER_SINGLETON_INVALID'
+          }
+          $py=@'
+          import sqlite3,json,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          db=sqlite3.connect('file:'+p.as_posix()+'?mode=ro',uri=True,timeout=4)
+          try:
+              db.execute('PRAGMA query_only=ON')
+              db.execute('BEGIN')
+              st={k:v for k,v in db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+              q=dict(db.execute('SELECT state, COUNT(*) FROM queue_items GROUP BY state'))
+              work=db.execute('SELECT count(*) FROM work_orders').fetchone()[0]
+              leases=db.execute('SELECT count(*) FROM worker_leases').fetchone()[0]
+              print(json.dumps({'settings':st,'queue':q,'work':work,'leases':leases},sort_keys=True))
+          finally: db.close()
+          '@
+          $results=@()
+          for($i=0;$i -lt 2;$i++){
+            $snapshot=@(& python.exe -B -c $py $db 2>$null)
+            if($LASTEXITCODE -ne 0 -or $snapshot.Count -ne 1){
+               throw 'R18_POSTRESUME_READONLY_DB_UNAVAILABLE'
+            }
+            $data=ConvertFrom-Json -InputObject ([string]$snapshot[0]) -ErrorAction Stop
+            $raw=@(& $exe controller status --config $config 2>$null)
+            if($LASTEXITCODE -ne 0 -or $raw.Count -eq 0){
+               throw 'R18_POSTRESUME_NATIVE_READONLY_STATUS_FAILED'
+            }
+            $native=ConvertFrom-Json -InputObject ($raw -join [char]10) -ErrorAction Stop
+            $paused=[string]$data.settings.paused -ceq 'true'
+            if([string]$data.settings.paused -cnotin @('true','false') -or
+               $data.settings.autonomy_authority -cne 'plane' -or
+               $data.settings.autonomy_generation -cne '6' -or
+               [int]$data.work -ne 198 -or [int]$data.leases -ne 0 -or
+               [int]$data.queue.COMPLETED -ne 131 -or
+               [int]$data.queue.REVIEWED -ne 70 -or
+               @($data.queue.PSObject.Properties).Count -ne 2 -or
+               [bool]$native.paused -ne $paused -or
+               $native.heartbeat_stale -ne $false -or
+               $native.authority -cne 'plane' -or
+               [string]$native.generation -cne '6'){
+               throw 'R18_POSTRESUME_NATIVE_SQLITE_INVARIANT_DRIFT'
+            }
+            $results+=@($paused)
+            Write-Host ('R18_POSTRESUME_SNAPSHOT_'+($i+1)+'=PASS paused='+([string]$paused).ToLowerInvariant())
+            if($i -eq 0){Start-Sleep -Seconds 2}
+          }
+          if($results[0] -ne $results[1]){
+             throw 'R18_POSTRESUME_STATE_CHANGED_BETWEEN_SNAPSHOTS'
+          }
+          $state=if($results[1]){'PAUSED'}else{'UNPAUSED_IDLE'}
+          Write-Host ('R18_POSTRESUME_PERSISTED_STATE='+$state)
+          Write-Host 'R18_POSTRESUME_PAUSE_WRITER_ATTRIBUTION=NOT_AVAILABLE_FROM_STORE'
+          Write-Host 'R18_POSTRESUME_LIVE_MUTATION=NONE'
+          Write-Host 'R18_POSTRESUME_RESEARCH_DISPATCH=NOT_ATTEMPTED'
