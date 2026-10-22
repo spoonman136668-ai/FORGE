@@ -324,15 +324,31 @@ def activate_native(db, approval: dict) -> bool:
         if failures:
             from f139.nci04_negative_owner_store import (
                 verify_original_negative_custody, TICKET as NEGATIVE_TICKET)
-            require(len(failures)==1 and failures[0]["stage"]=="QUARANTINED"
-                    and failures[0]["ticket"]==NEGATIVE_TICKET
-                    and verify_original_negative_custody(db)
-                    and any(
-                        json.loads(row["payload"]).get("schema")==
-                        "forge.f139.source-transition.v2"
-                        for row in db.conn.execute(
-                            "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")),
-                    "UNVERIFIED_HISTORICAL_TASK")
+            from f139.nci04_split_negative_owner_store import (
+                verify_second_negative_custody, TICKET as SECOND_TICKET)
+            failed_tickets = {row["ticket"] for row in failures}
+            transitions = [
+                json.loads(row["payload"]) for row in db.conn.execute(
+                    "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+            one_certified = (
+                len(failures) == 1
+                and failed_tickets == {NEGATIVE_TICKET}
+                and failures[0]["stage"] == "QUARANTINED"
+                and verify_original_negative_custody(db)
+                and any(t["schema"] == "forge.f139.source-transition.v2"
+                        for t in transitions))
+            two_certified = (
+                len(failures) == 2
+                and failed_tickets == {NEGATIVE_TICKET, SECOND_TICKET}
+                and all(row["stage"] == "QUARANTINED" for row in failures)
+                and verify_original_negative_custody(db)
+                and verify_second_negative_custody(db)
+                and any(t["schema"] == "forge.f139.source-transition.v3"
+                        and t["custodied_negative_tasks"] == 2
+                        and t["custodied_negative_tickets"] ==
+                            [NEGATIVE_TICKET, SECOND_TICKET]
+                        for t in transitions))
+            require(one_certified or two_certified, "UNVERIFIED_HISTORICAL_TASK")
         prior=meta["head_hash"]
         db.event(ACTIVATION_KIND,{
             "schema":ACTIVATION_SCHEMA,"source_sha":meta["source_sha"],

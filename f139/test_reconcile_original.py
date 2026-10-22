@@ -25,10 +25,18 @@ def zip_receipt(ticket, frozen, label, epoch=1):
         "paid_model_calls": 0, "codex_calls": 0,
     })
     memory = io.BytesIO()
+    # The synthetic original ZIP is content-addressed twice by this test:
+    # once to freeze its digest and again to emulate the provider download.
+    # ZIP's default current-time member headers must not alter those bytes.
     with zipfile.ZipFile(memory, "w", zipfile.ZIP_DEFLATED) as bundle:
-        bundle.writestr("f139-receipt.json", payload)
-        bundle.writestr("f139-receipt.sha256",
-                        hash_bytes(payload) + "  f139-receipt.json\n")
+        for name, body in (
+            ("f139-receipt.json", payload),
+            ("f139-receipt.sha256",
+             hash_bytes(payload) + "  f139-receipt.json\n"),
+        ):
+            item = zipfile.ZipInfo(name, date_time=(2020, 1, 1, 0, 0, 0))
+            item.compress_type = zipfile.ZIP_DEFLATED
+            bundle.writestr(item, body)
     return memory.getvalue()
 
 class FrozenProvider:

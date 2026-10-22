@@ -274,31 +274,66 @@ class Database:
                 base_fields = {
                     "schema", "from_source_sha", "to_source_sha", "prior_event_head_sha256",
                     "verified_historical_tasks", "new_dispatches", "scientific_first_use"}
-                is_negative_transition = (
-                    isinstance(doc, dict)
-                    and doc.get("schema") == "forge.f139.source-transition.v2"
-                    and set(doc) == base_fields | {"custodied_negative_tasks"})
-                require(isinstance(doc, dict) and (
-                    doc.get("schema") == "forge.f139.source-transition.v1"
-                    and set(doc) == base_fields
-                    or doc.get("schema") == "forge.f139.source-transition.v2"
-                    and is_negative_transition),
-                    "SOURCE_TRANSITION_EVENT_FIELDS")
-                require((doc["schema"] == "forge.f139.source-transition.v1"
-                         or type(doc["custodied_negative_tasks"]) is int
-                         and doc["custodied_negative_tasks"] == 1)
+                is_v1 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v1"
+                         and set(doc) == base_fields)
+                is_v2 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v2"
+                         and set(doc) == base_fields | {"custodied_negative_tasks"})
+                is_v3 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v3"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets"})
+                require(is_v1 or is_v2 or is_v3, "SOURCE_TRANSITION_EVENT_FIELDS")
+                require((is_v1
+                         or is_v2 and type(doc["custodied_negative_tasks"]) is int
+                         and doc["custodied_negative_tasks"] == 1
+                         or is_v3 and type(doc["custodied_negative_tasks"]) is int
+                         and doc["custodied_negative_tasks"] == 2)
                         and isinstance(doc["from_source_sha"], str)
                         and SHA.fullmatch(doc["from_source_sha"])
                         and isinstance(doc["to_source_sha"], str)
                         and SHA.fullmatch(doc["to_source_sha"])
                         and doc["from_source_sha"] != doc["to_source_sha"]
                         and doc["prior_event_head_sha256"] == row["prior_sha"]
-                        and isinstance(doc["verified_historical_tasks"], int)
+                        and type(doc["verified_historical_tasks"]) is int
                         and doc["verified_historical_tasks"] > 0
                         and type(doc["new_dispatches"]) is int
                         and doc["new_dispatches"] == 0
                         and doc["scientific_first_use"] is False,
                         "SOURCE_TRANSITION_EVENT_INVALID")
+                if is_v3:
+                    from f139.nci04_negative_owner_store import TICKET as NEGATIVE_696
+                    from f139.nci04_split_negative_owner_store import (
+                        TICKET as NEGATIVE_706, SOURCE as SOURCE_706, KIND as SECOND_KIND)
+                    second = self.conn.execute(
+                        "SELECT seq,sha FROM events WHERE kind=?", (SECOND_KIND,)).fetchall()
+                    previous_v3 = [
+                        t for t in source_transitions
+                        if t["schema"] == "forge.f139.source-transition.v3"]
+                    require(len(second) == 1 and second[0]["seq"] == 56
+                            and doc["custodied_negative_tickets"] ==
+                                [NEGATIVE_696, NEGATIVE_706],
+                            "SOURCE_TRANSITION_V3_IDENTITY_DRIFT")
+                    if not previous_v3:
+                        # Original source transition remains exactly event 57.
+                        require(row["seq"] == 57
+                                and second[0]["sha"] == row["prior_sha"]
+                                and doc["from_source_sha"] == SOURCE_706,
+                                "SOURCE_TRANSITION_V3_ORIGINAL_DRIFT")
+                    else:
+                        # Only later manually approved transitions may retain
+                        # both immutable negatives, never a second custody event.
+                        require(row["seq"] > 57
+                                and source_transitions[-1]["schema"] ==
+                                    "forge.f139.source-transition.v3"
+                                and doc["from_source_sha"] ==
+                                    source_transitions[-1]["to_source_sha"]
+                                and doc["to_source_sha"] not in {
+                                    value for t in source_transitions
+                                    for value in (t["from_source_sha"],
+                                                  t["to_source_sha"])},
+                                "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -313,15 +348,20 @@ class Database:
         from f139.nci04_negative_owner_store import (
             verify_original_negative_custody, TICKET as ORIGINAL_NEGATIVE_TICKET,
             SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE)
-        # A historical QUARANTINED task is exceptional and never counts as
-        # VERIFIED. Only the singular original sealed provider negative ZIP,
-        # with its own immutable SQL event, can be carried across a V2 source
-        # transition. Every cold verification re-reads its original bytes.
+        from f139.nci04_split_negative_owner_store import (
+            verify_second_negative_custody, TICKET as SECOND_NEGATIVE_TICKET,
+            SOURCE as SECOND_NEGATIVE_SOURCE)
         certified_negative = verify_original_negative_custody(self)
-        negative_transitions = [
-            t for t in source_transitions
-            if t["schema"] == "forge.f139.source-transition.v2"]
-        require(len(negative_transitions) <= 20, "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
+        certified_second = verify_second_negative_custody(self)
+        negative_v2 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v2"]
+        negative_v3 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v3"]
+        negative_transitions = negative_v2 + negative_v3
+        require(len(negative_transitions) <= 20 and len(negative_v3) <= 10,
+                "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
+        require(not negative_v3 or certified_negative and certified_second,
+                "SECOND_NEGATIVE_CUSTODY_MISSING")
         for row in self.conn.execute("SELECT ticket,lane,source_sha,stage,run_id,evidence_dir,evidence_sha FROM tasks"):
             prior_verified = (
                 row["source_sha"] in historical_sources and
@@ -337,7 +377,14 @@ class Database:
                 and row["source_sha"] in historical_sources
                 and row["stage"] == "QUARANTINED" and row["run_id"] is None
                 and row["evidence_sha"] is None and not row["evidence_dir"])
-            historical = prior_verified or prior_certified_negative
+            prior_certified_second = (
+                certified_second and bool(negative_v3)
+                and row["ticket"] == SECOND_NEGATIVE_TICKET
+                and row["source_sha"] == SECOND_NEGATIVE_SOURCE
+                and row["source_sha"] in historical_sources
+                and row["stage"] == "QUARANTINED" and row["run_id"] is None
+                and row["evidence_sha"] is None and not row["evidence_dir"])
+            historical = prior_verified or prior_certified_negative or prior_certified_second
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
@@ -349,14 +396,20 @@ class Database:
                          if row["source_sha"] in historical_sources and row["stage"] == "VERIFIED")
             require(admitted >= source_transitions[-1]["verified_historical_tasks"],
                     "SOURCE_TRANSITION_HISTORIC_COUNT_INVALID")
-            if negative_transitions:
-                negative = negative_transitions[0]
+            if negative_v2:
                 require(certified_negative
-                        and negative_transitions[0]["from_source_sha"] ==
-                            ORIGINAL_NEGATIVE_SOURCE
-                        and all(t["custodied_negative_tasks"] == 1
-                                for t in negative_transitions),
+                        and negative_v2[0]["from_source_sha"] == ORIGINAL_NEGATIVE_SOURCE
+                        and all(t["custodied_negative_tasks"] == 1 for t in negative_v2),
                         "CUSTODIED_NEGATIVE_TRANSITION_DRIFT")
+            if negative_v3:
+                require(certified_second and certified_negative
+                        and negative_v3[0]["from_source_sha"] == SECOND_NEGATIVE_SOURCE
+                        and all(
+                            t["custodied_negative_tasks"] == 2
+                            and t["custodied_negative_tickets"] ==
+                                [ORIGINAL_NEGATIVE_TICKET, SECOND_NEGATIVE_TICKET]
+                            for t in negative_v3),
+                        "SECOND_NEGATIVE_TRANSITION_DRIFT")
         # NCI04 admission is additive; historic F139/D2K event semantics stay
         # exact. Check native admission against the original SHA-linked SQLite
         # chain, preventing cross-kind issue replay and fabricated task records.
@@ -393,17 +446,16 @@ class Database:
 
     def transition_source(self, new_source_sha: str, *,
                           allow_certified_negative: bool = False):
-        """Same original controller, old event formats and immutable task rows.
-
-        A8C's V2 path is limited to the ONE authenticated #696 original, after
-        durable custody event #48. The V1 path remains exact for zero negatives.
-        A mere QUARANTINED stage never grants a source transition.
-        """
+        """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
         from f139.nci04_negative_owner_store import (
-            SOURCE_SHA as ORIGINAL_NEGATIVE_SOURCE,
-            TICKET as ORIGINAL_NEGATIVE_TICKET)
+            SOURCE_SHA as SOURCE_696, TICKET as NEGATIVE_696,
+            verify_original_negative_custody)
+        from f139.nci04_split_negative_owner_store import (
+            SOURCE as SOURCE_706, TICKET as NEGATIVE_706,
+            verify_second_negative_custody)
+        recognized = {NEGATIVE_696: SOURCE_696, NEGATIVE_706: SOURCE_706}
         with self.transaction():
             self.verify()
             meta = self.meta()
@@ -411,8 +463,7 @@ class Database:
                     and new_source_sha != meta["source_sha"],
                     "SOURCE_TRANSITION_OWNER_OR_IDENTITY_INVALID")
             tasks = list(self.conn.execute("SELECT * FROM tasks"))
-            certified = []
-            verified = []
+            certified, verified = [], []
             for row in tasks:
                 if (row["stage"] == "VERIFIED"
                     and type(row["run_id"]) is int and row["run_id"] > 0
@@ -421,8 +472,8 @@ class Database:
                     and row["evidence_dir"]):
                     verified.append(row)
                 elif (allow_certified_negative and row["stage"] == "QUARANTINED"
-                      and row["ticket"] == ORIGINAL_NEGATIVE_TICKET
-                      and row["source_sha"] == ORIGINAL_NEGATIVE_SOURCE
+                      and row["ticket"] in recognized
+                      and row["source_sha"] == recognized[row["ticket"]]
                       and row["run_id"] is None and row["evidence_sha"] is None
                       and not row["evidence_dir"]):
                     certified.append(row)
@@ -430,30 +481,61 @@ class Database:
                     raise F139Error("F139_SOURCE_TRANSITION_UNVERIFIED_OR_PENDING_TASK")
             require(bool(tasks) and len(verified) + len(certified) == len(tasks),
                     "SOURCE_TRANSITION_UNVERIFIED_OR_PENDING_TASK")
-            if certified:
-                from f139.nci04_negative_owner_store import (
-                    verify_original_negative_custody, SOURCE_SHA)
+            tickets = {r["ticket"] for r in certified}
+            schema = "forge.f139.source-transition.v1"
+            if len(certified) == 1:
                 transitions = [
                     parsed for parsed in (
                         json.loads(t["payload"]) for t in self.conn.execute(
                             "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")
                     ) if parsed["schema"] == "forge.f139.source-transition.v2"]
-                require(allow_certified_negative and len(certified) == 1
+                require(tickets == {NEGATIVE_696}
                         and verify_original_negative_custody(self)
-                        and (meta["source_sha"] == SOURCE_SHA
+                        and (meta["source_sha"] == SOURCE_696
                              and meta["head_seq"] == 48 and not transitions
-                             or meta["source_sha"] != SOURCE_SHA
+                             or meta["source_sha"] != SOURCE_696
                              and len(transitions) >= 1
-                             and transitions[0]["from_source_sha"] == SOURCE_SHA),
+                             and transitions[0]["from_source_sha"] == SOURCE_696),
                         "SOURCE_TRANSITION_NEGATIVE_NOT_CUSTODIED")
+                schema = "forge.f139.source-transition.v2"
+            elif len(certified) == 2:
+                transitions = [
+                    json.loads(r["payload"]) for r in self.conn.execute(
+                        "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+                previous_v3 = [
+                    t for t in transitions
+                    if t["schema"] == "forge.f139.source-transition.v3"]
+                original_boundary = (
+                    meta["source_sha"] == SOURCE_706
+                    and meta["head_seq"] == 56
+                    and not previous_v3)
+                from f139.nci04_owner_ledger import verify_native_activation
+                successor_boundary = (
+                    bool(previous_v3)
+                    and len(previous_v3) < 10
+                    and transitions[-1]["schema"] ==
+                        "forge.f139.source-transition.v3"
+                    and meta["source_sha"] == previous_v3[-1]["to_source_sha"]
+                    and verify_native_activation(self)
+                    and new_source_sha not in {
+                        value for t in transitions
+                        for value in (t["from_source_sha"], t["to_source_sha"])})
+                require(tickets == {NEGATIVE_696, NEGATIVE_706}
+                        and (original_boundary or successor_boundary)
+                        and verify_original_negative_custody(self)
+                        and verify_second_negative_custody(self)
+                        and any(t["schema"] == "forge.f139.source-transition.v2"
+                                and t["from_source_sha"] == SOURCE_696 for t in transitions)
+                        and self.active() is None and self.ready() is None,
+                        "SOURCE_TRANSITION_TWO_NEGATIVES_NOT_CUSTODIED")
+                schema = "forge.f139.source-transition.v3"
             else:
-                require(not allow_certified_negative,
+                require(not allow_certified_negative and not certified,
                         "SOURCE_TRANSITION_NEGATIVE_NOT_PRESENT")
             prior = meta["head_hash"]
             self.conn.execute("UPDATE meta SET source_sha=? WHERE id=1", (new_source_sha,))
             event = {
-                "schema": ("forge.f139.source-transition.v2" if certified
-                           else "forge.f139.source-transition.v1"),
+                "schema": schema,
                 "from_source_sha": meta["source_sha"],
                 "to_source_sha": new_source_sha,
                 "prior_event_head_sha256": prior,
@@ -461,8 +543,10 @@ class Database:
                 "new_dispatches": 0,
                 "scientific_first_use": False,
             }
-            if certified:
-                event["custodied_negative_tasks"] = 1
+            if schema != "forge.f139.source-transition.v1":
+                event["custodied_negative_tasks"] = len(certified)
+            if schema == "forge.f139.source-transition.v3":
+                event["custodied_negative_tickets"] = [NEGATIVE_696, NEGATIVE_706]
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
@@ -787,18 +871,30 @@ class GitHub:
                 "D2K_DUPLICATE_ISSUE_IDENTITY")
         return sorted(accepted,key=lambda x:x["issue_number"])
 
-    def native_eligible_issues(self, source: str):
-        """Read-only authenticated issue and native target commit/tree catalog.
+    def native_eligible_issues(self, source: str, *,
+                               historical_issues: dict | None = None):
+        """Read-only authenticated issue catalog, including frozen history.
 
-        Existing controller and label remain unchanged. Called only after
-        explicit source-qualified native_enabled gate in the owner's tick.
+        Reverify immutable historical issue identities at their ORIGINAL
+        source, then exclude only those exact already-admitted issues from
+        new-source eligibility. Unknown stale/mutated issues fail closed.
         """
         from f139.nci04_owner_issue import (
             LABEL, OWNER, inspect_owner_issue, NativeIssueDenied)
         from f139.nci04_native_contract import NativeContractError
         require(isinstance(source,str) and SHA.fullmatch(source) is not None,
                 "NATIVE_SOURCE_INVALID")
-        items = []
+        historical_issues = {} if historical_issues is None else historical_issues
+        require(isinstance(historical_issues, dict)
+                and all(type(number) is int and type(identity) is tuple
+                        and len(identity) == 4 and type(identity[0]) is int
+                        and isinstance(identity[1], str) and SHA.fullmatch(identity[1])
+                        and isinstance(identity[2], str)
+                        and re.fullmatch(r"[a-f0-9]{64}", identity[2])
+                        and isinstance(identity[3], str) and TICKET.fullmatch(identity[3])
+                        for number, identity in historical_issues.items()),
+                "NATIVE_HISTORICAL_CATALOG_INVALID")
+        items, seen_numbers, seen_ids = [], set(), set()
         for page in (1, 2):
             docs = self.get(
                 "repos/" + REPO + "/issues?state=open&labels=" + LABEL +
@@ -806,6 +902,18 @@ class GitHub:
             require(isinstance(docs,list) and len(docs)<=100,
                     "NATIVE_ISSUE_CATALOG_INVALID")
             for raw in docs:
+                # A previously admitted issue remains a frozen, failed or
+                # completed historical record after a qualified transition.
+                # Do not mistake it for an eligible candidate on the new SHA.
+                require(isinstance(raw, dict)
+                        and type(raw.get("number")) is int
+                        and type(raw.get("id")) is int
+                        and raw["number"] not in seen_numbers
+                        and raw["id"] not in seen_ids,
+                        "NATIVE_DUPLICATE_OR_INVALID_ISSUE_IDENTITY")
+                seen_numbers.add(raw["number"])
+                seen_ids.add(raw["id"])
+                historical = historical_issues.get(raw["number"])
                 # A declarative issue may only select a *pinned* native commit.
                 # Independent GitHub API lookup binds actual Git tree identity.
                 try:
@@ -830,12 +938,17 @@ class GitHub:
                             and SHA.fullmatch(commit["tree"]["sha"]) is not None,
                             "NATIVE_TARGET_GIT_PROVIDER_DRIFT")
                     doc=inspect_owner_issue(
-                        raw, protected_main=source,
+                        raw, protected_main=(historical[1] if historical else source),
                         authenticated_target_commit=sha,
                         authenticated_target_tree=commit["tree"]["sha"])
                 except (ValueError,UnicodeError,KeyError,TypeError,
                         NativeIssueDenied,NativeContractError) as exc:
                     raise F139Error("F139_NATIVE_ISSUE_OR_SOURCE_REJECTED") from exc
+                if historical:
+                    require((doc.issue_id,doc.source_sha,doc.issue_body_sha256,
+                             doc.ticket) == historical,
+                            "NATIVE_HISTORICAL_ISSUE_DRIFT")
+                    continue
                 items.append(doc)
             if len(docs)<100:
                 break
@@ -1249,9 +1362,19 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         # Inert in the shipping controller. Exact future source-transition and
         # owner activation are mandatory before this gate can be called.
         # Same single-owner lock, SQLite ledger and once-only budget as D2K.
-        from f139.nci04_owner_ledger import admit_native_issue
+        from f139.nci04_owner_ledger import admit_native_issue, native_events
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
-        for native_issue in api.native_eligible_issues(meta["source_sha"]):
+        # Reconstruct historical identities only from the already-verified
+        # append-only owner ledger. The public issue label alone cannot
+        # reauthorize or replay any old native candidate.
+        historical_issues = {
+            event["issue_number"]: (
+                event["issue_id"], event["source_sha"],
+                event["issue_body_sha256"], event["ticket"])
+            for event in native_events(db)
+        }
+        for native_issue in api.native_eligible_issues(
+                meta["source_sha"], historical_issues=historical_issues):
             if native_issue.ticket in known:
                 continue
             if admit_native_issue(db, native_issue, timestamp):
@@ -1299,6 +1422,7 @@ def cli(argv=None):
     transition=sub.add_parser("transition-qualified-native")
     transition.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
+    sub.add_parser("custody-original-native-split-negative")
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1385,6 +1509,57 @@ def cli(argv=None):
                     archive=archive,owner_hmac_key=hmac_key,
                     epoch=meta["epoch"])
                 print(json.dumps(result,sort_keys=True))
+        elif args.verb=="custody-original-native-split-negative":
+            # Owner-only original #706 custody; never dispatch or replay a task.
+            from f139.nci04_split_negative_owner_store import (
+                admit_second_negative_custody, RUN_ID as SPLIT_RUN_ID,
+                ARTIFACT_ID as SPLIT_ARTIFACT_ID, SOURCE as SPLIT_SOURCE,
+                OWNER_HEAD_55 as SPLIT_HEAD_55)
+            from f139.nci04_negative_owner_store import verify_original_negative_custody
+            native_original_owner_profile(args.db)
+            legacy_windows_task_disabled()
+            api=GitHub()
+            checkout=Path(__file__).resolve().parent.parent
+            head=subprocess.run(["git","-C",str(checkout),"rev-parse","HEAD"],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,timeout=15,check=False)
+            clean=subprocess.run(["git","-C",str(checkout),"status","--porcelain",
+                                  "--untracked-files=all"],stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
+                                 timeout=15,check=False)
+            require(head.returncode==0 and clean.returncode==0
+                    and not clean.stdout.strip()
+                    and head.stdout.decode().strip()==api.protected_main(),
+                    "SPLIT_CUSTODY_CHECKOUT_NOT_PROTECTED_MAIN")
+            api.legacy_dispatchers_disabled()
+            hmac_key=os.environ.get("F139_WORKER_HMAC_KEY","")
+            require(len(hmac_key)>=32,"SPLIT_CUSTODY_OWNER_HMAC_UNAVAILABLE")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==SPLIT_SOURCE
+                        and meta["head_seq"]==55
+                        and meta["head_hash"]==SPLIT_HEAD_55
+                        and verify_original_negative_custody(db),
+                        "SPLIT_CUSTODY_NOT_ORIGINAL_55_EVENT_BOUNDARY")
+                run=api.get(f"repos/{REPO}/actions/runs/{SPLIT_RUN_ID}")
+                run_jobs=api.get(
+                    f"repos/{REPO}/actions/runs/{SPLIT_RUN_ID}/jobs?per_page=100")
+                jobs=run_jobs.get("jobs")
+                require(isinstance(jobs,list)
+                        and run_jobs.get("total_count")==4 and len(jobs)==4,
+                        "SPLIT_CUSTODY_PROVIDER_JOBS_INVALID")
+                artifacts=api.get(
+                    f"repos/{REPO}/actions/runs/{SPLIT_RUN_ID}/artifacts?per_page=100")
+                items=artifacts.get("artifacts")
+                require(isinstance(items,list) and artifacts.get("total_count")==1
+                        and len(items)==1 and items[0].get("id")==SPLIT_ARTIFACT_ID,
+                        "SPLIT_CUSTODY_PROVIDER_ARTIFACT_INVALID")
+                archive=api.artifact(SPLIT_ARTIFACT_ID)
+                result=admit_second_negative_custody(
+                    db,run=run,jobs=jobs,artifacts=items,archive=archive,
+                    owner_hmac_key=hmac_key,epoch=meta["epoch"])
+                print(json.dumps(result,sort_keys=True))
         elif args.verb=="transition-qualified-native":
             # The owner must run this exact, qualified, protected-main checkout;
             # never rewrite historical identities or reset the event chain.
@@ -1434,11 +1609,18 @@ def cli(argv=None):
                     verify_original_negative_custody, TICKET as NEGATIVE_TICKET)
                 excluded=list(db.conn.execute(
                     "SELECT ticket,stage FROM tasks WHERE stage!='VERIFIED'"))
+                from f139.nci04_split_negative_owner_store import (
+                    verify_second_negative_custody, TICKET as SECOND_TICKET)
+                excluded_tickets={r["ticket"] for r in excluded}
                 has_certified_negative=(
-                    len(excluded)==1
-                    and excluded[0]["ticket"]==NEGATIVE_TICKET
+                    len(excluded)==1 and excluded_tickets=={NEGATIVE_TICKET}
                     and excluded[0]["stage"]=="QUARANTINED"
-                    and verify_original_negative_custody(db))
+                    and verify_original_negative_custody(db)
+                    or len(excluded)==2
+                    and excluded_tickets=={NEGATIVE_TICKET, SECOND_TICKET}
+                    and all(r["stage"]=="QUARANTINED" for r in excluded)
+                    and verify_original_negative_custody(db)
+                    and verify_second_negative_custody(db))
                 require(not excluded or has_certified_negative,
                         "NEGATIVE_HISTORY_NOT_SAFELY_CUSTODIED")
                 db.transition_source(

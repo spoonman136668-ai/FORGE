@@ -7,9 +7,13 @@ param(
   [Parameter(Mandatory)][string]$Database,
   [Parameter(Mandatory)][string]$EncryptedKeyFile,
   [int]$PollSeconds = 45,
-  [switch]$CustodyOriginalNativeNegative
+  [switch]$CustodyOriginalNativeNegative,
+  [switch]$CustodyOriginalNativeSplitNegative
 )
 $ErrorActionPreference = 'Stop'
+if ($CustodyOriginalNativeNegative -and $CustodyOriginalNativeSplitNegative) {
+  throw 'F139_CONFLICTING_OWNER_CUSTODY_ACTIONS'
+}
 if ($PollSeconds -lt 15 -or $PollSeconds -gt 300) { throw 'F139_BAD_POLL_INTERVAL' }
 if (!(Test-Path -LiteralPath $PythonExe -PathType Leaf)) { throw 'F139_PYTHON_MISSING' }
 if (!(Test-Path -LiteralPath (Join-Path $RepositoryRoot 'f139/local_controller.py') -PathType Leaf)) { throw 'F139_SOURCE_MISSING' }
@@ -33,6 +37,16 @@ try {
     & $PythonExe -B -m f139.local_controller --db $Database custody-original-native-negative
     if ($LASTEXITCODE -ne 0) { throw 'F139_ORIGINAL_NEGATIVE_CUSTODY_FAILED' }
     Write-Host 'F139_ORIGINAL_NATIVE_NEGATIVE_CUSTODY=QUALIFIED_ONCE'
+    return
+  }
+  if ($CustodyOriginalNativeSplitNegative) {
+    # The SAME original Windows SID, disabled task, exact qualified checkout,
+    # DPAPI key and existing original-controller SingleOwner lock are required
+    # by the #706 owner CLI. No provider dispatch, second controller, task
+    # replay, owner approval or scientific first-use is inferred here.
+    & $PythonExe -B -m f139.local_controller --db $Database custody-original-native-split-negative
+    if ($LASTEXITCODE -ne 0) { throw 'F139_SPLIT_NEGATIVE_CUSTODY_FAILED' }
+    Write-Host 'F139_ORIGINAL_NATIVE_SPLIT_NEGATIVE_CUSTODY=QUALIFIED_ONCE'
     return
   }
   # Native Windows job control ensures Python is terminated if Task Scheduler

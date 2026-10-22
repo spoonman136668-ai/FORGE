@@ -109,7 +109,7 @@ class LedgerTests(unittest.TestCase):
         class NoNativeProvider:
             def protected_main(self): return MAIN
             def d2k_eligible_issues(self, source): return []
-            def native_eligible_issues(self, source):
+            def native_eligible_issues(self, source, *, historical_issues=None):
                 raise AssertionError("production must NOT inspect native issues")
         result = run_once(self.db, NoNativeProvider(), self.path, HMAC,
                           now="2026-10-21T10:00:00Z")
@@ -180,7 +180,7 @@ class LedgerTests(unittest.TestCase):
             archives = {}
             def protected_main(self):return MAIN
             def d2k_eligible_issues(self,source):return []
-            def native_eligible_issues(self,source):return [issue]
+            def native_eligible_issues(self, source, *, historical_issues=None):return [issue]
             def dispatch_native(self,fields,record):
                 self.dispatches.append((fields,record))
                 self.auth = fields
