@@ -1,0 +1,69 @@
+name: ITD-01 public DEV-only interactive contract qualification
+on:
+  push:
+    branches: [research/itd01-public-dev-harness-20261022]
+    paths:
+      - 'research/itd01/public_dev.py'
+      - 'research/itd01/test_public_dev.py'
+      - '.github/workflows/qualify-itd01-public-dev.yml'
+permissions:
+  contents: read
+concurrency:
+  group: itd01-public-only-cross-os-20261022
+  cancel-in-progress: false
+jobs:
+  dev-only-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 30 # bounded shallow regression plus full ITD-01 stacked ancestor
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact frozen ancestry and nonauthority scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor a2b5aeb9623f494507aa19a8a6a38987d8cffbf3 HEAD
+          git diff --name-only a2b5aeb9623f494507aa19a8a6a38987d8cffbf3 HEAD | python -B -c 'import sys; p=sys.stdin.read().splitlines(); allowed={"research/itd01/public_dev.py","research/itd01/test_public_dev.py",".github/workflows/qualify-itd01-public-dev.yml"}; assert set(p)==allowed, p'
+          echo ITD01_FROZEN_PARENT_AND_THREE_ADDITIONS=PASS
+      - name: Focused public-world adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p test_public_dev.py -v
+          echo ITD01_PUBLIC_DEV_TESTS=PASS
+          echo ITD01_HELD_FIRST_USE=NOT_ATTEMPTED
+      - name: Existing FORGE full Python and Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test ./...
+          go vet ./...
+          go build ./...
+          echo ITD01_EXISTING_FORGE_FULL_REGRESSION=PASS
+      - name: Verify immutable worktree and no scientific admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo ITD01_WORKTREE_CLEAN=PASS
+          echo ITD01_CKB_AUTHORITY=UNCHANGED
+          echo ITD01_ORIGINAL_SOURCE_FIRST_USE=BLOCKED
