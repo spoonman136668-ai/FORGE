@@ -1,0 +1,215 @@
+name: CKB R18 R5 live config-and-tool contract exact Go read-only comparison
+on:
+  push:
+    branches: [audit/ckb-r18-r5-live-contract-20261022]
+    paths: [.github/workflows/ckb-r18-r5-live-contract-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r5-contract-readonly-20261022
+  cancel-in-progress: false
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - name: Verify original owner, isolated source and sealed R5
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='201bbb2e298532b2bc89da4c9f2bef1288df38d4'
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($owner)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-live-contract-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0){
+            throw 'R18_CONTRACT_READONLY_SOURCE_OR_OWNER_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-r5-live-contract-readonly.yml'){
+            throw 'R18_CONTRACT_NOT_ONE_READONLY_WORKFLOW'
+          }
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $cfg=Join-Path $live 'config\autonomy.yaml'
+          foreach($p in @(
+            @{path=$exe;hash='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'},
+            @{path=$cfg;hash='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )){
+            $f=Get-Item -LiteralPath $p.path -ErrorAction Stop
+            if($f.PSIsContainer -or ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $p.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $p.hash){
+              throw 'R18_CONTRACT_SEALED_EXECUTABLE_OR_CONFIG_DRIFT'
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $p.Count -ne 1 -or [string]$p[0].ExecutablePath -ine $exe){
+            throw 'R18_CONTRACT_SINGLETON_NOT_R5'
+          }
+          Write-Host 'R18_CONTRACT_OWNER_AND_SEALED_RELEASE=PASS'
+          Write-Host 'R18_CONTRACT_ONLY_READONLY_WORKFLOW=PASS'
+      - name: Recompute exact source Go contract in isolated temporary module without controller launch
+        shell: pwsh
+        timeout-minutes: 12
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $shadow=Join-Path $env:RUNNER_TEMP ('R18-Contract-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $shadow){throw 'R18_CONTRACT_SHADOW_PATH_REUSED'}
+          $files=@('go.mod','go.sum','internal\plane\contracts.go',
+                   'internal\plane\engine.go','internal\plane\model.go')
+          $pre=@{}
+          foreach($rel in $files){
+            $f=Get-Item -LiteralPath (Join-Path $root $rel) -ErrorAction Stop
+            if($f.PSIsContainer -or ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+              throw 'R18_CONTRACT_LIVE_SOURCE_IRREGULAR'
+            }
+            $pre[$rel]=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          $go=(Get-Command go.exe -ErrorAction Stop).Source
+          New-Item -ItemType Directory -Path $shadow -ErrorAction Stop|Out-Null
+          try{
+            # The exact installed source is copied into an isolated temporary Go module.
+            # Never copy live config, SQLite, state, tokens, secrets or git metadata.
+            foreach($folder in @('internal','cmd')){
+              $src=Join-Path $root $folder
+              $links=@(Get-ChildItem -LiteralPath $src -Recurse -Force -ErrorAction Stop |
+                         Where-Object {($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0})
+              if($links.Count -ne 0){throw 'R18_CONTRACT_SOURCE_REPARSE_PATH'}
+              Copy-Item -LiteralPath $src -Destination $shadow -Recurse -Force -ErrorAction Stop
+            }
+            foreach($f in @('go.mod','go.sum')){
+              Copy-Item -LiteralPath (Join-Path $root $f) -Destination $shadow -ErrorAction Stop
+            }
+            foreach($rel in $files){
+              $post=(Get-FileHash -LiteralPath (Join-Path $root $rel) -Algorithm SHA256).Hash.ToLowerInvariant()
+              $copied=(Get-FileHash -LiteralPath (Join-Path $shadow $rel) -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($post -cne $pre[$rel] -or $copied -cne $pre[$rel]){
+                throw 'R18_CONTRACT_SOURCE_PREIMAGE_CHANGED_DURING_COPY'
+              }
+            }
+            $test=Join-Path $shadow 'internal\plane\r18_shadow_contract_readonly_test.go'
+            if(Test-Path -LiteralPath $test){throw 'R18_CONTRACT_TEST_COLLISION'}
+            $code=@'
+          package plane
+          import (
+              "database/sql"
+              "encoding/json"
+              "fmt"
+              "os"
+              "os/exec"
+              "path/filepath"
+              "strings"
+              "testing"
+              _ "modernc.org/sqlite"
+          )
+          func TestR18ReadOnlyLiveContract(t *testing.T) {
+              root:=os.Getenv("R18_CONTRACT_LIVE_ROOT")
+              config:=filepath.Join(root,"config","autonomy.yaml")
+              c,err:=LoadConfig(config)
+              if err!=nil {t.Fatalf("R18_CONFIG_READ_FAILED: %T",err)}
+              p:=&Engine{Config:c,Root:root}
+              var empty WorkOrder
+              computed:=p.contract(empty)
+              if len(computed)!=64 {t.Fatal("R18_CONTRACT_DIGEST_INVALID_LENGTH")}
+              dbPath:=filepath.Join(root,"state","autonomy.db")
+              u:="file:"+filepath.ToSlash(dbPath)+"?mode=ro"
+              db,err:=sql.Open("sqlite",u)
+              if err!=nil {t.Fatalf("R18_SQLITE_OPEN_FAILED: %T",err)}
+              defer db.Close()
+              if _,err=db.Exec("PRAGMA query_only=ON");err!=nil {t.Fatalf("R18_SQLITE_READONLY_FAILED: %T",err)}
+              var qualification,receiptPath string
+              if err=db.QueryRow("SELECT value FROM settings WHERE key='qualification_digest'").Scan(&qualification);err!=nil{t.Fatalf("R18_QUALIFICATION_SETTING_UNAVAILABLE: %T",err)}
+              if err=db.QueryRow("SELECT value FROM settings WHERE key='qualification_receipt'").Scan(&receiptPath);err!=nil{t.Fatalf("R18_RECEIPT_SETTING_UNAVAILABLE: %T",err)}
+              if !filepath.IsAbs(receiptPath) {t.Fatal("R18_QUALIFICATION_RECEIPT_NOT_ABSOLUTE")}
+              cleanRoot:=strings.ToLower(filepath.Clean(root))
+              cleanReceipt:=strings.ToLower(filepath.Clean(receiptPath))
+              if !strings.HasPrefix(cleanReceipt,cleanRoot+string(os.PathSeparator)) {t.Fatal("R18_QUALIFICATION_RECEIPT_OUTSIDE_ROOT")}
+              info,err:=os.Lstat(receiptPath)
+              if err!=nil||!info.Mode().IsRegular()||info.Size()>65536 {t.Fatal("R18_QUALIFICATION_RECEIPT_UNSAFE")}
+              raw,err:=os.ReadFile(receiptPath)
+              if err!=nil{t.Fatalf("R18_QUALIFICATION_RECEIPT_UNREADABLE: %T",err)}
+              var receipt struct{
+                  Passed bool `json:"passed"`
+                  Digest string `json:"config_and_tool_digest"`
+              }
+              if err=json.Unmarshal(raw,&receipt);err!=nil {t.Fatalf("R18_RECEIPT_JSON_INVALID: %T",err)}
+              if !receipt.Passed||qualification==""||receipt.Digest!=qualification {t.Fatal("R18_STORED_QUALIFICATION_SELF_INCONSISTENT")}
+              var paused,authority,generation string
+              for _,p:=range []struct{key string;dest *string}{
+                  {"paused",&paused},{"autonomy_authority",&authority},{"autonomy_generation",&generation},
+              }{
+                  if err:=db.QueryRow("SELECT value FROM settings WHERE key=?",p.key).Scan(p.dest);err!=nil{t.Fatalf("R18_CONTROLLER_SETTING_MISSING: %T",err)}
+              }
+              var count,active,leases int
+              if err=db.QueryRow("SELECT count(*) FROM work_orders").Scan(&count);err!=nil{t.Fatal("R18_WORKORDER_QUERY_FAILED")}
+              if err=db.QueryRow("SELECT count(*) FROM work_orders WHERE state IN ('PENDING','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','ACCEPTING')").Scan(&active);err!=nil{t.Fatal("R18_ACTIVE_QUERY_FAILED")}
+              if err=db.QueryRow("SELECT count(*) FROM worker_leases").Scan(&leases);err!=nil{t.Fatal("R18_LEASE_QUERY_FAILED")}
+              if paused!="true"||authority!="plane"||generation!="6"||count!=198||active!=0||leases!=0 {t.Fatal("R18_PAUSED_HISTORY_OR_AUTHORITY_DRIFT")}
+              paths:=[]string{c.Tools.Git,c.Tools.Go,c.Tools.Codex,c.Tools.Node,c.Tools.Powershell}
+              used,notAbsolute,unavailable:=0,0,0
+              for _,v:=range paths{
+                  if v=="" {continue}
+                  used++
+                  if !filepath.IsAbs(v){notAbsolute++}
+                  if _,err:=exec.LookPath(v);err!=nil{unavailable++}
+              }
+              outcome:="MATCH"
+              if computed!=qualification {outcome="MISMATCH"}
+              state:=map[string]interface{}{
+                  "schema":"ckb-plane.r18.r5-exact-go-contract-readonly.v1",
+                  "current_contract_matches_stored":computed==qualification,
+                  "current_contract_matches_receipt":computed==receipt.Digest,
+                  "stored_receipt_passed":receipt.Passed,
+                  "classification":outcome,
+                  "tool_path_entries":used,
+                  "tool_paths_not_absolute":notAbsolute,
+                  "tool_executables_unavailable":unavailable,
+                  "source_used":"owner-installed-source-isolated-copy",
+                  "original_controller_started":false,
+                  "qualify_or_resume_invoked":false,
+                  "scientific_first_use":false,
+                  "production_db_mutated":false,
+              }
+              output,err:=json.Marshal(state)
+              if err!=nil||len(output)>4096{t.Fatal("R18_CONTRACT_RECEIPT_INVALID")}
+              fmt.Println("R18_LIVE_GO_CONTRACT_COMPARISON="+string(output))
+          }
+          '@
+            [IO.File]::WriteAllText($test,$code,[Text.UTF8Encoding]::new($false))
+            $env:R18_CONTRACT_LIVE_ROOT=$root
+            $env:GOWORK='off'
+            $env:GOTOOLCHAIN='local'
+            $env:GOFLAGS='-mod=readonly'
+            $env:CGO_ENABLED='0'
+            Push-Location $shadow
+            try{
+              & $go test -vet=off -run '^TestR18ReadOnlyLiveContract$' -count=1 -v ./internal/plane
+              if($LASTEXITCODE -ne 0){throw 'R18_CONTRACT_FOCUSED_GO_TEST_FAILED'}
+            }finally{Pop-Location}
+            Write-Host 'R18_EXACT_LIVE_CONTRACT_FOCUSED_GO=PASS'
+            Write-Host 'R18_LIVE_SOURCE_CONFIG_DATABASE=UNMODIFIED'
+            Write-Host 'R18_CONTROLLER_RESUME=NOT_INVOKED'
+            Write-Host 'R18_CONTROLLER_QUALIFY=NOT_INVOKED'
+            Write-Host 'R18_RESEARCH_DISPATCH=NOT_INVOKED'
+          }finally{
+            if(Test-Path -LiteralPath $shadow){
+              Remove-Item -LiteralPath $shadow -Recurse -Force -ErrorAction Stop
+            }
+          }
