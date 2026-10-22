@@ -87,27 +87,36 @@ jobs:
           New-Item -ItemType Directory -Path $logs -Force|Out-Null
           $before=@{}
           $captured=$false
+          $phase='preflight'
           try{
+            $phase='source-ref-pins'
             Pin 'refs/heads/main' $main
             Pin ('refs/heads/'+$branch) $source
+            $phase='clone'
             & git.exe clone --quiet --single-branch --branch $branch $remote $root
             Need ($LASTEXITCODE -eq 0) 'PRIVATE_CLONE_FAILED'
+            $phase='source-head'
             Need ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'SOURCE_HEAD_CHANGED'
             & git.exe -C $root merge-base --is-ancestor $parent $source
             Need ($LASTEXITCODE -eq 0) 'PARENT_NOT_ANCESTOR'
+            $phase='scope-diff'
             $files=@(& git.exe -C $root diff --name-only $parent $source)
             $allow=@('tools/uq69-one-record-simulate.ps1','tests/Test-UQ69OneRecordSimulate.ps1')
             Need ($LASTEXITCODE -eq 0 -and $files.Count -eq 2 -and
               (($files|Sort-Object)-join '|') -ceq (($allow|Sort-Object)-join '|')) 'DELTA_SCOPE_CHANGED'
+            $phase='blob-pins'
             Need ((& git.exe -C $root rev-parse 'HEAD:tools/uq69-one-record-simulate.ps1'|Out-String).Trim() -ceq
               '8a529e44111377503c12459c8b933522772f5264') 'NATIVE_TOOL_BLOB_CHANGED'
             Need ((& git.exe -C $root rev-parse 'HEAD:tests/Test-UQ69OneRecordSimulate.ps1'|Out-String).Trim() -ceq
               '555e43b6178cf9356c3097225349fb5b0dbd397b') 'NATIVE_TEST_BLOB_CHANGED'
+            $phase='protected-hash-read'
             foreach($f in $guard){
               $before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
             }
             $captured=$true
+            $phase='focused'
             TestNative 'focused' 'tests/Test-UQ69OneRecordSimulate.ps1'
+            $phase='full'
             TestNative 'full' 'tests/Test-All.ps1'
             Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_CHANGED'
             Pin 'refs/heads/main' $main
@@ -121,6 +130,8 @@ jobs:
             $problem=[string]$_.Exception.Message
             $tokens=@([regex]::Matches($problem,'UQ69F_[A-Z0-9_]+')|ForEach-Object{$_.Value})
             $code=if($tokens.Count -gt 0){[string]$tokens[0]}else{'UNCLASSIFIED'}
+            Write-Host ('UQ69F_PRIMARY_FAILURE_STAGE='+$phase)
+            Write-Host ('UQ69F_PRIMARY_FAILURE_CLASS='+$_.Exception.GetType().Name)
             Write-Host ('UQ69F_PRIMARY_FAILURE_CODE='+$code)
             throw 'UQ69F_QUALIFICATION_STOPPED'
           }finally{
