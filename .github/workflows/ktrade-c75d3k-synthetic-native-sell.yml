@@ -117,6 +117,23 @@ jobs:
                   if($_ -cmatch '^--- FAIL: (TestC75D3K[A-Za-z0-9_]+)'){$Matches[1]}
                 } | Select-Object -Unique -First 8)
                 foreach($name in $failures){Write-Host ('D3K_FAILED_TEST='+$name)}
+                # Only the synthetic fixture test's static case IDs and
+                # decision enums are printed. No raw private logs or values.
+                $syntheticLines=@(Get-Content -LiteralPath $log)
+                foreach($item in $syntheticLines){
+                  if($item -match '--- FAIL: TestC75D3KSyntheticSellTakeProfitStopLossPrecedence/([a-z_]+)'){
+                    Write-Host ('D3K_SYNTHETIC_FAILED_CASE='+$Matches[1])
+                  }
+                  if($item -match 'native original position gate rejected fixture'){
+                    Write-Host 'D3K_SYNTHETIC_FAILURE_CLASS=NATIVE_FIXTURE_REJECTED'
+                  }
+                  if($item -match 'original native "([A-Z ]+)" observation unqualified'){
+                    Write-Host ('D3K_SYNTHETIC_FAILURE_CLASS=DECISION_NOT_EXPECTED_'+($Matches[1] -replace ' ','_'))
+                  }
+                  if($item -match 'repeat same completed bar altered native inert decision'){
+                    Write-Host 'D3K_SYNTHETIC_FAILURE_CLASS=NONDETERMINISTIC_OBSERVATION'
+                  }
+                }
                 $sites=@(Get-Content -LiteralPath $log | Where-Object {$_ -cmatch '(c75d3k_[a-z0-9_]+\.go):(\d+):(\d+):' } | ForEach-Object {
                   if($_ -cmatch '(c75d3k_[a-z0-9_]+\.go):(\d+):(\d+):'){($Matches[1]+':'+$Matches[2]+':'+$Matches[3])}
                 } | Select-Object -Unique -First 8)
