@@ -1,0 +1,76 @@
+name: Mind-Palace MP-AI05 no-cost local model readiness audit
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai05-zero-cost-local-inference-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect local offline model resources (no paid API, model execution, or credential access)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI05_UNAUTHORIZED_RUNNER_SCOPE'
+          }
+          $sys=Get-CimInstance Win32_ComputerSystem
+          $ramGiB=[math]::Floor([double]$sys.TotalPhysicalMemory/1GB)
+          $cores=[int]$sys.NumberOfLogicalProcessors
+          Write-Host ('MPAI05_RAM_GIB_FLOOR='+$ramGiB)
+          Write-Host ('MPAI05_LOGICAL_CPU_CORES='+$cores)
+          $video=@(Get-CimInstance Win32_VideoController)
+          Write-Host ('MPAI05_DISPLAY_ADAPTERS='+$video.Count)
+          $nvidia=Get-Command nvidia-smi -ErrorAction SilentlyContinue
+          if($null -eq $nvidia){
+            Write-Host 'MPAI05_NVIDIA_SMI=ABSENT'
+          }else{
+            Write-Host 'MPAI05_NVIDIA_SMI=PRESENT'
+            $memory=@(& $nvidia.Source --query-gpu=memory.total --format=csv,noheader,nounits 2>$null)
+            if($LASTEXITCODE -eq 0 -and $memory.Count -gt 0){
+              $first=([string]$memory[0]).Trim()
+              if($first -match '^\d{1,6}$'){
+                Write-Host ('MPAI05_FIRST_GPU_MEMORY_MIB='+$first)
+              }else{Write-Host 'MPAI05_FIRST_GPU_MEMORY_MIB=UNKNOWN'}
+            }else{
+              Write-Host 'MPAI05_FIRST_GPU_MEMORY_MIB=UNKNOWN'
+            }
+          }
+          $apps=@('ollama','llama-cli','llama-server','llamafile','python','git')
+          foreach($app in $apps){
+            $tag=$app.Replace('-','_').ToUpperInvariant()
+            $installed=@(Get-Command $app -ErrorAction SilentlyContinue)
+            Write-Host ('MPAI05_CLI_'+$tag+'='+$(if($installed.Count){'PRESENT'}else{'ABSENT'}))
+          }
+          $py=Get-Command python -ErrorAction SilentlyContinue
+          if($null -ne $py){
+            $code='import importlib.util; names=("torch","transformers","llama_cpp","ctransformers","onnxruntime"); [print("MPAI05_PY_"+n.upper()+"="+("PRESENT" if importlib.util.find_spec(n) is not None else "ABSENT")) for n in names]'
+            & $py.Source -I -c $code
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_PYTHON_READINESS_PROBE_FAILED'}
+          }
+          $hf=Join-Path $env:USERPROFILE '.cache\huggingface\hub'
+          $ollama=Join-Path $env:USERPROFILE '.ollama\models\blobs'
+          $hfDirs=@()
+          if(Test-Path -LiteralPath $hf -PathType Container){
+            $hfDirs=@(Get-ChildItem -LiteralPath $hf -Directory -Filter 'models--*' -ErrorAction Stop)
+          }
+          $ollamaBlobs=@()
+          if(Test-Path -LiteralPath $ollama -PathType Container){
+            $ollamaBlobs=@(Get-ChildItem -LiteralPath $ollama -File -ErrorAction Stop | Select-Object -First 2)
+          }
+          Write-Host ('MPAI05_HF_CACHED_MODEL_DIRECTORIES='+$hfDirs.Count)
+          Write-Host ('MPAI05_OLLAMA_CACHED_BLOB_PRESENT='+$(if($ollamaBlobs.Count){'YES'}else{'NO'}))
+          Write-Host 'MPAI05_MODEL_WEIGHTS_AUTHENTICITY=NOT_VERIFIED'
+          Write-Host 'MPAI05_CHATGPT_CLOUD_CONNECTOR=NOT_CHECKED'
+          Write-Host 'MPAI05_SECOND_AGENT_INFERENCE=NOT_PERFORMED'
+          Write-Host 'MPAI05_PAID_API_CALLS=0'
+          Write-Host 'MPAI05_PRODUCTION_WRITES=0'
