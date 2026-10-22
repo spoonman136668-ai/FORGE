@@ -99,6 +99,10 @@ jobs:
               $env:F139_WORKER_HMAC_KEY) {
             throw 'R15_REPAIR_STEP_CREDENTIAL_INHERITANCE_REJECTED'
           }
+          $env:PYTHONPATH = (Resolve-Path -LiteralPath 'proof').Path
+          python -B -m unittest -v f139.test_r16_semantic_repair
+          if ($LASTEXITCODE -ne 0) { throw 'R16_AST_REPAIR_ADVERSARIAL_NEGATIVE' }
+          Write-Output 'R16_SYNTHESIS_FOCUSED=PASS'
           python -B proof/f139/r15_provider_failure_repair.py evidence failed qualified
-          if ($LASTEXITCODE -ne 0) { throw 'R15_AUTHENTIC_FAILURE_DRIVEN_REPAIR_FAILED' }
-          Write-Output 'R15_AUTHENTIC_PROVIDER_DRIVEN_REPAIR=PASS'
+          if ($LASTEXITCODE -ne 0) { throw 'R16_AUTHENTIC_FAILURE_DRIVEN_REPAIR_FAILED' }
+          Write-Output 'R16_AUTHENTIC_PROVIDER_DRIVEN_AST_REPAIR=PASS'
