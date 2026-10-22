@@ -33,28 +33,31 @@ jobs:
           if($LASTEXITCODE -ne 0 -or @($changed|Where-Object {$_ -notin $allowed}).Count -ne 0){throw 'R18_PROMOTION_WORKFLOW_SCOPE_DRIFT'}
           $root='C:\Users\camar\GolandProjects\ckb-plane'
           $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5'
-          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STATUSFIX-20261022'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022'
           $oldExe=Join-Path $old 'bin\ckb-plane.exe'
           $newExe=Join-Path $new 'bin\ckb-plane.exe'
           $incoming=Join-Path $env:RUNNER_TEMP ('r18-retained-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $incoming){throw 'R18_ARTIFACT_STAGING_PATH_REUSED'}
           New-Item -Path $incoming -ItemType Directory -ErrorAction Stop|Out-Null
           $gh=(Get-Command gh.exe -ErrorAction Stop).Source
-          & $gh run download 39868468278 -R spoonman136668-ai/ckb-plane -n r18-exact-source-controller-candidate -D $incoming
+          & $gh run download 39874370998 -R spoonman136668-ai/ckb-plane -n r18-qualified-status-and-strict-active-recovery -D $incoming
           if($LASTEXITCODE -ne 0){throw 'R18_QUALIFIED_ARTIFACT_DOWNLOAD_NOT_AUTHORIZED'}
           $manifestFile=Join-Path $incoming 'manifest.json'
           $manifest=Get-Content -LiteralPath $manifestFile -Raw|ConvertFrom-Json
-          if($manifest.schema -cne 'ckb-plane.r18-statusfix-candidate.v1' -or
-             $manifest.build_run -cne '39868468278' -or
-             $manifest.parity_run -cne '39867583388' -or
-             $manifest.reviewed_patch -cne '05e80b854ca106ce0469768e3c19bd508ad17016' -or
-             $manifest.sha256 -cne 'da8f5f7fb159025b337d77db6d778b332be12679d098aafb192a3f0a668f690b' -or
-             $manifest.not_authorized_for_execution -ne $true){throw 'R18_TRANSFER_MANIFEST_SOURCE_DRIFT'}
+          if($manifest.schema -cne 'ckb-plane.r18-status-and-active-recovery-candidate.v1' -or
+             $manifest.artifact_run -cne '39874370998' -or
+             $manifest.source_sha -cne 'cf4e2a0c8df0f2534e0d0ea94a0b0122e414b3d5' -or
+             $manifest.original_recovery_sha256 -cne 'c6c25f773bd2ea09999963b37746d820a1a303876b2664f5c88ba8bf1720fa83' -or
+             $manifest.full_regression_run -cne '39873054923' -or
+             $manifest.full_regression_evidence -cne 'R18_STARTUP_FULL_REGRESSION_BASELINE_FILTERED=PASS' -or
+             $manifest.nonbaseline_vet_evidence -cne 'R18_STARTUP_VET_NONBASELINE=PASS' -or
+             $manifest.sha256 -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8' -or
+             $manifest.live_promoted -ne $false){throw 'R18_TRANSFER_MANIFEST_SOURCE_DRIFT'}
           $candidate=Join-Path $incoming 'ckb-plane.exe'
           $config=Join-Path $root 'config\autonomy.yaml'
           $db=Join-Path $root 'state\autonomy.db'
           $oldHash='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
-          $newHash='da8f5f7fb159025b337d77db6d778b332be12679d098aafb192a3f0a668f690b'
+          $newHash='9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'
           $wrapperHash='e25977f2e887d665f1458d3f085d5eacf71c824ac0f27cf3ebafe7e9bd074a3b'
           $taskName='CKB-plane Controller'
           function Sha([string]$path){(Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
@@ -121,13 +124,8 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if(!$ready){throw 'R18_SCHEDULER_NOT_READY_AFTER_STOP'}
-            $errlog=Join-Path $new 'statusfix-startup-error.log'
-            if(Test-Path -LiteralPath $errlog){throw 'R18_PREVIOUS_DIAGNOSTIC_COLLISION'}
             $normalWrapper=$originalText.Replace($old,$new)
-            $call="& '"+$newExe+"' @runArgs;exit"
-            if(!$normalWrapper.Contains($call)){throw 'R18_NATIVE_START_COMMAND_MISMATCH'}
-            $instrumented=$normalWrapper.Replace($call,("& '"+$newExe+"' @runArgs 2> '"+$errlog+"';exit"))
-            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($instrumented))
+            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($normalWrapper))
             $swapped=$true
             Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
             $started=$false
@@ -159,22 +157,13 @@ jobs:
             if($after.paused -cne 'true' -or $after.autonomy_authority -cne 'plane' -or
                $after.autonomy_generation -cne '6' -or [int]$after.leases -ne 0 -or [int]$after.pending -ne 0){throw 'R18_IDLE_CONTROLLER_STATE_DRIFT'}
             if(((Get-Date).ToUniversalTime()-[datetime]::Parse([string]$after.autonomy_heartbeat).ToUniversalTime()).TotalSeconds -gt 60){throw 'R18_HEARTBEAT_STALE'}
-            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($normalWrapper))
-            Write-Host 'R18_STARTUP_DIAGNOSTIC_WRAPPER_RESTORED=PASS'
+            if([IO.File]::ReadAllText($wrapper) -cne $normalWrapper){throw 'R18_WRAPPER_CONTENTS_CHANGED'}
+            Write-Host 'R18_ORIGINAL_STARTUP_WRAPPER_SEMANTICS_PRESERVED=PASS'
             Write-Host 'R18_GUARDED_LIVE_STATUS_REPAIR_INSTALLED=PASS'
             Write-Host 'R18_CONTROLLER_PAUSED_PENDING_AUTHENTICATED_BRIDGE_RESUME=TRUE'
             Write-Host ('R18_PROMOTED_BINARY_SHA256='+$newHash)
           }catch{
             Write-Host ('R18_REPAIR_BLOCKED='+[string]$_.Exception.Message)
-            if($errlog -and (Test-Path -LiteralPath $errlog -PathType Leaf)){
-              $errorLines=@([IO.File]::ReadAllLines($errlog)|Where-Object {$_ -match '(?i)error|fail|unavailable|refused|cannot|invalid|listen|bind|denied' -and $_ -notmatch '(?i)password|secret|token|credential|authorization|bearer'})
-              foreach($line in ($errorLines|Select-Object -First 6)){
-                $safe=$line -replace '(?i)[A-Z]:\\[^\s]+','<FILEPATH>'
-                if($safe.Length -gt 220){$safe=$safe.Substring(0,220)}
-                Write-Host ('R18_REDACTED_STARTUP_ERROR='+$safe)
-              }
-              Write-Host ('R18_STARTUP_ERROR_RECORD_PRESENT='+([bool]$errorLines.Count))
-            }
             if($stopped){
               try{
                 Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
