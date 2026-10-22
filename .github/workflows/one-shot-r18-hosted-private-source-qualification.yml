@@ -1,0 +1,128 @@
+name: FORGE Qualify one-shot R18 private source regression
+# Strictly isolated, temporary host qualification. No FORGE science-plane coupling.
+on:
+  push:
+    branches: [qualification/r18-private-hosted-forge-20261022]
+    paths: [.github/workflows/one-shot-r18-hosted-private-source-qualification.yml]
+permissions:
+  contents: read
+concurrency:
+  group: forge-r18-hosted-one-shot-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+      GOTELEMETRY: 'off'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+      R18_PRIVATE_READ: ${{ secrets.FORGE_CKB_READ || secrets.FORGE_CKB_QUAL || secrets.FORGE_CKB_PLANE_READ || secrets.CKB_READ_ONLY }}
+    steps:
+      - name: Forbid workstation/private FORGE controller and require existing read-only grant
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/r18-private-hosted-forge-20261022' -or
+             $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'FORGE_R18_HOSTED_RUNNER_BOUNDARY_DRIFT'
+          }
+          if([string]::IsNullOrWhiteSpace($env:R18_PRIVATE_READ)){
+            throw 'FORGE_R18_READ_ONLY_PRIVATE_CHECKOUT_NOT_CONFIGURED'
+          }
+          Write-Host 'FORGE_R18_HOSTED_WINDOWS_RUNNER=PASS'
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/ckb-plane
+          ref: 0a51daf495b1116d9b1d4152e48d8b40c7a209c2
+          token: ${{ secrets.FORGE_CKB_READ || secrets.FORGE_CKB_QUAL || secrets.FORGE_CKB_PLANE_READ || secrets.CKB_READ_ONLY }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: r18-private
+      - name: Verify exact private source identity and no protected live paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if((& git -C r18-private rev-parse HEAD) -cne '0a51daf495b1116d9b1d4152e48d8b40c7a209c2' -or
+             !(Test-Path -LiteralPath 'r18-private\snapshot\source\internal\plane\r18_forge_hosted_qualification_test.go' -PathType Leaf)){
+            throw 'FORGE_R18_PRIVATE_SOURCE_IDENTITY_MISMATCH'
+          }
+          Write-Host 'FORGE_R18_PINNED_PRIVATE_SOURCE=PASS'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Exact source qualification-focused negative tests
+        shell: pwsh
+        working-directory: r18-private/snapshot/source
+        run: |
+          $ErrorActionPreference='Stop'
+          & go test -p 2 -run '^TestR18HostedQualificationRejectsContractDrift$' -count=1 -v ./internal/plane
+          if($LASTEXITCODE -ne 0){throw 'FORGE_R18_FOCUSED_SOURCE_TEST_FAIL'}
+          Write-Host 'FORGE_R18_WINDOWS_FOCUSED=PASS'
+      - name: One full regression then vet and native build
+        shell: pwsh
+        working-directory: r18-private/snapshot/source
+        run: |
+          $ErrorActionPreference='Stop'
+          & go test -p 2 ./...
+          if($LASTEXITCODE -ne 0){throw 'FORGE_R18_FULL_WINDOWS_REGRESSION_FAIL'}
+          Write-Host 'FORGE_R18_FULL_WINDOWS_REGRESSION=PASS'
+          & go vet -p 2 ./...
+          if($LASTEXITCODE -ne 0){throw 'FORGE_R18_VET_FAIL'}
+          Write-Host 'FORGE_R18_WINDOWS_VET=PASS'
+          $outfile=Join-Path $env:RUNNER_TEMP 'r18-hosted-qualified.exe'
+          if(Test-Path -LiteralPath $outfile){throw 'FORGE_R18_BUILD_OUTPUT_COLLISION'}
+          & go build -p 2 -o $outfile ./cmd/ckb-plane
+          if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $outfile)){throw 'FORGE_R18_WINDOWS_BUILD_FAIL'}
+          Write-Host 'FORGE_R18_NATIVE_BUILD=PASS'
+          Write-Host 'FORGE_R18_NO_OWNER_TASK_OR_SQLITE_MUTATION=TRUE'
+          Write-Host 'FORGE_R18_NO_RESEARCH_DISPATCH=TRUE'
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    env:
+      GOWORK: 'off'
+      GOTOOLCHAIN: local
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+      R18_PRIVATE_READ: ${{ secrets.FORGE_CKB_READ || secrets.FORGE_CKB_QUAL || secrets.FORGE_CKB_PLANE_READ || secrets.CKB_READ_ONLY }}
+    steps:
+      - name: No production credentials or private workspace dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          test "$RUNNER_OS" = Linux
+          test "$GITHUB_REF" = refs/heads/qualification/r18-private-hosted-forge-20261022
+          if [ -z "$R18_PRIVATE_READ" ]; then
+            echo "FORGE_R18_READ_ONLY_PRIVATE_CHECKOUT_NOT_CONFIGURED"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/ckb-plane
+          ref: 0a51daf495b1116d9b1d4152e48d8b40c7a209c2
+          token: ${{ secrets.FORGE_CKB_READ || secrets.FORGE_CKB_QUAL || secrets.FORGE_CKB_PLANE_READ || secrets.CKB_READ_ONLY }}
+          persist-credentials: false
+          fetch-depth: 1
+          path: r18-private
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Verify pinned source and focused cross-platform qualification
+        shell: bash
+        working-directory: r18-private/snapshot/source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 0a51daf495b1116d9b1d4152e48d8b40c7a209c2
+          go test -p 2 -run '^TestR18HostedQualificationRejectsContractDrift$' -count=1 -v ./internal/plane
+          echo FORGE_R18_LINUX_FOCUSED=PASS
+          echo FORGE_R18_NOT_SCIENTIFIC_EXECUTION=TRUE
