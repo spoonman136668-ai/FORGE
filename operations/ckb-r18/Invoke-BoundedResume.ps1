@@ -199,6 +199,47 @@ function AssertPausedAfterRestart([string]$exePath) {
     }
     throw 'CKB_R18_RESTART_PAUSED_STATE_NOT_VERIFIED'
 }
+# The existing authenticated native handler runs authority checks in the
+# original controller process, retaining its credential custody.
+function ResumeThroughOriginalController {
+    $tokenPath=Join-Path (Split-Path -Parent $db) 'operator.token'
+    $file=Get-Item -LiteralPath $tokenPath -ErrorAction Stop
+    if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+        throw 'CKB_R18_NATIVE_OPERATOR_TOKEN_FILE_INVALID'
+    }
+    $localToken=[IO.File]::ReadAllText($tokenPath).Trim()
+    if($localToken -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'CKB_R18_NATIVE_OPERATOR_TOKEN_FORMAT_INVALID'}
+    try {
+        $reply=Invoke-RestMethod -Uri 'http://127.0.0.1:8791/api/native' -Method Post -Headers @{Authorization=('Bearer '+$localToken)} -ContentType 'application/json' -Body '{"action":"resume"}' -TimeoutSec 45 -ErrorAction Stop
+    } catch {
+        # No credential, request headers, response body or raw exception in logs.
+        $message=[string]$_.ErrorDetails.Message
+        $classes=@(
+            'WINDOWS_QUALIFICATION_REQUIRED_OR_CONFIGURATION_CHANGED',
+            'QUALIFICATION_RECEIPT_MISSING','QUALIFICATION_RECEIPT_INVALID',
+            'ORIGINAL_AUTHORITY_VERIFICATION_UNAVAILABLE',
+            'ORIGINAL_AUTHORITY_GUARD_NOT_CONFIGURED',
+            'ORIGINAL_WORKFLOW_NOT_DISABLED',
+            'ORIGINAL_REPOSITORY_HAS_ACTIVE_RUNS',
+            'ORIGINAL_REPOSITORY_MISMATCH',
+            'ORIGINAL_ARCHITECTURE_REMAINS_AUTHORITY',
+            'AUTONOMY_NOT_CONFIGURED',
+            'AUTHORITY_REPOSITORY_MISMATCH',
+            'R4C1_NATIVE_PROOF_REQUIRED_BEFORE_CUTOVER',
+            'ORIGINAL_AUTHORITY_LOCAL_PROOF_REQUIRED',
+            'ACCEPTED_REF_MUTATION_FORBIDDEN'
+        )
+        $reason='OTHER_REJECTED_BY_LIVE_NATIVE_AUTHORITY'
+        foreach($candidate in $classes){
+            if($message.Contains($candidate)){$reason=$candidate;break}
+        }
+        throw ('CKB_R18_IN_PROCESS_NATIVE_RESUME_REJECTED_'+$reason)
+    } finally {
+        $localToken=$null
+    }
+    if($reply.paused -ne $false){throw 'CKB_R18_LIVE_NATIVE_RESUME_NOT_ACKNOWLEDGED'}
+    Write-Host 'CKB_R18_LIVE_AUTHENTICATED_NATIVE_RESUME_ACK=PASS'
+}
 $before=IdentifyController
 [void](QueryFrozenQueue 'true')
 [void](AssertNative $before.exe $true)
@@ -208,46 +249,15 @@ if (!$Execute) {
     Write-Host 'CKB_R18_DISPATCH_RESUMED=FALSE'
     return
 }
-$originalTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-$taskIdentity=[pscustomobject]@{
-    Execute=[string]$originalTask.Actions[0].Execute
-    Arguments=[string]$originalTask.Actions[0].Arguments
-    WorkingDirectory=[string]$originalTask.Actions[0].WorkingDirectory
-    UserId=[string]$originalTask.Principal.UserId
-}
-[void](AssertOriginalTask $taskIdentity)
 $attempted=$false
-$stopAttempted=$false
 try {
     $attempted=$true
-    # No leases or eligible work; stop only the existing paused native controller.
-    $stopAttempted=$true
-    $stopResult=NativeClient $before.exe 'stop'
-    if($stopResult.stopping -ne $true){throw 'CKB_R18_NATIVE_GRACEFUL_STOP_REFUSED'}
-    AwaitStopped $taskIdentity
-    [void](QueryFrozenQueue 'true')
-    Write-Host 'CKB_R18_EXISTING_CONTROLLER_GRACEFULLY_STOPPED=PASS'
-    # The native qualifier takes the exclusive controller lock and issues its own
-    # source/config-bound Windows evidence. It cannot run while the service owns it.
-    $qualification=NativeClient $before.exe 'qualify'
-    if([string]$qualification.schema -cne 'ckb-plane.windows-qualification.v1' -or
-       $qualification.passed -ne $true -or
-       $qualification.model_worker_launched -ne $false -or
-       $qualification.ckb_source_mutated -ne $false){
-        throw 'CKB_R18_NATIVE_QUALIFICATION_REFUSED_OR_INVALID'
-    }
-    [void](QueryFrozenQueue 'true')
-    Write-Host 'CKB_R18_NATIVE_WINDOWS_REQUALIFICATION=PASS'
-    # Start only the unchanged, preexisting Windows Scheduled Task.
-    $active=EnsureOriginalController $taskIdentity $before.exe
-    AssertPausedAfterRestart $active.exe
-    Write-Host 'CKB_R18_ORIGINAL_CONTROLLER_RESTARTED_PAUSED=PASS'
-    [void](NativeClient $active.exe 'resume')
+    ResumeThroughOriginalController
     [void](QueryFrozenQueue 'false')
-    [void](AssertNative $active.exe $false)
+    [void](AssertNative $before.exe $false)
     $after=IdentifyController
-    if($after.pid -ne $active.pid -or $after.exe -ine $before.exe){
-        throw 'CKB_R18_PROCESS_CHANGED_AFTER_RESTART_AND_RESUME'
+    if($after.pid -ne $before.pid -or $after.exe -ine $before.exe){
+        throw 'CKB_R18_PROCESS_CHANGED_DURING_BOUNDED_RESUME'
     }
     Write-Host 'CKB_R18_OWNER_APPROVED_NATIVE_RESUME=PASS'
     Write-Host 'CKB_R18_NO_ELIGIBLE_QUEUE_OR_WORKER_LEASE=PASS'
@@ -255,21 +265,15 @@ try {
     Write-Host 'CKB_R18_NO_NEW_WORK_DISPATCHED=PASS'
 } catch {
     $originalFailure=$_.Exception.Message
-    if($attempted){
+    if($attempted) {
         try {
-            if($stopAttempted){
-                $restored=EnsureOriginalController $taskIdentity $before.exe
-            } else {
-                $restored=IdentifyController
-            }
-            [void](NativeClient $restored.exe 'pause')
+            [void](NativeClient $before.exe 'pause')
             [void](QueryFrozenQueue 'true')
-            AssertPausedAfterRestart $restored.exe
-            [void](IdentifyController)
+            [void](AssertNative $before.exe $true)
+            $restored=IdentifyController
+            if($restored.pid -ne $before.pid){throw 'CKB_R18_CONTROLLER_IDENTITY_CHANGED'}
             Write-Host 'CKB_R18_AUTOMATIC_OPERATOR_PAUSE_RESTORED=PASS'
         } catch {
-            # No force-kill, service duplication, source/config overwrite, or
-            # alternative scheduler is permitted as a recovery shortcut.
             throw ('CKB_R18_BOUND_RESUME_FAILED_MANUAL_PAUSE_CUSTODY_REQUIRED: '+$originalFailure)
         }
     }
