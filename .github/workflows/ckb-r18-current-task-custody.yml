@@ -167,26 +167,26 @@ jobs:
           $temp=Join-Path $env:RUNNER_TEMP ('R18-Queue-ReadOnly-'+$env:GITHUB_RUN_ID+'.py')
           if(Test-Path -LiteralPath $temp){throw 'R18_QUEUE_TEMP_ALREADY_EXISTS'}
           $program=@'
-import sqlite3,json,sys
-from pathlib import Path
-path=Path(sys.argv[1]).resolve(strict=True)
-db=sqlite3.connect("file:"+path.as_posix()+"?mode=ro",uri=True,timeout=3)
-try:
- db.execute("PRAGMA query_only=ON")
- tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
- required={"work_orders","queue_items","worker_leases","settings"}
- if not required.issubset(tables):raise RuntimeError("R18_QUEUE_REQUIRED_TABLE_MISSING")
- q=dict(db.execute("SELECT state,count(*) FROM queue_items GROUP BY state ORDER BY state"))
- w=dict(db.execute("SELECT state,count(*) FROM work_orders GROUP BY state ORDER BY state"))
- leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
- setting=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
- if sum(q.values())>5000 or sum(w.values())>5000:raise RuntimeError("R18_QUEUE_ROWS_EXCEED_BOUND")
- print("R18_DISPATCH_READINESS="+json.dumps({"queue_states":q,"work_order_states":w,
-  "active_leases":leases,"paused":setting.get("paused"),
-  "authority":setting.get("autonomy_authority"),
-  "generation":setting.get("autonomy_generation"),"query_only":True},separators=(",",":")))
-finally:db.close()
-'@
+          import sqlite3,json,sys
+          from pathlib import Path
+          path=Path(sys.argv[1]).resolve(strict=True)
+          db=sqlite3.connect("file:"+path.as_posix()+"?mode=ro",uri=True,timeout=3)
+          try:
+           db.execute("PRAGMA query_only=ON")
+           tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+           required={"work_orders","queue_items","worker_leases","settings"}
+           if not required.issubset(tables):raise RuntimeError("R18_QUEUE_REQUIRED_TABLE_MISSING")
+           q=dict(db.execute("SELECT state,count(*) FROM queue_items GROUP BY state ORDER BY state"))
+           w=dict(db.execute("SELECT state,count(*) FROM work_orders GROUP BY state ORDER BY state"))
+           leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+           setting=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+           if sum(q.values())>5000 or sum(w.values())>5000:raise RuntimeError("R18_QUEUE_ROWS_EXCEED_BOUND")
+           print("R18_DISPATCH_READINESS="+json.dumps({"queue_states":q,"work_order_states":w,
+            "active_leases":leases,"paused":setting.get("paused"),
+            "authority":setting.get("autonomy_authority"),
+            "generation":setting.get("autonomy_generation"),"query_only":True},separators=(",",":")))
+          finally:db.close()
+          '@
           [IO.File]::WriteAllText($temp,$program,(New-Object Text.UTF8Encoding($false)))
           try {
             $result=@(& $py -B $temp $db)
