@@ -106,9 +106,9 @@ def experiment(seed, train_n=240, val_n=80, dev_n=80, ablate_n=40,
     if any(type(n) is not int or not 0 < n <= 240 for n in
            (train_n,val_n,dev_n,ablate_n)):
         raise ValueError("ITD01_R6_INVALID_EPISODE_COUNT")
-    start = time.process_time()
+    total_start = time.process_time()
     train, source_sha = training_rows(seed, train_n)
-    gen_cpu = time.process_time() - start
+    gen_cpu = time.process_time() - total_start
     agents = (RecurrentPolicy(seed), PredictiveTransitionPlanner(),
               ExplicitTrajectoryMemory())
     trained = []
@@ -156,7 +156,7 @@ def experiment(seed, train_n=240, val_n=80, dev_n=80, ablate_n=40,
         .40 <= model["validation"][f]["success"] <= .85 and
         model["validation"][f]["legal_fraction"] == 1.0
         for f in PUBLIC_FAMILIES) for model in models)
-    elapsed=time.process_time()-start
+    elapsed=time.process_time()-total_start
     if not math.isfinite(elapsed) or elapsed > 5400:
         raise ValueError("ITD01_R6_CPU_BUDGET_EXCEEDED")
     rss=peak_rss_bytes()
