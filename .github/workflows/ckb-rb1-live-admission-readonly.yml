@@ -87,6 +87,35 @@ jobs:
           if($LASTEXITCODE -ne 0 -or $out.Count -ne 1 -or [string]$out[0] -notlike 'RB1_LIVE_STATE=*'){throw 'RB1_READONLY_SQLITE_PROBE_FAILED'}
           Write-Host $out[0]
           Write-Host 'RB1_READONLY_NO_CONTROLLER_OR_SOURCE_MUTATION=PASS'
+      - name: Observe native auto-pause transition without touching controller state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          if(!(Test-Path -LiteralPath $db -PathType Leaf)){throw 'CKB_NATIVE_STATE_MISSING'}
+          $code=@'
+          import json, re, sqlite3, sys, time
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          previous=None
+          for sample in range(75):
+              con=sqlite3.connect('file:'+db.as_posix()+'?mode=ro',uri=True,timeout=4)
+              try:
+                  con.execute('PRAGMA query_only=ON')
+                  info={k:v for k,v in con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_status','autonomy_heartbeat','autonomy_generation')")}
+              finally:
+                  con.close()
+              status=info.get('autonomy_status','')
+              codes=re.findall(r'[A-Z][A-Z0-9_]{3,}',status)[:12]
+              state=(info.get('paused'),tuple(codes))
+              if state!=previous:
+                  print('CKB_NATIVE_PAUSE_TRANSITION='+json.dumps(dict(sample=sample,paused=state[0],codes=codes,generation=info.get('autonomy_generation'),heartbeat=info.get('autonomy_heartbeat')),separators=(',',':')),flush=True)
+                  previous=state
+              time.sleep(1)
+          print('CKB_NATIVE_READONLY_PAUSE_OBSERVATION=COMPLETE',flush=True)
+          '@
+          & python.exe -B -c $code $db
+          if($LASTEXITCODE -ne 0){throw 'CKB_NATIVE_MONITOR_FAILED'}
       - name: Check existing scoped donor read access without exposing credentials
         shell: pwsh
         run: |
