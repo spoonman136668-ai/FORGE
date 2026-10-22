@@ -31,8 +31,8 @@ jobs:
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $branch='proposal/mp-n0-shared-read-contract-20261022'
-          $expected='7250b99b55022d40eaf5b795c68e0ebd0020ba35'
-          $previous='71a27201ac342d8e8ba3c3e0af7199cd7606daae'
+          $expected='2c42736795ec3336894f6ec5108922b5cd7d33e2'
+          $previous='7250b99b55022d40eaf5b795c68e0ebd0020ba35'
           $base='151206c7e04a3a349d1bce7fac8529e75fb37c75'
           $scratch=Join-Path $env:RUNNER_TEMP ('mpn0-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -80,7 +80,8 @@ jobs:
             Require ($LASTEXITCODE -eq 0) 'CLONE_FAILED'
             Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $expected) 'HEAD_MISMATCH'
             Require ((& git.exe -C $root rev-parse 'HEAD^'|Out-String).Trim() -ceq $previous) 'DOC_COMMIT_MISMATCH'
-            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq $base) 'PARENT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~2'|Out-String).Trim() -ceq '71a27201ac342d8e8ba3c3e0af7199cd7606daae') 'DOC_COMMIT_MISMATCH'
+            Require ((& git.exe -C $root rev-parse 'HEAD~3'|Out-String).Trim() -ceq $base) 'PARENT_MISMATCH'
             foreach($path in $guard){$before[$path]=(Get-FileHash -LiteralPath (Join-Path $root $path) -Algorithm SHA256).Hash.ToLowerInvariant()}
             $hasHashes=$true
             RunTest 'FOCUSED_READ_CONTRACT' 'tests/Test-MPN0SharedReadContract.ps1'
