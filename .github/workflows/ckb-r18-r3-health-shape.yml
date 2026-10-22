@@ -147,3 +147,46 @@ jobs:
           }
           Write-Host ('R18_R3_PAUSED_PARITY='+($result|ConvertTo-Json -Compress))
           Write-Host 'R18_PAUSED_PARITY_READ_ONLY=PASS'
+      - name: Classify R3 saved queue and work-order states without exposing order contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($me)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r3-health-shape-20261022' -or
+             $me.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_QUEUE_STATUS_CLASSIFICATION_AUTHORITY_FAILED'
+          }
+          $path='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39801077826\status.stdout'
+          $status=Get-Content -LiteralPath $path -Raw -ErrorAction Stop|ConvertFrom-Json -ErrorAction Stop
+          $queue=@($status.queue | Where-Object {$null -ne $_})
+          $jobs=@($status.jobs | Where-Object {$null -ne $_})
+          if($queue.Count -gt 5000 -or $jobs.Count -gt 5000){throw 'R18_QUEUE_OR_JOBS_OUTSIDE_BOUNDED_COUNT'}
+          function StateCounts($items) {
+            $groups=@($items | Group-Object -Property state)
+            $counts=[ordered]@{}
+            foreach($g in $groups){
+              $key=[string]$g.Name
+              if($key -notmatch '^[A-Z_]{1,40}$'){throw 'R18_UNKNOWN_STATE_VALUE'}
+              $counts[$key]=[int]$g.Count
+            }
+            return $counts
+          }
+          $blocked=@($status.blockers | Where-Object {$null -ne $_})
+          $out=[ordered]@{
+            schema='ckb-plane.r18.saved-queue-metadata.v1'
+            paused=[bool]$status.paused
+            queue_count=$queue.Count
+            queue_states=(StateCounts $queue)
+            job_count=$jobs.Count
+            job_states=(StateCounts $jobs)
+            queue_blocker_count=$blocked.Count
+            queue_source_operator_queued=@($queue|Where-Object {$_.mode -ceq 'source' -and $_.authorization -ceq 'operator' -and $_.state -ceq 'QUEUED'}).Count
+            queue_running_or_retry=@($queue|Where-Object {$_.state -in @('RUNNING','RETRY_WAIT','FINALIZING')}).Count
+            workorder_accepted=@($jobs|Where-Object {$_.state -ceq 'ACCEPTED'}).Count
+            diagnostic_read_only=$true
+          }
+          Write-Host ('R18_SAVED_R3_QUEUE_SHAPE='+($out|ConvertTo-Json -Depth 5 -Compress))
+          Write-Host 'R18_R3_QUEUE_SOURCE_DATA_NOT_MUTATED=TRUE'
