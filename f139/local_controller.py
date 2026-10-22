@@ -835,18 +835,30 @@ class GitHub:
                 "D2K_DUPLICATE_ISSUE_IDENTITY")
         return sorted(accepted,key=lambda x:x["issue_number"])
 
-    def native_eligible_issues(self, source: str):
-        """Read-only authenticated issue and native target commit/tree catalog.
+    def native_eligible_issues(self, source: str, *,
+                               historical_issues: dict | None = None):
+        """Read-only authenticated issue catalog, including frozen history.
 
-        Existing controller and label remain unchanged. Called only after
-        explicit source-qualified native_enabled gate in the owner's tick.
+        Reverify immutable historical issue identities at their ORIGINAL
+        source, then exclude only those exact already-admitted issues from
+        new-source eligibility. Unknown stale/mutated issues fail closed.
         """
         from f139.nci04_owner_issue import (
             LABEL, OWNER, inspect_owner_issue, NativeIssueDenied)
         from f139.nci04_native_contract import NativeContractError
         require(isinstance(source,str) and SHA.fullmatch(source) is not None,
                 "NATIVE_SOURCE_INVALID")
-        items = []
+        historical_issues = {} if historical_issues is None else historical_issues
+        require(isinstance(historical_issues, dict)
+                and all(type(number) is int and type(identity) is tuple
+                        and len(identity) == 4 and type(identity[0]) is int
+                        and isinstance(identity[1], str) and SHA.fullmatch(identity[1])
+                        and isinstance(identity[2], str)
+                        and re.fullmatch(r"[a-f0-9]{64}", identity[2])
+                        and isinstance(identity[3], str) and TICKET.fullmatch(identity[3])
+                        for number, identity in historical_issues.items()),
+                "NATIVE_HISTORICAL_CATALOG_INVALID")
+        items, seen_numbers, seen_ids = [], set(), set()
         for page in (1, 2):
             docs = self.get(
                 "repos/" + REPO + "/issues?state=open&labels=" + LABEL +
@@ -854,6 +866,18 @@ class GitHub:
             require(isinstance(docs,list) and len(docs)<=100,
                     "NATIVE_ISSUE_CATALOG_INVALID")
             for raw in docs:
+                # A previously admitted issue remains a frozen, failed or
+                # completed historical record after a qualified transition.
+                # Do not mistake it for an eligible candidate on the new SHA.
+                require(isinstance(raw, dict)
+                        and type(raw.get("number")) is int
+                        and type(raw.get("id")) is int
+                        and raw["number"] not in seen_numbers
+                        and raw["id"] not in seen_ids,
+                        "NATIVE_DUPLICATE_OR_INVALID_ISSUE_IDENTITY")
+                seen_numbers.add(raw["number"])
+                seen_ids.add(raw["id"])
+                historical = historical_issues.get(raw["number"])
                 # A declarative issue may only select a *pinned* native commit.
                 # Independent GitHub API lookup binds actual Git tree identity.
                 try:
@@ -878,12 +902,17 @@ class GitHub:
                             and SHA.fullmatch(commit["tree"]["sha"]) is not None,
                             "NATIVE_TARGET_GIT_PROVIDER_DRIFT")
                     doc=inspect_owner_issue(
-                        raw, protected_main=source,
+                        raw, protected_main=(historical[1] if historical else source),
                         authenticated_target_commit=sha,
                         authenticated_target_tree=commit["tree"]["sha"])
                 except (ValueError,UnicodeError,KeyError,TypeError,
                         NativeIssueDenied,NativeContractError) as exc:
                     raise F139Error("F139_NATIVE_ISSUE_OR_SOURCE_REJECTED") from exc
+                if historical:
+                    require((doc.issue_id,doc.source_sha,doc.issue_body_sha256,
+                             doc.ticket) == historical,
+                            "NATIVE_HISTORICAL_ISSUE_DRIFT")
+                    continue
                 items.append(doc)
             if len(docs)<100:
                 break
@@ -1297,9 +1326,19 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         # Inert in the shipping controller. Exact future source-transition and
         # owner activation are mandatory before this gate can be called.
         # Same single-owner lock, SQLite ledger and once-only budget as D2K.
-        from f139.nci04_owner_ledger import admit_native_issue
+        from f139.nci04_owner_ledger import admit_native_issue, native_events
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
-        for native_issue in api.native_eligible_issues(meta["source_sha"]):
+        # Reconstruct historical identities only from the already-verified
+        # append-only owner ledger. The public issue label alone cannot
+        # reauthorize or replay any old native candidate.
+        historical_issues = {
+            event["issue_number"]: (
+                event["issue_id"], event["source_sha"],
+                event["issue_body_sha256"], event["ticket"])
+            for event in native_events(db)
+        }
+        for native_issue in api.native_eligible_issues(
+                meta["source_sha"], historical_issues=historical_issues):
             if native_issue.ticket in known:
                 continue
             if admit_native_issue(db, native_issue, timestamp):
