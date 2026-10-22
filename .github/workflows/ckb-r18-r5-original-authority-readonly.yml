@@ -1,0 +1,114 @@
+name: R18 R5 original authority independent read-only reattestation
+on:
+  push:
+    branches: [audit/ckb-r18-r5-original-authority-20261022]
+    paths: [.github/workflows/ckb-r18-r5-original-authority-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r18-r5-independent-original-authority-custody
+  cancel-in-progress: false
+jobs:
+  original-auth:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+          persist-credentials: false
+      - name: Pin elevated owner source, original runner service, and disabled original workflows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='b7c21addfa14698d6b56820bf5e6d2a8b8ce8455'
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-original-authority-20261022' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {throw 'R18_AUTHORITY_AUDIT_OWNER_OR_SOURCE_DRIFT'}
+          $changed=@(& git.exe diff --name-only $base HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or
+             $changed[0] -cne '.github/workflows/ckb-r18-r5-original-authority-readonly.yml') {
+            throw 'R18_AUTHORITY_AUDIT_SCOPE_DRIFT'
+          }
+          $name='actions.runner.spoonman136668-ai-ckb.ckb-win-LINKDEADKB'
+          $orig=Get-CimInstance Win32_Service -Filter "Name='$name'" -ErrorAction Stop
+          if([string]$orig.State -cne 'Stopped' -or [int]$orig.ProcessId -ne 0) {
+            throw 'R18_ORIGINAL_OWNER_RUNNER_IS_ACTIVE'
+          }
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'){
+            throw 'R18_AUTHORITY_REATTEST_RELEASE_DRIFT'
+          }
+          $controller=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if([string]$controller.State -cne 'Running' -or
+             [string]$controller.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             $procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $r5){
+            throw 'R18_AUTHORITY_REATTEST_LIVE_R5_DRIFT'
+          }
+          Write-Host 'R18_ORIGINAL_RUNNER_STOPPED=PASS'
+          Write-Host 'R18_R5_SINGLETON_PRESERVED=PASS'
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          $env:GH_PROMPT_DISABLED='1'
+          $repo='spoonman136668-ai/ckb'
+          $names=@('ckb-codex-worker.yml','ckb-fast-continuation-poller.yml','ckb-dh-candidate-hygiene-repair.yml')
+          $states=@()
+          foreach($file in $names) {
+            $raw=@(& $gh api ('repos/'+$repo+'/actions/workflows/'+$file) --jq '.state' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $raw.Count -ne 1) {
+              throw ('R18_ORIGINAL_WORKFLOW_STATE_UNAVAILABLE_'+$file)
+            }
+            $state=[string]$raw[0]
+            $states+=@([ordered]@{name=$file;state=$state})
+            if($state -cne 'disabled_manually'){
+              throw ('R18_ORIGINAL_WORKFLOW_NOT_MANUALLY_DISABLED_'+$file)
+            }
+          }
+          Write-Host 'R18_ALL_THREE_ORIGINAL_WORKFLOWS_DISABLED=PASS'
+          $running=@()
+          foreach($state in @('queued','in_progress','waiting','pending','requested')){
+            $u='repos/'+$repo+'/actions/runs?per_page=1&status='+$state
+            $raw=@(& $gh api $u --jq '.total_count' 2>$null)
+            if($LASTEXITCODE -ne 0 -or $raw.Count -ne 1 -or [string]$raw[0] -notmatch '^\d+$'){
+              throw ('R18_ORIGINAL_ACTIVE_RUNS_UNAVAILABLE_'+$state)
+            }
+            $n=[int]$raw[0]
+            $running+=@([ordered]@{state=$state;count=$n})
+            if($n -ne 0) {throw ('R18_ORIGINAL_REPO_HAS_ACTIVE_RUNS_'+$state)}
+          }
+          Write-Host 'R18_ORIGINAL_REPO_HAS_NO_ACTIVE_RUNS=PASS'
+          $proof='C:\Users\camar\GolandProjects\ckb-plane\state\original-authority-inactive-r6.json'
+          $prior=Get-Content -LiteralPath $proof -Raw -ErrorAction Stop|ConvertFrom-Json
+          if([string]$prior.schema -cne 'ckb-plane.original-authority-inactive.v1' -or
+             [string]$prior.runner_service -cne $name -or
+             $prior.accepted_ref_mutation_allowed -ne $false -or
+             $prior.runtime_launch_allowed -ne $false -or
+             $prior.local_original_authority_only -ne $true){
+            throw 'R18_ORIGINAL_PROOF_HISTORICAL_IDENTITY_DRIFT'
+          }
+          $receipt=[ordered]@{
+            schema='ckb-plane.r18.r5-independent-original-authority.v1'
+            original_runner_state='Stopped'
+            original_runner_pid=0
+            original_workflows=$states
+            original_repo_active_run_counts=$running
+            original_local_proof_expired=$true
+            original_proof_prior_sha256=(Get-FileHash -LiteralPath $proof -Algorithm SHA256).Hash.ToLowerInvariant()
+            original_proof_prior_expires=[string]$prior.expires_at_utc
+            renewed_proof_written=$false
+            r5_controller_paused_unchanged=$true
+            scientific_first_use_authorized=$false
+            dispatch_attempted=$false
+          }
+          $json=$receipt | ConvertTo-Json -Compress -Depth 7
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_ORIGINAL_AUTHORITY_AUDIT_TOO_LARGE'}
+          Write-Host ('R18_ORIGINAL_AUTHORITY_FRESH_EVIDENCE='+$json)
+          Write-Host 'R18_REATTESTATION_READONLY=PASS'
