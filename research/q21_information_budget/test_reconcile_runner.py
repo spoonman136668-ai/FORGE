@@ -185,7 +185,7 @@ class TestQ21UnifiedReadOnly(unittest.TestCase):
         item=report["families"][src.FAMILIES[0]]
         item["fit_and_dev_resources"]["rss_scope"]="PER_MODEL_RSS"
         self.reseal("Windows")
-        with self.assertRaisesRegex(ValueError,"EVALUATION_RSS_SCOPE"):
+        with self.assertRaisesRegex(ValueError,"evaluation_RSS_SCOPE"):
             self.check()
 
     def test_decision_drift_within_frozen_float_tolerance_rejected(self):
