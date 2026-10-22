@@ -163,6 +163,23 @@ class PublicITD01Fixture(unittest.TestCase):
                 successful += result["reward"]
             self.assertGreaterEqual(successful, 32, family)
 
+    def test_caller_mutation_cannot_rewrite_public_trace(self):
+        world = self.new(episode="DEV-IMMUTABLE-RECEIPT")
+        world.reset()
+        proposed = action("inspect", "node0")
+        result = world.step(proposed)
+        saved_head = world.public_trace_receipt()["trace_head_sha256"]
+        saved_records = world.public_trace_records()
+        proposed["verb"] = "commit"
+        result["reward"] = 1
+        result["observation"]["observations"][0]["signal"] = "forged"
+        self.assertEqual(world.public_trace_receipt()["trace_head_sha256"], saved_head)
+        self.assertEqual(world.public_trace_records(), saved_records)
+        record = saved_records[0]
+        self.assertEqual(hashlib.sha256(canonical({
+            key: record[key] for key in ("action", "result", "prior_sha256")
+        })).hexdigest(), saved_head)
+
     def test_no_live_authority_entrypoint(self):
         import public_dev as module
         for attr in ("run_original", "issue_reset", "dispatch", "resume_controller",
