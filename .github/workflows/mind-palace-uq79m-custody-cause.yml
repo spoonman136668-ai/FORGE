@@ -74,15 +74,15 @@ jobs:
             $tokens=@([regex]::Matches(($childErr+[Environment]::NewLine+$childOut),'(?:UQ[0-9]+[A-Z]?|ICE_STALE|CHAT_SOURCE_ALIAS)_[A-Z0-9_]+')|ForEach-Object {$_.Value}|Select-Object -Unique)
             Write-Output ("UQ53_DIAG_CHILD_FAILURE_TOKEN="+$(if($tokens.Count){$tokens[0]}else{'NONE'}))
             $fatalLines=@($childErr -split '\r?\n'|Where-Object { $_ -match '(?i)fatal:|error:|filename too long|path too long|cannot create directory|failed to clone' })
-  foreach($raw in ($fatalLines|Select-Object -First 5)){
-    $safe=[regex]::Replace([string]$raw,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
-    $safe=[regex]::Replace($safe,'https?://[^\s]+','<SOURCE_URL>')
-    $safe=[regex]::Replace($safe,'[a-fA-F0-9]{32,}','<DIGEST>')
-    $safe=[regex]::Replace($safe,'[\x00-\x1f\x7f]',' ')
-    if($safe.Length -gt 145){$safe=$safe.Substring(0,145)}
-    Write-Output ("UQ53_DIAG_GIT_ERROR="+$safe)
-  }
-  Write-Output ("UQ53_DIAG_CHILD_STDERR_BYTES="+$childErr.Length)
+            foreach($raw in ($fatalLines|Select-Object -First 5)){
+              $safe=[regex]::Replace([string]$raw,'(?i)[A-Z]:\\[^\s:\)\]\}]+','<PRIVATE_PATH>')
+              $safe=[regex]::Replace($safe,'https?://[^\s]+','<SOURCE_URL>')
+              $safe=[regex]::Replace($safe,'[a-fA-F0-9]{32,}','<DIGEST>')
+              $safe=[regex]::Replace($safe,'[\x00-\x1f\x7f]',' ')
+              if($safe.Length -gt 145){$safe=$safe.Substring(0,145)}
+              Write-Output ("UQ53_DIAG_GIT_ERROR="+$safe)
+            }
+            Write-Output ("UQ53_DIAG_CHILD_STDERR_BYTES="+$childErr.Length)
             Write-Output ("UQ53_DIAG_CHILD_STDOUT_BYTES="+$childOut.Length)
             $errs=@($childErr -split '\r?\n'|Where-Object {-not [string]::IsNullOrWhiteSpace($_)})
             $last=if($errs.Count){[string]$errs[-1]}else{'NO_STDERR'}
