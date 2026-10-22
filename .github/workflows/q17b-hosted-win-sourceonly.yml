@@ -1,0 +1,89 @@
+name: Q17B pinned hosted Windows independent scientific-source replay
+on:
+  push:
+    branches: [qualify/q17b-hosted-win-frozen-20261022]
+    paths: [.github/workflows/q17b-hosted-win-sourceonly.yml]
+permissions:
+  contents: read
+jobs:
+  windows-sourceonly:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact frozen scientific source and one-file qualifier scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='a4fe005a18de77a17b4404dc042720da4c640a63'
+          $actual=(& git rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $actual-cne$p){throw 'Q17B_HOSTED_PARENT_NOT_FROZEN_SOURCE'}
+          $paths=@(& git diff-tree --no-commit-id --name-only -r HEAD)
+          if($LASTEXITCODE-ne0 -or $paths.Count-ne1 -or
+             $paths[0]-cne'.github/workflows/q17b-hosted-win-sourceonly.yml'){
+            throw 'Q17B_HOSTED_ONLY_CI_FILE_MAY_BE_ADDED'
+          }
+          foreach($entry in @(
+            @('research/q17b_twoedge/FROZEN_PROTOCOL.json','7b09596afb9a3e2859f2de20e470c91416d94578'),
+            @('research/q17b_twoedge/experiment.py','ba447295eaedd094907e56faef67fad2bfc283c3'),
+            @('research/q17b_twoedge/test_experiment.py','b3c0051234312280c0fc286e016320e6156b17df')
+          )){
+            $actual=(& git rev-parse ('HEAD:'+$entry[0])).Trim()
+            if($LASTEXITCODE-ne0 -or $actual-cne$entry[1]){
+              throw ('Q17B_HOSTED_SCIENTIFIC_BLOB_CHANGED_'+$entry[0])
+            }
+          }
+          $blob=(& git hash-object --no-filters -- research/q17b_twoedge/FROZEN_PROTOCOL.json).Trim()
+          if($LASTEXITCODE-ne0 -or $blob-cne'7b09596afb9a3e2859f2de20e470c91416d94578'){
+            throw 'Q17B_HOSTED_FROZEN_PROTOCOL_DISK_BYTES_DRIFT'
+          }
+          Write-Host 'Q17B_HOSTED_EXACT_SCIENTIFIC_PREIMAGE=PASS'
+      - name: Native Windows 3.12 gradient/original-source guards and all-model FIT DEV
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s research/q17b_twoedge -p test_experiment.py -v
+          if($LASTEXITCODE-ne0){throw 'Q17B_HOSTED_FOCUSED_TEST_FAILED'}
+          & python -B research/q17b_twoedge/experiment.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q17B_HOSTED_SELFTEST_FAILED'}
+          $out=Join-Path $env:RUNNER_TEMP 'q17b-hosted-win.log'
+          if(Test-Path -LiteralPath $out){throw 'Q17B_HOSTED_EXISTING_LOG_NOT_REUSED'}
+          & python -B research/q17b_twoedge/experiment.py --mode train-dev 2>&1 |
+             Tee-Object -FilePath $out
+          if($LASTEXITCODE-ne0){throw 'Q17B_HOSTED_TRAIN_DEV_FAILED'}
+          $lines=@(Get-Content -LiteralPath $out |
+                   Where-Object {$_ -like 'Q17B_RESULT_JSON=*'})
+          if($lines.Count-ne1){throw 'Q17B_HOSTED_RESULT_DUPLICATE_OR_MISSING'}
+          $report=$lines[0].Substring(17)|ConvertFrom-Json
+          if($report.fit_count-ne256 -or $report.dev_count-ne64 -or
+             $report.unfamiliar_held_generated-ne$false -or
+             $report.original_scientific_source_episodes-ne0 -or
+             $report.scientific_first_use-ne$false -or
+             $report.oracle_has_privileged_known_law-ne$true){
+            throw 'Q17B_HOSTED_CUSTODY_INVALID'
+          }
+          Write-Host ('Q17B_HOSTED_RECEIPT_SHA256='+((Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()))
+          Write-Host 'Q17B_HOSTED_WINDOWS_TRAIN_DEV_SOURCEONLY=PASS'
+          Write-Host 'Q17B_HELD_AND_ORIGINAL_SOURCES_NOT_GENERATED=TRUE'
+      - name: End-to-end source cleanliness
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q17B_HOSTED_WORKTREE_MODIFIED'}
+          Write-Host 'Q17B_HOSTED_NO_SOURCE_MUTATION=PASS'
+          Write-Host 'Q17B_G61_FULL_FORGE_ADMISSION=NOT_CLAIMED'
+          Write-Host 'Q17B_SCIENTIFIC_FIRST_USE=BLOCKED'
