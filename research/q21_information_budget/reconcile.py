@@ -221,15 +221,22 @@ def compare(windows, linux, doc):
             if a["checkpoint_sha256"][arm] != b["checkpoint_sha256"][arm]:
                 different_checkpoints.append(family + ":" + arm)
     pre = ev.preliminary_decision(windows["by_family"], doc)
-    need(pre["ckb_scientific_acceptance"] == "NOT_AUTHORIZED",
+    pre_linux = ev.preliminary_decision(linux["by_family"], doc)
+    need(pre["q21_development_thresholds_met"] ==
+         pre_linux["q21_development_thresholds_met"] and
+         pre["per_real_family_meets_thresholds"] ==
+         pre_linux["per_real_family_meets_thresholds"],
+         "CROSS_OS_SCIENTIFIC_DECISION_DRIFT")
+    need(pre["ckb_scientific_acceptance"] == "NOT_AUTHORIZED" and
+         pre_linux["ckb_scientific_acceptance"] == "NOT_AUTHORIZED",
          "UNEXPECTED_ACCEPTANCE")
     return {
         "schema": "forge.q21.readonly_cross_os_reconciliation.v1",
         "candidate_source_sha": windows["candidate_source_sha"],
         "protocol_git_blob": src.PROTOCOL_BLOB,
-        "identical_public_cohorts": True,
+        "matching_reported_public_cohort_digests": True,
         "numerical_agreement_within_frozen_tolerance": True,
-        "identical_trained_checkpoint_bytes": not bool(different_checkpoints),
+        "matching_reported_checkpoint_hashes": not bool(different_checkpoints),
         "checkpoint_hash_divergences": different_checkpoints,
         "per_family_development_thresholds_met":
             pre["per_real_family_meets_thresholds"],
