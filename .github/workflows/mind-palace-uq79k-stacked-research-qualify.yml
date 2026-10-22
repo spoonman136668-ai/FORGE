@@ -1,0 +1,142 @@
+name: Mind-Palace UQ79K stacked-source NCI04 Windows final qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-uq79k-stacked-research-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-uq79k-isolated-intake-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout FORGE diagnostic workflow identity
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Pinned Mind-Palace collector validation, classification, focused tests and one regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$ok,[string]$why) { if(-not $ok){throw ('UQ79K_'+$why)} }
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_OR_EVENT_IDENTITY_MISMATCH'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $native=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(Test-Path -LiteralPath $native -PathType Container) { $env:PSModulePath=$native+[IO.Path]::PathSeparator+$env:PSModulePath }
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $sourceBranch='proposal/uq79k-nci04-on-qualified-retrieval-20261022'
+          $sourceSha='964072f531f098bdb60a7be8305497f3fc9f8aa2'
+          $mainSha='5e7414966bdcb6e75776ea3422b98422b20c9025'
+          $parentSha='bd129bda05409e5a4fdc42c62a45442df610c7a0'
+          $sourceFileBlob='9b5c042a4fef661fd7cebf775bcb2b35082c496c'
+          $parentBranch='proposal/uq79i-retrieval-pin-transition-20261022'
+          $candidateRel='pilots/chat-history/2026-10-21-nci04-original-native-development-results.batch.json'
+          $scratch=Join-Path $env:RUNNER_TEMP ('uq79k-private-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $logroot=Join-Path $scratch 'logs'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha) {
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Require ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_CHANGED_'+$ref)
+          }
+          function CallNative([string]$label,[string]$relative,[string[]]$nativeArgs=@()) {
+            $out=Join-Path $logroot ($label+'.out')
+            $err=Join-Path $logroot ($label+'.err')
+            $script=Join-Path $root $relative
+            Require (Test-Path -LiteralPath $script -PathType Leaf) ('MISSING_'+$label)
+            $arguments=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$script+'"')) + $nativeArgs
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList $arguments -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if($p.ExitCode -ne 0) {
+              $errorBody=[IO.File]::ReadAllText($err)
+              $tokens=@([regex]::Matches($errorBody,'(?:UQ[0-9]+[A-Z]?|CHAT_SOURCE_ALIAS|ICE_STALE|ATLAS_FAIL_CLOSED|TEST)_[A-Z0-9_]+')|ForEach-Object { $_.Value }|Select-Object -Unique)
+              $code=if($tokens.Count){$tokens[0]}else{'UNCLASSIFIED'}
+              Write-Host ('UQ79K_FAILURE_STAGE='+$label)
+              Write-Host ('UQ79K_FAILURE_CODE='+$code)
+              $nonblank=@($errorBody -split '\r?\n' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+              $last=if($nonblank.Count -gt 0){[string]$nonblank[-1]}else{'NO_NATIVE_STDERR'}
+              $last=[regex]::Replace($last,'(?i)[A-Z]:\\[^\s:\)\]]+','<PRIVATE_PATH>')
+              $last=[regex]::Replace($last,'https?://[^\s]+','<SOURCE_URL>')
+              $last=[regex]::Replace($last,'[a-fA-F0-9]{32,}','<DIGEST>')
+              $last=[regex]::Replace($last,'[\x00-\x1f\x7f]',' ')
+              if($last.Length -gt 220){$last=$last.Substring(0,220)}
+              Write-Host ('UQ79K_REDACTED_NATIVE_ERROR='+$last)
+
+              throw ('UQ79K_NATIVE_FAILED_'+$label+'_EXIT_'+$p.ExitCode)
+            }
+            Write-Host ('UQ79K_'+$label.ToUpperInvariant()+'=PASS')
+            return ([IO.File]::ReadAllText($out))
+          }
+          Require (-not (Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $logroot -Force|Out-Null
+          try {
+            Pin 'refs/heads/main' $mainSha
+            Pin ('refs/heads/'+$parentBranch) $parentSha
+            Pin ('refs/heads/'+$sourceBranch) $sourceSha
+            & git.exe clone --quiet --single-branch --branch $sourceBranch $remote $root
+            Require ($LASTEXITCODE -eq 0) 'PRIVATE_SOURCE_CLONE_FAILED'
+            Require ((& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $sourceSha) 'SOURCE_COMMIT_DRIFT'
+            Require ((& git.exe -C $root rev-parse 'HEAD^' | Out-String).Trim() -ceq $parentSha) 'PARENT_SOURCE_DRIFT'
+            Require ((& git.exe -C $root rev-parse ('HEAD:'+$candidateRel) | Out-String).Trim() -ceq $sourceFileBlob) 'CANDIDATE_UPSTREAM_BLOB_DRIFT'
+            $pinState=[IO.File]::ReadAllText((Join-Path $root '.ice/chat-delta-state.json')) | ConvertFrom-Json
+            Require ([string]$pinState.retrieval_tool_blobs.'tools/mind.ps1' -ceq 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130' -and -not [bool]$pinState.retrieval_code_changes_allowed) 'PARENT_RETRIEVAL_PIN_NOT_QUALIFIED'
+            $tracked=@(& git.exe -C $root diff --name-only $parentSha $sourceSha)
+            Require ($LASTEXITCODE -eq 0 -and $tracked.Count -eq 1 -and
+              [string]$tracked[0] -ceq $candidateRel) 'UNAUTHORIZED_PR_PATH_DELTA'
+            $before=@{}
+            foreach($p in $guard) {
+              $before[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $candidate=Join-Path $root $candidateRel
+            $validated=CallNative 'collector-validate' 'tools/collect.ps1' @('validate','-InputPath',('"'+$candidate+'"'))
+            $validation=$validated|ConvertFrom-Json -ErrorAction Stop
+            Require ([string]$validation.schema -ceq 'mind-palace.collector-result.v1' -and
+              [int]$validation.candidate_count -eq 2 -and [int]$validation.source_count -eq 4 -and
+              [bool]$validation.result.valid) 'COLLECTOR_VALIDATION_SHAPE'
+            $classified=CallNative 'collector-classify' 'tools/collect.ps1' @('classify','-InputPath',('"'+$candidate+'"'))
+            $report=$classified|ConvertFrom-Json -ErrorAction Stop
+            Require ([string]$report.schema -ceq 'mind-palace.collector-result.v1' -and
+              [int]$report.candidate_count -eq 2 -and [int]$report.source_count -eq 4) 'CLASSIFIER_RESULT_SHAPE'
+            $counts=$report.result.counts
+            Write-Host ('UQ79K_CLASS_COUNTS_NEW='+[int]$counts.new+'_MERGE='+[int]$counts.merge+'_REVIEW='+[int]$counts.review+'_ARCHIVE='+[int]$counts.archive+'_SUPERSEDE='+[int]$counts.supersede)
+            Require ([int]$counts.new -eq 2 -and [int]$counts.merge -eq 0 -and
+              [int]$counts.review -eq 0 -and [int]$counts.supersede -eq 0 -and
+              [int]$counts.archive -eq 0 -and [int]$counts.ignore -eq 0) 'CLASSIFIER_REQUIRES_REVIEW'
+            $null=CallNative 'focused-collector' 'tests/Test-CollectorBatch.ps1'
+            $null=CallNative 'focused-ingest' 'tests/Test-IngestClassification.ps1'
+            $null=CallNative 'focused-source-ledger' 'tests/Test-SourceLedger.ps1'
+            $null=CallNative 'focused-chat-delta' 'tests/Test-ChatDeltaIngest.ps1'
+            $null=CallNative 'full-windows-regression' 'tests/Test-All.ps1'
+            foreach($p in $guard) {
+              $after=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Require ($after -ceq $before[$p]) ('PROTECTED_HASH_DRIFT_'+$p)
+            }
+            $dirty=(& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()
+            Require ($LASTEXITCODE -eq 0 -and -not $dirty) 'PERSISTENT_SOURCE_DIRTY'
+            Pin 'refs/heads/main' $mainSha
+            Pin ('refs/heads/'+$parentBranch) $parentSha
+            Pin ('refs/heads/'+$sourceBranch) $sourceSha
+            Write-Host 'UQ79K_NINE_PROTECTED_HASHES=PASS'
+            Write-Host 'UQ79K_EXACT_SOURCE_AND_MAIN=PASS'
+            Write-Host 'UQ79K_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'UQ79K_PAID_APIS_AND_CODEX=0'
+            Write-Host 'UQ79K_FULL_WINDOWS_QUALIFICATION=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Require (-not (Test-Path -LiteralPath $scratch)) 'PRIVATE_SCRATCH_RETAINED'
+            Write-Host 'UQ79K_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
