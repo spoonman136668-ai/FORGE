@@ -1,0 +1,79 @@
+name: Mind-Palace MP-AI01 source-pinned agentic improvement focused qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai01-cross-agent-focused.yml']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source and two focused Python suites without external inference
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$value,[string]$code){if(-not $value){throw ('MPAI01_'+$code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $source='12c4eccaaf4f28634f83ae01f12fdb3180171f90'
+          $branch='proposal/mp-ai01-reflect-propose-20261022'
+          $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai01-focused-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha){
+            $v=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $v.Count -eq 1 -and
+              (([string]$v[0] -split '\s+')[0]) -ceq $sha) 'SOURCE_REF_DRIFT'
+          }
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $before=@{}
+          $captured=$false
+          try{
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            Need ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $source) 'HEAD'
+            foreach($p in $guard){
+              $before[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $captured=$true
+            foreach($suite in @('test_mpai01_reflect.py','test_mpai01_probe.py')){
+              & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FOCUSED_'+$suite)
+              Write-Host ('MPAI01_SUITE_PASS='+$suite)
+            }
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim()) 'WORKTREE_DIRTY'
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI01_FOCUSED_37_TESTS=PASS'
+            Write-Host 'MPAI01_CROSS_AGENT_SYNTHETIC_ONLY=TRUE'
+            Write-Host 'MPAI01_REAL_AGENT_IMPROVEMENT=NOT_QUALIFIED'
+            Write-Host 'MPAI01_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI01_PAID_MODEL_CALLS=0'
+          } finally {
+            if($captured){
+              foreach($p in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$p]) 'PROTECTED_SOURCE_DRIFT'
+              }
+              Write-Host 'MPAI01_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI01_SCRATCH_CLEAN=PASS'
+          }
