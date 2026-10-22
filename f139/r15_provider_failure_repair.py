@@ -115,9 +115,20 @@ def inspect_checkout(root: Path, expected_sha: str, expected_blob: str) -> bytes
     source = (root / PATH).resolve(strict=True)
     need(source.is_relative_to(root.resolve()) and source.is_file()
          and not source.is_symlink(), "WORKFLOW_PATH_ESCAPE")
-    raw = source.read_bytes()
-    need(blob(raw) == expected_blob, "SOURCE_BLOB_DRIFT")
-    return raw
+    # Windows autocrlf changes checked-out working bytes even though the
+    # committed tree is immutable. Authenticate and read the Git *blob*,
+    # rather than treating a platform-dependent checkout as primary evidence.
+    entry = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD:" + PATH],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=15, check=False)
+    need(entry.returncode == 0 and entry.stdout.decode().strip() == expected_blob,
+         "SOURCE_COMMITTED_BLOB_DRIFT")
+    content = subprocess.run(["git", "-C", str(root), "show", "HEAD:" + PATH],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=15, check=False)
+    need(content.returncode == 0 and len(content.stdout) <= 100000
+         and blob(content.stdout) == expected_blob, "SOURCE_BLOB_DRIFT")
+    return content.stdout
 
 
 def repair_failure(evidence: Path, failed: Path, qualified: Path) -> None:
