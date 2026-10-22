@@ -1,0 +1,65 @@
+name: Mind-Palace MP-AI00 inherited checkpoint regression diagnostic
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-checkpoint-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Execute only failing inherited checkpoint test and expose bounded errors
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$x,[string]$why){if(-not $x){throw ('MPAI00_DIAG_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+                $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $source='059688ee9c9f102216acf378b087b51b6a106025'
+          $branch='proposal/mp-agentic-hindsight-harness2-20261022'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-checkpoint-diagnostic-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $scratch 'repo'
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch|Out-Null
+          try{
+            $pin=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $pin.Count -eq 1 -and
+                  (([string]$pin[0] -split '\s+')[0]) -ceq $source) 'SOURCE_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $repo
+            Need ($LASTEXITCODE -eq 0 -and
+              ((& git.exe -C $repo rev-parse HEAD|Out-String).Trim()) -ceq $source) 'CLONE'
+            $out=Join-Path $scratch 'stdout.log'
+            $err=Join-Path $scratch 'stderr.log'
+            $test=Join-Path $repo 'tests/Test-UpdateCheckpoint.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -WorkingDirectory $repo -PassThru -Wait -NoNewWindow -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -RedirectStandardOutput $out -RedirectStandardError $err
+            $stdout=[IO.File]::ReadAllText($out)
+            $stderr=[IO.File]::ReadAllText($err)
+            $markers=@([regex]::Matches($stdout,'UQ51_UPDATE_STEP_[A-Z_]+')|ForEach-Object{$_.Value})
+            Write-Host ('MPAI00_DIAG_PROGRESS='+($markers -join '|'))
+            Write-Host ('MPAI00_DIAG_EXIT='+$p.ExitCode)
+            if($p.ExitCode -ne 0){
+              $lines=@($stderr -split '\r?\n'|Where-Object{$_ -match 'throw|Exception|Error|failed|checkpoint|PSInvalidOperation|ConvertFrom-Json|at line|Line \|' })
+              $last=@($lines|Select-Object -Last 16)
+              foreach($line in $last){
+                $brief=([string]$line) -replace '[\r\n\t]+',' '
+                if($brief.Length -gt 350){$brief=$brief.Substring(0,350)}
+                Write-Host ('MPAI00_DIAG_ERROR='+$brief)
+              }
+              throw 'MPAI00_INHERITED_CHECKPOINT_FAILED'
+            }
+            Write-Host 'MPAI00_INHERITED_CHECKPOINT_STANDALONE=PASS'
+          }finally{
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+          }
