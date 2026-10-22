@@ -1,0 +1,91 @@
+name: Mind-Palace MP-AI00 one-record disposable admission staging
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-single-admission-stage.yml']
+permissions:
+  contents: read
+jobs:
+  stage_only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage exact charter only in ignored disposable runtime, no durable mutation
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI00_STAGE_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai00-charter-on-qualified-repair-20261022'
+          $source='d9f745893df11e9222d71edf5c56a2c79f666245'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-stage-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+             '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+             '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $before=@{}
+          $captured=$false
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $rem=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $rem.Count -eq 1 -and
+              (([string]$rem[0] -split '\s+')[0]) -ceq $source) 'SOURCE_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'CLONE_DRIFT'
+            foreach($f in $protected){
+              $before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $captured=$true
+            $runtime=Join-Path $root '.mind-runtime'
+            $pending=Join-Path $runtime 'pending.jsonl'
+            Need (-not(Test-Path -LiteralPath $pending)) 'PENDING_ALREADY_EXISTS'
+            $batch=Join-Path $root 'pilots/mixed-source/2026-10-22-mp-ai00-universal-agentic-charter.batch.json'
+            $raw=(& (Join-Path $root 'tools/collect.ps1') stage -InputPath $batch|Out-String).Trim()
+            $result=$raw|ConvertFrom-Json
+            Need ($result.schema -ceq 'mind-palace.collector-result.v1') 'SCHEMA'
+            Need ($result.result.counts.new -eq 1 -and
+              $result.result.counts.review -eq 0 -and
+              $result.result.counts.supersede -eq 0 -and
+              $result.project_discovery.review -eq 0) 'CLASSIFICATION'
+            Need (Test-Path -LiteralPath $pending -PathType Leaf) 'PENDING_MISSING'
+            $lines=@([IO.File]::ReadAllLines($pending)|Where-Object{$_})
+            Need ($lines.Count -eq 1) 'ONE_PENDING_ONLY'
+            $record=$lines[0]|ConvertFrom-Json
+            Need ([string]$record.id -ceq 'decision/mp-ai-00-universal-agentic-improvement' -or
+              ([string]$record.kind -ceq 'decision' -and
+               [string]$record.key -ceq 'mp-ai-00-universal-agentic-improvement')) 'PENDING_ID'
+            Need (-not(Test-Path (Join-Path $runtime 'review.jsonl'))) 'NO_REVIEW'
+            Need (-not(Test-Path (Join-Path $runtime 'merge-proposals.jsonl'))) 'NO_MERGE'
+            foreach($f in $protected){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$f]) ('PROTECTED_DRIFT_'+$f)
+            }
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'TRACKED_SOURCE_MUTATED'
+            Write-Host 'MPAI00_STAGE_ONE_PENDING=PASS'
+            Write-Host 'MPAI00_STAGE_NO_AMBIGUITY=PASS'
+            Write-Host 'MPAI00_STAGE_NINE_PROTECTED_HASHES=PASS'
+            Write-Host 'MPAI00_STAGE_ONLY_IGNORED_RUNTIME=PASS'
+            Write-Host 'MPAI00_STAGE_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI00_STAGE_DURABLE_ADMISSION=NOT_PERFORMED'
+          }finally{
+            if($captured){
+              foreach($f in $protected){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before[$f]) ('FINAL_PROTECTED_DRIFT_'+$f)
+              }
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEANUP'
+            Write-Host 'MPAI00_STAGE_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
