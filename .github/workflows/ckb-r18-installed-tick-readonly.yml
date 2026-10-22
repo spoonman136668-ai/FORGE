@@ -1,0 +1,53 @@
+name: R18 installed controller first-tick pause trigger source audit READ ONLY
+on:
+  push:
+    branches: [audit/ckb-r18-installed-tick-readonly-20261022]
+    paths: [.github/workflows/ckb-r18-installed-tick-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Inspect pinned original source's pause triggers and first tick, no commands
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-installed-tick-readonly-20261022' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R18_INSTALLED_SOURCE_AUDIT_OWNER_CUSTODY'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane\internal\plane'
+          $sources=@(
+            @{name='autonomy.go';sha='c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'},
+            @{name='server.go';sha=$null},
+            @{name='store.go';sha='259bd8de92b06224cf1688035f735f1e0124b8f47002b5f23f424fa981e01b50'}
+          )
+          $allHits=0
+          foreach($entry in $sources){
+            $path=Join-Path $root $entry.name
+            if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'R18_INSTALLED_SOURCE_MISSING'}
+            if($entry.sha -and (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $entry.sha) {
+              throw 'R18_INSTALLED_SOURCE_HASH_MISMATCH'
+            }
+            $lines=@(Get-Content -LiteralPath $path -ErrorAction Stop)
+            $localHits=0
+            for($i=0;$i -lt $lines.Count;$i++){
+              if($lines[$i] -notmatch 'Store\.Pause\(true\)|func \(p \*Engine\) AutonomyLoop\(|func \(p \*Engine\) AutonomyTick\(|func \(p \*Engine\) Serve\(') {continue}
+              $localHits++;$allHits++
+              if($localHits -gt 12 -or $allHits -gt 24){throw 'R18_PAUSE_SOURCE_MATCH_BOUND'}
+              Write-Host ('R18_SOURCE_TRIGGER='+$entry.name+' LINE='+($i+1))
+              $from=[Math]::Max(0,$i-12)
+              $to=[Math]::Min($lines.Count-1,$i+34)
+              for($j=$from;$j -le $to;$j++){
+                Write-Host ('R18_CODE_'+($j+1)+'='+[string]$lines[$j])
+              }
+            }
+          }
+          if($allHits -lt 2){throw 'R18_INSTALLED_FIRST_TICK_SOURCE_NOT_FOUND'}
+          Write-Host 'R18_INSTALLED_TICK_PAUSE_AUDIT=PASS_READONLY'
