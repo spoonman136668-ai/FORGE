@@ -8,7 +8,7 @@ import sourcefree as p
 
 def toy(s=0):
     observations = ([(0,0),(0,1),(1,1),(1,0),(0,0)] if s==0
-                    else [(1,0),(0,0),(1,1),(0,0),(0,0)])
+                    else [(1,0),(0,0),(1,1),(0,1),(0,0)])
     return (p.FAMILIES[0],tuple(observations),(0,1,0,1))
 
 
