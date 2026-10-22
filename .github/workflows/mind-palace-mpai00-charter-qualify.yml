@@ -1,0 +1,135 @@
+name: Mind-Palace MP-AI00 pinned universal-agentic charter Windows qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths:
+      - '.github/workflows/mind-palace-mpai00-charter-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mpai00-exact-source-one-regression-windows
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - name: Checkout isolated FORGE workflow source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify pinned Mind-Palace charter source and run Windows acceptance
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$OK,[string]$Why){if(-not $OK){throw ('MPAI00_'+$Why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $moduleRoot=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          if(Test-Path $moduleRoot){$env:PSModulePath=$moduleRoot+[IO.Path]::PathSeparator+$env:PSModulePath}
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-agentic-hindsight-harness2-20261022'
+          $source='059688ee9c9f102216acf378b087b51b6a106025'
+          $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-qualify-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $logs=Join-Path $scratch 'logs'
+          $paths=@(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $expected=@(
+            'docs/AGENTIC_IMPROVEMENT_NORTH_STAR.md',
+            'pilots/mixed-source/2026-10-22-mp-ai00-universal-agentic-charter.batch.json',
+            'tests/Test-MPAI00CharterDecision.ps1')
+          function Pin([string]$ref,[string]$sha){
+            $lines=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and
+              (([string]$lines[0] -split '\s+')[0]) -ceq $sha) ('SOURCE_REF_DRIFT_'+$ref)
+          }
+          function RunNative([string]$tag,[string[]]$args,[string[]]$markers) {
+            $out=Join-Path $logs ($tag+'.stdout')
+            $err=Join-Path $logs ($tag+'.stderr')
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList $args -WorkingDirectory $root -NoNewWindow -PassThru -Wait -RedirectStandardOutput $out -RedirectStandardError $err
+            $s=[IO.File]::ReadAllText($out)
+            $e=[IO.File]::ReadAllText($err)
+            if($p.ExitCode -ne 0){
+              Write-Host ('MPAI00_FAILURE_STAGE='+$tag)
+              $last=@([regex]::Matches($s,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object{$_.Value})
+              if($last.Count -gt 0){Write-Host ('MPAI00_FULL_LAST_TEST='+[string]$last[-1])}
+              $codes=@([regex]::Matches($e,'(?:MPAI00|UQ[0-9]+)_[A-Z0-9_]+')|ForEach-Object{$_.Value}|Select-Object -Unique)
+              Write-Host ('MPAI00_FAILURE_CODE='+$(if($codes.Count -gt 0){[string]$codes[0]}else{'UNCLASSIFIED'}))
+              throw ('MPAI00_NATIVE_'+$tag+'_FAILED')
+            }
+            foreach($marker in $markers){Need ($s.Contains($marker)) ('MARKER_MISSING_'+$marker)}
+            Write-Host ('MPAI00_'+$tag.ToUpperInvariant()+'=PASS')
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $logs -Force | Out-Null
+          $before=@{}
+          $protectedReady=$false
+          $phase='preflight'
+          try{
+            $phase='remote-exact-ref-check'
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            $phase='clone'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'PRIVATE_READ_ONLY_CLONE_FAILED'
+            Need ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $source) 'SOURCE_SHA_MISMATCH'
+            $phase='source-only-scope'
+            $changed=@(& git.exe -C $root diff --name-only $main $source)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed|Sort-Object)-join '|') -ceq (($expected|Sort-Object)-join '|')) 'SOURCE_SCOPE_DRIFT'
+            $phase='before-hashes'
+            foreach($f in $paths){$before[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()}
+            $protectedReady=$true
+            $phase='focused'
+            RunNative 'focused' @('-NoProfile','-NonInteractive','-File',
+              ('"'+(Join-Path $root 'tests/Test-MPAI00CharterDecision.ps1')+'"'),
+              '-ExpectedHead',$source) @('MPAI00_SOURCE_IDENTITY=PASS',
+              'MPAI00_ONE_NEW_NO_REVIEW=PASS','MPAI00_SOURCE_LEDGER_UNPROCESSED=PASS',
+              'MPAI00_NINE_PROTECTED_HASHES=PASS','MPAI00_PRODUCTION_MEMORY_WRITES=0')
+            $phase='full'
+            RunNative 'full' @('-NoProfile','-NonInteractive','-File',
+              ('"'+(Join-Path $root 'tests/Test-All.ps1')+'"')) @('Mind-Palace regression suite passed')
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim()) 'WORKTREE_MUTATED'
+            Pin 'refs/heads/main' $main
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI00_EXACT_SOURCE_AND_MAIN_STABLE=PASS'
+            Write-Host 'MPAI00_FULL_WINDOWS_QUALIFICATION=PASS'
+            Write-Host 'MPAI00_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MPAI00_PAID_MODEL_CALLS=0'
+          }catch{
+            Write-Host ('MPAI00_PRIMARY_FAILURE_STAGE='+$phase)
+            Write-Host ('MPAI00_PRIMARY_FAILURE_CLASS='+$_.Exception.GetType().Name)
+            throw
+          }finally{
+            if($protectedReady){
+              foreach($f in $paths){
+                $now=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+                Need ($now -ceq $before[$f]) ('PROTECTED_HASH_DRIFT_'+$f)
+              }
+              Write-Host 'MPAI00_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){
+              $clean=$false
+              for($i=0;$i -lt 12;$i++){
+                try{
+                  Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+                  if(-not(Test-Path -LiteralPath $scratch)){$clean=$true;break}
+                }catch{}
+                Start-Sleep -Milliseconds 350
+              }
+              Need $clean 'SCRATCH_CLEANUP_FAILED'
+            }
+            Write-Host 'MPAI00_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
