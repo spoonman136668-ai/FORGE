@@ -1,0 +1,143 @@
+name: FORGE F139 R25 exact native candidate qualification
+# Explicit source qualification only. Never queue, sign, dispatch, or activate.
+on:
+  push:
+    branches: [research/f139-r25-first-native-candidate-20261022]
+permissions:
+  contents: read
+jobs:
+  source-bound-native-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOTOOLCHAIN: local
+      GOPROXY: 'off'
+      GOSUMDB: 'off'
+      F139_EXPECTED_MAIN: ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f
+      F139_TARGET_COMMIT: a5db1727113731988bfccad6ae30a0b8b4d6f9d6
+      F139_TARGET_TREE: b80d8baf20915974aca655ec92b9baefe22f5cb1
+      F139_ORIGINAL_BLOB: 8a40b216128ee62f042f8b00d5a64eb821ff1982
+      F139_CANDIDATE_BLOB: 8ac5c62263e1050ca7f595a2c97147938877227c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Wingless
+          ref: a5db1727113731988bfccad6ae30a0b8b4d6f9d6
+          path: native
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - name: Pin original source and exact candidate bytes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/research/f139-r25-first-native-candidate-20261022' -or
+              $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY) {
+            throw 'R25_UNTRUSTED_SOURCE_OR_CREDENTIALS'
+          }
+          $original=(git -C native rev-parse HEAD | Out-String).Trim()
+          $tree=(git -C native rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $clean=(git -C native status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($original -cne $env:F139_TARGET_COMMIT -or $tree -cne $env:F139_TARGET_TREE -or $clean) {
+            throw 'R25_ORIGINAL_WINGLESS_IDENTITY_DRIFT'
+          }
+          $target = Join-Path native 'cognition/continual.go'
+          $before = (git -C native hash-object cognition/continual.go | Out-String).Trim()
+          if ($before -cne $env:F139_ORIGINAL_BLOB) { throw 'R25_ORIGINAL_BLOB_DRIFT' }
+          $frozen = Join-Path $env:GITHUB_WORKSPACE 'f139/candidates/r25/continual.go'
+          $candidate = (git hash-object $frozen | Out-String).Trim()
+          if ($candidate -cne $env:F139_CANDIDATE_BLOB) { throw 'R25_CANDIDATE_BLOB_DRIFT' }
+          Copy-Item -LiteralPath $frozen -Destination $target -Force
+          $after = (git -C native hash-object cognition/continual.go | Out-String).Trim()
+          $changed = @(git -C native diff --name-only)
+          if ($after -cne $env:F139_CANDIDATE_BLOB -or
+              $changed.Count -ne 1 -or $changed[0] -cne 'cognition/continual.go') {
+            throw 'R25_ISOLATED_SINGLE_FILE_DELTA_DRIFT'
+          }
+          Write-Output 'R25_AUTHENTIC_WINGLESS_SOURCE=PASS'
+          Write-Output 'R25_ONE_FILE_REAL_NATIVE_CODE_CHANGED=PASS'
+      - name: Focused learned-state integrity and reversal tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $testPath = Join-Path native 'cognition/f139_r25_temporary_qualification_test.go'
+          $test = @'
+          package cognition
+          import ("bytes";"math";"testing")
+          func TestF139R25PersistentLearnerRejectsCorruption(t *testing.T) {
+            var nilState *State
+            if _,e:=nilState.Predict(0,0);e==nil{t.Fatal("nil predictor accepted")}
+            if e:=nilState.Observe(0,0,1,.5);e==nil{t.Fatal("nil training target accepted")}
+            if e:=nilState.Restore([]byte("{}"));e==nil{t.Fatal("nil persisted target accepted")}
+            var s State
+            if e:=s.Observe(0,1,1,.25);e!=nil{t.Fatal(e)}
+            blob,e:=s.Snapshot();if e!=nil{t.Fatal(e)}
+            var restored State
+            if e=restored.Restore(blob);e!=nil{t.Fatal(e)}
+            b,e:=restored.Snapshot();if e!=nil||!bytes.Equal(blob,b){t.Fatal("cold-readable learned weights drift")}
+            original,_:=restored.Snapshot()
+            bad:=[][]byte{
+              []byte("{\"weights\":[0,0,0,0],\"updates\":1,\"unknown\":true}"),
+              []byte("{\"weights\":[0,0,0,0],\"updates\":1}null"),
+              []byte(""),
+            }
+            for _,v:=range bad{
+              if e:=restored.Restore(v);e==nil{t.Fatal("untrusted saved learner accepted")}
+              now,_:=restored.Snapshot()
+              if !bytes.Equal(original,now){t.Fatal("failed restore mutated learned state")}
+            }
+            saturated:=State{Updates:^uint64(0)}
+            if e:=saturated.Observe(1,0,1,.2);e==nil||saturated.Updates!=^uint64(0){
+              t.Fatal("update count wrapped or mutated")
+            }
+            badState:=State{Weights:[4]float64{math.NaN()}}
+            if _,e:=badState.Predict(0,0);e==nil{t.Fatal("nonfinite predictor accepted")}
+            valid,_:=restored.Predict(0,1)
+            if valid<=0||valid>=1{t.Fatal("trained state lost valid prediction")}
+          }
+          '@
+          [IO.File]::WriteAllText($testPath,$test,[Text.UTF8Encoding]::new($false))
+          try {
+            Push-Location native
+            try {
+              & go test -count=1 ./cognition
+              if ($LASTEXITCODE -ne 0) { throw 'R25_FOCUSED_LEARNED_STATE_NEGATIVE' }
+            } finally { Pop-Location }
+          } finally {
+            Remove-Item -LiteralPath $testPath -Force -ErrorAction SilentlyContinue
+          }
+          Write-Output 'R25_LEARNER_RESTART_CORRUPTION_AND_REVISION=PASS'
+      - name: One complete native regression, vet, build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Push-Location native
+          try {
+            $changed=@(git diff --name-only)
+            if ($changed.Count -ne 1 -or $changed[0] -cne 'cognition/continual.go') {
+              throw 'R25_UNEXPECTED_NATIVE_FILES_CHANGED'
+            }
+            & go test -count=1 ./...
+            if ($LASTEXITCODE -ne 0) { throw 'R25_FULL_REGRESSION_FAILED' }
+            & go vet ./...
+            if ($LASTEXITCODE -ne 0) { throw 'R25_NATIVE_VET_FAILED' }
+            & go build ./...
+            if ($LASTEXITCODE -ne 0) { throw 'R25_NATIVE_BUILD_FAILED' }
+            Write-Output 'R25_ONE_FULL_NATIVE_REGRESSION=PASS'
+            Write-Output 'R25_NATIVE_VET=PASS'
+            Write-Output 'R25_NATIVE_BUILD=PASS'
+            Write-Output 'R25_AUTONOMOUS_DISPATCH=NOT_TESTED'
+            Write-Output 'R25_SCIENTIFIC_FIRST_USE=FALSE'
+          } finally { Pop-Location }
