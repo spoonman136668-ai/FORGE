@@ -170,8 +170,8 @@ if((Get-Main) -cne $source -or (Get-Head $root) -cne $source){
 }
 Test-Clean $root
 $pr=(& gh api "repos/$repo/pulls/722" | Out-String | ConvertFrom-Json)
-if($LASTEXITCODE -ne 0 -or $pr.head.sha -cne $candidate -or $pr.base.sha -cne $source
-   -or $pr.draft -ne $false -or $pr.merged -eq $true -or $pr.mergeable -ne $true){
+if($LASTEXITCODE -ne 0 -or $pr.head.sha -cne $candidate -or $pr.base.sha -cne $source -or
+   $pr.draft -ne $false -or $pr.merged -eq $true -or $pr.mergeable -ne $true){
   throw 'R20_EXACT_PR_722_INVALID'
 }
 $checks=(& gh api "repos/$repo/commits/$candidate/check-runs?per_page=100" | Out-String | ConvertFrom-Json)
