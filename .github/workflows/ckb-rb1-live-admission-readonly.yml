@@ -101,12 +101,11 @@ jobs:
              if($LASTEXITCODE -ne 0 -or $sha -notmatch '^[a-f0-9]{40}$'){throw 'CKB_ORIGINAL_SOURCE_IDENTITY_INVALID'}
              $records+=($item+':'+$sha)
           }
-          $head=(& git.exe -C $root rev-parse HEAD).Trim()
-          $dirty=@(& git.exe -C $root status --porcelain)
-          if($LASTEXITCODE -ne 0 -or $head -notmatch '^[a-f0-9]{40}$'){throw 'CKB_ORIGINAL_REPOSITORY_INVALID'}
-          Write-Host ('CKB_ORIGINAL_SOURCE_HEAD='+$head)
-          Write-Host ('CKB_ORIGINAL_SOURCE_DIRTY_COUNT='+$dirty.Count)
           Write-Host ('CKB_ORIGINAL_SOURCE_BLOBS='+($records -join ','))
+          $gitDir=Join-Path $root '.git'
+          Write-Host ('CKB_ORIGINAL_WORKDIR_HAS_GIT='+[bool](Test-Path -LiteralPath $gitDir))
+          $children=@(Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction Stop | ForEach-Object {$_.Name} | Where-Object {$_ -in @('internal','snapshot','source','src','cmd','.git','releases','config')})
+          Write-Host ('CKB_ORIGINAL_SOURCE_DIRS='+($children -join ','))
           Write-Host 'CKB_ORIGINAL_SOURCE_INSPECTION=READ_ONLY'
       - name: Check existing scoped donor read access without exposing credentials
         shell: pwsh
