@@ -190,7 +190,7 @@ $remote=(& git -C $root ls-remote origin refs/heads/main | Out-String).Trim()
 if($LASTEXITCODE -ne 0 -or $remote -cne ($source+[char]9+'refs/heads/main')){
   throw 'R20_ORIGINAL_SOURCE_REMOTE_ACCESS_UNQUALIFIED'
 }
-if((Get-OwnerPython $db).Count -ne 1){
+if(@(Get-OwnerPython $db).Count -ne 1){
   throw 'R20_ORIGINAL_CONTROLLER_PROCESS_COUNT_DRIFT'
 }
 Test-Evidence $python $db $source 68 $head68
@@ -209,7 +209,7 @@ try{
   Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
   $quiet=$false
   for($i=0;$i -lt 30;$i++){
-    if((Get-OwnerPython $db).Count -eq 0){$quiet=$true;break}
+    if(@(Get-OwnerPython $db).Count -eq 0){$quiet=$true;break}
     Start-Sleep -Seconds 2
   }
   if(-not $quiet -or [string](Get-ScheduledTask -TaskName $taskName).State -cne 'Disabled'){
@@ -291,7 +291,7 @@ try{
   for($i=0;$i -lt 25;$i++){
     Start-Sleep -Seconds 2
     if([string](Get-ScheduledTask -TaskName $taskName).State -ceq 'Running' -and
-       (Get-OwnerPython $db).Count -eq 1){$running=$true;break}
+       @(Get-OwnerPython $db).Count -eq 1){$running=$true;break}
   }
   if(-not $running){throw 'R20_NEW_SOURCE_CONTROLLER_DID_NOT_RESTART'}
   Write-Output 'R20_GUARDED_MERGE_SOURCE_TRANSITION_AND_RESTART=PASS'
