@@ -1,0 +1,105 @@
+name: Q19A anonymous sensor causal identification - exact Windows Linux
+on:
+  push:
+    branches: [research/q19-anonymous-intervention-identifiability-20261022]
+    paths: [.github/workflows/q19-anonymous-causal-identifiability.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q19a-frozen-population-source-only-20261022
+  cancel-in-progress: false
+jobs:
+  frozen-information-screen:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: hosted-ubuntu
+            runner: '["ubuntu-24.04"]'
+          - label: hosted-windows
+            runner: '["windows-2022"]'
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact committed frozen protocol and four additive source-only paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $parent='8023a49407a02fe1927f4f653f2b93b6344c61a9'
+          $actual=(& git rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $actual-cne$parent){throw 'Q19A_PREEXECUTION_PARENT_DRIFT'}
+          $ancestor=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$base){throw 'Q19A_PROTECTED_FROZEN_BASE_DRIFT'}
+          $expected=@(
+            '.github/workflows/q19-anonymous-causal-identifiability.yml',
+            'research/q19_anonymous_causal/FROZEN_PROTOCOL.json',
+            'research/q19_anonymous_causal/screen.py',
+            'research/q19_anonymous_causal/test_screen.py'
+          )
+          $realPaths=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $realPaths)){
+            throw 'Q19A_NOT_EXACT_FOUR_ADDITIVE_FILES'
+          }
+          foreach($pin in @(
+            @('research/q19_anonymous_causal/FROZEN_PROTOCOL.json','aa85f7b1c0d1cdf5c4a7daf08f5457358fa09bf4'),
+            @('research/q19_anonymous_causal/screen.py','4de3f40bf15a2c201c186fa45f0d37a8b0b98bfe'),
+            @('research/q19_anonymous_causal/test_screen.py','5ebae8621dbc4ee28d7f7a9a4be251e94793a02b')
+          )){
+            $actualBlob=(& git rev-parse ('HEAD:'+$pin[0])).Trim()
+            $diskBlob=(& git hash-object --no-filters -- $pin[0]).Trim()
+            if($LASTEXITCODE-ne0 -or
+               $actualBlob-cne$pin[1] -or $diskBlob-cne$pin[1]){
+              throw ('Q19A_SCIENTIFIC_SOURCE_BYTE_DRIFT_'+$pin[0])
+            }
+          }
+          Write-Host 'Q19A_FROZEN_FIRST_EXACT_SCIENCE_BYTES=PASS'
+      - name: Run exhaustive source-free anonymous identifiability tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s research/q19_anonymous_causal -p test_screen.py -v
+          if($LASTEXITCODE-ne0){throw 'Q19A_UNIT_CAUSAL_IDENTIFIABILITY_FAILURE'}
+          & python -B research/q19_anonymous_causal/screen.py --mode selftest
+          if($LASTEXITCODE-ne0){throw 'Q19A_FROZEN_PASSIVE_ALIAS_SELFTEST_FAILED'}
+          $out=Join-Path $env:RUNNER_TEMP ('q19a-'+$env:RUNNER_OS+'-'+$env:GITHUB_RUN_ID+'.log')
+          if(Test-Path -LiteralPath $out){throw 'Q19A_PRIOR_OUTPUT_NOT_REUSED'}
+          & python -B research/q19_anonymous_causal/screen.py --mode population-screen 2>&1 |
+            Tee-Object -FilePath $out
+          if($LASTEXITCODE-ne0){throw 'Q19A_EXACT_CAUSAL_INFORMATION_SCREEN_FAILED'}
+          $lines=@(Get-Content -LiteralPath $out |
+                   Where-Object {$_ -like 'Q19A_RESULT_JSON=*'})
+          if($lines.Count-ne1){throw 'Q19A_RESULT_MISSING_OR_REPLAYED'}
+          $result=$lines[0].Substring(17)|ConvertFrom-Json
+          if($result.held_families_generated-ne$false -or
+             $result.original_source_episodes-ne0 -or
+             $result.scientific_first_use-ne$false -or
+             $result.actual_trainable_learner_executed-ne$false -or
+             $result.finite_sample_learning_claimed-ne$false){
+            throw 'Q19A_FALSE_COGNITIVE_OR_SOURCE_EVIDENCE'
+          }
+          Write-Host ('Q19A_RESULT_LOG_SHA256='+((Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()))
+          Write-Host 'Q19A_ANONYMOUS_INFORMATION_SCREEN_COMPLETED=PASS'
+      - name: Fail closed on any post-run source change or original first-use
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q19A_RESEARCH_WORKTREE_DIRTY'}
+          Write-Host 'Q19A_RESEARCH_SOURCE_UNMODIFIED=PASS'
+          Write-Host 'Q19A_UNFAMILIAR_HELD_ORIGINAL_FIRST_USE=BLOCKED'
+          Write-Host 'Q19A_FULL_FORGE_G61_REGRESSION_NOT_CLAIMED'
