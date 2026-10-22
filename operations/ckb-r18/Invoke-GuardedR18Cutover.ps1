@@ -10,7 +10,7 @@ $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
 $wp=[Security.Principal.WindowsPrincipal]::new($wid)
 if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
    $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
-   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-coldstart-r3-20261022' -or
+   $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r18-r4-firsttick-diagnostic-20261022' -or
    $wid.Name -ine 'LINKDEADKB\camar' -or
    !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'R18_OWNER_ELEVATION_OR_EXECUTION_SCOPE_CHANGED'
@@ -60,6 +60,39 @@ function RequestNativeStop([string]$path) {
         if ($client.ExitCode -ne 0) {throw 'R18_NATIVE_GRACEFUL_STOP_REJECTED'}
     } finally {
         Remove-Item -LiteralPath $output,$stderr -Force -ErrorAction SilentlyContinue
+    }
+}
+function ReadDiagnosticFirstTickSetting {
+    # Diagnostic read under the original owner's Windows token. Never open
+    # live SQLite read-write, never persist text of possible confidential errors.
+    $path=Join-Path $env:RUNNER_TEMP ('R18FirstTick-'+$env:GITHUB_RUN_ID+'.py')
+    if(Test-Path -LiteralPath $path){throw 'R18_FIRST_TICK_DIAGNOSTIC_TEMP_REUSED'}
+    $source=@'
+import sqlite3,sys,re,hashlib,json
+from pathlib import Path
+p=Path(sys.argv[1]).resolve(strict=True)
+cx=sqlite3.connect("file:"+p.as_posix()+"?mode=ro",uri=True,timeout=3)
+try:
+    cx.execute("PRAGMA query_only=ON")
+    row=cx.execute("SELECT value FROM settings WHERE key='autonomy_status'").fetchone()
+    value=str(row[0]) if row else ""
+    kind=value.split(":",1)[0][:60]
+    if re.search(r"(?i)token|secret|password|authorization|bearer|api.?key",value):
+        preview="[REDACTED_SENSITIVE_DIAGNOSTIC]"
+    else:
+        preview=re.sub(r"[^A-Za-z0-9_ :.,/\-\[\]]","?",value[:200])
+    print(json.dumps({"status_kind":kind,"sanitized_prefix":preview,
+          "length":len(value),"sha256":hashlib.sha256(value.encode()).hexdigest()},
+          separators=(",",":")))
+finally:cx.close()
+'@
+    [IO.File]::WriteAllText($path,$source,(New-Object Text.UTF8Encoding($false)))
+    try {
+        $rows=@(& python.exe -B $path $db)
+        if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1){throw 'R18_FIRST_TICK_SQLITE_READ_FAILED'}
+        return ($rows[0]|ConvertFrom-Json -ErrorAction Stop)
+    } finally {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
     }
 }
 function WaitNewController([string]$path) {
@@ -170,7 +203,7 @@ try {
     # launcher computes its configuration path rather than embedding it.
     # Configuration identity is independently pinned at each cutover boundary.
     # Syntax-check the intended launcher before any persistent writes.
-    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R3\bin\ckb-plane.exe'
+    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R4\bin\ckb-plane.exe'
     $newText=$oldText.Replace($oldExe,$predictedRelease)
     $tokens=$null;$parseErrors=$null
     [void][Management.Automation.Language.Parser]::ParseInput($newText,[ref]$tokens,[ref]$parseErrors)
@@ -183,7 +216,7 @@ try {
         return
     }
     $cutoverAttempted=$true
-    $releaseName='PLANE-R18-OWNER-STATUS-R3'
+    $releaseName='PLANE-R18-OWNER-STATUS-R4'
     $releaseDir=Join-Path 'C:\ProgramData\CKBR\release-store\ckb-plane\releases' $releaseName
     $cutoverDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('PLANE-R18-OWNER-CUTOVER-'+$env:GITHUB_RUN_ID)
     $rollbackDir=Join-Path $cutoverDir 'rollback'
@@ -217,8 +250,8 @@ try {
     # Native endpoint is the proven graceful shutdown route. Task Scheduler
     # stop alone leaves this detached controller running (R18 first attempt).
     RequestNativeStop $oldExe
-    if (!(WaitStopped)) {throw 'R18_NATIVE_OLD_CONTROLLER_DID_NOT_STOP'}
     $controllerStopped=$true
+    if (!(WaitStopped)) {throw 'R18_NATIVE_OLD_CONTROLLER_DID_NOT_STOP'}
     $preTask=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
     if ($preTask.State -eq 'Running') {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
@@ -257,6 +290,21 @@ try {
     if ((Get-Item -LiteralPath $statusStdout).Length -gt 16777216) {throw 'R18_STATUS_OUTPUT_EXCEEDS_SAFETY_BOUND'}
     $raw=[IO.File]::ReadAllText($statusStdout)
     $status=ConvertFrom-Json -InputObject $raw -ErrorAction Stop
+    $diagnosis=ReadDiagnosticFirstTickSetting
+    Write-Host ('R18_R4_FIRST_TICK_DIAGNOSTIC='+([ordered]@{
+        candidate_authority=[string]$status.authority
+        candidate_generation=[string]$status.generation
+        candidate_paused=[bool]$status.paused
+        candidate_controller_status=[string]$status.controller_status
+        candidate_heartbeat_stale=[bool]$status.heartbeat_stale
+        stored_status_kind=[string]$diagnosis.status_kind
+        stored_status_safe_prefix=[string]$diagnosis.sanitized_prefix
+        stored_status_length=[int]$diagnosis.length
+        stored_status_sha256=[string]$diagnosis.sha256
+        diagnostic_only=$true
+    } | ConvertTo-Json -Compress))
+    # Never admit this R4 diagnostic candidate. Always roll back to original.
+    throw 'R18_DIAGNOSTIC_CAPTURED_ROLLBACK_MANDATORY'
     if ($status.authority -ne 'plane' -or $status.paused -eq $true -or
         $status.heartbeat_stale -eq $true -or
         [string]$status.controller_status -notlike 'IDLE:*') {
@@ -335,6 +383,11 @@ try {
             Write-Host ('R18_R1P_ROLLBACK=FAILED:'+ $_.Exception.Message)
             throw 'R18_MANUAL_RECOVERY_REQUIRED_ORIGINAL_CONTROLLER_UNVERIFIED'
         }
+    }
+    if ($errorCause -ceq 'R18_DIAGNOSTIC_CAPTURED_ROLLBACK_MANDATORY') {
+        Write-Host 'R18_R4_DIAGNOSTIC_ONLY_AND_R1P_ROLLBACK=PASS'
+        Write-Host 'R18_R4_PRODUCTION_PROMOTION=NOT_ATTEMPTED'
+        return
     }
     throw ('R18_CUTOVER_NOT_ADMITTED:'+ $errorCause)
 } finally {
