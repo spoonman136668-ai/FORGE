@@ -5,6 +5,7 @@ on:
     branches: [proposal/f139-r15-isolated-autorepair-proof-20261022]
 permissions:
   contents: read
+  actions: read
 jobs:
   bounded-known-repair:
     runs-on: ${{ matrix.os }}
@@ -33,6 +34,18 @@ jobs:
           path: repaired
           fetch-depth: 0
           persist-credentials: false
+      - name: Original authentic failed Windows source, pinned
+        uses: actions/checkout@v4
+        with:
+          ref: 6909880012bcd7161c24c6de1877046ce97bdb7f
+          path: failed
+          persist-credentials: false
+      - name: Independently qualified repaired Windows source, pinned
+        uses: actions/checkout@v4
+        with:
+          ref: 382a6668ca3e63bd4f16b7043bf5f9a7749886f7
+          path: qualified
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -51,3 +64,41 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'R15_GENUINE_REPAIR_REHEARSAL_FAILED' }
           Write-Output 'R15_ISOLATED_RED_GREEN_NATIVE_REPAIR=PASS'
           Write-Output 'R15_OWNER_CONTROLLER_AND_SCIENCE_UNTOUCHED=TRUE'
+      - name: Read authenticated immutable GitHub run and job evidence
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path evidence -ErrorAction Stop | Out-Null
+          $repo = 'spoonman136668-ai/FORGE'
+          & gh api "repos/$repo/actions/runs/39782884958" > evidence/failed-run.json
+          if ($LASTEXITCODE -ne 0) { throw 'R15_FAILED_PROVIDER_RUN_NOT_AUTHENTICATED' }
+          & gh api "repos/$repo/actions/runs/39783112103" > evidence/passed-run.json
+          if ($LASTEXITCODE -ne 0) { throw 'R15_QUALIFIED_PROVIDER_RUN_NOT_AUTHENTICATED' }
+          & gh api "repos/$repo/actions/runs/39782884958/jobs?per_page=100" > evidence/failed-jobs.json
+          if ($LASTEXITCODE -ne 0) { throw 'R15_FAILED_PROVIDER_JOBS_NOT_AUTHENTICATED' }
+          & gh api "repos/$repo/actions/runs/39783112103/jobs?per_page=100" > evidence/passed-jobs.json
+          if ($LASTEXITCODE -ne 0) { throw 'R15_QUALIFIED_PROVIDER_JOBS_NOT_AUTHENTICATED' }
+          & gh api "repos/$repo/actions/jobs/119838389983/logs" > evidence/failed-log.txt
+          $match = if ((Test-Path evidence/failed-log.txt)) {
+            Select-String -Path evidence/failed-log.txt -Pattern 'PermissionError: \[WinError 32\]' -Quiet
+          } else { $false }
+          if ($LASTEXITCODE -ne 0 -or -not $match) {
+            & gh run view 39782884958 --repo $repo --job 119838389983 --log > evidence/failed-log.txt
+            if ($LASTEXITCODE -ne 0) { throw 'R15_ORIGINAL_FAILURE_LOG_NOT_AUTHENTICATED' }
+          }
+          Write-Output 'R15_PROVIDER_LOG_AND_JOB_GET=PASS'
+      - name: Select known repair from actual provider failure evidence and verify exact result
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GH_TOKEN -or $env:GITHUB_TOKEN -or $env:OPENAI_API_KEY -or
+              $env:F139_WORKER_HMAC_KEY) {
+            throw 'R15_REPAIR_STEP_CREDENTIAL_INHERITANCE_REJECTED'
+          }
+          python -B proof/f139/r15_provider_failure_repair.py evidence failed qualified
+          if ($LASTEXITCODE -ne 0) { throw 'R15_AUTHENTIC_FAILURE_DRIVEN_REPAIR_FAILED' }
+          Write-Output 'R15_AUTHENTIC_PROVIDER_DRIVEN_REPAIR=PASS'
