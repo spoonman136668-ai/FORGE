@@ -72,3 +72,84 @@ jobs:
           if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_TASK_REPORT_EXCEEDS_BOUND'}
           Write-Host ('R18_CURRENT_CUSTODY='+$json)
           Write-Host 'R18_READONLY_CUSTODY_AUDIT=PASS'
+      - name: Verify native R18 status and original data custody in place — no restart
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-current-task-custody-20261022' -or
+              $who.Name -ine 'LINKDEADKB\camar') {throw 'R18_STATUS_WRONG_OWNER'}
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if ($task.State -ne 'Running' -or
+              @($task.Actions).Count -ne 1 -or
+              [string]$task.Actions[0].Arguments -notlike '*Start-R18-Controller.ps1*'){
+            throw 'R18_ACTIVE_TASK_NO_LONGER_ORIGINAL_R18_LAUNCHER'
+          }
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if ($process.Count -ne 1 -or
+              [string]::IsNullOrWhiteSpace([string]$process[0].ExecutablePath)) {
+            throw 'R18_RUNNING_EXE_NOT_SINGLETON'
+          }
+          $exe=[string]$process[0].ExecutablePath
+          $expected='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) {
+            throw 'R18_ACTIVE_BINARY_IDENTITY_DRIFT'
+          }
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if ((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+              '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c') {
+            throw 'R18_ACTIVE_CONFIG_IDENTITY_DRIFT'
+          }
+          $out=Join-Path $env:RUNNER_TEMP ('R18LiveStatus-'+$env:GITHUB_RUN_ID+'.out')
+          $err=Join-Path $env:RUNNER_TEMP ('R18LiveStatus-'+$env:GITHUB_RUN_ID+'.err')
+          try {
+            $client=Start-Process -FilePath $exe -ArgumentList @('controller','status','--config',('"' + $config + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -ErrorAction Stop
+            if (!$client.WaitForExit(45000)) {
+              try {$client.Kill()} catch {}
+              throw 'R18_STATUS_CLI_TIMED_OUT'
+            }
+            if ($client.ExitCode -ne 0) {throw 'R18_STATUS_CLI_FAILED'}
+            if ((Get-Item -LiteralPath $out).Length -gt 16777216) {throw 'R18_STATUS_TOO_LARGE'}
+            $body=[IO.File]::ReadAllText($out)
+            $status=ConvertFrom-Json -InputObject $body -ErrorAction Stop
+            $blockers=@($status.blockers | Where-Object {$null -ne $_})
+            $post=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if ($post.Count -ne 1 -or $post[0].ProcessId -ne $process[0].ProcessId) {
+              throw 'R18_RUNTIME_SINGLETON_CHANGED_DURING_READONLY_STATUS'
+            }
+            $report=[ordered]@{
+              schema='ckb-plane.r18.live-posttransition-readonly.v1'
+              running_r18_sha256=$expected
+              native_cli_exit=0
+              status_json_valid=$true
+              authority=[string]$status.authority
+              generation=[string]$status.generation
+              paused=[bool]$status.paused
+              controller_status=[string]$status.controller_status
+              heartbeat_stale=[bool]$status.heartbeat_stale
+              heartbeat_at_present=![string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)
+              blocker_count=$blockers.Count
+              status_jobs_count=@($status.jobs).Count
+              queue_length=@($status.queue).Count
+              task_state=[string]$task.State
+              active_process_count=$post.Count
+              active_process_pid=[int]$post[0].ProcessId
+              task_action_modified=$false
+              live_controller_restarted=$false
+              work_dispatched=$false
+              live_database_written_by_audit=$false
+            }
+            $json=$report|ConvertTo-Json -Compress -Depth 5
+            if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_STATUS_REPORT_OVERSIZED'}
+            Write-Host ('R18_LIVE_READONLY_POSTTRANSITION='+$json)
+            if ([string]$status.authority -cne 'plane' -or
+                [string]$status.generation -cne '6' -or
+                $status.heartbeat_stale -ne $false -or
+                [string]::IsNullOrWhiteSpace([string]$status.heartbeat_at)) {
+              throw 'R18_NATIVE_STATUS_AUTHORITY_OR_HEARTBEAT_UNHEALTHY'
+            }
+            Write-Host 'R18_LIVE_NATIVE_STATUS_AND_SINGLETON=PASS'
+          } finally {
+            Remove-Item -LiteralPath $out,$err -Force -ErrorAction SilentlyContinue
+          }
