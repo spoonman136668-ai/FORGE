@@ -1,0 +1,85 @@
+name: ITD-01 R6 neutral public event and native source audit
+on:
+  push:
+    branches: [research/itd01-r6-neutral-ontology-native-contract-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: itd01-r6-neutral-public-once-20261022
+  cancel-in-progress: false
+jobs:
+  source-neutral-r6:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          clean: true
+          fetch-depth: 46
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify R5 ancestor prereg-first and purely additive source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor ec2e2d88d06c7c8141949b9858c42c2d77849ff9 HEAD
+          git show --format= --name-only 53290fe5126d50f7bcbac8ab4d8280a609defc79 | python -B -c 'import sys; p=sys.stdin.read().splitlines(); assert p==["research/itd01/R6_FROZEN_NATIVE_ONTOLOGY.md"],p'
+          git diff --name-only ec2e2d88d06c7c8141949b9858c42c2d77849ff9 HEAD | python -B -c 'import sys; x=set(sys.stdin.read().splitlines()); allowed={"research/itd01/R6_FROZEN_NATIVE_ONTOLOGY.md","research/itd01/R6_NATIVE_SOURCE_AUDIT.json","research/itd01/r6_neutral_ontology.py","research/itd01/test_r6_neutral_ontology.py","research/itd01/run_r6_neutral_qualification.py","research/itd01/test_r6_public_compatibility.py",".github/workflows/qualify-itd01-r6.yml"}; assert x==allowed,(x,allowed)'
+          python -B -c 'import json; d=json.load(open("research/itd01/R6_NATIVE_SOURCE_AUDIT.json")); assert all(not x["native_cognitive_online_learning_core_present"] for x in d["verified_protected_mains"].values()); assert not d["protected_first_use_allowed"]; print("ITD01_R6_NATIVE_AUDIT=NO_EXECUTABLE_CORE_SOURCE_VERIFIED")'
+          echo ITD01_R6_FROZEN_LINEAGE_AND_SCOPE=PASS
+      - name: Focused R1 R2 R3 R4 R5 R6 public-only adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_*.py' -v
+          python -B research/itd01/run_r6_neutral_qualification.py --smoke > itd01_r6_smoke.json
+          python -B -c 'import json; d=json.load(open("itd01_r6_smoke.json")); assert not d["scientific_first_use"] and not d["native_wingless_trained"] and not d["native_yggdrasil_trained"]; print("ITD01_R6_SCRIPTED_NEUTRAL_SMOKE=PASS")'
+          echo ITD01_R6_FOCUSED_PUBLIC_ONLY=PASS
+      - name: Full source-free neutral event compatibility on four DEV worlds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/itd01/run_r6_neutral_qualification.py > itd01_r6_public_result.json
+          python -B -c 'import json; d=json.load(open("itd01_r6_public_result.json")); assert all(x["goal_success"]>=.8 for world in d["worlds"].values() for x in world.values()); assert not d["scientific_first_use"] and not d["native_wingless_trained"] and not d["native_yggdrasil_trained"]; print("ITD01_R6_NEUTRAL_EVENT_COMPATIBILITY_DEV_PASS_NATIVE_STILL_BLOCKED")'
+          sha256sum itd01_r6_smoke.json itd01_r6_public_result.json > itd01_r6_result_hashes.sha256
+      - name: One original full FORGE F139 Python and Go regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test ./...
+          go vet ./...
+          go build ./...
+          echo ITD01_R6_EXISTING_FULL_REGRESSION=PASS
+      - name: Exact evidence allowlist and original scientific nonauthority
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; x=sys.stdin.read().splitlines(); allowed={"?? itd01_r6_smoke.json","?? itd01_r6_public_result.json","?? itd01_r6_result_hashes.sha256"}; bad=[v for v in x if v not in allowed]; assert not bad,bad'
+          echo ITD01_R6_SOURCE_CLEAN=PASS
+          echo ITD01_R6_ORIGINAL_H1_H2_FIRST_USE=BLOCKED
+          echo ITD01_R6_NATIVE_WINGLESS_YGGDRASIL=NOT_EXECUTED
+      - name: Preserve actual public-only R6 receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd01-r6-neutral-dev-${{ matrix.os }}
+          path: |
+            itd01_r6_smoke.json
+            itd01_r6_public_result.json
+            itd01_r6_result_hashes.sha256
+          if-no-files-found: ignore
