@@ -1,0 +1,98 @@
+name: KTRADE R25-C75D3J original owner custody read-only identity boundary
+on:
+  push:
+    branches: [qualification/ktrade-c75d3j-owner-custody-readonly-20261022]
+    paths: [.github/workflows/ktrade-c75d3j-owner-custody-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-c75d3j-owner-readonly-negative
+  cancel-in-progress: false
+jobs:
+  native-owner-boundary:
+    if: github.repository == 'spoonman136668-ai/FORGE'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: 'Never'
+      KTRADE_CI_PAPER_ONLY: '1'
+      KTRADE_CI_LIVE_AUTHORITY: '0'
+      KTRADE_CI_COINBASE_ALLOWED: '0'
+      KTRADE_CI_PROMOTION_ALLOWED: '0'
+    steps:
+      - name: Validate exact KTRADE owner-custody source and fail closed in GitHub Actions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-c75d3j-owner-custody-readonly-20261022' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_ACTIONS -cne 'true' -or
+             $env:KTRADE_CI_PAPER_ONLY -cne '1' -or
+             $env:KTRADE_CI_LIVE_AUTHORITY -cne '0' -or
+             $env:KTRADE_CI_COINBASE_ALLOWED -cne '0' -or
+             $env:KTRADE_CI_PROMOTION_ALLOWED -cne '0'){
+            throw 'D3J_READONLY_RUNNER_BOUNDARY_CHANGED'
+          }
+          foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
+            if([Environment]::GetEnvironmentVariable($key)){throw 'D3J_BROKER_CREDENTIALS_NOT_PERMITTED'}
+          }
+          $head='2b93b2d08540474fd9e602e9802c377e881d8c87'
+          $blob='c0b86ca4ad265f6939047cbba16fe92b3b02995c'
+          $parent='195e5ff42f307af1a2566652cdf0fa548a7f12ed'
+          $root=Join-Path $env:RUNNER_TEMP ('ktrade-d3j-probe-'+[guid]::NewGuid().ToString('N'))
+          $candidate=Join-Path $root 'candidate'
+          $log=Join-Path $root 'private.log'
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            & git clone --quiet --no-checkout https://github.com/spoonman136668-ai/ktrade.git $candidate *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3J_EXISTING_KTRADE_MACHINE_READ_UNAVAILABLE'}
+            & git -C $candidate checkout --quiet --detach $head *> $log
+            if($LASTEXITCODE -ne 0){throw 'D3J_KTRADE_EXACT_REVISION_UNAVAILABLE'}
+            if((& git -C $candidate rev-parse HEAD).Trim() -cne $head){throw 'D3J_SOURCE_SHA_DRIFT'}
+            $files=@(& git -C $candidate diff --name-only $parent $head)
+            if($files.Count -ne 1 -or $files[0] -cne 'scripts/r25-c75d3j-owner-custody-readonly.ps1'){
+              throw 'D3J_UNEXPECTED_SOURCE_DELTA'
+            }
+            $observed=(& git -C $candidate rev-parse 'HEAD:scripts/r25-c75d3j-owner-custody-readonly.ps1').Trim()
+            if($observed -cne $blob){throw 'D3J_SCRIPT_BLOB_DRIFT'}
+            $script=Join-Path $candidate 'scripts/r25-c75d3j-owner-custody-readonly.ps1'
+            $tokens=$null;$parseErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$parseErrors)|Out-Null
+            if($parseErrors.Count -ne 0){throw 'D3J_POWERSHELL_PARSER_FAILED'}
+            Write-Host 'D3J_EXACT_SOURCE_IDENTITY_AND_WINDOWS_PARSE=PASS'
+            $output=@(& pwsh -NoProfile -NonInteractive -File $script -ExpectedSourceSha $head -ProbeOnly 2>$null)
+            if($LASTEXITCODE -ne 0 -or $output.Count -ne 1){throw 'D3J_ZERO_OWNER_IO_PROBE_FAILED'}
+            $view=$output[0]|ConvertFrom-Json -ErrorAction Stop
+            if($view.schema -cne 'ktrade.r25-c75d3j.owner-custody-readonly-preflight.v1' -or
+               $view.result -cne 'PRECHECK_ONLY_NOT_OWNER_CUSTODY' -or
+               $view.source_sha_verified -ne $true -or
+               $view.github_actions_identity -ne $true -or
+               $view.owner_custody_files_read -ne $false -or
+               $view.owner_custody_authenticated -ne $false -or
+               $view.owner_state_trading_authority -ne $false){
+              throw 'D3J_OWNER_CUSTODY_PROBE_EXCEEDED_READONLY_BOUNDARY'
+            }
+            Write-Host 'D3J_EXISTING_WIN_RUNNER_ZERO_OWNER_FILE_IO=PASS'
+            & pwsh -NoProfile -NonInteractive -File $script -ExpectedSourceSha $head -AppStopped *> $log
+            if($LASTEXITCODE -eq 0){throw 'D3J_GITHUB_ACTIONS_OWNER_MODE_WRONGLY_ADMITTED'}
+            $negative=Get-Content -LiteralPath $log -Raw
+            if(-not $negative.Contains('R25_C75D3J_STOP_NOT_INTERACTIVE_OWNER_CONTEXT')){
+              throw 'D3J_EXPECTED_OWNER_DENIAL_MISSING'
+            }
+            if(@(& git -C $candidate status --porcelain=v1 --untracked-files=all).Count -ne 0){
+              throw 'D3J_QUALIFICATION_CHECKOUT_MUTATED'
+            }
+            Write-Host 'D3J_GITHUB_ACTIONS_OWNER_PROFILE_ACCESS_DENIED=PASS'
+            Write-Host 'D3J_ORIGINAL_OWNER_C47_SOURCE_INSPECTION=NOT_RUN'
+            Write-Host 'D3J_LIVE_OWNER_BALANCE_OR_FILLS_AUTHENTICATED=FALSE'
+            Write-Host 'D3J_ORIGINAL_SELL_TP_SL_QUALIFIED=FALSE'
+            Write-Host 'D3J_PAPER_EXECUTION_AUTHORITY=FALSE'
+            Write-Host 'D3J_SOURCE_ONLY_RUNNER_ACCEPTANCE=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue}
+            Write-Host 'D3J_PRIVATE_OWNER_BYTES_EXPORTED=FALSE'
+          }
