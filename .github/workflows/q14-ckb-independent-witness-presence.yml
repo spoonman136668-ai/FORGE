@@ -1,0 +1,89 @@
+name: Q14 CKB independent original reset witness owner read-only presence audit
+on:
+  push:
+    branches: [audit/q14-ckb-independent-witness-presence-20261022]
+    paths: [.github/workflows/q14-ckb-independent-witness-presence.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q14-ckb-witness-presence-audit-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          clean: true
+      - name: Verify exact protected baseline and observer-only change
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $parent=(& git.exe rev-parse HEAD^).Trim()
+          if($LASTEXITCODE-ne0 -or $parent-cne$base){throw 'Q14_BASELINE_DRIFT'}
+          $paths=@(& git.exe diff-tree --no-commit-id --name-only -r HEAD)
+          if($LASTEXITCODE-ne0 -or $paths.Count-ne1 -or
+             $paths[0]-cne'.github/workflows/q14-ckb-independent-witness-presence.yml') {
+            throw 'Q14_OBSERVER_ONLY_SCOPE_DRIFT'
+          }
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $p=[Security.Principal.WindowsPrincipal]::new($id)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/q14-ckb-independent-witness-presence-20261022' -or
+             $id.Name -ine 'LINKDEADKB\camar' -or
+             !$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'Q14_EXISTING_OWNER_READ_CONTEXT_UNVERIFIED'
+          }
+          Write-Host 'Q14_EXACT_GIT_OWNER_READONLY_CONTEXT=PASS'
+      - name: Inspect bounded original-reset witness configuration metadata only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $userKey=Join-Path $env:LOCALAPPDATA 'FORGE-FSA\owner-ed25519.dpapi'
+          $allowed=@(
+            (Join-Path $env:LOCALAPPDATA 'FORGE-FSA\external-trust-probe.json'),
+            'C:\ProgramData\FORGE-FSA\external-trust-probe.json',
+            'C:\ProgramData\CKBR\research\state\original-reset-independent-witness.json',
+            'C:\ProgramData\CKBR\research\state\original-source-birth-witness.json'
+          )
+          $seen=0
+          foreach($candidate in $allowed){
+            $obj=Get-Item -LiteralPath $candidate -Force -ErrorAction SilentlyContinue
+            if($null -eq $obj){continue}
+            if($obj.PSIsContainer -or ($obj.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+               $obj.Length -le 0 -or $obj.Length -gt 65536){
+              throw 'Q14_WITNESS_CONFIG_FILE_UNSAFE'
+            }
+            $seen++
+          }
+          $item=Get-Item -LiteralPath $userKey -Force -ErrorAction SilentlyContinue
+          $operatorKeyPresent=($null -ne $item -and !$item.PSIsContainer -and
+            !(($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) -and
+            $item.Length -gt 0)
+          if($operatorKeyPresent){
+            Write-Host 'Q14_OWNER_DPAPI_OPERATOR_IDENTITY_FILE=PRESENT_NOT_AN_INDEPENDENT_WITNESS'
+          }else{
+            Write-Host 'Q14_OWNER_DPAPI_OPERATOR_IDENTITY_FILE=NOT_OBSERVED_IN_THIS_PROFILE'
+          }
+          Write-Host ('Q14_BOUNDED_KNOWN_WITNESS_CONFIG_FILES_SEEN='+$seen)
+          Write-Host 'Q14_CONFIG_PRESENCE_IS_NOT_REMOTE_PROOF=TRUE'
+          Write-Host 'Q14_REAL_EXTERNAL_CKB_WITNESS_SIGNATURE=NOT_VERIFIED'
+          Write-Host 'Q14_EXTERNAL_MONOTONIC_WITNESS_HIGHWATER=NOT_VERIFIED'
+          Write-Host 'Q14_DISTINCT_DEPLOYMENT_FAILURE_DOMAIN=NOT_VERIFIED'
+          Write-Host 'Q14_ORIGINAL_RESET_GLOBAL_HISTORY=NOT_VERIFIED'
+          Write-Host 'Q14_SCIENTIFIC_FIRST_USE=BLOCKED'
+          Write-Host 'Q14_CONTROLLER_UNPAUSE_OR_QUEUE_DISPATCH=NOT_ATTEMPTED'
+      - name: Ensure source unaffected
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git.exe status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q14_AUDIT_SOURCE_MUTATION'}
+          Write-Host 'Q14_REPO_UNCHANGED=PASS'
