@@ -1,0 +1,157 @@
+name: CKB R18-R4 startup diagnostics source-only qualification
+on:
+  push:
+    branches: [audit/ckb-r18-r4-startup-capture-20261022]
+    paths:
+      - .github/workflows/qualify-ckb-r18-r4-startup-capture.yml
+      - operations/ckb-r18/Invoke-GuardedR18Cutover.ps1
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-r4-instrumentation-sourcequal-20261022
+  cancel-in-progress: false
+jobs:
+  owner-qualification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - name: Verify exact source scope and current restored original controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $base='1569970111f5ec49961d4e8a760044fcc7dda42c'
+          $wid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($wid)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r4-startup-capture-20261022' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $wid.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base $base HEAD) -cne $base -or
+             @(& git.exe status --porcelain).Count -ne 0) {
+            throw 'R18_R4_SOURCE_OWNER_SCOPE_DRIFT'
+          }
+          $changed=@(& git.exe diff --name-only $base HEAD|Sort-Object)
+          $expected=@('.github/workflows/qualify-ckb-r18-r4-startup-capture.yml',
+                     'operations/ckb-r18/Invoke-GuardedR18Cutover.ps1')|Sort-Object
+          if ($LASTEXITCODE -ne 0 -or ($changed -join '|') -cne ($expected -join '|')){
+            throw 'R18_R4_UNREVIEWED_CHANGED_FILES'
+          }
+          & git.exe diff --check $base HEAD
+          if($LASTEXITCODE -ne 0){throw 'R18_R4_PATCH_FORMAT_INVALID'}
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $candidate='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          foreach($i in @(
+            @{p=$old;sha='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'},
+            @{p=$candidate;sha='63dce408b8f7d5ba5db64a47f3e40041dc411802a500060873f6d850fdae8f50'},
+            @{p=$config;sha='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'}
+          )) {
+            $f=Get-Item -LiteralPath $i.p -ErrorAction Stop
+            if($f.PSIsContainer -or
+               ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               (Get-FileHash -LiteralPath $i.p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $i.sha){
+              throw 'R18_R4_ORIGINAL_OR_CANDIDATE_FILE_DRIFT'
+            }
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $old -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){
+            throw 'R18_R4_ORIGINAL_CONTROLLER_NOT_SOLE_ACTIVE'
+          }
+          Write-Host 'R18_R4_OWNER_READONLY_SCOPE=PASS'
+          Write-Host 'R18_R4_ORIGINAL_CONTROLLER_PREIMAGES=PASS'
+      - name: Source-only PowerShell parse and synthetic error and rollback preservation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $path='operations/ckb-r18/Invoke-GuardedR18Cutover.ps1'
+          $source=[IO.File]::ReadAllText((Resolve-Path $path).Path)
+          $tokens=$null;$errors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
+          if($errors.Count -ne 0){throw 'R18_R4_SOURCE_PARSE_FAILED'}
+          foreach($marker in @(
+            'R18_STARTUP_FAILURE_EVIDENCE=',
+            'R18_STARTUP_DIAGNOSTIC_UNAVAILABLE=TRUE',
+            'R18_R1P_ROLLBACK=PASS',
+            'R18_CUTOVER_NOT_ADMITTED:',
+            'R18_NEW_CONTROLLER_NOT_SINGLETON',
+            'R18_NATIVE_OLD_CONTROLLER_STOP=PASS',
+            'R18_LIVE_CONTROLLER_CUTOVER=PASS'
+          )){
+            if(!$source.Contains($marker)){throw 'R18_R4_REQUIRED_FAILURE_OR_ROLLBACK_MARKER_MISSING'}
+          }
+          $launchMark='$startupProbeUtc=[DateTime]::UtcNow'
+          $evidenceMark='ReportR18StartupFailure $startupProbeUtc $newExe $oldExe $cutoverDir'
+          $rollbackMark='if ($controllerStopped) {'
+          if($source.IndexOf($launchMark) -lt 0 -or
+             $source.IndexOf($evidenceMark) -lt 0 -or
+             $source.IndexOf($rollbackMark,$source.IndexOf($evidenceMark)) -lt $source.IndexOf($evidenceMark)){
+            throw 'R18_R4_EVIDENCE_BEFORE_ROLLBACK_NOT_FROZEN'
+          }
+          $fn=@($ast.FindAll({
+              param($n)
+              $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+              $n.Name -ceq 'ReportR18StartupFailure'
+          },$true))
+          if($fn.Count -ne 1){throw 'R18_R4_DIAGNOSTIC_FUNCTION_AMBIGUOUS'}
+          $dir=Join-Path $env:RUNNER_TEMP ('R18-R4-synthetic-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $dir){throw 'R18_R4_SYNTHETIC_SCRATCH_COLLISION'}
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop|Out-Null
+          try {
+            # Instantiate ONLY the extracted failure-observation function,
+            # never dot-source or run the actual cutover script.
+            Invoke-Expression $fn[0].Extent.Text
+            $taskName='CKB-plane Controller'
+            function Get-ScheduledTask {
+              [pscustomobject]@{State='Ready'}
+            }
+            function Get-ScheduledTaskInfo {
+              [pscustomobject]@{LastTaskResult=2147942402;LastRunTime=[DateTime]::UtcNow}
+            }
+            function NativeProcesses {
+              return @()
+            }
+            function Get-WinEvent {
+              [pscustomobject]@{Message='Start-R18-Controller.ps1: System error 5';Id=4100}
+            }
+            $start=[DateTime]::UtcNow.AddMinutes(-1)
+            ReportR18StartupFailure $start 'C:\unused-r18.exe' 'C:\unused-r1p.exe' $dir
+            $receipt=Join-Path $dir 'startup-failure-diagnostic.json'
+            $r=Get-Content -LiteralPath $receipt -Raw|ConvertFrom-Json
+            if($r.schema -cne 'ckb-plane.r18.startup-failure-custody.v1' -or
+               [string]$r.task_state -cne 'Ready' -or
+               [string]$r.task_last_result -cne '2147942402' -or
+               [string]$r.native_process_exit_code -cne 'NOT_OBSERVED' -or
+               [string]$r.process_class -cne 'NONE' -or
+               [int]$r.ps4100_event_count -ne 1 -or
+               [string]$r.ps4100_system_error_number -cne '5' -or
+               $r.raw_event_or_error_text_exported -ne $false -or
+               $r.diagnostic_only -ne $true){
+              throw 'R18_R4_SYNTHETIC_DIAGNOSTIC_CONTRACT_FAILED'
+            }
+            $receiptBytes=[IO.File]::ReadAllText($receipt)
+            if($receiptBytes.Contains('Start-R18-Controller.ps1') -or
+               $receiptBytes.Contains('System error 5')){
+              throw 'R18_R4_SYNTHETIC_SECRET_TEXT_EXPORTED'
+            }
+            Write-Host 'R18_R4_SYNTHETIC_STARTUP_FAILURE_RECEIPT=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $dir){
+              Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop
+            }
+          }
+          Write-Host 'R18_R4_SOURCE_PARSE=PASS'
+          Write-Host 'R18_R4_EXISTING_ROLLBACK_PATH_PRESERVED=PASS'
+          Write-Host 'R18_R4_CONTROLLER_RESTART=NOT_ATTEMPTED'
+          Write-Host 'R18_R4_LIVE_CUTOVER=NOT_AUTHORIZED'
