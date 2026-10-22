@@ -82,6 +82,22 @@ jobs:
               $exit=$LASTEXITCODE
             }catch{$exit=-1}
             Write-Host ('MPAI04_CODEX_EXEC_EXIT='+$exit)
+            if($exit -ne 0){
+              $diagnostic=''
+              if(Test-Path -LiteralPath $errLog){$diagnostic+=[IO.File]::ReadAllText($errLog)}
+              if(Test-Path -LiteralPath $jsonLog){$diagnostic+=' '+[IO.File]::ReadAllText($jsonLog)}
+              $class='UNKNOWN'
+              if($diagnostic -match '(?i)unexpected argument|unrecognized option|unknown argument|invalid value for'){ $class='CLI_ARGUMENT_REJECTED' }
+              elseif($diagnostic -match '(?i)failed to parse|invalid config|invalid configuration|TOML|configuration parsing'){ $class='CONFIG_REJECTED' }
+              elseif($diagnostic -match '(?i)failed to start MCP|mcp server.+failed|mcp.*handshake|server startup'){ $class='MCP_STARTUP_FAILED' }
+              elseif($diagnostic -match '(?i)401|unauthorized|authentication required|please log in'){ $class='AUTHENTICATION_DENIED' }
+              elseif($diagnostic -match '(?i)quota|rate.?limit|credits|usage limit'){ $class='SUBSCRIPTION_LIMIT' }
+              elseif($diagnostic -match '(?i)connection refused|timed out|network error|transport error|dns error'){ $class='NETWORK_UNAVAILABLE' }
+              elseif($diagnostic -match '(?i)model.*not (found|available)|unsupported model'){ $class='MODEL_UNAVAILABLE' }
+              elseif($diagnostic -match '(?i)not trusted|repository not trusted|approval required'){ $class='TRUST_POLICY' }
+              Write-Host ('MPAI04_EXEC_FAILURE_CLASS='+$class)
+              Write-Host ('MPAI04_DIAGNOSTIC_STDERR_PRESENT='+$(if(Test-Path $errLog){'YES'}else{'NO'}))
+            }
             $mcpCallCount=0
             $bootstrap=0
             $recall=0
