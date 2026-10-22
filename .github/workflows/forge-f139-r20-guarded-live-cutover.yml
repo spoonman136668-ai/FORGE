@@ -1,0 +1,34 @@
+name: FORGE F139 R20 owner coordinated cutover qualification
+# Fixed owner-only audited operator, not an evergreen scheduler.
+on:
+  push:
+    branches: [proposal/f139-r20-guarded-live-cutover-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-r20-original-owner-single-transition
+  cancel-in-progress: false
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: r20
+          persist-credentials: false
+      - name: Verify the exact source of the owner cutover procedure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $blob = (& git -C r20 rev-parse HEAD:scripts/R20-F139-GuardedCutover.ps1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $blob -cne 'c366ab72e742375ca4803c9840d00b8bc50ff5ec') {
+            throw 'R20_ORIGINAL_OWNER_CUTOVER_SCRIPT_SOURCE_DRIFT'
+          }
+          Write-Output 'R20_CUTOVER_PROCEDURE_GIT_BLOB=PASS'
+      - name: Preflight original owner and protected merge without mutations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & pwsh -NoProfile -NonInteractive -File r20/scripts/R20-F139-GuardedCutover.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'R20_GUARDED_ADMISSION_AUDIT_BLOCKED' }
+          Write-Output 'R20_GUARDED_ADMISSION_AUDIT_ONLY=PASS'
