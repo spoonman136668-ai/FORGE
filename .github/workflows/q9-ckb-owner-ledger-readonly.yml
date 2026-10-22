@@ -1,0 +1,146 @@
+name: Q9 owner CKB private seed-ledger observation (read only)
+on:
+  push:
+    branches: [audit/q9-ckb-owner-ledger-readonly-20261022]
+    paths: [.github/workflows/q9-ckb-owner-ledger-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: q9-ckb-private-ledger-observer-only
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Pin runner, owner role and immutable scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[Security.Principal.WindowsPrincipal]::new($identity)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/q9-ckb-owner-ledger-readonly-20261022' -or
+             $identity.Name -ine 'LINKDEADKB\camar' -or
+             !$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+               throw 'Q9_OWNER_AUTHORITY_OBSERVER_IDENTITY_INVALID'
+          }
+          Write-Host 'Q9_VERIFIED_EXISTING_OWNER_READ_CONTEXT=PASS'
+          Write-Host 'Q9_CONTROLLER_TASK_DB_OR_CONFIG_MUTATION=NONE'
+      - name: Read original CKB immutable first-use ledger files; disclose no raw contents
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          $root='C:\ProgramData\CKBR\research'
+          $state=Join-Path $root 'state'
+          foreach($p in @($root,$state)) {
+            if(!(Test-Path -LiteralPath $p -PathType Container) -or
+              ((Get-Item -LiteralPath $p -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+              throw 'Q9_AUTHORITY_LEDGER_ROOT_NOT_REGULAR'
+            }
+          }
+          $prospective=@(
+            699901,699907,699911,699931,
+            700101,700103,700109,700127,700129,700171,
+            700181,700201,700211,700223,700237,700249,
+            700271,700277,700279,700303,700307,700319,
+            700333,700339,700361,700369,700381,700391,
+            701101,701107,701111,701117,701147,701159,
+            701171,701181,701201,701209,701213,701219
+          )
+          if($prospective.Count -ne 40 -or @($prospective|Select-Object -Unique).Count -ne 40) {
+            throw 'Q9_PROSPECTIVE_SEED_LITERAL_DRIFT'
+          }
+          $entries=@(Get-ChildItem -LiteralPath $state -File -Force -ErrorAction Stop |
+            Where-Object {$_.Name -cmatch '^s(09|10|11|12|13|14)-first-use-consumed\.v1\.json$'} |
+            Sort-Object Name)
+          $required=@('s09','s10','s11','s12')
+          foreach($gen in $required) {
+            $want="$gen-first-use-consumed.v1.json"
+            if(@($entries | Where-Object {$_.Name -ceq $want}).Count -ne 1) {
+              Write-Host ('Q9_MISSING_REQUIRED_HISTORY='+$gen)
+              throw 'Q9_PRIOR_FIRST_USE_FILE_INCOMPLETE'
+            }
+          }
+          $first=@{}
+          $found=New-Object 'System.Collections.Generic.HashSet[int64]'
+          function Visit-Seed-Fields([object]$item,[bool]$underSeed,[int]$depth) {
+            if($depth -gt 16){throw 'Q9_SEED_JSON_NESTING_INVALID'}
+            if($null -eq $item){return}
+            if($item -is [pscustomobject]) {
+              foreach($p in $item.PSObject.Properties) {
+                $seedContext=$underSeed -or ($p.Name -match '^(?i:.*(?:seed|cohort|excluded).*)$')
+                Visit-Seed-Fields $p.Value $seedContext ($depth+1)
+              }
+            } elseif($item -is [array]) {
+              foreach($x in $item){Visit-Seed-Fields $x $underSeed ($depth+1)}
+            } elseif($underSeed -and ($item -is [int] -or $item -is [long])) {
+              [void]$found.Add([int64]$item)
+            }
+          }
+          $schemas=@()
+          foreach($item in $entries){
+            if($item.Length -le 0 -or $item.Length -gt 8192 -or
+               ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)){
+              throw 'Q9_PRIOR_LEDGER_FILE_UNSAFE'
+            }
+            $raw=[IO.File]::ReadAllBytes($item.FullName)
+            $sha=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($raw)).ToLowerInvariant()
+            $document=[Text.Encoding]::UTF8.GetString($raw) | ConvertFrom-Json -ErrorAction Stop
+            $gen=$item.Name.Substring(0,3).ToUpperInvariant()
+            if([string]$document.generation -cne $gen -or
+               [string]$document.schema -cnotmatch '^ckb\.' -or
+               $document.replay_authorized -ne $false) {
+              throw 'Q9_PRIOR_LEDGER_SCHEMA_OR_REPLAY_INVALID'
+            }
+            if($gen -ceq 'S09') {
+              if([string]$document.consumption -cne 'IRREVERSIBLE_FIRST_USE_INTENT_CONSUMED'){
+                throw 'Q9_PRIOR_S09_NOT_IRREVERSIBLY_CONSUMED'
+              }
+            } elseif([string]$document.state -cne 'IRREVERSIBLE_FIRST_USE_INTENT_CONSUMED') {
+              throw 'Q9_PRIOR_LEDGER_NOT_IRREVERSIBLY_CONSUMED'
+            }
+            Visit-Seed-Fields $document $false 0
+            $first[$item.Name]=$sha
+            $schemas+=($gen+':'+[string]$document.schema)
+          }
+          $collision=@($prospective|Where-Object{$found.Contains([int64]$_)})
+          if($collision.Count -gt 0){
+            Write-Host ('Q9_PERSISTENT_LEDGER_EMBEDDED_SEED_COLLISION_COUNT='+$collision.Count)
+            throw 'Q9_PROSPECTIVE_SEED_CONFLICT'
+          }
+          foreach($item in $entries) {
+            $last=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+            if($last -cne $first[$item.Name]){throw 'Q9_LEDGER_CHANGED_DURING_OBSERVATION'}
+          }
+          $manifest=[ordered]@{
+            schema='yggdrasil.q9.ckb-private-ledger-observation.v1'
+            scope='read-only-existing-owner-existing-canonical-state'
+            immutable_first_use_generations=@($entries|ForEach-Object{$_.Name.Substring(0,3).ToUpperInvariant()})
+            pinned_file_sha256=@($entries|ForEach-Object { $first[$_.Name] })
+            ckb_ledger_schema_ids=$schemas
+            proposed_seeds=40
+            embedded_historical_seed_integers_observed=$found.Count
+            embedded_candidate_collisions=$collision.Count
+            external_source_family_reset_registry_queried=$false
+            historical_git_seeds_independently_attested_here=$false
+            no_external_seed_consumption_proven=$false
+            source_birth_independently_attested=$false
+            ckb_scientific_dispatch_authorized=$false
+            original_engines_executed=$false
+            original_episodes_generated=0
+            accepted_state_modified=$false
+          }
+          $wire=$manifest|ConvertTo-Json -Compress -Depth 6
+          $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::UTF8.GetBytes($wire))).ToLowerInvariant()
+          Write-Host ('Q9_CKB_PERSISTENT_PRIOR_FIRST_USE_LEDGER_OBSERVATION=PASS count='+$entries.Count)
+          Write-Host ('Q9_EMBEDDED_HISTORICAL_SEED_VALUES='+$found.Count)
+          Write-Host 'Q9_CANDIDATE_SEEDS_VS_EMBEDDED_LEDGER_VALUES=NO_COLLISIONS'
+          Write-Host ('Q9_CONSISTENT_READ_ONLY_RECEIPT_SHA256='+$digest)
+          Write-Host 'Q9_INDEPENDENT_SOURCE_BIRTH_AND_GLOBAL_RESET_CUSTODY=NOT_VERIFIED'
+          Write-Host 'Q9_SCIENTIFIC_FIRST_USE=BLOCKED'
