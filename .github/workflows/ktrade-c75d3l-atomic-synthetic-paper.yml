@@ -18,6 +18,7 @@ jobs:
       GCM_INTERACTIVE: 'Never'
       GOWORK: 'off'
       GOTOOLCHAIN: 'local'
+      CGO_ENABLED: '1'
       GOFLAGS: '-p=2'
       GOMAXPROCS: '2'
       KTRADE_CI_PAPER_ONLY: '1'
@@ -43,12 +44,11 @@ jobs:
           foreach($key in @('COINBASE_API_KEY','COINBASE_API_SECRET','CDP_API_KEY_NAME','CDP_API_KEY_PRIVATE_KEY','KTRADE_API_KEY','KTRADE_API_SECRET')){
             if([Environment]::GetEnvironmentVariable($key)){throw 'D3L_BROKER_CREDENTIAL_PRESENT_ABORT'}
           }
-          $sourceSha='8d2388168e3db0b54007f9e39b85456b1cd8f1a2'
+          $sourceSha='6b666d003a614df038bfb1d3422bb011c24d6903'
           $parent='795af17de8e371dee995dd89d5ff8c7d04acda0f'
           $expected=@{
             'internal/paperlifecycle/native_synthetic_atomic_bridge_shadow.go'='d0958fc1b24bb069bc650b6f56ef3f170ef6dac8'
             'internal/paperlifecycle/native_synthetic_atomic_bridge_shadow_test.go'='e86cdc45c3f95fa41bb6403673b8a23f6df2a646'
-            'internal/paperlifecycle/authority.go'='791c55adcba2abec9d3288bdaa9a81b4e3977435'
           }
           $root=Join-Path $env:RUNNER_TEMP ('ktrade-d3l-'+[guid]::NewGuid().ToString('N'))
           $source=Join-Path $root 'candidate'
@@ -63,7 +63,7 @@ jobs:
             if((& git -C $source rev-parse HEAD).Trim() -cne $sourceSha){throw 'D3L_CANDIDATE_SHA_DRIFT'}
             $delta=@(& git -C $source diff --name-only $parent $sourceSha | Sort-Object)
             $want=@($expected.Keys | Sort-Object)
-            if($delta.Count -ne 3 -or @(Compare-Object $want $delta).Count -ne 0){
+            if($delta.Count -ne 2 -or @(Compare-Object $want $delta).Count -ne 0){
               throw 'D3L_SOURCE_SCOPE_DRIFT'
             }
             foreach($p in $expected.Keys){
@@ -74,7 +74,7 @@ jobs:
             if(@(& git -C $source status --porcelain=v1 --untracked-files=all).Count -ne 0){
               throw 'D3L_CHECKOUT_NOT_CLEAN'
             }
-            Write-Host 'D3L_EXACT_THREE_FILE_DURABILITY_DELTA=PASS'
+            Write-Host 'D3L_EXACT_TWO_FILE_SOURCE_DELTA=PASS'
             New-Item -ItemType Directory -Path $seed | Out-Null
             Copy-Item -LiteralPath (Join-Path $source 'go.mod') -Destination $seed
             Copy-Item -LiteralPath (Join-Path $source 'go.sum') -Destination $seed
@@ -88,6 +88,13 @@ jobs:
             }finally{Pop-Location}
             $env:GOPROXY='off'
             $env:GOSUMDB='off'
+            if(((& go env CGO_ENABLED).Trim()) -cne '1'){
+              throw 'D3L_CGO_SQLITE_COMPILER_UNAVAILABLE'
+            }
+            if(-not (Get-Command gcc -ErrorAction SilentlyContinue)){
+              throw 'D3L_NO_C_COMPILER_FOR_SQLITE'
+            }
+            Write-Host 'D3L_CGO_NATIVE_SQLITE_COMPILER=PASS'
             Push-Location $source
             try {
               & go test -mod=readonly -tags=ktrade_donor_shadow -count=1 -timeout=8m -v -run '^TestC75D3L' ./internal/paperlifecycle *> $log
