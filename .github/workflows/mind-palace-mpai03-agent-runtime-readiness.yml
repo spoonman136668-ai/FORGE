@@ -1,0 +1,38 @@
+name: Mind-Palace MP-AI03 read-only zero-paid-model runtime readiness
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai03-agent-runtime-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Report local model CLI presence without executing models or reading secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI03_RUNNER_IDENTITY_UNEXPECTED'
+          }
+          # Cmdlet resolution is the only probe: no model start, local file
+          # scraping, credential lookup, network request, or inference.
+          $names=@('ollama','llama-cli','llama-server','llamafile',
+            'codex','opencode','aider','python','git')
+          foreach($name in $names){
+            $found=@(Get-Command $name -ErrorAction SilentlyContinue)
+            $tag=($name -replace '-','_').ToUpperInvariant()
+            Write-Host ('MPAI03_CLI_'+$tag+'='+$(if($found.Count -gt 0){'PRESENT'}else{'ABSENT'}))
+          }
+          Write-Host 'MPAI03_LOCAL_MODELS_AVAILABLE=NOT_VERIFIED'
+          Write-Host 'MPAI03_CHATGPT_HOSTED_APP_CONNECTION=NOT_VERIFIED'
+          Write-Host 'MPAI03_AUTHENTIC_CROSS_MODEL_TRIAL=NOT_PERFORMED'
+          Write-Host 'MPAI03_PAID_MODEL_CALLS=0'
+          Write-Host 'MPAI03_PRODUCTION_WRITES=0'
