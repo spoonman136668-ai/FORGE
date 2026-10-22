@@ -1,0 +1,48 @@
+name: RB1 R17 independent original-controller rollback integrity
+on:
+  push:
+    branches: [incident/rb1-runner-token-audit-20261021]
+    paths: [.github/workflows/rb1-r17-rollback-integrity.yml]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Confirm identity, SQLite structural integrity, active leases, original task and controller
+        shell: 'powershell -NoProfile -ExecutionPolicy Bypass -File {0}'
+        run: |
+          $ErrorActionPreference='Stop'
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $identity.Name -ine 'LINKDEADKB\camar' -or -not ([Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){throw 'R17_WRONG_CONTEXT'}
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $launcher='C:\ProgramData\CKBR\cutover\PLANE-THROUGHPUT-R1P\Start-R1P-Controller.ps1'
+          $expected=@{
+            $cfg='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+            $old='3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf'
+            $launcher='66774821081965230ac7265202a9346b17b41af3770b016ca7323db230f9ffce'
+          }
+          foreach($p in $expected.Keys){if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected[$p]){throw "R17_FILE_DRIFT=$p"}}
+          Write-Host 'R17_ORIGINAL_CONFIG_BINARY_LAUNCHER_HASHES=PASS'
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($process.Count -ne 1 -or $process[0].ExecutablePath -ine $old){throw 'R17_ORIGINAL_SINGLETON_MISSING'}
+          Write-Host 'R17_ORIGINAL_SINGLETON_RUNNING=PASS'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($task.State -ne 'Running' -or $task.Principal.RunLevel -ne 'Limited' -or $task.Actions.Count -ne 1 -or $task.Actions[0].Arguments -notlike '*Start-R1P-Controller.ps1*'){throw 'R17_CONTROLLER_TASK_DRIFT'}
+          Write-Host 'R17_ORIGINAL_SCHEDULED_TASK=PASS'
+          $statusRaw=@(& $old controller status --config $cfg 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R17_CONTROLLER_STATUS_FAILED'}
+          $status=($statusRaw -join [Environment]::NewLine)|ConvertFrom-Json
+          if($status.authority -cne 'plane' -or $status.paused -or $status.heartbeat_stale -or $status.controller_status -notlike 'IDLE:*'){throw 'R17_CONTROLLER_HEALTH_FAILED'}
+          Write-Host 'R17_ORIGINAL_CONTROLLER_HEALTH=PASS'
+          $python=(Get-Command python.exe -ErrorAction Stop).Source
+          $program='import sqlite3,sys; p=sys.argv[1]; c=sqlite3.connect("file:"+p+"?mode=ro",uri=True); v=c.execute("PRAGMA quick_check").fetchone()[0]; n=c.execute("SELECT count(*) FROM worker_leases").fetchone()[0]; print("SQLITE_QUICK_CHECK="+str(v)); print("ACTIVE_WORKER_LEASES="+str(n)); c.close()'
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $out=@(& $python -c $program $db 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R17_DB_READONLY_SQLITE_CHECK_FAILED'}
+          foreach($line in $out){Write-Host "R17_$line"}
+          if(($out -join ',') -notmatch 'SQLITE_QUICK_CHECK=ok' -or ($out -join ',') -notmatch 'ACTIVE_WORKER_LEASES=0'){throw 'R17_STATE_OR_LEASES_INVALID'}
+          Write-Host 'R17_ORIGINAL_DB_INTEGRITY_AND_ZERO_LEASES=PASS'
+          Write-Host 'R17_NO_RECOVERY_MUTATIONS=TRUE'
