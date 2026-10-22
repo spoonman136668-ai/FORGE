@@ -137,29 +137,29 @@ jobs:
             # the first task and then claim the second using its earlier tick
             # timestamp. Event sequence, not those two wall clocks, is authority.
             $eventAudit = @'
-import json, pathlib, sqlite3, sys
-dbpath=pathlib.Path(sys.argv[1]).resolve(strict=True)
-tickets=(sys.argv[2],sys.argv[3])
-with sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=15) as c:
-    rows=list(c.execute(
-        "SELECT seq,kind,payload FROM events WHERE kind IN "
-        "('BEFORE_DISPATCH_INTENT','PROVIDER_VERIFIED_TERMINAL') "
-        "ORDER BY seq"))
-events=[(seq,kind,json.loads(payload).get("ticket")) for seq,kind,payload in rows]
-def exactly_one(kind,ticket):
-    matches=[seq for seq,name,t in events if name==kind and t==ticket]
-    if len(matches)!=1:
-        raise RuntimeError("R13_EVENT_COUNT_OR_TICKET_DRIFT")
-    return matches[0]
-a=exactly_one("BEFORE_DISPATCH_INTENT",tickets[0])
-b=exactly_one("PROVIDER_VERIFIED_TERMINAL",tickets[0])
-c=exactly_one("BEFORE_DISPATCH_INTENT",tickets[1])
-d=exactly_one("PROVIDER_VERIFIED_TERMINAL",tickets[1])
-if not (a<b<c<d):
-    raise RuntimeError("R13_GENUINE_SEQUENTIAL_EVENT_ORDER_NOT_VERIFIED")
-print("R13_AUTHENTIC_LEDGER_EVENT_ORDER=PASS")
-print("R13_ORIGINAL_WORKER_EVENT_SEQUENCES="+",".join(map(str,(a,b,c,d))))
-'@
+          import json, pathlib, sqlite3, sys
+          dbpath=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          tickets=(sys.argv[2],sys.argv[3])
+          with sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=15) as c:
+              rows=list(c.execute(
+                  "SELECT seq,kind,payload FROM events WHERE kind IN "
+                  "('BEFORE_DISPATCH_INTENT','PROVIDER_VERIFIED_TERMINAL') "
+                  "ORDER BY seq"))
+          events=[(seq,kind,json.loads(payload).get("ticket")) for seq,kind,payload in rows]
+          def exactly_one(kind,ticket):
+              matches=[seq for seq,name,t in events if name==kind and t==ticket]
+              if len(matches)!=1:
+                  raise RuntimeError("R13_EVENT_COUNT_OR_TICKET_DRIFT")
+              return matches[0]
+          a=exactly_one("BEFORE_DISPATCH_INTENT",tickets[0])
+          b=exactly_one("PROVIDER_VERIFIED_TERMINAL",tickets[0])
+          c=exactly_one("BEFORE_DISPATCH_INTENT",tickets[1])
+          d=exactly_one("PROVIDER_VERIFIED_TERMINAL",tickets[1])
+          if not (a<b<c<d):
+              raise RuntimeError("R13_GENUINE_SEQUENTIAL_EVENT_ORDER_NOT_VERIFIED")
+          print("R13_AUTHENTIC_LEDGER_EVENT_ORDER=PASS")
+          print("R13_ORIGINAL_WORKER_EVENT_SEQUENCES="+",".join(map(str,(a,b,c,d))))
+          '@
             $auditOutput = & $python -B -c $eventAudit $db $first.ticket $second.ticket
             if ($LASTEXITCODE -ne 0 -or
                 ($auditOutput | Out-String) -notmatch 'R13_AUTHENTIC_LEDGER_EVENT_ORDER=PASS') {
