@@ -71,13 +71,16 @@ jobs:
           try:
               con.execute('PRAGMA query_only=ON')
               con.execute('BEGIN')
-              st={k:v for k,v in con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+              st={k:v for k,v in con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat','autonomy_status')")}
+              import re
+              status_class=re.findall(r'[A-Z][A-Z0-9_]{3,}',st.pop('autonomy_status',''))[:12]
+              last_events=list(con.execute('SELECT id,type,severity FROM events ORDER BY id DESC LIMIT 3'))
               counts=dict(con.execute('SELECT state,COUNT(*) FROM queue_items GROUP BY state'))
               work=dict(con.execute('SELECT state,COUNT(*) FROM work_orders GROUP BY state'))
               leases=con.execute('SELECT COUNT(*) FROM worker_leases').fetchone()[0]
               nonterminal=list(con.execute("SELECT id,state FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED') ORDER BY id LIMIT 15"))
               matching=list(con.execute("SELECT id,state FROM work_orders WHERE lower(id) LIKE '%rb1%' OR lower(id) LIKE '%single_track%' ORDER BY id LIMIT 15"))
-              print('RB1_LIVE_STATE='+json.dumps(dict(settings=st,queue_counts=counts,work_counts=work,leases=leases,nonterminal=nonterminal,matching=matching),separators=(',',':')))
+              print('RB1_LIVE_STATE='+json.dumps(dict(settings=st,status_codes=status_class,last_events=last_events,queue_counts=counts,work_counts=work,leases=leases,nonterminal=nonterminal,matching=matching),separators=(',',':')))
           finally: con.close()
           '@
           $out=@(& python.exe -B -c $src $db)
