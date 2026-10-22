@@ -1,0 +1,59 @@
+name: Mind-Palace MP-AI04 no-inference Codex account and adapter readiness
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai04-codex-account-readiness.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect Codex login readiness and registered MP adapter without inference
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MPAI04_RUNNER_SCOPE_DENIED'
+          }
+          # CLI metadata only. Never print credentials, account identifier,
+          # MCP connection names or unfiltered command stdout/stderr.
+          # Neither subcommand asks a model to generate tokens.
+          $found=Get-Command codex -ErrorAction SilentlyContinue
+          if($null -eq $found){
+            Write-Host 'MPAI04_CODEX_EXECUTABLE=ABSENT'
+            Write-Host 'MPAI04_CODEX_SESSION=NOT_VERIFIED'
+            Write-Host 'MPAI04_MINDPALACE_MCP_REGISTERED=NOT_VERIFIED'
+          } else {
+            Write-Host 'MPAI04_CODEX_EXECUTABLE=PRESENT'
+            $command=[string]$found.Source
+            $authOk=$false
+            $mcpOk=$false
+            try {
+              $null=(& $command login status 2>&1|Out-String)
+              $authOk=($LASTEXITCODE -eq 0)
+            } catch { $authOk=$false }
+            Write-Host ('MPAI04_CODEX_SESSION='+$(if($authOk){'CLI_REPORTS_LOGIN'}else{'NOT_VERIFIED'}))
+            try {
+              $list=(& $command mcp list 2>&1|Out-String)
+              if($LASTEXITCODE -eq 0){
+                $mcpOk=([regex]::IsMatch($list,'(?i)mind.?palace'))
+              }
+            } catch { $mcpOk=$false }
+            Write-Host ('MPAI04_MINDPALACE_MCP_REGISTERED='+$(if($mcpOk){'NAME_DETECTED_UNVERIFIED'}else{'NOT_DETECTED'}))
+          }
+          Write-Host 'MPAI04_PROVIDER_INFERENCE_AUTHENTICATED=FALSE'
+          Write-Host 'MPAI04_REAL_CHATGPT_CONNECTION=NOT_ESTABLISHED'
+          Write-Host 'MPAI04_MODEL_CALLS=0'
+          Write-Host 'MPAI04_PAID_API_CALLS=0'
+          Write-Host 'MPAI04_PRODUCTION_WRITES=0'
