@@ -26,17 +26,19 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $base='536b91a392b7bbc50200a6e8842d152f2e23d8bb'
-          $parent='5be9070c71371b3661c3c5fd7fec282e2884d797'
+          $parent='5d1779845cf5990fd903ed038c8276be35c78c07'
           if(((& git.exe rev-parse HEAD^).Trim()) -cne $parent){throw 'Q15_SOURCE_PARENT_DRIFT'}
           $expected=@(
             '.github/workflows/forge-q15-sourcefree-development.yml',
+            '.github/workflows/q15-nci04-sourcefree-dev.yml',
             'research/q15_sourcefree_state/FROZEN_PROTOCOL.json',
             'research/q15_sourcefree_state/experiment.py',
             'research/q15_sourcefree_state/test_experiment.py'
           )
           $actual=@(& git.exe diff --name-only $base HEAD)
-          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $actual)){throw 'Q15_ONLY_FOUR_ADDITIVE_FILES'}
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $actual)){throw 'Q15_ONLY_FIVE_ADDITIVE_FILES'}
           $pins=@(
+            @('.github/workflows/q15-nci04-sourcefree-dev.yml','487958d706c80a9d9de5fc0e4c7c577407c9642c'),
             @('research/q15_sourcefree_state/FROZEN_PROTOCOL.json','3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05'),
             @('research/q15_sourcefree_state/experiment.py','cf7a579344642b7dc9be9864c2ece224fbf47238'),
             @('research/q15_sourcefree_state/test_experiment.py','b5fde0c2462111cbc8df8631aac832463306a12b')
@@ -119,7 +121,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = 5be9070c71371b3661c3c5fd7fec282e2884d797
+          test "$(git rev-parse HEAD^)" = 5d1779845cf5990fd903ed038c8276be35c78c07
+          test "$(git rev-parse HEAD:.github/workflows/q15-nci04-sourcefree-dev.yml)" = 487958d706c80a9d9de5fc0e4c7c577407c9642c
           test "$(git rev-parse HEAD:research/q15_sourcefree_state/FROZEN_PROTOCOL.json)" = 3dfe97f158bcb8939d1d40d0a95c3cf3b0f9bb05
           test "$(git rev-parse HEAD:research/q15_sourcefree_state/experiment.py)" = cf7a579344642b7dc9be9864c2ece224fbf47238
           python -B -m unittest discover -s research/q15_sourcefree_state -p test_experiment.py -v
