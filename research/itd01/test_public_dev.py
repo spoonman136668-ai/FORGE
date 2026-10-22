@@ -23,7 +23,7 @@ def public_probe_agent(world):
             votes[entity] += int(result["observation"]["observations"][0]["signal"]
                                  == "responsive")
     selected = sorted(votes, key=lambda entity: (-votes[entity], entity))[:2]
-    value = "activate" if world._family == PUBLIC_FAMILIES[0] else "fill"
+    value = "activate" if "activate" in obs["entities"][0]["legal_values"] else "fill"
     for entity in selected:
         world.step(action("intervene", entity, value))
     for _ in range(3):
