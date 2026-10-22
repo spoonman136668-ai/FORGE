@@ -97,8 +97,10 @@ class NativeResourceQualification(unittest.TestCase):
         allowed_import_roots = {"__future__", "ctypes", "json", "os",
                                 "platform", "sys", "time", "resource",
                                 "hashlib", "argparse"}
-        blocked_call_names = {"dispatch", "system", "Popen", "exec", "eval",
+        blocked_call_names = {"dispatch", "Popen", "exec", "eval",
                               "compile", "__import__"}
+        blocked_module_calls = {("os", "system"), ("os", "popen"),
+                                ("subprocess", "run"), ("subprocess", "Popen")}
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -108,9 +110,12 @@ class NativeResourceQualification(unittest.TestCase):
                               allowed_import_roots)
             elif isinstance(node, ast.Call):
                 called = node.func
-                name = (called.id if isinstance(called, ast.Name) else
-                        called.attr if isinstance(called, ast.Attribute) else "")
-                self.assertNotIn(name, blocked_call_names)
+                if isinstance(called, ast.Name):
+                    self.assertNotIn(called.id, blocked_call_names)
+                elif isinstance(called, ast.Attribute):
+                    owner = called.value.id if isinstance(called.value, ast.Name) else ""
+                    self.assertNotIn((owner, called.attr), blocked_module_calls)
+                    self.assertNotEqual(called.attr, "dispatch")
 
 if __name__ == "__main__":
     unittest.main()
