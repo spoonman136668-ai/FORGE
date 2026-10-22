@@ -1,0 +1,91 @@
+name: ITD-01 R7 fresh neutral-PUBLIC fitted causal comparison
+on:
+  push:
+    branches: [research/itd01-r7-fresh-neutral-fitted-controls-20261022]
+permissions:
+  contents: read
+concurrency:
+  group: itd01-r7-fresh-public-causal-20261022
+  cancel-in-progress: false
+jobs:
+  authentic-dev-only-r7:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 38
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOFLAGS: '-p=2'
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          clean: true
+          persist-credentials: false
+          fetch-depth: 40
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Freeze-before-fit exact source custody and reusable ontology
+        shell: bash
+        run: |
+          set -euo pipefail
+          original=b0074839fdc347d3ebf12f8d8806edf7bb0e76fa
+          frozen=7acc9c78bc0936d82b040b776ee9d72d36b3c8b3
+          test "$(git rev-parse "$frozen^")" = "$original"
+          test "$(git show --format= --name-only "$frozen")" = "research/itd01/R7_FROZEN_PUBLIC_NEUTRAL_FIT_PROTOCOL.md"
+          expected="$(printf '%s\n' '.github/workflows/qualify-itd01-r7.yml' 'research/itd01/R7_FROZEN_PUBLIC_NEUTRAL_FIT_PROTOCOL.md' 'research/itd01/r6_neutral_ontology.py' 'research/itd01/r7_public_adapter.py' 'research/itd01/run_r7_neutral_fit.py' 'research/itd01/test_r7_neutral_fit.py')"
+          test "$(git diff --name-only "$original" HEAD)" = "$expected"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo ITD01_R7_FROZEN_FIRST_AND_ISOLATED=PASS
+          echo ITD01_R7_NO_R4_R5_R6_SOURCE_CHANGES=PASS
+      - name: Public only focused tests and no-science smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/itd01 -p 'test_*.py' -v
+          python -B research/itd01/run_r7_neutral_fit.py --smoke > itd01_r7_smoke.json
+          echo ITD01_R7_FOCUSED_AND_TRAINED_SMOKE=PASS
+      - name: Three-seed fresh R7 public FIT VALID DEV and matched diagnostic ablation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for seed in 17 31 47; do
+            python -B research/itd01/run_r7_neutral_fit.py --seed "$seed" > "itd01_r7_$seed.json"
+          done
+          python -B -c 'import json; xs=[json.load(open("itd01_r7_%s.json"%s)) for s in (17,31,47)]; assert all(x["schema"]=="itd01.r7.neutral-public-causal-fit.v1" and len(x["models"])==3 and not x["scientific_first_use"] and not x["native_wingless_yggdrasil_executed"] for x in xs); assert all(all(type(m["training_updates"]) is int and m["training_updates"]>=0 and m["checkpoint_bytes"]>0 for m in x["models"]) for x in xs); print("ITD01_R7_NEW_PUBLIC_FIT_VAL_DEV_COMPLETE=PASS")'
+          sha256sum itd01_r7_*.json > itd01_r7_results.sha256
+      - name: One final full FORGE Python Go regression vet build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo ITD01_R7_FINAL_FULL_REGRESSION=PASS
+      - name: Exact public evidence only and no scientific promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain --untracked-files=all | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); allowed={"?? itd01_r7_smoke.json","?? itd01_r7_17.json","?? itd01_r7_31.json","?? itd01_r7_47.json","?? itd01_r7_results.sha256"}; assert a<=allowed,(a,allowed)'
+          echo ITD01_R7_ORIGINAL_NEGATIVES_PRESERVED=PASS
+          echo ITD01_R7_SCIENTIFIC_FIRST_USE=FALSE
+          echo ITD01_R7_NATIVE_WINGLESS_AND_YGGDRASIL=NOT_EXECUTED
+          echo ITD01_R7_NEW_CONTROLLER=FALSE
+      - name: Retain every positive and negative original development result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd01-r7-fresh-public-neutral-${{ matrix.os }}
+          path: |
+            itd01_r7_*.json
+            itd01_r7_results.sha256
+          if-no-files-found: ignore
