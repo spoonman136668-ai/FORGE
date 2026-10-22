@@ -44,6 +44,24 @@ function WaitStopped {
     }
     return $false
 }
+function RequestNativeStop([string]$path) {
+    # The service is detached from Task Scheduler. Its supported native IPC
+    # "stop" endpoint must terminate it before the task action is replaced.
+    # Limit only the stop *client* execution; never force-kill the controller.
+    $tag=[guid]::NewGuid().ToString('N')
+    $output=Join-Path $env:RUNNER_TEMP ('R18NativeStop-'+$tag+'.out')
+    $stderr=Join-Path $env:RUNNER_TEMP ('R18NativeStop-'+$tag+'.err')
+    try {
+        $client=Start-Process -FilePath $path -ArgumentList @('controller','stop','--config',('"' + $config + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $output -RedirectStandardError $stderr -ErrorAction Stop
+        if (!$client.WaitForExit(45000)) {
+            try {$client.Kill()} catch {}
+            throw 'R18_NATIVE_STOP_CLIENT_TIMEOUT'
+        }
+        if ($client.ExitCode -ne 0) {throw 'R18_NATIVE_GRACEFUL_STOP_REJECTED'}
+    } finally {
+        Remove-Item -LiteralPath $output,$stderr -Force -ErrorAction SilentlyContinue
+    }
+}
 function WaitNewController([string]$path) {
     for($i=0;$i -lt 90;$i++) {
         $list=@(NativeProcesses)
@@ -146,7 +164,7 @@ try {
     # launcher computes its configuration path rather than embedding it.
     # Configuration identity is independently pinned at each cutover boundary.
     # Syntax-check the intended launcher before any persistent writes.
-    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS\bin\ckb-plane.exe'
+    $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS-R2\bin\ckb-plane.exe'
     $newText=$oldText.Replace($oldExe,$predictedRelease)
     $tokens=$null;$parseErrors=$null
     [void][Management.Automation.Language.Parser]::ParseInput($newText,[ref]$tokens,[ref]$parseErrors)
@@ -159,7 +177,7 @@ try {
         return
     }
     $cutoverAttempted=$true
-    $releaseName='PLANE-R18-OWNER-STATUS'
+    $releaseName='PLANE-R18-OWNER-STATUS-R2'
     $releaseDir=Join-Path 'C:\ProgramData\CKBR\release-store\ckb-plane\releases' $releaseName
     $cutoverDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('PLANE-R18-OWNER-CUTOVER-'+$env:GITHUB_RUN_ID)
     $rollbackDir=Join-Path $cutoverDir 'rollback'
@@ -190,9 +208,14 @@ try {
     }
     # Retain the original task, principal, triggers and user context. No
     # additional schedule or new controller can be created by this workflow.
-    $controllerStopped=$true  # rollback even if stop partially succeeds then throws
+    # Native endpoint is the proven graceful shutdown route. Task Scheduler
+    # stop alone leaves this detached controller running (R18 first attempt).
+    RequestNativeStop $oldExe
+    if (!(WaitStopped)) {throw 'R18_NATIVE_OLD_CONTROLLER_DID_NOT_STOP'}
+    $controllerStopped=$true
     Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
-    if (!(WaitStopped)) {throw 'R18_OLD_CONTROLLER_DID_NOT_STOP'}
+    if (!(WaitStopped)) {throw 'R18_CONTROLLER_RESTARTED_WHILE_TASK_STOPPING'}
+    Write-Host 'R18_NATIVE_OLD_CONTROLLER_STOP=PASS'
     # Snapshot the original SQLite + WAL/SHM only after it is closed.
     foreach($suffix in @('','-wal','-shm')) {
         $src=$db+$suffix
@@ -261,6 +284,19 @@ try {
     Write-Host ('R18_CUTOVER_BLOCKED_OR_FAILED='+$errorCause)
     if ($controllerStopped) {
         try {
+            $active=@(NativeProcesses)
+            if ($active.Count -gt 1) {throw 'R18_ROLLBACK_CONCURRENT_PROCESS_REFUSED'}
+            if ($active.Count -eq 1) {
+                $image=[string]$active[0].ExecutablePath
+                if ($image -ieq $newExe) {
+                    RequestNativeStop $newExe
+                } elseif ($image -ieq $oldExe) {
+                    RequestNativeStop $oldExe
+                } else {
+                    throw 'R18_ROLLBACK_UNKNOWN_CONTROLLER_PROCESS_REFUSED'
+                }
+            }
+            if (!(WaitStopped)) {throw 'R18_ROLLBACK_NATIVE_STOP_UNVERIFIED'}
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
             if (!(WaitStopped)) {throw 'R18_ROLLBACK_BLOCKED_BY_RUNNING_CONTROLLER'}
             if ($taskChanged) {
