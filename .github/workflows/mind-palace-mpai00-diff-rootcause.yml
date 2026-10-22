@@ -1,0 +1,84 @@
+name: Mind-Palace MP-AI00 checkpoint diff root-cause inspection
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai00-diff-rootcause.yml']
+permissions:
+  contents: read
+jobs:
+  diagnosis:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Show git diff check diagnostics in discarded fixture only
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$code){if(-not $yes){throw ('MPAI00_ROOT_'+$code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $url='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-agentic-hindsight-harness2-20261022'
+          $source='059688ee9c9f102216acf378b087b51b6a106025'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai00-diff-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH'
+          New-Item -ItemType Directory -Path $scratch|Out-Null
+          try {
+            $remote=@(& git.exe ls-remote --exit-code $url ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and
+              (([string]$remote[0] -split '\s+')[0]) -ceq $source) 'SOURCE_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branch $url $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'CLONE_DRIFT'
+            $test=Join-Path $root 'tests/Test-UpdateCheckpoint.ps1'
+            $inputText=[IO.File]::ReadAllText($test)
+            $needle='finally {'
+            $position=$inputText.LastIndexOf($needle,[StringComparison]::Ordinal)
+            Need ($position -gt 0) 'INSTRUMENT_TARGET'
+            # Inject only a diagnostic in the outer fixture cleanup, after an
+            # authentic git --cached --check has failed and the tool has unstaged.
+            $addition=@'
+            finally {
+                if (Test-Path -LiteralPath $RepoRoot) {
+                    $actualDiff=(& git.exe -C $RepoRoot diff --check 2>&1|Out-String).Trim()
+                    $actualExit=$LASTEXITCODE
+                    Write-Host ('MPAI00_UNSTAGED_DIFF_CHECK_EXIT='+$actualExit)
+                    $lines=@($actualDiff -split '\r?\n'|Where-Object{$_})
+                    Write-Host ('MPAI00_UNSTAGED_DIFF_CHECK_COUNT='+$lines.Count)
+                    foreach($line in @($lines|Select-Object -First 12)){
+                        $v=[string]$line
+                        if($v.Length -gt 230){$v=$v.Substring(0,230)}
+                        Write-Host ('MPAI00_UNSTAGED_DIFF_CHECK_DETAIL='+$v)
+                    }
+                    $status=@(& git.exe -C $RepoRoot status --porcelain=v1 --untracked-files=no)
+                    Write-Host ('MPAI00_FIXTURE_DIRTY_FILES='+($status.Count))
+                }
+'@
+            $patched=$inputText.Substring(0,$position)+$addition+$inputText.Substring($position+$needle.Length)
+            [IO.File]::WriteAllText($test,$patched)
+            $log=Join-Path $scratch 'stdout.log'
+            $err=Join-Path $scratch 'stderr.log'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -Wait -PassThru -NoNewWindow -RedirectStandardOutput $log -RedirectStandardError $err
+            $s=[IO.File]::ReadAllText($log)
+            $e=[IO.File]::ReadAllText($err)
+            foreach($line in @($s -split '\r?\n'|Where-Object{$_ -match '^MPAI00_|^UQ51_UPDATE_STEP_' })){Write-Host $line}
+            Write-Host ('MPAI00_TEST_EXIT='+$p.ExitCode)
+            $last=@($e -split '\r?\n'|Where-Object{$_ -match 'git diff|Error|Exception' }|Select-Object -Last 4)
+            foreach($line in $last){Write-Host ('MPAI00_TEST_ERROR='+([string]$line).Substring(0,[Math]::Min(([string]$line).Length,250)))}
+            # Failure is the expected diagnostic trigger, never a PASS receipt.
+            Need ($s.Contains('MPAI00_UNSTAGED_DIFF_CHECK_DETAIL=')) 'NO_DIFF_EVIDENCE'
+            Write-Host 'MPAI00_ROOT_CAUSE_EVIDENCE_CAPTURED=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI00_ROOT_DIAGNOSTIC_SCRATCH_CLEAN=PASS'
+          }
