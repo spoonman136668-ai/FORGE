@@ -24,6 +24,7 @@ class PublicCausalDevWorld(PublicDevWorld):
         # public inspections are noisy *device health* observations, not truth.
         self._required = frozenset()
         self._ready = False
+        self._reservoir_units = 0
         self._completed = False
         self._target_armed_at_action = False
         self._public_interventions = 0
@@ -38,16 +39,23 @@ class PublicCausalDevWorld(PublicDevWorld):
             if not state:
                 if idx == self._upstream:
                     self._ready = False
+                    self._reservoir_units = 0
                     self._completed = False
                 if idx == self._downstream:
                     self._completed = False
             elif idx == self._upstream:
-                self._ready = True
-                # Physical edge is revealed only by a measured intervention.
+                # A: one upstream pulse activates a downstream relay.
+                # B: a reservoir needs TWO independently delayed deliveries.
+                if self._family == PUBLIC_FAMILIES[0]:
+                    self._ready = True
+                else:
+                    self._reservoir_units += 1
+                    self._ready = self._reservoir_units >= 2
                 self._last_event.append({
                     "kind": "relay_pulse" if self._family == PUBLIC_FAMILIES[0]
                             else "inflow_arrived",
-                    "entity": self._labels[self._downstream], "status": "ready",
+                    "entity": self._labels[self._downstream],
+                    "status": "ready" if self._ready else "partial",
                 })
             elif (idx == self._downstream and self._target_armed_at_action
                   and self._ready and self._states[self._upstream]):
@@ -119,6 +127,15 @@ def solve_from_public_only(world: PublicCausalDevWorld) -> dict:
         return world.step(action("commit"))
     if discovered_upstream == discovered_downstream:
         raise AssertionError("PUBLIC_CAUSAL_GRAPH_SELF_EDGE")
+    if put == "fill":
+        # Public feedback on B says first delivery was partial; acquire a
+        # second delayed delivery before trying the downstream receiver.
+        transition = world.step(action("intervene", discovered_upstream, put))
+        for _ in range(3):
+            transition = world.step(action("wait"))
+        if not any(e["kind"] == "inflow_arrived" and e["status"] == "ready"
+                   for e in transition["observation"]["delayed_events"]):
+            raise RuntimeError("ITD01_R3_RESOURCE_DELIVERY_NOT_CONFIRMED")
     transition = world.step(action("intervene", discovered_downstream, put))
     for _ in range(3):
         transition = world.step(action("wait"))
