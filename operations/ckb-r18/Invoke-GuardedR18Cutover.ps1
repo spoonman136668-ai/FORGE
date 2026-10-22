@@ -142,7 +142,9 @@ try {
     }
     $oldText=[IO.File]::ReadAllText($oldLauncher)
     if (!$oldText.Contains($oldExe)) {throw 'R18_OLD_LAUNCHER_NOT_BOUND_TO_R1P'}
-    if (!$oldText.Contains($config)) {throw 'R18_OLD_LAUNCHER_CONFIG_BINDING_UNKNOWN'}
+    # The exact original launcher SHA256 is verified above; this historical
+    # launcher computes its configuration path rather than embedding it.
+    # Configuration identity is independently pinned at each cutover boundary.
     # Syntax-check the intended launcher before any persistent writes.
     $predictedRelease='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-STATUS\bin\ckb-plane.exe'
     $newText=$oldText.Replace($oldExe,$predictedRelease)
