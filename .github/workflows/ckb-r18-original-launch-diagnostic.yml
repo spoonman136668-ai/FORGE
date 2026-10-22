@@ -63,4 +63,13 @@ jobs:
              $ids=@($events | ForEach-Object {($_.TimeCreated.ToUniversalTime().ToString('HH:mm:ss'))+':'+$_.Id} )
              Write-Host ('R18_RECENT_SCHEDULER_EVENT_IDS='+($ids -join ','))
           }catch{Write-Host 'R18_SCHEDULER_EVENT_HISTORY_UNAVAILABLE'}
+          foreach($item in ($lines | Select-Object -Index (0..($lines.Count-1)))){
+            $line=([string]$item).Trim()
+            if([string]::IsNullOrWhiteSpace($line)){continue}
+            if($line -match '(?i)CKB_PLANE_GITHUB_TOKEN|SecureString|DPAPI|Password|Secret|Credential|FromBase64String|Decrypt|PtrToString|ZeroFreeBSTR'){continue}
+            $plain=$line -replace '(?i)([a-z]:\\[^"''\s;]+)','<FILEPATH>'
+            $plain=$plain -replace '([''"])[^''"]{12,}\1','"<LITERAL>"'
+            if($plain.Length -gt 180){$plain=$plain.Substring(0,180)}
+            Write-Host ('R18_SAFE_STARTUP_CODE='+$plain)
+          }
           Write-Host 'R18_ORIGINAL_STARTUP_DIAGNOSTIC_READONLY=PASS'
