@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Verify source and two focused Python suites without external inference
+      - name: Verify source-pinned reflection, probe and real MCP transports without paid inference
         shell: pwsh
         env:
           GIT_TERMINAL_PROMPT: '0'
@@ -26,7 +26,7 @@ jobs:
             $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
-          $source='12c4eccaaf4f28634f83ae01f12fdb3180171f90'
+          $source='f1a44397fe5973045f033c9ac2e3f6b8f2bdb1dd'
           $branch='proposal/mp-ai01-reflect-propose-20261022'
           $main='f4b4f2be00b23d5aa28fa184cfec6446c84349a9'
           $scratch=Join-Path $env:RUNNER_TEMP ('mpai01-focused-'+$env:GITHUB_RUN_ID)
@@ -49,11 +49,18 @@ jobs:
             & git.exe clone --quiet --single-branch --branch $branch $remote $root
             Need ($LASTEXITCODE -eq 0) 'CLONE'
             Need ((& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $source) 'HEAD'
+            $delta=@(& git.exe -C $root diff --name-only $main $source)
+            $allow=@('agentic/mpai01_probe.py','agentic/mpai01_reflect.py',
+              'docs/MP-AI01-REFLECT-PROPOSE.md','tests/test_mpai01_mcp_adapter.py',
+              'tests/test_mpai01_probe.py','tests/test_mpai01_reflect.py',
+              'tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py')
+            Need ($LASTEXITCODE -eq 0 -and $delta.Count -eq 8 -and
+              (($delta|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'SOURCE_SCOPE'
             foreach($p in $guard){
               $before[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
             }
             $captured=$true
-            foreach($suite in @('test_mpai01_reflect.py','test_mpai01_probe.py')){
+            foreach($suite in @('test_mpai01_reflect.py','test_mpai01_probe.py','test_mpai01_mcp_adapter.py','test_mpn1_mcp.py')){
               & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p $suite -v
               Need ($LASTEXITCODE -eq 0) ('FOCUSED_'+$suite)
               Write-Host ('MPAI01_SUITE_PASS='+$suite)
@@ -61,7 +68,7 @@ jobs:
             Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim()) 'WORKTREE_DIRTY'
             Pin 'refs/heads/main' $main
             Pin ('refs/heads/'+$branch) $source
-            Write-Host 'MPAI01_FOCUSED_37_TESTS=PASS'
+            Write-Host 'MPAI01_FOCUSED_49_TESTS=PASS'
             Write-Host 'MPAI01_CROSS_AGENT_SYNTHETIC_ONLY=TRUE'
             Write-Host 'MPAI01_REAL_AGENT_IMPROVEMENT=NOT_QUALIFIED'
             Write-Host 'MPAI01_PRODUCTION_WRITES=0'
