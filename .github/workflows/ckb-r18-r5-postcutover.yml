@@ -1,0 +1,107 @@
+name: CKB R18 R5 independent post-promotion custody verification
+on:
+  push:
+    branches: [audit/ckb-r18-r5-postcutover-20261022]
+    paths: [.github/workflows/ckb-r18-r5-postcutover.yml]
+permissions:
+  contents: read
+jobs:
+  owner-verification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Independently verify live R5 singleton, retained pause, original rollback and native status
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $pr=[Security.Principal.WindowsPrincipal]::new($ident)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-r5-postcutover-20261022' -or
+             $ident.Name -ine 'LINKDEADKB\camar' -or
+             !$pr.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_POSTCUTOVER_OWNER_BOUNDARY_DRIFT'
+          }
+          $r5='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5\bin\ckb-plane.exe'
+          $r1='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1P\bin\ckb-plane.exe'
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $cut='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564'
+          $sealed='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          if ((Get-FileHash -LiteralPath $r5 -Algorithm SHA256).Hash.ToLowerInvariant() -cne $sealed -or
+              (Get-FileHash -LiteralPath $r1 -Algorithm SHA256).Hash.ToLowerInvariant() -cne '3398be05eaed752234f3ede4978eba4052a7410f1ce1ccde3c537ccdabd4dedf' -or
+              (Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c') {
+            throw 'R18_POSTCUTOVER_RELEASE_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notin @('camar','LINKDEADKB\camar') -or
+             [string]$task.Actions[0].Arguments -notlike '*PLANE-R18-OWNER-CUTOVER-39809195564*' -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R18-Controller.ps1*' -or
+             $procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $r5){
+            throw 'R18_POSTCUTOVER_ACTIVE_OWNER_TASK_NOT_R5_SINGLETON'
+          }
+          $rollback=Join-Path $cut 'rollback'
+          foreach($name in @('original-task.xml','original-autonomy.yaml','original-launcher.ps1','autonomy.db')){
+            if(!(Test-Path -LiteralPath (Join-Path $rollback $name) -PathType Leaf)){
+              throw ('R18_POSTCUTOVER_ROLLBACK_ITEM_MISSING_'+$name)
+            }
+          }
+          $receipt=Join-Path $cut 'cutover-receipt.json'
+          if(!(Test-Path -LiteralPath $receipt -PathType Leaf)){throw 'R18_CUTOVER_RECEIPT_MISSING'}
+          $cutReceipt=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if ($cutReceipt.result -cne 'PASS' -or
+              $cutReceipt.run_id -cne '39809195564' -or
+              $cutReceipt.qualified_source_artifact_sha256 -cne $sealed -or
+              $cutReceipt.status -cne 'PAUSED') {
+            throw 'R18_CUTOVER_RECEIPT_FAILED_OR_UNQUALIFIED'
+          }
+          $std=Join-Path $env:RUNNER_TEMP ('R18-R5-Post-'+$env:GITHUB_RUN_ID+'.out')
+          $err=Join-Path $env:RUNNER_TEMP ('R18-R5-Post-'+$env:GITHUB_RUN_ID+'.err')
+          try{
+            $p=Start-Process -FilePath $r5 -ArgumentList @('controller','status','--config',('"' + $cfg + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $std -RedirectStandardError $err -ErrorAction Stop
+            if(!$p.WaitForExit(30000)){
+              try{$p.Kill()}catch{}
+              throw 'R18_POSTCUTOVER_NATIVE_STATUS_TIMEOUT'
+            }
+            if($p.ExitCode -ne 0){throw 'R18_POSTCUTOVER_NATIVE_STATUS_NONZERO'}
+            if((Get-Item -LiteralPath $std).Length -gt 8388608){throw 'R18_POSTCUTOVER_NATIVE_STATUS_OVERSIZE'}
+            $status=Get-Content -LiteralPath $std -Raw | ConvertFrom-Json -ErrorAction Stop
+          }finally{
+            Remove-Item -LiteralPath $std,$err -Force -ErrorAction SilentlyContinue
+          }
+          if ([string]$status.authority -cne 'plane' -or
+              [string]$status.generation -cne '6' -or
+              $status.paused -ne $true -or
+              $status.heartbeat_stale -ne $false -or
+              [string]$status.controller_status -cne 'PAUSED' -or
+              $null -ne $status.blockers -or
+              @($status.jobs).Count -ne 198) {
+            throw 'R18_POSTCUTOVER_NATIVE_PAUSED_STATUS_UNHEALTHY'
+          }
+          $result=[ordered]@{
+            schema='ckb-plane.r18.r5-independent-post-promotion.v1'
+            candidate_sha256=$sealed
+            owner_account=$ident.Name
+            controller_task_running=$true
+            singleton_process_count=$procs.Count
+            active_controller_pid=[int]$procs[0].ProcessId
+            release_identity='PLANE-R18-OWNER-PAUSED-R5'
+            native_status='PAUSED'
+            authority='plane'
+            authority_generation=[string]$status.generation
+            heartbeat_stale=[bool]$status.heartbeat_stale
+            blocker_count=0
+            accepted_history_rows=@($status.jobs).Count
+            original_rollback_bundle_present=$true
+            cutover_receipt_verified=$true
+            live_config_preserved=$true
+            original_release_preserved=$true
+            pause_preserved=$true
+            dispatch_attempted=$false
+            mutation_by_audit=$false
+          }
+          $json=$result|ConvertTo-Json -Compress -Depth 5
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_POSTCUTOVER_RECEIPT_OVERSIZE'}
+          Write-Host ('R18_INDEPENDENT_LIVE_R5_CUSTODY='+$json)
+          Write-Host 'R18_LIVE_R5_INDEPENDENT_POSTCUTOVER=PASS'
