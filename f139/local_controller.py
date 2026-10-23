@@ -1053,6 +1053,13 @@ class GitHub:
         except (ValueError, UnicodeDecodeError) as exc:
             raise F139Error("F139_GITHUB_API_INVALID_JSON") from exc
 
+    def prepare_native_feed(self, source_sha: str,
+                            existing_intent_base64: set[str]):
+        from f139.nci04_autonomy_feed import prepare_feed
+        return prepare_feed(
+            self.native_repo_get, source_sha=source_sha,
+            existing_intent_base64=existing_intent_base64)
+
     def create_native_feed_issue(self, *, title: str, body: str):
         """Create an ordinary existing-schema owner issue; never dispatch here."""
         from f139.nci04_owner_issue import LABEL, OWNER, MAX_BODY_BYTES
@@ -1680,8 +1687,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         # from explicit owner-authored "F139 autonomy DEV:" native PRs. It
         # creates no second controller/scheduler/queue and grants no science.
         from f139.nci04_owner_ledger import admit_native_issue, native_events
-        from f139.nci04_autonomy_feed import prepare_feed
-        import base64
+        feeder = getattr(api, "prepare_native_feed", None)
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
         events = native_events(db)
         # Reconstruct historical identities only from the already-verified
@@ -1701,7 +1707,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             if admit_native_issue(db, native_issue, timestamp):
                 ready = db.ready()
             break
-        if ready is None and not eligible:
+        if ready is None and not eligible and callable(feeder):
             existing_intents = {
                 event["native_intent_base64"] for event in events
                 if isinstance(event.get("native_intent_base64"), str)
@@ -1709,9 +1715,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # No unauthenticated owner issue is inferred: the feed policy
             # itself is owner-authored and exact-source pinned, and every PR
             # candidate is independently rebound to an immutable commit/tree.
-            feed = prepare_feed(
-                api.native_repo_get, source_sha=meta["source_sha"],
-                existing_intent_base64=existing_intents)
+            feed = feeder(
+                meta["source_sha"], existing_intents)
             created_numbers = []
             for candidate in feed["candidates"]:
                 created = api.create_native_feed_issue(
