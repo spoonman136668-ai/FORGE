@@ -62,47 +62,53 @@ jobs:
               raise RuntimeError("SQLITE_TOO_LARGE")
           # immutable=1 and mode=ro guarantee no SQLite sidecar writes
           uri="file:"+urllib.parse.quote(str(dbpath).replace("\\","/"),safe="/:")+"?mode=ro&immutable=1"
+          # Inspect at most 1024 immutable queued envelopes; do not return IDs or contents.
           with sqlite3.connect(uri,uri=True,timeout=1.0) as conn:
               conn.execute("PRAGMA query_only=ON")
-              cur=conn.execute("SELECT raw FROM queue_items WHERE id=? LIMIT 1",("KTRADE_RB1_SINGLE_TRACK_20261022",))
-              row=cur.fetchone()
-          if row is None:
-              raise RuntimeError("WORKORDER_NOT_PRESENT_IN_READ_SNAPSHOT")
-          raw=row[0]
-          if not isinstance(raw,(bytes,str)) or len(raw)>1048576:
-              raise RuntimeError("ENVELOPE_INVALID_OR_TOO_LARGE")
-          obj=json.loads(raw)
-          yamltext=obj.get("work_order_yaml","")
-          if not isinstance(yamltext,str) or len(yamltext)>1048576:
-              raise RuntimeError("YAML_ABSENT_OR_INVALID")
-          lines=yamltext.splitlines()
-          keys={}
-          for i,line in enumerate(lines):
-              match=re.match(r"^(\s*)(preserve|preservation)\s*:\s*(.*?)\s*$",line)
-              if not match:
+              rows=conn.execute("SELECT raw FROM queue_items LIMIT 1025").fetchall()
+          if len(rows)>1024:
+              raise RuntimeError("TOO_MANY_QUEUE_RECORDS")
+          shapes=[]
+          parsed=0
+          for (raw,) in rows:
+              if not isinstance(raw,(bytes,str)) or len(raw)>1048576:
+                  raise RuntimeError("ENVELOPE_INVALID_OR_TOO_LARGE")
+              obj=json.loads(raw)
+              yamltext=obj.get("work_order_yaml","")
+              if not isinstance(yamltext,str) or len(yamltext)>1048576:
+                  raise RuntimeError("YAML_INVALID_OR_TOO_LARGE")
+              if not yamltext:
                   continue
-              key=match.group(2); value=match.group(3)
-              depth=len(match.group(1))
-              if value and not value.startswith("#"):
-                  shape="INLINE_SCALAR_OR_FLOW"
-              else:
-                  descendants=[s for s in lines[i+1:] if s.strip() and not s.lstrip().startswith("#")]
-                  if not descendants:
-                      shape="EMPTY"
+              parsed+=1
+              lines=yamltext.splitlines()
+              keys={}
+              for i,line in enumerate(lines):
+                  match=re.match(r"^(\s*)(preserve|preservation)\s*:\s*(.*?)\s*$",line)
+                  if not match:
+                      continue
+                  key=match.group(2); value=match.group(3)
+                  depth=len(match.group(1))
+                  if value and not value.startswith("#"):
+                      shape="INLINE_SCALAR_OR_FLOW"
                   else:
-                      nxt=descendants[0]
-                      ndepth=len(nxt)-len(nxt.lstrip(" "))
-                      shape=("EMPTY" if ndepth<=depth else
-                             "SEQUENCE" if nxt.lstrip().startswith("- ") else
-                             "MAPPING" if re.match(r"^[^:#]+:",nxt.lstrip()) else
-                             "OTHER")
-              keys.setdefault(key,[]).append({"shape":shape,"indent":depth,"line_count":len(lines)})
-          if len(keys.get("preservation",[]))!=1:
-              raise RuntimeError("PRESERVATION_KEY_COUNT_NOT_ONE")
-          print("MP_WORKORDER_SHAPE_PRESERVATION_PRESENT=TRUE")
-          print("MP_WORKORDER_SHAPE_PRESERVATION_TYPE="+keys["preservation"][0]["shape"])
-          print("MP_WORKORDER_SHAPE_PRESERVE_KEY_COUNT="+str(len(keys.get("preserve",[]))))
-          print("MP_WORKORDER_SHAPE_LINE_COUNT="+str(len(lines)))
+                      descendants=[s for s in lines[i+1:] if s.strip() and not s.lstrip().startswith("#")]
+                      if not descendants:
+                          shape="EMPTY"
+                      else:
+                          nxt=descendants[0]
+                          ndepth=len(nxt)-len(nxt.lstrip(" "))
+                          shape=("EMPTY" if ndepth<=depth else
+                                 "SEQUENCE" if nxt.lstrip().startswith("- ") else
+                                 "MAPPING" if re.match(r"^[^:#]+:",nxt.lstrip()) else
+                                 "OTHER")
+                  keys.setdefault(key,[]).append(shape)
+              for shape in keys.get("preservation",[]):
+                  shapes.append((shape,len(keys.get("preserve",[]))))
+          print("MP_WORKORDER_SHAPE_ENVELOPE_COUNT="+str(len(rows)))
+          print("MP_WORKORDER_SHAPE_SOURCE_YAML_COUNT="+str(parsed))
+          print("MP_WORKORDER_SHAPE_PRESERVATION_KEY_COUNT="+str(len(shapes)))
+          print("MP_WORKORDER_SHAPE_PRESERVATION_TYPES="+",".join(sorted(set(p[0] for p in shapes))) if shapes else "MP_WORKORDER_SHAPE_PRESERVATION_TYPES=NONE")
+          print("MP_WORKORDER_SHAPE_COEXISTING_PRESERVE_KEYS="+str(sum(p[1] for p in shapes)))
           print("MP_WORKORDER_SHAPE_READONLY_DB=TRUE")
           print("MP_WORKORDER_SHAPE_CONTENT_DISCLOSED=FALSE")
           '@
