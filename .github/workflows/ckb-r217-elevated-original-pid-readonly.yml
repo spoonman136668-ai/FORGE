@@ -144,21 +144,47 @@ jobs:
             }
             Write-Output ('R217_ELEVATED_MUTEX_CONFIGURED='+(![string]::IsNullOrWhiteSpace([string]$cfg.mutex_name)))
           }
+          function OriginalResearchAction($task){
+            foreach($action in @($task.Actions)){
+              $propArgs=$action.PSObject.Properties['Arguments']
+              $propExec=$action.PSObject.Properties['Execute']
+              $argsText=if($null-ne$propArgs){[string]$propArgs.Value}else{''}
+              $exeText=if($null-ne$propExec){[string]$propExec.Value}else{''}
+              if(($exeText+' '+$argsText) -match '(?i)Invoke-ResearchLoop|CKBR\\research'){
+                return $true
+              }
+            }
+            return $false
+          }
           $tasks=@(Get-ScheduledTask -ErrorAction Stop | Where-Object {
             $_.TaskName -match '(?i)(CKB|research|controller|plane)' -or
-            @($_.Actions | Where-Object {
-              ([string]$_.Execute+' '+[string]$_.Arguments) -match '(?i)Invoke-ResearchLoop|CKBR\\research'
-            }).Count -gt 0
+            (OriginalResearchAction $_)
           })
           foreach($task in $tasks){
-            $isResearch=@($task.Actions | Where-Object {
-              ([string]$_.Execute+' '+[string]$_.Arguments) -match '(?i)Invoke-ResearchLoop|CKBR\\research'
-            }).Count -gt 0
+            $isResearch=OriginalResearchAction $task
             $ownerS=[string]$task.Principal.UserId
+            $sameSid=$ownerS -ceq $sid
+            if(!$sameSid -and ![string]::IsNullOrWhiteSpace($ownerS)){
+              try{
+                $translated=(New-Object Security.Principal.NTAccount($ownerS)).Translate(
+                  [Security.Principal.SecurityIdentifier]).Value
+                $sameSid=$translated -ceq $sid
+              }catch{}
+            }
             Write-Output ('R217_ELEVATED_RELEVANT_TASK='+$task.TaskName+
               ' state='+$task.State+
               ' research_action='+$isResearch+
-              ' runs_as_owner='+($ownerS -ceq $who -or $ownerS -ceq $sid))
+              ' owner_sid_matches_pid800='+$sameSid)
+            try{
+              $info=Get-ScheduledTaskInfo -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction Stop
+              Write-Output ('R217_ELEVATED_TASK_LAST_RESULT='+$task.TaskName+':'+$info.LastTaskResult)
+            }catch{}
           }
           Write-Output ('R217_ELEVATED_TASKS_SCANNED='+$tasks.Count)
+          $activeLoop=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+            Where-Object { [string]$_.CommandLine -match 'Invoke-ResearchLoop\.ps1' })
+          Write-Output ('R217_ELEVATED_ACTUAL_RESEARCH_PROCESSES='+$activeLoop.Count)
+          foreach($loop in $activeLoop){
+            Write-Output ('R217_ELEVATED_ACTUAL_RESEARCH_PID='+$loop.ProcessId)
+          }
           Write-Output 'R217_ELEVATED_INSPECTION_READONLY=PASS'
