@@ -45,16 +45,36 @@ def graph_identity(triples) -> str:
     payload = json.dumps(canon, ensure_ascii=False, separators=(",", ":"))
     return sha256_hex(payload)
 
-def example_role(source_role: str, category: str, graph_sha256: str) -> str:
+def provisional_role(source_role: str, category: str) -> str:
     partition = category_partition(category)
     if source_role == "TRAIN":
-        if partition == "L9_AUDIT_CATEGORY":
-            return "UNUSED_TRAIN_HELDOUT_CATEGORY"
-        first = int(graph_sha256[:2], 16)
-        return "L9_SELECT" if first % 5 == 0 else "L9_TRAIN"
+        return "L9_TRAIN_POOL" if partition == "L9_TRAIN_CATEGORY" else "UNUSED_TRAIN_HELDOUT_CATEGORY"
     if source_role == "DEV":
         return "L9_AUDIT_DEV" if partition == "L9_AUDIT_CATEGORY" else "UNUSED_DEV_TRAIN_CATEGORY"
     raise SplitError("source role must be TRAIN or DEV")
+
+def finalize_train_roles(records):
+    audit_graphs = {r["graph_sha256"] for r in records if r["role"] == "L9_AUDIT_DEV"}
+    quarantine = 0
+    for r in records:
+        if r["role"] != "L9_TRAIN_POOL":
+            continue
+        if r["graph_sha256"] in audit_graphs:
+            r["role"] = "QUARANTINED_TRAIN_GRAPH_OVERLAP"
+            quarantine += 1
+            continue
+        first = int(r["graph_sha256"][:2], 16)
+        r["role"] = "L9_SELECT" if first % 5 == 0 else "L9_TRAIN"
+    return audit_graphs, quarantine
+
+def example_role(source_role: str, category: str, graph_sha256: str, audit_graphs=None) -> str:
+    role = provisional_role(source_role, category)
+    if role != "L9_TRAIN_POOL":
+        return role
+    if audit_graphs and graph_sha256 in audit_graphs:
+        return "QUARANTINED_TRAIN_GRAPH_OVERLAP"
+    first = int(graph_sha256[:2], 16)
+    return "L9_SELECT" if first % 5 == 0 else "L9_TRAIN"
 
 def run_git(repo, *args, text=True):
     p = subprocess.run(["git", "-C", str(repo), *args], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -120,7 +140,7 @@ def parse_blob(xml_bytes: bytes, source_role: str, blob_oid: str):
         if not triples:
             raise SplitError(f"entry missing modified triples in blob {blob_oid}")
         gid = graph_identity(triples)
-        role = example_role(source_role, category_norm, gid)
+        # Final TRAIN/SELECT assignment happens only after the complete audit graph set is known.
         refs = len(entry.findall("./lex"))
         records.append({
             "source_role": source_role,
@@ -128,7 +148,7 @@ def parse_blob(xml_bytes: bytes, source_role: str, blob_oid: str):
             "category": category_norm,
             "category_partition": category_partition(category_norm),
             "graph_sha256": gid,
-            "role": role,
+            "role": provisional_role(source_role, category_norm),
             "triple_count": len(triples),
             "reference_count": refs,
         })
@@ -148,6 +168,7 @@ def build(repo, manifest_path):
         source_bytes += len(raw)
         records.extend(parse_blob(raw, item["role"], item["oid"]))
 
+    audit_graphs_prefit, quarantine_count = finalize_train_roles(records)
     role_counts = Counter(r["role"] for r in records)
     category_roles = {}
     category_counts = defaultdict(Counter)
@@ -164,6 +185,8 @@ def build(repo, manifest_path):
 
     trained_graphs = {r["graph_sha256"] for r in records if r["role"] in {"L9_TRAIN","L9_SELECT"}}
     audit_graphs = {r["graph_sha256"] for r in records if r["role"] == "L9_AUDIT_DEV"}
+    if audit_graphs != audit_graphs_prefit:
+        raise SplitError("audit graph set changed during finalization")
     semantic_overlap = trained_graphs & audit_graphs
     if semantic_overlap:
         raise SplitError(f"semantic graph leakage across TRAIN/SELECT and AUDIT: {len(semantic_overlap)}")
@@ -215,6 +238,7 @@ def build(repo, manifest_path):
             "train_select_unique_graphs": len(trained_graphs),
             "audit_unique_graphs": len(audit_graphs),
             "train_audit_graph_overlap": 0,
+            "quarantined_train_graph_overlap": quarantine_count,
             "triples_total": sum(r["triple_count"] for r in records),
             "references_total": sum(r["reference_count"] for r in records),
         },
@@ -239,6 +263,7 @@ def main():
         print(f"L9_SPLIT_{k}_COUNT={v}")
     print("L9_SPLIT_AUDIT_CATEGORIES="+str(summary["counts"]["audit_categories_present_in_dev"]))
     print("L9_SPLIT_TRAIN_AUDIT_GRAPH_OVERLAP=0")
+    print("L9_SPLIT_QUARANTINED_TRAIN_GRAPH_OVERLAP="+str(summary["counts"]["quarantined_train_graph_overlap"]))
     print("L9_SPLIT_SOURCE_BYTES_READ="+str(summary["custody"]["source_bytes_read"]))
     print("L9_SPLIT_OFFICIAL_TEST_CONTENT_CONSUMED=FALSE")
     print("L9_SPLIT_MODEL_FIT_COUNT=0")

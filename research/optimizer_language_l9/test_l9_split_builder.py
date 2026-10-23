@@ -49,6 +49,20 @@ class SplitBuilderTests(unittest.TestCase):
         with self.assertRaises(l9.SplitError):
             l9.parse_blob(malformed,"TRAIN","1"*40)
 
+    def test_prefit_quarantine_removes_only_train_side_overlap(self):
+        gid=l9.graph_identity([("A","p","B")])
+        records=[
+            {"role":"L9_TRAIN_POOL","graph_sha256":gid},
+            {"role":"L9_AUDIT_DEV","graph_sha256":gid},
+            {"role":"L9_TRAIN_POOL","graph_sha256":l9.graph_identity([("C","q","D")])},
+        ]
+        audit,quarantine=l9.finalize_train_roles(records)
+        self.assertEqual(audit,{gid})
+        self.assertEqual(quarantine,1)
+        self.assertEqual(records[0]["role"],"QUARANTINED_TRAIN_GRAPH_OVERLAP")
+        self.assertEqual(records[1]["role"],"L9_AUDIT_DEV")
+        self.assertIn(records[2]["role"],{"L9_TRAIN","L9_SELECT"})
+
     def test_train_and_audit_category_rules_are_structurally_disjoint(self):
         categories=["Artist","Airport","Astronaut","Building","Company","City","University"]
         for c in categories:
