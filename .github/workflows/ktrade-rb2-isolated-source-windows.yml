@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='c5b849d1d696f7ffd4c7d5b7f82a9b3cf684ca6d'
+          $sourceSha='d4e740b6db5f2bd641ba3aa9831d14ef09c8669e'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -64,6 +64,20 @@ jobs:
               & go.exe build -mod=readonly -p 1 -tags ktrade_full -o $exe ./cmd/ktrade
               if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'RB2_FULL_WINDOWS_EXE_BUILD_FAILED'}
               Write-Host ('RB2_STOPPED_EXE_SHA256='+((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()))
+              $bundle=Join-Path $gotemp ('ktrade-rb2-package-'+[guid]::NewGuid().ToString('N').Substring(0,16))
+              & pwsh.exe -NoProfile -File windows/Build-KTRADE-Portable.ps1 -OutputRoot $bundle
+              if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PORTABLE_BUNDLE_FAILED'}
+              $manifest=Get-Content -LiteralPath (Join-Path $bundle 'package-manifest.json') -Raw | ConvertFrom-Json
+              if($manifest.source_sha -cne $sourceSha -or $manifest.trading_mode -cne 'PAPER_ONLY' -or
+                 $manifest.live_armed -cne $false -or $manifest.native_host -cne 'go-brave-app' -or
+                 $manifest.files.Count -le 50){throw 'RB2_PORTABLE_MANIFEST_INCOMPLETE'}
+              $names=@($manifest.files | ForEach-Object {$_.path})
+              foreach($required in @('ktrade.exe','static/trading.html','templates/chart.tmpl','Start-KTRADE-Portable.ps1')){
+                if($required -cnotin $names){throw ('RB2_PORTABLE_REQUIRED_ASSET_MISSING_'+$required)}
+              }
+              Write-Host ('RB2_PORTABLE_STAGED_FILE_COUNT='+$manifest.files.Count)
+              Write-Host 'RB2_PORTABLE_SOURCE_PACKAGE=PASS; RB2_NOT_INSTALLED=TRUE'
+
               Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_APP_NOT_STARTED=TRUE'
             }finally{Pop-Location}
           }finally{
