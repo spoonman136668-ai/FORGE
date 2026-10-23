@@ -1,0 +1,158 @@
+name: MP live controller executable provenance read-only
+on:
+  push:
+    branches:
+      - diagnostics/mp-running-image-provenance-20261023
+    paths:
+      - .github/workflows/mp-running-image-provenance-20261023.yml
+permissions:
+  contents: read
+concurrency:
+  group: mp-running-image-provenance-20261023
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Authenticate running executable provenance and original launch binding
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$key){if(-not $yes){throw ('MP_IMAGE_PROVENANCE_'+$key)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-running-image-provenance-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT_SCOPE'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
+          $parent='d63c316c1f788871b4a952f2d4a97f70636798c8'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'SOURCE_PARENT'
+          $scope=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $scope.Count -eq 1 -and $scope[0] -ceq '.github/workflows/mp-running-image-provenance-20261023.yml') 'WORKFLOW_SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'WORKFLOW_DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'SOURCE_ROOT'
+          Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_ROOT_LINK'
+          $files=@(
+            'go.mod','go.sum','internal\plane\model.go','internal\plane\autonomy.go',
+            'internal\plane\engine.go','internal\plane\autonomy_controls.go',
+            'internal\plane\webui_bridge.go','internal\plane\objective.go',
+            'internal\plane\mind_palace_auto_discovery.go','bin\ckb-plane.exe',
+            'config\autonomy.yaml','config\local-operations.json'
+          )
+          $before=@{}
+          foreach($f in $files){
+            $p=Join-Path $root $f
+            Need (Test-Path -LiteralPath $p -PathType Leaf) 'SOURCE_FILE_MISSING'
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_FILE_LINK'
+            $before[$f]=Hash $p
+          }
+          $inputText=(($files | ForEach-Object {$_+':'+$before[$_]}) -join ([string][char]10))
+          $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($inputText))).ToLowerInvariant()
+          Need ($digest -ceq 'cf4b563a4e4d80ef319d71663ac4738550b3c798b60d147de67eaeacb51d4cba') 'SOURCE_PREIMAGE_DRIFT'
+          Write-Host 'MP_IMAGE_PRIOR_12_COMPONENT_SOURCE_IDENTITY=PASS'
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($processes.Count -eq 1) 'EXACTLY_ONE_RUNNING_CONTROLLER_REQUIRED'
+          $process=$processes[0]
+          $pidBefore=[uint32]$process.ProcessId
+          $realPath=[string]$process.ExecutablePath
+          Need (-not [string]::IsNullOrWhiteSpace($realPath)) 'RUNNING_IMAGE_PATH_INACCESSIBLE'
+          Need (Test-Path -LiteralPath $realPath -PathType Leaf) 'RUNNING_IMAGE_DISAPPEARED'
+          Need (((Get-Item -LiteralPath $realPath).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'RUNNING_IMAGE_REPARSE'
+          Need (([IO.Path]::GetFileName($realPath)) -ieq 'ckb-plane.exe') 'RUNNING_IMAGE_BASENAME'
+          $realPath=[IO.Path]::GetFullPath($realPath)
+          $realHash=Hash $realPath
+          $installHash=$before['bin\ckb-plane.exe']
+          $moduleHash=(Hash (Join-Path $root 'go.mod'))
+          Write-Host ('MP_IMAGE_RUNNING_EXECUTABLE_SHA256='+$realHash)
+          Write-Host ('MP_IMAGE_INSTALLED_EXECUTABLE_SHA256='+$installHash)
+          Write-Host ('MP_IMAGE_RUNNING_VS_INSTALLED_SHA_MATCH='+($realHash -ceq $installHash).ToString().ToUpperInvariant())
+          Write-Host ('MP_IMAGE_RUNNING_EQUALS_QUALIFIED_CANDIDATE='+($realHash -ceq 'becc25cfe8842df1902efcf62ac1d355b3f3f2e410e8970e32689fc6a3cc735e').ToString().ToUpperInvariant())
+          $rootPrefix=[IO.Path]::GetFullPath($root).TrimEnd([char]92)+[char]92
+          $profilePrefix=[IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd([char]92)+[char]92
+          $runnerPrefix=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          $runnerPrefix=([IO.DirectoryInfo]::new($runnerPrefix).Parent.FullName).TrimEnd([char]92)+[char]92
+          $loc=if($realPath.StartsWith($rootPrefix,[StringComparison]::OrdinalIgnoreCase)){'INSTALLED_ROOT'}
+          elseif($realPath.StartsWith($runnerPrefix,[StringComparison]::OrdinalIgnoreCase)){'RUNNER_WORKSPACE'}
+          elseif($realPath.StartsWith($profilePrefix,[StringComparison]::OrdinalIgnoreCase)){'USER_PROFILE_OTHER'}
+          else{'OTHER_WINDOWS_PATH'}
+          Write-Host ('MP_IMAGE_RUNNING_LOCATION_CLASS='+$loc)
+          $fileInfo=Get-Item -LiteralPath $realPath -ErrorAction Stop
+          Write-Host ('MP_IMAGE_RUNNING_FILE_SIZE='+$fileInfo.Length)
+          $sign=Get-AuthenticodeSignature -LiteralPath $realPath -ErrorAction Stop
+          Write-Host ('MP_IMAGE_RUNNING_SIGNATURE_STATUS='+[string]$sign.Status)
+          $owner=Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+          Need ($owner.ReturnValue -eq 0) 'PROCESS_OWNER_LOOKUP_FAILED'
+          Write-Host 'MP_IMAGE_RUNNING_PROCESS_OWNER_QUERY=PASS'
+          $m=@(& go.exe version -m $realPath 2>&1)
+          $mv=$LASTEXITCODE
+          Write-Host ('MP_IMAGE_GO_BUILDINFO_READABLE='+($mv -eq 0).ToString().ToUpperInvariant())
+          $vcsRev='NONE'
+          $vcsDirty='UNKNOWN'
+          $moduleName='NONE'
+          if($mv -eq 0){
+            foreach($line in $m){
+              $str=[string]$line
+              if($str -match '^\s*mod\s+([a-zA-Z0-9./_-]{1,160})'){$moduleName=$Matches[1]}
+              if($str -match 'vcs\.revision=([a-f0-9]{40})'){$vcsRev=$Matches[1]}
+              if($str -match 'vcs\.modified=(true|false)'){$vcsDirty=$Matches[1]}
+            }
+          }
+          Write-Host ('MP_IMAGE_GO_MODULE='+$moduleName)
+          Write-Host ('MP_IMAGE_GO_VCS_REVISION='+$vcsRev)
+          Write-Host ('MP_IMAGE_GO_VCS_MODIFIED='+$vcsDirty)
+          $sourceHead='UNAVAILABLE'
+          if(Test-Path -LiteralPath (Join-Path $root '.git')){
+            $vcs=@(& git.exe -C $root rev-parse HEAD 2>$null)
+            if($LASTEXITCODE -eq 0 -and $vcs.Count -eq 1 -and [string]$vcs[0] -match '^[a-f0-9]{40}$'){$sourceHead=[string]$vcs[0]}
+          }
+          Write-Host ('MP_IMAGE_INSTALLED_SOURCE_HEAD='+$sourceHead)
+          $scheduled=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue
+          if($null -eq $scheduled){Write-Host 'MP_IMAGE_SCHEDULED_CONTROLLER_TASK=ABSENT'}
+          else{
+            Write-Host ('MP_IMAGE_SCHEDULED_CONTROLLER_TASK_STATE='+[string]$scheduled.State)
+            Write-Host ('MP_IMAGE_SCHEDULED_CONTROLLER_TASK_RUNLEVEL='+[string]$scheduled.Principal.RunLevel)
+            Write-Host ('MP_IMAGE_SCHEDULED_CONTROLLER_TASK_LOGONTYPE='+[string]$scheduled.Principal.LogonType)
+            $acts=@($scheduled.Actions)
+            Need ($acts.Count -le 5) 'TASK_ACTION_COUNT'
+            Write-Host ('MP_IMAGE_TASK_ACTION_COUNT='+$acts.Count)
+            foreach($act in $acts){
+              $exe=[string]$act.Execute
+              $resolved=$null
+              if([IO.Path]::IsPathRooted($exe)){$resolved=[IO.Path]::GetFullPath($exe)}
+              $class=if($resolved -and [string]::Equals($resolved,$realPath,[StringComparison]::OrdinalIgnoreCase)){'RUNNING_EXE'}
+              elseif($resolved -and [string]::Equals($resolved,[IO.Path]::GetFullPath((Join-Path $root 'bin\ckb-plane.exe')),[StringComparison]::OrdinalIgnoreCase)){'INSTALLED_EXE'}
+              elseif([IO.Path]::GetFileName($exe) -imatch '^powershell(\.exe)?$|^pwsh(\.exe)?$'){'POWERSHELL_LAUNCHER'}
+              elseif([IO.Path]::GetFileName($exe) -imatch '^cmd(\.exe)?$'){'CMD_LAUNCHER'}
+              else{'OTHER_LAUNCHER'}
+              Write-Host ('MP_IMAGE_TASK_EXEC_CLASS='+$class)
+              $args=[string]$act.Arguments
+              Write-Host ('MP_IMAGE_TASK_ARGS_CONTAIN_CONFIG='+($args -match '(?i)(--config|autonomy\.yaml)').ToString().ToUpperInvariant())
+            }
+          }
+          $line=[string]$process.CommandLine
+          $expected=[IO.Path]::GetFullPath((Join-Path $root 'config\autonomy.yaml'))
+          $cmdConfig=if($line.Contains($expected,[StringComparison]::OrdinalIgnoreCase)){'EXPLICIT_INSTALLED_CONFIG'}
+          elseif($line -match '(?i)--config\b'){'OTHER_OR_RELATIVE_CONFIG'}
+          else{'NO_EXPLICIT_CONFIG'}
+          Write-Host ('MP_IMAGE_RUNNING_CONFIG_ARG_CLASS='+$cmdConfig)
+          $afterProc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($afterProc.Count -eq 1 -and [uint32]$afterProc[0].ProcessId -eq $pidBefore) 'RUNNING_PROCESS_DRIFT'
+          Need ((Hash $realPath) -ceq $realHash) 'RUNNING_IMAGE_DRIFT'
+          foreach($f in $files){Need ((Hash (Join-Path $root $f)) -ceq $before[$f]) 'INSTALLED_COMPONENT_DRIFT'}
+          Write-Host 'MP_IMAGE_RUNNING_AND_INSTALLED_POSTIMAGES_STABLE=PASS'
+          Write-Host 'MP_IMAGE_NATIVE_CONTROLLER_INVOCATIONS=0'
+          Write-Host 'MP_IMAGE_PRODUCTION_SOURCE_WRITES=0'
+          Write-Host 'MP_IMAGE_PRODUCTION_DB_WRITES=0'
+          Write-Host 'MP_IMAGE_PRODUCTION_MEMORY_WRITES=0'
+          Write-Host 'MP_IMAGE_NO_QUEUES_OR_SCHEDULERS_CREATED=PASS'
+          Write-Host 'MP_IMAGE_PROVENANCE_READONLY=PASS'
