@@ -1,0 +1,78 @@
+name: F139 R36 immutable source-only PR discovery qualification
+on:
+  push:
+    branches: [fix/f139-r36-authenticated-pr-discovery-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-r36-readonly-discovery
+  cancel-in-progress: true
+jobs:
+  immutable-discovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Enforce stable checkout
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact R35 parent and bounded R36 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=5ea9e940ebbf0c16bc3a85c009f69a8c52739617
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git merge-base HEAD "$base")" = "$base"
+          expected="$(printf '%s\n' '.github/workflows/qualify-f139-r36-pr-discovery.yml' 'f139/nci04_pr_discovery.py' 'f139/test_nci04_pr_discovery.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R36_IMMUTABLE_R35_FOUNDATION_AND_DELTA=PASS
+      - name: Focused immutable PR/owner/source qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_pr_discovery.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_proposal_compiler.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_owner_issue.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_contract.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_two_inflight.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_continuous_cadence.py' -v
+          echo R36_AUTHENTICATED_SOURCE_PROPOSAL_FOCUS=PASS
+      - name: One required final integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R36_FINAL_SYSTEM_REGRESSION=PASS
+      - name: Prove unchanged execution boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo R36_NO_OWNER_ISSUE_CREATION=TRUE
+          echo R36_NO_ELIGIBILITY_LABEL_OR_DISPATCH=TRUE
+          echo R36_NO_CONTROLLER_OR_SCHEDULER_MUTATION=TRUE
+          echo R36_NO_SCIENTIFIC_FIRST_USE=TRUE
+          echo R36_NO_PROTECTED_REF_MUTATION=TRUE
