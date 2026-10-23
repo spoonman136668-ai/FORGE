@@ -1,0 +1,83 @@
+{
+  "schema": "forge.optimizer.o3.public-predictive-state-prereg.v1",
+  "identity": "OPTIMIZER_O3_PUBLIC_DEV_ONLY",
+  "source_main_sha": "00f33f56139f792a65cd193200706d13f93fe0b3",
+  "protocol_state": "FROZEN_BEFORE_IMPLEMENTATION_AND_PUBLIC_DEV",
+  "purpose": "Separate availability of predictive information from learnability of recurrent state by matching public information to trained conventional controls.",
+  "families": {
+    "A_PERSISTENT_ACTION_SWITCH": {
+      "hidden_state": "binary unobservable",
+      "switch_prob_action_0": "1/10",
+      "switch_prob_action_1": "7/10",
+      "sensor_correct_prob": "86/100"
+    },
+    "B_DELAYED_ACTION_SWITCH": {
+      "hidden_state": "binary unobservable",
+      "switch_prob_prior_and_current_action_1": "85/100",
+      "otherwise": "7/100",
+      "sensor_correct_prob": "86/100"
+    },
+    "NULL_INDEPENDENT": {
+      "sensor": "independent fair binary bit",
+      "actions": "independent fair binary bit"
+    }
+  },
+  "public_observation_contract": "At time t, learner sees o_t, public a_t, all prior public o/a. It predicts o_(t+1). Hidden state, next observation, future actions, family identity and role are withheld from learner input.",
+  "roles": [
+    "PUBLIC_TRAIN",
+    "PUBLIC_SELECT",
+    "PUBLIC_DEV"
+  ],
+  "seed_rule": "sha256('o3-public-dev-v1:'+role+':'+family+':'+integer_episode_index) first 8 bytes, python Random",
+  "episodes_per_family": {
+    "PUBLIC_TRAIN": 48,
+    "PUBLIC_SELECT": 16,
+    "PUBLIC_DEV": 20
+  },
+  "transitions_per_episode": 24,
+  "no_episode_reuse_across_roles": true,
+  "training": {
+    "learned_models": [
+      "ONE_BELIEF_SIGMOID_RTRL",
+      "TWO_STATE_TANH_RTRL"
+    ],
+    "epochs": 5,
+    "learning_rate": 0.035,
+    "gradient_clipping": 2,
+    "initializations": [
+      17,
+      31
+    ],
+    "fit_selection": "minimum PUBLIC_SELECT Bernoulli next-bit NLL; no DEV-driven selection",
+    "fixed_optimizer": "episode-level exact recurrent sensitivity gradient; no hidden-state supervision"
+  },
+  "conventional_controls": [
+    "TWO_STATE_TANH_RTRL",
+    "FOUR_LAG_BAYES_COUNTS",
+    "EXACT_CONTEXT_EPISODIC",
+    "CURRENT_ONLY_COUNTS"
+  ],
+  "diagnostic": "TRUE_LAW_BAYES_NOT_IN_ARM_COMPARISON",
+  "development_metrics": [
+    "per-family next-public-bit mean NLL",
+    "mean NLL delta versus strongest conventional",
+    "FULL role source digest",
+    "prediction/eval source digest",
+    "trained checkpoint hash",
+    "CPU for public generation/training/selection/evaluation",
+    "peak tracemalloc",
+    "serialized model bytes",
+    "native OS and Python version"
+  ],
+  "decision": "Report all signed gains/losses; public development screening ONLY. O3 offers no sealed scientific GO, no native Wingless/Yggdrasil qualification, no ITD-01 unfamiliar transfer claim.",
+  "constraints": [
+    "All arms use identical public observations and actions.",
+    "No hidden state labels or privileged family selector inside learner.",
+    "No DEV-based tuning, model selection, adaptation, seed changes or budget revision.",
+    "Q20 DEV NO-GO and Q21/Q21N01 frozen history remain untouched.",
+    "No Q20/Q21/Q21N01 role cohorts, protected originals, FSA grant or research dispatch.",
+    "No new scheduler/controller, CKB-private dependency, new paid service or acceptance mutation.",
+    "Negative findings, failed runs and indeterminate cases retained."
+  ],
+  "next_boundary": "If a predictive-state representation demonstrates development advantage, investigate identity-proven mechanism ablation/retention on independent prospective task families with equally informed strong conventional comparators and admitted scientific custody."
+}
