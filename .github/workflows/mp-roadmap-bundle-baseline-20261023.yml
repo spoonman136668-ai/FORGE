@@ -1,0 +1,46 @@
+name: MP installed roadmap bundle test provenance read-only
+on:
+  push:
+    branches: [diagnostics/mp-roadmap-bundle-baseline-20261023]
+    paths: [.github/workflows/mp-roadmap-bundle-baseline-20261023.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Read only pinned historical bundle test setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$b,[string]$c){if(-not $b){throw ('MP_BUNDLE_TRIAGE_'+$c)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-roadmap-bundle-baseline-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'BRANCH'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '2d258530bc52d1c13f196ea2fd46b7788593765e') 'PARENT'
+          $delta=@(& git.exe diff --name-only HEAD^ HEAD)
+          Need ($delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-roadmap-bundle-baseline-20261023.yml') 'SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $file=Join-Path $root 'internal\plane\roadmap_current_frontier_r7_test.go'
+          Need (Test-Path -LiteralPath $file -PathType Leaf) 'FILE_NOT_PRESENT'
+          Need (((Get-Item -LiteralPath $file).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'FILE_REPARSE'
+          $digest=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          Need ($digest -ceq '5734be369b7bc8e9b1435125ae80f926453399c669a31ed098740e26cd849a41') 'TEST_SOURCE_HASH_DRIFT'
+          $lines=@(Get-Content -LiteralPath $file -Encoding UTF8)
+          Need ($lines.Count -gt 145 -and $lines.Count -lt 500) 'TEST_SIZE_CHANGED'
+          Write-Host 'MP_BUNDLE_SOURCE_TEST_SHA256=PASS'
+          for($i=1;$i -le 155;$i++){
+             Write-Host ('MP_BUNDLE_SOURCE_LINE_'+$i+'='+$lines[$i-1])
+          }
+          Write-Host ('MP_BUNDLE_INSTALLED_TEST_LINE_COUNT='+$lines.Count)
+          Write-Host 'MP_BUNDLE_SOURCE_READ_ONLY=PASS'
+          Write-Host 'MP_BUNDLE_NATIVE_CONTROLLER_INVOCATIONS=0'
+          Write-Host 'MP_BUNDLE_LIVE_WRITES=0'
