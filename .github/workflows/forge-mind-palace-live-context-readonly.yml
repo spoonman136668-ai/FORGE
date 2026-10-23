@@ -84,7 +84,8 @@ jobs:
             $projects=@('__global__','Wingless','Yggdrasil','Research')
             $governance=0
             $taskRelevant=0
-            $all=@()
+            $all=@{}
+            foreach($key in $projects){$all[$key]=[Collections.ArrayList]::new()}
             foreach($project in $projects){
               $range=$catalog.projects.$project
               if($null -eq $range){throw 'MP_REQUIRED_RESEARCH_CONTEXT_RANGE_MISSING'}
@@ -102,12 +103,41 @@ jobs:
                    @($entry.source_refs).Count -lt 1){
                   throw 'MP_RECORD_PROVENANCE_OR_CUSTODY_DRIFT'
                 }
+                $null=$all[$project].Add($entry)
                 if($project -ceq '__global__'){$governance++}else{$taskRelevant++}
               }
             }
             if($governance -lt 1 -or $governance -gt 12 -or $taskRelevant -lt 1){
               throw 'MP_SELECTED_CONTEXT_COUNT_NOT_BOUNDED'
             }
+            # Apply the same output limit as FORGE's existing Go mindcontext
+            # reader: all governance first, then round-robin selected projects.
+            $chosen=[Collections.ArrayList]::new()
+            foreach($entry in $all['__global__']){$null=$chosen.Add($entry)}
+            $cursors=@{Wingless=0;Yggdrasil=0;Research=0}
+            for($n=0;$n -lt 24-$governance;$n++){
+              $added=$false
+              foreach($project in @('Wingless','Yggdrasil','Research')){
+                if($chosen.Count -ge 24){break}
+                if($cursors[$project] -lt $all[$project].Count){
+                  $null=$chosen.Add($all[$project][$cursors[$project]])
+                  $cursors[$project]++
+                  $added=$true
+                }
+              }
+              if(-not $added -or $chosen.Count -ge 24){break}
+            }
+            $selection=ConvertTo-Json -InputObject @($chosen.ToArray()) -Compress -Depth 32
+            $utf8=New-Object Text.UTF8Encoding($false)
+            $bytes=$utf8.GetBytes($selection)
+            if($chosen.Count -lt $governance -or $chosen.Count -gt 24 -or
+               $bytes.Length -gt 16384){
+              throw 'MP_CONTEXT_OUTPUT_BUDGET_OR_PRIORITY_INVALID'
+            }
+            $sha=[Security.Cryptography.SHA256]::Create()
+            try{
+              $selectedSha=([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','').ToLowerInvariant()
+            }finally{$sha.Dispose()}
             $after=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
             if($LASTEXITCODE -ne 0 -or $after.Count -ne 1 -or
                (([string]$after[0] -split '\s+')[0]) -cne $pin){
@@ -118,6 +148,9 @@ jobs:
             Write-Output ('MP_FORGE_ORIGINAL_GOVERNANCE_RECORDS='+$governance)
             Write-Output ('MP_FORGE_TASK_CONTEXT_RECORDS='+$taskRelevant)
             Write-Output ('MP_FORGE_SELECTED_RECORD_LIMIT=24')
+            Write-Output ('MP_FORGE_ACTUALLY_SELECTED_RECORDS='+$chosen.Count)
+            Write-Output ('MP_FORGE_SELECTED_CONTEXT_BYTES='+$bytes.Length)
+            Write-Output ('MP_FORGE_SELECTED_CONTEXT_SHA256='+$selectedSha)
             Write-Output ('MP_FORGE_CONTEXT_RECORDS_SHA256='+[string]$catalog.source.records_sha256)
             Write-Output 'MP_FORGE_NO_PRIVATE_STATEMENTS_IN_LOG=TRUE'
             Write-Output 'MP_FORGE_NO_CKB_CONNECTION=TRUE'
