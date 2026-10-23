@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='aab1440f1e1ce556b2d27e56a4cc283a4719dc70'
+          $sourceSha='3cc03a2b3d1ab2b1577fe0b3703e28bc35e2ccdd'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -90,6 +90,9 @@ jobs:
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/originaltradeguard
               if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PINNED_ORIGINAL_TRADEGUARD_TESTS_FAILED'}
               Write-Host 'RB2_PINNED_ORIGINAL_TRADEGUARD_NATIVE_COMPILATION=PASS'
+              & go.exe test -mod=readonly -count=1 -p 1 ./internal/paperengine
+              if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_ORIGINAL_TRADEGUARD_PAPER_LIFECYCLE_FAILED'}
+              Write-Host 'RB2_NATIVE_ORIGINAL_DONOR_PAPER_ENGINE_FILLS_AND_STOP=PASS'
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/paperapp
               if($LASTEXITCODE -ne 0){throw 'RB2_REAL_PAPER_ACCOUNT_UI_DATA_PROJECTION_FAILED'}
               Write-Host 'RB2_REAL_ORIGINAL_PAPER_ACCOUNT_FEE_JOURNAL_FOCUSED=PASS'
@@ -138,7 +141,7 @@ jobs:
                 if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PINE_AUTHENTIC_TRADEGUARD_PAPER_END_TO_END_FAILED'}
               }finally{Pop-Location}
               Write-Host 'RB2_NATIVE_PINE_AUTHENTIC_DONOR_PAPER_END_TO_END_SHADOW=PASS'
-              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile ./internal/paperapp ./internal/originaltradeguard
+              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile ./internal/paperapp ./internal/originaltradeguard ./internal/paperengine
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_VET_FAILED'}
               Write-Host 'RB2_NATIVE_VET=PASS'
               $exe=Join-Path $tmp 'ktrade-stopped.exe'
