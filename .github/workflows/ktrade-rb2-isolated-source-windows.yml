@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='941c54253ce8adce2e624cc7ede63ed4f3fe6056'
+          $sourceSha='b685426f69f6773973f4bed19a83140a82013063'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -66,6 +66,8 @@ jobs:
               & node.exe scripts/stage_offline_vendor.cjs
               if($LASTEXITCODE -ne 0) {throw 'RB2_PINNED_LOCAL_CHART_ASSET_STAGING_FAILED'}
               Write-Host 'RB2_MONACO_AND_LIGHTWEIGHT_CHARTS_FROM_LOCK=PASS'
+              & node.exe --check scripts/probe_brave_chart.cjs
+              if($LASTEXITCODE -ne 0){throw 'RB2_BRAVE_ACCEPTANCE_JS_SYNTAX_INVALID'}
               & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_full -run '^TestRB2' ./pkg/apphost ./cmd/ktrade
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_TESTS_FAILED'}
               Write-Host 'RB2_FOCUSED_BRAVE_AND_FAIL_CLOSED_FEED=PASS'
@@ -97,6 +99,10 @@ jobs:
               & pwsh.exe -NoProfile -File windows/Probe-KTRADE-Portable-HTTP.ps1 -OutputRoot $bundle
               if($LASTEXITCODE -ne 0){throw 'RB2_REAL_NATIVE_HTTP_AND_RESTART_TEST_FAILED'}
               Write-Host 'RB2_REAL_NATIVE_UI_AND_PINE_PERSISTENCE=PASS'
+              & node.exe scripts/probe_brave_chart.cjs $bundle
+              if($LASTEXITCODE -ne 0){throw 'RB2_REAL_BRAVE_MONACO_UI_ACCEPTANCE_FAILED'}
+              Write-Host 'RB2_REAL_BRAVE_MONACO_PINE_SAVE=PASS'
+
 
 
               Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_APP_NOT_STARTED=TRUE'
