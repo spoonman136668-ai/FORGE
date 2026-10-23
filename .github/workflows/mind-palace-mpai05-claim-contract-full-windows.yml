@@ -1,0 +1,107 @@
+name: Mind-Palace MP-AI05 untrusted claims exact-source Windows qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-mpai05-claim-contract-full-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-claims-native-full
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pin three files, run 20 focused tests and one complete Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI05_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-ai05-untrusted-runtime-claim-contract-20261023'
+          $source='51592817803d66773b70ede9e5ff851d41a14ecf'
+          $base='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-claims-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $allowed=@('agentic/mpai05_runtime_claims.py',
+            'tests/test_mpai05_runtime_claims.py','docs/MP-AI05-RUNTIME-CLAIMS.md')
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+            '.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $hashes=@{}
+          $hashed=$false
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD | Out-String).Trim() -ceq $source) 'SOURCE_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $base $source
+            Need ($LASTEXITCODE -eq 0) 'PARENT'
+            $changed=@(& git.exe -C $root diff --name-only $base $source)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed | Sort-Object) -join '|') -ceq (($allowed | Sort-Object) -join '|')) 'THREE_FILE_SCOPE'
+            foreach($p in $protected){
+              $hashes[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed=$true
+            Push-Location $root
+            try {
+              $count=(& python.exe -B -c "import unittest; print(unittest.defaultTestLoader.discover('tests', pattern='test_mpai05_runtime_claims.py').countTestCases())" | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $count -ceq '20') 'FOCUSED_TEST_DISCOVERY'
+              & python.exe -B -m unittest discover -s tests -p test_mpai05_runtime_claims.py -v
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED_TESTS'
+              Write-Host 'MPAI05_UNTRUSTED_CLAIMS_20_TESTS=PASS'
+            } finally { Pop-Location }
+            foreach($p in $protected){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('FOCUSED_HASH_'+$p)
+            }
+            $out=Join-Path $scratch 'full.stdout'
+            $err=Join-Path $scratch 'full.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            $output=[IO.File]::ReadAllText($out)
+            Need ($p.ExitCode -eq 0 -and $output.Contains('Mind-Palace regression suite passed')) 'NATIVE_FULL_REGRESSION'
+            Write-Host 'MPAI05_FULL_WINDOWS_REGRESSION=PASS'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim()) 'SOURCE_MUTATED'
+            Pin 'refs/heads/main' $base
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI05_SOURCE_IDENTITY_SCOPE=PASS'
+            Write-Host 'MPAI05_MODEL_EXECUTION=NONE'
+            Write-Host 'MPAI05_CLAIMS_AUTHENTICATED=FALSE'
+            Write-Host 'MPAI05_PAID_API_CALLS=0'
+            Write-Host 'MPAI05_PRODUCTION_WRITES=0'
+          } finally {
+            if($hashed){
+              foreach($p in $protected){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('PROTECTED_DRIFT_'+$p)
+              }
+              Write-Host 'MPAI05_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI05_SCRATCH_CLEAN=PASS'
+          }
