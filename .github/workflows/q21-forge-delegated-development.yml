@@ -79,6 +79,41 @@ jobs:
           Write-Host 'Q21_SCIENTIFIC_EPISODES=ZERO'
           Write-Host 'Q21_CKB_ADMISSION=NOT_INVOKED'
 
+
+  credential-readiness:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ secrets.CKB_Q21_AUTH_READ_TOKEN }}
+    steps:
+      - name: Read-only authenticate FORGE/CKB GitHub source custody (no dispatch)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo 'Q21_FORGE_CROSS_REPO_READ_CREDENTIAL=NOT_INSTALLED'
+            exit 1
+          fi
+          python -B - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+          token=os.environ["GH_TOKEN"]
+          checks=[
+            ("CKB", "https://api.github.com/repos/spoonman136668-ai/ckb-plane/git/commits/3fc3b5ddd6d5a105a95ea83dbabaccc989dc6dbc", "3fc3b5ddd6d5a105a95ea83dbabaccc989dc6dbc"),
+            ("FORGE","https://api.github.com/repos/spoonman136668-ai/FORGE/git/commits/0d49a1cc01e9dff9db060ca0981beaf6748f3127","0d49a1cc01e9dff9db060ca0981beaf6748f3127")
+          ]
+          for name,url,sha in checks:
+              req=Request(url,headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","User-Agent":"q21-readonly-custody"})
+              with urlopen(req,timeout=12) as response:
+                  obj=json.loads(response.read(131072))
+              if obj.get("sha")!=sha:
+                  raise SystemExit("Q21_"+name+"_CREDENTIAL_SOURCE_IDENTITY_MISMATCH")
+              print("Q21_"+name+"_PRIVATE_SOURCE_READ=PASS")
+          print("Q21_CROSS_REPO_READ_CREDENTIAL=PASS")
+          print("Q21_CKB_SCIENTIFIC_FIRST_USE=NOT_REQUESTED")
+          PY
+
   execute:
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai' }}
     strategy:
