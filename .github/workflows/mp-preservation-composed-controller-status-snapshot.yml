@@ -126,52 +126,7 @@ jobs:
             Need ($offlineYaml -cne $yamlText) 'OFFLINE_SQLITE_OVERRIDE'
             $testConfig=Join-Path $offlineConfig 'autonomy.yaml'
             [IO.File]::WriteAllText($testConfig,$offlineYaml,[Text.UTF8Encoding]::new($false))
-            $extract=@'
-          import hashlib, pathlib, re, sqlite3, sys, urllib.parse
-          root=pathlib.Path(sys.argv[1]).resolve()
-          cfg=pathlib.Path(sys.argv[2]).resolve()
-          dest=pathlib.Path(sys.argv[3]).resolve()
-          lines=cfg.read_text(encoding="utf-8-sig").splitlines()
-          section=None
-          target=None
-          for line in lines:
-              indent=len(line)-len(line.lstrip(" "))
-              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
-                  section=indent; continue
-              if section is None:continue
-              if line.strip() and not line.lstrip().startswith("#") and indent<=section:
-                  section=None;continue
-              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
-              if m:
-                  target=m.group(1).strip().strip("\"'")
-                  break
-          if target is None:raise RuntimeError("SOURCE_DB_LOCATOR_UNAVAILABLE")
-          path=pathlib.Path(target)
-          src=(path if path.is_absolute() else root/path).resolve()
-          if not src.is_relative_to(root) or not src.is_file() or src.stat().st_size>1073741824:
-              raise RuntimeError("SOURCE_DB_NOT_REGULAR_BOUNDED")
-          def digest(p):
-              h=hashlib.sha256()
-              with p.open("rb") as handle:
-                  for b in iter(lambda:handle.read(1024*1024),b""):h.update(b)
-              return h.hexdigest()
-          pre=digest(src)
-          url="file:"+urllib.parse.quote(str(src).replace("\\","/"),safe="/:")+"?mode=ro&immutable=1"
-          with sqlite3.connect(url,uri=True,timeout=1.0) as origin:
-              origin.execute("PRAGMA query_only=ON")
-              with sqlite3.connect(str(dest)) as dst:
-                  origin.backup(dst)
-          if digest(src)!=pre:raise RuntimeError("SOURCE_DB_CHANGED_DURING_BACKUP")
-          with sqlite3.connect(str(dest)) as dst:
-              assert dst.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
-              n=dst.execute("SELECT count(*) FROM queue_items").fetchone()[0]
-              assert n>=10 and n<=1024
-              j=dst.execute("SELECT count(*) FROM work_orders").fetchone()[0]
-          print("MP_CLI_TEMP_SQLITE_BACKUP_INTEGRITY=PASS")
-          print("MP_CLI_TEMP_QUEUE_RECORDS="+str(n))
-          print("MP_CLI_TEMP_WORK_ORDER_COUNT="+str(j))
-          print("MP_CLI_LIVE_SQLITE_UNCHANGED=PASS")
-          '@
+            $extract=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aW1wb3J0IGhhc2hsaWIsIHBhdGhsaWIsIHJlLCBzcWxpdGUzLCBzeXMsIHVybGxpYi5wYXJzZQpyb290PXBhdGhsaWIuUGF0aChzeXMuYXJndlsxXSkucmVzb2x2ZSgpCmNmZz1wYXRobGliLlBhdGgoc3lzLmFyZ3ZbMl0pLnJlc29sdmUoKQpkZXN0PXBhdGhsaWIuUGF0aChzeXMuYXJndlszXSkucmVzb2x2ZSgpCmxpbmVzPWNmZy5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04LXNpZyIpLnNwbGl0bGluZXMoKQpzZWN0aW9uPU5vbmUKdGFyZ2V0PU5vbmUKZm9yIGxpbmUgaW4gbGluZXM6CiAgICBpbmRlbnQ9bGVuKGxpbmUpLWxlbihsaW5lLmxzdHJpcCgiICIpKQogICAgaWYgcmUuZnVsbG1hdGNoKHIiXHMqc3RhdGU6XHMqKD86Iy4qKT8iLGxpbmUpOgogICAgICAgIHNlY3Rpb249aW5kZW50OyBjb250aW51ZQogICAgaWYgc2VjdGlvbiBpcyBOb25lOmNvbnRpbnVlCiAgICBpZiBsaW5lLnN0cmlwKCkgYW5kIG5vdCBsaW5lLmxzdHJpcCgpLnN0YXJ0c3dpdGgoIiMiKSBhbmQgaW5kZW50PD1zZWN0aW9uOgogICAgICAgIHNlY3Rpb249Tm9uZTtjb250aW51ZQogICAgbT1yZS5mdWxsbWF0Y2gociJccypzcWxpdGVfcGF0aDpccyooLis/KVxzKig/OiMuKik/IixsaW5lKQogICAgaWYgbToKICAgICAgICB0YXJnZXQ9bS5ncm91cCgxKS5zdHJpcCgpLnN0cmlwKCJcIiciKQogICAgICAgIGJyZWFrCmlmIHRhcmdldCBpcyBOb25lOnJhaXNlIFJ1bnRpbWVFcnJvcigiU09VUkNFX0RCX0xPQ0FUT1JfVU5BVkFJTEFCTEUiKQpwYXRoPXBhdGhsaWIuUGF0aCh0YXJnZXQpCnNyYz0ocGF0aCBpZiBwYXRoLmlzX2Fic29sdXRlKCkgZWxzZSByb290L3BhdGgpLnJlc29sdmUoKQppZiBub3Qgc3JjLmlzX3JlbGF0aXZlX3RvKHJvb3QpIG9yIG5vdCBzcmMuaXNfZmlsZSgpIG9yIHNyYy5zdGF0KCkuc3Rfc2l6ZT4xMDczNzQxODI0OgogICAgcmFpc2UgUnVudGltZUVycm9yKCJTT1VSQ0VfREJfTk9UX1JFR1VMQVJfQk9VTkRFRCIpCmRlZiBkaWdlc3QocCk6CiAgICBoPWhhc2hsaWIuc2hhMjU2KCkKICAgIHdpdGggcC5vcGVuKCJyYiIpIGFzIGhhbmRsZToKICAgICAgICBmb3IgYiBpbiBpdGVyKGxhbWJkYTpoYW5kbGUucmVhZCgxMDI0KjEwMjQpLGIiIik6aC51cGRhdGUoYikKICAgIHJldHVybiBoLmhleGRpZ2VzdCgpCnByZT1kaWdlc3Qoc3JjKQp1cmw9ImZpbGU6Iit1cmxsaWIucGFyc2UucXVvdGUoc3RyKHNyYykucmVwbGFjZSgiXFwiLCIvIiksc2FmZT0iLzoiKSsiP21vZGU9cm8maW1tdXRhYmxlPTEiCndpdGggc3FsaXRlMy5jb25uZWN0KHVybCx1cmk9VHJ1ZSx0aW1lb3V0PTEuMCkgYXMgb3JpZ2luOgogICAgb3JpZ2luLmV4ZWN1dGUoIlBSQUdNQSBxdWVyeV9vbmx5PU9OIikKICAgIHdpdGggc3FsaXRlMy5jb25uZWN0KHN0cihkZXN0KSkgYXMgZHN0OgogICAgICAgIG9yaWdpbi5iYWNrdXAoZHN0KQppZiBkaWdlc3Qoc3JjKSE9cHJlOnJhaXNlIFJ1bnRpbWVFcnJvcigiU09VUkNFX0RCX0NIQU5HRURfRFVSSU5HX0JBQ0tVUCIpCndpdGggc3FsaXRlMy5jb25uZWN0KHN0cihkZXN0KSkgYXMgZHN0OgogICAgYXNzZXJ0IGRzdC5leGVjdXRlKCJQUkFHTUEgaW50ZWdyaXR5X2NoZWNrIikuZmV0Y2hvbmUoKVswXT09Im9rIgogICAgbj1kc3QuZXhlY3V0ZSgiU0VMRUNUIGNvdW50KCopIEZST00gcXVldWVfaXRlbXMiKS5mZXRjaG9uZSgpWzBdCiAgICBhc3NlcnQgbj49MTAgYW5kIG48PTEwMjQKICAgIGo9ZHN0LmV4ZWN1dGUoIlNFTEVDVCBjb3VudCgqKSBGUk9NIHdvcmtfb3JkZXJzIikuZmV0Y2hvbmUoKVswXQpwcmludCgiTVBfQ0xJX1RFTVBfU1FMSVRFX0JBQ0tVUF9JTlRFR1JJVFk9UEFTUyIpCnByaW50KCJNUF9DTElfVEVNUF9RVUVVRV9SRUNPUkRTPSIrc3RyKG4pKQpwcmludCgiTVBfQ0xJX1RFTVBfV09SS19PUkRFUl9DT1VOVD0iK3N0cihqKSkKcHJpbnQoIk1QX0NMSV9MSVZFX1NRTElURV9VTkNIQU5HRUQ9UEFTUyIpCg=='))
             & python.exe -B -c $extract $live $liveCfg (Join-Path $offlineState 'offline.db')
             Need ($LASTEXITCODE -eq 0) 'READONLY_DB_SNAPSHOT'
             $exe=Join-Path $offlineBin 'ckb-plane.exe'
