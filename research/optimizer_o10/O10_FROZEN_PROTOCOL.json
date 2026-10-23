@@ -1,0 +1,80 @@
+{
+  "schema": "forge.optimizer.o10.state-versus-readout.public-development.v1",
+  "frozen_status": "FROZEN_BEFORE_SOURCE_MODEL_AND_TEST_IMPLEMENTATION",
+  "source_parent_sha": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "old_evidence": "O9 native dual-OS and full FORGE regression success, scientific no-go, same frozen architecture and losses preserved; O2-O8 original positive/negative evidence retained; Q20, Q21/Q21N01 protected source roles untouched",
+  "scientific_question": "When trained recurrent networks fail delayed-memory composition, is public cue/action-parity information absent from the learned state, or present but inaccessible to the network's trained query decoder? Test frozen-state, TRAIN-fitted readout probes against random initialization, state erasure, and explicit public-history information witness.",
+  "pre_registered_hypotheses": {
+    "H_ENCODING": "A probe trained on *frozen recurrent state* has poor O10_PUBLIC_DEV cue and resettable-parity decoding despite sufficient public information in explicit history; failure is state formation/credit assignment, not solely final readout.",
+    "H_READOUT": "Frozen trained state probes predict query target materially better than original output head; failure primarily readout optimization, not representational capacity.",
+    "H_BASELINE": "A probe on UNTRAINED same-size recurrent state is a confound control for random reservoir encodings; report any success there, never attribute to learned memory.",
+    "H_NULL": "Do not count gains on independent iid query bits as memory progress."
+  },
+  "roles": [
+    "O10_PUBLIC_TRAIN",
+    "O10_PUBLIC_SELECT",
+    "O10_PUBLIC_DEV"
+  ],
+  "new_source_namespace": "o10-public-reset-parity-v1",
+  "seed_derivation": "SHA256 UTF8 namespace:role:family:index first 8 bytes big-endian -> random.Random",
+  "episodes_per_family": {
+    "O10_PUBLIC_TRAIN": 64,
+    "O10_PUBLIC_SELECT": 16,
+    "O10_PUBLIC_DEV": 24
+  },
+  "episode_length": 32,
+  "query_timestep_set": [
+    14,
+    26
+  ],
+  "families": {
+    "ECHO_WITH_RESETS": "Public initial observation cue bit at t=0; at nonquery steps iid public actions in {0,1,3} and iid fair next-bit distractions; only query action 2 yields initial cue XOR independent noise bit probability .05",
+    "RESETTABLE_PARITY": "Identical public cue, query time, action and distractor laws; query target = initial cue XOR parity of public action=1 events SINCE latest public reset action=3 before the query, XOR Bernoulli(.05)",
+    "NULL_IID": "Identical public nonquery histories and query timing/action law, query target iid fair Bernoulli .5"
+  },
+  "learner_input": "Only current public observation (0/1), action (0,1,2,3), and t==0; recurrent previous state. Note action 3 is distinguishable as all three action-one-hot bits zero; original O9 model otherwise byte-identical. Target next query bit revealed only after prediction for TRAIN fitting; public history labels cue/parity are allowed ONLY in separately marked diagnostic TRAIN probe supervision, never added to original neural networks.",
+  "main_comparisons": {
+    "TRAINED_EXTERNAL_2_NATIVE_HEAD": "Original immutable O9 2-slot learned external write/read code Git blob to be exact-pinned, two seeds 17/31, 12 epochs Adam query-only BPTT, choose by SELECT native query-NLL",
+    "TRAINED_GRU_2_NATIVE_HEAD": "Original immutable O9 two-cell GRU with same 12 epochs/two starts/SELECT, train on same public episodes",
+    "FROZEN_STATE_TARGET_PROBE": "For each SELECT-chosen trained model freeze ALL recurrent weights; fit logistic readout using frozen query-time 2-cell hidden state + current query public observation/action (which are the only native query direct features). TRAIN labels = actual query next bit. Choose no hyperparameters on DEV.",
+    "FROZEN_STATE_CUE_PROBE": "Same frozen state; TRAIN target initial PUBLIC cue (public observable), sigmoid logistic probe, score cue NLL on DEV. Diagnostic supervision only; no native model update.",
+    "FROZEN_STATE_PARITY_PROBE": "Same frozen state; TRAIN target PUBLIC parity since last action=3; score parity NLL on DEV. Diagnostic supervision only.",
+    "RANDOM_UNTRAINED_STATE_TARGET_PROBE": "Original same-architecture model with chosen initialization but *untrained* recurrent weights; fit identical target logistic probe on TRAIN to detect reservoir encoding.",
+    "ERASED_NATIVE_HEAD": "Same trained model, clear history state immediately before query without retraining; NLL on DEV.",
+    "CURRENT_QUERY_COUNTS": "Train Laplace+1 Bernoulli counts on current public query observation and query delay only.",
+    "EXPLICIT_PUBLIC_MEMORY_COUNTS": "Train Laplace+1 Bernoulli counts with public initial cue and action parity since last reset; deliberately engineered full-history control, source information sufficiency witness, NOT capacity matched.",
+    "UNIFORM_05": "Fixed 0.5 query probability."
+  },
+  "frozen_fit": {
+    "original_training_epochs": 12,
+    "original_adam_rate": 0.01,
+    "selected_starts": [
+      17,
+      31
+    ],
+    "linear_probe_epochs": 120,
+    "linear_probe_learning_rate": 0.2,
+    "linear_probe_l2": 0.002,
+    "linear_probe_input": "bias, current query observation, hidden state components (2), identical for frozen learned and random state probes",
+    "model_choice": "minimum O10_PUBLIC_SELECT original native-head NLL for each recurrent architecture. After selection, freeze model before fitting any TRAIN-only probes. No model selection, tuning or fit on O10_PUBLIC_DEV.",
+    "probe_model": "One trained logistic regressor with full-batch gradient, deterministic initialization zero. Do not allow cue/parity labels as input; they are TRAIN-only diagnostic target.",
+    "null": "Retain all null-family apparent signal, never claim positive because of noisy 24-query DEV."
+  },
+  "decision_and_cost": {
+    "primary": "For each family and architecture report signed original native-head query NLL, frozen-state trained query-head NLL and random-untrained state query probe NLL, cue NLL, parity NLL, erased-state NLL and explicit conventional fitted controls.",
+    "encoding": "Learned-vs-random cue and parity probe differences; randomized baseline prevents attributing public-history encoding to learned state merely because untrained reservoir retains weak signal.",
+    "readout": "Native-head minus trained frozen-state target-probe NLL; extra supervised readout has higher training budget; it is a diagnosis, never native improvement.",
+    "full_information": "Compare against trained explicit public cue+reset-parity counts (hand-engineered, not equal learned features) and current-only counts.",
+    "costs": "Model fitting/select CPU, probe fitting CPU, query inference CPU, checkpoint serialized bytes, trainable parameter count, peak traced allocations/RSS, whole-process CPU. Disclose extra supervision and no equal compute for probes.",
+    "cross_os": "All 9 role × family SHA256 digests byte exact Windows/Linux; all 3 families × all model/probe outputs within 1e-6. Freeze trained checkpoint after train/SELECT and prove DEV read-only.",
+    "status": "public-only mechanistic diagnostics; no independent science first-use, no native integration, no source custody advancement and no scientific GO."
+  },
+  "limits": [
+    "Do not edit original O1–O9 experiments or reconsume their public DEV as training data.",
+    "No protected science first-use Q21/Q21N01, FSA scientific admission, controller/queue dispatch, cloud/D1 changes, KTRADE or broker operations.",
+    "No paid API or hidden model labels as input.",
+    "No post-DEV tune or architecture promotion.",
+    "Use exact Git blobs, native Windows+Linux focused+one final FORGE full regression, draft PR only."
+  ],
+  "next_boundary": "If trained-state cue/parity decoding fails even as explicit history succeeds, a subsequent prospectively frozen investigation may compare event-specific auxiliary public learning signals against equally trained controls. Never retrofit an O10 negative after DEV."
+}
