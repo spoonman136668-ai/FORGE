@@ -9,6 +9,7 @@ qualified owner source transition and explicit native activation.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import json
 import re
 
@@ -17,8 +18,9 @@ from f139.nci04_owner_issue import NativeIssue, inspect_owner_issue, SCHEMA as I
 
 ADMISSION_SCHEMA = "forge.f139.nci04.owner-native-ledger.v1"
 KIND = "NATIVE_DEVELOPMENT_ADMITTED"
-MAX_DAILY = 2
-MAX_TOTAL = 20
+MAX_DAILY = 288  # Two possible admissions per ten-minute interval, 24/7.
+NATIVE_WINDOW_SECONDS = 600
+MAX_STARTS_PER_WINDOW = 2
 SEALED_OWNER_PREFIX_HEAD = "eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87"
 FIELDS = frozenset({
     "schema", "ticket", "issue_number", "issue_id", "lane",
@@ -175,6 +177,33 @@ def audit_native_events(db):
     verify_original_negative_custody(db)
 
 
+def native_recent_starts(db, now: str) -> int:
+    """Count authentic started native work in the preceding rolling ten minutes.
+
+    Existing SQLite start receipts are the native owner source of truth. Keep
+    old event payloads, issue signatures and historic ledger hashes untouched.
+    """
+    def parse(value):
+        require(isinstance(value, str) and value.endswith("Z"),
+                "NATIVE_CADENCE_TIMESTAMP_INVALID")
+        try:
+            parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise NativeLedgerDenied("F139_NCI04_A6_NATIVE_CADENCE_TIMESTAMP_INVALID") from None
+        require(parsed.tzinfo is not None,
+                "NATIVE_CADENCE_TIMESTAMP_INVALID")
+        return parsed
+    instant = parse(now)
+    recent = 0
+    for row in db.conn.execute(
+            "SELECT started_at FROM tasks WHERE ticket LIKE 'f139-nci04-%' "
+            "AND started_at IS NOT NULL"):
+        seconds = (instant - parse(row["started_at"])).total_seconds()
+        require(seconds >= 0, "NATIVE_CADENCE_CLOCK_MOVED_BACKWARD")
+        recent += 0 <= seconds < NATIVE_WINDOW_SECONDS
+    return recent
+
+
 def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
     """Must be called only while the original SingleOwner mutex is held.
 
@@ -193,15 +222,19 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
     with db.transaction():
         db.verify()
         rows = native_events(db)
-        require(len(rows) < MAX_TOTAL, "NATIVE_WORK_TOTAL_LIMIT")
-        require(sum(x["admitted_day"] == now[:10] for x in rows) < MAX_DAILY,
-                "NATIVE_DAILY_BUDGET")
         # Strict ticket, issue ID and number nonreplay even if previous
         # attempt was QUARANTINED or the protected source later transitioned.
         d2k = [json.loads(r["payload"]) for r in db.conn.execute(
             "SELECT payload FROM events WHERE kind='DEVELOPMENT_WORK_ADMITTED'")]
         if any(x["ticket"] == issue.ticket or x["issue_number"] == issue.number
                or x["issue_id"] == issue.issue_id for x in rows + d2k):
+            return False
+        # Rate limiting is a quiet capacity pause, not a controller crash.
+        # Rolling starts, not permanently consumed admissions, control cadence.
+        # No 20-task lifetime stop: old signed negative and positive receipts
+        # remain immutable forever and every unique issue still admits once.
+        if (sum(x["admitted_day"] == now[:10] for x in rows) >= MAX_DAILY
+                or native_recent_starts(db, now) >= MAX_STARTS_PER_WINDOW):
             return False
         require(db.active() is None and db.ready() is None,
                 "OTHER_WORK_PENDING")
