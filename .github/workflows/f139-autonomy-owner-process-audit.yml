@@ -1,0 +1,65 @@
+name: FORGE F139 original owner process audit
+on:
+  push:
+    branches: [diagnostics/f139-autonomy-live-804-20261023]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Inspect original task and process without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'WRONG_RUNNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ('F139_TASK_STATE='+$task.State)
+          Write-Output ('F139_TASK_LAST_RESULT='+$info.LastTaskResult)
+          Write-Output ('F139_TASK_LAST_RUN='+$info.LastRunTime.ToString('o'))
+          Write-Output ('F139_TASK_NEXT_RUN='+$info.NextRunTime.ToString('o'))
+          Write-Output ('F139_TASK_ACTION_COUNT='+@($task.Actions).Count)
+          foreach($a in @($task.Actions)){
+            Write-Output ('F139_TASK_EXECUTE='+[string]$a.Execute)
+            Write-Output ('F139_TASK_WORKDIR='+[string]$a.WorkingDirectory)
+            $arg=[string]$a.Arguments
+            $safe=$arg -replace '(?i)(key|token|secret|password)\s+("[^"]*"|\S+)','$1 <REDACTED>'
+            Write-Output ('F139_TASK_ARGUMENTS_SAFE='+$safe)
+          }
+          $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'DB_ARG_MISSING'}
+          $db=[IO.Path]::GetFullPath($m.Groups[1].Value)
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          Write-Output ('F139_CONTROLLER_PROCESS_COUNT='+$ps.Count)
+          foreach($p in $ps){
+            Write-Output ('F139_CONTROLLER_PID='+$p.ProcessId)
+            Write-Output ('F139_CONTROLLER_PARENT_PID='+$p.ParentProcessId)
+            Write-Output ('F139_CONTROLLER_CREATED='+$p.CreationDate)
+            $safe=[string]$p.CommandLine -replace '(?i)(key|token|secret|password)\s+("[^"]*"|\S+)','$1 <REDACTED>'
+            Write-Output ('F139_CONTROLLER_CMD_SAFE='+$safe)
+          }
+          $rootm=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if($rootm.Success){
+            $root=[IO.Path]::GetFullPath($rootm.Groups[1].Value)
+            $candidates=@(
+              (Join-Path $root 'logs'),
+              (Join-Path $root 'f139\logs'),
+              (Split-Path -Parent $db)
+            )
+            foreach($dir in $candidates | Select-Object -Unique){
+              if(Test-Path -LiteralPath $dir){
+                Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+                  Where-Object {$_.Name -match '(?i)f139|controller|log|out|err'} |
+                  Sort-Object LastWriteTime -Descending |
+                  Select-Object -First 12 |
+                  ForEach-Object {
+                    Write-Output ('F139_LOG_CANDIDATE='+$_.FullName+'|'+$_.Length+'|'+$_.LastWriteTime.ToString('o'))
+                  }
+              }
+            }
+          }
+          Write-Output 'F139_OWNER_PROCESS_AUDIT_WRITES=ZERO'
