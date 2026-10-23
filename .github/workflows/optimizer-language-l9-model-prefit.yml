@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          parent='1f544e5df2bcd0a80d057b1e60d6a1673b49771a'
+          parent='ef32052abc77785ac5db4594828174a80c6a0e7c'
           test "$(git rev-parse HEAD~1)" = "$parent"
           test "$(git diff --name-only "$parent" HEAD)" = '.github/workflows/optimizer-language-l9-model-prefit.yml'
           root='research/optimizer_language_l9'
@@ -121,7 +121,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $parent='1f544e5df2bcd0a80d057b1e60d6a1673b49771a'
+          $parent='ef32052abc77785ac5db4594828174a80c6a0e7c'
           if((& git rev-parse 'HEAD~1').Trim() -cne $parent){throw 'L9_PREFIT_PARENT_DRIFT'}
           $changed=@(& git diff --name-only $parent HEAD)
           if($changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/optimizer-language-l9-model-prefit.yml'){throw 'L9_PREFIT_SCOPE_DRIFT'}
@@ -143,30 +143,30 @@ jobs:
             python -m unittest -v test_l9_model_suite.py
             if($LASTEXITCODE -ne 0){throw 'L9_WINDOWS_UNIT'}
             $vals=@'
-import ast,json,pathlib
-import l9_model_suite as m
-c=json.loads(pathlib.Path("L9_MODEL_CONTRACT.json").read_text(encoding="utf-8"))
-r=json.loads(pathlib.Path("L9_MODEL_IMPLEMENTATION_RECEIPT.json").read_text(encoding="utf-8"))
-s=json.loads(pathlib.Path("L9_SPLIT_RECEIPT.json").read_text(encoding="utf-8"))
-assert c["status"]=="FROZEN_BEFORE_ANY_L9_MODEL_FIT"
-assert r["status"]=="SEALED_BEFORE_ANY_L9_MODEL_FIT"
-assert r["custody"]["l9_model_fit_count"]==0 and r["custody"]["l9_checkpoint_count"]==0
-assert s["custody"]["model_fit_count"]==0
-assert c["required_split"]["role_identity_sha256"]==s["deterministic_split"]["cross_os_role_identity_sha256"]
-assert c["required_split"]["summary_sha256"]==s["deterministic_split"]["cross_os_summary_sha256"]
-assert m.expected_gru_parameters()==433795
-assert m.expected_transformer_parameters()==449251
-assert max(m.expected_gru_parameters(),m.expected_transformer_parameters()) <= m.PARAMETER_CEILING
-source=pathlib.Path("l9_model_suite.py").read_text(encoding="utf-8")
-tree=ast.parse(source)
-top=[]
-for node in tree.body:
-    if isinstance(node,ast.Import): top.extend(a.name for a in node.names if a.name=="torch")
-    if isinstance(node,ast.ImportFrom) and node.module=="torch": top.append("torch")
-assert not top
-assert "L9_AUDIT_DEV is forbidden" in source
-print("L9_WINDOWS_STATIC=PASS")
-'@
+          import ast,json,pathlib
+          import l9_model_suite as m
+          c=json.loads(pathlib.Path("L9_MODEL_CONTRACT.json").read_text(encoding="utf-8"))
+          r=json.loads(pathlib.Path("L9_MODEL_IMPLEMENTATION_RECEIPT.json").read_text(encoding="utf-8"))
+          s=json.loads(pathlib.Path("L9_SPLIT_RECEIPT.json").read_text(encoding="utf-8"))
+          assert c["status"]=="FROZEN_BEFORE_ANY_L9_MODEL_FIT"
+          assert r["status"]=="SEALED_BEFORE_ANY_L9_MODEL_FIT"
+          assert r["custody"]["l9_model_fit_count"]==0 and r["custody"]["l9_checkpoint_count"]==0
+          assert s["custody"]["model_fit_count"]==0
+          assert c["required_split"]["role_identity_sha256"]==s["deterministic_split"]["cross_os_role_identity_sha256"]
+          assert c["required_split"]["summary_sha256"]==s["deterministic_split"]["cross_os_summary_sha256"]
+          assert m.expected_gru_parameters()==433795
+          assert m.expected_transformer_parameters()==449251
+          assert max(m.expected_gru_parameters(),m.expected_transformer_parameters()) <= m.PARAMETER_CEILING
+          source=pathlib.Path("l9_model_suite.py").read_text(encoding="utf-8")
+          tree=ast.parse(source)
+          top=[]
+          for node in tree.body:
+              if isinstance(node,ast.Import): top.extend(a.name for a in node.names if a.name=="torch")
+              if isinstance(node,ast.ImportFrom) and node.module=="torch": top.append("torch")
+          assert not top
+          assert "L9_AUDIT_DEV is forbidden" in source
+          print("L9_WINDOWS_STATIC=PASS")
+          '@
             $vals | python -
             if($LASTEXITCODE -ne 0){throw 'L9_WINDOWS_STATIC'}
           } finally { Pop-Location }
