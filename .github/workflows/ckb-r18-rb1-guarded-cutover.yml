@@ -7,7 +7,7 @@ permissions:
   contents: read
 concurrency:
   group: r18-rb1-one-shot-owner-native-cutover
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   cutover:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
@@ -129,9 +129,10 @@ jobs:
           $oldText=[Text.Encoding]::UTF8.GetString($oldBytes)
           if(($oldText -match '(?m)^    ktrade:\s*$') -or
              ([regex]::Matches($oldText,'(?m)^repos:\r?\n')).Count -ne 1){throw 'R18_RB1_REGISTRY_ALREADY_CHANGED'}
-          $line='    ktrade:'+"\n"+'        remote: "'+$source+'"'+"\n"+
-              '        local_path: C:\Users\camar\GolandProjects\ktrade-rb1-plane'+"\n"+'        mode: engineering'+"\n"
-          $newText=[regex]::Replace($oldText,'(?m)^repos:\r?\n',"repos:\n"+$line)
+          $nl=[Environment]::NewLine
+          $line='    ktrade:'+$nl+'        remote: "'+$source+'"'+$nl+
+              '        local_path: C:\Users\camar\GolandProjects\ktrade-rb1-plane'+$nl+'        mode: engineering'+$nl
+          $newText=[regex]::Replace($oldText,'(?m)^repos:\r?\n','repos:'+$nl+$line)
           if($newText -ceq $oldText){throw 'R18_RB1_NO_CONFIG_CHANGE'}
           $input=Join-Path $env:RUNNER_TEMP ('r18-rb1-artifact-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $input){throw 'R18_RB1_ARTIFACT_STAGING_COLLISION'}
@@ -167,9 +168,9 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if(!$ready){throw 'R18_RB1_CONTROLLER_NOT_STOPPED'}
+            $mutated=$true
             [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($wrapperText.Replace($old,$new)))
             [IO.File]::WriteAllBytes($config,[Text.Encoding]::UTF8.GetBytes($newText))
-            $mutated=$true
             $newConfigHash=Sha $config
             $proofRaw=@(& $newExe controller qualify --config $config 2>&1)
             if($LASTEXITCODE -ne 0){throw 'R18_RB1_NATIVE_QUALIFICATION_REJECTED'}
@@ -195,7 +196,6 @@ jobs:
             $after=Native
             [void](One $newExe)
             if(!(GoodState $after) -or (Sha $config) -cne $newConfigHash){throw 'R18_RB1_NEW_CONTROLLER_NOT_QUALIFIED_IDLE'}
-            if(((Get-Date).ToUniversalTime()-[datetime]::Parse([string]$after.paused).ToUniversalTime()).TotalSeconds -lt -1){} # noop
             Write-Host ('R18_RB1_INSTALLED_RELEASE_SHA256='+$newSHA)
             Write-Host ('R18_RB1_INSTALLED_CONFIG_SHA256='+$newConfigHash)
             Write-Host 'R18_RB1_SINGLE_ORIGINAL_CONTROLLER_ENGINEERING_REGISTRY=PASS'
