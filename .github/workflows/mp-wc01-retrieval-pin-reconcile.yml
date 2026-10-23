@@ -69,9 +69,16 @@ jobs:
                if($text.Split(@($old),[StringSplitOptions]::None).Length -ne 2){throw ('MPWC01_PATCH_ANCHOR_DRIFT:'+ $code)}
                return $text.Replace($old,$new)
             }
-            $script=PatchOnce $script 'eab30125d8467cf52c7434728b397e53542703c4' 'ab29b4c74abe051039e8fc75ee6320a30445a790' 'budgeted blob'
-            $script=PatchOnce $script '4ac92afeb56d32c172ef9a503fa5aa1e468e1bfe' '9bcf9debd6c7477ae2287fbdf7edcb16e11c0131' 'tiered blob'
-            $script=PatchOnce $script '6b8ff8a8ea5de5c6a9ba392f828f2889ece4bb87' '7eb06b1a04525a074df6a9f7ac6fc901ca5a19f3' 'mind blob'
+            function ReconcilePin([string]$text,[string]$old,[string]$new,[string]$name){
+              $oldCount=$text.Split(@($old),[StringSplitOptions]::None).Length-1
+              $newCount=$text.Split(@($new),[StringSplitOptions]::None).Length-1
+              if($oldCount -eq 1 -and $newCount -eq 0){return (PatchOnce $text $old $new $name)}
+              if($oldCount -eq 0 -and $newCount -eq 1){return $text}
+              throw ('MPWC01_UNRECOGNIZED_OR_AMBIGUOUS_PIN:'+ $name +':old='+$oldCount+':new='+$newCount)
+            }
+            $script=ReconcilePin $script 'eab30125d8467cf52c7434728b397e53542703c4' 'ab29b4c74abe051039e8fc75ee6320a30445a790' 'budgeted blob'
+            $script=ReconcilePin $script '4ac92afeb56d32c172ef9a503fa5aa1e468e1bfe' '9bcf9debd6c7477ae2287fbdf7edcb16e11c0131' 'tiered blob'
+            $script=ReconcilePin $script '6b8ff8a8ea5de5c6a9ba392f828f2889ece4bb87' '7eb06b1a04525a074df6a9f7ac6fc901ca5a19f3' 'mind blob'
             if($script -notmatch '(?m)^\$PackParams = @\{\s*$'){throw 'MPWC01_PACK_PARAMETER_ANCHOR_MISSING'}
             $script=PatchOnce $script '$PackParams = @{' ('$PackParams = @{' + [Environment]::NewLine + '    NoTelemetryLedger = $true') 'no telemetry'
             $candidate=Join-Path $planeTemp 'operations\Read-MindPalaceContext.ps1'
