@@ -49,7 +49,7 @@ def compare(a,b):
                     y["source_original_reward_per_scored_action"])>1e-8):
                 raise ValueError("O15_CROSS_OS_ORIGINAL_REWARD_OR_OBS_DRIFT")
             matching+=1
-    return {"source":"POPgym original externally-authored public", 
+    return {"source":"POPgym original externally-authored public",
         "matched_original_science_scenarios":6,
         "matched_original_real_reward_arm_scalars":matching,
         "original_source_REAL_steps":66096,
