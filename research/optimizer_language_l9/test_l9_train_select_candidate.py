@@ -55,7 +55,7 @@ class TrainSelectPreFitTests(unittest.TestCase):
         self.assertIn('if item["role"] != "DEV"',src)
         self.assertIn("split.verify_all_blob_identities(repo, entries)",src)
         self.assertNotIn('item["role"] == "TEST"',src)
-        self.assertNotIn("L9_AUDIT_DEV", "L9_SELECT",src)
+        self.assertNotIn('item["role"] == "TEST"',src)
 
 if __name__=="__main__":
     unittest.main()
