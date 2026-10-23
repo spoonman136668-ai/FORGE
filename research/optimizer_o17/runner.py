@@ -64,25 +64,31 @@ def run(cls):
                 phase=PhaseGate(selected_lag,seed=701+100*di+rep)
                 legacy=LearnedEviction(selected_lag,seed=801+100*di+rep)
                 fit_start=time.process_time_ns()
+                phase_fit_rows=[]
                 for i in range(FIT_N):
-                    source_episode(cls,k,source_seed_o17("POLICY_FIT",di,rep,i),
-                                   phase,train=True)
+                    phase_fit_rows.append(source_episode(cls,k,
+                        source_seed_o17("POLICY_FIT",di,rep,i),
+                        phase,train=True))
                     resets+=1
                 phase_fit_cpu=time.process_time_ns()-fit_start
                 fit_start=time.process_time_ns()
+                legacy_fit_rows=[]
                 for i in range(FIT_N):
-                    source_episode(cls,k,source_seed_o17("POLICY_FIT",di,rep,i),
-                                   legacy,train=True)
+                    legacy_fit_rows.append(source_episode(cls,k,
+                        source_seed_o17("POLICY_FIT",di,rep,i),
+                        legacy,train=True))
                     resets+=1
                 legacy_fit_cpu=time.process_time_ns()-fit_start
                 fit_start=time.process_time_ns()
                 actual_fit_rewards={}
+                stride_fit_rows=[]
                 for j,stride in enumerate(STRIDES):
                     policy=Stride(selected_lag,stride,seed=901+rep+j)
                     rows=[source_episode(cls,k,
                           source_seed_o17("POLICY_FIT",di,rep,i),policy)
                           for i in range(j*16,(j+1)*16)]
                     resets+=16
+                    stride_fit_rows.extend(rows)
                     actual_fit_rewards[stride]=sum(
                         z["sum_source_reward_sign"] for z in rows)/(16*(52-k))
                 selected_stride=max(STRIDES,
@@ -137,6 +143,10 @@ def run(cls):
                     "legacy_fit_original_source_CPU_ns":legacy_fit_cpu,
                     "stride_fit_original_source_CPU_ns":stride_fit_cpu,
                     "trained_stride_source_FIT_reward":actual_fit_rewards,
+                    "genuine_original_POLICY_FIT_action_reward_receipts":{
+                        "phase_gate":phase_fit_rows,
+                        "legacy":legacy_fit_rows,
+                        "stride_split_16_16_16":stride_fit_rows},
                     "trained_stride_selected":selected_stride,
                     "frozen_original_source_FIT_policy_states":frozen,
                     "source_real_reward_per_scored_action":scores,
