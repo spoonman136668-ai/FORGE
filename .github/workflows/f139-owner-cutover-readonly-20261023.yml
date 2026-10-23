@@ -1,0 +1,137 @@
+name: FORGE F139 original owner transition eligibility dry run
+on:
+  push:
+    branches: [qualification/f139-owner-cutover-readonly-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-original-owner-transition-readonly
+  cancel-in-progress: false
+jobs:
+  original-owner-snapshot-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Read original owner and rehearse transition ONLY against disposable SQLite copy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_OWNER_RUNNER_IDENTITY_INVALID'
+          }
+          $original='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $proposal='e007b7af24b489cdd1a4e043fe692a362f2e3eeb'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $principal=[string]$task.Principal.UserId
+          $taskSid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($taskSid -cne $sid -or @($task.Actions).Count -ne 1 -or
+             $task.State -ne 'Running'){
+            throw 'F139_ORIGINAL_SINGLE_OWNER_TASK_NOT_RUNNING'
+          }
+          $argString=[string]$task.Actions[0].Arguments
+          $opts=@{}
+          foreach($key in @('RepositoryRoot','Database','PythonExe')){
+            $m=[regex]::Match($argString,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_ORIGINAL_OWNER_ARGUMENT_DRIFT'}
+            $opts[$key]=$m.Groups[1].Value
+          }
+          $root=[IO.Path]::GetFullPath($opts.RepositoryRoot)
+          $db=[IO.Path]::GetFullPath($opts.Database)
+          $p=[IO.Path]::GetFullPath($opts.PythonExe)
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $original){
+            throw 'F139_DEPLOYED_ORIGINAL_SOURCE_DRIFT'
+          }
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db)})
+          if($processes.Count -ne 1){throw 'F139_ORIGINAL_OWNER_PROCESS_NOT_SINGLE'}
+          $code=@'
+          import json,sqlite3,sys,tempfile,pathlib,shutil
+          root=pathlib.Path(sys.argv[3]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          original=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          expected='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          proposal=sys.argv[2]
+          assert proposal=='e007b7af24b489cdd1a4e043fe692a362f2e3eeb'
+          parent=original.parent
+          assert original.name=='state.sqlite'
+          assert parent.name=='FORGE-F139'
+          scratch_parent=pathlib.Path(tempfile.mkdtemp(prefix='f139-snapshot-cutover-',dir=parent))
+          scratch=scratch_parent/'state.sqlite'
+          try:
+              ro=sqlite3.connect(original.as_uri()+'?mode=ro',uri=True,timeout=20)
+              ro.row_factory=sqlite3.Row
+              try:
+                  ro.execute('PRAGMA query_only=ON')
+                  source=ro.execute('SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1').fetchone()
+                  assert source is not None
+                  assert source['source_sha']==expected
+                  assert source['enabled']==source['legacy_suspended']==1
+                  assert source['head_seq']>=108
+                  recorded=ro.execute('SELECT sha FROM events WHERE seq=108').fetchone()
+                  assert recorded is not None and recorded['sha']=='ce7618898ba772d18254b91e7a218ddc64b6f4b50150e2b80e065079e12c9817'
+                  copy=sqlite3.connect(scratch)
+                  try:
+                      ro.backup(copy)
+                  finally:
+                      copy.close()
+              finally:
+                  ro.close()
+              snapshot=Database(scratch)
+              try:
+                  snapshot.verify()
+                  meta=snapshot.meta()
+                  assert meta['source_sha']==expected
+                  stages={}
+                  for row in snapshot.conn.execute('SELECT stage FROM tasks'):
+                      stages[row['stage']]=stages.get(row['stage'],0)+1
+                  assert stages.get('VERIFIED',0)>=13
+                  assert stages.get('QUARANTINED',0)==4
+                  assert sum(stages.values())==stages['VERIFIED']+stages['QUARANTINED']
+                  assert not snapshot.actives() and snapshot.ready() is None
+                  assert len(snapshot.verified_native_provider_failures())>=1
+                  old_seq=meta['head_seq']
+                  old_head=meta['head_hash']
+                  snapshot.transition_source(proposal,allow_certified_negative=True)
+                  changed=snapshot.meta()
+                  assert changed['source_sha']==proposal
+                  assert changed['head_seq']==old_seq+1
+                  assert changed['head_hash']!=old_head
+                  assert not snapshot.actives() and snapshot.ready() is None
+                  assert len(snapshot.verified_native_provider_failures())>=1
+                  snapshot.verify()
+              finally:
+                  snapshot.close()
+              # No original DB write, owner task change, work dispatch, or grant.
+              ro=sqlite3.connect(original.as_uri()+'?mode=ro',uri=True,timeout=20)
+              try:
+                  cur=ro.execute('SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1').fetchone()
+                  assert cur==(expected,source['head_seq'],source['head_hash']), 'F139_OWNER_EVENT_HEAD_MOVED_DURING_PROBE'
+              finally:
+                  ro.close()
+              print('F139_ORIGINAL_OWNER_READONLY_PRECONDITIONS=PASS')
+              print('F139_FOUR_ORIGINAL_NEGATIVES_PRESERVED=PASS')
+              print('F139_DISPOSABLE_SNAPSHOT_SOURCE_TRANSITION=PASS')
+              print('F139_OWNER_SQLITE_MUTATIONS=ZERO')
+              print('F139_ORIGINAL_CONTROLLER_RESTARTS=ZERO')
+              print('F139_SCIENTIFIC_FIRST_USE=FALSE')
+          finally:
+              shutil.rmtree(scratch_parent,ignore_errors=False)
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $p -B -c $code $db $proposal $root
+            if($LASTEXITCODE -ne 0){
+              throw 'F139_ORIGINAL_OWNER_READONLY_SOURCE_TRANSITION_NOT_QUALIFIED'
+            }
+          }finally{Pop-Location}
+          Write-Output 'F139_SOURCE_CUTOVER_REHEARSAL=SNAPSHOT_ONLY_PASS'
