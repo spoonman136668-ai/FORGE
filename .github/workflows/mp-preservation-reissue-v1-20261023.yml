@@ -30,7 +30,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
           Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-preservation-reissue-v1-20261023') 'EVENT'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          $parent='1f8d70a2c607413396e17c3279c85366a7f39a64'
+          $parent='48b9dd6892b178b2b11fc55d40967401493ed8b7'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $delta=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-preservation-reissue-v1-20261023.yml') 'WORKFLOW_SCOPE'
@@ -73,60 +73,60 @@ jobs:
             $out=Join-Path $temp 'reissued.yaml'
             $receipt=Join-Path $temp 'receipt.json'
             $fixture=@'
-id: OLD_MP_ORDER
-title: Historical Mind-Palace order
-repo: ckb
-baseline:
-  ref: accepted/old-baseline
-  sha: "1111111111111111111111111111111111111111"
-worker:
-  branch: codex/old-mp-order
-  preferred: codex
-instructions:
-  - Preserve historical intent without mutating the original.
-scope:
-  allowed_paths:
-    - docs/mp.md
-  forbidden_paths:
-    - .github/**
-required_paths:
-  - docs/mp.md
-preserve:
-  - historical-record
-preservation:
-  acceptedinterfaces: [controls]
-  behaviorcontracts: {paper_only: true}
-  evidencecontracts: [receipt]
-  interfacecontracts: [operator]
-  sourcecontracts: [frozen]
-  uimarkers:
-    operator:
-      critical: [status]
-required_tests:
-  powershell_scripts: []
-  focused_go:
-    - ^TestMPContract$
-  go_packages:
-    - ./internal/plane
-context_files: []
-acceptance:
-  run_go_test_all: false
-  run_playwright: false
-  protect_accepted_refs: true
-  require_clean_baseline: true
-forbidden:
-  - runtime launch
-ui:
-  root: ""
-  pages: []
-  markers: {}
-'@
+          id: OLD_MP_ORDER
+          title: Historical Mind-Palace order
+          repo: ckb
+          baseline:
+            ref: accepted/old-baseline
+            sha: "1111111111111111111111111111111111111111"
+          worker:
+            branch: codex/old-mp-order
+            preferred: codex
+          instructions:
+            - Preserve historical intent without mutating the original.
+          scope:
+            allowed_paths:
+              - docs/mp.md
+            forbidden_paths:
+              - .github/**
+          required_paths:
+            - docs/mp.md
+          preserve:
+            - historical-record
+          preservation:
+            acceptedinterfaces: [controls]
+            behaviorcontracts: {paper_only: true}
+            evidencecontracts: [receipt]
+            interfacecontracts: [operator]
+            sourcecontracts: [frozen]
+            uimarkers:
+              operator:
+                critical: [status]
+          required_tests:
+            powershell_scripts: []
+            focused_go:
+              - ^TestMPContract$
+            go_packages:
+              - ./internal/plane
+          context_files: []
+          acceptance:
+            run_go_test_all: false
+            run_playwright: false
+            protect_accepted_refs: true
+            require_clean_baseline: true
+          forbidden:
+            - runtime launch
+          ui:
+            root: ""
+            pages: []
+            markers: {}
+          '@
             [IO.File]::WriteAllText($src,$fixture,[Text.UTF8Encoding]::new($false))
             $srcHash=(Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant()
             & (Join-Path $temp 'mp-reissue.exe') --source $src --output $out --receipt $receipt --new-id MP_REISSUED_V1 --baseline-ref accepted/mp-qualified-v1 --baseline-sha 2222222222222222222222222222222222222222 --worker-branch codex/mp-reissued-v1
             Need ($LASTEXITCODE -eq 0) 'TOOL_EXECUTION'
             Need ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $srcHash) 'SOURCE_MUTATED'
-            Need (Test-Path -LiteralPath $out -PathType Leaf -and Test-Path -LiteralPath $receipt -PathType Leaf) 'ARTIFACT_MISSING'
+            Need ((Test-Path -LiteralPath $out -PathType Leaf) -and (Test-Path -LiteralPath $receipt -PathType Leaf)) 'ARTIFACT_MISSING'
             $rec=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8 | ConvertFrom-Json
             Need ([string]$rec.schema -ceq 'ckb-plane.mp-preservation-reissue.v1') 'RECEIPT_SCHEMA'
             Need ([string]$rec.source_yaml_sha256 -ceq $srcHash) 'RECEIPT_SOURCE_HASH'
@@ -136,30 +136,30 @@ ui:
             $planeRoot=Join-Path $parserRoot 'snapshot\source'
             $integration=Join-Path $planeRoot 'internal\plane\zz_mp_reissue_integration_test.go'
             $test=@'
-package plane
-import (
-  "os"
-  "strings"
-  "testing"
-)
-func TestMPReissueArtifactMatchesVersionedIngress(t *testing.T) {
-  oldPath:=os.Getenv("MP_OLD_YAML")
-  newPath:=os.Getenv("MP_NEW_YAML")
-  oldRaw,err:=os.ReadFile(oldPath);if err!=nil{t.Fatal(err)}
-  if _,err=ParseOrder(oldRaw);err==nil || !strings.Contains(err.Error(),"preservation"){
-    t.Fatalf("historical unversioned source unexpectedly accepted: %v",err)
-  }
-  raw,err:=os.ReadFile(newPath);if err!=nil{t.Fatal(err)}
-  w,err:=ParseOrder(raw);if err!=nil{t.Fatal(err)}
-  if w.ID!="MP_REISSUED_V1" || w.PreservationSchema!="ckb-plane.preservation.v1" || w.Preservation==nil {
-    t.Fatalf("reissued typed contract mismatch: %+v",w)
-  }
-  if w.Baseline.Ref!="accepted/mp-qualified-v1" || w.Baseline.SHA!="2222222222222222222222222222222222222222" {
-    t.Fatalf("fresh baseline not bound: %+v",w.Baseline)
-  }
-  if w.Worker.Branch!="codex/mp-reissued-v1" {t.Fatalf("fresh worker branch not bound: %q",w.Worker.Branch)}
-}
-'@
+          package plane
+          import (
+            "os"
+            "strings"
+            "testing"
+          )
+          func TestMPReissueArtifactMatchesVersionedIngress(t *testing.T) {
+            oldPath:=os.Getenv("MP_OLD_YAML")
+            newPath:=os.Getenv("MP_NEW_YAML")
+            oldRaw,err:=os.ReadFile(oldPath);if err!=nil{t.Fatal(err)}
+            if _,err=ParseOrder(oldRaw);err==nil || !strings.Contains(err.Error(),"preservation"){
+              t.Fatalf("historical unversioned source unexpectedly accepted: %v",err)
+            }
+            raw,err:=os.ReadFile(newPath);if err!=nil{t.Fatal(err)}
+            w,err:=ParseOrder(raw);if err!=nil{t.Fatal(err)}
+            if w.ID!="MP_REISSUED_V1" || w.PreservationSchema!="ckb-plane.preservation.v1" || w.Preservation==nil {
+              t.Fatalf("reissued typed contract mismatch: %+v",w)
+            }
+            if w.Baseline.Ref!="accepted/mp-qualified-v1" || w.Baseline.SHA!="2222222222222222222222222222222222222222" {
+              t.Fatalf("fresh baseline not bound: %+v",w.Baseline)
+            }
+            if w.Worker.Branch!="codex/mp-reissued-v1" {t.Fatalf("fresh worker branch not bound: %q",w.Worker.Branch)}
+          }
+          '@
             [IO.File]::WriteAllText($integration,$test,[Text.UTF8Encoding]::new($false))
             try {
               Push-Location $planeRoot
