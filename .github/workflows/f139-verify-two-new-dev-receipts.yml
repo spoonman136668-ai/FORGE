@@ -1,0 +1,113 @@
+name: Verify two real FORGE native DEV receipts under original owner
+on:
+  push:
+    branches: [verify/f139-real-two-native-development-receipts-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-real-native-development-readback
+  cancel-in-progress: false
+jobs:
+  original-owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Read immutable original-owner events and native receipt artifacts
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_NOT_ORIGINAL_OWNER'
+          }
+          $task=Get-ScheduledTask -TaskName FORGE-F139-UnifiedController -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $account=[string]$task.Principal.UserId
+          $owner=if($account -match '^S-1-'){$account}else{
+            (New-Object Security.Principal.NTAccount($account)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($who -cne $owner -or @($task.Actions).Count -ne 1 -or
+             $task.State -ne 'Running'){throw 'F139_ORIGINAL_TASK_NOT_RUNNING'}
+          $opts=@{}
+          $args=[string]$task.Actions[0].Arguments
+          foreach($name in @('RepositoryRoot','PythonExe','Database')){
+            $m=[regex]::Match($args,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_ORIGINAL_TASK_ARGUMENT_DRIFT'}
+            $opts[$name]=$m.Groups[1].Value
+          }
+          $sha=(& git -C $opts.RepositoryRoot rev-parse HEAD | Out-String).Trim()
+          $remote=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or
+             $sha -cne 'fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5' -or
+             $remote.commit.sha -cne $sha){throw 'F139_OWNER_SOURCE_NOT_PINNED'}
+          $expected=@{
+            'f139-nci04-i778-fe54d7b8f819-b517fdeb'=39942845762
+            'f139-nci04-i779-fe54d7b8f819-0588601e'=39942935746
+          }
+          foreach($ticket in $expected.Keys){
+            $rid=$expected[$ticket]
+            $run=(& gh api "repos/spoonman136668-ai/FORGE/actions/runs/$rid" |
+              ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or
+               $run.status -cne 'completed' -or
+               $run.conclusion -cne 'success' -or
+               $run.head_sha -cne $sha -or
+               $run.event -cne 'workflow_dispatch' -or
+               $run.run_attempt -ne 1){
+              throw ('F139_PROVIDER_RUN_NOT_AUTHENTICATED_'+$rid)
+            }
+          }
+          $code=@'
+          from pathlib import Path
+          import json, re, sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          expected={
+            "f139-nci04-i778-fe54d7b8f819-b517fdeb":39942845762,
+            "f139-nci04-i779-fe54d7b8f819-0588601e":39942935746
+          }
+          db=Database(Path(sys.argv[1]))
+          try:
+            db.verify()
+            assert verify_native_activation(db)
+            assert db.dual_native_schema()
+            meta=db.meta()
+            assert meta["source_sha"]=="fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5"
+            assert meta["enabled"]==meta["legacy_suspended"]==1
+            assert meta["head_seq"]>=106
+            failures=db.conn.execute("SELECT count(*) AS n FROM tasks WHERE stage='QUARANTINED'").fetchone()["n"]
+            assert failures==4
+            rows={}
+            for ticket,rid in expected.items():
+              row=db.conn.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+              assert row is not None
+              row=dict(row)
+              assert row["stage"]=="VERIFIED" and row["run_id"]==rid
+              assert row["source_sha"]==meta["source_sha"]
+              assert re.fullmatch("[0-9a-f]{64}",row["evidence_sha"])
+              assert row["evidence_dir"] and Path(row["evidence_dir"]).is_dir()
+              rows[ticket]=row
+            assert not db.actives()
+            for ticket,r in rows.items():
+              print("F139_REAL_NATIVE_VERIFIED_TICKET="+ticket)
+              print("F139_REAL_NATIVE_PROVIDER_RUN="+str(r["run_id"]))
+              print("F139_REAL_NATIVE_EVIDENCE_SHA256="+r["evidence_sha"])
+            print("F139_ORIGINAL_EVENT_SEQ="+str(meta["head_seq"]))
+            print("F139_ORIGINAL_EVENT_SHA256="+meta["head_hash"])
+            print("F139_ORIGINAL_QUARANTINED_NEGATIVES=4")
+            print("F139_ORIGINAL_TWO_NATIVE_DEVELOPMENTS_VERIFIED=PASS")
+            print("F139_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+            db.close()
+          '@
+          Push-Location -LiteralPath $opts.RepositoryRoot
+          try{
+            & $opts.PythonExe -B -c $code $opts.Database
+            if($LASTEXITCODE -ne 0){throw 'F139_ORIGINAL_SCIENCE_CUSTODY_NOT_RECONCILED'}
+          }finally{Pop-Location}
+          Write-Output 'F139_ORIGINAL_OWNER_READONLY_NO_DATABASE_WRITE=TRUE'
