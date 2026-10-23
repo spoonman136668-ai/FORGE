@@ -1,4 +1,4 @@
-name: R220 elevated live pre-cutover snapshot
+name: R220 guarded elevated controller cutover
 on:
   push:
     branches: [diagnostics/ckb-rb1-live-admission-20261022]
@@ -6,15 +6,15 @@ on:
 permissions:
   contents: read
 jobs:
-  snapshot:
+  cutover:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 10
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Exact elevated read-only CKB live snapshot
+      - name: Exact R220 live cutover with original rollback
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
@@ -26,83 +26,259 @@ jobs:
              $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              (& git.exe rev-parse HEAD).Trim() -cne $env:GITHUB_SHA -or
-             @(& git.exe status --porcelain).Count -ne 0){throw 'R220_ELEVATED_SNAPSHOT_AUTHORITY_DRIFT'}
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R220_ELEVATED_CUTOVER_AUTHORITY_DRIFT'}
           $changed=@(& git.exe diff --name-only HEAD^ HEAD)
-          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-guarded-original-cutover.yml'){
-            throw 'R220_ELEVATED_SNAPSHOT_SCOPE_DRIFT'
+          if($LASTEXITCODE-ne0 -or $changed.Count-ne1 -or $changed[0]-cne '.github/workflows/ckb-r18-guarded-original-cutover.yml'){
+            throw 'R220_ELEVATED_CUTOVER_SCOPE_DRIFT'
           }
+
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-RB1-ADMISSION-20261023'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-CONSOLIDATED-20261023'
+          $oldExe=Join-Path $old 'bin\ckb-plane.exe'
+          $newExe=Join-Path $new 'bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $bridge=Join-Path $root 'config\webui-bridge.json'
+          $db=Join-Path $root 'state\autonomy.db'
+          $tokenPath=Join-Path $root 'state\operator.token'
+          $taskName='CKB-plane Controller'
+          $wrapper='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564\Start-R18-Controller.ps1'
+          $oldHash='0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'
+          $newHash='c9ec3a08fc8e36498fb2ffc6fe475885eec686f5320a287b179054ea6495e57d'
+          $wrapperHash='47d8a25fe7b60fb0b96874249ef2de2a59fbe95cce722538abe524b86954d577'
+          $configHash='a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'
+          $bridgeHash='afcbac12e6fe6b3545d3ca89b556418f4bb444fb54ca2911ebcbef28308d63f2'
+          $candidateRun='40022959479'
+          $candidateArtifact='r220-qualified-controller-40022959479'
+          $candidateSource='2426d98e66b543943dce35c248c9b545631cebb1'
+          $candidateTree='23c52392b722c5f6bc8a83443d21ef3b4f9dccae'
+          $mergedMain='7b7d01f26cfe4d051956f82c7c45f6df507ecd0a'
+          $ktrade='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $evidence='C:\ProgramData\CKBR\cutover\PLANE-R220-CONSOLIDATED-20261023'
+          $utf8=New-Object Text.UTF8Encoding($false)
+
           function Sha([string]$p){
             if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw ('R220_MISSING_FILE='+$p)}
             (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
           }
-          $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $config=Join-Path $root 'config\autonomy.yaml'
-          $bridge=Join-Path $root 'config\webui-bridge.json'
-          $db=Join-Path $root 'state\autonomy.db'
-          $taskName='CKB-plane Controller'
-          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-          $taskInfo=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
-          if(@($task.Actions).Count -ne 1){throw 'R220_TASK_ACTION_COUNT_DRIFT'}
-          Write-Host ('R220_TASK_STATE='+[string]$task.State)
-          Write-Host ('R220_TASK_LAST_RESULT='+[string]$taskInfo.LastTaskResult)
-          Write-Host ('R220_TASK_EXECUTE='+[string]$task.Actions[0].Execute)
-          Write-Host ('R220_TASK_ARGUMENTS='+[string]$task.Actions[0].Arguments)
-          Write-Host ('R220_TASK_WORKDIR='+[string]$task.Actions[0].WorkingDirectory)
-          Write-Host ('R220_TASK_PRINCIPAL='+[string]$task.Principal.UserId)
-          Write-Host ('R220_TASK_RUNLEVEL='+[string]$task.Principal.RunLevel)
-          Write-Host ('R220_TASK_LOGONTYPE='+[string]$task.Principal.LogonType)
-          $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
-          if(!$m.Success){throw 'R220_WRAPPER_PATH_NOT_FOUND'}
-          $wrapper=$m.Groups[1].Value.Trim('"',"'"," ")
-          Write-Host ('R220_WRAPPER_PATH='+$wrapper)
-          Write-Host ('R220_WRAPPER_SHA256='+(Sha $wrapper))
-          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
-          Write-Host ('R220_CKB_PROCESS_COUNT='+$procs.Count)
-          foreach($p in $procs){
-            Write-Host ('R220_PROCESS_PID='+$p.ProcessId)
-            Write-Host ('R220_PROCESS_PATH='+[string]$p.ExecutablePath)
-            Write-Host ('R220_PROCESS_SHA256='+(Sha ([string]$p.ExecutablePath)))
-            Write-Host ('R220_PROCESS_COMMANDLINE='+[string]$p.CommandLine)
-            Write-Host ('R220_PROCESS_PARENT_PID='+[string]$p.ParentProcessId)
+          function Controllers {
+            @((Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)|Where-Object{
+              [string]$_.CommandLine -match '(?i)\bcontroller\s+run\b'
+            })
           }
-          Write-Host ('R220_CONFIG_SHA256='+(Sha $config))
-          Write-Host ('R220_BRIDGE_SHA256='+(Sha $bridge))
-          if(Test-Path -LiteralPath (Join-Path $root '.git')){
-            $h=(& git.exe -C $root rev-parse HEAD).Trim()
-            if($LASTEXITCODE-eq0){Write-Host ('R220_LIVE_CHECKOUT_HEAD='+$h)}
-            $dirty=@(& git.exe -C $root status --porcelain --untracked-files=all)
-            if($LASTEXITCODE-eq0){Write-Host ('R220_LIVE_CHECKOUT_DIRTY_COUNT='+$dirty.Count)}
+          function OneAt([string]$path){
+            $all=@(Controllers)
+            if($all.Count-ne1 -or [string]$all[0].ExecutablePath -ine $path){throw ('R220_CONTROLLER_SINGLETON_MISMATCH count='+$all.Count+' expected='+$path)}
+            $all[0]
           }
-          $py=@'
+          function Token {
+            $t=[IO.File]::ReadAllText($tokenPath).Trim()
+            if($t.Length-ne64){throw 'R220_OPERATOR_TOKEN_INVALID'}
+            $t
+          }
+          function NativeGet {
+            $t=Token
+            Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$t)} -TimeoutSec 5
+          }
+          function NativePost([string]$action){
+            $t=Token
+            Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$t)} -ContentType 'application/json' -Body (@{action=$action}|ConvertTo-Json -Compress) -TimeoutSec 20
+          }
+          $readState=@'
           import json,sqlite3,sys
           db=sys.argv[1].replace('\\','/')
+          kid=sys.argv[2]
           con=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=8)
           con.execute('pragma query_only=on')
           try:
               settings={str(k):str(v) for k,v in con.execute("select key,value from settings where key in ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
-              counts={str(k):int(v) for k,v in con.execute("select state,count(*) from work_orders group by state")}
-              active=[{'id':str(i),'state':str(s),'attempt':int(a)} for i,s,a in con.execute("select id,state,attempt from work_orders where state in ('AUTHORIZED','READY','DISPATCHED','ENGINEERING','CANDIDATE','ACCEPTING','REJECTED_RETRYABLE') order by rowid")]
               leases=[{'id':str(i),'attempt':int(a),'owner':str(o)} for i,a,o in con.execute("select work_order_id,attempt,owner from worker_leases order by work_order_id")]
-              k=con.execute("select state,attempt,reason from work_orders where id='KTRADE_RB1_SINGLE_TRACK_20261022'").fetchone()
-              print(json.dumps({'settings':settings,'counts':counts,'active':active,'leases':leases,'ktrade':None if k is None else {'state':str(k[0]),'attempt':int(k[1]),'reason':str(k[2])}},separators=(',',':')))
+              active=[{'id':str(i),'state':str(s),'attempt':int(a)} for i,s,a in con.execute("select id,state,attempt from work_orders where state in ('DISPATCHED','ENGINEERING','ACCEPTING') order by rowid")]
+              unfinished=[{'id':int(i),'work_order_id':str(w),'attempt':int(a),'pid':int(p)} for i,w,a,p in con.execute("select id,work_order_id,attempt,pid from process_records where finished=0 order by id")]
+              k=con.execute("select state,attempt,reason from work_orders where id=?",(kid,)).fetchone()
+              print(json.dumps({'settings':settings,'leases':leases,'active':active,'unfinished':unfinished,'ktrade':None if k is None else {'state':str(k[0]),'attempt':int(k[1]),'reason':str(k[2])}},separators=(',',':')))
           finally:
               con.close()
           '@
-          $state=@(& python.exe -B -c $py $db)
-          if($LASTEXITCODE-ne0 -or $state.Count-ne1){throw 'R220_DB_READONLY_FAILED'}
-          Write-Host ('R220_DB_STATE='+$state[0])
-          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
-          $activePtr=Join-Path $store 'state\active-release'
-          if(Test-Path -LiteralPath $activePtr -PathType Leaf){
-            $rid=[IO.File]::ReadAllText($activePtr).Trim()
-            Write-Host ('R220_ACTIVE_RELEASE_ID='+$rid)
-            $rexe=Join-Path (Join-Path (Join-Path $store 'releases') $rid) 'bin\ckb-plane.exe'
-            if(Test-Path -LiteralPath $rexe -PathType Leaf){Write-Host ('R220_ACTIVE_RELEASE_EXE_SHA256='+(Sha $rexe))}
-          }else{Write-Host 'R220_ACTIVE_RELEASE_ID=UNAVAILABLE'}
-          if($procs.Count-eq1){
-            $raw=@(& ([string]$procs[0].ExecutablePath) controller status --config $config --bridge-config $bridge 2>&1)
-            Write-Host ('R220_STATUS_EXIT='+$LASTEXITCODE)
-            Write-Host ('R220_STATUS_TEXT='+($raw -join ' '))
+          function ReadState {
+            $x=@(& python.exe -B -c $readState $db $ktrade)
+            if($LASTEXITCODE-ne0 -or $x.Count-ne1){throw 'R220_DB_READ_FAILED'}
+            $x[0]|ConvertFrom-Json
           }
-          Write-Host 'R220_ELEVATED_PRECUTOVER_READONLY=PASS'
-          Write-Host 'R220_LIVE_MUTATION=FALSE'
+          function Status([string]$exe){
+            $raw=@(& $exe controller status --config $config --bridge-config $bridge 2>&1)
+            if($LASTEXITCODE-ne0){throw ('R220_STATUS_FAILED='+($raw-join' '))}
+            try{($raw-join[Environment]::NewLine)|ConvertFrom-Json}catch{throw 'R220_STATUS_JSON_INVALID'}
+          }
+
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          $mainObserved=(& $gh api repos/spoonman136668-ai/ckb-plane/commits/main --jq '.sha' 2>&1 | Out-String).Trim()
+          if($LASTEXITCODE-ne0 -or $mainObserved-cne$mergedMain){throw ('R220_CKB_MAIN_DRIFT='+$mainObserved)}
+          $incoming=Join-Path $env:RUNNER_TEMP ('r220-live-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $incoming){throw 'R220_ARTIFACT_STAGING_PATH_REUSED'}
+          New-Item -ItemType Directory -Path $incoming -ErrorAction Stop|Out-Null
+          & $gh run download $candidateRun -R spoonman136668-ai/ckb-plane -n $candidateArtifact -D $incoming
+          if($LASTEXITCODE-ne0){throw 'R220_ARTIFACT_DOWNLOAD_FAILED'}
+          $candidate=Join-Path $incoming 'ckb-plane.exe'
+          $manifestFile=Join-Path $incoming 'manifest.json'
+          $manifest=Get-Content -LiteralPath $manifestFile -Raw|ConvertFrom-Json
+          if($manifest.schema-cne'ckb-plane.r220.consolidated-controller-candidate.v2' -or
+             $manifest.source_sha-cne$candidateSource -or $manifest.source_tree-cne$candidateTree -or
+             $manifest.executable_sha256-cne$newHash -or $manifest.final_full_regression-cne'passed' -or
+             $manifest.live_installed-ne$false -or (Sha $candidate)-cne$newHash){throw 'R220_QUALIFIED_ARTIFACT_IDENTITY_DRIFT'}
+
+          if((Sha $oldExe)-cne$oldHash -or (Sha $wrapper)-cne$wrapperHash -or
+             (Sha $config)-cne$configHash -or (Sha $bridge)-cne$bridgeHash){throw 'R220_LIVE_PREIMAGE_DRIFT'}
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State-cne'Running' -or @($task.Actions).Count-ne1 -or
+             [string]$task.Actions[0].WorkingDirectory -ine $root){throw 'R220_TASK_PREIMAGE_DRIFT'}
+          $p=OneAt $oldExe
+          $pre=NativeGet
+          if([string]$pre.authority-cne'plane' -or [string]$pre.generation-cne'6' -or [bool]$pre.heartbeat_stale -or [bool]$pre.accepted_ref_mutation_allowed){
+            throw 'R220_NATIVE_PRECONTRACT_DRIFT'
+          }
+          $prePaused=[bool]$pre.paused
+          $state=ReadState
+          if($null-eq$state.ktrade -or [string]$state.ktrade.state-cne'BLOCKED' -or [int]$state.ktrade.attempt-ne4 -or [string]$state.ktrade.reason-cne'BRANCH_ANCESTRY_INVALID'){
+            throw 'R220_KTRADE_PREIMAGE_DRIFT'
+          }
+          if(@($state.leases).Count-ne0 -or @($state.active).Count-ne0 -or @($state.unfinished).Count-ne0){throw 'R220_ACTIVE_EXECUTION_PREMUTATION'}
+          Write-Host 'R220_ALL_PREMUTATION_CUSTODY_AND_IDLE_CHECKS=PASS'
+
+          $originalBytes=[IO.File]::ReadAllBytes($wrapper)
+          $originalText=[Text.Encoding]::UTF8.GetString($originalBytes)
+          if(![Linq.Enumerable]::SequenceEqual([byte[]]$originalBytes,[byte[]][Text.Encoding]::UTF8.GetBytes($originalText)) -or
+             ($originalText.Split(@($old),[StringSplitOptions]::None).Length-1)-ne1 -or
+             $originalText.Contains($new)){throw 'R220_WRAPPER_RELEASE_PIN_AMBIGUOUS'}
+
+          if(!(Test-Path -LiteralPath $new)){
+            Copy-Item -LiteralPath $old -Destination $new -Recurse -ErrorAction Stop
+          }
+          if((Sha $oldExe)-cne$oldHash){throw 'R220_OLD_RELEASE_CHANGED_DURING_STAGE'}
+          Copy-Item -LiteralPath $candidate -Destination $newExe -Force -ErrorAction Stop
+          if((Sha $newExe)-cne$newHash){throw 'R220_STAGED_CANDIDATE_HASH_MISMATCH'}
+          New-Item -ItemType Directory -Force -Path $evidence|Out-Null
+          [IO.File]::WriteAllBytes((Join-Path $evidence 'wrapper.preimage.ps1'),$originalBytes)
+          Copy-Item -LiteralPath $manifestFile -Destination (Join-Path $evidence 'qualified-manifest.json') -Force
+
+          $pausedByUs=$false;$stopped=$false;$swapped=$false
+          try{
+            if(!$prePaused){
+              [void](NativePost 'pause')
+              $pausedByUs=$true
+              Start-Sleep -Seconds 2
+              $paused=NativeGet
+              if(![bool]$paused.paused){throw 'R220_PAUSE_FENCE_FAILED'}
+            }
+            $state=ReadState
+            if(@($state.leases).Count-ne0 -or @($state.active).Count-ne0 -or @($state.unfinished).Count-ne0){throw 'R220_ACTIVE_EXECUTION_AFTER_PAUSE'}
+            if([string]$state.ktrade.state-cne'BLOCKED' -or [int]$state.ktrade.attempt-ne4){throw 'R220_KTRADE_CHANGED_AFTER_PAUSE'}
+            Write-Host 'R220_PAUSE_AND_IDLE_FENCE=PASS'
+
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $stopped=$true
+            $seen=@(Controllers)
+            if($seen.Count-gt1){throw 'R220_MULTIPLE_CONTROLLERS_DURING_STOP'}
+            if($seen.Count-eq1){
+              if([string]$seen[0].ExecutablePath -ine $oldExe){throw 'R220_UNEXPECTED_CONTROLLER_PATH_DURING_STOP'}
+              Stop-Process -Id $seen[0].ProcessId -Force -ErrorAction Stop
+            }
+            Start-Sleep -Seconds 2
+            if(@(Controllers).Count-ne0){throw 'R220_OLD_CONTROLLER_REMAINED_RUNNING'}
+            $ready=$false
+            for($i=0;$i-lt30;$i++){
+              if([string](Get-ScheduledTask -TaskName $taskName).State -eq'Ready'){$ready=$true;break}
+              Start-Sleep -Seconds 1
+            }
+            if(!$ready){throw 'R220_TASK_NOT_READY_AFTER_STOP'}
+            Write-Host 'R220_OLD_CONTROLLER_STOPPED=PASS'
+
+            $normalWrapper=$originalText.Replace($old,$new)
+            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($normalWrapper))
+            $swapped=$true
+            if([IO.File]::ReadAllText($wrapper)-cne$normalWrapper){throw 'R220_WRAPPER_WRITE_MISMATCH'}
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $started=$false
+            for($i=0;$i-lt30;$i++){
+              Start-Sleep -Seconds 1
+              $all=@(Controllers)
+              if($all.Count-gt1){throw 'R220_MORE_THAN_ONE_CONTROLLER'}
+              if($all.Count-eq1 -and [string]$all[0].ExecutablePath -ieq$newExe){$started=$true;break}
+            }
+            if(!$started){throw 'R220_NEW_CONTROLLER_NOT_RUNNING'}
+            $post=Status $newExe
+            if([string]$post.authority-cne'plane' -or [string]$post.generation-cne'6' -or [bool]$post.heartbeat_stale -or [bool]$post.accepted_ref_mutation_allowed){
+              throw 'R220_POSTSTART_AUTHORITY_DRIFT'
+            }
+            if(-not[bool]$post.paused){throw 'R220_POSTSTART_NOT_FENCED'}
+            $state=ReadState
+            if([string]$state.ktrade.state-cne'BLOCKED' -or [int]$state.ktrade.attempt-ne4 -or [string]$state.ktrade.reason-cne'BRANCH_ANCESTRY_INVALID'){
+              throw 'R220_KTRADE_CHANGED_DURING_CUTOVER'
+            }
+            if(@($state.leases).Count-ne0 -or @($state.active).Count-ne0 -or @($state.unfinished).Count-ne0){throw 'R220_UNEXPECTED_EXECUTION_WHILE_FENCED'}
+            Write-Host 'R220_NEW_CONTROLLER_FENCED_VERIFICATION=PASS'
+
+            if(!$prePaused){
+              [void](NativePost 'resume')
+              Start-Sleep -Seconds 3
+            }
+            $final=Status $newExe
+            if([string]$final.authority-cne'plane' -or [string]$final.generation-cne'6' -or [bool]$final.heartbeat_stale -or
+               [bool]$final.accepted_ref_mutation_allowed -or [bool]$final.paused-ne$prePaused){throw 'R220_FINAL_CONTROLLER_CONTRACT_DRIFT'}
+            $finalState=ReadState
+            if([string]$finalState.ktrade.state-cne'BLOCKED' -or [int]$finalState.ktrade.attempt-ne4 -or [string]$finalState.ktrade.reason-cne'BRANCH_ANCESTRY_INVALID'){
+              throw 'R220_KTRADE_RETRY_OR_STATE_DRIFT'
+            }
+            if((Sha $newExe)-cne$newHash){throw 'R220_LIVE_BINARY_HASH_DRIFT'}
+            $receipt=[ordered]@{
+              schema='ckb-plane.r220.live-cutover.v1';status='CUTOVER_PASS';observed_at_utc=[DateTimeOffset]::UtcNow.ToString('o')
+              source_sha=$candidateSource;source_tree=$candidateTree;merged_main_sha=$mergedMain
+              prior_release=$old;live_release=$new;prior_executable_sha256=$oldHash;live_executable_sha256=$newHash
+              wrapper_sha256_before=$wrapperHash;authority=[string]$final.authority;generation=[string]$final.generation
+              paused=[bool]$final.paused;heartbeat_stale=[bool]$final.heartbeat_stale
+              accepted_ref_mutation_allowed=[bool]$final.accepted_ref_mutation_allowed
+              ktrade_state=[string]$finalState.ktrade.state;ktrade_attempt=[int]$finalState.ktrade.attempt;ktrade_retry_sent=$false
+              second_controller=$false;task_identity_preserved=$true
+            }
+            [IO.File]::WriteAllText((Join-Path $evidence 'cutover-pass.json'),($receipt|ConvertTo-Json -Depth 12),$utf8)
+            Write-Host 'R220_LIVE_CUTOVER=PASS'
+            Write-Host ('R220_LIVE_EXE_SHA256='+$newHash)
+            Write-Host 'R220_AUTHORITY=plane'
+            Write-Host 'R220_GENERATION=6'
+            Write-Host 'R220_KTRADE_PRESERVED=BLOCKED_ATTEMPT_4'
+            Write-Host ('R220_PAUSED_RESTORED='+$prePaused)
+          }catch{
+            $original=[string]$_.Exception.Message
+            Write-Host ('R220_CUTOVER_BLOCKED='+$original)
+            if($stopped){
+              try{
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                foreach($q in @(Controllers)){
+                  if([string]$q.ExecutablePath -ieq$oldExe -or [string]$q.ExecutablePath -ieq$newExe){
+                    Stop-Process -Id $q.ProcessId -Force -ErrorAction SilentlyContinue
+                  }
+                }
+                if($swapped){[IO.File]::WriteAllBytes($wrapper,$originalBytes)}
+                if((Sha $wrapper)-cne$wrapperHash){throw 'R220_ROLLBACK_WRAPPER_HASH_MISMATCH'}
+                Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                Start-Sleep -Seconds 5
+                [void](OneAt $oldExe)
+                $rb=Status $oldExe
+                if([string]$rb.authority-cne'plane' -or [string]$rb.generation-cne'6' -or [bool]$rb.heartbeat_stale -or [bool]$rb.accepted_ref_mutation_allowed){
+                  throw 'R220_ROLLBACK_AUTHORITY_DRIFT'
+                }
+                if(!$prePaused -and [bool]$rb.paused){
+                  [void](NativePost 'resume');Start-Sleep -Seconds 2;$rb=Status $oldExe
+                }
+                if([bool]$rb.paused-ne$prePaused){throw 'R220_ROLLBACK_PAUSE_STATE_DRIFT'}
+                $rbState=ReadState
+                if([string]$rbState.ktrade.state-cne'BLOCKED' -or [int]$rbState.ktrade.attempt-ne4){throw 'R220_ROLLBACK_KTRADE_DRIFT'}
+                Write-Host 'R220_EXACT_ORIGINAL_ROLLBACK=PASS'
+              }catch{
+                Write-Host ('R220_ROLLBACK_FAILED='+[string]$_.Exception.Message)
+              }
+            }elseif($pausedByUs -and !$prePaused){
+              try{[void](NativePost 'resume')}catch{}
+            }
+            throw
+          }
