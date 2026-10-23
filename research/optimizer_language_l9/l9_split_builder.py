@@ -256,7 +256,7 @@ def main():
     args = ap.parse_args()
     summary = build(pathlib.Path(args.repo), pathlib.Path(args.blob_manifest))
     encoded = json.dumps(summary, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    pathlib.Path(args.out).write_text(encoded, encoding="utf-8")
+    pathlib.Path(args.out).write_bytes(encoded.encode("utf-8"))
     print("L9_SPLIT_ROLE_IDENTITY_SHA256="+summary["role_identity_sha256"])
     print("L9_SPLIT_RECORDS_TOTAL="+str(summary["counts"]["records_total"]))
     for k,v in summary["counts"]["roles"].items():
