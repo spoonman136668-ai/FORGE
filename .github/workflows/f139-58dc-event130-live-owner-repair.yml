@@ -1,0 +1,290 @@
+name: F139 owner event130 authenticated live repair 58dc
+on:
+  push:
+    branches: [operations/f139-58dc-event130-live-repair-20261023]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-original-owner-cutover
+  cancel-in-progress: false
+jobs:
+  one-original-owner-cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Exact original-owner guarded late custody source transition and activation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $target='58dc4cc483349249c98f1620b51b843b9e927468'
+          $old='9047b840b1e33f15a8a9da9670a8ca0bcf7169d7'
+          $event130='388de03a55a2020dca352a9b3aefd75424eb2349a6dd33fa745a5f09927853a5'
+          $taskName='FORGE-F139-UnifiedController'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_REF -cne 'refs/heads/operations/f139-58dc-event130-live-repair-20261023' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+            throw 'F139_LIVE_UNQUALIFIED_RUNNER_OR_RETRY'
+          }
+          $main=(& gh api "repos/$repo/branches/main" --jq '.commit.sha' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $main -cne $target){
+            throw 'F139_LIVE_PROTECTED_MAIN_DRIFT'
+          }
+          foreach($expect in @(
+             @{id=40039503977;sha='60ccde18ddfc3f1be9754b438cdc115c8360c6bb'},
+             @{id=40039637838;sha='75e9e2edcbad306f09c434e2d506d4a84b51169d'})){
+            $run=(& gh api "repos/$repo/actions/runs/$($expect.id)" | Out-String | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $run.conclusion -cne 'success' -or
+               $run.status -cne 'completed' -or $run.head_sha -cne $expect.sha -or
+               [int]$run.run_attempt -ne 1){
+              throw ('F139_LIVE_REQUIRED_SNAPSHOT_OR_PREFLIGHT_NOT_PROVEN_'+$expect.id)
+            }
+          }
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){
+            throw 'F139_LIVE_ORIGINAL_CONTROLLER_NOT_SINGLE_RUNNING'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+                [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $who.User.Value){throw 'F139_LIVE_OWNER_SID_DRIFT'}
+          $taskArgs=[string]$task.Actions[0].Arguments
+          function Get-Arg([string]$name) {
+            $m=[regex]::Match($taskArgs,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_LIVE_MISSING_TASK_OPTION_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $root=Get-Arg 'RepositoryRoot'
+          $db=Get-Arg 'Database'
+          $python=Get-Arg 'PythonExe'
+          $key=Get-Arg 'EncryptedKeyFile'
+          $wrapper=Get-Arg 'File'
+          if([IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1' -or
+             [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath(
+               (Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             [IO.Path]::GetFullPath($key) -ine [IO.Path]::GetFullPath(
+               (Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'))){
+            throw 'F139_LIVE_ORIGINAL_TASK_CUSTODY_DRIFT'
+          }
+          $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $target -or $dirty.Length -ne 0){
+            throw 'F139_LIVE_ORIGINAL_SOURCE_NOT_CURRENT_CLEAN'
+          }
+          $read=@'
+          import json,pathlib,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          try:
+              con.execute('PRAGMA query_only=ON')
+              m=dict(con.execute('SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1').fetchone())
+              pending=[dict(x) for x in con.execute("SELECT ticket,stage FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER')")]
+              negatives=[dict(x) for x in con.execute("SELECT ticket,stage,quarantine_reason FROM tasks WHERE stage='QUARANTINED' ORDER BY ticket")]
+              print(json.dumps({'meta':m,'pending':pending,'negatives':negatives},sort_keys=True))
+          finally: con.close()
+          '@
+          $preRaw=(& $python -B -c $read $db | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_LIVE_READONLY_PRECHECK_FAILED'}
+          $pre=$preRaw|ConvertFrom-Json
+          if($pre.meta.source_sha -cne $old -or $pre.meta.head_hash -cne $event130 -or
+             [long]$pre.meta.head_seq -ne 130 -or
+             [int]$pre.meta.enabled -ne 1 -or [int]$pre.meta.legacy_suspended -ne 1 -or
+             @($pre.pending).Count -ne 0 -or @($pre.negatives).Count -ne 6){
+            throw 'F139_LIVE_EVENT130_OR_NEGATIVE_IDENTITY_DRIFT'
+          }
+          $expected=@(
+            'f139-nci04-i696-5662e3586bc9-7bb8f27f',
+            'f139-nci04-i706-09f3d7447900-09dc99f4',
+            'f139-nci04-i768-a42202ef02da-da7c4746',
+            'f139-nci04-i769-a42202ef02da-2512ea2c',
+            'f139-nci04-i813-9047b840b1e3-9dad93e1',
+            'f139-nci04-i814-9047b840b1e3-de06e1ba')|Sort-Object
+          $actual=@($pre.negatives|ForEach-Object {$_.ticket}|Sort-Object)
+          if(($actual -join '|') -cne ($expected -join '|') -or
+             @($pre.negatives|Where-Object {$_.stage -cne 'QUARANTINED' -or
+                $_.quarantine_reason -cne 'FAILED_OR_CANCELLED_NO_REPLAY'}).Count -ne 0){
+            throw 'F139_LIVE_HISTORICAL_NEGATIVE_CUSTODY_DRIFT'
+          }
+          function ControllerProcesses {
+            @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+              Where-Object {$_.CommandLine -and
+                $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db)})
+          }
+          if(@(ControllerProcesses).Count -ne 1){throw 'F139_LIVE_PRESTOP_PYTHON_CARDINALITY_DRIFT'}
+          $transPath=Join-Path $env:RUNNER_TEMP 'f139-58dc-owner-source-approval.json'
+          $activatePath=Join-Path $env:RUNNER_TEMP 'f139-58dc-owner-native-approval.json'
+          $restoreOriginal=$false
+          try{
+            $restoreOriginal=$true
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            $deadline=(Get-Date).AddSeconds(40)
+            do{
+              Start-Sleep -Milliseconds 500
+              $processes=@(ControllerProcesses)
+            }while($processes.Count -gt 0 -and (Get-Date) -lt $deadline)
+            if($processes.Count -ne 0 -or
+               [string](Get-ScheduledTask -TaskName $taskName).State -cne 'Disabled'){
+              throw 'F139_LIVE_OLD_OWNER_NOT_QUIESCED'
+            }
+            if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $target -or
+               ((& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()).Length -ne 0){
+              throw 'F139_LIVE_CHECKOUT_CHANGED_DURING_QUIESCE'
+            }
+            $late=@'
+          import json,pathlib,sys
+          from f139.local_controller import (
+              Database,GitHub,SingleOwner,native_original_owner_profile,require)
+          path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          old=sys.argv[2]
+          head=sys.argv[3]
+          native_original_owner_profile(path)
+          api=GitHub()
+          db=Database(path)
+          try:
+              with SingleOwner(path.with_suffix(".lock")):
+                  db.verify()
+                  m=db.meta()
+                  require(m["source_sha"]==old and m["head_seq"]==130 and
+                          m["head_hash"]==head,"LIVE_LATE_CUSTODY_EVENT130_DRIFT")
+                  rows=[]
+                  for ticket in (
+                      "f139-nci04-i813-9047b840b1e3-9dad93e1",
+                      "f139-nci04-i814-9047b840b1e3-de06e1ba"):
+                      row=db.conn.execute(
+                          "SELECT ticket,source_sha,started_at,stage,quarantine_reason "
+                          "FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+                      require(row is not None and row["source_sha"]==old and
+                              row["stage"]=="QUARANTINED" and
+                              row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY",
+                              "LIVE_PROVIDER_NEGATIVE_TASK_DRIFT")
+                      rows.append(row)
+                  reports=[]
+                  for row in rows:
+                      run=api.candidates(row["ticket"],row["started_at"])
+                      require(run is not None,"LIVE_PROVIDER_RUN_MISSING")
+                      reports.append(api.failed_native_provider_report(
+                          run,row["ticket"],row["source_sha"],row["started_at"]))
+                  for row,report in zip(rows,reports):
+                      db.custody_failed_native_provider(row["ticket"],report,late=True)
+                  require(db.meta()["head_seq"]==132 and
+                          len(db.verified_native_provider_failures())==4,
+                          "LIVE_PROVIDER_CUSTODY_EVENT132_DRIFT")
+                  db.verify()
+                  print("F139_AUTHENTIC_ORIGINAL_LATE_PROVIDER_CUSTODY=PASS")
+                  print("F139_AFTER_CUSTODY_SEQ=132")
+                  print("F139_AFTER_CUSTODY_HEAD="+db.meta()["head_hash"])
+          finally: db.close()
+          '@
+            Push-Location -LiteralPath $root
+            try{
+              & $python -B -c $late $db $old $event130
+              if($LASTEXITCODE -ne 0){throw 'F139_LIVE_LATE_PROVIDER_CUSTODY_FAILED'}
+            }finally{Pop-Location}
+            $afterRaw=(& $python -B -c $read $db|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw 'F139_LIVE_AFTER_CUSTODY_READ_FAILED'}
+            $after=$afterRaw|ConvertFrom-Json
+            if($after.meta.source_sha -cne $old -or [long]$after.meta.head_seq -ne 132){
+              throw 'F139_LIVE_AFTER_CUSTODY_EVENT132_INVALID'
+            }
+            $transition=[ordered]@{
+              schema='forge.f139.nci04.owner-source-transition-approval.v1'
+              from_source_sha=$old
+              to_source_sha=$target
+              expected_event_head_sha256=[string]$after.meta.head_hash
+              sealed_23_event_head_sha256='eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87'
+              native_development_only=$true
+              scientific_first_use=$false
+              new_controller=$false
+              paid_api_calls=0
+            }
+            [IO.File]::WriteAllText($transPath,($transition|ConvertTo-Json -Compress),
+               [Text.UTF8Encoding]::new($false))
+            Push-Location -LiteralPath $root
+            try{
+              & $python -B -m f139.local_controller --db $db transition-qualified-native --approval $transPath
+              if($LASTEXITCODE -ne 0){throw 'F139_LIVE_CURRENT_SOURCE_TRANSITION_FAILED'}
+            }finally{Pop-Location}
+            $afterTransitionRaw=(& $python -B -c $read $db|Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw 'F139_LIVE_SOURCE_TRANSITION_READ_FAILED'}
+            $moved=$afterTransitionRaw|ConvertFrom-Json
+            if($moved.meta.source_sha -cne $target -or
+               [long]$moved.meta.head_seq -ne 133){
+              throw 'F139_LIVE_POST_TRANSITION_EVENT133_INVALID'
+            }
+            $approval=[ordered]@{
+              schema='forge.f139.nci04.owner-native-approval.v1'
+              source_sha=$target
+              expected_event_head_sha256=[string]$moved.meta.head_hash
+              native_development_approved=$true
+              scientific_first_use=$false
+              create_controller=$false
+              paid_api_calls=0
+            }
+            [IO.File]::WriteAllText($activatePath,($approval|ConvertTo-Json -Compress),
+               [Text.UTF8Encoding]::new($false))
+            Push-Location -LiteralPath $root
+            try{
+              & $python -B -m f139.local_controller --db $db activate-native --approval $activatePath
+              if($LASTEXITCODE -ne 0){throw 'F139_LIVE_NATIVE_ACTIVATION_FAILED'}
+              $verify=@'
+          import pathlib,sys
+          from f139.local_controller import Database,require
+          from f139.nci04_owner_ledger import verify_native_activation
+          db=Database(pathlib.Path(sys.argv[1]).resolve(strict=True))
+          try:
+              db.verify()
+              meta=db.meta()
+              require(meta["source_sha"]==sys.argv[2] and
+                      meta["head_seq"]==134 and
+                      verify_native_activation(db) and
+                      not db.actives() and db.ready() is None,
+                      "OWNER_POST_CUTOVER_NATIVE_STATE_INVALID")
+              print("F139_ORIGINAL_LEDGER_ALL_134_EVENTS_VERIFIED=PASS")
+              print("F139_LIVE_NEW_EVENT_HEAD="+meta["head_hash"])
+          finally:db.close()
+          '@
+              & $python -B -c $verify $db $target
+              if($LASTEXITCODE -ne 0){throw 'F139_LIVE_FINAL_LEDGER_INTEGRITY_FAILED'}
+            }finally{Pop-Location}
+            Write-Output 'F139_ORIGINAL_OWNER_SOURCE_TRANSITION=PASS'
+            Write-Output 'F139_ORIGINAL_OWNER_NATIVE_ACTIVATION=PASS'
+            Write-Output 'F139_NEGATIVES_PRESERVED=TRUE'
+            Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+          }finally{
+            Remove-Item -LiteralPath $transPath,$activatePath -Force -ErrorAction SilentlyContinue
+            if($restoreOriginal){
+              $alive=@(ControllerProcesses)
+              if($alive.Count -ne 0){
+                Write-Output 'F139_ORIGINAL_RESTART_REFUSED_CHILD_STILL_ALIVE'
+                throw 'F139_ORIGINAL_PROCESS_STILL_PRESENT_KEEP_SAFE'
+              }
+              if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $target){
+                throw 'F139_ORIGINAL_RESTART_SOURCE_DRIFT_KEEP_SAFE'
+              }
+              Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              $until=(Get-Date).AddSeconds(45)
+              do{
+                Start-Sleep -Milliseconds 500
+                $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                $alive=@(ControllerProcesses)
+              }while(([string]$task.State -cne 'Running' -or $alive.Count -ne 1)
+                     -and (Get-Date) -lt $until)
+              if([string]$task.State -cne 'Running' -or $alive.Count -ne 1){
+                throw 'F139_SAME_ORIGINAL_OWNER_RESTART_FAILED'
+              }
+              Write-Output 'F139_SAME_ORIGINAL_OWNER_RESTART=PASS'
+            }
+          }
