@@ -29,7 +29,7 @@ SHA = re.compile(r"[a-f0-9]{40}\Z")
 TICKET = re.compile(r"f139-[a-z0-9][a-z0-9-]{2,47}\Z")
 LANES = {"Wingless", "Yggdrasil", "Qualification"}
 ALLOWED_STAGES = {"READY", "START_RISK", "WAIT_PROVIDER", "VERIFIED", "QUARANTINED"}
-LIMIT_PER_DAY = 48
+LIMIT_PER_DAY = 288  # Sustained two developments per ten minutes, 24/7 capacity.
 MAX_ZIP_BYTES = 2_000_000
 MAX_RECEIPT_BYTES = 8192
 D2K_WORK_LABEL = "f139-development-eligible"
@@ -730,6 +730,11 @@ class Database:
             require(self.active() is None,"CONCURRENT_ACTIVE_START_RISK")
             row=self.conn.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
             require(row is not None and row["stage"]=="READY", "TASK_ALREADY_CLAIMED")
+            if ticket.startswith("f139-nci04-"):
+                from f139.nci04_owner_ledger import (
+                    native_recent_starts, MAX_STARTS_PER_WINDOW)
+                require(native_recent_starts(self, now) < MAX_STARTS_PER_WINDOW,
+                        "NATIVE_TWO_PER_TEN_MINUTES_LIMIT")
             self.conn.execute("UPDATE tasks SET stage='START_RISK',started_at=? WHERE ticket=?",(now,ticket))
             self.conn.execute("UPDATE meta SET starts=?,day=? WHERE id=1",(starts+1,day))
             self.event("BEFORE_DISPATCH_INTENT",{"ticket":ticket,"started_at":now,"starts":starts+1})
