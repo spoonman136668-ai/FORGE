@@ -1,0 +1,141 @@
+name: Mind-Palace context accepted blob repin Windows source qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-accepted-context-repin-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-context-accepted-repin-source-qual
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact three Git blobs, negative invariants, parse and one full Windows Go regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$tag) { if (-not $ok) { throw ('MP_CONTEXT_REPIN_'+$tag) } }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $ckbRemote = 'https://github.com/spoonman136668-ai/ckb-plane.git'
+          $mpRemote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch = 'proposal/mind-palace-context-accepted-blobs-repin-20261023'
+          $candidate = 'f1a8ba348cf1759f9395e60ee0d6788935683ff9'
+          $ckbBase = '3fc3b5ddd6d5a105a95ea83dbabaccc989dc6dbc'
+          $mpBase = 'de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          $sub = 'implementations/mind-palace-context-accepted-repin-v1'
+          $old = 'implementations/mind-palace-context-budget-v1/overlay/operations/Read-MindPalaceContext.ps1'
+          $new = "$sub/overlay/operations/Read-MindPalaceContext.ps1"
+          $allow = @("$sub/README.md","$sub/QUALIFICATION-CONTRACT.json",$new)
+          $pairs = @(
+            @('tools/context-pack-budgeted.ps1','eab30125d8467cf52c7434728b397e53542703c4','ab29b4c74abe051039e8fc75ee6320a30445a790'),
+            @('tools/context-pack-tiered.ps1','4ac92afeb56d32c172ef9a503fa5aa1e468e1bfe','9bcf9debd6c7477ae2287fbdf7edcb16e11c0131'),
+            @('tools/mind.ps1','6b8ff8a8ea5de5c6a9ba392f828f2889ece4bb87','bb8c46f3c22f689e5f44dbe06ccc286014bd9130')
+          )
+          $scratch = Join-Path $env:RUNNER_TEMP ("mp-context-repin-" + $env:GITHUB_RUN_ID)
+          $ckb = Join-Path $scratch 'ckb'
+          $mp = Join-Path $scratch 'mp'
+          $recordHash = ''
+          $mpReady = $false
+          function RefPin([string]$remote,[string]$ref,[string]$sha) {
+            $rows = @(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1) ('REF_UNAVAILABLE_' + $ref)
+            Need (([string]($rows[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_' + $ref)
+          }
+          function GitBlob([string]$root,[string]$path) {
+            $s = ((& git.exe -C $root rev-parse ("HEAD:" + $path) | Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $s -match '^[0-9a-f]{40}$') ('GIT_BLOB_' + $path)
+            return $s
+          }
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_PREEXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            RefPin $ckbRemote 'refs/heads/main' $ckbBase
+            RefPin $ckbRemote ('refs/heads/' + $branch) $candidate
+            RefPin $mpRemote 'refs/heads/main' $mpBase
+            & git.exe clone --quiet --single-branch --branch $branch $ckbRemote $ckb
+            Need ($LASTEXITCODE -eq 0) 'CKB_CLONE'
+            & git.exe clone --quiet --single-branch --branch main $mpRemote $mp
+            Need ($LASTEXITCODE -eq 0) 'MP_CLONE'
+            Need (((& git.exe -C $ckb rev-parse HEAD | Out-String).Trim()) -ceq $candidate) 'CKB_CANDIDATE_HEAD'
+            Need (((& git.exe -C $mp rev-parse HEAD | Out-String).Trim()) -ceq $mpBase) 'MP_ACCEPTED_HEAD'
+            $names = @(& git.exe -C $ckb diff --name-only $ckbBase $candidate)
+            Need ($LASTEXITCODE -eq 0 -and $names.Count -eq 3 -and
+              (($names | Sort-Object) -join '|') -ceq (($allow | Sort-Object) -join '|')) 'THREE_ADDED_FILES_ONLY'
+            $statuses = @(& git.exe -C $ckb diff --name-status $ckbBase $candidate)
+            Need ($LASTEXITCODE -eq 0 -and $statuses.Count -eq 3 -and
+              @($statuses | Where-Object {$_ -cnotmatch '^A\s+'}).Count -eq 0) 'ONLY_ADDITIONS'
+            $origBlob = (& git.exe -C $ckb rev-parse ($ckbBase + ':' + $old) | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $origBlob -ceq '5dc598d31db230213203d5b4ea551384948598da') 'HISTORICAL_WRAPPER_BLOB'
+            $prior = [IO.File]::ReadAllText((Join-Path $ckb $old))
+            $current = [IO.File]::ReadAllText((Join-Path $ckb $new))
+            $manifest = Get-Content -LiteralPath (Join-Path $ckb "$sub/QUALIFICATION-CONTRACT.json") -Raw | ConvertFrom-Json
+            Need ([string]$manifest.ckb_frozen_parent -ceq $ckbBase -and
+              [string]$manifest.accepted_mind_palace_main -ceq $mpBase -and
+              [string]$manifest.prior_wrapper_git_blob -ceq $origBlob -and
+              @($manifest.substitutions).Count -eq 3) 'MANIFEST_PINS'
+            for($i = 0; $i -lt $pairs.Count; $i++) {
+              $row = $pairs[$i]
+              Need ([string]$manifest.substitutions[$i].path -ceq $row[0] -and
+                [string]$manifest.substitutions[$i].old_pin -ceq $row[1] -and
+                [string]$manifest.substitutions[$i].accepted_pin -ceq $row[2]) 'MANIFEST_SUBSTITUTION'
+              Need ((GitBlob $mp $row[0]) -ceq $row[2]) ('MP_ACCEPTED_BLOB_' + $i)
+              Need ($prior.IndexOf($row[1],[StringComparison]::Ordinal) -ge 0 -and
+                $prior.IndexOf($row[1],[StringComparison]::Ordinal) -eq $prior.LastIndexOf($row[1],[StringComparison]::Ordinal)) ('OLD_PIN_ONCE_' + $i)
+              $prior = $prior.Replace($row[1],$row[2])
+            }
+            Need ($prior -ceq $current) 'ONLY_THREE_BLOB_REPLACEMENTS'
+            Need ($current.Contains('MIND_PALACE_CONTEXT_REQUIRES_CKB_PLANE_LOCAL_EXEC') -and
+              $current.Contains('MIND_PALACE_RETRIEVAL_TOOLS_DIRTY') -and
+              $current.Contains('MIND_PALACE_RECORDS_CHANGED_DURING_RETRIEVAL') -and
+              $current.Contains("MaxBytes = 6144") -and
+              $current.Contains("ModelContextMaxBytes = 4096")) 'PRESERVED_READ_ONLY_GATES'
+            $tokens = $null
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $ckb $new),[ref]$tokens,[ref]$errors)
+            Need ($null -ne $ast -and @($errors).Count -eq 0) 'WINDOWS_POWERSHELL_SYNTAX'
+            $sha = (Get-FileHash -LiteralPath (Join-Path $ckb $new) -Algorithm SHA256).Hash.ToLowerInvariant()
+            $recordPath = Join-Path $mp '.ice/records.json'
+            $recordHash = (Get-FileHash -LiteralPath $recordPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $mpReady = $true
+            Write-Host 'MP_CONTEXT_REPIN_FOCUSED_SOURCE_INVARIANTS=PASS'
+            Write-Host "MP_CONTEXT_REPIN_CANDIDATE_SCRIPT_SHA256=$sha"
+            Push-Location (Join-Path $ckb 'snapshot/source')
+            try {
+              & go.exe test ./...
+              Need ($LASTEXITCODE -eq 0) 'CKB_FULL_GO_REGRESSION'
+            } finally { Pop-Location }
+            Write-Host 'MP_CONTEXT_REPIN_FULL_GO_REGRESSION=PASS'
+            Need (-not ((& git.exe -C $ckb status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'CKB_TRACKED_FILES_CHANGED'
+            Need (-not ((& git.exe -C $mp status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'MP_TRACKED_FILES_CHANGED'
+            Need ((Get-FileHash -LiteralPath $recordPath -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $recordHash) 'ACCEPTED_RECORDS_CHANGED'
+            RefPin $ckbRemote 'refs/heads/main' $ckbBase
+            RefPin $ckbRemote ('refs/heads/' + $branch) $candidate
+            RefPin $mpRemote 'refs/heads/main' $mpBase
+            Write-Host 'MP_CONTEXT_REPIN_FINAL_SOURCE_IDENTITY=PASS'
+            Write-Host 'MP_CONTEXT_REPIN_PRODUCTION_CONTROLLER_WRITES=0'
+            Write-Host 'MP_CONTEXT_REPIN_ICE_WRITES=0'
+            Write-Host 'MP_CONTEXT_REPIN_KTRADE_INTERACTIONS=0'
+            Write-Host 'MP_CONTEXT_REPIN_LIVE_PROMOTION=NOT_AUTHORIZED'
+          } finally {
+            if($mpReady) {
+              Need ((Get-FileHash -LiteralPath (Join-Path $mp '.ice/records.json') -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $recordHash) 'RECORD_HASH_DRIFT_ON_FAILURE'
+              Write-Host 'MP_CONTEXT_REPIN_PROTECTED_RECORD_SHA256=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Force -Recurse }
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_CONTEXT_REPIN_SCRATCH_CLEAN=PASS'
+          }
