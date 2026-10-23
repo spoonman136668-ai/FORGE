@@ -31,17 +31,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          parent='ef32052abc77785ac5db4594828174a80c6a0e7c'
+          parent='acd42e94d63ff2ea3d10097f24d892ff12c65bc3'
           test "$(git rev-parse HEAD~1)" = "$parent"
           test "$(git diff --name-only "$parent" HEAD)" = '.github/workflows/optimizer-language-l9-model-prefit.yml'
           root='research/optimizer_language_l9'
           suite="$root/l9_model_suite.py"
           tests="$root/test_l9_model_suite.py"
           contract="$root/L9_MODEL_CONTRACT.json"
-          receipt="$root/L9_MODEL_IMPLEMENTATION_RECEIPT.json"
+          receipt="$root/L9_MODEL_IMPLEMENTATION_RECEIPT_V2.json"
           split="$root/L9_SPLIT_RECEIPT.json"
           test "$(git rev-parse HEAD:$suite)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
-          test "$(git rev-parse HEAD:$tests)" = '945cde3901f24c446a8dd14fe5b68b2474422424'
+          test "$(git rev-parse HEAD:$tests)" = '4fd1ad2aa3609746f4454628a946c38e1a34fa63'
           test "$(git rev-parse HEAD:$contract)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
           test "$(git rev-parse HEAD:$split)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
           receipt_blob="$(git rev-parse HEAD:$receipt)"
@@ -52,7 +52,7 @@ jobs:
           import ast,json,pathlib
           import l9_model_suite as m
           c=json.loads(pathlib.Path('L9_MODEL_CONTRACT.json').read_text(encoding='utf-8'))
-          r=json.loads(pathlib.Path('L9_MODEL_IMPLEMENTATION_RECEIPT.json').read_text(encoding='utf-8'))
+          r=json.loads(pathlib.Path('L9_MODEL_IMPLEMENTATION_RECEIPT_V2.json').read_text(encoding='utf-8'))
           s=json.loads(pathlib.Path('L9_SPLIT_RECEIPT.json').read_text(encoding='utf-8'))
           assert c['status']=='FROZEN_BEFORE_ANY_L9_MODEL_FIT'
           assert r['status']=='SEALED_BEFORE_ANY_L9_MODEL_FIT'
@@ -61,7 +61,7 @@ jobs:
           assert c['required_split']['role_identity_sha256']==s['deterministic_split']['cross_os_role_identity_sha256']
           assert c['required_split']['summary_sha256']==s['deterministic_split']['cross_os_summary_sha256']
           assert m.expected_gru_parameters()==433795
-          assert m.expected_transformer_parameters()==449251
+          assert m.expected_transformer_parameters()==424387
           assert max(m.expected_gru_parameters(),m.expected_transformer_parameters()) <= m.PARAMETER_CEILING
           source=pathlib.Path('l9_model_suite.py').read_text(encoding='utf-8')
           tree=ast.parse(source)
@@ -82,7 +82,7 @@ jobs:
           PY
           popd >/dev/null
           grep -qx 'gru_params=433795' "$RUNNER_TEMP/l9-prefit-values"
-          grep -qx 'transformer_params=449251' "$RUNNER_TEMP/l9-prefit-values"
+          grep -qx 'transformer_params=424387' "$RUNNER_TEMP/l9-prefit-values"
           grep -qx 'candidate_grid=8' "$RUNNER_TEMP/l9-prefit-values"
           grep -qx 'seeds=1701,1702' "$RUNNER_TEMP/l9-prefit-values"
           grep -qx 'epochs=4,8,12' "$RUNNER_TEMP/l9-prefit-values"
@@ -90,11 +90,11 @@ jobs:
           test -z "$artifacts"
           test -z "$(git status --porcelain)"
           echo "suite_blob=710ce648a30ffc55647f689c5f4aa3ac13b07066" >> "$GITHUB_OUTPUT"
-          echo "tests_blob=945cde3901f24c446a8dd14fe5b68b2474422424" >> "$GITHUB_OUTPUT"
+          echo "tests_blob=4fd1ad2aa3609746f4454628a946c38e1a34fa63" >> "$GITHUB_OUTPUT"
           echo "contract_blob=4eab05a2b9011ebbaa34d01778e7f185807704c2" >> "$GITHUB_OUTPUT"
           echo "receipt_blob=$receipt_blob" >> "$GITHUB_OUTPUT"
           echo "gru_params=433795" >> "$GITHUB_OUTPUT"
-          echo "transformer_params=449251" >> "$GITHUB_OUTPUT"
+          echo "transformer_params=424387" >> "$GITHUB_OUTPUT"
           echo 'L9_MODEL_PREFIT_LINUX_UNIT_AND_STATIC=PASS'
           echo 'L9_MODEL_PREFIT_L9_MODEL_FIT_COUNT=0'
           echo 'L9_MODEL_PREFIT_CHECKPOINT_COUNT=0'
@@ -121,7 +121,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $parent='ef32052abc77785ac5db4594828174a80c6a0e7c'
+          $parent='acd42e94d63ff2ea3d10097f24d892ff12c65bc3'
           if((& git rev-parse 'HEAD~1').Trim() -cne $parent){throw 'L9_PREFIT_PARENT_DRIFT'}
           $changed=@(& git diff --name-only $parent HEAD)
           if($changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/optimizer-language-l9-model-prefit.yml'){throw 'L9_PREFIT_SCOPE_DRIFT'}
@@ -129,10 +129,10 @@ jobs:
           $suite="$root/l9_model_suite.py"
           $tests="$root/test_l9_model_suite.py"
           $contract="$root/L9_MODEL_CONTRACT.json"
-          $receipt="$root/L9_MODEL_IMPLEMENTATION_RECEIPT.json"
+          $receipt="$root/L9_MODEL_IMPLEMENTATION_RECEIPT_V2.json"
           $split="$root/L9_SPLIT_RECEIPT.json"
           if((& git rev-parse "HEAD:$suite").Trim() -cne '710ce648a30ffc55647f689c5f4aa3ac13b07066'){throw 'L9_SUITE_BLOB_DRIFT'}
-          if((& git rev-parse "HEAD:$tests").Trim() -cne '945cde3901f24c446a8dd14fe5b68b2474422424'){throw 'L9_TEST_BLOB_DRIFT'}
+          if((& git rev-parse "HEAD:$tests").Trim() -cne '4fd1ad2aa3609746f4454628a946c38e1a34fa63'){throw 'L9_TEST_BLOB_DRIFT'}
           if((& git rev-parse "HEAD:$contract").Trim() -cne '4eab05a2b9011ebbaa34d01778e7f185807704c2'){throw 'L9_CONTRACT_BLOB_DRIFT'}
           if((& git rev-parse "HEAD:$split").Trim() -cne 'ca3e41e2835713bc922c56542656489f202c55cf'){throw 'L9_SPLIT_BLOB_DRIFT'}
           $receiptBlob=(& git rev-parse "HEAD:$receipt").Trim()
@@ -146,7 +146,7 @@ jobs:
           import ast,json,pathlib
           import l9_model_suite as m
           c=json.loads(pathlib.Path("L9_MODEL_CONTRACT.json").read_text(encoding="utf-8"))
-          r=json.loads(pathlib.Path("L9_MODEL_IMPLEMENTATION_RECEIPT.json").read_text(encoding="utf-8"))
+          r=json.loads(pathlib.Path("L9_MODEL_IMPLEMENTATION_RECEIPT_V2.json").read_text(encoding="utf-8"))
           s=json.loads(pathlib.Path("L9_SPLIT_RECEIPT.json").read_text(encoding="utf-8"))
           assert c["status"]=="FROZEN_BEFORE_ANY_L9_MODEL_FIT"
           assert r["status"]=="SEALED_BEFORE_ANY_L9_MODEL_FIT"
@@ -155,7 +155,7 @@ jobs:
           assert c["required_split"]["role_identity_sha256"]==s["deterministic_split"]["cross_os_role_identity_sha256"]
           assert c["required_split"]["summary_sha256"]==s["deterministic_split"]["cross_os_summary_sha256"]
           assert m.expected_gru_parameters()==433795
-          assert m.expected_transformer_parameters()==449251
+          assert m.expected_transformer_parameters()==424387
           assert max(m.expected_gru_parameters(),m.expected_transformer_parameters()) <= m.PARAMETER_CEILING
           source=pathlib.Path("l9_model_suite.py").read_text(encoding="utf-8")
           tree=ast.parse(source)
@@ -174,11 +174,11 @@ jobs:
           if($artifacts.Count -ne 0){throw 'L9_WINDOWS_CHECKPOINT_CREATED'}
           if(@(& git status --porcelain).Count -ne 0){throw 'L9_WINDOWS_DIRTY'}
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'suite_blob=710ce648a30ffc55647f689c5f4aa3ac13b07066' -Encoding utf8
-          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'tests_blob=945cde3901f24c446a8dd14fe5b68b2474422424' -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'tests_blob=4fd1ad2aa3609746f4454628a946c38e1a34fa63' -Encoding utf8
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'contract_blob=4eab05a2b9011ebbaa34d01778e7f185807704c2' -Encoding utf8
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ('receipt_blob='+$receiptBlob) -Encoding utf8
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'gru_params=433795' -Encoding utf8
-          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'transformer_params=449251' -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'transformer_params=424387' -Encoding utf8
           Write-Host 'L9_MODEL_PREFIT_WINDOWS_UNIT_AND_STATIC=PASS'
           Write-Host 'L9_MODEL_PREFIT_L9_MODEL_FIT_COUNT=0'
           Write-Host 'L9_MODEL_PREFIT_CHECKPOINT_COUNT=0'
@@ -213,7 +213,7 @@ jobs:
           test "$LG" = "$WG"
           test "$LX" = "$WX"
           test "$LG" = '433795'
-          test "$LX" = '449251'
+          test "$LX" = '424387'
           echo "L9_MODEL_PREFIT_SUITE_BLOB=$LS"
           echo "L9_MODEL_PREFIT_TEST_BLOB=$LT"
           echo "L9_MODEL_PREFIT_CONTRACT_BLOB=$LC"
