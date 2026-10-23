@@ -1,0 +1,151 @@
+name: KTRADE RB1 one-shot private Git shallow-metadata repair
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ktrade-rb1-private-shallow-metadata-repair.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ktrade-rb1-existing-attempt2-private-metadata-only
+  cancel-in-progress: false
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Guarded exact private Git shallow repair with provenance and rollback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+               throw 'RB1_PRIVATE_METADATA_OWNER_AUTHORITY_REQUIRED'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $db=Join-Path $root 'state\autonomy.db'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-RB1-ADMISSION-20261023\bin\ckb-plane.exe'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $base='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $branchName='codex/ktrade-rb1-single-track-20261022'
+          $paths=@('internal/paperreconcile/reconcile.go','internal/paperreconcile/reconcile_test.go')
+          $expectedHashes=@{
+            'internal/paperreconcile/reconcile.go'='0cc90c6340ae654e8feea5eed56be60849b094892851c17eb725d85c280ac0aa'
+            'internal/paperreconcile/reconcile_test.go'='1a13aa2459aef12c54828b2dae4c13c5631ca84b145616a4d9ce3a687fe4d2ef'
+          }
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          function Git([string]$where,[string[]]$args){
+            $save=$ErrorActionPreference
+            try{$ErrorActionPreference='Continue';$out=@(& git.exe -C $where @args 2>&1);$code=$LASTEXITCODE}
+            finally{$ErrorActionPreference=$save}
+            return @{exit=$code;text=($out -join [Environment]::NewLine).Trim()}
+          }
+          if((Sha $exe) -cne '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc' -or
+             (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+             throw 'RB1_PRIVATE_METADATA_INSTALLED_AUTHORITY_CHANGED'
+          }
+          $controller=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($controller.Count -ne 1 -or [string]$controller[0].ExecutablePath -ine $exe){throw 'RB1_PRIVATE_METADATA_SINGLE_CONTROLLER_DRIFT'}
+          $py=@'
+          import sqlite3,sys,json
+          c=sqlite3.connect('file:'+sys.argv[1].replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           row=c.execute('select state,attempt,reason,workspace from work_orders where id=?',(sys.argv[2],)).fetchone()
+           leases=c.execute('select count(*) from worker_leases where work_order_id=?',(sys.argv[2],)).fetchone()[0]
+           if not row: raise RuntimeError('RB1_MISSING')
+           print(json.dumps(dict(zip(('state','attempt','reason','workspace'),row)),separators=(',',':'))[:-1]+',"leases":'+str(leases)+'}')
+          finally:c.close()
+          '@
+          $rows=@(& python.exe -B -c $py $db $id)
+          if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1){throw 'RB1_PRIVATE_METADATA_NATIVE_STATE_UNAVAILABLE'}
+          $job=$rows[0]|ConvertFrom-Json
+          if($job.state -cne 'BLOCKED' -or [int]$job.attempt -ne 2 -or
+             $job.reason -cne 'BRANCH_ANCESTRY_INVALID' -or [int]$job.leases -ne 0){
+            throw 'RB1_PRIVATE_METADATA_NOT_AUTHORIZED_BLOCKED_ATTEMPT'
+          }
+          $work=[IO.Path]::GetFullPath([string]$job.workspace)
+          $prefix=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(!$work.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or
+             (Split-Path -Leaf $work) -cne 'worktree'){throw 'RB1_PRIVATE_METADATA_WORKTREE_PATH_DRIFT'}
+          $private=Join-Path (Split-Path -Parent $work) 'repository'
+          if(!(Test-Path -LiteralPath (Join-Path $private '.git') -PathType Container)){throw 'RB1_PRIVATE_METADATA_GIT_DIR_DRIFT'}
+          $shallowPath=Join-Path $private '.git\shallow'
+          if(Test-Path -LiteralPath $shallowPath){throw 'RB1_PRIVATE_METADATA_ALREADY_REPAIRED_OR_CONFLICTED'}
+          $head=Git $work @('rev-parse','HEAD')
+          $branchResult=Git $work @('symbolic-ref','--short','HEAD')
+          $srcHead=Git $source @('rev-parse','HEAD')
+          $srcShallow=Git $source @('rev-parse','--is-shallow-repository')
+          $privShallow=Git $work @('rev-parse','--is-shallow-repository')
+          $failedAncestor=Git $work @('merge-base','--is-ancestor',$base,'HEAD')
+          $srcStatus=Git $source @('status','--porcelain')
+          if($head.exit -ne 0 -or $head.text -cne $base -or
+             $srcHead.exit -ne 0 -or $srcHead.text -cne $base -or
+             $branchResult.exit -ne 0 -or $branchResult.text -cne $branchName -or
+             $srcShallow.text -cne 'true' -or $privShallow.text -cne 'false' -or
+             $failedAncestor.exit -ne 128 -or $srcStatus.exit -ne 0 -or $srcStatus.text -ne ''){
+               throw 'RB1_PRIVATE_METADATA_GIT_GRAPH_PREIMAGE_DRIFT'
+          }
+          $beforeRefs=Git $private @('for-each-ref','--format=%(refname) %(objectname)')
+          if($beforeRefs.exit -ne 0){throw 'RB1_PRIVATE_METADATA_REFS_UNAVAILABLE'}
+          $beforeFiles=Git $work @('diff','--name-only','HEAD','--')
+          if($beforeFiles.exit -ne 0){throw 'RB1_PRIVATE_METADATA_DIFF_UNAVAILABLE'}
+          $changed=@($beforeFiles.text -split [Environment]::NewLine|Where-Object {$_ -ne ''})
+          if($changed.Count -ne 2 -or @($changed|Where-Object {$_ -notin $paths}).Count -ne 0){throw 'RB1_PRIVATE_METADATA_CHANGED_PATH_DRIFT'}
+          foreach($rel in $paths){if((Sha (Join-Path $work ($rel.Replace('/','\')))) -cne $expectedHashes[$rel]){throw 'RB1_PRIVATE_METADATA_CANDIDATE_BYTES_DRIFT'}}
+          $parent='8101e4822b336a5f6d297410f76d51db1b6fe52c'
+          $missing=Git $private @('cat-file','-e',($parent+'^{commit}'))
+          if($missing.exit -eq 0){throw 'RB1_PRIVATE_METADATA_PARENT_UNEXPECTEDLY_PRESENT'}
+          Write-Host 'RB1_PRIVATE_METADATA_ALL_PREIMAGES=PASS'
+          $wrote=$false
+          try{
+            $eap=$ErrorActionPreference
+            try{$ErrorActionPreference='Continue';$raw=@(& git.exe -C $private fetch --depth=1 --no-tags --no-write-fetch-head -- $source $base 2>&1);$rc=$LASTEXITCODE}
+            finally{$ErrorActionPreference=$eap}
+            if($rc -ne 0){throw 'RB1_PRIVATE_METADATA_FETCH_FAILED'}
+            $wrote=$true
+            if(!(Test-Path -LiteralPath $shallowPath -PathType Leaf)){throw 'RB1_PRIVATE_METADATA_SHALLOW_BOUNDARY_MISSING'}
+            $boundary=([IO.File]::ReadAllText($shallowPath)).Trim()
+            if($boundary -cne $base){throw 'RB1_PRIVATE_METADATA_UNEXPECTED_SHALLOW_BOUNDARY'}
+            $afterShallow=Git $work @('rev-parse','--is-shallow-repository')
+            $afterAncestry=Git $work @('merge-base','--is-ancestor',$base,'HEAD')
+            $selfAncestry=Git $work @('merge-base','--is-ancestor','HEAD','HEAD')
+            $afterRefs=Git $private @('for-each-ref','--format=%(refname) %(objectname)')
+            $afterHead=Git $work @('rev-parse','HEAD')
+            $afterFiles=Git $work @('diff','--name-only','HEAD','--')
+            $afterCheck=Git $work @('diff','--check','HEAD','--')
+            $afterNative=@(& python.exe -B -c $py $db $id)
+            if($LASTEXITCODE -ne 0 -or $afterNative.Count -ne 1){throw 'RB1_PRIVATE_METADATA_NATIVE_STATE_CHANGED'}
+            $state=$afterNative[0]|ConvertFrom-Json
+            if($afterShallow.exit -ne 0 -or $afterShallow.text -cne 'true' -or
+               $afterAncestry.exit -ne 0 -or $selfAncestry.exit -ne 0 -or
+               $afterRefs.exit -ne 0 -or $afterRefs.text -cne $beforeRefs.text -or
+               $afterHead.exit -ne 0 -or $afterHead.text -cne $base -or
+               $afterFiles.exit -ne 0 -or $afterFiles.text -cne $beforeFiles.text -or
+               $afterCheck.exit -ne 0 -or
+               $state.state -cne 'BLOCKED' -or [int]$state.attempt -ne 2 -or
+               $state.reason -cne 'BRANCH_ANCESTRY_INVALID' -or [int]$state.leases -ne 0){
+                throw 'RB1_PRIVATE_METADATA_POSTCONDITION_FAILED'
+            }
+            foreach($rel in $paths){if((Sha (Join-Path $work ($rel.Replace('/','\')))) -cne $expectedHashes[$rel]){throw 'RB1_PRIVATE_METADATA_WORKER_BYTES_CHANGED'}}
+            if((Sha $exe) -cne '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc' -or
+               (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+               throw 'RB1_PRIVATE_METADATA_LIVE_AUTHORITY_CHANGED'
+            }
+            Write-Host 'RB1_PRIVATE_METADATA_GRAPH_RESTORED=PASS'
+            Write-Host 'RB1_ORIGINAL_CANDIDATE_FILES_REFS_AND_ATTEMPT_PRESERVED=PASS'
+            Write-Host 'RB1_WORKORDER_STILL_BLOCKED_NATIVE_REACCEPTANCE_REQUIRED=TRUE'
+          }catch{
+            $reason=[string]$_.Exception.Message
+            if($wrote -and (Test-Path -LiteralPath $shallowPath -PathType Leaf)){
+              $current=([IO.File]::ReadAllText($shallowPath)).Trim()
+              if($current -ceq $base){Remove-Item -LiteralPath $shallowPath -Force -ErrorAction Stop;Write-Host 'RB1_PRIVATE_METADATA_SHALLOW_MARKER_RESTORED=PASS'}
+            }
+            throw $reason
+          }
