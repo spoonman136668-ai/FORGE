@@ -46,17 +46,23 @@ jobs:
           }
           $expected=@(
             '.github/workflows/optimizer-l1-language.yml',
+            '.github/workflows/optimizer-l1-sourceonly.yml',
+            'research/optimizer_l1/L1_FROZEN_CHARTER.json',
+            'research/optimizer_l1/compare_source.py',
+            'research/optimizer_l1/public_source.py',
+            'research/optimizer_l1/qualify_source.py',
+            'research/optimizer_l1/test_source.py',
             'research/optimizer_language_l1/L1_FROZEN_PROTOCOL.json',
-            'research/optimizer_language_l1/public_language.py',
+            'research/optimizer_language_l1/compare.py',
             'research/optimizer_language_l1/learners.py',
+            'research/optimizer_language_l1/public_language.py',
             'research/optimizer_language_l1/runner.py',
-            'research/optimizer_language_l1/test_realization.py',
-            'research/optimizer_language_l1/compare.py'
+            'research/optimizer_language_l1/test_realization.py'
           )
           $actual=@(& git diff --name-only $parent HEAD)
           if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
               (Compare-Object $actual $expected)) {
-            throw 'L1_ADDITIVE_SEVEN_FILE_SCOPE_DRIFT'
+            throw 'L1_CONSOLIDATED_EXACT_THIRTEEN_FILE_ADDITIVE_SCOPE_DRIFT'
           }
           $proto='research/optimizer_language_l1/L1_FROZEN_PROTOCOL.json'
           $blob='efcd5c7f322d58a3cadabcb2f7f926a9cadd56d4'
@@ -65,7 +71,19 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $head -cne $blob -or $disk -cne $blob) {
             throw 'L1_FROZEN_PROTOCOL_BLOB_DRIFT'
           }
-          Write-Host 'L1_PRECOMMITTED_IDENTITY_AND_SEVEN_FILE_SCOPE=PASS'
+          # Exact union of the independent precommitted charter and model 
+          # tracks; neither frozen protocol is modified or weakened.
+          $pins=@{
+            'research/optimizer_l1/L1_FROZEN_CHARTER.json'='3ad23bfc02403494f30e85bbed30b62aca620e3c'
+            'research/optimizer_language_l1/L1_FROZEN_PROTOCOL.json'='efcd5c7f322d58a3cadabcb2f7f926a9cadd56d4'
+          }
+          foreach ($fp in $pins.Keys) {
+            $original=(& git rev-parse ('HEAD:'+$fp)).Trim()
+            $local=(& git hash-object --no-filters -- $fp).Trim()
+            if ($LASTEXITCODE -ne 0 -or $original -cne $pins[$fp] -or
+                $local -cne $pins[$fp]) { throw 'L1_DUAL_FROZEN_PROTOCOL_DRIFT' }
+          }
+          Write-Host 'L1_PRECOMMITTED_IDENTITY_AND_THIRTEEN_FILE_SCOPE=PASS'
       - name: Eleven adversarial public role and language training tests
         shell: pwsh
         run: |
