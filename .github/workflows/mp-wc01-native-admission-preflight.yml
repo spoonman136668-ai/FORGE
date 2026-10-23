@@ -1,0 +1,78 @@
+name: MP-WC01 native idle and registry preflight read-only
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/mp-wc01-native-admission-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Check exact original authority, task, registry and idle boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($owner).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'MPWC01_OWNER_AUTHORITY_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $registry=Join-Path $root 'config\local-operations.json'
+          $script=Join-Path $root 'operations\Read-MindPalaceContext.ps1'
+          $db=Join-Path $root 'state\autonomy.db'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-RB1-ADMISSION-20261023\bin\ckb-plane.exe'
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          if((Sha $cfg) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc' -or
+             (Sha $script) -cne '8e5a59576b105150a4c42c1bccece0c6a7939c6a5fa3bb85b881885434c5aac0' -or
+             (Sha $exe) -cne '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'){
+               throw 'MPWC01_LIVE_PREIMAGE_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if([string]$task.State -cne 'Running' -or $procs.Count -ne 1 -or
+             [string]$procs[0].ExecutablePath -ine $exe){throw 'MPWC01_SINGLETON_CONTROLLER_DRIFT'}
+          $registrySHA=Sha $registry
+          $registryObject=(Get-Content -LiteralPath $registry -Raw -ErrorAction Stop)|ConvertFrom-Json
+          if([string]$registryObject.schema -cne 'ckb-plane.local-operations.v1'){throw 'MPWC01_LOCAL_REGISTRY_SCHEMA_DRIFT'}
+          $ops=@($registryObject.operations|Where-Object {$_.id -ceq 'mind-palace-context'})
+          if($ops.Count -ne 1 -or [string]$ops[0].script_sha256 -cne '8e5a59576b105150a4c42c1bccece0c6a7939c6a5fa3bb85b881885434c5aac0'){throw 'MPWC01_REGISTRY_UNEXPECTED'}
+          $text=[IO.File]::ReadAllText($cfg)
+          if($text -notmatch '(?m)^\s*local_operations_sha256:\s*([0-9a-f]{64})\s*$' -or
+             $Matches[1] -cne $registrySHA){throw 'MPWC01_CONFIG_REGISTRY_DIGEST_DRIFT'}
+          $python=@'
+          import json,sqlite3,sys
+          db=sys.argv[1]
+          c=sqlite3.connect('file:'+db.replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           settings=dict(c.execute("select key,value from settings where key in ('paused','autonomy_authority','autonomy_generation','qualification_digest')"))
+           rows=list(c.execute("select state,count(*) from work_orders group by state"))
+           leases=c.execute('select count(*) from worker_leases').fetchone()[0]
+           result={'authority':settings.get('autonomy_authority'),'generation':settings.get('autonomy_generation'),
+             'paused':settings.get('paused'),'qualification_digest_present':bool(settings.get('qualification_digest')),
+             'leases':leases,'work_orders_by_state':{k:v for k,v in rows}}
+           print(json.dumps(result,separators=(',',':')))
+          finally:c.close()
+          '@
+          $line=@(& python.exe -B -c $python $db)
+          if($LASTEXITCODE -ne 0 -or $line.Count -ne 1){throw 'MPWC01_NATIVE_READ_ONLY_DB_UNAVAILABLE'}
+          $state=($line[0]|ConvertFrom-Json)
+          if([string]$state.authority -cne 'plane' -or [string]$state.generation -cne '6'){throw 'MPWC01_AUTHORITY_OR_GENERATION_CHANGED'}
+          $rawStatus=@(& $exe controller status --config $cfg 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'MPWC01_NATIVE_STATUS_UNAVAILABLE'}
+          $status=($rawStatus -join [Environment]::NewLine)|ConvertFrom-Json
+          $idle=[string]$status.controller_status -match '^IDLE:' -and [int]$state.leases -eq 0
+          $result=[ordered]@{schema='mp-wc01.owner-native-admission-preflight.v1';config_sha256=Sha $cfg;
+             registry_sha256=$registrySHA;operation_sha256=Sha $script;controller_sha256=Sha $exe;
+             authority=$state.authority;generation=$state.generation;paused=$state.paused;
+             leases=$state.leases;work_orders_by_state=$state.work_orders_by_state;
+             native_controller_status=[string]$status.controller_status;idle_satisfied=$idle;
+             original_controller_mutated=$false;memory_records_modified=$false}
+          Write-Host ('MPWC01_OWNER_NATIVE_PREFLIGHT='+($result|ConvertTo-Json -Compress -Depth 5))
+          Write-Host 'MPWC01_OWNER_PREIMAGES_VERIFIED=PASS'
+          if(!$idle){Write-Host 'MPWC01_PROMOTION_BLOCKED_NOT_IDLE=TRUE'}
