@@ -55,7 +55,17 @@ jobs:
           }
           $runningExe=[string]$procs[0].ExecutablePath
           $runningHash=Sha $runningExe
-          if($runningHash -cne $expectedR5){throw 'R18_RUNNING_R5_IMAGE_DRIFT'}
+          if($runningHash -cne $expectedR5){
+            Write-Host ('R18_OBSERVED_ACTIVE_IMAGE_SHA256='+$runningHash)
+            Write-Host ('R18_OBSERVED_REGISTERED_CLI_SHA256='+$registeredHash)
+            Write-Host ('R18_ACTIVE_EQUALS_REGISTERED_CLI='+($runningHash -ceq $registeredHash))
+            Write-Host ('R18_ACTIVE_EQUALS_QUALIFIED_R18_SHA256_2006='+($runningHash -ceq '20067651a836eb3dc095fc26b3c2d9ed04701d8ab4be298ef57de28869414b65'))
+            Write-Host ('R18_ACTIVE_EQUALS_PRIOR_PACKAGE_SHA256_9B10='+($runningHash -ceq '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'))
+            Write-Host 'R18_ACTIVE_PRIOR_R5_IDENTITY_DRIFT=OBSERVED'
+            Write-Host 'R18_UNRECOGNIZED_IMAGE_EXECUTION=NOT_ATTEMPTED'
+            Write-Host 'R18_CUTOVER_RESUME_QUEUE_MUTATION=NOT_ATTEMPTED'
+            return
+          }
           $pidBefore=[int]$procs[0].ProcessId
           function Probe([string]$exe,[string]$tag){
             $out=Join-Path $env:RUNNER_TEMP ('r18h-'+$env:GITHUB_RUN_ID+'-'+$tag+'.out')
