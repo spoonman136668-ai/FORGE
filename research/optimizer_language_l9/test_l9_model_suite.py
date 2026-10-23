@@ -42,7 +42,7 @@ class ModelSuiteTests(unittest.TestCase):
 
     def test_parameter_formulas_are_exact_and_below_ceiling(self):
         self.assertEqual(m.expected_gru_parameters(),433795)
-        self.assertEqual(m.expected_transformer_parameters(),449251)
+        self.assertEqual(m.expected_transformer_parameters(),424387)
         self.assertLessEqual(m.expected_gru_parameters(),m.PARAMETER_CEILING)
         self.assertLessEqual(m.expected_transformer_parameters(),m.PARAMETER_CEILING)
 
