@@ -160,6 +160,13 @@ def main():
                   " seed="+str(row["seed"])+" first_step="+str(
                       row["first_weight_divergence_gt_1e-6_step"])+
                   " max_absolute="+str(row["maximum_weight_absolute_difference"]))
+    for row in report["models"]:
+        print("O11_TRACE_FIRST family="+row["family"]+
+              " model="+row["kind"]+" seed="+str(row["seed"])+
+              " exact_step="+str(row["first_exact_native_float_mismatch_step"])+
+              " exact_field="+str(row["first_exact_native_float_mismatch_field"])+
+              " weight_gt_1e-12="+str(row["first_weight_divergence_gt_1e-12_step"])+
+              " weight_gt_1e-6="+str(row["first_weight_divergence_gt_1e-6_step"]))
     print("O11_RESULT="+report["classification"])
     print("O11_NO_SCIENTIFIC_PROMOTION=PASS")
     print("O11_TRAIN_FORENSICS_RECEIPT="+str(output))
