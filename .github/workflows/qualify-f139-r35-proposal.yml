@@ -1,0 +1,76 @@
+name: F139 R35 source-only native proposal qualification
+on:
+  push:
+    branches: [fix/f139-r35-native-proposal-preparation-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-r35-sourceonly-proposals
+  cancel-in-progress: true
+jobs:
+  proposal-and-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 28
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Stable checkout
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Enforce immutable qualified parent and bounded three-file delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=3d5bce4a128285d8493b92d8188a10143c676c9b
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git merge-base HEAD "$base")" = "$base"
+          expected="$(printf '%s\n' '.github/workflows/qualify-f139-r35-proposal.yml' 'f139/nci04_proposal_compiler.py' 'f139/test_nci04_proposal_compiler.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R35_EXACT_BOUND_SOURCE_DELTA=PASS
+      - name: Frozen proposal focus, native custody and concurrency interfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_proposal_compiler.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_contract.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_two_inflight.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_continuous_cadence.py' -v
+          echo R35_BOUNDED_FOCUSED_TESTS=PASS
+      - name: One full F139 Python and Go regression, vet, build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R35_FINAL_FULL_REGRESSION=PASS
+      - name: Declare read-only source boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo R35_PROPOSAL_ONLY=TRUE
+          echo R35_OWNER_ISSUE_CREATED=FALSE
+          echo R35_LIVE_QUEUE_MUTATED=FALSE
+          echo R35_ORIGINAL_OWNER_CONTROLLER_CHANGED=FALSE
+          echo R35_SCIENTIFIC_FIRST_USE=FALSE
