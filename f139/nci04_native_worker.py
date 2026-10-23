@@ -94,9 +94,40 @@ def stage_candidate(candidate: Candidate, checkout: Path,
     try:
         # Disallow symlinks rather than letting copytree dereference unknown
         # providers or allowing a candidate to mutate outside the sandbox.
-        shutil.copytree(source, stage / "checkout", ignore=shutil.ignore_patterns(".git"),
-                        symlinks=True, dirs_exist_ok=False)
         root = stage / "checkout"
+        if candidate.lane == "Yggdrasil":
+            # The original Yggdrasil baseline regression binds its source
+            # atlas to a Git commit. A bare file copy was falsely negative.
+            # Clone only the independently verified local source commit into
+            # a disjoint temporary Git repository, then discard all remotes
+            # so the candidate cannot write back to the original checkout.
+            result = subprocess.run(
+                ["git", "clone", "--no-local", "--no-checkout", "--quiet",
+                 "--", str(source), str(root)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL, timeout=90, check=False)
+            require(result.returncode == 0, "SANDBOX_GIT_CLONE_FAILED")
+            for command in (
+                ["git", "-C", str(root), "checkout", "--detach",
+                 candidate.target_commit],
+                ["git", "-C", str(root), "remote", "remove", "origin"],
+            ):
+                result = subprocess.run(
+                    command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL, timeout=40, check=False)
+                require(result.returncode == 0,
+                        "SANDBOX_GIT_HISTORY_ORIGIN_REJECTED")
+            require(_git(root, "rev-parse", "HEAD") ==
+                    candidate.target_commit, "SANDBOX_HEAD_IDENTITY_DRIFT")
+            require(_git(root, "rev-parse", "HEAD^{tree}") ==
+                    candidate.target_tree_sha, "SANDBOX_TREE_IDENTITY_DRIFT")
+            require(_git(root, "remote") == "", "SANDBOX_REMOTE_NOT_REMOVED")
+            # Reinspect to reject symlinks brought in by the clone.
+            _inspect_checkout(root, candidate)
+        else:
+            shutil.copytree(
+                source, root, ignore=shutil.ignore_patterns(".git"),
+                symlinks=True, dirs_exist_ok=False)
         rel = Path(*candidate.path.split("/"))
         dest = root / rel
         require(dest.resolve(strict=False).is_relative_to(root.resolve())
