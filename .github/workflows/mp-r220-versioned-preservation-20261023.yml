@@ -1,0 +1,110 @@
+name: MP R220 versioned preservation native Windows qualification
+on:
+  push:
+    branches: [qualification/mp-r220-versioned-preservation-20261023]
+    paths: [.github/workflows/mp-r220-versioned-preservation-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-r220-versioned-preservation-20261023
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    env:
+      GOFLAGS: "-p=1"
+      GOMAXPROCS: "1"
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Focused, one complete regression, stopped build from pinned R220 versioned proposal
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$m){if(-not $v){throw ('MP_R220_VERSIONED_'+$m)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-r220-versioned-preservation-20261023') 'EVENT'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='3bc2ba72fdbe765b85bbd0c801608eed496ecb21'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $diff=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $diff.Count -eq 1 -and $diff[0] -ceq '.github/workflows/mp-r220-versioned-preservation-20261023.yml') 'WORKFLOW_SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY_WORKFLOW'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $repo='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $base='7b7d01f26cfe4d051956f82c7c45f6df507ecd0a'
+          $candidate='ecd9481e6d6e266bb6f76d0e3469d0765607f49d'
+          $branch='proposal/mp-preservation-r220-versioned-20261023'
+          $remoteMain=@(& git.exe ls-remote --exit-code $repo refs/heads/main)
+          Need ($LASTEXITCODE -eq 0 -and $remoteMain.Count -eq 1 -and ([string]($remoteMain[0] -split '\s+')[0]) -ceq $base) 'R220_MAIN_DRIFT'
+          $remoteCandidate=@(& git.exe ls-remote --exit-code $repo ('refs/heads/'+$branch))
+          Need ($LASTEXITCODE -eq 0 -and $remoteCandidate.Count -eq 1 -and ([string]($remoteCandidate[0] -split '\s+')[0]) -ceq $candidate) 'CANDIDATE_DRIFT'
+          Write-Host 'MP_R220_VERSIONED_BASE_AND_CANDIDATE_PINNED=PASS'
+          $shortTemp='C:\Users\camar\mpt'
+          Need (-not (Test-Path -LiteralPath $shortTemp)) 'SHORT_TEMP_COLLISION'
+          New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop | Out-Null
+          $originalTemp=$env:TEMP
+          $originalTmp=$env:TMP
+          $originalTmpdir=$env:TMPDIR
+          $env:TEMP=$shortTemp
+          $env:TMP=$shortTemp
+          $env:TMPDIR=$shortTemp
+          try {
+            $checkout=Join-Path $shortTemp 'ckb'
+            & git.exe clone --quiet --depth 4 --single-branch --branch $branch $repo $checkout
+            Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $checkout rev-parse HEAD).Trim() -ceq $candidate) 'CLONE_PIN'
+            Need ((& git.exe -C $checkout rev-parse 'HEAD~3').Trim() -ceq $base) 'SOURCE_ANCESTRY'
+            $changed=@(& git.exe -C $checkout diff --name-only $base $candidate)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3) 'EXACT_THREE_SOURCE_FILES'
+            $expected=@(
+              'snapshot/source/internal/plane/model.go',
+              'snapshot/source/internal/plane/mp_preservation_r220_versioned_test.go',
+              'snapshot/source/internal/plane/workorder_preservation_compat_test.go'
+            )
+            Need ((@($changed|Sort-Object) -join '|') -ceq (@($expected|Sort-Object) -join '|')) 'CANDIDATE_DELTA_SCOPE'
+            Need ((& git.exe -C $checkout rev-parse ($base+':snapshot/source/internal/plane/model.go')).Trim() -ceq 'ea27ad334f7dde8149075456f2b9e4f31d20c587') 'FROZEN_R220_MODEL_BLOB'
+            Need ((& git.exe -C $checkout rev-parse ($candidate+':snapshot/source/internal/plane/workorder_preservation_compat_test.go')).Trim() -ceq '0e00fbf6a3c960c67928bafe7d74c877455fc489') 'PR608_NEGATIVE_TEST_BLOB'
+            Write-Host 'MP_R220_VERSIONED_EXACT_DELTA_AND_FROZEN_TEST_LINEAGE=PASS'
+            $root=Join-Path $checkout 'snapshot\source'
+            Push-Location $root
+            try {
+              $saved=$ErrorActionPreference
+              try{
+                $ErrorActionPreference='Continue'
+                & go.exe test -p 1 -count=1 -timeout=240s -run '^(TestVersionedPreservationR220.*|TestPreservationCompat.*|TestR220ObservableLegacyAcceptedPreservationIsReadOnly|TestR220ObservableCompatibilityRejectsAnythingBeyondExactLegacyShape|TestR18StatusProjection.*)$' ./internal/plane
+                $code=$LASTEXITCODE
+              }finally{$ErrorActionPreference=$saved}
+              Need ($code -eq 0) 'FOCUSED_NEGATIVE_AND_LEGACY_TESTS'
+              Write-Host 'MP_R220_VERSIONED_FOCUSED_AND_FROZEN_R220_LEGACY=PASS'
+              $saved=$ErrorActionPreference
+              try{
+                $ErrorActionPreference='Continue'
+                & go.exe test -p 1 -count=1 -timeout=420s ./...
+                $code=$LASTEXITCODE
+              }finally{$ErrorActionPreference=$saved}
+              Need ($code -eq 0) 'COMPLETE_FULL_GO_REGRESSION'
+              Write-Host 'MP_R220_VERSIONED_ONE_COMPLETE_FULL_REGRESSION=PASS'
+              & go.exe build -p 1 -o (Join-Path $shortTemp 'ckb-plane-versioned-isolated.exe') ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0) 'STOPPED_ISOLATED_BUILD'
+              Need (Test-Path -LiteralPath (Join-Path $shortTemp 'ckb-plane-versioned-isolated.exe') -PathType Leaf) 'BINARY_ABSENT'
+              $hash=(Get-FileHash -LiteralPath (Join-Path $shortTemp 'ckb-plane-versioned-isolated.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Host ('MP_R220_VERSIONED_ISOLATED_BINARY_SHA256='+$hash)
+              Write-Host 'MP_R220_VERSIONED_ISOLATED_STOPPED_BUILD=PASS'
+              Need ((@(& git.exe -C $checkout status --porcelain)).Count -eq 0) 'SOURCE_MUTATED_BY_TESTS'
+              Write-Host 'MP_R220_VERSIONED_SOURCE_TREES_UNMODIFIED=PASS'
+            }finally{Pop-Location}
+            Write-Host 'MP_R220_VERSIONED_PRODUCTION_CONTROLLER_DB_QUEUE_WRITES=0'
+            Write-Host 'MP_R220_VERSIONED_NO_RUNTIME_ACTIVATION=PASS'
+          }finally{
+            $env:TEMP=$originalTemp
+            $env:TMP=$originalTmp
+            $env:TMPDIR=$originalTmpdir
+            if(Test-Path -LiteralPath $shortTemp){Remove-Item -LiteralPath $shortTemp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $shortTemp)) 'TEMP_CLEANUP'
+            Write-Host 'MP_R220_VERSIONED_TEMP_CLEANUP=PASS'
+          }
