@@ -26,6 +26,7 @@ jobs:
       audit: ${{ steps.run.outputs.audit }}
       audit_categories: ${{ steps.run.outputs.audit_categories }}
       source_bytes: ${{ steps.run.outputs.source_bytes }}
+      quarantine: ${{ steps.run.outputs.quarantine }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -36,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          parent='e544dd978a18cf3e9944ac1216774a2f36c25055'
+          parent='72a3c9be882466e8180b72eed9f87d92b2bbcb3c'
           test "$(git rev-parse HEAD~1)" = "$parent"
           test "$(git diff --name-only "$parent" HEAD)" = '.github/workflows/optimizer-language-l9-split-qualification.yml'
           pushd research/optimizer_language_l9 >/dev/null
@@ -62,6 +63,7 @@ jobs:
           assert counts['train_audit_graph_overlap']==0
           assert roles['L9_TRAIN']>=1000 and roles['L9_SELECT']>=150 and roles['L9_AUDIT_DEV']>=120
           assert counts['audit_categories_present_in_dev']>=2
+          assert counts['quarantined_train_graph_overlap']>=1
           assert d['model_fit_count']==0
           vals={
             'summary_sha256':hashlib.sha256(raw).hexdigest(),
@@ -72,6 +74,7 @@ jobs:
             'audit':roles['L9_AUDIT_DEV'],
             'audit_categories':counts['audit_categories_present_in_dev'],
             'source_bytes':d['custody']['source_bytes_read'],
+            'quarantine':counts['quarantined_train_graph_overlap'],
           }
           with open(sys.argv[2],'a',encoding='utf-8') as f:
             for k,v in vals.items(): f.write(f"{k}={v}\n")
@@ -93,6 +96,7 @@ jobs:
       audit: ${{ steps.run.outputs.audit }}
       audit_categories: ${{ steps.run.outputs.audit_categories }}
       source_bytes: ${{ steps.run.outputs.source_bytes }}
+      quarantine: ${{ steps.run.outputs.quarantine }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -103,7 +107,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $parent='e544dd978a18cf3e9944ac1216774a2f36c25055'
+          $parent='72a3c9be882466e8180b72eed9f87d92b2bbcb3c'
           if((& git rev-parse 'HEAD~1').Trim() -cne $parent){throw 'L9_WINDOWS_PARENT_DRIFT'}
           $changed=@(& git diff --name-only $parent HEAD)
           if($changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/optimizer-language-l9-split-qualification.yml'){throw 'L9_WINDOWS_SCOPE_DRIFT'}
@@ -128,6 +132,7 @@ jobs:
           if([int]$d.counts.train_audit_graph_overlap -ne 0){throw 'L9_WINDOWS_GRAPH_LEAKAGE'}
           if([int]$d.counts.roles.L9_TRAIN -lt 1000 -or [int]$d.counts.roles.L9_SELECT -lt 150 -or [int]$d.counts.roles.L9_AUDIT_DEV -lt 120){throw 'L9_WINDOWS_MINIMUMS'}
           if([int]$d.counts.audit_categories_present_in_dev -lt 2){throw 'L9_WINDOWS_AUDIT_CATEGORIES'}
+          if([int]$d.counts.quarantined_train_graph_overlap -lt 1){throw 'L9_WINDOWS_QUARANTINE_MISSING'}
           if([int]$d.model_fit_count -ne 0){throw 'L9_WINDOWS_MODEL_FIT'}
           $vals=[ordered]@{
             summary_sha256=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -138,6 +143,7 @@ jobs:
             audit=[string]$d.counts.roles.L9_AUDIT_DEV
             audit_categories=[string]$d.counts.audit_categories_present_in_dev
             source_bytes=[string]$d.custody.source_bytes_read
+            quarantine=[string]$d.counts.quarantined_train_graph_overlap
           }
           foreach($k in $vals.Keys){Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value ($k+'='+$vals[$k]) -Encoding utf8}
           Write-Host ('L9_SPLIT_WINDOWS_SUMMARY_SHA256='+$vals.summary_sha256)
@@ -169,6 +175,8 @@ jobs:
           WINDOWS_AUDIT_CATEGORIES: ${{ needs.windows.outputs.audit_categories }}
           LINUX_SOURCE_BYTES: ${{ needs.linux.outputs.source_bytes }}
           WINDOWS_SOURCE_BYTES: ${{ needs.windows.outputs.source_bytes }}
+          LINUX_QUARANTINE: ${{ needs.linux.outputs.quarantine }}
+          WINDOWS_QUARANTINE: ${{ needs.windows.outputs.quarantine }}
         run: |
           set -euo pipefail
           test -n "$LINUX_SUMMARY"
@@ -180,6 +188,8 @@ jobs:
           test "$LINUX_AUDIT" = "$WINDOWS_AUDIT"
           test "$LINUX_AUDIT_CATEGORIES" = "$WINDOWS_AUDIT_CATEGORIES"
           test "$LINUX_SOURCE_BYTES" = "$WINDOWS_SOURCE_BYTES"
+          test "$LINUX_QUARANTINE" = "$WINDOWS_QUARANTINE"
+          test "$LINUX_QUARANTINE" -ge 1
           echo "L9_SPLIT_CROSS_OS_SUMMARY_SHA256=$LINUX_SUMMARY"
           echo "L9_SPLIT_CROSS_OS_ROLE_SHA256=$LINUX_ROLE"
           echo "L9_SPLIT_RECORDS_TOTAL=$LINUX_RECORDS"
@@ -188,6 +198,7 @@ jobs:
           echo "L9_SPLIT_AUDIT_COUNT=$LINUX_AUDIT"
           echo "L9_SPLIT_AUDIT_CATEGORY_COUNT=$LINUX_AUDIT_CATEGORIES"
           echo "L9_SPLIT_SOURCE_BYTES=$LINUX_SOURCE_BYTES"
+          echo "L9_SPLIT_QUARANTINED_TRAIN_RECORDS=$LINUX_QUARANTINE"
           echo "L9_SPLIT_MODEL_FIT_COUNT=0"
           echo "L9_SPLIT_OFFICIAL_TEST_CONTENT_CONSUMED=FALSE"
           echo "L9_SPLIT_LINUX_WINDOWS_RECONCILIATION=PASS"
