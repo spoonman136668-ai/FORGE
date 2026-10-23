@@ -23,7 +23,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-roadmap-bundle-baseline-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'BRANCH'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '05d953fb8cfe7489df1ae685a7807cab69f3035a') 'PARENT'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '414526289b26ad13725af3850c69fc19ce875e13') 'PARENT'
           $delta=@(& git.exe diff --name-only HEAD^ HEAD)
           Need ($delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-roadmap-bundle-baseline-20261023.yml') 'SCOPE'
           Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY'
@@ -91,3 +91,22 @@ jobs:
           }
           Need ($hits -gt 0) 'NO_EXPORT_CODE'
           Write-Host 'MP_BUNDLE_EXPORT_SOURCE_TRACE=PASS'
+
+          $findFunction=@('func gitContext(', 'func git(', 'func prepare(', 'func setup(')
+          $seen=@{}
+          foreach($f in $goFiles){
+            $all=@(Get-Content -LiteralPath $f.FullName -Encoding UTF8)
+            for($i=0;$i -lt $all.Count;$i++){
+              foreach($symbol in $findFunction){
+                if(-not $all[$i].Contains($symbol)){continue}
+                if($seen.ContainsKey($symbol)){throw ('MP_BUNDLE_DUPLICATE_SYMBOL_'+$symbol)}
+                $seen[$symbol]=$f.Name
+                Write-Host ('MP_BUNDLE_FUNCTION_HIT='+$symbol+' FILE='+$f.Name+' LINE='+($i+1))
+                for($j=$i;$j -le [Math]::Min($all.Count-1,$i+92);$j++){
+                  Write-Host ('MP_BUNDLE_FUNCTION_LINE_'+$f.Name+'_'+($j+1)+'='+[string]$all[$j])
+                }
+              }
+            }
+          }
+          Need ($seen.Count -ge 3) 'SYMBOLS_NOT_FOUND'
+          Write-Host 'MP_BUNDLE_HELPER_SOURCE_TRACE=PASS'
