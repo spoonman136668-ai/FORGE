@@ -1,0 +1,171 @@
+name: F139 original-owner failed provider custody 768 769
+on:
+  push:
+    branches: [operate/f139-failed-provider-custody-20261023]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-owner-provider-negative-custody
+  cancel-in-progress: false
+jobs:
+  owner-custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Qualify original SID and provider run states before touching owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_NOT_ORIGINAL_OWNER_RUNNER'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.commit.sha -cne '00f33f56139f792a65cd193200706d13f93fe0b3'){
+            throw 'F139_MAIN_ADVANCED_BEFORE_NEGATIVE_CUSTODY'
+          }
+          foreach($id in @(39930895647,39930994227)){
+            $r=(& gh api "repos/spoonman136668-ai/FORGE/actions/runs/$id" | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $r.head_sha -cne 'a42202ef02da3f38c459d4f2bd773f7500717c7c' -or
+               $r.event -cne 'workflow_dispatch' -or $r.status -cne 'completed' -or
+               $r.conclusion -cne 'failure' -or $r.run_attempt -ne 1){
+              throw 'F139_FAILED_PROVIDER_NOT_IMMUTABLY_CONFIRMED'
+            }
+          }
+          $t=Get-ScheduledTask -TaskName FORGE-F139-UnifiedController -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$t.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value}
+          if($sid -cne $who.User.Value -or @($t.Actions).Count -ne 1 -or
+             $t.State -eq 'Disabled'){throw 'F139_OWNER_TASK_CUSTODY_INVALID'}
+          Write-Output 'F139_AUTHENTIC_FAILED_PROVIDER_PREFLIGHT=PASS'
+      - name: Quiesce original owner and retain original failed-provider evidence once
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=Get-ScheduledTask -TaskName FORGE-F139-UnifiedController -ErrorAction Stop
+          $opts=@{}
+          $argString=[string]$t.Actions[0].Arguments
+          foreach($key in @('RepositoryRoot','PythonExe','Database')){
+            $m=[regex]::Match($argString,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_ORIGINAL_TASK_MISSING_'+$key)}
+            $opts[$key]=$m.Groups[1].Value
+          }
+          $root=[IO.Path]::GetFullPath($opts.RepositoryRoot)
+          $python=$opts.PythonExe
+          $db=$opts.Database
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_ORIGINAL_DB_WRONG_SID'
+          }
+          $sha=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          $dirty=(& git -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne 'a42202ef02da3f38c459d4f2bd773f7500717c7c' -or
+             $dirty.Length -gt 0){throw 'F139_ORIGINAL_SOURCE_NOT_FROZEN'}
+          Disable-ScheduledTask -TaskName FORGE-F139-UnifiedController | Out-Null
+          if($t.State -eq 'Running'){
+            Stop-ScheduledTask -TaskName FORGE-F139-UnifiedController -ErrorAction Stop
+          }
+          $quiet=$false
+          for($i=0;$i -lt 30;$i++){
+            $p=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+              Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                            $_.CommandLine.Contains($db)})
+            if($p.Count -eq 0){$quiet=$true;break}
+            Start-Sleep -Seconds 1
+          }
+          if(-not $quiet){throw 'F139_ORIGINAL_OWNER_PROCESS_NOT_QUIESCED'}
+          $code=@'
+          import json,sys
+          from f139.local_controller import Database,GitHub,SingleOwner,REPO,canonical,hash_bytes,parse_time,F139Error
+          from f139.nci04_owner_ledger import frozen_native_issue,verify_native_activation
+          db_path=__import__("pathlib").Path(sys.argv[1])
+          old="a42202ef02da3f38c459d4f2bd773f7500717c7c"
+          expected={"f139-nci04-i768-a42202ef02da-da7c4746":39930895647,
+                    "f139-nci04-i769-a42202ef02da-2512ea2c":39930994227}
+          api=GitHub()
+          with SingleOwner(db_path.with_suffix(".lock")):
+            db=Database(db_path)
+            try:
+              db.verify()
+              assert verify_native_activation(db)
+              m=db.meta()
+              assert m["source_sha"]==old and m["head_seq"]==91
+              assert m["head_hash"]=="d314c5491166fb45a5076aea3ca7ec9156095a101b95ec036d76db2270ba5049"
+              assert m["enabled"]==m["legacy_suspended"]==1
+              actual={r["ticket"]:dict(r) for r in db.actives()}
+              assert set(actual)==set(expected)
+              proof=[]
+              for ticket,rid in expected.items():
+                task=actual[ticket]
+                assert task["stage"]=="WAIT_PROVIDER" and task["source_sha"]==old
+                intent=frozen_native_issue(db,ticket)
+                assert intent.ticket==ticket and intent.source_sha==old
+                run=api.get(f"repos/{REPO}/actions/runs/{rid}")
+                assert (run["name"]==run["display_title"]=="F139 "+ticket
+                        and run["workflow_id"]==388797257
+                        and run["path"]==".github/workflows/forge-f139-development-worker.yml"
+                        and run["event"]=="workflow_dispatch" and run["head_sha"]==old
+                        and run["head_branch"]=="main" and run["run_attempt"]==1
+                        and run["status"]=="completed" and run["conclusion"]=="failure"
+                        and parse_time(run["created_at"])>=parse_time(task["started_at"])-__import__("datetime").timedelta(minutes=2))
+                data=api.get(f"repos/{REPO}/actions/runs/{rid}/jobs?per_page=100")
+                jobs=data["jobs"]
+                assert data["total_count"]==len(jobs) and len(jobs)<=15
+                auth=[x for x in jobs if x["name"]=="native-authorize"]
+                assert len(auth)==1 and auth[0]["status"]=="completed" and auth[0]["conclusion"]=="success"
+                osjobs={}
+                for osname in ("ubuntu-latest","windows-latest"):
+                  found=[x for x in jobs if x["name"]==f"native-execute ({osname})"]
+                  assert len(found)==1 and found[0]["status"]=="completed"
+                  assert found[0]["conclusion"] in ("success","failure")
+                  osjobs[osname]={"job_id":found[0]["id"],"conclusion":found[0]["conclusion"]}
+                assert any(v["conclusion"]=="failure" for v in osjobs.values())
+                items=api.get(f"repos/{REPO}/actions/runs/{rid}/artifacts?per_page=100")
+                assert isinstance(items["artifacts"],list) and items["total_count"]==len(items["artifacts"])
+                proof.append({"ticket":ticket,"run_id":rid,"source_sha":old,"jobs":osjobs,
+                              "artifact_ids":sorted(x["id"] for x in items["artifacts"]),
+                              "provider_terminal":"FAILURE_NO_REPLAY",
+                              "scientific_first_use":False})
+              with db.transaction():
+                db.verify()
+                assert db.meta()["head_seq"]==91
+                for item in proof:
+                  ticket=item["ticket"]
+                  row=db.conn.execute("SELECT stage FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+                  assert row is not None and row["stage"]=="WAIT_PROVIDER"
+                  summary={"schema":"forge.f139.owner-native-provider-negative.v1",
+                           "ticket":ticket,"run_id":item["run_id"],
+                           "source_sha":old,"provider_sha256":hash_bytes(canonical(item)),
+                           "provider":item,"scientific_first_use":False}
+                  db.conn.execute("UPDATE tasks SET stage='QUARANTINED',quarantine_reason=? WHERE ticket=?",
+                                  ("FAILED_OR_CANCELLED_NO_REPLAY",ticket))
+                  db.event("NATIVE_FAILED_PROVIDER_CUSTODY",summary)
+                  db.event("ATTEMPT_QUARANTINED",{"ticket":ticket,"reason":"FAILED_OR_CANCELLED_NO_REPLAY"})
+                db.verify()
+              print("F139_FAILED_PROVIDER_CUSTODY=PASS")
+              print("F139_ORIGINAL_LEDGER_SEQ="+str(db.meta()["head_seq"]))
+              print("F139_ORIGINAL_LEDGER_SHA256="+db.meta()["head_hash"])
+              print("F139_NATIVE_FAILED_RUNS_NO_REPLAY=2")
+              print("F139_ORIGINAL_NEGATIVES_PRESERVED=TRUE")
+            finally:
+              db.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $code $db
+            if($LASTEXITCODE -ne 0){throw 'F139_OWNER_FAILED_PROVIDER_CUSTODY_REJECTED'}
+          }finally{Pop-Location}
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.commit.sha -cne '00f33f56139f792a65cd193200706d13f93fe0b3'){
+            throw 'F139_MAIN_DRIFT_KEEP_ORIGINAL_TASK_DISABLED'
+          }
+          Enable-ScheduledTask -TaskName FORGE-F139-UnifiedController | Out-Null
+          Start-ScheduledTask -TaskName FORGE-F139-UnifiedController -ErrorAction Stop
+          Write-Output 'F139_ORIGINAL_TASK_RESTORED_NO_NEW_SOURCE_DISPATCH=TRUE'
