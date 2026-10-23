@@ -1,0 +1,96 @@
+name: CKB preservation YAML strict dual-field native Windows qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mp-workorder-preservation-compat-native-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-preservation-compat-native-windows
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify pinned candidate, focused tests, and one full Go regression in TEMP
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$tag){ if(-not $ok){throw ("MP_PARSER_"+$tag)} }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_WINDOWS_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $src='3fc3b5ddd6d5a105a95ea83dbabaccc989dc6dbc'
+          $candidate='6783083f58379fd68945de1065f85e2e87573eb3'
+          $branch='proposal/compat-preservation-yaml-readonly-20261023'
+          $root='implementations/mp-controller-preservation-compat-v1'
+          $dest='snapshot/source/internal/plane'
+          $model="$root/overlay/internal/plane/model.go"
+          $test="$root/overlay/internal/plane/workorder_preservation_compat_test.go"
+          $oldModel='ea27ad334f7dde8149075456f2b9e4f31d20c587'
+          $newModel='2c97032c6e06559c5f727989cae4c59edf95fc23'
+          $scratch=Join-Path $env:RUNNER_TEMP ("mp-parser-$env:GITHUB_RUN_ID")
+          $repo=Join-Path $scratch 'repo'
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          function RefPin([string]$r){
+            $result=@(& git.exe ls-remote --exit-code $remote $r)
+            Need ($LASTEXITCODE -eq 0 -and $result.Count -eq 1) 'REF_LOOKUP'
+            return ([string]($result[0] -split '\s+')[0])
+          }
+          try {
+            Need ((RefPin 'refs/heads/main') -ceq $src) 'FROZEN_MAIN_REF'
+            Need ((RefPin "refs/heads/$branch") -ceq $candidate) 'FROZEN_CANDIDATE_REF'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $repo
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            Need (((& git.exe -C $repo rev-parse HEAD | Out-String).Trim()) -ceq $candidate) 'CANDIDATE_HEAD'
+            $names=@(& git.exe -C $repo diff --name-only $src $candidate)
+            Need ($LASTEXITCODE -eq 0 -and $names.Count -eq 3 -and
+              (($names|Sort-Object)-join '|') -ceq ((@("$root/README.md",$model,$test)|Sort-Object)-join '|')) 'THREE_ADDED_FILES'
+            $statuses=@(& git.exe -C $repo diff --name-status $src $candidate)
+            Need (@($statuses|Where-Object{$_ -cnotmatch '^A\s+'}).Count -eq 0) 'NO_EXISTING_FILES_CHANGED'
+            $old=((& git.exe -C $repo rev-parse ($src+':'+$dest+'/model.go')|Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $old -ceq $oldModel) 'BASE_MODEL_IDENTITY'
+            $proposed=((& git.exe -C $repo rev-parse ("HEAD:"+$model)|Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $proposed -ceq $newModel) 'CANDIDATE_MODEL_BLOB_IDENTITY'
+            $modelSrc=Join-Path $repo $model
+            $testSrc=Join-Path $repo $test
+            $modelDest=Join-Path $repo "$dest/model.go"
+            $testDest=Join-Path $repo "$dest/workorder_preservation_compat_test.go"
+            Copy-Item -LiteralPath $modelSrc -Destination $modelDest -Force
+            Copy-Item -LiteralPath $testSrc -Destination $testDest -Force
+            Need (([IO.File]::ReadAllBytes($modelSrc) -join ',') -ceq ([IO.File]::ReadAllBytes($modelDest) -join ',')) 'EXACT_MODEL_OVERLAY'
+            Write-Host 'MP_PARSER_SOURCE_SCOPE=PASS'
+            Write-Host 'MP_PARSER_STRICT_DUAL_FIELD_SOURCE=PASS'
+            Push-Location (Join-Path $repo 'snapshot/source')
+            try {
+              & go.exe test ./internal/plane -run '^TestPreservationCompat' -count=1
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED_REGRESSION'
+              Write-Host 'MP_PARSER_FOCUSED_GO=PASS'
+              & go.exe test ./...
+              Need ($LASTEXITCODE -eq 0) 'FULL_GO_REGRESSION'
+              Write-Host 'MP_PARSER_FULL_GO=PASS'
+            } finally {Pop-Location}
+            Need ((RefPin 'refs/heads/main') -ceq $src) 'MAIN_MOVED'
+            Need ((RefPin "refs/heads/$branch") -ceq $candidate) 'CANDIDATE_MOVED'
+            Write-Host 'MP_PARSER_FINAL_SOURCE_IDENTITY=PASS'
+            Write-Host 'MP_PARSER_PRODUCTION_WRITES=0'
+            Write-Host 'MP_PARSER_CONTROLLER_QUEUE_TOUCHES=0'
+            Write-Host 'MP_PARSER_KTRADE_ACTIONS=0'
+            Write-Host 'MP_PARSER_ACCEPTANCE=NOT_AUTHORIZED'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) {Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_PARSER_SCRATCH_CLEAN=PASS'
+          }
