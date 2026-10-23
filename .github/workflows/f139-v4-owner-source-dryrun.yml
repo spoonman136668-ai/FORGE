@@ -1,0 +1,118 @@
+name: F139 V4 owner cold source and original-history dry run
+on:
+  push:
+    branches: [fix/f139-v4-activation-recovery-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v4-owner-history-source-test
+  cancel-in-progress: true
+jobs:
+  original-windows-owner-readonly-qualification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - name: Fixed source-only focus and ONE full F139 Python regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'UNQUALIFIED_OWNER_RUNNER'}
+          if((git rev-parse HEAD | Out-String).Trim() -cne $env:GITHUB_SHA){
+            throw 'UNQUALIFIED_SOURCE_SHA'
+          }
+          & python -B -m unittest discover -s f139 -p test_nci04_v4_provider_recovery.py -v
+          if($LASTEXITCODE -ne 0){throw 'V4_FOCUSED_SOURCE_REGRESSION'}
+          & python -B -m unittest discover -s f139 -p 'test_*.py'
+          if($LASTEXITCODE -ne 0){throw 'F139_FULL_SOURCE_REGRESSION'}
+          if((git status --porcelain --untracked-files=all | Out-String).Trim().Length -gt 0){
+            throw 'SOURCE_WORKTREE_DRIFT'
+          }
+          Write-Output 'F139_V4_ORIGINAL_WINDOWS_SOURCE_QUALIFIED=PASS'
+      - name: Cold-read original SQLite via immutable snapshot and verify V4 succession
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($t.State -ne 'Disabled'){throw 'ORIGINAL_OWNER_TASK_NOT_QUIESCED'}
+          $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $principal=[string]$t.Principal.UserId
+          $owner=if($principal -match '^S-1-'){$principal}else{
+             (New-Object Security.Principal.NTAccount($principal)).Translate(
+               [Security.Principal.SecurityIdentifier]).Value}
+          if($sid -cne $owner -or @($t.Actions).Count -ne 1){
+            throw 'ORIGINAL_OWNER_IDENTITY_NOT_QUALIFIED'
+          }
+          $pattern='(?i)(?:^|\s)-Database\s+"([^"]+)"'
+          $m=[regex]::Match([string]$t.Actions[0].Arguments,$pattern)
+          if(-not $m.Success){throw 'OWNER_DATABASE_TASK_ARGUMENT_INVALID'}
+          $db=[IO.Path]::GetFullPath($m.Groups[1].Value)
+          $expected=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          if($db -ine $expected){throw 'ORIGINAL_DB_NOT_IN_OWNER_PROFILE'}
+          $scratch=Join-Path $env:RUNNER_TEMP 'f139-v4-original-owner-dry-run.sqlite'
+          if(Test-Path -LiteralPath $scratch){throw 'F139_SOURCE_SNAPSHOT_MUST_BE_NEW'}
+          $script=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import activate_native,verify_native_activation
+          original=Path(sys.argv[1]).resolve(strict=True)
+          scratch=Path(sys.argv[2])
+          proposed=sys.argv[3]
+          ro=sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,timeout=20)
+          try:
+            copy=sqlite3.connect(scratch)
+            try:
+              ro.backup(copy)
+            finally:
+              copy.close()
+          finally:
+            ro.close()
+          db=Database(scratch)
+          try:
+            db.verify()
+            meta=db.meta()
+            assert meta["source_sha"]=="fd8474235d2197533189f35b002f5602268a497b"
+            assert meta["head_seq"]==96
+            assert meta["head_hash"]=="3a2fb20fc5cf98a5ac4223ddf8ba17497682302565d733365a5dd371f6a02947"
+            assert len(db.verified_native_provider_failures())==2
+            assert len([r for r in db.conn.execute("SELECT stage FROM tasks")
+                        if r["stage"]=="QUARANTINED"])==4
+            assert len(db.actives())==0 and db.ready() is None
+            db.transition_source(proposed,allow_certified_negative=True)
+            newmeta=db.meta()
+            assert newmeta["head_seq"]==97 and newmeta["source_sha"]==proposed
+            approval={
+              "schema":"forge.f139.nci04.owner-native-approval.v1",
+              "source_sha":proposed,
+              "expected_event_head_sha256":newmeta["head_hash"],
+              "native_development_approved":True,
+              "scientific_first_use":False,
+              "create_controller":False,
+              "paid_api_calls":0,
+            }
+            assert activate_native(db,approval)
+            db.verify()
+            assert verify_native_activation(db)
+            assert db.meta()["head_seq"]==98
+            print("F139_ORIGINAL_OWNER_V4_SOURCE_SNAPSHOT_TRANSITION=PASS")
+            print("F139_ORIGINAL_OWNER_4_NEGATIVES_PRESERVED=PASS")
+            print("F139_ORIGINAL_OWNER_ACTIVATION_DRYRUN=PASS")
+            print("F139_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+            db.close()
+          '@
+          try{
+            & python -B -c $script $db $scratch $env:GITHUB_SHA
+            if($LASTEXITCODE -ne 0){throw 'ORIGINAL_V4_SOURCE_RECONCILIATION_FAILED'}
+          }finally{
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+          }
+          Write-Output 'F139_ORIGINAL_OWNER_DB_UNCHANGED=TRUE'
+          Write-Output 'F139_ORIGINAL_TASK_REMAINS_DISABLED=TRUE'
