@@ -84,6 +84,15 @@ class ProviderNegativeCustodyTests(unittest.TestCase):
         self.assertEqual(doc["quarantine_event_sha256"],q["sha"])
         self.assertEqual(
             self.db.verified_native_provider_failures()[work.ticket][0],MAIN)
+        custody_seq=self.db.conn.execute(
+            "SELECT seq FROM events WHERE kind='NATIVE_FAILED_PROVIDER_CUSTODY' "
+            "ORDER BY seq DESC LIMIT 1").fetchone()["seq"]
+        self.assertNotIn(
+            work.ticket,
+            self.db.verified_native_provider_failures(through_seq=custody_seq))
+        self.assertIn(
+            work.ticket,
+            self.db.verified_native_provider_failures(through_seq=custody_seq+1))
         self.db.verify()
 
     def test_duplicate_or_forged_late_custody_fails_closed(self):
