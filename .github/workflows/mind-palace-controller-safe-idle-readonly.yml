@@ -1,0 +1,80 @@
+name: Mind-Palace read-only CKB controller idle and custody gate
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-controller-safe-idle-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-controller-idle-readonly
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read existing controller status and live Mind-Palace source, do not mutate
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$tag){if(-not $yes){throw ('MP_IDLE_PREFLIGHT_'+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $plane=Join-Path $env:USERPROFILE 'GolandProjects\ckb-plane'
+          $mp=Join-Path $env:USERPROFILE 'GolandProjects\Mind-Palace'
+          $exe=Join-Path $plane 'ckb-plane.exe'
+          $cfg=Join-Path $plane 'config\autonomy.yaml'
+          $records=Join-Path $mp '.ice\records.json'
+          foreach($p in @($exe,$cfg,$records)){
+            Need (Test-Path -LiteralPath $p -PathType Leaf) 'REQUIRED_FILE'
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'REPARSE_REFUSED'
+          }
+          $cfgHash=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+          $recordsHash=(Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant()
+          $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $statusText=(& $exe controller status --config $cfg | Out-String)
+          Need ($LASTEXITCODE -eq 0 -and $statusText.Trim().Length -gt 0) 'CONTROLLER_STATUS_READ'
+          $status=$statusText | ConvertFrom-Json
+          Need ([string]$status.authority -ceq 'plane') 'AUTHORITY'
+          $generation=[string]$status.generation
+          Need ($generation -match '^[1-9][0-9]*$') 'GENERATION'
+          Need (-not [bool]$status.accepted_ref_mutation_allowed) 'ACCEPTED_REF_DENIAL'
+          $observed=[string]$status.controller_status
+          Need ($observed.Length -gt 0 -and $observed.Length -lt 3000) 'STATUS_FORMAT'
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop |
+            Where-Object { [string]$_.ExecutablePath -ieq $exe -and [string]$_.CommandLine -match '(?i)\bcontroller\s+run\b' })
+          Need ($running.Count -le 1) 'COMPETING_CONTROLLERS'
+          $head=((& git.exe -C $mp rev-parse HEAD | Out-String).Trim())
+          Need ($LASTEXITCODE -eq 0 -and $head -match '^[0-9a-f]{40}$') 'MP_HEAD'
+          $localBranch=((& git.exe -C $mp symbolic-ref --short --quiet HEAD | Out-String).Trim())
+          Need ($LASTEXITCODE -eq 0 -and $localBranch -ceq 'main') 'MP_BRANCH'
+          $dirty=@(& git.exe -C $mp status --porcelain=v1 --untracked-files=no)
+          Need ($LASTEXITCODE -eq 0) 'MP_WORKTREE_STATUS'
+          $afterHead=((& git.exe -C $mp rev-parse HEAD | Out-String).Trim())
+          Need ($LASTEXITCODE -eq 0 -and $afterHead -ceq $head) 'MP_CONCURRENT_HEAD_DRIFT'
+          Need ((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $recordsHash) 'RECORD_DRIFT'
+          Need ((Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $cfgHash) 'CFG_DRIFT'
+          Need ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $exeHash) 'EXE_DRIFT'
+          Write-Host 'MP_IDLE_PREFLIGHT_READ_ONLY=PASS'
+          Write-Host "MP_IDLE_PREFLIGHT_AUTHORITY=$($status.authority)"
+          Write-Host "MP_IDLE_PREFLIGHT_GENERATION=$generation"
+          Write-Host "MP_IDLE_PREFLIGHT_HEARTBEAT_STALE=$([bool]$status.heartbeat_stale)"
+          Write-Host "MP_IDLE_PREFLIGHT_PAUSED=$([bool]$status.paused)"
+          Write-Host "MP_IDLE_PREFLIGHT_CONTROLLER_STATUS=$observed"
+          Write-Host "MP_IDLE_PREFLIGHT_CONTROLLER_PROCESSES=$($running.Count)"
+          Write-Host "MP_IDLE_PREFLIGHT_LOCAL_MP_HEAD=$head"
+          Write-Host "MP_IDLE_PREFLIGHT_LOCAL_MP_TRACKED_DIRTY=$($dirty.Count)"
+          Write-Host "MP_IDLE_PREFLIGHT_LOCAL_MP_RECORDS_SHA256=$recordsHash"
+          Write-Host "MP_IDLE_PREFLIGHT_SAFE_IDLE_ESTABLISHED=$([bool]($observed -match '^IDLE:' -and -not [bool]$status.heartbeat_stale -and $running.Count -eq 1 -and $dirty.Count -eq 0))"
+          Write-Host 'MP_IDLE_PREFLIGHT_LIVE_WRITES=0'
+          Write-Host 'MP_IDLE_PREFLIGHT_CONTROLLER_RESTART=0'
+          Write-Host 'MP_IDLE_PREFLIGHT_KTRADE_ACTIONS=0'
