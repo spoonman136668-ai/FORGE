@@ -1,0 +1,179 @@
+name: CKB R217 guarded restore existing Research Loop Controller task
+on:
+  push:
+    branches: [operate/ckb-r217-guarded-original-task-recovery-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r217-original-task-one-time-recovery
+  cancel-in-progress: false
+jobs:
+  original-task-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Original-controller custody preflight, exact scheduled task stop and guarded restart
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/operate/ckb-r217-guarded-original-task-recovery-20261023'){
+            throw 'R217_REPAIR_WRONG_ELEVATED_EXECUTION_AUTHORITY'
+          }
+          $admin=[Security.Principal.WindowsPrincipal]::new(
+            [Security.Principal.WindowsIdentity]::GetCurrent()
+          ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          if(!$admin){throw 'R217_REPAIR_ADMIN_TOKEN_MISSING'}
+          $root='C:\ProgramData\CKBR\research'
+          $taskName='CKB Research Loop Controller'
+          $identity=Join-Path $root 'controller-qualified-sha.txt'
+          $cfgPath=Join-Path $root 'controller.json'
+          foreach($path in @($identity,$cfgPath)){
+            if(!(Test-Path -LiteralPath $path -PathType Leaf)){
+              throw 'R217_REPAIR_ORIGINAL_CONTROLLER_CUSTODY_MISSING'
+            }
+          }
+          $sha=([IO.File]::ReadAllText($identity,[Text.Encoding]::UTF8)).Trim().ToLowerInvariant()
+          if($sha -cne '9d697540cd31c1925cf427bcbcdc9b605d64b536'){
+            throw 'R217_REPAIR_ORIGINAL_CONTROLLER_SOURCE_DRIFT'
+          }
+          $config=Get-Content -LiteralPath $cfgPath -Raw|ConvertFrom-Json
+          if($config.schema -cne 'ckb-plane.research-loop-controller-config.v1' -or
+             [string]::IsNullOrWhiteSpace([string]$config.mutex_name)){
+            throw 'R217_REPAIR_CONFIG_OR_MUTEX_IDENTITY_INVALID'
+          }
+          $stateRoot=[IO.Path]::GetFullPath([string]$config.state_root)
+          if(!$stateRoot.StartsWith('C:\ProgramData\CKBR\', [StringComparison]::OrdinalIgnoreCase)){
+            throw 'R217_REPAIR_STATE_ROOT_OUTSIDE_CUSTODY'
+          }
+          $statePath=Join-Path $stateRoot 'state.json'
+          $receiptPath=Join-Path $stateRoot 'latest-receipt.json'
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1){
+            throw 'R217_REPAIR_ORIGINAL_TASK_UNEXPECTED_STATE'
+          }
+          $action=$task.Actions[0]
+          $argText=[string]$action.Arguments
+          $exeText=[string]$action.Execute
+          if(($exeText+' '+$argText) -notmatch '(?i)Invoke-ResearchLoop\.ps1'){
+            throw 'R217_REPAIR_SCHEDULED_ACTION_NOT_ORIGINAL_LOOP'
+          }
+          $p=@(Get-CimInstance Win32_Process -Filter 'ProcessId=800' -ErrorAction Stop)
+          if($p.Count -ne 1){throw 'R217_REPAIR_ORIGINAL_PID_NOT_PRESENT'}
+          $original=$p[0]
+          $birth=([datetime]$original.CreationDate).ToUniversalTime().ToString('o')
+          if($birth -cne '2026-10-21T09:46:33.4336590Z' -or
+             [IO.Path]::GetFileName([string]$original.ExecutablePath) -cne 'powershell.exe' -or
+             [string]$original.CommandLine -notmatch '(?i)Invoke-ResearchLoop\.ps1' -or
+             $original.ParentProcessId -ne 1328){
+            throw 'R217_REPAIR_ORIGINAL_PID_CODE_OR_BIRTH_DRIFT'
+          }
+          $who=Invoke-CimMethod -InputObject $original -MethodName GetOwnerSid -ErrorAction Stop
+          if($who.ReturnValue -ne 0){throw 'R217_REPAIR_OWNER_SID_UNREADABLE'}
+          $principal=[string]$task.Principal.UserId
+          $taskSid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($taskSid -cne [string]$who.Sid){throw 'R217_REPAIR_TASK_PRINCIPAL_NOT_PROCESS_OWNER'}
+          $parent=@(Get-CimInstance Win32_Service | Where-Object {
+            $_.ProcessId -eq $original.ParentProcessId -and
+            $_.Name -ceq 'Schedule' -and $_.State -ceq 'Running'
+          })
+          if($parent.Count -ne 1){throw 'R217_REPAIR_NOT_SCHEDULED_TASK_PROCESS'}
+          $children=@(Get-CimInstance Win32_Process | Where-Object {
+            $_.ParentProcessId -eq 800
+          })
+          if($children.Count -ne 1 -or
+             [IO.Path]::GetFileName([string]$children[0].ExecutablePath) -cne 'conhost.exe'){
+            throw 'R217_REPAIR_CHILD_PROCESS_BOUNDARY_UNQUALIFIED'
+          }
+          $active=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+            Where-Object { [string]$_.CommandLine -match 'Invoke-ResearchLoop\.ps1' })
+          if($active.Count -ne 1 -or $active[0].ProcessId -ne 800){
+            throw 'R217_REPAIR_PARALLEL_RESEARCH_LOOP_FOUND'
+          }
+          foreach($path in @($statePath,$receiptPath)){
+            if(!(Test-Path -LiteralPath $path -PathType Leaf)){
+              throw 'R217_REPAIR_DURABLE_OWNER_RECEIPT_OR_STATE_MISSING'
+            }
+          }
+          $state=Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+          $oldReceipt=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+          if($oldReceipt.schema -cne 'ckb-plane.research-loop-controller.v1' -or
+             $oldReceipt.controller_sha -cne $sha -or
+             $oldReceipt.status -cne 'NOVEL_HYPOTHESIS_REQUIRED' -or
+             $oldReceipt.wingless.state -cne 'NOVEL_HYPOTHESIS_REQUIRED' -or
+             $oldReceipt.yggdrasil.state -cne 'NOVEL_HYPOTHESIS_REQUIRED' -or
+             $state.lanes.Wingless.state -cne 'NOVEL_HYPOTHESIS_REQUIRED' -or
+             $state.lanes.Yggdrasil.state -cne 'NOVEL_HYPOTHESIS_REQUIRED' -or
+             $oldReceipt.codex_used -or $oldReceipt.runtime_launched -or
+             $oldReceipt.production_authority_changed -or
+             $oldReceipt.accepted_ref_mutated){
+            throw 'R217_REPAIR_INFLIGHT_SCIENCE_OR_DURABLE_STATE_UNQUALIFIED'
+          }
+          $oldAt=[DateTimeOffset]::Parse([string]$oldReceipt.observed_at_utc)
+          if(([DateTimeOffset]::UtcNow-$oldAt).TotalMinutes -lt 120){
+            throw 'R217_REPAIR_CONTROLLER_RECEIPT_NOT_STALE'
+          }
+          $preHash=(Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash
+          $beforeCpu=[double](Get-Process -Id 800 -ErrorAction Stop).CPU
+          Start-Sleep -Seconds 5
+          if([Math]::Abs(([double](Get-Process -Id 800 -ErrorAction Stop).CPU)-$beforeCpu) -gt 0.01){
+            throw 'R217_REPAIR_CONTROLLER_IS_COMPUTING_ABORT'
+          }
+          $recheck=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if($recheck.State -ne 'Running' -or
+             (Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash -cne $preHash){
+            throw 'R217_REPAIR_ORIGINAL_SCIENTIFIC_STATE_CHANGED_ABORT'
+          }
+          Write-Output 'R217_REPAIR_PRESTOP_OWNER_PID_SOURCE_RECEIPT=PASS'
+          Write-Output 'R217_REPAIR_ZERO_SCIENTIFIC_INFLIGHT=QUALIFIED_STALE_LANES'
+          # Stop only the exact Task Scheduler-owned original process, not PID by
+          # number. All PID/source/principal/task/science invariants passed.
+          Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          $exited=$false
+          for($i=0;$i -lt 25;$i++){
+            $still=@(Get-CimInstance Win32_Process -Filter 'ProcessId=800')
+            if($still.Count -eq 0){$exited=$true;break}
+            Start-Sleep -Seconds 1
+          }
+          if(!$exited){
+            throw 'R217_REPAIR_TASK_STOP_NOT_QUIESCED_NO_FORCED_KILL'
+          }
+          Write-Output 'R217_REPAIR_OLD_ORIGINAL_PROCESS_EXITED=PASS'
+          if((Get-FileHash -LiteralPath $statePath -Algorithm SHA256).Hash -cne $preHash){
+            throw 'R217_REPAIR_STATE_CHANGED_AFTER_STOP_ABORT_RESTART'
+          }
+          $t=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if($t.State -ne 'Ready'){
+            throw 'R217_REPAIR_ORIGINAL_TASK_NOT_READY_FOR_RESTART'
+          }
+          Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          Write-Output 'R217_REPAIR_ORIGINAL_SCHEDULED_TASK_RESTART_SUBMITTED=TRUE'
+          $fresh=$false
+          for($i=0;$i -lt 36;$i++){
+            Start-Sleep -Seconds 2
+            $r=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+            if($r.schema -cne 'ckb-plane.research-loop-controller.v1' -or
+               $r.controller_sha -cne $sha){throw 'R217_REPAIR_NEW_RECEIPT_AUTHORITY_DRIFT'}
+            $afterAt=[DateTimeOffset]::Parse([string]$r.observed_at_utc)
+            if($afterAt -gt $oldAt){
+              $fresh=$true
+              Write-Output ('R217_REPAIR_NEW_CONTROLLER_RECEIPT_STATUS='+[string]$r.status)
+              Write-Output ('R217_REPAIR_NEW_CONTROLLER_RECEIPT_UTC='+$afterAt.ToString('o'))
+              Write-Output ('R217_REPAIR_NEW_WINGLESS_STATE='+[string]$r.wingless.state)
+              Write-Output ('R217_REPAIR_NEW_YGGDRASIL_STATE='+[string]$r.yggdrasil.state)
+              Write-Output ('R217_REPAIR_NEW_RECEIPT_PROTECTED_SIDE_EFFECT_FLAGS='+[bool](
+                $r.production_authority_changed -or $r.accepted_ref_mutated))
+              break
+            }
+          }
+          if(!$fresh){throw 'R217_REPAIR_NO_NEW_ORIGINAL_SCIENTIFIC_RECEIPT'}
+          $controllers=@(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+            Where-Object { [string]$_.CommandLine -match 'Invoke-ResearchLoop\.ps1' })
+          if($controllers.Count -gt 1){throw 'R217_REPAIR_DUPLICATE_CONTROLLER_PROCESS'}
+          Write-Output 'R217_REPAIR_ORIGINAL_OWNER_RESTORED_FRESH_RECEIPT=PASS'
+          Write-Output 'R217_REPAIR_SECOND_CONTROLLER_CREATED=FALSE'
