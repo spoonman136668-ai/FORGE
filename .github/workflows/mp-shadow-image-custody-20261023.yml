@@ -1,0 +1,92 @@
+name: MP launcher shadow executable source binding
+on:
+  push:
+    branches: [diagnostics/mp-shadow-image-custody-20261023]
+    paths: [.github/workflows/mp-shadow-image-custody-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-shadow-image-custody-20261023
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Classify actual launcher execution expressions and shadow image without invoking
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$condition,[string]$why){if(-not $condition){throw ('MP_SHADOW_'+$why)}}
+          function FileDigest([string]$file){return (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'ORIGIN'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-shadow-image-custody-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'REF'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='1060e5af11a6e3ebb1a1cfa4adfca4047f3bc67a'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-shadow-image-custody-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $install=Join-Path $root 'bin\ckb-plane.exe'
+          $scriptDefault=Join-Path $root 'scripts\Start-CKBPlane.ps1'
+          $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($p.Count -eq 1) 'NOT_SINGLETON'
+          $proc=$p[0]
+          $real=[IO.Path]::GetFullPath([string]$proc.ExecutablePath)
+          Need (Test-Path -LiteralPath $real -PathType Leaf) 'REAL_EXE_GONE'
+          Need (((Get-Item -LiteralPath $real).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'REAL_EXE_ALIAS'
+          Need ((FileDigest $real) -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc') 'RUNNING_SHA_CHANGED'
+          Need ((FileDigest $install) -ceq '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6') 'INSTALLED_SHA_CHANGED'
+          $tasks=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Need (@($tasks.Actions).Count -eq 1) 'TASK_COUNT'
+          $args=[string]$tasks.Actions[0].Arguments
+          $fileRx='(?i)(?:^|\s)-File\s+(?:"([^"]+)"|''([^'']+)''|(\S+))'
+          $hits=[regex]::Matches($args,$fileRx)
+          Need ($hits.Count -eq 1) 'TASK_FILE_UNIQUE'
+          $groups=@($hits[0].Groups[1],$hits[0].Groups[2],$hits[0].Groups[3])
+          $used=@($groups|Where-Object {$_.Success -and $_.Value})
+          Need ($used.Count -eq 1 -and [IO.Path]::IsPathRooted($used[0].Value)) 'TASK_SCRIPT_PATH'
+          $script=[IO.Path]::GetFullPath($used[0].Value)
+          Need (Test-Path -LiteralPath $script -PathType Leaf) 'TASK_SCRIPT_MISSING'
+          Need (((Get-Item -LiteralPath $script).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'TASK_SCRIPT_ALIAS'
+          Need ((FileDigest $script) -ceq '47d8a25fe7b60fb0b96874249ef2de2a59fbe95cce722538abe524b86954d577') 'TASK_SCRIPT_CHANGED'
+          Write-Host 'MP_SHADOW_RUNNING_AND_SCRIPT_PINNED=PASS'
+          $source=[IO.File]::ReadAllText($script)
+          $tokens=$null
+          $parseErrors=$null
+          $ast=[Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$parseErrors)
+          Need ($null -ne $ast -and @($parseErrors).Count -eq 0) 'TASK_SCRIPT_AST_INVALID'
+          $cmds=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CommandAst]},$true))
+          Need ($cmds.Count -le 500) 'SCRIPT_COMMAND_COUNT'
+          $names=@($cmds | ForEach-Object {([string]$_.GetCommandName()).ToLowerInvariant()})
+          $features=@('start-process','copy-item','move-item','rename-item','join-path','push-location','new-item','get-item','invoke-expression','invoke-command','add-type')
+          foreach($feature in $features){Write-Host ('MP_SHADOW_STATIC_COMMAND_'+($feature.Replace('-','_')).ToUpperInvariant()+'='+(@($names|Where-Object{$_ -eq $feature}).Count))}
+          Write-Host ('MP_SHADOW_STATIC_EXEC_AMPERSAND_COUNT='+([regex]::Matches($source,'(?m)^\s*&\s+').Count))
+          Write-Host ('MP_SHADOW_SCRIPT_EXPLICIT_RUNNING_PATH_LITERAL='+($source.Contains($real,[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_SCRIPT_EXPLICIT_INSTALLED_IMAGE_LITERAL='+($source.Contains($install,[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_SCRIPT_REFERENCES_BIN_RELATIVE='+($source.Contains('bin\ckb-plane.exe',[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_SCRIPT_REFERENCES_TEMP='+($source -match '(?i)(\$env:TEMP|Join-Path\s+\$env:TEMP)').ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_SCRIPT_REFERENCES_BACKUP_OR_SHADOW='+($source -match '(?i)(shadow|snapshot|hotfix|backup)').ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_SCRIPT_REFERENCES_OTHER_EXE='+([regex]::Matches($source,'(?i)\.exe').Count))
+          $start=([datetime]$proc.CreationDate).ToUniversalTime()
+          $installModified=(Get-Item -LiteralPath $install).LastWriteTimeUtc
+          $scriptModified=(Get-Item -LiteralPath $script).LastWriteTimeUtc
+          $runningModified=(Get-Item -LiteralPath $real).LastWriteTimeUtc
+          Write-Host ('MP_SHADOW_INSTALLED_EXE_MODIFIED_AFTER_PROCESS_START='+($installModified -gt $start).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_TASK_SCRIPT_MODIFIED_AFTER_PROCESS_START='+($scriptModified -gt $start).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_RUNNING_EXE_MODIFIED_AFTER_PROCESS_START='+($runningModified -gt $start).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_IMAGE_IN_TASK_SCRIPT_DIRECTORY='+($real.StartsWith(([IO.Path]::GetFullPath((Split-Path -Parent $script))).TrimEnd([char]92)+[char]92,[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          Write-Host ('MP_SHADOW_RUNNING_EXE_DIR_MATCHES_INSTALLED='+([string]::Equals([IO.Path]::GetDirectoryName($real),[IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($install)),[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          $oneMore=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($oneMore.Count -eq 1 -and $oneMore[0].ProcessId -eq $proc.ProcessId) 'PROCESS_CHANGED'
+          Need ((FileDigest $real) -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc' -and (FileDigest $script) -ceq '47d8a25fe7b60fb0b96874249ef2de2a59fbe95cce722538abe524b86954d577') 'IMAGES_POST_CHANGED'
+          Write-Host 'MP_SHADOW_ORIGINAL_PREPOST_HASHES_AND_PROCESS_STABLE=PASS'
+          Write-Host 'MP_SHADOW_NO_PRODUCTION_CHANGES=TRUE'
+          Write-Host 'MP_SHADOW_NO_NATIVE_CONTROLLER_COMMANDS=TRUE'
+          Write-Host 'MP_SHADOW_SCRIPT_AST_READONLY_PASS=PASS'
