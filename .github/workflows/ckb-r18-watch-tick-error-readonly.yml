@@ -1,0 +1,71 @@
+name: R18 capture authentic tick pause cause (read only)
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-watch-tick-error-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  watch:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 22
+          persist-credentials: false
+      - name: Observe only durable pause/error transitions on original controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $id.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R18_WATCH_AUTHORITY_DRIFT'}
+          $parent='a3bc92461d3aa318698f691127f869980a2e16b5'
+          if((& git.exe merge-base $parent HEAD) -cne $parent){throw 'R18_WATCH_SOURCE_IDENTITY_DRIFT'}
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-watch-tick-error-readonly.yml'){throw 'R18_WATCH_SCOPE_EXPANDED'}
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'){throw 'R18_WATCH_RELEASE_DRIFT'}
+          $db='C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db'
+          $script=@'
+          import sys,json,sqlite3
+          p=sys.argv[1].replace('\\','/')
+          c=sqlite3.connect('file:'+p+'?mode=ro',uri=True,timeout=3)
+          try:
+            c.execute('pragma query_only=on')
+            d={k:v for k,v in c.execute("select key,value from settings where key in ('paused','autonomy_status','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+            d['leases']=c.execute('select count(*) from worker_leases').fetchone()[0]
+            print(json.dumps(d,separators=(',',':')))
+          finally:c.close()
+          '@
+          $seen=@{}
+          Write-Host 'R18_READONLY_TICK_CAPTURE_ACTIVE=PASS'
+          for($i=0;$i -lt 60;$i++){
+            $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+            if($proc.Count -ne 1 -or [string]$proc[0].ExecutablePath -ine $exe){throw 'R18_WATCH_CONTROLLER_SINGLETON_DRIFT'}
+            $line=@(& python.exe -B -c $script $db)
+            if($LASTEXITCODE -ne 0 -or $line.Count -ne 1){throw 'R18_WATCH_SQLITE_READONLY_FAILED'}
+            $snap=$line[0]|ConvertFrom-Json
+            if($snap.autonomy_authority -cne 'plane' -or $snap.autonomy_generation -cne '6'){throw 'R18_WATCH_GENERATION_CHANGED'}
+            $type=[string]$snap.autonomy_status
+            $key=([string]$snap.paused)+'|'+$type
+            if(!$seen.ContainsKey($key)){
+              $seen[$key]=$true
+              $safe=$type -replace '(?i)(token|password|secret|bearer)[^\s;]*','<redacted>'
+              $safe=$safe -replace '(?i)[A-Z]:\\[^\s;]+','<path>'
+              $safe=$safe -replace '(?i)gh[oprs]_[A-Za-z0-9_]+','<credential>'
+              if($safe.Length -gt 420){$safe=$safe.Substring(0,420)}
+              Write-Host ('R18_WATCH_PAUSED='+[string]$snap.paused)
+              Write-Host ('R18_WATCH_STATUS='+$safe)
+              Write-Host ('R18_WATCH_LEASES='+[string]$snap.leases)
+            }
+            Start-Sleep -Seconds 2
+          }
+          Write-Host 'R18_READONLY_WATCH_COMPLETE=PASS'
+          Write-Host 'R18_NO_PAUSE_RESUME_OR_SOURCE_MUTATION=TRUE'
