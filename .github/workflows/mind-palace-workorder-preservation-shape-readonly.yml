@@ -69,6 +69,7 @@ jobs:
           if len(rows)>1024:
               raise RuntimeError("TOO_MANY_QUEUE_RECORDS")
           shapes=[]
+          mapping_fields={}
           parsed=0
           for (raw,) in rows:
               if not isinstance(raw,(bytes,str)) or len(raw)>1048576:
@@ -104,11 +105,34 @@ jobs:
                   keys.setdefault(key,[]).append(shape)
               for shape in keys.get("preservation",[]):
                   shapes.append((shape,len(keys.get("preserve",[]))))
+              # Child *field names and value types only*, never actual contents.
+              for i,line in enumerate(lines):
+                  m=re.match(r"^(\s*)preservation:\s*(?:#.*)?$",line)
+                  if not m: continue
+                  rootindent=len(m.group(1))
+                  children=[]
+                  for subline in lines[i+1:]:
+                      if not subline.strip() or subline.lstrip().startswith("#"):
+                          continue
+                      indent=len(subline)-len(subline.lstrip(" "))
+                      if indent<=rootindent:
+                          break
+                      mm=re.match(r"^\s*([A-Za-z][A-Za-z0-9_]{0,39})\s*:\s*(.*?)\s*$",subline)
+                      if mm:
+                          children.append((indent,mm.group(1),mm.group(2)))
+                  if not children: continue
+                  minindent=min(a for a,b,c in children)
+                  for indent,name,val in children:
+                      if indent==minindent:
+                          mapping_fields.setdefault(name,set()).add("INLINE" if val and not val.startswith("#") else "BLOCK")
+
           print("MP_WORKORDER_SHAPE_ENVELOPE_COUNT="+str(len(rows)))
           print("MP_WORKORDER_SHAPE_SOURCE_YAML_COUNT="+str(parsed))
           print("MP_WORKORDER_SHAPE_PRESERVATION_KEY_COUNT="+str(len(shapes)))
           print("MP_WORKORDER_SHAPE_PRESERVATION_TYPES="+",".join(sorted(set(p[0] for p in shapes))) if shapes else "MP_WORKORDER_SHAPE_PRESERVATION_TYPES=NONE")
           print("MP_WORKORDER_SHAPE_COEXISTING_PRESERVE_KEYS="+str(sum(p[1] for p in shapes)))
+          print("MP_WORKORDER_SHAPE_MAPPING_FIELD_NAMES="+",".join(sorted(mapping_fields)))
+          print("MP_WORKORDER_SHAPE_MAPPING_VALUE_LAYOUTS="+",".join(f"{name}:{'+'.join(sorted(mapping_fields[name]))}" for name in sorted(mapping_fields)))
           print("MP_WORKORDER_SHAPE_READONLY_DB=TRUE")
           print("MP_WORKORDER_SHAPE_CONTENT_DISCLOSED=FALSE")
           '@
