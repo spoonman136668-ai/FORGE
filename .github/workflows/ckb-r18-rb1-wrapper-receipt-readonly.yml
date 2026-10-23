@@ -1,0 +1,70 @@
+name: R18 RB1 active wrapper and qualification receipt read-only
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ckb-r18-rb1-wrapper-receipt-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Immutable current wrapper receipt and idle native custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($owner).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'RB1_WRAPPER_OWNER_REQUIRED'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-LEGACY-ROADMAP-HOLD-20261023'
+          $exe=Join-Path $release 'bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c' -or
+             (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '23a39506a93000200881d4916f320a819bb8590d3465cc5154588f32a2a5a065'){throw 'RB1_WRAPPER_EXISTING_RUNTIME_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){throw 'RB1_WRAPPER_TASK_SHAPE_DRIFT'}
+          $action=$task.Actions[0];$args=[string]$action.Arguments
+          $match=[regex]::Match($args,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
+          if(!$match.Success){throw 'RB1_WRAPPER_ACTION_SCRIPT_MISSING'}
+          $script=$match.Groups[1].Value.Trim('"',"'"," ")
+          if((Split-Path -Leaf $script) -cne 'Start-R18-Controller.ps1'){throw 'RB1_WRAPPER_NAME_DRIFT'}
+          $hash=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
+          $body=[IO.File]::ReadAllText($script)
+          if(($body.Split(@($release),[StringSplitOptions]::None).Length-1) -ne 1){throw 'RB1_WRAPPER_RELEASE_OCCURRENCE_DRIFT'}
+          $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($p.Count -ne 1 -or [string]$p[0].ExecutablePath -ine $exe){throw 'RB1_WRAPPER_ACTIVE_RUNTIME_DRIFT'}
+          $python=@'
+          import json,sqlite3,sys,pathlib
+          db,path=sys.argv[1:]
+          con=sqlite3.connect('file:'+db.replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          con.execute('pragma query_only=on')
+          try:
+           s=dict(con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','qualification_digest','qualification_receipt','autonomy_heartbeat')"))
+           record=pathlib.Path(s.get('qualification_receipt',''))
+           root=pathlib.Path(path).resolve()
+           inside=record.resolve().is_relative_to(root)
+           q=json.loads(record.read_text(encoding='utf-8')) if inside and record.is_file() else {}
+           queue=con.execute("SELECT count(*) FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED')").fetchone()[0]
+           lease=con.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+           info={'authority':s.get('autonomy_authority'),'generation':s.get('autonomy_generation'),'paused':s.get('paused'),
+             'qualification_receipt_present':bool(q),'qualification_digest_self_consistent':bool(q.get('passed')) and q.get('config_and_tool_digest')==s.get('qualification_digest'),
+             'queue_nonterminal':queue,'worker_leases':lease}
+           print(json.dumps(info,separators=(',',':')))
+          finally:con.close()
+          '@
+          $states=@(& python.exe -B -c $python $db $root)
+          if($LASTEXITCODE -ne 0 -or $states.Count -ne 1){throw 'RB1_WRAPPER_NATIVE_CUSTODY_UNAVAILABLE'}
+          $state=$states[0]|ConvertFrom-Json
+          if($state.authority -cne 'plane' -or $state.generation -cne '6' -or
+             !$state.qualification_receipt_present -or !$state.qualification_digest_self_consistent -or
+             [int]$state.queue_nonterminal -ne 0 -or [int]$state.worker_leases -ne 0){throw 'RB1_WRAPPER_NONIDLE_OR_QUALIFICATION_DRIFT'}
+          Write-Host ('RB1_CURRENT_WRAPPER_SHA256='+$hash)
+          Write-Host ('RB1_ORIGINAL_NATIVE_STATE='+($states[0]))
+          Write-Host 'RB1_WRAPPER_AND_NATIVE_IDLE_CUSTODY=PASS'
+          Write-Host 'RB1_ORIGINAL_CONTROLLER_AND_DATA_UNCHANGED=PASS'
