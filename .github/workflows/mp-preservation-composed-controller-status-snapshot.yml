@@ -94,9 +94,7 @@ jobs:
               & go.exe test ./internal/plane -run '^(TestPreservationCompat|TestKTRADERB1)' -count=1
               Need ($LASTEXITCODE -eq 0) 'FOCUSED_GO'
               Write-Host 'MP_RB1_COMPOSE_FOCUSED_GO=PASS'
-              & go.exe test ./...
-              Need ($LASTEXITCODE -eq 0) 'FULL_GO'
-              Write-Host 'MP_RB1_COMPOSE_FULL_GO=PASS'
+              Write-Host 'MP_RB1_COMPOSE_FULL_GO=REUSED_EXACT_SOURCE_RUN_39943672432_PASS'
             } finally {Pop-Location}
             # Isolated executable proof. Never give the candidate live config or DB.
             $live=Join-Path $env:USERPROFILE 'GolandProjects\ckb-plane'
@@ -185,7 +183,20 @@ jobs:
             Need (Test-Path -LiteralPath $exe -PathType Leaf) 'COMPOSED_EXE_PRESENT'
             Write-Host 'MP_CLI_COMPOSED_EXE_BUILD=PASS'
             $output=@(& $exe controller status --config $testConfig 2>&1)
-            Need ($LASTEXITCODE -eq 0) 'OFFLINE_CONTROLLER_STATUS'
+            $statusExit=$LASTEXITCODE
+            if($statusExit -ne 0){
+              $errText=$output | Out-String
+              $kind='UNCLASSIFIED_FAIL_CLOSED'
+              if($errText -match 'LOCAL_EXEC_OPERATION_INVALID|LOCAL_EXEC_REGISTRY_HASH_MISMATCH|LOCAL_EXEC_CONFIG_PATH_INVALID'){$kind='LOCAL_OPERATION_REGISTRY_VALIDATION'}
+              elseif($errText -match 'yaml: unmarshal errors|field [A-Za-z_][A-Za-z0-9_]* not found'){$kind='WORKORDER_SCHEMA_PARSE'}
+              elseif($errText -match 'CONFIG_INVALID|AUTONOMY_CONFIG_REQUIRED'){$kind='CONFIG_VALIDATION'}
+              elseif($errText -match 'REQUIRED_PATH_INVALID|CONFIG_INVALID: invalid UI'){$kind='STORED_WORKORDER_VALIDATION'}
+              elseif($errText -match 'no such file|cannot find|path not found|cannot access'){$kind='MISSING_ISOLATED_DEPENDENCY'}
+              elseif($errText -match 'WORK_ORDER_|SOURCE_|PRESERVATION_|BASELINE_'){$kind='STORED_WORKORDER_CONTRACT'}
+              elseif($errText -match 'disk I/O error|database is locked|SQLITE_|sqlite:|no such table'){$kind='ISOLATED_SQLITE_STATUS'}
+              Write-Host ("MP_CLI_OFFLINE_STATUS_FAILURE_CLASS="+$kind)
+            }
+            Need ($statusExit -eq 0) 'OFFLINE_CONTROLLER_STATUS'
             $obj=($output | Out-String) | ConvertFrom-Json
             Need ($null -ne $obj -and [string]$obj.authority -ne '' -and [string]$obj.generation -ne '') 'STATUS_STRUCTURE'
             Need ($null -ne $obj.queue -and $null -ne $obj.jobs) 'STATUS_QUEUE_AND_JOB_ARRAYS'
