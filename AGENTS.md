@@ -1,5 +1,13 @@
 # Standing instructions for all FORGE engineering agents
 
+## Standing scientific destination — Wingless and Yggdrasil (operator reaffirmed 2026-10-20)
+
+FORGE exists to help **two separate, natively learned and experimentally falsifiable non-transformer cognitive architectures** advance toward functioning LLM-class or greater intelligence at lower resource cost if achievable. Wingless emphasizes persistent cognition, learning, memory and native reasoning; Yggdrasil emphasizes native developmental/regenerative cognition. Neither may use a conventional transformer or autoregressive next-token/token-centric model as its **cognitive foundation**. Language input/output and such models as scientific controls, teachers and bounded research tools remain permitted. Preserve architectural, hypothesis, source, evidence and custody independence.
+
+Select and optimize *mechanisms that can eventually integrate into the functioning native cognitive systems* (continual learning, retained state, entity/causal representation, unfamiliar compositional transfer, self-monitoring and bounded improvement). Do not confuse experimental information-per-compute, gate count, synthetic pass rate, LCRM variants or controller maturity with achievement of that destination. Record how each proposal could affect an actual native substrate, its best matched comparator, its falsifier, cost and eventual integration path. Retain strong negative evidence, source-first-use controls and all existing acceptance rules.
+
+This is a **prospective advisory research-selection constraint**, not a change to frozen score functions, source identities, sealed cohorts, controller state or scientific authority. Read the durable operator directive directly from Mind-Palace `boundary/wingless-yggdrasil-nontransformer-nontoken-northstar-20261020`, commit `5e7414966bdcb6e75776ea3422b98422b20c9025`, as *read-only advisory context* under the isolation contract below. Do not connect to CKB-plane to retrieve it or to perform any FORGE work.
+
 ## Hard architectural boundary — operator reaffirmed 2026-10-16
 
 **FORGE MUST NOT connect to or depend on CKB-plane.** The operator has repeatedly corrected attempts to build a CKB-plane integration into FORGE.
