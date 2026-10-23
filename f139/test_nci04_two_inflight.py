@@ -85,6 +85,51 @@ class NativeDualInFlightTests(unittest.TestCase):
         self.assertFalse(any(
             ticket==issues[2].ticket for ticket in api.dispatches))
 
+    def test_unrelated_main_change_never_dispatches_new_work(self):
+        issues=[self.work(820),self.work(821)]
+        api=self.Provider(issues)
+        first=run_once(self.db,api,self.original.path,HMAC,
+                       now="2026-10-22T10:00:00Z")
+        self.assertEqual(first["ticket"],issues[0].ticket)
+        protected_sha="f"*40
+        api.protected_main=lambda: protected_sha
+        blocked=run_once(self.db,api,self.original.path,HMAC,
+                         now="2026-10-22T10:01:00Z")
+        self.assertEqual(blocked["disposition"],
+                         "MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED")
+        self.assertEqual(blocked["owner_source_sha"],MAIN)
+        self.assertEqual(blocked["protected_main_sha"],protected_sha)
+        self.assertEqual(blocked["active_tickets"],[issues[0].ticket])
+        self.assertEqual(api.dispatches,[issues[0].ticket])
+        self.assertEqual(len(self.db.actives()),1)
+        self.db.verify()
+
+    def test_failed_original_provider_quarantines_during_main_drift(self):
+        from f139.local_controller import F139Error
+        issue=self.work(822)
+        api=self.Provider([issue])
+        run_once(self.db,api,self.original.path,HMAC,
+                 now="2026-10-22T10:00:00Z")
+        api.protected_main=lambda:"f"*40
+        api.candidates=lambda ticket,started_at: {"id":9876}
+        api.run_proof=lambda *args: (_ for _ in ()).throw(
+            F139Error("F139_FAILED_OR_CANCELLED_NO_REPLAY"))
+        with self.assertRaisesRegex(F139Error,"FAILED_OR_CANCELLED_NO_REPLAY"):
+            run_once(self.db,api,self.original.path,HMAC,
+                     now="2026-10-22T10:01:00Z")
+        self.assertEqual(len(self.db.actives()),0)
+        rec=self.db.conn.execute(
+            "SELECT stage,quarantine_reason FROM tasks WHERE ticket=?",
+            (issue.ticket,)).fetchone()
+        self.assertEqual(rec["stage"],"QUARANTINED")
+        self.assertEqual(rec["quarantine_reason"],
+                         "FAILED_OR_CANCELLED_NO_REPLAY")
+        self.assertEqual(api.dispatches,[issue.ticket])
+        state=run_once(self.db,api,self.original.path,HMAC,
+                       now="2026-10-22T10:02:00Z")
+        self.assertEqual(state["disposition"],"MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED")
+        self.db.verify()
+
     def test_explicit_owner_migration_from_original_unique_index(self):
         old=("CREATE UNIQUE INDEX only_one_active_f139_task "
              "ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER')")
