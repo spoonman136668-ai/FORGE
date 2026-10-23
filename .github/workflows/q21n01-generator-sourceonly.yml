@@ -1,0 +1,96 @@
+name: Q21N-01 FORGE-native generator source-only native qualification
+
+on:
+  push:
+    branches: [research/q21n01-native-sourcefree-generator-20261023]
+    paths:
+      - '.github/workflows/q21n01-generator-sourceonly.yml'
+      - 'research/q21n01_forge_native/generator.py'
+      - 'research/q21n01_forge_native/test_generator.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: q21n01-generator-qualify-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-source-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 12
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify exact already-qualified parent and only three new source paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='1e55a7cee3c08eb661372a64943732fbd26eb223'
+          $parent=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $parent-cne$base){throw 'Q21N01_GEN_MAIN_DRIFT'}
+          $expected=@(
+            '.github/workflows/q21n01-generator-sourceonly.yml',
+            'research/q21n01_forge_native/generator.py',
+            'research/q21n01_forge_native/test_generator.py'
+          )
+          $actual=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or $actual.Count-ne3 -or
+             (Compare-Object $expected $actual)){throw 'Q21N01_GEN_SOURCE_SCOPE_DRIFT'}
+          $blobs=@{
+            'research/q21_information_budget/FROZEN_PROTOCOL.json'='d7c35c10f80b36a758b78e0deedf36d74bf5767d'
+            'research/q21n01_forge_native/FROZEN_PROTOCOL.json'='2b913a183043d06fd9eac7b18a36499a89517a49'
+            'research/q21n01_forge_native/generator.py'='e1889bf12e0a1fa1db5b202c2fae6a6e6cd1f612'
+            'research/q21n01_forge_native/test_generator.py'='a8e388b83e9fc617eb8ce080b65add31e3874c7d'
+          }
+          foreach($path in $blobs.Keys){
+            $object=(& git rev-parse ('HEAD:'+$path)).Trim()
+            $disk=(& git hash-object --no-filters -- $path).Trim()
+            if($LASTEXITCODE-ne0 -or $object-cne$blobs[$path] -or $disk-cne$blobs[$path]){
+              throw ('Q21N01_IMMUTABLE_GIT_BLOB_DRIFT_'+$path)
+            }
+          }
+          Write-Host 'Q21N01_ORIGINAL_AND_SUCCESSOR_PROTOCOL_UNCHANGED=PASS'
+      - name: Run new generator and old frozen contract source-only tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/q21n01_forge_native -p 'test_*.py' -v
+          if($LASTEXITCODE-ne0){throw 'Q21N01_GENERATOR_TEST_FAILED'}
+          python -B research/q21n01_forge_native/generator.py
+          if($LASTEXITCODE-ne0){throw 'Q21N01_GENERATOR_PREFLIGHT_FAILED'}
+          Write-Host 'Q21N01_SOURCE_ONLY_TESTS=PASS'
+          Write-Host 'Q21N01_GENERATED_EPISODES=0'
+          Write-Host 'Q21N01_FSA_ADMISSION=NOT_GRANTED'
+      - name: One standard FORGE Go regression, vet and build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo Q21N01_FULL_GO_REGRESSION=PASS
+      - name: Clean source with no scientific side effects
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($dirty.Count-ne0){throw 'Q21N01_DIRTY_WORKTREE'}
+          Write-Host 'Q21N01_CLEAN_WORKTREE=PASS'
+          Write-Host 'Q21N01_FIRST_USE=NOT_PERFORMED'
