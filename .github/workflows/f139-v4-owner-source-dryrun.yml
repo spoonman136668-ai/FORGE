@@ -55,8 +55,12 @@ jobs:
           $db=[IO.Path]::GetFullPath($m.Groups[1].Value)
           $expected=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
           if($db -ine $expected){throw 'ORIGINAL_DB_NOT_IN_OWNER_PROFILE'}
-          $scratch=Join-Path $env:RUNNER_TEMP 'f139-v4-original-owner-dry-run.sqlite'
+          # Keep the snapshot in the original *parent directory* so the
+          # strict original ZIP custody verifier resolves immutable archives
+          # without symlinks, while never opening the real SQLite for writes.
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName($db)) ('f139-v4-dryrun-'+$env:GITHUB_RUN_ID+'.sqlite')
           if(Test-Path -LiteralPath $scratch){throw 'F139_SOURCE_SNAPSHOT_MUST_BE_NEW'}
+          $originalHash=(Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash
           $script=@'
           import json,sqlite3,sys
           from pathlib import Path
@@ -112,7 +116,12 @@ jobs:
             & python -B -c $script $db $scratch $env:GITHUB_SHA
             if($LASTEXITCODE -ne 0){throw 'ORIGINAL_V4_SOURCE_RECONCILIATION_FAILED'}
           }finally{
-            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+            foreach($ext in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$ext) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if((Get-FileHash -LiteralPath $db -Algorithm SHA256).Hash -cne $originalHash){
+            throw 'F139_ORIGINAL_DATABASE_BYTES_DRIFT'
           }
           Write-Output 'F139_ORIGINAL_OWNER_DB_UNCHANGED=TRUE'
           Write-Output 'F139_ORIGINAL_TASK_REMAINS_DISABLED=TRUE'
