@@ -85,11 +85,23 @@ jobs:
           $privShallow=Git $work @('rev-parse','--is-shallow-repository')
           $failedAncestor=Git $work @('merge-base','--is-ancestor',$base,'HEAD')
           $srcStatus=Git $source @('status','--porcelain')
-          if($head.exit -ne 0 -or $head.text -cne $base -or
-             $srcHead.exit -ne 0 -or $srcHead.text -cne $base -or
-             $branchResult.exit -ne 0 -or $branchResult.text -cne $branchName -or
-             $srcShallow.text -cne 'true' -or $privShallow.text -cne 'false' -or
-             $failedAncestor.exit -ne 128 -or $srcStatus.exit -ne 0 -or $srcStatus.text -ne ''){
+          $diagnosis=[ordered]@{
+            head_matches_base=($head.exit -eq 0 -and $head.text -ceq $base)
+            source_head_matches_base=($srcHead.exit -eq 0 -and $srcHead.text -ceq $base)
+            branch_matches_worker=($branchResult.exit -eq 0 -and $branchResult.text -ceq $branchName)
+            source_shallow=($srcShallow.exit -eq 0 -and $srcShallow.text -ceq 'true')
+            private_not_shallow=($privShallow.exit -eq 0 -and $privShallow.text -ceq 'false')
+            observed_ancestry_failure=$failedAncestor.exit
+            source_status_clean=($srcStatus.exit -eq 0 -and $srcStatus.text -eq '')
+          }
+          Write-Host ('RB1_PRIVATE_METADATA_PREIMAGE_BOOLEAN_DIAGNOSIS='+($diagnosis|ConvertTo-Json -Compress))
+          if($diagnosis.head_matches_base -ne $true -or
+             $diagnosis.source_head_matches_base -ne $true -or
+             $diagnosis.branch_matches_worker -ne $true -or
+             $diagnosis.source_shallow -ne $true -or
+             $diagnosis.private_not_shallow -ne $true -or
+             $diagnosis.observed_ancestry_failure -ne 128 -or
+             $diagnosis.source_status_clean -ne $true){
                throw 'RB1_PRIVATE_METADATA_GIT_GRAPH_PREIMAGE_DRIFT'
           }
           $beforeRefs=Git $private @('for-each-ref','--format=%(refname) %(objectname)')
