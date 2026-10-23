@@ -1,0 +1,145 @@
+name: Optimizer O12 frozen train-only deterministic arithmetic qualification
+
+on:
+  push:
+    branches: [research/optimizer-o12-deterministic-phase-20261023]
+    paths:
+      - '.github/workflows/optimizer-o12-trainonly.yml'
+      - 'research/optimizer_o12/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-o12-trainonly
+  cancel-in-progress: false
+
+jobs:
+  native-training:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact original O10 model protocol ancestry and additive source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'O12_PARENT_IDENTITY_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-o12-trainonly.yml',
+            'research/optimizer_o12/O12_FROZEN_PROTOCOL.json',
+            'research/optimizer_o12/o10_frozen_phase.py',
+            'research/optimizer_o12/public_source.py',
+            'research/optimizer_o12/decimal_phase.py',
+            'research/optimizer_o12/train_only.py',
+            'research/optimizer_o12/compare.py',
+            'research/optimizer_o12/test_numeric.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) { throw 'O12_BOUNDED_SOURCE_DELTA_DRIFT' }
+          $pins=@{
+            'research/optimizer_o12/O12_FROZEN_PROTOCOL.json'='d75e2704519196ac39810286ce5413b1a25903d8'
+            'research/optimizer_o12/o10_frozen_phase.py'='56203c6aa60b29c4a5e8fb4bcd250bc212582209'
+          }
+          foreach ($path in $pins.Keys) {
+            $head=(& git rev-parse ('HEAD:'+$path)).Trim()
+            $disk=(& git hash-object --no-filters -- $path).Trim()
+            if ($LASTEXITCODE -ne 0 -or $head -cne $pins[$path] -or
+                $disk -cne $pins[$path]) { throw ('O12_FROZEN_BLOB_DRIFT_'+$path) }
+          }
+          Write-Host 'O12_PREREG_SOURCE_AND_O10_ORIGINAL=PASS'
+      - name: Twelve fresh-role arithmetic analytic gradient and fail-closed tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s research/optimizer_o12 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O12_FOCUSED_TRAIN_NUMERIC_TEST_FAILURE' }
+          Write-Host 'O12_FOCUSED_TESTS=PASS'
+      - name: Exact frozen train-only native float and deterministic Decimal traces
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'o12-train-receipt.json'
+          python -B research/optimizer_o12/train_only.py $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'O12_NEW_TRAIN_ONLY_MODEL_FAILURE' }
+          Write-Host 'O12_PROTECTED_OR_PREVIOUS_DEV_USAGE=ZERO'
+          Write-Host 'O12_SCIENTIFIC_GO=NOT_EVALUATED'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o12-new-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/o12-train-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One final FORGE full Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O12_FINAL_GO_REGRESSION=PASS
+      - name: Exact clean read-only source workspace
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'O12_DIRTY_PUBLIC_SOURCE' }
+          Write-Host 'O12_NO_CKB_OR_FORGE_OR_WINGLESS_NATIVE_CHANGE=PASS'
+
+  reconcile-deterministic-traces:
+    needs: native-training
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o12-new-native-ubuntu-24.04
+          path: native-results/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o12-new-native-windows-2022
+          path: native-results/windows
+      - name: Fail closed on ANY Decimal numeric trajectory or role drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o12/compare.py \
+            native-results/linux/o12-train-receipt.json \
+            native-results/windows/o12-train-receipt.json \
+            native-results/o12-comparison.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o12-independent-trainonly-reconciliation
+          path: native-results/o12-comparison.json
+          if-no-files-found: error
+          retention-days: 30
