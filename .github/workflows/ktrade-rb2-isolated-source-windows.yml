@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='3cc03a2b3d1ab2b1577fe0b3703e28bc35e2ccdd'
+          $sourceSha='2db89f4e8c5a41531125a679b8829e64cf9bef4e'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -93,6 +93,9 @@ jobs:
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/paperengine
               if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_ORIGINAL_TRADEGUARD_PAPER_LIFECYCLE_FAILED'}
               Write-Host 'RB2_NATIVE_ORIGINAL_DONOR_PAPER_ENGINE_FILLS_AND_STOP=PASS'
+              & go.exe test -mod=readonly -count=1 -p 1 -run '^TestOwner' ./internal/paperengine
+              if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PAPER_OWNER_START_STOP_RESTART_FAILED'}
+              Write-Host 'RB2_PAPER_SINGLE_OWNER_SOURCE_FEE_AND_COLD_STOP=PASS'
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/paperapp
               if($LASTEXITCODE -ne 0){throw 'RB2_REAL_PAPER_ACCOUNT_UI_DATA_PROJECTION_FAILED'}
               Write-Host 'RB2_REAL_ORIGINAL_PAPER_ACCOUNT_FEE_JOURNAL_FOCUSED=PASS'
