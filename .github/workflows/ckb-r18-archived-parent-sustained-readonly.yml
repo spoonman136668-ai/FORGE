@@ -1,0 +1,70 @@
+name: R18 sustained autonomous controller after archival parent repair
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-archived-parent-sustained-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  watch:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify resumed single original controller across seven authentic scheduler intervals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base 4102a1a2c355670d5dd830477d0f9e55b2f54c49 HEAD) -cne '4102a1a2c355670d5dd830477d0f9e55b2f54c49'){throw 'R18_SUSTAINED_READONLY_AUTHORITY_DRIFT'}
+          $changed=@(& git.exe diff --name-only 4102a1a2c355670d5dd830477d0f9e55b2f54c49 HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-archived-parent-sustained-readonly.yml'){throw 'R18_SUSTAINED_SOURCE_DRIFT'}
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-LEGACY-ROADMAP-HOLD-20261023\bin\ckb-plane.exe'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $expected='23a39506a93000200881d4916f320a819bb8590d3465cc5154588f32a2a5a065'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R18_QUALIFIED_LIVE_BINARY_DRIFT'}
+          $python=@'
+          import sqlite3,sys,json
+          d=sys.argv[1].replace('\\','/')
+          c=sqlite3.connect('file:'+d+'?mode=ro',uri=True,timeout=5)
+          c.execute('pragma query_only=on')
+          try:
+            keys=('paused','autonomy_authority','autonomy_generation','autonomy_status','autonomy_heartbeat','roadmap_successor_legacy_parent_hold')
+            s={k:v for k,v in c.execute("SELECT key,value FROM settings WHERE key IN ("+','.join('?'*len(keys))+")",keys)}
+            s['leases']=c.execute('SELECT count(*) FROM worker_leases').fetchone()[0]
+            s['queue_pending']=c.execute("SELECT count(*) FROM queue_items WHERE state NOT IN ('COMPLETED','REVIEWED')").fetchone()[0]
+            s['historical']=c.execute("SELECT count(*) FROM work_orders WHERE instr(CAST(yaml AS TEXT),'preservation:')>0").fetchone()[0]
+            print(json.dumps(s,separators=(',',':')))
+          finally:c.close()
+          '@
+          $previous=''
+          $distinct=0
+          for($i=0;$i -lt 7;$i++){
+             $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+             $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+             if([string]$task.State -cne 'Running' -or $procs.Count -ne 1 -or [string]$procs[0].ExecutablePath -ine $exe){throw 'R18_SUSTAINED_SINGLETON_LOST'}
+             $got=@(& python.exe -B -c $python (Join-Path $root 'state\autonomy.db'))
+             if($LASTEXITCODE -ne 0 -or $got.Count -ne 1){throw 'R18_SUSTAINED_READONLY_STATE_FAILED'}
+             $state=ConvertFrom-Json -InputObject $got[0]
+             if($state.paused -cne 'false' -or $state.autonomy_authority -cne 'plane' -or $state.autonomy_generation -cne '6' -or
+                [int]$state.leases -ne 0 -or [int]$state.historical -ne 10 -or
+                ([string]$state.autonomy_status).StartsWith('OPERATOR_BLOCKED')){throw ('R18_SUSTAINED_ACTIVE_STATE_FAILED_SAMPLE_'+$i)}
+             $fresh=[datetime]::Parse([string]$state.autonomy_heartbeat).ToUniversalTime()
+             if(((Get-Date).ToUniversalTime()-$fresh).TotalSeconds -gt 45){throw ('R18_HEARTBEAT_STALE_SAMPLE_'+$i)}
+             if([string]$state.autonomy_heartbeat -cne $previous){$distinct++}
+             $previous=[string]$state.autonomy_heartbeat
+             Write-Host ('R18_SUSTAINED_SAMPLE='+$i+'|paused='+$state.paused+'|status='+$state.autonomy_status+'|leases='+$state.leases+'|pending='+$state.queue_pending)
+             if($i -lt 6){Start-Sleep -Seconds 12}
+          }
+          if($distinct -lt 5){throw 'R18_NOT_ENOUGH_INDEPENDENT_SCHEDULER_HEARTBEATS'}
+          Write-Host 'R18_ORIGINAL_CONTROLLER_7_CONSECUTIVE_CYCLES_UNPAUSED=PASS'
+          Write-Host 'R18_HISTORICAL_ARCHIVES_UNCHANGED=10'
+          Write-Host 'R18_NO_AUTHORITY_OR_TASK_MUTATION=PASS'
