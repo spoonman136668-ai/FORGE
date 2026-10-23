@@ -1,0 +1,120 @@
+name: MP R220 source and preservation parser semantic gate
+on:
+  push:
+    branches: [diagnostics/mp-r220-parser-integration-20261023]
+    paths: [.github/workflows/mp-r220-parser-integration-20261023.yml]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      GOFLAGS: "-p=1"
+      GOMAXPROCS: "1"
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Prove exact source semantic compatibility in TEMP only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_R220_'+$c)}}
+          function ReplaceOnce([string]$s,[string]$a,[string]$b,[string]$c){
+            Need ($a.Length -gt 10 -and $s.Split(@($a),[StringSplitOptions]::None).Length -eq 2) $c
+            return $s.Replace($a,$b)
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-r220-parser-integration-20261023') 'EVENT'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='f4b631b63a739117bfe5b638e6101fa2e7d151ef'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-r220-parser-integration-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $R220='7b7d01f26cfe4d051956f82c7c45f6df507ecd0a'
+          $MP='6783083f58379fd68945de1065f85e2e87573eb3'
+          $url='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $baseRemote=@(& git.exe ls-remote --exit-code $url refs/heads/main)
+          Need ($LASTEXITCODE -eq 0 -and $baseRemote.Count -eq 1 -and ([string]($baseRemote[0] -split '\s+')[0]) -ceq $R220) 'R220_MAIN_DRIFT'
+          $mpBranch='proposal/compat-preservation-yaml-readonly-20261023'
+          $mpRemote=@(& git.exe ls-remote --exit-code $url ('refs/heads/'+$mpBranch))
+          Need ($LASTEXITCODE -eq 0 -and $mpRemote.Count -eq 1 -and ([string]($mpRemote[0] -split '\s+')[0]) -ceq $MP) 'PR608_DRIFT'
+          $temp=Join-Path $env:RUNNER_TEMP ('mp-r220-composition-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_EXISTS'
+          New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
+          $lf=[string][char]10
+          $crlf=([string][char]13)+$lf
+          try {
+            $r=Join-Path $temp 'r220'
+            $m=Join-Path $temp 'mp'
+            & git.exe clone --quiet --depth 1 --single-branch --branch main $url $r
+            Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $r rev-parse HEAD).Trim() -ceq $R220) 'CLONE_R220'
+            & git.exe clone --quiet --depth 1 --single-branch --branch $mpBranch $url $m
+            Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $m rev-parse HEAD).Trim() -ceq $MP) 'CLONE_PR608'
+            Write-Host 'MP_R220_SOURCE_AND_PR608_PINS=PASS'
+            $root=Join-Path $r 'snapshot\source'
+            $model=Join-Path $root 'internal\plane\model.go'
+            $overlay=Join-Path $m 'implementations\mp-controller-preservation-compat-v1\overlay\internal\plane'
+            $overlayModel=Join-Path $overlay 'model.go'
+            $overlayTest=Join-Path $overlay 'workorder_preservation_compat_test.go'
+            foreach($p in @($model,$overlayModel,$overlayTest)){
+              Need (Test-Path -LiteralPath $p -PathType Leaf) 'SOURCE_FILE_NOT_FOUND'
+              Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_SYMLINK'
+            }
+            $orig=[IO.File]::ReadAllText($model).Replace($crlf,$lf)
+            $patch=[IO.File]::ReadAllText($overlayModel).Replace($crlf,$lf)
+            $begin=$patch.IndexOf('type PreservationContract struct {',[StringComparison]::Ordinal)
+            $end=$patch.IndexOf('func decodeYAML(',[StringComparison]::Ordinal)
+            Need ($begin -gt 0 -and $end -gt $begin -and ($end-$begin) -lt 5500) 'CONTRACT_SECTION'
+            $contract=$patch.Substring($begin,$end-$begin)
+            Need ($contract.Contains('func (p *PreservationContract) Validate() error')) 'CONTRACT_VALIDATION_MISSING'
+            $tick=[string][char]96
+            $field=([string][char]9)+'Preserve      []string '+$tick+'yaml:"preserve"'+$tick
+            $newField=$field+$lf+([string][char]9)+'Preservation *PreservationContract '+$tick+'yaml:"preservation,omitempty" json:"preservation,omitempty"'+$tick
+            $composed=ReplaceOnce $orig $field $newField 'PRESERVE_ANCHOR'
+            $composed=ReplaceOnce $composed 'func decodeYAML(' ($contract+'func decodeYAML(') 'DECODER_ANCHOR'
+            $validator=([string][char]9)+'if e:=w.Preservation.Validate(); e!=nil {return e}'+$lf
+            $tail=([string][char]9)+'return nil'+$lf+'}'+$lf+$lf+'var hardForbidden'
+            $composed=ReplaceOnce $composed $tail ($validator+$tail) 'VALIDATE_ANCHOR'
+            $inverse=$composed.Replace($newField,$field).Replace($contract+'func decodeYAML(','func decodeYAML(').Replace($validator,'')
+            Need ($inverse -ceq $orig) 'EXACT_THREE_ADDITIONS_INVERSE'
+            [IO.File]::WriteAllText($model,$composed,[Text.UTF8Encoding]::new($false))
+            $newTest=Join-Path $root 'internal\plane\workorder_preservation_compat_test.go'
+            Need (-not (Test-Path -LiteralPath $newTest)) 'TEST_COLLISION'
+            Copy-Item -LiteralPath $overlayTest -Destination $newTest -ErrorAction Stop
+            Write-Host 'MP_R220_EXACT_THREE_MODEL_ADDITIONS=PASS'
+            Push-Location $root
+            try {
+              $saved=$ErrorActionPreference
+              try {
+                $ErrorActionPreference='Continue'
+                $pos=@(& go.exe test -p 1 -count=1 -timeout=180s -run '^(TestPreservationCompat.*|TestR18StatusProjectionKeepsLegacyAcceptedYAMLImmutable|TestR220ObservableCompatibilityRejectsAnythingBeyondExactLegacyShape)$' ./internal/plane 2>&1)
+                $posExit=$LASTEXITCODE
+              }finally{$ErrorActionPreference=$saved}
+              foreach($line in $pos){if([string]$line -match '(?i)(FAIL|PASS|ok |error)'){Write-Host ([string]$line)}}
+              Need ($posExit -eq 0) 'NEW_SCHEMA_CONTROLS_FAILED'
+              Write-Host 'MP_R220_PRESERVATION_FOCUSED_AND_NEGATIVE_CONTROLS=PASS'
+              $saved=$ErrorActionPreference
+              try {
+                $ErrorActionPreference='Continue'
+                $legacy=@(& go.exe test -p 1 -count=1 -timeout=120s -run '^TestR220ObservableLegacyAcceptedPreservationIsReadOnly$' -v ./internal/plane 2>&1)
+                $legacyExit=$LASTEXITCODE
+              }finally{$ErrorActionPreference=$saved}
+              $legacyOutput=($legacy|ForEach-Object{[string]$_}) -join $lf
+              Need ($legacyExit -ne 0 -and $legacyOutput.Contains('fixture must remain strict-ingress incompatible: <nil>')) 'EXPECTED_HISTORICAL_TEST_CONFLICT_NOT_REPRODUCED'
+              Write-Host 'MP_R220_QUALIFIED_NEW_SCHEMA_CONFLICTS_WITH_FROZEN_LEGACY_TEST=CONFIRMED'
+              Write-Host 'MP_R220_FULL_REGRESSION_NOT_RUN_BECAUSE_EXPECTATION_CONFLICTS=TRUE'
+              Write-Host 'MP_R220_FROZEN_TEST_ORIGINAL_PRESERVED=PASS'
+            }finally{Pop-Location}
+            Write-Host 'MP_R220_COMPOSITION_CLASSIFICATION=EXPLICIT_TEST_VERSION_REQUIRED'
+            Write-Host 'MP_R220_LIVE_CONTROLLER_DB_MEMORY_WORKER_TOUCHES=0'
+          }finally{
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_CLEANUP'
+            Write-Host 'MP_R220_DISPOSABLE_WORKSPACE_REMOVED=PASS'
+          }
