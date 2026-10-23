@@ -1,0 +1,218 @@
+name: MP KTRADE composed controller status against isolated SQLite snapshot
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mp-preservation-composed-controller-status-snapshot.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-parser-ktrade-controller-snapshot
+  cancel-in-progress: false
+jobs:
+  compose:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compose preserved KTRADE RB1 model with parser delta in TEMP and run regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$tag) {if(-not $yes){throw ("MP_RB1_COMPOSE_"+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $rb1Branch='audit/r18-rb1-installed-source-integration-20261023'
+          $rb1SHA='10e21c0b5b5b12db6c9bae3a70d7cb348ef86a9d'
+          $mpBranch='proposal/compat-preservation-yaml-readonly-20261023'
+          $mpSHA='6783083f58379fd68945de1065f85e2e87573eb3'
+          $scratch=Join-Path $env:RUNNER_TEMP ("mp-rb1-compose-"+$env:GITHUB_RUN_ID)
+          $rb1=Join-Path $scratch 'rb1'
+          $mp=Join-Path $scratch 'candidate'
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          function Pin([string]$ref,[string]$expect){
+            $v=@(& git.exe ls-remote --exit-code $remote ("refs/heads/"+$ref))
+            Need ($LASTEXITCODE -eq 0 -and $v.Count -eq 1 -and ([string]($v[0] -split '\s+')[0]) -ceq $expect) 'REMOTE_SHA_DRIFT'
+          }
+          function UniqueReplace([string]$s,[string]$old,[string]$new,[string]$tag){
+            Need ($s.IndexOf($old,[StringComparison]::Ordinal) -ge 0 -and
+              $s.IndexOf($old,[StringComparison]::Ordinal) -eq $s.LastIndexOf($old,[StringComparison]::Ordinal)) ($tag+'_ANCHOR')
+            return $s.Replace($old,$new)
+          }
+          try {
+            Pin $rb1Branch $rb1SHA
+            Pin $mpBranch $mpSHA
+            & git.exe clone --quiet --single-branch --branch $rb1Branch $remote $rb1
+            Need ($LASTEXITCODE -eq 0) 'RB1_CLONE'
+            & git.exe clone --quiet --single-branch --branch $mpBranch $remote $mp
+            Need ($LASTEXITCODE -eq 0) 'MP_CLONE'
+            Need (((& git.exe -C $rb1 rev-parse HEAD|Out-String).Trim()) -ceq $rb1SHA) 'RB1_SOURCE_PIN'
+            Need (((& git.exe -C $mp rev-parse HEAD|Out-String).Trim()) -ceq $mpSHA) 'MP_SOURCE_PIN'
+            $target=Join-Path $rb1 'snapshot/source/internal/plane/model.go'
+            $patch=Join-Path $mp 'implementations/mp-controller-preservation-compat-v1/overlay/internal/plane/model.go'
+            $NL=[string][char]10
+            $CRLF=([string][char]13)+$NL
+            $old=[IO.File]::ReadAllText($target).Replace($CRLF,$NL)
+            $candidate=[IO.File]::ReadAllText($patch).Replace($CRLF,$NL)
+            $modelBlob=((& git.exe -C $rb1 rev-parse 'HEAD:snapshot/source/internal/plane/model.go'|Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $modelBlob -ceq '2f9104e75d394e44914fcd3f0be975dba9034456') 'RB1_MODEL_BLOB_DRIFT'
+            $field=([string][char]9)+'Preserve      []string '+([char]96)+'yaml:"preserve"'+([char]96)
+            $add=([string][char]9)+'Preservation *PreservationContract '+([char]96)+'yaml:"preservation,omitempty" json:"preservation,omitempty"'+([char]96)
+            $composed=UniqueReplace $old $field ($field+$NL+$add) 'FIELD'
+            $first='type PreservationContract struct {'
+            $last='func decodeYAML(b []byte, v any) error {'
+            $start=$candidate.IndexOf($first,[StringComparison]::Ordinal)
+            $end=$candidate.IndexOf($last,[StringComparison]::Ordinal)
+            Need ($start -ge 0 -and $end -gt $start) 'CONTRACT_BODY'
+            $contract=$candidate.Substring($start,$end-$start)
+            Need (-not $old.Contains($first)) 'RB1_PRESERVATION_ALREADY_PRESENT'
+            $composed=UniqueReplace $composed $last ($contract+$last) 'CONTRACT_STRUCT'
+            $tail=([string][char]9)+'return nil'+$NL+'}'+$NL+$NL+'var hardForbidden'
+            $validation=([string][char]9)+'if e:=w.Preservation.Validate(); e!=nil {return e}'+$NL
+            $composed=UniqueReplace $composed $tail ($validation+$tail) 'VALIDATION'
+            $inverted=UniqueReplace $composed ($validation+$tail) $tail 'INVERT_VALIDATOR'
+            $inverted=UniqueReplace $inverted ($contract+$last) $last 'INVERT_STRUCT'
+            $inverted=UniqueReplace $inverted ($field+$NL+$add) $field 'INVERT_FIELD'
+            Need ($inverted -ceq $old) 'RB1_MODEL_NOT_PRESERVED'
+            [IO.File]::WriteAllText($target,$composed,[Text.UTF8Encoding]::new($false))
+            $test=Join-Path $mp 'implementations/mp-controller-preservation-compat-v1/overlay/internal/plane/workorder_preservation_compat_test.go'
+            Copy-Item -LiteralPath $test -Destination (Join-Path $rb1 'snapshot/source/internal/plane/workorder_preservation_compat_test.go') -Force
+            Write-Host 'MP_RB1_COMPOSE_THREE_ADDITIONS_ONLY=PASS'
+            Write-Host 'MP_RB1_COMPOSE_KTRADE_BASELINE_CODE_PRESERVED=PASS'
+            Push-Location (Join-Path $rb1 'snapshot/source')
+            try {
+              & go.exe test ./internal/plane -run '^(TestPreservationCompat|TestKTRADERB1)' -count=1
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED_GO'
+              Write-Host 'MP_RB1_COMPOSE_FOCUSED_GO=PASS'
+              & go.exe test ./...
+              Need ($LASTEXITCODE -eq 0) 'FULL_GO'
+              Write-Host 'MP_RB1_COMPOSE_FULL_GO=PASS'
+            } finally {Pop-Location}
+            # Isolated executable proof. Never give the candidate live config or DB.
+            $live=Join-Path $env:USERPROFILE 'GolandProjects\ckb-plane'
+            $liveCfg=Join-Path $live 'config\autonomy.yaml'
+            $liveReg=Join-Path $live 'config\local-operations.json'
+            $liveOps=Join-Path $live 'operations'
+            foreach($file in @($liveCfg,$liveReg)){
+              Need (Test-Path -LiteralPath $file -PathType Leaf) 'LIVE_READ_SOURCE_EXISTS'
+              Need (((Get-Item -LiteralPath $file).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'LIVE_READ_SOURCE_NOT_LINK'
+            }
+            Need (Test-Path -LiteralPath $liveOps -PathType Container) 'LIVE_SCRIPTS_PRESENT'
+            $cfgBefore=(Get-FileHash -LiteralPath $liveCfg -Algorithm SHA256).Hash.ToLowerInvariant()
+            $regBefore=(Get-FileHash -LiteralPath $liveReg -Algorithm SHA256).Hash.ToLowerInvariant()
+            $offline=Join-Path $scratch 'isolated-plane'
+            $offlineConfig=Join-Path $offline 'config'
+            $offlineState=Join-Path $offline 'state'
+            $offlineBin=Join-Path $offline 'bin'
+            foreach($dir in @($offlineConfig,$offlineState,$offlineBin)){New-Item -ItemType Directory -Path $dir -Force|Out-Null}
+            Copy-Item -LiteralPath $liveReg -Destination (Join-Path $offlineConfig 'local-operations.json') -Force
+            Copy-Item -LiteralPath $liveOps -Destination (Join-Path $offline 'operations') -Recurse -Force
+            $liveProfiles=Join-Path $live 'profiles'
+            if(Test-Path -LiteralPath $liveProfiles -PathType Container){Copy-Item -LiteralPath $liveProfiles -Destination (Join-Path $offline 'profiles') -Recurse -Force}
+            $yamlText=[IO.File]::ReadAllText($liveCfg)
+            $sqliteLine='(?m)^([ ]*sqlite_path:[ ]*)([^#\r\n]+)([ ]*(?:#.*)?)
+            Write-Host 'MP_RB1_COMPOSE_LIVE_WRITES=0'
+            Write-Host 'MP_RB1_COMPOSE_KTRADE_ACTIONS=0'
+            Write-Host 'MP_RB1_COMPOSE_PRODUCTION_MEMORY_WRITES=0'
+          } finally {
+            if (Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_RB1_COMPOSE_SCRATCH_CLEAN=PASS'
+          }
+
+            $matches=[regex]::Matches($yamlText,$sqliteLine)
+            Need ($matches.Count -eq 1) 'SQLITE_CONFIG_UNIQUE'
+            $replacement='$1state/offline.db$3'
+            $offlineYaml=[regex]::Replace($yamlText,$sqliteLine,$replacement)
+            Need ($offlineYaml -cne $yamlText) 'OFFLINE_SQLITE_OVERRIDE'
+            $testConfig=Join-Path $offlineConfig 'autonomy.yaml'
+            [IO.File]::WriteAllText($testConfig,$offlineYaml,[Text.UTF8Encoding]::new($false))
+            $extract=@'
+          import hashlib, pathlib, re, sqlite3, sys, urllib.parse
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          dest=pathlib.Path(sys.argv[3]).resolve()
+          lines=cfg.read_text(encoding="utf-8-sig").splitlines()
+          section=None
+          target=None
+          for line in lines:
+              indent=len(line)-len(line.lstrip(" "))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+                  section=indent; continue
+              if section is None:continue
+              if line.strip() and not line.lstrip().startswith("#") and indent<=section:
+                  section=None;continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+              if m:
+                  target=m.group(1).strip().strip("\"'")
+                  break
+          if target is None:raise RuntimeError("SOURCE_DB_LOCATOR_UNAVAILABLE")
+          path=pathlib.Path(target)
+          src=(path if path.is_absolute() else root/path).resolve()
+          if not src.is_relative_to(root) or not src.is_file() or src.stat().st_size>1073741824:
+              raise RuntimeError("SOURCE_DB_NOT_REGULAR_BOUNDED")
+          def digest(p):
+              h=hashlib.sha256()
+              with p.open("rb") as handle:
+                  for b in iter(lambda:handle.read(1024*1024),b""):h.update(b)
+              return h.hexdigest()
+          pre=digest(src)
+          url="file:"+urllib.parse.quote(str(src).replace("\\","/"),safe="/:")+"?mode=ro&immutable=1"
+          with sqlite3.connect(url,uri=True,timeout=1.0) as origin:
+              origin.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(str(dest)) as dst:
+                  origin.backup(dst)
+          if digest(src)!=pre:raise RuntimeError("SOURCE_DB_CHANGED_DURING_BACKUP")
+          with sqlite3.connect(str(dest)) as dst:
+              assert dst.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
+              n=dst.execute("SELECT count(*) FROM queue_items").fetchone()[0]
+              assert n>=10 and n<=1024
+              j=dst.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+          print("MP_CLI_TEMP_SQLITE_BACKUP_INTEGRITY=PASS")
+          print("MP_CLI_TEMP_QUEUE_RECORDS="+str(n))
+          print("MP_CLI_TEMP_WORK_ORDER_COUNT="+str(j))
+          print("MP_CLI_LIVE_SQLITE_UNCHANGED=PASS")
+          '@
+            & python.exe -B -c $extract $live $liveCfg (Join-Path $offlineState 'offline.db')
+            Need ($LASTEXITCODE -eq 0) 'READONLY_DB_SNAPSHOT'
+            $exe=Join-Path $offlineBin 'ckb-plane.exe'
+            Push-Location (Join-Path $rb1 'snapshot/source')
+            try {
+              & go.exe build -o $exe ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0) 'COMPOSED_CONTROLLER_BUILD'
+            } finally {Pop-Location}
+            Need (Test-Path -LiteralPath $exe -PathType Leaf) 'COMPOSED_EXE_PRESENT'
+            Write-Host 'MP_CLI_COMPOSED_EXE_BUILD=PASS'
+            $output=@(& $exe controller status --config $testConfig 2>&1)
+            Need ($LASTEXITCODE -eq 0) 'OFFLINE_CONTROLLER_STATUS'
+            $obj=($output | Out-String) | ConvertFrom-Json
+            Need ($null -ne $obj -and [string]$obj.authority -ne '' -and [string]$obj.generation -ne '') 'STATUS_STRUCTURE'
+            Need ($null -ne $obj.queue -and $null -ne $obj.jobs) 'STATUS_QUEUE_AND_JOB_ARRAYS'
+            Write-Host 'MP_CLI_COMPOSED_OFFLINE_CONTROLLER_STATUS=PASS'
+            Write-Host 'MP_CLI_STATUS_FROM_TEMP_DB_ONLY=PASS'
+            Need ((Get-FileHash -LiteralPath $liveCfg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $cfgBefore) 'LIVE_CONFIG_CHANGED'
+            Need ((Get-FileHash -LiteralPath $liveReg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $regBefore) 'LIVE_REGISTRY_CHANGED'
+            Write-Host 'MP_CLI_LIVE_CONFIG_REGISTRY_UNCHANGED=PASS'
+            Write-Host 'MP_CLI_CONTROLLER_STARTS=0'
+            Write-Host 'MP_CLI_PRODUCTION_WRITES=0'
+            Pin $rb1Branch $rb1SHA
+            Pin $mpBranch $mpSHA
+            Write-Host 'MP_RB1_COMPOSE_SOURCE_IDENTITIES=PASS'
+            Write-Host 'MP_RB1_COMPOSE_LIVE_WRITES=0'
+            Write-Host 'MP_RB1_COMPOSE_KTRADE_ACTIONS=0'
+            Write-Host 'MP_RB1_COMPOSE_PRODUCTION_MEMORY_WRITES=0'
+          } finally {
+            if (Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_RB1_COMPOSE_SCRATCH_CLEAN=PASS'
+          }
