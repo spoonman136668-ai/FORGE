@@ -1,0 +1,156 @@
+name: F139 58dc exact event130 scratch recovery rehearsal
+on:
+  push:
+    branches: [qualification/f139-58dc-snapshot-recovery-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-original-owner-transition-snapshot
+  cancel-in-progress: false
+jobs:
+  owner-snapshot-rehearsal:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Original F139 owner immutable-snapshot full recovery rehearsal
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:OPENAI_API_KEY){throw 'F139_REHEARSAL_OWNER_IDENTITY_INVALID'}
+          $target='58dc4cc483349249c98f1620b51b843b9e927468'
+          $originalSource='9047b840b1e33f15a8a9da9670a8ca0bcf7169d7'
+          $originalHead='388de03a55a2020dca352a9b3aefd75424eb2349a6dd33fa745a5f09927853a5'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1){
+            throw 'F139_REHEARSAL_ORIGINAL_TASK_NOT_RUNNING'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $ownerSid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($ownerSid -cne $who.User.Value){throw 'F139_REHEARSAL_ORIGINAL_OWNER_SID_INVALID'}
+          $argsText=[string]$task.Actions[0].Arguments
+          function Get-Option([string]$name){
+            $match=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $match.Success){throw ('F139_REHEARSAL_MISSING_TASK_OPTION_'+$name)}
+            $match.Groups[1].Value
+          }
+          $root=Get-Option 'RepositoryRoot'
+          $db=Get-Option 'Database'
+          $python=Get-Option 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             [IO.Path]::GetFileName((Get-Option 'File')) -cne 'Run-FORGE-F139.ps1'){
+            throw 'F139_REHEARSAL_DB_OR_WRAPPER_DRIFT'
+          }
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $target -or $dirty.Length -ne 0){
+            throw 'F139_REHEARSAL_SOURCE_NOT_EXACT_CLEAN_MAIN'
+          }
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($db))) ('f139-58dc-rehearsal-'+$env:GITHUB_RUN_ID+'.sqlite')
+          foreach($ext in @('','-wal','-shm')){
+            if(Test-Path -LiteralPath ($scratch+$ext)){throw 'F139_REHEARSAL_SCRATCH_NOT_NEW'}
+          }
+          $code=@'
+          import json,sqlite3,sys,pathlib
+          from f139.local_controller import Database,GitHub,require
+          from f139.nci04_owner_ledger import activate_native,verify_native_activation
+          original=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          target=sys.argv[3]
+          old=sys.argv[4]
+          oldhead=sys.argv[5]
+          ro=sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.execute("PRAGMA query_only=ON")
+          try:
+              copy=sqlite3.connect(str(scratch))
+              try: ro.backup(copy)
+              finally: copy.close()
+          finally: ro.close()
+          db=Database(scratch)
+          try:
+              db.verify()
+              meta=db.meta()
+              require(meta["source_sha"]==old and meta["head_seq"]==130 and
+                      meta["head_hash"]==oldhead and meta["enabled"]==1 and
+                      meta["legacy_suspended"]==1,"REHEARSAL_EXACT_EVENT130_DRIFT")
+              require(not db.actives() and db.ready() is None,"REHEARSAL_PENDING_TASKS")
+              rows=[]
+              for ticket in (
+                  "f139-nci04-i813-9047b840b1e3-9dad93e1",
+                  "f139-nci04-i814-9047b840b1e3-de06e1ba"):
+                  row=db.conn.execute(
+                      "SELECT ticket,source_sha,stage,started_at,quarantine_reason "
+                      "FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+                  require(row is not None and row["source_sha"]==old and
+                          row["stage"]=="QUARANTINED" and
+                          row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY",
+                          "REHEARSAL_NATIVE_ORIGINAL_NEGATIVE_NOT_BOUND")
+                  rows.append(row)
+              api=GitHub()
+              require(api.protected_main()==target,"REHEARSAL_PROTECTED_MAIN_DRIFT")
+              reports=[]
+              for row in rows:
+                  run=api.candidates(row["ticket"],row["started_at"])
+                  require(run is not None,"REHEARSAL_PROVIDER_RUN_MISSING")
+                  reports.append(api.failed_native_provider_report(
+                      run,row["ticket"],row["source_sha"],row["started_at"]))
+              for row,report in zip(rows,reports):
+                  db.custody_failed_native_provider(row["ticket"],report,late=True)
+              require(db.meta()["head_seq"]==132,"REHEARSAL_CUSTODY_EVENT_COUNT_INVALID")
+              negatives=set(db.verified_native_provider_failures())
+              require({rows[0]["ticket"],rows[1]["ticket"]}.issubset(negatives)
+                      and len(negatives)==4,"REHEARSAL_FOUR_NATIVE_NEGATIVE_PROOFS_INVALID")
+              db.transition_source(target,allow_certified_negative=True)
+              require(db.meta()["head_seq"]==133 and db.meta()["source_sha"]==target,
+                      "REHEARSAL_V4_TRANSITION_IDENTITY_INVALID")
+              approval={"schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":target,
+                  "expected_event_head_sha256":db.meta()["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,"create_controller":False,
+                  "paid_api_calls":0}
+              require(activate_native(db,approval),"REHEARSAL_NATIVE_ACTIVATION_DENIED")
+              db.verify()
+              require(db.meta()["head_seq"]==134 and
+                      verify_native_activation(db),"REHEARSAL_FINAL_NATIVE_LEDGER_INVALID")
+              print("F139_SCRATCH_NEGATIVE_CUSTODY=PASS")
+              print("F139_SCRATCH_SOURCE_TRANSITION=PASS")
+              print("F139_SCRATCH_NATIVE_ACTIVATION=PASS")
+              print("F139_EXPECTED_FINAL_EVENT_SEQ=134")
+              print("F139_SCIENTIFIC_FIRST_USE=FALSE")
+          finally: db.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $code $db $scratch $target $originalSource $originalHead
+            if($LASTEXITCODE -ne 0){throw 'F139_SCRATCH_RECOVERY_REHEARSAL_FAILED'}
+          }finally{
+            Pop-Location
+            foreach($ext in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$ext) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $state=@'
+          import json,sqlite3,sys,pathlib
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          try:
+              con.execute("PRAGMA query_only=ON")
+              row=con.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              print(json.dumps({"source":row[0],"seq":row[1],"head":row[2]},sort_keys=True))
+          finally: con.close()
+          '@
+          $readback=(& $python -B -c $state $db|Out-String).Trim()|ConvertFrom-Json
+          if($readback.source -cne $originalSource -or
+             [long]$readback.seq -ne 130 -or $readback.head -cne $originalHead){
+            throw 'F139_ORIGINAL_OWNER_DB_DRIFT_DURING_SNAPSHOT'
+          }
+          Write-Output 'F139_ORIGINAL_LEDGER_UNCHANGED=PASS'
+          Write-Output 'F139_ORIGINAL_TASK_NOT_RESTARTED=TRUE'
