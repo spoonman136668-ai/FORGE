@@ -1,0 +1,71 @@
+name: KTRADE RB1 exact candidate source export to review branch
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ktrade-rb1-candidate-exact-source-export.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Read only original two exact Codex source files for unaccepted review
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $owner.Name -ine 'LINKDEADKB\camar'){throw 'RB1_SOURCE_EXPORT_OWNER_IDENTITY_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $db=Join-Path $root 'state\autonomy.db'
+          $py=@'
+          import sqlite3,sys,json
+          c=sqlite3.connect('file:'+sys.argv[1].replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           r=c.execute('select state,attempt,reason,workspace from work_orders where id=?',(sys.argv[2],)).fetchone()
+           if r is None: raise RuntimeError('RB1_ORDER_MISSING')
+           print(json.dumps({'state':r[0],'attempt':r[1],'reason':r[2],'workspace':r[3]},separators=(',',':')))
+          finally:c.close()
+          '@
+          $rows=@(& python.exe -B -c $py $db $id)
+          if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1){throw 'RB1_SOURCE_EXPORT_NATIVE_READ_FAILED'}
+          $job=$rows[0]|ConvertFrom-Json
+          if($job.state -cne 'BLOCKED' -or [int]$job.attempt -ne 2 -or
+             $job.reason -cne 'BRANCH_ANCESTRY_INVALID'){throw 'RB1_SOURCE_EXPORT_ATTEMPT_DRIFT'}
+          $work=[IO.Path]::GetFullPath([string]$job.workspace)
+          $safe=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(!$work.StartsWith($safe,[StringComparison]::OrdinalIgnoreCase)){throw 'RB1_SOURCE_EXPORT_WORKSPACE_ESCAPE'}
+          $head=@(& git.exe -C $work rev-parse HEAD)
+          $ref=@(& git.exe -C $work symbolic-ref --short HEAD)
+          $shallow=@(& git.exe -C $work rev-parse --is-shallow-repository)
+          if($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or
+             $head[0] -cne 'bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96' -or
+             $ref.Count -ne 1 -or $ref[0] -cne 'codex/ktrade-rb1-single-track-20261022' -or
+             $shallow.Count -ne 1 -or $shallow[0] -cne 'true'){throw 'RB1_SOURCE_EXPORT_GIT_IDENTITY_DRIFT'}
+          $want=@{
+            'internal/paperreconcile/reconcile.go'='0cc90c6340ae654e8feea5eed56be60849b094892851c17eb725d85c280ac0aa'
+            'internal/paperreconcile/reconcile_test.go'='1a13aa2459aef12c54828b2dae4c13c5631ca84b145616a4d9ce3a687fe4d2ef'
+          }
+          $changed=@(& git.exe -C $work diff --name-only HEAD --)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 2 -or
+             @($changed|Where-Object {$_ -notin $want.Keys}).Count -ne 0){throw 'RB1_SOURCE_EXPORT_CHANGED_SCOPE_DRIFT'}
+          foreach($path in $want.Keys){
+            $file=Join-Path $work ($path.Replace('/',[IO.Path]::DirectorySeparatorChar))
+            $bytes=[IO.File]::ReadAllBytes($file)
+            if($bytes.Length -gt 65536 -or $bytes.Length -eq 0){throw 'RB1_SOURCE_EXPORT_SIZE_INVALID'}
+            $sha=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if($sha -cne $want[$path]){throw 'RB1_SOURCE_EXPORT_CONTENT_DRIFT'}
+            $codec=[Text.UTF8Encoding]::new($false,$true)
+            $sourceText=$codec.GetString($bytes)
+            if($sourceText.Contains([char]0)){throw 'RB1_SOURCE_EXPORT_NON_TEXT_FILE'}
+            $key=if($path.EndsWith('_test.go')){'TEST'}else{'CODE'}
+            Write-Host ('RB1_SOURCE_EXPORT_'+$key+'_SHA256='+$sha)
+            Write-Host ('RB1_SOURCE_EXPORT_'+$key+'_B64='+[Convert]::ToBase64String($bytes))
+          }
+          Write-Host 'RB1_ORIGINAL_CANDIDATE_READONLY_EXPORT=PASS'
+          Write-Host 'RB1_NO_NATIVE_ACCEPTANCE_OR_BRANCH_MUTATION=TRUE'
