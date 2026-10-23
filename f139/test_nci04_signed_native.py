@@ -7,7 +7,7 @@ import unittest
 from f139.nci04_native_contract import SCHEMA, digest, canonical
 from f139.nci04_signed_native import (
     admit_native_intent, receipt_from_report, sign_native_intent)
-from f139.nci04_native_worker import COMMANDS
+from f139.nci04_native_worker import COMMANDS, commands_for
 from f139.verify_ticket import signature as sign_controller, Untrusted
 
 MAIN = "a" * 40
@@ -167,6 +167,61 @@ class NCI04SignedNativeTests(unittest.TestCase):
         mutated = canonical(modified)
         with self.assertRaisesRegex(Untrusted, "NATIVE_TICKET_IDENTITY_DRIFT"):
             admit(inp, mutated, sig)
+
+    def test_r7_receipt_is_bound_to_r7_command_inventory(self):
+        from f139.nci04_native_contract import parse_intent
+        value = intent("Wingless")
+        value["path"] = "research/native/itd01/r7/native_test.go"
+        body = canonical(value)
+        candidate = parse_intent(body, protected_main=MAIN,
+                                 target_commit=TARGET, target_tree_sha=TREE)
+        ticket = "f139-nci04-i689-" + MAIN[:12] + "-" + candidate.intent_sha256[:8]
+        inp = {
+            "key": KEY, "ticket": ticket, "lane": "Wingless",
+            "source_sha": MAIN, "epoch": "1",
+            "repository": "spoonman136668-ai/FORGE",
+            "ref": "refs/heads/main", "event": "workflow_dispatch",
+            "head_sha": MAIN, "run_attempt": "1", "run_id": "39500123999",
+            "os": "ubuntu-latest",
+        }
+        inp["signature"] = sign_controller(KEY, ticket, "Wingless", MAIN, "1")
+        sig = sign_native_intent(inp, candidate, issue_number="689",
+                                 issue_id="123456", issue_body_sha256=BODY)
+        admitted = admit_native_intent(
+            inp, body, native_signature=sig, issue_number="689",
+            issue_id="123456", issue_body_sha256=BODY,
+            authenticated_main_sha=MAIN, authenticated_target_commit=TARGET,
+            authenticated_target_tree=TREE)
+        commands = []
+        for argv in commands_for(admitted.intent):
+            output = b"qualified"
+            commands.append({
+                "command": list(argv), "outcome": "PASS", "returncode": 0,
+                "elapsed_ms": 1, "output_sha256": digest(output),
+                "output_bytes": len(output), "excerpt": output.decode(),
+            })
+        cnd = admitted.intent
+        r = {
+            "schema": "forge.f139.nci04.native-development-diagnostic.v1",
+            "intent_sha256": cnd.intent_sha256,
+            "qualification_key": cnd.qualification_key,
+            "target_commit": cnd.target_commit,
+            "target_tree_sha": cnd.target_tree_sha,
+            "candidate_file": cnd.path,
+            "candidate_sha256": cnd.after_sha256,
+            "lane": admitted.lane, "qualification_complete": True,
+            "real_code_changed_in_isolated_copy": True, "commands": commands,
+            "child_peak_rss_bytes": None, "scientific_first_use": False,
+            "protected_holdouts_accessed": 0, "accepted_ref_mutations": 0,
+            "paid_model_calls": 0, "durable_controller_custody_verified": False,
+            "unattended_controller_dispatch_verified": False,
+        }
+        proof = receipt_from_report(admitted, r)
+        self.assertTrue(proof["native_qualified"])
+        broken = {**r, "commands": [dict(x) for x in r["commands"]]}
+        broken["commands"][0]["command"] = list(COMMANDS["Wingless"][0])
+        with self.assertRaisesRegex(Untrusted, "COMMAND_EVIDENCE_INVALID"):
+            receipt_from_report(admitted, broken)
 
     def test_negative_result_retained_but_not_promoted(self):
         inp, body, sig = fixture()
