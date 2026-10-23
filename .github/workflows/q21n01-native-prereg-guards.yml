@@ -1,0 +1,94 @@
+name: Q21N-01 FORGE-native frozen successor source-only qualification
+
+on:
+  push:
+    branches: [research/q21n01-forge-native-prereg-20261023]
+    paths:
+      - '.github/workflows/q21n01-native-prereg-guards.yml'
+      - 'research/q21n01_forge_native/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: q21n01-source-only-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 15
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact new source, old Q21 immutable and no protected data
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='79a7ea1df2a790ff186b7e5fa837494f46373990'
+          $mergeBase=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $mergeBase-cne$base){throw 'Q21N01_PARENT_DRIFT'}
+          $expected=@(
+            '.github/workflows/q21n01-native-prereg-guards.yml',
+            'research/q21n01_forge_native/FROZEN_PROTOCOL.json',
+            'research/q21n01_forge_native/prereg_guard.py',
+            'research/q21n01_forge_native/test_prereg_guard.py'
+          )
+          $actual=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or $actual.Count-ne4 -or (Compare-Object $expected $actual)){throw 'Q21N01_DELTA_NOT_EXACT'}
+          $pin=@{
+            'research/q21_information_budget/FROZEN_PROTOCOL.json'='d7c35c10f80b36a758b78e0deedf36d74bf5767d'
+            'research/q21n01_forge_native/FROZEN_PROTOCOL.json'='2b913a183043d06fd9eac7b18a36499a89517a49'
+            'research/q21n01_forge_native/prereg_guard.py'='062b48d04f57ce9658971a4d700ad85a22e3766c'
+          }
+          foreach($p in $pin.Keys){
+            $committed=(& git rev-parse ('HEAD:'+$p)).Trim()
+            $disk=(& git hash-object --no-filters $p).Trim()
+            if($LASTEXITCODE-ne0 -or $committed-cne$pin[$p] -or $disk-cne$pin[$p]){
+              throw ('Q21N01_GIT_BLOB_IDENTITY_DRIFT_'+$p)
+            }
+          }
+          Write-Host 'Q21N01_EXACT_SOURCE_AND_ORIGINAL_PROTOCOL_PRESERVED=PASS'
+      - name: Test immutable protocol and 21 mutation refusals with no science
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/q21n01_forge_native -p 'test_*.py' -v
+          if($LASTEXITCODE-ne0){throw 'Q21N01_FOCUSED_TEST_FAILED'}
+          python -B research/q21n01_forge_native/prereg_guard.py
+          if($LASTEXITCODE-ne0){throw 'Q21N01_SOURCE_ONLY_PREFLIGHT_FAILED'}
+          Write-Host 'Q21N01_FROZEN_PROTOCOL_SOURCE_ONLY=PASS'
+          Write-Host 'Q21N01_COHORTS_GENERATED=0'
+          Write-Host 'Q21N01_FSA_ADMISSION=NOT_GRANTED'
+      - name: Standard Go regression, vet and build on Linux
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo Q21N01_FULL_STANDARD_REGRESSION=PASS
+      - name: Check workspace clean after source-only acceptance
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($dirty.Count-ne0){throw 'Q21N01_WORKTREE_DIRTY'}
+          Write-Host 'Q21N01_SOURCE_WORKTREE=PASS'
+          Write-Host 'Q21N01_SCIENTIFIC_EXECUTION=NOT_PERFORMED'
