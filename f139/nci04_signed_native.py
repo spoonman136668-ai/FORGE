@@ -20,7 +20,7 @@ import json
 import re
 
 from f139.nci04_native_contract import Candidate, canonical, digest, parse_intent
-from f139.nci04_native_worker import COMMANDS
+from f139.nci04_native_worker import commands_for
 from f139.verify_ticket import REPO, WORKFLOW, admit as admit_controller_ticket, Untrusted
 
 ISSUE_NUMBER = re.compile(r"[1-9][0-9]*\Z")
@@ -179,7 +179,7 @@ def receipt_from_report(admission: NativeAdmission, report: dict) -> dict:
             and report["unattended_controller_dispatch_verified"] is False,
             "REPORT_AUTHORITY_OR_SOURCE_INVALID")
     commands = report["commands"]
-    fixed = COMMANDS[admission.lane]
+    fixed = commands_for(admission.intent)
     require(isinstance(commands, list) and 1 <= len(commands) <= len(fixed),
             "COMMAND_SEQUENCE_INVALID")
     for actual, expected in zip(commands, fixed):
