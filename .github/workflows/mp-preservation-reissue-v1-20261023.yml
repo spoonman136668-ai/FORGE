@@ -1,0 +1,186 @@
+name: MP preservation reissue v1 Windows qualification
+on:
+  push:
+    branches: [qualification/mp-preservation-reissue-v1-20261023]
+    paths: [.github/workflows/mp-preservation-reissue-v1-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-preservation-reissue-v1-20261023
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      GOFLAGS: "-p=1"
+      GOMAXPROCS: "1"
+      GIT_TERMINAL_PROMPT: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Qualify offline reissue against exact PR614 parser without production access
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$m){if(-not $v){throw ('MP_REISSUE_'+$m)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-preservation-reissue-v1-20261023') 'EVENT'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='1f8d70a2c607413396e17c3279c85366a7f39a64'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $delta=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-preservation-reissue-v1-20261023.yml') 'WORKFLOW_SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $repo='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $base='7b7d01f26cfe4d051956f82c7c45f6df507ecd0a'
+          $parser='89da48e542ab03eff1f483a53fdd7b4ab3334e0c'
+          $parserBranch='proposal/mp-preservation-r220-versioned-20261023'
+          $tool='636aa0043fde320421f818115bab1d0b1b1a4084'
+          $toolBranch='proposal/mp-preservation-reissue-v1-20261023'
+          foreach($pair in @(
+            @('refs/heads/main',$base),
+            @(('refs/heads/'+$parserBranch),$parser),
+            @(('refs/heads/'+$toolBranch),$tool)
+          )){
+            $remote=@(& git.exe ls-remote --exit-code $repo $pair[0])
+            Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and ([string]($remote[0]-split '\s+')[0]) -ceq $pair[1]) ('REMOTE_DRIFT_'+$pair[0])
+          }
+          Write-Host 'MP_REISSUE_BASE_PARSER_TOOL_PINS=PASS'
+          $temp=Join-Path $env:RUNNER_TEMP ('mp-reissue-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_COLLISION'
+          New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
+          try {
+            $toolRoot=Join-Path $temp 'tool'
+            $parserRoot=Join-Path $temp 'parser'
+            & git.exe clone --quiet --depth 8 --single-branch --branch $toolBranch $repo $toolRoot
+            Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $toolRoot rev-parse HEAD).Trim() -ceq $tool) 'TOOL_CLONE'
+            & git.exe clone --quiet --depth 8 --single-branch --branch $parserBranch $repo $parserRoot
+            Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $parserRoot rev-parse HEAD).Trim() -ceq $parser) 'PARSER_CLONE'
+            $toolDir=Join-Path $toolRoot 'implementations\mp-preservation-reissue-v1'
+            Push-Location $toolDir
+            try {
+              & go.exe test -p 1 -count=1 -timeout=180s ./...
+              Need ($LASTEXITCODE -eq 0) 'TOOL_TESTS'
+              & go.exe build -p 1 -o (Join-Path $temp 'mp-reissue.exe') .
+              Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath (Join-Path $temp 'mp-reissue.exe') -PathType Leaf)) 'TOOL_BUILD'
+            } finally { Pop-Location }
+            Write-Host 'MP_REISSUE_STANDALONE_TEST_AND_BUILD=PASS'
+            $src=Join-Path $temp 'historical.yaml'
+            $out=Join-Path $temp 'reissued.yaml'
+            $receipt=Join-Path $temp 'receipt.json'
+            $fixture=@'
+id: OLD_MP_ORDER
+title: Historical Mind-Palace order
+repo: ckb
+baseline:
+  ref: accepted/old-baseline
+  sha: "1111111111111111111111111111111111111111"
+worker:
+  branch: codex/old-mp-order
+  preferred: codex
+instructions:
+  - Preserve historical intent without mutating the original.
+scope:
+  allowed_paths:
+    - docs/mp.md
+  forbidden_paths:
+    - .github/**
+required_paths:
+  - docs/mp.md
+preserve:
+  - historical-record
+preservation:
+  acceptedinterfaces: [controls]
+  behaviorcontracts: {paper_only: true}
+  evidencecontracts: [receipt]
+  interfacecontracts: [operator]
+  sourcecontracts: [frozen]
+  uimarkers:
+    operator:
+      critical: [status]
+required_tests:
+  powershell_scripts: []
+  focused_go:
+    - ^TestMPContract$
+  go_packages:
+    - ./internal/plane
+context_files: []
+acceptance:
+  run_go_test_all: false
+  run_playwright: false
+  protect_accepted_refs: true
+  require_clean_baseline: true
+forbidden:
+  - runtime launch
+ui:
+  root: ""
+  pages: []
+  markers: {}
+'@
+            [IO.File]::WriteAllText($src,$fixture,[Text.UTF8Encoding]::new($false))
+            $srcHash=(Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant()
+            & (Join-Path $temp 'mp-reissue.exe') --source $src --output $out --receipt $receipt --new-id MP_REISSUED_V1 --baseline-ref accepted/mp-qualified-v1 --baseline-sha 2222222222222222222222222222222222222222 --worker-branch codex/mp-reissued-v1
+            Need ($LASTEXITCODE -eq 0) 'TOOL_EXECUTION'
+            Need ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $srcHash) 'SOURCE_MUTATED'
+            Need (Test-Path -LiteralPath $out -PathType Leaf -and Test-Path -LiteralPath $receipt -PathType Leaf) 'ARTIFACT_MISSING'
+            $rec=Get-Content -LiteralPath $receipt -Raw -Encoding UTF8 | ConvertFrom-Json
+            Need ([string]$rec.schema -ceq 'ckb-plane.mp-preservation-reissue.v1') 'RECEIPT_SCHEMA'
+            Need ([string]$rec.source_yaml_sha256 -ceq $srcHash) 'RECEIPT_SOURCE_HASH'
+            Need ([string]$rec.new_id -ceq 'MP_REISSUED_V1' -and [string]$rec.target_baseline_ref -ceq 'accepted/mp-qualified-v1') 'RECEIPT_TARGET'
+            Need ([int]$rec.production_writes -eq 0 -and [bool]$rec.original_yaml_retained) 'RECEIPT_SAFETY'
+            Write-Host 'MP_REISSUE_IMMUTABLE_SOURCE_AND_RECEIPT=PASS'
+            $planeRoot=Join-Path $parserRoot 'snapshot\source'
+            $integration=Join-Path $planeRoot 'internal\plane\zz_mp_reissue_integration_test.go'
+            $test=@'
+package plane
+import (
+  "os"
+  "strings"
+  "testing"
+)
+func TestMPReissueArtifactMatchesVersionedIngress(t *testing.T) {
+  oldPath:=os.Getenv("MP_OLD_YAML")
+  newPath:=os.Getenv("MP_NEW_YAML")
+  oldRaw,err:=os.ReadFile(oldPath);if err!=nil{t.Fatal(err)}
+  if _,err=ParseOrder(oldRaw);err==nil || !strings.Contains(err.Error(),"preservation"){
+    t.Fatalf("historical unversioned source unexpectedly accepted: %v",err)
+  }
+  raw,err:=os.ReadFile(newPath);if err!=nil{t.Fatal(err)}
+  w,err:=ParseOrder(raw);if err!=nil{t.Fatal(err)}
+  if w.ID!="MP_REISSUED_V1" || w.PreservationSchema!="ckb-plane.preservation.v1" || w.Preservation==nil {
+    t.Fatalf("reissued typed contract mismatch: %+v",w)
+  }
+  if w.Baseline.Ref!="accepted/mp-qualified-v1" || w.Baseline.SHA!="2222222222222222222222222222222222222222" {
+    t.Fatalf("fresh baseline not bound: %+v",w.Baseline)
+  }
+  if w.Worker.Branch!="codex/mp-reissued-v1" {t.Fatalf("fresh worker branch not bound: %q",w.Worker.Branch)}
+}
+'@
+            [IO.File]::WriteAllText($integration,$test,[Text.UTF8Encoding]::new($false))
+            try {
+              Push-Location $planeRoot
+              $env:MP_OLD_YAML=$src
+              $env:MP_NEW_YAML=$out
+              & go.exe test -p 1 -count=1 -timeout=180s -run '^TestMPReissueArtifactMatchesVersionedIngress$' ./internal/plane
+              Need ($LASTEXITCODE -eq 0) 'PARSER_INTEGRATION'
+              Write-Host 'MP_REISSUE_EXACT_PR614_PARSER_INTEGRATION=PASS'
+            } finally {
+              Pop-Location
+              Remove-Item Env:MP_OLD_YAML,Env:MP_NEW_YAML -ErrorAction SilentlyContinue
+              if(Test-Path -LiteralPath $integration){Remove-Item -LiteralPath $integration -Force -ErrorAction Stop}
+            }
+            Need ((@(& git.exe -C $parserRoot status --porcelain)).Count -eq 0) 'PARSER_SOURCE_DIRTY'
+            Need ((@(& git.exe -C $toolRoot status --porcelain)).Count -eq 0) 'TOOL_SOURCE_DIRTY'
+            Write-Host 'MP_REISSUE_SOURCE_TREES_CLEAN=PASS'
+            Write-Host 'MP_REISSUE_DB_QUEUE_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_REISSUE_PRODUCTION_WRITES=0'
+            Write-Host 'MP_REISSUE_OFFLINE_GATE=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_CLEANUP'
+            Write-Host 'MP_REISSUE_TEMP_CLEANUP=PASS'
+          }
