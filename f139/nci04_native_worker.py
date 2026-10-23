@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 from pathlib import Path
 import shutil
@@ -17,7 +18,9 @@ import tempfile
 import threading
 import time
 
-from f139.nci04_native_contract import Candidate, NativeContractError, digest, parse_intent
+from f139.nci04_native_contract import (
+    Candidate, NativeContractError, R7_TEST_PATHS, digest, parse_intent,
+)
 
 MAX_CAPTURE_BYTES = 1_000_000
 # The signed provider limits each command excerpt to 4096 UTF-8 bytes.
@@ -38,6 +41,42 @@ COMMANDS = {
         ("python", "-B", "-m", "compileall", "-q", "yggdrasil", "scripts"),
     ),
 }
+R7_COMMANDS = {
+    "Wingless": (
+        ("go", "test", "-count=1", "./research/native/itd01/r7/..."),
+        ("go", "vet", "./research/native/itd01/r7/..."),
+        ("go", "test", "-count=1", "./..."),  # one final full regression
+        ("go", "vet", "./..."),
+        ("go", "build", "./..."),
+    ),
+    "Yggdrasil": (
+        ("python", "-B", "-m", "unittest", "discover",
+         "-s", "research/native/itd01/r7", "-p", "test_native_cells.py", "-v"),
+        ("python", "-B", "-m", "unittest", "discover",
+         "-s", "tests", "-p", "test_*.py", "-v"),  # one final full regression
+        ("python", "-B", "-m", "compileall", "-q",
+         "yggdrasil", "scripts", "research/native/itd01/r7"),
+    ),
+}
+
+
+def commands_for(candidate: Candidate):
+    """Select from two immutable inventories; candidate bytes cannot supply argv."""
+    require(isinstance(candidate, Candidate), "CANDIDATE_UNTRUSTED")
+    if candidate.path in R7_TEST_PATHS[candidate.lane]:
+        return R7_COMMANDS[candidate.lane]
+    return COMMANDS[candidate.lane]
+
+
+def _unittest_discovery(argv) -> bool:
+    return len(argv) >= 5 and tuple(argv[1:5]) == (
+        "-B", "-m", "unittest", "discover")
+
+
+def _positive_unittest_count(output: bytes) -> bool:
+    """A zero-test unittest exit is a negative, never a qualification PASS."""
+    counts = re.findall(rb"Ran\s+([0-9]+)\s+tests?\b", output)
+    return bool(counts) and int(counts[-1]) > 0
 
 
 def require(ok, reason):
@@ -261,8 +300,9 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
     env = {k: v for k, v in os.environ.items() if k.upper() in allow}
     env.update({"GIT_TERMINAL_PROMPT": "0", "GOPROXY": "off",
                 "GOSUMDB": "off", "GOTOOLCHAIN": "local", "PYTHONDONTWRITEBYTECODE": "1"})
+    fixed = commands_for(candidate)
     results = []
-    for argv in COMMANDS[candidate.lane]:
+    for argv in fixed:
         started = time.monotonic()
         try:
             if runner is None:
@@ -291,6 +331,11 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
         # OUTPUT_LIMIT must become an explicitly annotated, schema-compatible
         # negative; otherwise the original failure cannot be custodied.
         diagnostic = ""
+        if outcome == "PASS" and _unittest_discovery(argv) and not _positive_unittest_count(output):
+            diagnostic = ("F139_NATIVE_ZERO_OR_UNPROVEN_UNITTEST_COUNT: "
+                          "worker-generated TEST_FAILURE/1; no positive "
+                          "Ran N tests summary retained\n")
+            outcome, returncode = "TEST_FAILURE", 1
         if outcome == "OUTPUT_LIMIT":
             diagnostic = ("F139_NATIVE_OUTPUT_LIMIT: worker-generated "
                           "TEST_FAILURE/1; native child killed; first "
@@ -333,7 +378,7 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
         "candidate_file": candidate.path,
         "candidate_sha256": candidate.after_sha256,
         "lane": candidate.lane,
-        "qualification_complete": len(results) == len(COMMANDS[candidate.lane])
+        "qualification_complete": len(results) == len(fixed)
                                   and all(x["outcome"] == "PASS" for x in results),
         "real_code_changed_in_isolated_copy": True,
         "commands": results,
