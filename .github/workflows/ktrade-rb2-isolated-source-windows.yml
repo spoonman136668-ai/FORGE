@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='2bd555a826323fb0e10640a4fad8c64b3e40d63a'
+          $sourceSha='276d75d82eff7b83a184ade3a27090344bfb2ada'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -75,6 +75,8 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'RB2_BRAVE_ACCEPTANCE_JS_SYNTAX_INVALID'}
               & node.exe --check static/paper_strategy_review.js
               if($LASTEXITCODE -ne 0){throw 'RB2_CANONICAL_PINE_REVIEW_JS_SYNTAX_INVALID'}
+              & node.exe --check static/paper_account_review.js
+              if($LASTEXITCODE -ne 0){throw 'RB2_PAPER_ACCOUNT_UI_JS_SYNTAX_INVALID'}
               & node.exe --test tests/pine_library_compat_browser.test.cjs
               if($LASTEXITCODE -ne 0){throw 'RB2_CANONICAL_PINE_LIBRARY_BROWSER_TEST_FAILED'}
               Write-Host 'RB2_CANONICAL_PINE_LIBRARY_BROWSER_CONTRACT=PASS'
@@ -85,6 +87,9 @@ jobs:
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile
               if($LASTEXITCODE -ne 0){throw 'RB2_ISOLATED_PAPER_LEDGER_FOCUSED_FAILED'}
               Write-Host 'RB2_ISOLATED_PAPER_LEDGER_AND_RECONCILE_FOCUSED=PASS'
+              & go.exe test -mod=readonly -count=1 -p 1 ./internal/paperapp
+              if($LASTEXITCODE -ne 0){throw 'RB2_REAL_PAPER_ACCOUNT_UI_DATA_PROJECTION_FAILED'}
+              Write-Host 'RB2_REAL_ORIGINAL_PAPER_ACCOUNT_FEE_JOURNAL_FOCUSED=PASS'
               # Native Pine runs in the rebuilt KTRADE module, NOT the old donor.
               # Transfer immutable test-only intent data to the separately compiled
               # source-pinned authentic donor, without fabricating donor Pine APIs.
@@ -130,7 +135,7 @@ jobs:
                 if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PINE_AUTHENTIC_TRADEGUARD_PAPER_END_TO_END_FAILED'}
               }finally{Pop-Location}
               Write-Host 'RB2_NATIVE_PINE_AUTHENTIC_DONOR_PAPER_END_TO_END_SHADOW=PASS'
-              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile
+              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile ./internal/paperapp
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_VET_FAILED'}
               Write-Host 'RB2_NATIVE_VET=PASS'
               $exe=Join-Path $tmp 'ktrade-stopped.exe'
@@ -150,6 +155,7 @@ jobs:
                 'static/vendor/monaco/vs/editor/editor.main.js',
                 'static/vendor/lightweight-charts/lightweight-charts.standalone.production.js',
                 'static/paper_strategy_review.js',
+                'static/paper_account_review.js',
                 'static/vendor/licenses/monaco-editor.LICENSE',
                 'static/vendor/licenses/lightweight-charts.LICENSE')){
                 if($required -cnotin $names){throw ('RB2_PORTABLE_REQUIRED_ASSET_MISSING_'+$required)}
