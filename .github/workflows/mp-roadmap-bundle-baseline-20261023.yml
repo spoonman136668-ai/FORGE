@@ -23,7 +23,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-roadmap-bundle-baseline-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'BRANCH'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '2d258530bc52d1c13f196ea2fd46b7788593765e') 'PARENT'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '6af6af322802d49ea6b38e47aac08418ab6ed3d2') 'PARENT'
           $delta=@(& git.exe diff --name-only HEAD^ HEAD)
           Need ($delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-roadmap-bundle-baseline-20261023.yml') 'SCOPE'
           Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY'
@@ -44,3 +44,30 @@ jobs:
           Write-Host 'MP_BUNDLE_SOURCE_READ_ONLY=PASS'
           Write-Host 'MP_BUNDLE_NATIVE_CONTROLLER_INVOCATIONS=0'
           Write-Host 'MP_BUNDLE_LIVE_WRITES=0'
+
+          $dir=Join-Path $root 'internal\plane'
+          $goFiles=@(Get-ChildItem -LiteralPath $dir -File -Filter '*.go' -ErrorAction Stop)
+          Need ($goFiles.Count -le 900) 'TOO_MANY_GO_FILES'
+          $needles=@('git bundle failed','func sourceQueue(','func (p *Engine) reconcilePineSuccessor(', 'func (p *Engine) materializeRoadmapSuccessor(')
+          $found=@{}
+          foreach($f in $goFiles){
+            if(($f.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'MP_BUNDLE_SOURCE_ALIAS'}
+            $all=@(Get-Content -LiteralPath $f.FullName -Encoding UTF8 -ErrorAction Stop)
+            for($idx=0;$idx -lt $all.Count;$idx++){
+              foreach($needle in $needles){
+                if(-not $all[$idx].Contains($needle)){continue}
+                $code=($needle -replace '[^a-zA-Z]','_')
+                $n=if($found.ContainsKey($code)){$found[$code]}else{0}
+                Need ($n -lt 3) 'EXCESSIVE_MATCHES'
+                $found[$code]=$n+1
+                Write-Host ('MP_BUNDLE_HIT='+$f.Name+' line='+($idx+1)+' symbol='+$code)
+                $start=[Math]::Max(0,$idx-25)
+                $end=[Math]::Min($all.Count-1,$idx+65)
+                for($i=$start;$i -le $end;$i++){
+                  Write-Host ('MP_BUNDLE_CONTEXT_'+$f.Name+'_'+($i+1)+'='+[string]$all[$i])
+                }
+              }
+            }
+          }
+          Need ($found.Count -ge 2) 'SOURCE_SYMBOL_NOT_FOUND'
+          Write-Host 'MP_BUNDLE_CAUSAL_SOURCE_AUDIT=PASS'
