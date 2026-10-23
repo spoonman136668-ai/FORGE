@@ -1,0 +1,103 @@
+name: Optimizer O17 original public phase learned retention vs trained stride
+on:
+  push:
+    branches: [research/optimizer-o17-phase-retention-20261023]
+  pull_request:
+    paths: [research/optimizer_o17/**, .github/workflows/optimizer-o17-original-phase.yml]
+permissions:
+  contents: read
+jobs:
+  native-original-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 27
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 48
+          persist-credentials: false
+      - name: Verify exact O16 ancestry, first protocol and six additive O17 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          first=fbbc8b2206d476d72fff4fcd3c33396cc1982599
+          parent=7f3ce9fca6151c9db7dc163535431069960ef299
+          test "$(git rev-parse "$first^")" = "$parent"
+          test "$(git show --format= --name-only "$first")" = "research/optimizer_o17/O17_FIRST_PROTOCOL.md"
+          git merge-base --is-ancestor "$first" HEAD
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys;g=set(sys.stdin.read().splitlines());w={"research/optimizer_o17/O17_FIRST_PROTOCOL.md","research/optimizer_o17/model.py","research/optimizer_o17/test_sourcefree.py","research/optimizer_o17/runner.py","research/optimizer_o17/compare.py",".github/workflows/optimizer-o17-original-phase.yml"};assert g==w,(g,w)'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: proroklab/popgym
+          ref: 410d5aa626dae8024f498354d8781a0d1870c399
+          path: external/popgym-original
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Install exact original source only dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p o17-evidence
+          timeout 170s python -m pip install --no-cache-dir --timeout 30 --retries 1 'numpy==1.26.4' 'gymnasium==0.29.1' >o17-evidence/install.log 2>&1
+      - name: Source-free policy gating and frozen DEV tests BEFORE any original source run
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest -v research/optimizer_o17/test_sourcefree.py 2>&1 | tee o17-evidence/focused-tests.log
+      - name: Genuine unchanged external source, 95,472 original legal source actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o17/runner.py --upstream external/popgym-original --out o17-evidence
+      - name: One final complete FORGE public Linux Go regression
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Preserve original FIT DEV scientific positive and negative receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimizer-o17-original-public-${{ matrix.os }}
+          path: o17-evidence/
+          retention-days: 30
+  independent-cross-os:
+    needs: [native-original-source]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: optimizer-o17-original-public-*
+          path: original-evidence
+          merge-multiple: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Cross-OS verify all 864 original FIT and 720 DEV action-reward episodes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o17/compare.py \
+            original-evidence/optimizer-o17-original-public-ubuntu-24.04/o17-genuine-original-public-receipt.json \
+            original-evidence/optimizer-o17-original-public-windows-2025/o17-genuine-original-public-receipt.json \
+            o17-cross-os-public-reconciliation.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: optimizer-o17-cross-os-public-reconciliation
+          path: o17-cross-os-public-reconciliation.json
+          retention-days: 30
