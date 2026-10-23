@@ -1,0 +1,83 @@
+name: F139 original owner live issue 768 769 readback
+on:
+  push:
+    branches: [diagnose/f139-live-issue-768-769-admission-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-original-owner-live-readback
+  cancel-in-progress: false
+jobs:
+  read-only-original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Read current owner controller and SQLite issue intake
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $main=(& gh api "repos/$repo/branches/main" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_READBACK_PROVIDER_UNAVAILABLE'}
+          Write-Output ('F139_READBACK_CURRENT_MAIN='+$main.commit.sha)
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $taskName=[string]$t.Principal.UserId
+          $sid=if($taskName -match '^S-1-'){$taskName}else{
+            (New-Object Security.Principal.NTAccount($taskName)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $who.User.Value -or @($t.Actions).Count -ne 1){
+            throw 'F139_READBACK_NOT_ORIGINAL_OWNER_SID'
+          }
+          $argsText=[string]$t.Actions[0].Arguments
+          $opts=@{}
+          foreach($field in @('RepositoryRoot','Database','PythonExe')){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$field+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_READBACK_TASK_ROUTE_INVALID'}
+            $opts[$field]=$m.Groups[1].Value
+          }
+          $root=$opts.RepositoryRoot
+          $db=$opts.Database
+          $python=$opts.PythonExe
+          $head=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_READBACK_REPO_INVALID'}
+          $live=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db)})
+          Write-Output ('F139_READBACK_SOURCE='+$head)
+          Write-Output ('F139_READBACK_TASK_STATE='+$t.State)
+          Write-Output ('F139_READBACK_CONTROLLER_PROCESSES='+$live.Count)
+          $code=@'
+          import json, sqlite3, pathlib, sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=15)
+          con.row_factory=sqlite3.Row
+          m=dict(con.execute("select * from meta where id=1").fetchone())
+          print("F139_READBACK_META="+json.dumps(
+            {k:m[k] for k in ("source_sha","head_seq","head_hash","enabled","legacy_suspended","day","starts")},
+            sort_keys=True))
+          rows=con.execute("select ticket,lane,stage,run_id,started_at from tasks order by ticket").fetchall()
+          states={}
+          for r in rows:
+            states[r["stage"]]=states.get(r["stage"],0)+1
+            if r["ticket"].startswith("f139-nci04-i768-") or r["ticket"].startswith("f139-nci04-i769-"):
+              print("F139_READBACK_NEW_TICKET="+json.dumps(dict(r),sort_keys=True))
+          print("F139_READBACK_TASK_STAGES="+json.dumps(states,sort_keys=True))
+          kinds=con.execute("select seq,kind,payload from events order by seq desc limit 14").fetchall()
+          for item in reversed(kinds):
+            payload=json.loads(item["payload"])
+            print("F139_READBACK_EVENT="+json.dumps(
+              {"seq":item["seq"],"kind":item["kind"],
+               "ticket":payload.get("ticket"),"source_sha":payload.get("source_sha"),
+               "issue_number":payload.get("issue_number")},sort_keys=True))
+          index=con.execute("select sql from sqlite_master where type='index' and name='only_one_active_f139_task'").fetchone()
+          trigger=con.execute("select name from sqlite_master where type='trigger' and name='guard_two_native_active'").fetchone()
+          print("F139_READBACK_TWO_SLOT_MIGRATION="+str(bool(trigger and index and 'NOT LIKE' in index[0])))
+          '@
+          & $python -B -c $code $db
+          if($LASTEXITCODE -ne 0){throw 'F139_READBACK_SQLITE_FAILURE'}
+          Write-Output 'F139_READBACK_COMPLETE_NO_MUTATION=TRUE'
