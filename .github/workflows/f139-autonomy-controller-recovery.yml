@@ -1,0 +1,118 @@
+name: FORGE F139 bounded live controller recovery
+on:
+  push:
+    branches: [diagnostics/f139-autonomy-live-804-20261023]
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Restart same idle original controller and verify intake resumes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_WRONG_OWNER_RUNNER'}
+          $name='FORGE-F139-UnifiedController'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or $task.State -ne 'Running'){throw 'F139_CONTROLLER_NOT_RUNNING_PRE'}
+          $args=[string]$task.Actions[0].Arguments
+          function Arg([string]$n){
+            $m=[regex]::Match($args,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_ARG_MISSING_'+$n)}
+            return [IO.Path]::GetFullPath($m.Groups[1].Value)
+          }
+          $db=Arg 'Database'
+          $root=Arg 'RepositoryRoot'
+          $python=Arg 'PythonExe'
+          $deployed=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          $expected='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          if($LASTEXITCODE -ne 0 -or $deployed -cne $expected){throw 'F139_DEPLOYED_SOURCE_DRIFT'}
+          $check=@'
+          import json,sqlite3,sys
+          db=sys.argv[1]
+          con=sqlite3.connect("file:"+db.replace("\\","/")+"?mode=ro",uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          try:
+              con.execute("PRAGMA query_only=ON")
+              m=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+              pending=[dict(r) for r in con.execute("SELECT ticket,stage FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER')")]
+              assert m["source_sha"]=="fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5"
+              assert m["enabled"]==1 and m["legacy_suspended"]==1
+              assert m["head_seq"]>=108
+              assert not pending
+              print(json.dumps(m,sort_keys=True))
+          finally:
+              con.close()
+          '@
+          $before=& $python -B -c $check $db
+          if($LASTEXITCODE -ne 0){throw 'F139_IDLE_LEDGER_PRECHECK_FAILED'}
+          $parent=Split-Path -Parent $db
+          $log=Join-Path (Join-Path $parent 'logs') 'controller.log'
+          if(Test-Path -LiteralPath $log){
+            Write-Output 'F139_LOG_TAIL_BEFORE_BEGIN'
+            Get-Content -LiteralPath $log -Tail 80 | ForEach-Object {
+              $s=[string]$_
+              $s=$s -replace '(?i)(token|secret|password|key)[=: ]+\S+','$1=[REDACTED]'
+              Write-Output $s
+            }
+            Write-Output 'F139_LOG_TAIL_BEFORE_END'
+          }
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          if($ps.Count -ne 1){throw 'F139_ORIGINAL_PROCESS_NOT_SINGLE_PRE'}
+          Stop-ScheduledTask -TaskName $name -ErrorAction Stop
+          $deadline=(Get-Date).AddSeconds(30)
+          do{
+            Start-Sleep -Milliseconds 500
+            $ps=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+              Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          }while($ps.Count -ne 0 -and (Get-Date) -lt $deadline)
+          if($ps.Count -ne 0){throw 'F139_OLD_PROCESS_DID_NOT_EXIT'}
+          Start-ScheduledTask -TaskName $name -ErrorAction Stop
+          $deadline=(Get-Date).AddSeconds(30)
+          do{
+            Start-Sleep -Milliseconds 500
+            $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $ps=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+              Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          }while(($task.State -ne 'Running' -or $ps.Count -ne 1) -and (Get-Date) -lt $deadline)
+          if($task.State -ne 'Running' -or $ps.Count -ne 1){throw 'F139_RESTART_NOT_SINGLE_RUNNING'}
+          Write-Output 'F139_SAME_CONTROLLER_RESTART=PASS'
+          $deadline=(Get-Date).AddSeconds(180)
+          $seen=$false
+          do{
+            Start-Sleep -Seconds 5
+            $probe=@'
+          import json,sqlite3,sys
+          con=sqlite3.connect("file:"+sys.argv[1].replace("\\","/")+"?mode=ro",uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          try:
+              con.execute("PRAGMA query_only=ON")
+              m=dict(con.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone())
+              rows=[dict(r) for r in con.execute("SELECT ticket,stage,started_at,run_id FROM tasks WHERE ticket LIKE 'f139-nci04-i804-%' OR ticket LIKE 'f139-nci04-i806-%' ORDER BY ticket")]
+              print(json.dumps({"meta":m,"rows":rows},sort_keys=True))
+          finally:
+              con.close()
+          '@
+            $state=& $python -B -c $probe $db
+            if($LASTEXITCODE -ne 0){throw 'F139_POST_RESTART_READ_FAILED'}
+            Write-Output ('F139_POST_RESTART_STATE='+$state)
+            if($state -match 'f139-nci04-i804-' -or $state -match 'f139-nci04-i806-'){$seen=$true}
+          }while(-not $seen -and (Get-Date) -lt $deadline)
+          if(-not $seen){
+            if(Test-Path -LiteralPath $log){
+              Write-Output 'F139_LOG_TAIL_AFTER_BEGIN'
+              Get-Content -LiteralPath $log -Tail 100 | ForEach-Object {
+                $s=[string]$_
+                $s=$s -replace '(?i)(token|secret|password|key)[=: ]+\S+','$1=[REDACTED]'
+                Write-Output $s
+              }
+              Write-Output 'F139_LOG_TAIL_AFTER_END'
+            }
+            throw 'F139_VALID_ISSUES_NOT_ADMITTED_AFTER_BOUNDED_RESTART'
+          }
+          Write-Output 'F139_AUTONOMOUS_INTAKE_RESUMED=PASS'
+          Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
