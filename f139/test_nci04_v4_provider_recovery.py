@@ -112,10 +112,11 @@ class OwnerProviderV4(TwoNegativeControllerIntegration):
             import json
             value=json.loads(event["payload"])
             value["provider_sha256"]="e"*64
-            self.db.conn.execute("UPDATE events SET payload=? WHERE seq=?",
-                                 (canonical(value).decode(),event["seq"]))
-        with self.assertRaises(F139Error):
-            self.db.verified_native_provider_failures()
+            import sqlite3
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.db.conn.execute("UPDATE events SET payload=? WHERE seq=?",
+                                     (canonical(value).decode(),event["seq"]))
+        self.db.verify()
 
     def test_v4_refuses_unlisted_extra_negative(self):
         self.bootstrap()
@@ -123,7 +124,7 @@ class OwnerProviderV4(TwoNegativeControllerIntegration):
             self.db.conn.execute(
                 "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
                 "quarantine_reason) VALUES(?,?,?,'QUARANTINED',?,?)",
-                ("f139-d2c-wingless-659bb1f4d751","Wingless",
+                ("f139-nci04-i903-"+NEW_SOURCE[:12]+"-"+"a"*8,"Wingless",
                  NEW_SOURCE,"e"*64,"FAILED_OR_CANCELLED_NO_REPLAY"))
         with mock.patch("f139.nci04_owner_ledger.audit_native_events"):
             with self.assertRaises(F139Error):
