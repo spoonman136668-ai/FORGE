@@ -1,0 +1,286 @@
+name: MP installed-source parser composition and Windows qualification
+on:
+  push:
+    branches:
+      - diagnostics/mp-installed-parser-compose-20261023
+    paths:
+      - .github/workflows/mp-installed-parser-compose-20261023.yml
+permissions:
+  contents: read
+concurrency:
+  group: mp-installed-parser-compose-20261023
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 80
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: '1'
+      GOFLAGS: '-buildvcs=false'
+      GOMAXPROCS: '2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Qualify exact installed-source parser composition in isolated TEMP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $nl=[string][char]10
+          function Need([bool]$v,[string]$code) {
+            if(-not $v){throw ('MP_INSTALLED_COMPOSE_'+$code)}
+          }
+          function UniqueReplace([string]$s,[string]$old,[string]$new,[string]$code){
+            $at=$s.IndexOf($old,[StringComparison]::Ordinal)
+            Need ($at -ge 0 -and $at -eq $s.LastIndexOf($old,[StringComparison]::Ordinal)) ($code+'_ANCHOR')
+            return $s.Substring(0,$at)+$new+$s.Substring($at+$old.Length)
+          }
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          function Regular([string]$p){
+            Need (Test-Path -LiteralPath $p -PathType Leaf) 'REQUIRED_FILE_MISSING'
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'FILE_REPARSE_REFUSED'
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-installed-parser-compose-20261023') 'BRANCH'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
+          Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
+          $parent='053331399c0849243be30d06510ea9a2a4532f43'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'SOURCE_PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-installed-parser-compose-20261023.yml') 'ONE_FILE_SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY_WORKFLOW'
+          $v=(& go.exe version | Out-String).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $v -ceq 'go version go1.25.5 windows/amd64') 'GO_TOOLCHAIN_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $temp=Join-Path $env:RUNNER_TEMP ('mp-installed-qual-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_COLLISION'
+          $repo=Join-Path $temp 'upstream'
+          $candidate=Join-Path $temp 'candidate'
+          $offline=Join-Path $temp 'offline'
+          New-Item -ItemType Directory -Path $temp -Force|Out-Null
+          $checks=@(
+            'go.mod','go.sum','internal\plane\model.go','internal\plane\autonomy.go',
+            'internal\plane\engine.go','internal\plane\autonomy_controls.go',
+            'internal\plane\webui_bridge.go','internal\plane\objective.go',
+            'internal\plane\mind_palace_auto_discovery.go','bin\ckb-plane.exe',
+            'config\autonomy.yaml','config\local-operations.json'
+          )
+          $sourceFolders=@('cmd','internal','scripts','research-controller','examples',
+            'web','ui','assets','templates','contracts','docs','proposals','tests','testdata','pkg')
+          $pinned=@{}
+          $originalFiles=@{}
+          try {
+            Need (Test-Path -LiteralPath $root -PathType Container) 'SOURCE_ROOT'
+            Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_REPARSE'
+            foreach($rel in $checks){
+              $p=Join-Path $root $rel
+              Regular $p
+              $pinned[$rel]=Hash $p
+            }
+            $digestInput=(($checks | ForEach-Object {$_+':'+$pinned[$_]}) -join $nl)
+            $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($digestInput))).ToLowerInvariant()
+            Need ($digest -ceq 'cf4b563a4e4d80ef319d71663ac4738550b3c798b60d147de67eaeacb51d4cba') 'INSTALLED_SOURCE_AND_CONFIG_PREIMAGE_DRIFT'
+            Need ((& git.exe hash-object -- (Join-Path $root 'internal\plane\model.go')).Trim() -ceq '9412cc9deff0603bf33d69681f347e9633442d64') 'LIVE_MODEL_BLOB'
+            Need ((& git.exe hash-object -- (Join-Path $root 'go.mod')).Trim() -ceq 'e05cfbaf7fa1cbf9d4baecdade2fbcc451b5cbc8') 'LIVE_MOD_BLOB'
+            Write-Host 'MP_INSTALLED_EXACT_12_COMPONENT_PREIMAGE=PASS'
+            $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON_CHANGED'
+            New-Item -ItemType Directory -Path $candidate -Force|Out-Null
+            foreach($name in $sourceFolders){
+              $src=Join-Path $root $name
+              if(-not (Test-Path -LiteralPath $src -PathType Container)){continue}
+              Need (((Get-Item -LiteralPath $src).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_DIR_LINK'
+              $members=@(Get-ChildItem -LiteralPath $src -Recurse -Force -ErrorAction Stop)
+              foreach($m in $members){
+                Need (($m.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_NESTED_LINK'
+                if(-not $m.PSIsContainer){
+                  $rel=$m.FullName.Substring($root.Length).TrimStart('\')
+                  Need (-not $originalFiles.ContainsKey($rel)) 'DUPLICATE_SOURCE_FILE'
+                  $originalFiles[$rel]=Hash $m.FullName
+                }
+              }
+              Copy-Item -LiteralPath $src -Destination $candidate -Recurse -Force -ErrorAction Stop
+            }
+            foreach($name in @('go.mod','go.sum')){
+              Copy-Item -LiteralPath (Join-Path $root $name) -Destination $candidate -ErrorAction Stop
+            }
+            foreach($rel in $originalFiles.Keys){
+              Need ((Hash (Join-Path $candidate $rel)) -ceq $originalFiles[$rel]) 'SOURCE_COPY_HASH_DRIFT'
+            }
+            Need ((Hash (Join-Path $candidate 'go.mod')) -ceq $pinned['go.mod']) 'COPIED_MOD'
+            Need ((Hash (Join-Path $candidate 'go.sum')) -ceq $pinned['go.sum']) 'COPIED_SUM'
+            Write-Host ('MP_INSTALLED_SOURCE_COPIED_VERIFIED_FILES='+$originalFiles.Count)
+            Write-Host 'MP_INSTALLED_SOURCE_COPY_HASH_IDENTITY=PASS'
+            $remote='https://github.com/spoonman136668-ai/ckb-plane.git'
+            $branch='proposal/compat-preservation-yaml-readonly-20261023'
+            $sha='6783083f58379fd68945de1065f85e2e87573eb3'
+            $ls=@(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $ls.Count -eq 1 -and ([string]($ls[0] -split '\s+')[0]) -ceq $sha) 'PARSER_REMOTE_DRIFT'
+            & git.exe clone --quiet --single-branch --depth 1 --branch $branch $remote $repo
+            Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $repo rev-parse HEAD).Trim() -ceq $sha) 'PARSER_SOURCE_PIN'
+            $overlay=Join-Path $repo 'implementations\mp-controller-preservation-compat-v1\overlay\internal\plane'
+            $patch=Join-Path $overlay 'model.go'
+            $test=Join-Path $overlay 'workorder_preservation_compat_test.go'
+            Regular $patch
+            Regular $test
+            Need ((& git.exe -C $repo hash-object -- $patch).Trim() -ceq '2c97032c6e06559c5f727989cae4c59edf95fc23') 'PARSER_BLOB_DRIFT'
+            Need ((& git.exe -C $repo hash-object -- $test).Trim() -ceq '0e00fbf6a3c960c67928bafe7d74c877455fc489') 'TEST_BLOB_DRIFT'
+            $dest=Join-Path $candidate 'internal\plane\model.go'
+            $orig=[IO.File]::ReadAllText($dest).Replace(([string][char]13)+$nl,$nl)
+            $in=[IO.File]::ReadAllText($patch).Replace(([string][char]13)+$nl,$nl)
+            Need (-not $orig.Contains('type PreservationContract struct {')) 'PRESERVATION_ALREADY_PRESENT'
+            Need ($orig.Contains('yaml:"objective_controller"') -eq $false) 'WRONG_MODEL_SOURCE'
+            $matches=[regex]::Matches($orig,'(?m)^[ \t]*Preserve[ \t]+\[\]string[ \t]+\x60yaml:"preserve"\x60[ \t]*$')
+            Need ($matches.Count -eq 1) 'PRESERVE_ANCHOR'
+            $oldField=$matches[0].Value
+            $add=([char]9)+'Preservation *PreservationContract '+([char]96)+'yaml:"preservation,omitempty" json:"preservation,omitempty"'+([char]96)
+            $composed=UniqueReplace $orig $oldField ($oldField+$nl+$add) 'PRESERVATION_FIELD'
+            $start=$in.IndexOf('type PreservationContract struct {',[StringComparison]::Ordinal)
+            $anchor='func decodeYAML(b []byte, v any) error {'
+            $end=$in.IndexOf($anchor,[StringComparison]::Ordinal)
+            Need ($start -ge 0 -and $end -gt $start) 'CONTRACT_EXTRACTION'
+            $contract=$in.Substring($start,$end-$start)
+            $composed=UniqueReplace $composed $anchor ($contract+$anchor) 'CONTRACT_INSERTION'
+            $tail=([char]9)+'return nil'+$nl+'}'+$nl+$nl+'var hardForbidden'
+            $validation=([char]9)+'if e:=w.Preservation.Validate(); e!=nil {return e}'+$nl
+            $composed=UniqueReplace $composed $tail ($validation+$tail) 'VALIDATOR_INSERTION'
+            $reverse=UniqueReplace $composed ($validation+$tail) $tail 'INVERSE_VALIDATOR'
+            $reverse=UniqueReplace $reverse ($contract+$anchor) $anchor 'INVERSE_CONTRACT'
+            $reverse=UniqueReplace $reverse ($oldField+$nl+$add) $oldField 'INVERSE_FIELD'
+            Need ($reverse -ceq $orig) 'INVERSE_ORIGINAL_BYTES'
+            [IO.File]::WriteAllText($dest,$composed,[Text.UTF8Encoding]::new($false))
+            $targetTest=Join-Path $candidate 'internal\plane\workorder_preservation_compat_test.go'
+            Need (-not (Test-Path -LiteralPath $targetTest)) 'TEST_COLLISION'
+            Copy-Item -LiteralPath $test -Destination $targetTest -ErrorAction Stop
+            Write-Host 'MP_INSTALLED_PARSER_EXACT_THREE_ADDITIONS_AND_INVERSE=PASS'
+            Push-Location $candidate
+            try {
+              & git.exe init --quiet
+              Need ($LASTEXITCODE -eq 0) 'TEST_FIXTURE_GIT_INIT'
+              & git.exe config user.name 'isolated verification'
+              & git.exe config user.email 'verification@invalid.example'
+              & git.exe add --all
+              Need ($LASTEXITCODE -eq 0) 'TEST_FIXTURE_GIT_ADD'
+              & git.exe -c commit.gpgsign=false commit --quiet -m 'synthetic isolated source fixture'
+              Need ($LASTEXITCODE -eq 0) 'TEST_FIXTURE_GIT_COMMIT'
+              & go.exe test ./internal/plane -run '^Test(PreservationCompat|KTRADERB1|Objective|MindPalaceAutoDiscovery)' -count=1 -timeout=300s
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED_REGRESSION'
+              Write-Host 'MP_INSTALLED_PARSER_FOCUSED_TESTS=PASS'
+              & go.exe test ./... -count=1 -timeout=600s
+              Need ($LASTEXITCODE -eq 0) 'FULL_REGRESSION'
+              Write-Host 'MP_INSTALLED_PARSER_ONE_FULL_REGRESSION=PASS'
+              & go.exe build -trimpath -o (Join-Path $temp 'ckb-plane-isolated.exe') ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0) 'ISOLATED_BINARY_BUILD'
+              Write-Host 'MP_INSTALLED_PARSER_ISOLATED_BUILD=PASS'
+            } finally {Pop-Location}
+            New-Item -ItemType Directory -Path $offline -Force|Out-Null
+            foreach($d in @('config','state','bin')) {New-Item -ItemType Directory -Path (Join-Path $offline $d) -Force|Out-Null}
+            Copy-Item -LiteralPath (Join-Path $root 'config\local-operations.json') -Destination (Join-Path $offline 'config\local-operations.json') -ErrorAction Stop
+            foreach($d in @('operations','profiles')){
+              $p=Join-Path $root $d
+              if(Test-Path -LiteralPath $p -PathType Container){
+                $members=@(Get-ChildItem -LiteralPath $p -Recurse -Force)
+                foreach($m in $members){Need (($m.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'OFFLINE_DEPENDENCY_LINK'}
+                Copy-Item -LiteralPath $p -Destination $offline -Recurse -Force -ErrorAction Stop
+              }
+            }
+            $cfg=Join-Path $root 'config\autonomy.yaml'
+            $yaml=[IO.File]::ReadAllText($cfg)
+            $sqliteLine='(?m)^([ ]*sqlite_path:[ ]*)([^#\r\n]+)([ ]*(?:#.*)?)$'
+            Need ([regex]::Matches($yaml,$sqliteLine).Count -eq 1) 'SQLITE_CONFIG_ANCHOR'
+            $offlineYaml=[regex]::Replace($yaml,$sqliteLine,'$1state/offline.db$3')
+            Need ($offlineYaml -cne $yaml) 'SQLITE_CONFIG_ISOLATION'
+            $tempConfig=Join-Path $offline 'config\autonomy.yaml'
+            [IO.File]::WriteAllText($tempConfig,$offlineYaml,[Text.UTF8Encoding]::new($false))
+            $py=@'
+          import pathlib, re, sqlite3, sys, urllib.parse, hashlib
+          root=pathlib.Path(sys.argv[1]).resolve()
+          config=pathlib.Path(sys.argv[2]).resolve()
+          dest=pathlib.Path(sys.argv[3]).resolve()
+          section=None
+          target=None
+          for line in config.read_text(encoding="utf-8-sig").splitlines():
+              indent=len(line)-len(line.lstrip(" "))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+                  section=indent
+                  continue
+              if section is None: continue
+              if line.strip() and not line.lstrip().startswith("#") and indent<=section:
+                  section=None
+                  continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+              if m:
+                  target=m.group(1).strip().strip("\"'")
+                  break
+          if target is None: raise RuntimeError("DB_PATH_NOT_FOUND")
+          target=pathlib.Path(target)
+          src=(target if target.is_absolute() else root/target).resolve()
+          if not src.is_relative_to(root) or not src.is_file() or src.stat().st_size>1073741824:
+              raise RuntimeError("DB_SOURCE_OUT_OF_SCOPE")
+          def digest(p):
+              h=hashlib.sha256()
+              with p.open("rb") as f:
+                  for chunk in iter(lambda:f.read(1048576),b""):h.update(chunk)
+              return h.hexdigest()
+          before=digest(src)
+          url="file:"+urllib.parse.quote(str(src).replace("\\","/"),safe="/:")+"?mode=ro&immutable=1"
+          with sqlite3.connect(url,uri=True,timeout=1.0) as origin:
+              origin.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(str(dest)) as backup:
+                  origin.backup(backup)
+          if digest(src)!=before:raise RuntimeError("LIVE_DB_DRIFT")
+          with sqlite3.connect(str(dest)) as backup:
+              if backup.execute("PRAGMA integrity_check").fetchone()[0]!="ok":raise RuntimeError("DB_INTEGRITY")
+              count=backup.execute("SELECT count(*) FROM queue_items").fetchone()[0]
+              if not 10<=count<=1024: raise RuntimeError("QUEUE_COUNT_BOUND")
+          print("MP_INSTALLED_TEMP_SQLITE_READONLY_BACKUP=PASS")
+          print("MP_INSTALLED_TEMP_QUEUE_COUNT="+str(count))
+          '@
+            & python.exe -B -c $py $root $cfg (Join-Path $offline 'state\offline.db')
+            Need ($LASTEXITCODE -eq 0) 'TEMP_SQLITE_SNAPSHOT'
+            $exe=Join-Path $temp 'ckb-plane-isolated.exe'
+            $output=@(& $exe controller status --config $tempConfig 2>&1)
+            $exit=$LASTEXITCODE
+            if($exit -ne 0){
+              $errorText=$output|Out-String
+              $kind='OTHER_FAIL_CLOSED'
+              if($errorText -match 'field [A-Za-z_][A-Za-z0-9_]* not found|yaml: unmarshal errors'){$kind='YAML_SCHEMA'}
+              elseif($errorText -match 'LOCAL_EXEC_|REGISTRY_'){$kind='LOCAL_OPERATION'}
+              elseif($errorText -match 'SQLITE_|database is locked|disk I/O'){$kind='SQLITE'}
+              elseif($errorText -match 'WORK_ORDER_|PRESERVATION_|BASELINE_|SOURCE_'){$kind='STORED_CONTRACT'}
+              Write-Host ('MP_INSTALLED_ISOLATED_STATUS_FAILURE_CLASS='+$kind)
+              $m=[regex]::Match($errorText,'field ([A-Za-z_][A-Za-z0-9_]{0,47}) not found in type ([A-Za-z_][A-Za-z0-9_.]{0,79})')
+              if($m.Success){
+                Write-Host ('MP_INSTALLED_ISOLATED_STATUS_UNKNOWN_FIELD='+$m.Groups[1].Value)
+                Write-Host ('MP_INSTALLED_ISOLATED_STATUS_UNKNOWN_TYPE='+$m.Groups[2].Value)
+              }
+            }
+            Need ($exit -eq 0) 'ISOLATED_CONTROLLER_STATUS'
+            $json=($output | Out-String)|ConvertFrom-Json
+            Need ($null -ne $json -and [string]$json.authority -ne '' -and [string]$json.generation -ne '') 'ISOLATED_STATUS_SCHEMA'
+            Write-Host 'MP_INSTALLED_ISOLATED_CONTROLLER_STATUS=PASS'
+            Write-Host ('MP_INSTALLED_CANDIDATE_BINARY_SHA256='+ (Hash $exe))
+            foreach($rel in $originalFiles.Keys){
+              Need ((Hash (Join-Path $root $rel)) -ceq $originalFiles[$rel]) 'LIVE_SOURCE_POSTIMAGE_CHANGED'
+            }
+            foreach($rel in $checks){
+              Need ((Hash (Join-Path $root $rel)) -ceq $pinned[$rel]) 'LIVE_CONTROLLER_POSTIMAGE_CHANGED'
+            }
+            Need (@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'").Count -eq 1) 'CONTROLLER_PROCESS_CHANGED'
+            Write-Host 'MP_INSTALLED_ALL_LIVE_SOURCE_AND_CONFIG_POSTIMAGES_UNCHANGED=PASS'
+            Write-Host 'MP_INSTALLED_PARSER_SOURCE_QUALIFIED_NOT_INSTALLED=PASS'
+            Write-Host 'MP_INSTALLED_PRODUCTION_WRITES=0'
+            Write-Host 'MP_INSTALLED_CONTROLLER_STARTS=0'
+            Write-Host 'MP_INSTALLED_MEMORY_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_NOT_REMOVED'
+            Write-Host 'MP_INSTALLED_TEMP_CLEANUP=PASS'
+          }
