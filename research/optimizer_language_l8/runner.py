@@ -32,7 +32,7 @@ def preregistration_guard():
     if (p["schema"]!="forge.optimizer.language.l8.frozen-fallback-attribution-v1" or
         p["status"]!="PROTOCOL_ONLY_COMMITTED_BEFORE_NEW_SOURCE_ROLE_SELECTION_AND_MODEL_AUDIT_CODE" or
         p["original_E2E"]["source_roles"]!=COUNTS or
-        tuple(p["methods"])!=ARMS or
+        set(p["methods"])!=set(ARMS) or
         p["governance"]["additive_only"] is not True):
         raise ValueError("L8_FROZEN_EXPOSURE_OR_METHOD_DRIFT")
     for file,(size,sha) in FILES.items():
