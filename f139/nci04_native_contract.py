@@ -23,6 +23,12 @@ REPOS = {
     "Wingless": ("spoonman136668-ai/Wingless", ("cognition/", "cmd/wingless/"), ".go"),
     "Yggdrasil": ("spoonman136668-ai/Yggdrasil", ("yggdrasil/", "scripts/"), ".py"),
 }
+# Exactly two already-preregistered R7 test paths may use the native V1
+# development contract. This is not a broad research/ path grant.
+R7_TEST_PATHS = {
+    "Wingless": frozenset({"research/native/itd01/r7/native_test.go"}),
+    "Yggdrasil": frozenset({"research/native/itd01/r7/test_native_cells.py"}),
+}
 MAX_CANDIDATE_BYTES = 32768
 FIELDS = frozenset({
     "schema", "controller_source_sha", "lane", "target_repository", "target_commit",
@@ -112,7 +118,9 @@ def parse_intent(raw: bytes, *, protected_main: str, target_commit: str,
                     {"con", "prn", "aux", "nul", *("com" + str(i) for i in range(1, 10)),
                      *("lpt" + str(i) for i in range(1, 10))}
                     for part in path.split("/"))
-            and path.startswith(prefixes) and path.endswith(suffix), "SOURCE_PATH_FORBIDDEN")
+            and ((path.startswith(prefixes) and path.endswith(suffix))
+                 or path in R7_TEST_PATHS[value["lane"]]),
+            "SOURCE_PATH_FORBIDDEN")
     require(value["toolchain_identity"] in ("go1.25.0", "python3.11.11")
             and (value["toolchain_identity"].startswith("go") == (value["lane"] == "Wingless")),
             "TOOLCHAIN_NOT_QUALIFIED")
