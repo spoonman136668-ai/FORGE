@@ -23,12 +23,12 @@ jobs:
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
           function Need([bool]$v,[string]$msg){if(-not $v){throw ('MP_LAUNCH_BINDING_'+$msg)}}
-          function H([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          function FileSha256([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-live-launcher-binding-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
           Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
-          $prior='8d448b9ab078deeb5a70b2b311524969b965c515'
+          $prior='b5adde8f5a5f39c7976aec82eb3aec3e8a89c1b1'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $prior) 'PARENT'
           $paths=@(& git.exe diff --name-only $prior HEAD)
           Need ($LASTEXITCODE -eq 0 -and $paths.Count -eq 1 -and $paths[0] -ceq '.github/workflows/mp-live-launcher-binding-20261023.yml') 'SCOPE'
@@ -42,8 +42,8 @@ jobs:
              Need (Test-Path -LiteralPath $f -PathType Leaf) 'EXPECTED_FILE_MISSING'
              Need (((Get-Item -LiteralPath $f).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'EXPECTED_FILE_REPARSE'
           }
-          $installedHash=H $exe
-          $expectedScriptHash=H $expectedScript
+          $installedHash=FileSha256 $exe
+          $expectedScriptHash=FileSha256 $expectedScript
           Need ($installedHash -ceq '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6') 'INSTALLED_EXE_PREIMAGE_DRIFT'
           $all=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
           Need ($all.Count -eq 1) 'RUNNING_SINGLETON'
@@ -52,7 +52,7 @@ jobs:
           $runningPath=[IO.Path]::GetFullPath([string]$child.ExecutablePath)
           Need (Test-Path -LiteralPath $runningPath -PathType Leaf) 'RUNNING_EXE_MISSING'
           Need (((Get-Item -LiteralPath $runningPath).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'RUNNING_EXE_REPARSE'
-          $runningHash=H $runningPath
+          $runningHash=FileSha256 $runningPath
           Need ($runningHash -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc') 'RUNNING_IMAGE_HASH_DRIFT'
           Write-Host 'MP_LAUNCH_RUNNING_EXE_PRIOR_HASH_MATCH=PASS'
           $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
@@ -83,7 +83,7 @@ jobs:
                 $candidate=[IO.Path]::GetFullPath($candidate)
                 if(Test-Path -LiteralPath $candidate -PathType Leaf){
                    Need (((Get-Item -LiteralPath $candidate).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'TASK_SCRIPT_REPARSE'
-                   $actualScriptHash=H $candidate
+                   $actualScriptHash=FileSha256 $candidate
                    $taskScriptClass=if([string]::Equals($candidate,[IO.Path]::GetFullPath($expectedScript),[StringComparison]::OrdinalIgnoreCase)){'INSTALLED_START_SCRIPT'}else{'OTHER_START_SCRIPT'}
                 }else{$taskScriptClass='SCRIPT_TARGET_NOT_PRESENT'}
              }
@@ -122,8 +122,8 @@ jobs:
           Write-Host ('MP_LAUNCH_PARENT_IS_POWERSHELL='+($chain.Count -gt 0 -and $chain[0] -eq 'POWERSHELL').ToString().ToUpperInvariant())
           $again=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
           Need ($again.Count -eq 1 -and $again[0].ProcessId -eq $child.ProcessId) 'PROCESS_ID_DRIFT'
-          Need ((H $runningPath) -ceq $runningHash) 'RUNNING_EXE_POST_DRIFT'
-          Need ((H $exe) -ceq $installedHash -and (H $expectedScript) -ceq $expectedScriptHash) 'INSTALLED_SOURCE_POST_DRIFT'
+          Need ((FileSha256 $runningPath) -ceq $runningHash) 'RUNNING_EXE_POST_DRIFT'
+          Need ((FileSha256 $exe) -ceq $installedHash -and (FileSha256 $expectedScript) -ceq $expectedScriptHash) 'INSTALLED_SOURCE_POST_DRIFT'
           Write-Host 'MP_LAUNCH_PRE_POST_SOURCE_AND_PROCESS_UNCHANGED=PASS'
           Write-Host 'MP_LAUNCH_NO_CONTROLLER_COMMANDS=TRUE'
           Write-Host 'MP_LAUNCH_NO_PRODUCTION_WRITES=TRUE'
