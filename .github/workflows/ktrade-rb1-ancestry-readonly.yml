@@ -68,6 +68,12 @@ jobs:
           $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
           $sourceHead=@(& git.exe -C $source rev-parse HEAD)
           if($LASTEXITCODE -ne 0 -or $sourceHead.Count -ne 1 -or $sourceHead[0] -cne $baseline){throw 'RB1_AUTHORIZED_SOURCE_BASELINE_DRIFT'}
+          $parentSHA='8101e4822b336a5f6d297410f76d51db1b6fe52c'
+          $srcParent=@(& git.exe -C $source cat-file -t $parentSHA 2>&1)
+          $srcHasParent=($LASTEXITCODE -eq 0 -and $srcParent.Count -eq 1 -and $srcParent[0] -ceq 'commit')
+          $privParent=RunGit @('cat-file','-e',($parentSHA+'^{commit}'))
+          $srcMerge=@(& git.exe -C $source merge-base --is-ancestor $baseline HEAD 2>&1)
+          $srcMergeExit=$LASTEXITCODE
           $result=[ordered]@{schema='ktrade.r18-rb1-candidate-ancestry-diagnostic.v1';order=$orderID;
             attempt=2;state=$job.state;reason=$job.reason;
             workspace_git_dir_present=($gitdir.exit -eq 0);
@@ -85,6 +91,10 @@ jobs:
             parent_exists=($parent.exit -eq 0);
             ahead_count=if($commits.exit -eq 0){$commits.output}else{'UNAVAILABLE'};
             dirty_line_count=if($dirty.exit -eq 0){@($dirty.output -split '\n'|Where-Object {$_ -ne ''}).Count}else{-1};
+            verified_expected_parent=$parentSHA;
+            source_parent_object_present=$srcHasParent;
+            private_parent_object_present=($privParent.exit -eq 0);
+            source_self_ancestry_exit=$srcMergeExit;
             original_git_baseline_unchanged=$true;
             no_mutations=$true}
           Write-Host ('RB1_CANDIDATE_READONLY_DIAGNOSIS='+($result|ConvertTo-Json -Compress -Depth 4))
