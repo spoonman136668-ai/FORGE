@@ -1,0 +1,74 @@
+name: FORGE F139 continuous native cadence source qualification
+on:
+  push:
+    branches: [fix/f139-native-2-per-ten-minutes-continuous-20261022]
+permissions:
+  contents: read
+jobs:
+  quota-and-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: f139
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Stable line-ending checkout
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact parent and bounded non-science diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git merge-base HEAD "$base")" = "$base"
+          expected="$(printf '%s\n' '.github/workflows/qualify-f139-native-continuous-cadence.yml' 'f139/local_controller.py' 'f139/nci04_owner_ledger.py' 'f139/test_nci04_continuous_cadence.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo F139_SOURCE_DIFF=FOUR_FILES_ONLY
+          echo F139_ORIGINAL_MAIN_UNTOUCHED=TRUE
+      - name: Focused cadence, quota, original custody, replay tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_continuous_cadence.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_owner_ledger.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_successor_catalog.py' -v
+          echo F139_NATIVE_CADENCE_AND_LEDGER=PASS
+      - name: One full Python and Go regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo F139_FINAL_FULL_REGRESSION=PASS
+      - name: Immutable live authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo F139_LIVE_CONTROLLER_SOURCE_TRANSITION=NOT_ATTEMPTED
+          echo F139_SCIENTIFIC_FIRST_USE=FALSE
+          echo F139_NATIVE_DEV_MAX_TEN_MINUTES=2
+          echo F139_NATIVE_DEV_MAX_DAY=288
+          echo F139_WORKER_CONCURRENCY=ONE_PENDING_SEQUENTIAL_UNCHANGED
+          echo F139_WORK_DISCOVERY=NOT_IMPLEMENTED
