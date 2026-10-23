@@ -1,0 +1,171 @@
+name: Q21 CKB-authorized delegated Windows/Linux development
+
+on:
+  push:
+    branches: [research/q21-ckb-attested-delegated-worker-20261023]
+    paths:
+      - '.github/workflows/q21-forge-delegated-development.yml'
+      - 'research/q21_ckb_delegation/**'
+  workflow_dispatch:
+    inputs:
+      ckb_run_id:
+        description: 'Existing authenticated CKB owner-admission run ID (lookup hint, not authority)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: q21-ckb-delegated-one-shot
+  cancel-in-progress: false
+
+jobs:
+  qualify-source:
+    if: ${{ github.event_name == 'push' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact qualified CKB mirror and three-file worker scope
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='e6a347925359a8142fdcf6e21c9db2d27dddc3d5'
+          $ancestor=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$base){throw 'Q21_WORKER_PARENT_DRIFT'}
+          $actual=@(& git diff --name-only $base HEAD)
+          $expected=@('.github/workflows/q21-forge-delegated-development.yml',
+                      'research/q21_ckb_delegation/delegated.py',
+                      'research/q21_ckb_delegation/test_delegated.py')
+          if((Compare-Object $expected $actual) -or $actual.Count-ne3){
+            throw 'Q21_WORKER_ONLY_THREE_ADDITIVE_PATHS'
+          }
+          $pins=@{
+            'research/q21_ckb_native_mirror/admit_exact.py'='cebda244cf0899e60ef07162969b594340b67b74'
+            'research/q21_ckb_native_mirror/test_admit_exact.py'='ea99a2a92c431087e885c7ccc8ee93bc9728fd97'
+            'research/q21_ckb_native_mirror/execute_dev.py'='722e47dcdbf5affd2102dbf2d329c4c55ea40d69'
+            'research/q21_ckb_native_mirror/test_execute_dev.py'='8864f6d00dc7bd843f40238e6c597856495a4d7a'
+          }
+          foreach($p in $pins.Keys){
+            $sha=(& git rev-parse ('HEAD:'+$p)).Trim()
+            if($LASTEXITCODE-ne0 -or $sha-cne$pins[$p]){throw ('Q21_MIRROR_DRIFT_'+$p)}
+          }
+          Write-Host 'Q21_WORKER_FROZEN_IDENTITY=PASS'
+      - name: Cross-platform owner-refusal and no-episode preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/q21_ckb_native_mirror -p 'test_*.py' -v
+          if($LASTEXITCODE-ne0){throw 'Q21_MIRROR_TESTS_FAIL'}
+          python -B -m unittest discover -s research/q21_ckb_delegation -p 'test_*.py' -v
+          if($LASTEXITCODE-ne0){throw 'Q21_DELEGATED_NEGATIVES_FAIL'}
+          python -B research/q21_ckb_delegation/delegated.py --mode preflight
+          if($LASTEXITCODE-ne0){throw 'Q21_DELEGATED_PREFLIGHT_FAIL'}
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($dirty.Count-ne0){throw 'Q21_SOURCE_WORKTREE_DIRTY'}
+          Write-Host 'Q21_DELEGATED_NATIVE_SOURCE_ONLY=PASS'
+          Write-Host 'Q21_SCIENTIFIC_EPISODES=ZERO'
+          Write-Host 'Q21_CKB_ADMISSION=NOT_INVOKED'
+
+  execute:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: Linux
+          - os: windows-2022
+            label: Windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 360
+    env:
+      CKB_OWNER_RUN_ID: ${{ inputs.ckb_run_id }}
+      GH_TOKEN: ${{ secrets.CKB_Q21_AUTH_READ_TOKEN }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 0d49a1cc01e9dff9db060ca0981beaf6748f3127
+          path: candidate
+          persist-credentials: false
+          token: ${{ github.token }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Authenticate sole CKB owner authority and execute frozen development once
+        env:
+          Q21_RESULT: ${{ runner.temp }}/q21-development-${{ matrix.label }}.json
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){
+            throw 'Q21_DELEGATED_CROSS_PRIVATE_READ_CUSTODY_NOT_VERIFIED'
+          }
+          python -B research/q21_ckb_delegation/delegated.py --mode run --ckb-run-id $env:CKB_OWNER_RUN_ID --candidate candidate --output "$env:Q21_RESULT"
+          if($LASTEXITCODE-ne0){throw 'Q21_ONE_SHOT_DEV_FAILED_KEEP_NEGATIVE'}
+      - name: Preserve source-free positive, negative or abort scientific receipt
+        if: always()
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        with:
+          name: q21-delegated-${{ matrix.label }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/q21-development-${{ matrix.label }}.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  reconcile:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai' }}
+    needs: [execute]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 0d49a1cc01e9dff9db060ca0981beaf6748f3127
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: q21-delegated-Linux-${{ github.run_id }}
+          path: receipts/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: q21-delegated-Windows-${{ github.run_id }}
+          path: receipts/windows
+      - name: Reconcile original frozen cross-OS Q21 metrics and preserve scientific negatives
+        env:
+          Q21_DECISION: ${{ runner.temp }}/q21-frozen-reconciliation.json
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B research/q21_ckb_native_mirror/execute_dev.py --mode reconcile --candidate candidate --windows receipts/windows/q21-development-Windows.json --linux receipts/linux/q21-development-Linux.json --output "$env:Q21_DECISION"
+          if($LASTEXITCODE-ne0){throw 'Q21_TWO_OS_FROZEN_RECONCILIATION_FAILED'}
+          Write-Host 'Q21_FROZEN_TWO_OS_DEVELOPMENT_DECISION_RETAINED=PASS'
+      - uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874
+        if: always()
+        with:
+          name: q21-delegated-frozen-decision-${{ github.run_id }}
+          path: ${{ runner.temp }}/q21-frozen-reconciliation.json
+          retention-days: 90
+          if-no-files-found: warn
