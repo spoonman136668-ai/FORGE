@@ -1,0 +1,149 @@
+name: Q21 frozen source-only Python prequalification
+
+on:
+  push:
+    branches: [research/q21-information-budget-preregister-20261022]
+    paths:
+      - '.github/workflows/q21-source-only-guards.yml'
+      - 'research/q21_information_budget/**'
+
+  pull_request:
+    branches: [fix/q21-r29-serialize-before-meter-stop-20261022]
+    paths:
+      - '.github/workflows/q21-source-only-guards.yml'
+      - 'research/q21_information_budget/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: q21-source-only-guards-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prequalify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - name: Checkout read-only scoped source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          # Standard full regression uses bounded history; separately qualified
+          # deep-history G61 is not silently claimed.
+          fetch-depth: 30
+          clean: true
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Set up Go 1.23 for full standard regression
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Confirm exact frozen Git blobs and only fourteen additive paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $ancestor=(& git merge-base $base HEAD).Trim()
+          if($LASTEXITCODE-ne0 -or $ancestor-cne$base){throw 'Q21_BASELINE_IDENTITY_DRIFT'}
+          $expected=@(
+            '.github/workflows/q21-source-only-guards.yml',
+            'research/q21_information_budget/FROZEN_PROTOCOL.json',
+            'research/q21_information_budget/evaluator.py',
+            'research/q21_information_budget/models.py',
+            'research/q21_information_budget/resource_meter.py',
+            'research/q21_information_budget/reconcile_runner.py',
+            'research/q21_information_budget/sourcefree.py',
+            'research/q21_information_budget/sourcefree_runner.py',
+            'research/q21_information_budget/test_evaluator.py',
+            'research/q21_information_budget/test_models.py',
+            'research/q21_information_budget/test_resource_meter.py',
+            'research/q21_information_budget/test_reconcile_runner.py',
+            'research/q21_information_budget/test_sourcefree.py',
+            'research/q21_information_budget/test_sourcefree_runner.py'
+          )
+          $changed=@(& git diff --name-only $base HEAD)
+          if($LASTEXITCODE-ne0 -or (Compare-Object $expected $changed)){
+            throw 'Q21_BOUNDED_FOURTEEN_ADDITIONS_DRIFT'
+          }
+          $pins=@{
+            'research/q21_information_budget/FROZEN_PROTOCOL.json'='d7c35c10f80b36a758b78e0deedf36d74bf5767d'
+            'research/q21_information_budget/sourcefree.py'='e1779e270dca010ac386896146a6b60cee0a8f11'
+            'research/q21_information_budget/sourcefree_runner.py'='0cc595a8f8e60526b03880ee940babcb87ab5a90'
+            'research/q21_information_budget/test_sourcefree.py'='d3743e61e366782f5a2e2bb90b857bb4b7237a78'
+            'research/q21_information_budget/test_sourcefree_runner.py'='c1df5ab4517164a0e7a066d4a2cbc733725f38d0'
+            'research/q21_information_budget/models.py'='52d539a1faff79a42224effd97805a26a9b11e65'
+            'research/q21_information_budget/resource_meter.py'='bc9b475347ca6ddd4a9d75cf1d5bb7d1df59a59e'
+            'research/q21_information_budget/reconcile_runner.py'='fda8af42f4d6a9a1e6cb30f99b7010e90f7471aa'
+            'research/q21_information_budget/test_models.py'='9fda1a4f082c89c6126150b1d47e67e930ebb71b'
+            'research/q21_information_budget/test_resource_meter.py'='84a87880f844dd301333a2c6b91d257bce5e57b1'
+            'research/q21_information_budget/test_reconcile_runner.py'='2a0b20dd86446f15f943ae9289c86ae6696dc95f'
+            'research/q21_information_budget/evaluator.py'='4109e68a4fdc32d928343207eb53ce5be54b9003'
+            'research/q21_information_budget/test_evaluator.py'='ad3ded6450b39d37f52cb004872632e44bf7c425'
+          }
+          foreach($path in $pins.Keys){
+            $committed=(& git rev-parse ('HEAD:'+$path)).Trim()
+            if($LASTEXITCODE-ne0){throw ('Q21_GIT_OBJECT_NOT_FOUND_'+$path)}
+            $disk=(& git hash-object --no-filters -- $path).Trim()
+            if($LASTEXITCODE-ne0 -or $committed-cne$pins[$path] -or $disk-cne$pins[$path]){
+              throw ('Q21_PINNED_BLOB_DRIFT_'+$path)
+            }
+          }
+          Write-Host 'Q21_FROZEN_PROTOCOL_SOURCE_EXACT_SHA=PASS'
+          Write-Host 'Q21_BOUNDED_FOURTEEN_ADDITIONS=PASS'
+      - name: Run all source-only focused guards without generating development cohorts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s research/q21_information_budget -p 'test_*.py' -v
+          if($LASTEXITCODE-ne0){throw 'Q21_FOCUSED_GUARD_FAILURE'}
+          & python -B research/q21_information_budget/sourcefree.py --mode preflight
+          if($LASTEXITCODE-ne0){throw 'Q21_SOURCE_ONLY_PREFLIGHT_FAILURE'}
+          & python -B research/q21_information_budget/sourcefree_runner.py --mode preflight
+          if($LASTEXITCODE-ne0){throw 'Q21_RUNNER_PREFLIGHT_FAILURE'}
+          & python -B research/q21_information_budget/resource_meter.py --mode preflight
+          if($LASTEXITCODE-ne0){throw 'Q21_NATIVE_RESOURCE_PREFLIGHT_FAILURE'}
+          Write-Host 'Q21_NATIVE_RESOURCE_PRECHECK=PASS'
+          Write-Host 'Q21_SOURCE_ONLY_NATIVE_FOCUSED=PASS'
+          Write-Host 'Q21_Q20_RESERVED_AND_SCIENTIFIC_FIRST_USE=UNTOUCHED'
+      - name: One final full standard FORGE regression and vet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p 'test_*.py'
+          if($LASTEXITCODE-ne0){throw 'Q21_F139_FINAL_REGRESSION_FAILED'}
+          & go test -count=1 ./...
+          if($LASTEXITCODE-ne0){throw 'Q21_FULL_GO_REGRESSION_FAILED'}
+          & go vet ./...
+          if($LASTEXITCODE-ne0){throw 'Q21_GO_VET_FAILED'}
+          Write-Host 'Q21_FULL_STANDARD_REGRESSION=PASS'
+          Write-Host 'Q21_G61_DEEP_HISTORY=NOT_CLAIMED'
+      - name: Build without executing source families
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & go build ./...
+          if($LASTEXITCODE-ne0){throw 'Q21_GO_BUILD_FAILED'}
+          Write-Host 'Q21_NATIVE_BUILD=PASS'
+      - name: Verify no generated source or admission side effects
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'Q21_SOURCE_TREE_DIRTY'}
+          Write-Host 'Q21_REPOSITORY_CLEAN=PASS'
+          Write-Host 'Q21_FULL_SCIENTIFIC_EXECUTION=NOT_PERFORMED'
+          Write-Host 'Q21_CKB_ADMISSION=NOT_CLAIMED'
