@@ -85,135 +85,14 @@ jobs:
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile
               if($LASTEXITCODE -ne 0){throw 'RB2_ISOLATED_PAPER_LEDGER_FOCUSED_FAILED'}
               Write-Host 'RB2_ISOLATED_PAPER_LEDGER_AND_RECONCILE_FOCUSED=PASS'
-              # The original native Pine compiler exists ONLY in rebuilt
-              # KTRADE; the pinned CKB donor lacks those newer Pine APIs.
-              # Export data-only evidence from native compiled Pine before the
-              # separate donor module consumes it (no guessed Pine stubs).
+              # Native Pine runs in the rebuilt KTRADE module, NOT the old donor.
+              # Transfer immutable test-only intent data to the separately compiled
+              # source-pinned authentic donor, without fabricating donor Pine APIs.
               $env:KTRADE_RB2_NATIVE_EVIDENCE_FILE=Join-Path $gotemp 'rb2-native-pine-evidence.json'
               if(Test-Path -LiteralPath $env:KTRADE_RB2_NATIVE_EVIDENCE_FILE){
                 throw 'RB2_NATIVE_PINE_EVIDENCE_COLLISION'
               }
-              & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_full -run '^TestRB2ProduceNativePinePaperEvidence
-              # independent, disposable, pinned CKB-donor checkout that copies
-              # only the source-locked KTRADE Pine-to-paper qualification files.
-              # No installed app, broker, local controller or persistent queue.
-              $donorSha='520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc'
-              $donor=Join-Path $tmp 'donor-original'
-              & git.exe init --quiet -- $donor
-              if($LASTEXITCODE -ne 0){throw 'RB2_DONOR_INIT_FAILED'}
-              & git.exe -C $donor fetch --depth=1 --no-tags -- 'https://github.com/spoonman136668-ai/ckb.git' $donorSha
-              if($LASTEXITCODE -ne 0){throw 'RB2_DONOR_READONLY_FETCH_FAILED'}
-              & git.exe -C $donor checkout --quiet --detach FETCH_HEAD
-              if($LASTEXITCODE -ne 0){throw 'RB2_DONOR_CHECKOUT_FAILED'}
-              if((& git.exe -C $donor rev-parse HEAD).Trim() -cne $donorSha){throw 'RB2_DONOR_HEAD_DRIFT'}
-              if((& git.exe -C $donor rev-parse 'HEAD:pkg/risk.go').Trim() -cne '8469df654777548266448d1bf02192e780c8ebad'){
-                throw 'RB2_AUTHENTIC_DONOR_TRADEGUARD_SOURCE_DRIFT'
-              }
-              foreach($module in @('paperproposal','papertrading','paperreconcile')){
-                $targetDir=Join-Path $donor ('internal/'+$module)
-                if(Test-Path -LiteralPath $targetDir){Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction Stop}
-                Copy-Item -LiteralPath (Join-Path $root ('internal/'+$module)) -Destination $targetDir -Recurse -ErrorAction Stop
-              }
-              $testDir=Join-Path $donor 'tests/donor-shadow'
-              if(!(Test-Path -LiteralPath $testDir)){New-Item -ItemType Directory -Path $testDir -Force | Out-Null}
-              foreach($name in @('shadow_test.go','reconcile_test.go','rb2_pine_authentic_paper_test.go')){
-                Copy-Item -LiteralPath (Join-Path $root ('tests/donor-shadow/'+$name)) -Destination (Join-Path $testDir $name) -ErrorAction Stop
-              }
-              Push-Location $donor
-              try{
-                & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_donor_shadow -run '^TestRB2ActualPine' ./tests/donor-shadow
-                if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PINE_AUTHENTIC_TRADEGUARD_PAPER_END_TO_END_FAILED'}
-              }finally{Pop-Location}
-              Write-Host 'RB2_NATIVE_PINE_AUTHENTIC_DONOR_PAPER_END_TO_END_SHADOW=PASS'
-              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile
-              if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_VET_FAILED'}
-              Write-Host 'RB2_NATIVE_VET=PASS'
-              $exe=Join-Path $tmp 'ktrade-stopped.exe'
-              & go.exe build -mod=readonly -p 1 -tags ktrade_full -o $exe ./cmd/ktrade
-              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'RB2_FULL_WINDOWS_EXE_BUILD_FAILED'}
-              Write-Host ('RB2_STOPPED_EXE_SHA256='+((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()))
-              $bundle=Join-Path $gotemp ('ktrade-rb2-package-'+[guid]::NewGuid().ToString('N').Substring(0,16))
-              & pwsh.exe -NoProfile -File windows/Build-KTRADE-Portable.ps1 -OutputRoot $bundle
-              if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PORTABLE_BUNDLE_FAILED'}
-              $manifest=Get-Content -LiteralPath (Join-Path $bundle 'package-manifest.json') -Raw | ConvertFrom-Json
-              if($manifest.source_sha -cne $sourceSha -or $manifest.trading_mode -cne 'PAPER_ONLY' -or
-                 $manifest.live_armed -cne $false -or $manifest.native_host -cne 'go-brave-app' -or
-                 $manifest.files.Count -lt 40){throw 'RB2_PORTABLE_MANIFEST_INCOMPLETE'}
-              $names=@($manifest.files | ForEach-Object {$_.path})
-              foreach($required in @('ktrade.exe','static/trading.html','templates/chart.tmpl','Start-KTRADE-Portable.ps1',
-                'static/vendor/monaco/vs/loader.js',
-                'static/vendor/monaco/vs/editor/editor.main.js',
-                'static/vendor/lightweight-charts/lightweight-charts.standalone.production.js',
-                'static/paper_strategy_review.js',
-                'static/vendor/licenses/monaco-editor.LICENSE',
-                'static/vendor/licenses/lightweight-charts.LICENSE')){
-                if($required -cnotin $names){throw ('RB2_PORTABLE_REQUIRED_ASSET_MISSING_'+$required)}
-              }
-              Write-Host ('RB2_PORTABLE_STAGED_FILE_COUNT='+$manifest.files.Count)
-              Write-Host 'RB2_PORTABLE_SOURCE_PACKAGE=PASS; RB2_NOT_INSTALLED=TRUE'
-              & pwsh.exe -NoProfile -File windows/Probe-KTRADE-Portable-HTTP.ps1 -OutputRoot $bundle
-              if($LASTEXITCODE -ne 0){throw 'RB2_REAL_NATIVE_HTTP_AND_RESTART_TEST_FAILED'}
-              Write-Host 'RB2_REAL_NATIVE_UI_AND_PINE_PERSISTENCE=PASS'
-              & node.exe scripts/probe_brave_chart.cjs $bundle
-              if($LASTEXITCODE -ne 0){throw 'RB2_REAL_BRAVE_MONACO_UI_ACCEPTANCE_FAILED'}
-              Write-Host 'RB2_REAL_BRAVE_MONACO_PINE_SAVE=PASS'
-              # Preserve an operator-downloadable preview only after all
-              # native and Brave acceptance checks pass.
-              $preview=Join-Path $env:GITHUB_WORKSPACE ('rb2-preview-'+$env:GITHUB_RUN_ID)
-              if(Test-Path -LiteralPath $preview){throw 'RB2_PREVIEW_CUSTODY_COLLISION'}
-              New-Item -ItemType Directory -Path $preview -ErrorAction Stop | Out-Null
-              $srcZip=Join-Path $bundle 'KTRADE-Portable.zip'
-              $dstZip=Join-Path $preview 'KTRADE-Portable.zip'
-              Copy-Item -LiteralPath $srcZip -Destination $dstZip -ErrorAction Stop
-              $srcHash=(Get-FileHash -LiteralPath $srcZip -Algorithm SHA256).Hash.ToLowerInvariant()
-              $dstHash=(Get-FileHash -LiteralPath $dstZip -Algorithm SHA256).Hash.ToLowerInvariant()
-              if($srcHash -cne $dstHash){throw 'RB2_PREVIEW_ZIP_HASH_DRIFT'}
-              Copy-Item -LiteralPath (Join-Path $bundle 'package-manifest.json') -Destination (Join-Path $preview 'package-manifest.json') -ErrorAction Stop
-              $notice=@(
-                'KTRADE RB2 DEVELOPER PREVIEW - NOT COMPLETE AND NOT FOR LIVE TRADING'
-                'This preview tests actual charts, editor, Monaco, saved Pine scripts and Brave hosting.'
-                'The integrated paper-trading lifecycle is not yet available. Never use with a broker account.'
-                'Do not replace or overwrite an installed KTRADE application or any original user data.'
-                'Unzip KTRADE-Portable.zip to a NEW writable directory and run Start-KTRADE-Portable.ps1.'
-                'Requires an installed Brave Browser. LIVE remains disabled and unqualified.'
-                ('Exact source SHA: '+$sourceSha)
-                ('Portable ZIP SHA256: '+$dstHash)
-              ) -join [Environment]::NewLine
-              [IO.File]::WriteAllText((Join-Path $preview 'READ_ME_FIRST.txt'),$notice,[Text.UTF8Encoding]::new($false))
-              Write-Host ('RB2_PREVIEW_SOURCE_SHA='+$sourceSha)
-              Write-Host ('RB2_PREVIEW_ZIP_SHA256='+$dstHash)
-              Write-Host 'RB2_DEVELOPER_PREVIEW_STAGED_AFTER_REAL_BRAVE=PASS'
-
-
-
-
-              Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_DISPOSABLE_APP_SMOKE=EXECUTED'
-            }finally{Pop-Location}
-          }finally{
-            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Publish disarmed developer preview only after full check
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: KTRADE-RB2-DEV-PREVIEW-${{ github.run_id }}
-          path: rb2-preview-${{ github.run_id }}/*
-          retention-days: 7
-          compression-level: 0
-          if-no-files-found: error
-      - name: Clean up private preview staging
-        if: always()
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $preview=Join-Path $env:GITHUB_WORKSPACE ('rb2-preview-'+$env:GITHUB_RUN_ID)
-          $separator=[IO.Path]::DirectorySeparatorChar
-          $base=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd($separator)+$separator
-          $full=[IO.Path]::GetFullPath($preview)
-          if(!$full.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)){throw 'RB2_PREVIEW_CLEANUP_ESCAPE'}
-          if(Test-Path -LiteralPath $full){Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop}
- ./cmd/ktrade
+              & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_full -run '^TestRB2ProduceNativePinePaperEvidence$' ./cmd/ktrade
               if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PINE_EVIDENCE_PRODUCER_FAILED'}
               if(!(Test-Path -LiteralPath $env:KTRADE_RB2_NATIVE_EVIDENCE_FILE -PathType Leaf)){
                 throw 'RB2_NATIVE_PINE_BRIDGE_EVIDENCE_MISSING'
