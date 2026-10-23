@@ -1,0 +1,167 @@
+name: FORGE F139 R11 original-owner scheduler resume once
+on:
+  push:
+    branches: [proposal/f139-r11-original-owner-resume-20261022]
+permissions: {}
+concurrency:
+  group: forge-f139-original-owner-mutations
+  cancel-in-progress: false
+jobs:
+  original-owner-resume:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Restore existing owner task only after frozen event-58 cold verification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $source = '536b91a392b7bbc50200a6e8842d152f2e23d8bb'
+          $head58 = '995143ce24e6c5aa1e3a28b77d5f9fe71c9ec4f32d7aff95cc660f87d1762883'
+          $taskName = 'FORGE-F139-UnifiedController'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/proposal/f139-r11-original-owner-resume-20261022' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'R11_UNAUTHORIZED_GITHUB_OR_RUNNER_IDENTITY'
+          }
+          if ($env:OPENAI_API_KEY) { throw 'R11_PAID_API_UNEXPECTED' }
+          $who = [Security.Principal.WindowsIdentity]::GetCurrent()
+          if (-not (New-Object Security.Principal.WindowsPrincipal($who)).IsInRole(
+              [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'R11_RUNNER_NOT_ELEVATED'
+          }
+          $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if ([string]$task.State -ne 'Disabled' -or @($task.Actions).Count -ne 1) {
+            throw 'R11_ORIGINAL_CONTROLLER_NOT_DISABLED_AND_UNIQUE'
+          }
+          $principal = [string]$task.Principal.UserId
+          $taskSid = if ($principal -match '^S-1-') {
+            $principal
+          } else {
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if ($taskSid -ne $who.User.Value) { throw 'R11_ORIGINAL_OWNER_SID_DRIFT' }
+          $triggers = @($task.Triggers)
+          if ($triggers.Count -ne 3 -or
+              @($triggers | Where-Object {
+                $_.Repetition -and $_.Repetition.Interval -eq 'PT10M'
+              }).Count -ne 1) {
+            throw 'R11_ORIGINAL_AUTONOMOUS_WAKE_TRIGGERS_NOT_QUALIFIED'
+          }
+          $action = $task.Actions[0]
+          if ([IO.Path]::GetFileName([string]$action.Execute) -ine 'powershell.exe') {
+            throw 'R11_SCHEDULED_ACTION_EXECUTABLE_DRIFT'
+          }
+          $opts = @{}
+          foreach ($name in @('File','PythonExe','RepositoryRoot','Database','EncryptedKeyFile')) {
+            $m = [regex]::Match([string]$action.Arguments,
+              '(?i)(?:^|\s)-' + $name + '\s+"([^"]+)"')
+            if (-not $m.Success) { throw ('R11_SCHEDULED_ARGUMENT_MISSING_' + $name) }
+            $opts[$name] = $m.Groups[1].Value
+          }
+          $root = $opts['RepositoryRoot']
+          $python = $opts['PythonExe']
+          $db = $opts['Database']
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          $expectedKey = Join-Path $env:LOCALAPPDATA 'FORGE-F139\worker-hmac.dpapi.xml'
+          if ([IO.Path]::GetFileName($opts['File']) -cne 'Run-FORGE-F139.ps1' -or
+              [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              [IO.Path]::GetFullPath($opts['EncryptedKeyFile']) -ine
+                [IO.Path]::GetFullPath($expectedKey) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $expectedKey -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $db -PathType Leaf)) {
+            throw 'R11_ORIGINAL_TASK_OWNER_ROUTE_DRIFT'
+          }
+          $legacy = Get-ScheduledTask -TaskName 'FORGE-F137-WakeProbe' -ErrorAction SilentlyContinue
+          if ($legacy -and [string]$legacy.State -ne 'Disabled') {
+            throw 'R11_LEGACY_FORGE_WAKE_ACTIVE'
+          }
+          $active = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+            Where-Object {
+              $_.Name -in @('python.exe','pythonw.exe') -and $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db)
+            })
+          if ($active.Count -ne 0) { throw 'R11_EXISTING_CONTROLLER_ALREADY_RUNNING' }
+          Push-Location -LiteralPath $root
+          try {
+            $checkout = (& git rev-parse HEAD | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $checkout -cne $source) {
+              throw 'R11_PROTECTED_SOURCE_IDENTITY_DRIFT'
+            }
+            $dirty = (& git status --porcelain --untracked-files=all | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $dirty.Length -ne 0) {
+              throw 'R11_SOURCE_CHECKOUT_NOT_CLEAN'
+            }
+            $protected = (& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha' |
+              Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $protected -cne $source) {
+              throw 'R11_GITHUB_PROTECTED_MAIN_DRIFT'
+            }
+            $raw = & $python -B -m f139.local_controller --db $db status
+            if ($LASTEXITCODE -ne 0) { throw 'R11_PRE_RESUME_COLD_VERIFY_FAILED' }
+            $state = ($raw | Out-String | ConvertFrom-Json).status
+            $neg = @($state.tasks | Where-Object { $_.stage -ceq 'QUARANTINED' })
+            $names = @($neg | ForEach-Object { $_.ticket } | Sort-Object)
+            if ($state.meta.head_seq -ne 58 -or $state.meta.head_hash -cne $head58 -or
+                $state.meta.source_sha -cne $source -or
+                $state.meta.enabled -ne 1 -or $state.meta.legacy_suspended -ne 1 -or
+                @($state.tasks).Count -ne 9 -or
+                @($state.tasks | Where-Object { $_.stage -ceq 'VERIFIED' }).Count -ne 7 -or
+                $neg.Count -ne 2 -or
+                $names[0] -cne 'f139-nci04-i696-5662e3586bc9-7bb8f27f' -or
+                $names[1] -cne 'f139-nci04-i706-09f3d7447900-09dc99f4') {
+              throw 'R11_ORIGINAL_58_EVENT_LEDGER_OR_NEGATIVES_DRIFT'
+            }
+            Write-Output 'R11_EVENT58_COLD_VERIFICATION=PASS'
+            Write-Output 'R11_OWNER_SID_AND_THREE_WAKE_TRIGGERS=PASS'
+            # Retain original task XML, principal, action, key, and database.
+            # Only the registered task's Enabled state is changed here.
+            Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            Write-Output 'R11_ORIGINAL_SCHEDULER_ENABLED=PASS'
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $running = $false
+            for ($i=0; $i -lt 20; $i++) {
+              Start-Sleep -Seconds 2
+              $nowTask = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              $children = @(Get-CimInstance Win32_Process -ErrorAction Stop |
+                Where-Object {
+                  $_.Name -in @('python.exe','pythonw.exe') -and $_.CommandLine -and
+                  $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($db)
+                })
+              if ([string]$nowTask.State -eq 'Running' -and $children.Count -eq 1) {
+                $running = $true
+                break
+              }
+            }
+            if (-not $running) {
+              throw 'R11_ORIGINAL_SCHEDULER_START_NOT_PROVEN_INSPECT_NO_RETRY'
+            }
+            Write-Output 'R11_SINGLE_ORIGINAL_CONTROLLER_RUNNING=PASS'
+            # SQLite cold verifier must succeed after the task starts. A tick
+            # may legitimately admit NEW source-bound development work.
+            $post = & $python -B -m f139.local_controller --db $db status
+            if ($LASTEXITCODE -ne 0) { throw 'R11_POST_RESUME_NATIVE_VERIFY_FAILED' }
+            $after = ($post | Out-String | ConvertFrom-Json).status
+            $originals = @($after.tasks | Where-Object {
+              $_.ticket -in @('f139-nci04-i696-5662e3586bc9-7bb8f27f',
+                              'f139-nci04-i706-09f3d7447900-09dc99f4')
+            })
+            if ($after.meta.head_seq -lt 58 -or $after.meta.source_sha -cne $source -or
+                $originals.Count -ne 2 -or
+                @($originals | Where-Object { $_.stage -ceq 'QUARANTINED' }).Count -ne 2) {
+              throw 'R11_ORIGINAL_CUSTODY_OR_SOURCE_CHANGED_AFTER_START'
+            }
+            Write-Output 'R11_ORIGINAL_LEDGER_COLD_VERIFICATION=PASS'
+            Write-Output ('R11_POST_RESUME_EVENT_HEAD=' + [string]$after.meta.head_seq)
+            Write-Output 'R11_SCHEDULER_RESTORED=PASS'
+            Write-Output 'R11_TWO_AUTONOMOUS_WORKER_CYCLES=NOT_YET_VERIFIED'
+            Write-Output 'R11_SCIENTIFIC_FIRST_USE=BLOCKED'
+            Write-Output 'R11_NEW_CONTROLLER=NONE'
+          } finally {
+            Pop-Location
+          }
