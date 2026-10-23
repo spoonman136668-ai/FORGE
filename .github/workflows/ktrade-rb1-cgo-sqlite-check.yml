@@ -36,8 +36,9 @@ jobs:
             Write-Host 'KTRADE_SQLITE_CURRENT_BINARY_RUNTIME_NOT_QUALIFIED=TRUE'
           }else{
             $env:CGO_ENABLED='1'
-            $env:CC=$gcc[0]
-            $ver=@(& $env:CC --version)
+            $env:PATH=(Split-Path -Parent $gcc[0]) + ';' + $env:PATH
+            $env:CC='gcc'
+            $ver=@(& gcc.exe --version)
             if($LASTEXITCODE -ne 0){throw 'KTRADE_CGO_COMPILER_BROKEN'}
             Write-Host ('KTRADE_SQLITE_CGO_COMPILER='+$gcc[0])
             Write-Host ('KTRADE_SQLITE_CGO_COMPILER_VERSION='+([string]$ver[0]))
@@ -45,8 +46,22 @@ jobs:
             $env:GOFLAGS='-p=1'
             Push-Location $src
             try {
-              & go.exe test -p 1 -count=1 -run '^TestSQLite' ./internal/paperauthority
-              if($LASTEXITCODE -ne 0){throw 'KTRADE_SQLITE_CGO_TESTS_FAILED'}
+              $old=$ErrorActionPreference
+              try {
+                $ErrorActionPreference='Continue'
+                $out=@(& go.exe test -x -p 1 -count=1 -run '^TestSQLite' ./internal/paperauthority 2>&1)
+                $exit=$LASTEXITCODE
+              } finally {$ErrorActionPreference=$old}
+              if($exit -ne 0){
+                Write-Host 'KTRADE_SQLITE_CGO_LAST_DIAGNOSTICS_BEGIN'
+                foreach($line in @($out | Select-Object -Last 65)) {
+                  $safe=[string]$line
+                  if($safe.Length -gt 280){$safe=$safe.Substring(0,280)}
+                  Write-Host $safe
+                }
+                Write-Host 'KTRADE_SQLITE_CGO_LAST_DIAGNOSTICS_END'
+                throw 'KTRADE_SQLITE_CGO_TESTS_FAILED'
+              }
               Write-Host 'KTRADE_SQLITE_CGO_TESTS=PASS'
               $temp=Join-Path $env:RUNNER_TEMP ('ktrade-cgo-'+$env:GITHUB_RUN_ID+'.exe')
               if(Test-Path -LiteralPath $temp){throw 'KTRADE_CGO_BUILD_COLLISION'}
