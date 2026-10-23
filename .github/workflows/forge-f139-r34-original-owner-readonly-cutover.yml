@@ -1,0 +1,107 @@
+name: F139 R34 original owner source-transition read-only preflight
+on:
+  push:
+    branches: [diagnostics/f139-r34-original-readonly-cutover-20261022]
+permissions: {}
+jobs:
+  owner-original-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Verify live owner state and original SQLite index without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $expected='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
+          $ready='3d5bce4a128285d8493b92d8188a10143c676c9b'
+          if ($env:GITHUB_REPOSITORY -cne $repo -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/diagnostics/f139-r34-original-readonly-cutover-20261022' -or
+              $env:F139_WORKER_HMAC_KEY -or $env:OPENAI_API_KEY) {
+            throw 'R34_OWNER_RUNNER_OR_SECRET_EXPOSURE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1) { throw 'R34_OWNER_TASK_SHAPE_DRIFT' }
+          $args=[string]$task.Actions[0].Arguments
+          $opts=@{}
+          foreach($key in @('RepositoryRoot','Database','PythonExe','File','EncryptedKeyFile')){
+            $found=[regex]::Match($args,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if (-not $found.Success){throw ('R34_MISSING_OWNER_ARG_'+$key)}
+            $opts[$key]=$found.Groups[1].Value
+          }
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $p=[string]$task.Principal.UserId
+          $sid=if ($p -match '^S-1-'){$p}else{(New-Object Security.Principal.NTAccount($p)).Translate([Security.Principal.SecurityIdentifier]).Value}
+          if ($sid -cne $owner.User.Value){throw 'R34_OWNER_SID_DRIFT'}
+          $folder=Join-Path $env:LOCALAPPDATA 'FORGE-F139'
+          if ([IO.Path]::GetFullPath($opts.Database) -ine [IO.Path]::GetFullPath((Join-Path $folder 'state.sqlite')) -or
+              [IO.Path]::GetFileName($opts.File) -cne 'Run-FORGE-F139.ps1'){throw 'R34_ORIGINAL_DB_OR_WRAPPER_DRIFT'}
+          $head=(& git -C $opts.RepositoryRoot rev-parse HEAD | Out-String).Trim()
+          $dirty=(& git -C $opts.RepositoryRoot status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $expected -or $dirty.Length -ne 0){throw 'R34_ORIGINAL_WORKTREE_DRIFT'}
+          $githubHead=(& gh api "repos/$repo/branches/main" --jq '.commit.sha' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $githubHead -cne $expected){throw 'R34_PROTECTED_MAIN_DRIFT'}
+          $pinned=(& gh api "repos/$repo/git/commits/$ready" --jq '.sha' | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $pinned -cne $ready){throw 'R34_QUALIFIED_CAPACITY_CANDIDATE_MISSING'}
+          $script=@'
+          import json,sqlite3,sys,contextlib,datetime
+          from collections import Counter
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          path=sys.argv[1]
+          expected=sys.argv[2]
+          con=sqlite3.connect("file:"+path.replace("\\","/")+"?mode=ro",uri=True,timeout=15)
+          con.row_factory=sqlite3.Row
+          with contextlib.closing(con):
+              con.execute("PRAGMA query_only=ON")
+              m=dict(con.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              rows=[dict(x) for x in con.execute("SELECT stage,ticket,started_at FROM tasks")]
+              audit=list(con.execute("SELECT seq,kind FROM events ORDER BY seq DESC LIMIT 3"))
+              idx=con.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name='only_one_active_f139_task'").fetchone()
+              trig=con.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='guard_two_native_active'").fetchone()
+              assert m["source_sha"]==expected and m["enabled"]==1 and m["legacy_suspended"]==1,"R34_DB_META_SOURCE_OR_ACTIVATION_DRIFT"
+              assert idx is not None,"R34_ORIGINAL_ACTIVE_SQLITE_INDEX_MISSING"
+              assert m["head_seq"]>=80 and len(rows)>=13,"R34_HISTORICAL_CUSTODY_MISSING"
+              head=m["head_hash"]
+              from f139.local_controller import canonical,hash_bytes
+              prior="0"*64
+              for e in con.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  assert e["prior_sha"]==prior,"R34_LEDGER_LINK_DRIFT"
+                  data=json.loads(e["payload"])
+                  assert canonical(data).decode()==e["payload"],"R34_LEDGER_NONCANONICAL"
+                  prior=hash_bytes(canonical({"seq":e["seq"],"kind":e["kind"],"payload":data,"prior_sha":e["prior_sha"]}))
+                  assert e["sha"]==prior,"R34_LEDGER_HASH_DRIFT"
+              assert prior==head,"R34_EVENT_HEAD_DRIFT"
+              class Inspector:
+                  conn=con
+                  def meta(self):return m
+              assert verify_native_activation(Inspector()),"R34_NATIVE_NOT_ACTIVATED"
+              stage=Counter(row["stage"] for row in rows)
+              nonterminal=[x for x in rows if x["stage"] not in ("VERIFIED","QUARANTINED")]
+              print("R34_OWNER_DB_HEAD_SEQ="+str(m["head_seq"]))
+              print("R34_OWNER_DB_HEAD_SHA256="+head)
+              print("R34_OWNER_SOURCE_SHA="+m["source_sha"])
+              print("R34_OWNER_NATIVE_ACTIVATION=PASS")
+              print("R34_HISTORICAL_NEGATIVES="+str(stage["QUARANTINED"]))
+              print("R34_VERIFIED_TASKS="+str(stage["VERIFIED"]))
+              print("R34_INFLIGHT_OR_READY="+str(len(nonterminal)))
+              print("R34_OWNER_SQLITE_ACTIVE_INDEX="+("ONE_SLOT_HISTORICAL" if "ticket NOT LIKE" not in idx["sql"] else "TWO_SLOT"))
+              print("R34_OWNER_SQLITE_TWO_SLOT_TRIGGER="+str(trig is not None).upper())
+              print("R34_OWNER_ORIGINAL_LEDGER=PASS")
+              print("R34_NO_DB_OR_SCIENCE_WRITES=TRUE")
+          '@
+          Push-Location -LiteralPath $opts.RepositoryRoot
+          try{
+            $lines=& $opts.PythonExe -B -c $script $opts.Database $expected
+            if ($LASTEXITCODE -ne 0){throw 'R34_READONLY_LEDGER_SCRIPT_FAILED'}
+            $lines | ForEach-Object {Write-Output $_}
+          }finally{Pop-Location}
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($opts.Database)})
+          Write-Output ('R34_OWNER_TASK_STATE='+[string]$task.State)
+          Write-Output ('R34_OWNER_CONTROLLER_PROCESSES='+$processes.Count)
+          if ([string]$task.State -cne 'Running' -or $processes.Count -ne 1) {throw 'R34_OWNER_SCHEDULER_NOT_RUNNING_ONCE'}
+          Write-Output 'R34_SOURCE_TRANSITION=NOT_ATTEMPTED'
+          Write-Output 'R34_NEW_WORKER_DISPATCH=NONE'
