@@ -73,6 +73,29 @@ class NativeContractTests(unittest.TestCase):
         self.reject(intent(), "TARGET_COMMIT_DRIFT", target_commit="8" * 40)
         self.reject(intent(), "TARGET_TREE_DRIFT", target_tree_sha="7" * 40)
 
+    def test_only_exact_frozen_r7_test_paths_are_additionally_allowed(self):
+        exact = {
+            "Wingless": "research/native/itd01/r7/native_test.go",
+            "Yggdrasil": "research/native/itd01/r7/test_native_cells.py",
+        }
+        for lane, path in exact.items():
+            with self.subTest(lane=lane):
+                value = intent(lane)
+                value["path"] = path
+                self.assertEqual(self.parse(value).path, path)
+        for lane, path in (
+            ("Wingless", "research/native/itd01/r7/native.go"),
+            ("Wingless", "research/native/itd01/r7/cmd/report/main.go"),
+            ("Wingless", "research/native/itd01/r8/native_test.go"),
+            ("Yggdrasil", "research/native/itd01/r7/native_cells.py"),
+            ("Yggdrasil", "research/native/itd01/r7/report.py"),
+            ("Yggdrasil", "research/native/itd01/r8/test_native_cells.py"),
+        ):
+            value = intent(lane)
+            value["path"] = path
+            with self.subTest(lane=lane, path=path):
+                self.reject(value, "SOURCE_PATH_FORBIDDEN")
+
     def test_no_cross_lane_or_arbitrary_repository(self):
         for path in (".github/workflows/bypass.go", "../research/native_state.go",
                      "cognition/../tests/bypass.go", "cognition//bypass.go",
