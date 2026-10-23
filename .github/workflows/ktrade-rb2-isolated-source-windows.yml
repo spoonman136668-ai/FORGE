@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='f09443ab85d9091f878d035e28d51e61373fcc63'
+          $sourceSha='941c54253ce8adce2e624cc7ede63ed4f3fe6056'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -54,6 +54,18 @@ jobs:
             Write-Host ('RB2_EXACT_SOURCE_SHA='+$head)
             Push-Location $root
             try {
+              # The existing exact package-lock.json pins Monaco 0.45.0 and
+              # Lightweight Charts 4.1.0. Install ONLY into this disposable
+              # checkout, never the workstation's installed product.
+              if(!(Get-Command npm.cmd -ErrorAction SilentlyContinue) -or
+                 !(Get-Command node.exe -ErrorAction SilentlyContinue)) {
+                throw 'RB2_NODE_TOOLCHAIN_UNAVAILABLE_FOR_PINNED_VENDOR'
+              }
+              & npm.cmd ci --ignore-scripts --no-audit --no-fund --prefer-offline
+              if($LASTEXITCODE -ne 0) {throw 'RB2_SOURCE_LOCKED_NPM_CI_FAILED'}
+              & node.exe scripts/stage_offline_vendor.cjs
+              if($LASTEXITCODE -ne 0) {throw 'RB2_PINNED_LOCAL_CHART_ASSET_STAGING_FAILED'}
+              Write-Host 'RB2_MONACO_AND_LIGHTWEIGHT_CHARTS_FROM_LOCK=PASS'
               & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_full -run '^TestRB2' ./pkg/apphost ./cmd/ktrade
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_TESTS_FAILED'}
               Write-Host 'RB2_FOCUSED_BRAVE_AND_FAIL_CLOSED_FEED=PASS'
@@ -72,7 +84,12 @@ jobs:
                  $manifest.live_armed -cne $false -or $manifest.native_host -cne 'go-brave-app' -or
                  $manifest.files.Count -lt 40){throw 'RB2_PORTABLE_MANIFEST_INCOMPLETE'}
               $names=@($manifest.files | ForEach-Object {$_.path})
-              foreach($required in @('ktrade.exe','static/trading.html','templates/chart.tmpl','Start-KTRADE-Portable.ps1')){
+              foreach($required in @('ktrade.exe','static/trading.html','templates/chart.tmpl','Start-KTRADE-Portable.ps1',
+                'static/vendor/monaco/vs/loader.js',
+                'static/vendor/monaco/vs/editor/editor.main.js',
+                'static/vendor/lightweight-charts/lightweight-charts.standalone.production.js',
+                'static/vendor/licenses/monaco-editor.LICENSE',
+                'static/vendor/licenses/lightweight-charts.LICENSE')){
                 if($required -cnotin $names){throw ('RB2_PORTABLE_REQUIRED_ASSET_MISSING_'+$required)}
               }
               Write-Host ('RB2_PORTABLE_STAGED_FILE_COUNT='+$manifest.files.Count)
