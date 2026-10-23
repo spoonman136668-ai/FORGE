@@ -103,7 +103,20 @@ jobs:
                    @($entry.source_refs).Count -lt 1){
                   throw 'MP_RECORD_PROVENANCE_OR_CUSTODY_DRIFT'
                 }
-                $null=$all[$project].Add($entry)
+                # Retain only the fields emitted by mindcontext.Entry.
+                # Extra private source metadata is not needed for retrieval.
+                $bounded=[ordered]@{
+                  id=[string]$entry.id
+                  project=$actualProject
+                  kind=[string]$entry.kind
+                  statement=[string]$entry.statement
+                  source_refs=@($entry.source_refs)
+                }
+                if($bounded.statement.Length -gt 1600 -or
+                   $bounded.id.Length -gt 180){
+                  throw 'MP_ENTRY_PRIVACY_OR_LENGTH_BOUNDS'
+                }
+                $null=$all[$project].Add([pscustomobject]$bounded)
                 if($project -ceq '__global__'){$governance++}else{$taskRelevant++}
               }
             }
@@ -127,9 +140,17 @@ jobs:
               }
               if(-not $added -or $chosen.Count -ge 24){break}
             }
-            $selection=ConvertTo-Json -InputObject @($chosen.ToArray()) -Compress -Depth 32
             $utf8=New-Object Text.UTF8Encoding($false)
+            $selection=ConvertTo-Json -InputObject @($chosen.ToArray()) -Compress -Depth 32
             $bytes=$utf8.GetBytes($selection)
+            # Lower the *number* of optional contextual records until the
+            # strict output-byte budget is satisfied; never discard required
+            # governance just to make a failing response look successful.
+            while($bytes.Length -gt 16384 -and $chosen.Count -gt $governance){
+              $chosen.RemoveAt($chosen.Count-1)
+              $selection=ConvertTo-Json -InputObject @($chosen.ToArray()) -Compress -Depth 32
+              $bytes=$utf8.GetBytes($selection)
+            }
             if($chosen.Count -lt $governance -or $chosen.Count -gt 24 -or
                $bytes.Length -gt 16384){
               throw 'MP_CONTEXT_OUTPUT_BUDGET_OR_PRIORITY_INVALID'
