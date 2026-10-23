@@ -1,0 +1,115 @@
+name: F139 original owner two unattended terminal custody verification
+on:
+  push:
+    branches: [verification/f139-58dc-two-terminal-owner-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-58dc-two-terminal-readonly-audit
+  cancel-in-progress: false
+jobs:
+  verify-original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Read-only original source, event chain and no-replay terminals
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+             throw 'F139_POST_REPAIR_RUNNER_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($task.State -ne 'Running' -or @($task.Actions).Count -ne 1){
+            throw 'F139_POST_REPAIR_ORIGINAL_TASK_NOT_RUNNING'
+          }
+          $argsText=[string]$task.Actions[0].Arguments
+          function Get-Opt([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_MISSING_OWNER_OPTION_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $root=Get-Opt 'RepositoryRoot';$db=Get-Opt 'Database';$python=Get-Opt 'PythonExe'
+          $target='58dc4cc483349249c98f1620b51b843b9e927468'
+          if(((& git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $target -or
+             ((& git.exe -C $root status --porcelain --untracked-files=all | Out-String).Trim()).Length -ne 0){
+             throw 'F139_POST_REPAIR_CHECKOUT_DRIFT'
+          }
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($db))) ('f139-verify-unattended-'+$env:GITHUB_RUN_ID+'.sqlite')
+          foreach($ext in @('','-wal','-shm')){
+            if(Test-Path -LiteralPath ($scratch+$ext)){throw 'F139_AUDIT_SCRATCH_NOT_NEW'}
+          }
+          $code=@'
+          import hashlib,json,pathlib,sqlite3,sys
+          from f139.local_controller import Database,require
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dest=pathlib.Path(sys.argv[2])
+          expected=sys.argv[3]
+          ro=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.execute("PRAGMA query_only=ON")
+          try:
+              out=sqlite3.connect(str(dest))
+              try: ro.backup(out)
+              finally: out.close()
+          finally: ro.close()
+          db=Database(dest)
+          try:
+              db.verify()
+              meta=db.meta()
+              require(meta["source_sha"]==expected and
+                      meta["enabled"]==1 and meta["legacy_suspended"]==1
+                      and meta["head_seq"]>=144,
+                      "POST_REPAIR_LEDGER_SOURCE_OR_EVENT_HEAD_DRIFT")
+              targets=(
+                  ("f139-nci04-i825-58dc4cc48334-bc9ed0fa",40040381373),
+                  ("f139-nci04-i826-58dc4cc48334-96c82df7",40040460570))
+              for ticket,run_id in targets:
+                  row=db.conn.execute(
+                      "SELECT stage,source_sha,run_id,evidence_dir,evidence_sha "
+                      "FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+                  require(row is not None and row["stage"]=="VERIFIED" and
+                          row["source_sha"]==expected and row["run_id"]==run_id
+                          and isinstance(row["evidence_dir"],str)
+                          and isinstance(row["evidence_sha"],str),
+                          "UNATTENDED_WORKER_ORIGINAL_TERMINAL_NOT_VERIFIED")
+                  p=pathlib.Path(row["evidence_dir"]).resolve(strict=True)
+                  require(p.is_dir() and p.name==str(run_id) and
+                          p.parent.name==ticket,"UNATTENDED_EVIDENCE_PATH_DRIFT")
+                  manifest=p/"manifest.json"
+                  require(manifest.is_file() and
+                          hashlib.sha256(manifest.read_bytes()).hexdigest()==row["evidence_sha"],
+                          "UNATTENDED_RECEIPT_SHA256_DRIFT")
+                  events=list(db.conn.execute(
+                      "SELECT seq,kind,payload FROM events "
+                      "WHERE kind IN ('BEFORE_DISPATCH_INTENT','PROVIDER_VERIFIED_TERMINAL') "
+                      "ORDER BY seq"))
+                  observed=[(r["seq"],r["kind"],json.loads(r["payload"]))
+                            for r in events if json.loads(r["payload"]).get("ticket")==ticket]
+                  first=[x[0] for x in observed if x[1]=="BEFORE_DISPATCH_INTENT"]
+                  last=[x[0] for x in observed if x[1]=="PROVIDER_VERIFIED_TERMINAL" and x[2].get("run_id")==run_id]
+                  require(len(first)==len(last)==1 and first[0]<last[0],
+                          "UNATTENDED_WORKER_DISPATCH_OR_TERMINAL_REPLAY")
+                  print("F139_UNATTENDED_ORIGINAL_VERIFIED="+ticket+" RUN="+str(run_id)+
+                        " DISPATCH_EVENT="+str(first[0])+" TERMINAL_EVENT="+str(last[0]))
+              negatives=list(db.conn.execute(
+                  "SELECT ticket FROM tasks WHERE stage='QUARANTINED'"))
+              require(len(negatives)==6,"F139_ORIGINAL_SIX_NEGATIVES_NOT_PRESERVED")
+              print("F139_UNATTENDED_TWO_SUCCESSIVE_NATIVE_TERMINALS=PASS")
+              print("F139_ORIGINAL_EVENT_CHAIN_VERIFIED=PASS")
+              print("F139_LATEST_ORIGINAL_EVENT_SEQ="+str(meta["head_seq"]))
+              print("F139_SCIENTIFIC_FIRST_USE=FALSE")
+          finally: db.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $code $db $scratch $target
+            if($LASTEXITCODE -ne 0){throw 'F139_ORIGINAL_TWO_TERMINAL_CUSTODY_NOT_VERIFIED'}
+          }finally{
+            Pop-Location
+            foreach($ext in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$ext) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Output 'F139_ORIGINAL_SQLITE_NOT_MUTATED=TRUE'
