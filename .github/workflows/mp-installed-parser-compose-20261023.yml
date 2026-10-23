@@ -50,7 +50,7 @@ jobs:
           Need ($env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
           Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
-          $parent='4f4a1a8e469549b916dae9476799952ee7360d33'
+          $parent='2d258530bc52d1c13f196ea2fd46b7788593765e'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'SOURCE_PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-installed-parser-compose-20261023.yml') 'ONE_FILE_SCOPE'
@@ -64,6 +64,8 @@ jobs:
           $repo=Join-Path $temp 'upstream'
           $candidate=Join-Path $temp 'candidate'
           $offline=Join-Path $temp 'offline'
+          $shortTemp=Join-Path $env:USERPROFILE 'mpt'
+          Need (-not (Test-Path -LiteralPath $shortTemp)) 'SHORT_TEMP_ALREADY_EXISTS'
           New-Item -ItemType Directory -Path $temp -Force|Out-Null
           $checks=@(
             'go.mod','go.sum','internal\plane\model.go','internal\plane\autonomy.go',
@@ -77,6 +79,11 @@ jobs:
           $pinned=@{}
           $originalFiles=@{}
           try {
+            New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop | Out-Null
+            $env:TEMP=$shortTemp
+            $env:TMP=$shortTemp
+            $env:TMPDIR=$shortTemp
+            Write-Host 'MP_INSTALLED_WINDOWS_SHORT_TEMP_CONFIG=PASS'
             Need (Test-Path -LiteralPath $root -PathType Container) 'SOURCE_ROOT'
             Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_REPARSE'
             foreach($rel in $checks){
@@ -283,6 +290,8 @@ jobs:
             Write-Host 'MP_INSTALLED_CONTROLLER_STARTS=0'
             Write-Host 'MP_INSTALLED_MEMORY_WRITES=0'
           } finally {
+            if(Test-Path -LiteralPath $shortTemp){Remove-Item -LiteralPath $shortTemp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $shortTemp)) 'SHORT_TEMP_NOT_REMOVED'
             if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
             Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_NOT_REMOVED'
             Write-Host 'MP_INSTALLED_TEMP_CLEANUP=PASS'
