@@ -1,0 +1,83 @@
+name: F139 live capacity source integration qualification
+on:
+  push:
+    branches: [activate/f139-two-worker-main-rebase-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-activation-source-qualified
+  cancel-in-progress: true
+jobs:
+  final-qualification:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Configure literal Git line endings
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 30
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact protected source and seven-file controller identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=b76be5d93a13fe077d9ef29449aa883fdb3f0230
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          expected="$(printf '%s\n' \
+            '.github/workflows/f139-final-activation-source.yml' \
+            '.github/workflows/qualify-f139-native-continuous-cadence.yml' \
+            '.github/workflows/qualify-f139-two-inflight.yml' \
+            'f139/local_controller.py' 'f139/local_schema.sql' \
+            'f139/nci04_owner_ledger.py' \
+            'f139/test_nci04_continuous_cadence.py' \
+            'f139/test_nci04_two_inflight.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test "$(git rev-parse HEAD:f139/local_controller.py)" = 938b69b7e78547641b2ae5bf57757e3cbb4f66d3
+          test "$(git rev-parse HEAD:f139/local_schema.sql)" = b14d44cc9cef1a5e36dff181d820fe241531cd50
+          test "$(git rev-parse HEAD:f139/nci04_owner_ledger.py)" = e7c860c98f83a62791e3f199133e29b9373aba6d
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo F139_EXACT_QUALIFIED_CAPACITY_BLOBS=PASS
+      - name: Focused native migration, concurrent workers and 2-per-600s
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_two_inflight.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_continuous_cadence.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_owner_ledger.py' -v
+          echo F139_FOCUSED_TWO_SLOT_RATE_HISTORY=PASS
+      - name: One full F139 Python and Go regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo F139_FINAL_WINDOWS_LINUX_INTEGRATION=PASS
+      - name: Explicit cutover boundary
+        shell: bash
+        run: |
+          echo F139_SOURCE_ONLY=TRUE
+          echo F139_OWNER_DB_MIGRATION_NOT_PERFORMED=TRUE
+          echo F139_WORKER_DISPATCH_NOT_STARTED=TRUE
+          echo F139_SCIENTIFIC_FIRST_USE_NOT_AUTHORIZED=TRUE
