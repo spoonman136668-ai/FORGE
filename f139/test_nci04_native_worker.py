@@ -169,5 +169,76 @@ class NativeWorkerTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+    def _staged_yggdrasil(self):
+        after = b"def observe(state, evidence):\n    return state + evidence\n"
+        candidate = self.intent(
+            lane="Yggdrasil",
+            target_repository="spoonman136668-ai/Yggdrasil",
+            toolchain_identity="python3.11.11",
+            path="yggdrasil/native_public_cells.py",
+            before_sha256=digest(b""),
+            after_sha256=digest(after),
+            after_base64=base64.b64encode(after).decode(),
+        )
+        return candidate, stage_candidate(candidate, self.repo, self.sandbox)
+
+    def test_ygg_zero_focused_tests_is_fail_closed_with_original_stdout(self):
+        candidate, stage = self._staged_yggdrasil()
+        calls = []
+        actual = b"\n----------------------------------------------------------------------\nRan 0 tests in 0.000s\n\nOK\n"
+        def run(argv, **kw):
+            calls.append(tuple(argv))
+            return subprocess.CompletedProcess(argv, 0, actual)
+        receipt = verify_fixed_commands(candidate, stage, runner=run)
+        self.assertFalse(receipt["qualification_complete"])
+        self.assertEqual(calls, [COMMANDS["Yggdrasil"][0]])
+        self.assertEqual(len(receipt["commands"]), 1)
+        item = receipt["commands"][0]
+        self.assertEqual(item["outcome"], "TEST_FAILURE")
+        self.assertEqual(item["returncode"], 1)
+        self.assertEqual(item["output_sha256"], digest(actual))
+        self.assertEqual(item["output_bytes"], len(actual))
+        self.assertIn("ZERO_OR_UNVERIFIED_TESTS", item["excerpt"])
+        self.assertFalse(receipt["scientific_first_use"])
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
+    def test_ygg_real_nonzero_unittest_counts_and_full_regression_accepted(self):
+        candidate, stage = self._staged_yggdrasil()
+        counts = [
+            b"\nRan 2 tests in 0.004s\n\nOK\n",
+            b"\nRan 35 tests in 0.016s\n\nOK\n",
+            b"",
+        ]
+        seen = []
+        def run(argv, **kw):
+            seen.append(tuple(argv))
+            return subprocess.CompletedProcess(argv, 0, counts[len(seen)-1])
+        result = verify_fixed_commands(candidate, stage, runner=run)
+        self.assertTrue(result["qualification_complete"])
+        self.assertEqual(seen, list(COMMANDS["Yggdrasil"]))
+        self.assertEqual(len(result["commands"]), 3)
+        self.assertEqual(
+            [z["output_sha256"] for z in result["commands"]],
+            [digest(raw) for raw in counts],
+        )
+        self.assertEqual(result["paid_model_calls"], 0)
+
+    def test_ygg_missing_or_ambiguous_test_counts_fail_closed(self):
+        for output in (
+            b"OK\n",
+            b"Ran 1 test in 0.010s\nRan 1 test in 0.020s\nOK\n",
+            b"Ran 0 tests in 0.001s\nOK\n",
+        ):
+            with self.subTest(output=output):
+                candidate, stage = self._staged_yggdrasil()
+                def run(argv, **kw):
+                    return subprocess.CompletedProcess(argv, 0, output)
+                result = verify_fixed_commands(candidate, stage, runner=run)
+                self.assertFalse(result["qualification_complete"])
+                self.assertEqual(len(result["commands"]), 1)
+                self.assertEqual(result["commands"][0]["returncode"], 1)
+                self.assertEqual(result["commands"][0]["output_sha256"], digest(output))
+
+
 if __name__ == "__main__":
     unittest.main()
