@@ -1,0 +1,103 @@
+name: Optimizer O16 original public learned write eviction vs conventional
+on:
+  push:
+    branches: [research/optimizer-o16-public-learned-eviction-20261023]
+  pull_request:
+    paths: [research/optimizer_o16/**, .github/workflows/optimizer-o16-original-eviction.yml]
+permissions:
+  contents: read
+jobs:
+  native-original-source:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 48
+          persist-credentials: false
+      - name: Verify parent, immutable FIRST protocol, scoped O16 additive delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          first=3787952fe5a42ac07f5f6526a52c3b4da9f5cb56
+          parent=b07e8d5293f12466263986e1f8b9a8b679334e48
+          test "$(git rev-parse "$first^")" = "$parent"
+          test "$(git show --format= --name-only "$first")" = "research/optimizer_o16/O16_FIRST_PROTOCOL.md"
+          git merge-base --is-ancestor "$first" HEAD
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys;g=set(sys.stdin.read().splitlines());w={"research/optimizer_o16/O16_FIRST_PROTOCOL.md","research/optimizer_o16/model.py","research/optimizer_o16/test_sourcefree.py","research/optimizer_o16/runner.py","research/optimizer_o16/compare.py",".github/workflows/optimizer-o16-original-eviction.yml"};assert g==w,(g,w)'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: proroklab/popgym
+          ref: 410d5aa626dae8024f498354d8781a0d1870c399
+          path: external/popgym-original
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Install original source-only Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p o16-evidence
+          timeout 170s python -m pip install --no-cache-dir --timeout 30 --retries 1 'numpy==1.26.4' 'gymnasium==0.29.1' >o16-evidence/install.log 2>&1
+      - name: Source-FREE prospective capacity, future-information and delayed-feedback tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest -v research/optimizer_o16/test_sourcefree.py 2>&1 | tee o16-evidence/pre-source-tests.log
+      - name: Genuine unchanged external source; 73,440 original legal source actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o16/runner.py --upstream external/popgym-original --out o16-evidence
+      - name: One required complete public FORGE integration regression
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Archive original source receipt including scientific negatives
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: optimizer-o16-original-public-${{ matrix.os }}
+          path: o16-evidence/
+          retention-days: 30
+  independent-cross-os:
+    needs: [native-original-source]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: optimizer-o16-original-public-*
+          path: source-receipts
+          merge-multiple: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Independent source, FIT roles, 24 paired original reward scalars
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o16/compare.py \
+            source-receipts/optimizer-o16-original-public-ubuntu-24.04/o16-original-public-receipt.json \
+            source-receipts/optimizer-o16-original-public-windows-2025/o16-original-public-receipt.json \
+            o16-cross-os-reconciliation.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: optimizer-o16-cross-os-public-reconciliation
+          path: o16-cross-os-reconciliation.json
+          retention-days: 30
