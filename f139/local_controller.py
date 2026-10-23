@@ -257,11 +257,16 @@ class Database:
                 "SELECT seq,sha,payload FROM events "
                 "WHERE kind='NATIVE_FAILED_PROVIDER_CUSTODY' ORDER BY seq"):
             doc = json.loads(event["payload"])
-            require(isinstance(doc,dict) and set(doc)=={
-                    "schema","ticket","run_id","source_sha",
-                    "provider_sha256","provider","scientific_first_use"}
-                    and doc["schema"]==
-                        "forge.f139.owner-native-provider-negative.v1"
+            base_fields={"schema","ticket","run_id","source_sha",
+                         "provider_sha256","provider","scientific_first_use"}
+            late=doc.get("schema")=="forge.f139.owner-native-provider-negative.v2"
+            require(isinstance(doc,dict)
+                    and set(doc)==(base_fields|{
+                        "quarantine_event_seq","quarantine_event_sha256"}
+                        if late else base_fields)
+                    and doc.get("schema") in {
+                        "forge.f139.owner-native-provider-negative.v1",
+                        "forge.f139.owner-native-provider-negative.v2"}
                     and doc["scientific_first_use"] is False,
                     "PROVIDER_NEGATIVE_CUSTODY_FIELDS_DRIFT")
             ticket=doc["ticket"]
@@ -304,20 +309,40 @@ class Database:
                 "SELECT stage,source_sha,run_id,evidence_dir,evidence_sha,"
                 "quarantine_reason FROM tasks WHERE ticket=?",
                 (ticket,)).fetchone()
-            following=self.conn.execute(
-                "SELECT kind,payload FROM events WHERE seq=?",
-                (event["seq"]+1,)).fetchone()
             require(row is not None and row["stage"]=="QUARANTINED"
                     and row["source_sha"]==doc["source_sha"]
                     and row["run_id"] is None and not row["evidence_dir"]
                     and row["evidence_sha"] is None
-                    and row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY"
-                    and following is not None
-                    and following["kind"]=="ATTEMPT_QUARANTINED"
-                    and json.loads(following["payload"])=={
-                        "ticket":ticket,
-                        "reason":"FAILED_OR_CANCELLED_NO_REPLAY"},
+                    and row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY",
                     "PROVIDER_NEGATIVE_NOT_ORIGINAL_QUARANTINE")
+            if doc["schema"]=="forge.f139.owner-native-provider-negative.v1":
+                following=self.conn.execute(
+                    "SELECT kind,payload FROM events WHERE seq=?",
+                    (event["seq"]+1,)).fetchone()
+                require(following is not None
+                        and following["kind"]=="ATTEMPT_QUARANTINED"
+                        and json.loads(following["payload"])=={
+                            "ticket":ticket,
+                            "reason":"FAILED_OR_CANCELLED_NO_REPLAY"},
+                        "PROVIDER_NEGATIVE_NOT_ORIGINAL_QUARANTINE")
+            else:
+                require(doc["schema"]=="forge.f139.owner-native-provider-negative.v2"
+                        and type(doc.get("quarantine_event_seq")) is int
+                        and doc["quarantine_event_seq"]>0
+                        and isinstance(doc.get("quarantine_event_sha256"),str)
+                        and re.fullmatch(r"[a-f0-9]{64}",
+                                         doc["quarantine_event_sha256"]) is not None,
+                        "PROVIDER_LATE_CUSTODY_FIELDS_INVALID")
+                q=self.conn.execute(
+                    "SELECT seq,sha,kind,payload FROM events WHERE seq=?",
+                    (doc["quarantine_event_seq"],)).fetchone()
+                require(q is not None and q["seq"]<event["seq"]
+                        and q["sha"]==doc["quarantine_event_sha256"]
+                        and q["kind"]=="ATTEMPT_QUARANTINED"
+                        and json.loads(q["payload"])=={
+                            "ticket":ticket,
+                            "reason":"FAILED_OR_CANCELLED_NO_REPLAY"},
+                        "PROVIDER_LATE_CUSTODY_QUARANTINE_DRIFT")
             accepted[ticket]=(doc["source_sha"],event["sha"])
         return accepted
 
@@ -989,6 +1014,84 @@ class Database:
             self.conn.execute("UPDATE tasks SET stage='WAIT_PROVIDER' WHERE ticket=?",(ticket,))
             self.event("DISPATCH_POST_RETURNED",{"ticket":ticket})
 
+    def custody_failed_native_provider(self, ticket: str, report: dict, *,
+                                      late: bool = False):
+        """Durably bind one authentic failed native provider attempt, never replay."""
+        require(isinstance(ticket,str) and ticket.startswith("f139-nci04-")
+                and TICKET.fullmatch(ticket) is not None
+                and isinstance(report,dict)
+                and set(report)=={"ticket","run_id","source_sha","jobs",
+                                  "artifact_ids","provider_terminal",
+                                  "scientific_first_use"}
+                and report["ticket"]==ticket
+                and type(report["run_id"]) is int and report["run_id"]>0
+                and isinstance(report["source_sha"],str)
+                and SHA.fullmatch(report["source_sha"]) is not None
+                and report["provider_terminal"]=="FAILURE_NO_REPLAY"
+                and report["scientific_first_use"] is False,
+                "FAILED_PROVIDER_REPORT_INVALID")
+        jobs=report["jobs"]
+        require(isinstance(jobs,dict)
+                and set(jobs)=={"windows-latest","ubuntu-latest"}
+                and all(isinstance(jobs[name],dict)
+                        and set(jobs[name])=={"job_id","conclusion"}
+                        and type(jobs[name]["job_id"]) is int
+                        and jobs[name]["job_id"]>0
+                        and jobs[name]["conclusion"] in ("success","failure")
+                        for name in jobs)
+                and any(jobs[name]["conclusion"]=="failure" for name in jobs)
+                and isinstance(report["artifact_ids"],list)
+                and report["artifact_ids"]==sorted(set(report["artifact_ids"]))
+                and all(type(x) is int and x>0 for x in report["artifact_ids"]),
+                "FAILED_PROVIDER_OS_OR_ARTIFACT_INVALID")
+        with self.transaction():
+            self.verify()
+            row=self.conn.execute(
+                "SELECT stage,source_sha,quarantine_reason FROM tasks WHERE ticket=?",
+                (ticket,)).fetchone()
+            require(row is not None and row["source_sha"]==report["source_sha"],
+                    "FAILED_PROVIDER_TASK_SOURCE_DRIFT")
+            existing=[
+                json.loads(r["payload"]) for r in self.conn.execute(
+                    "SELECT payload FROM events WHERE kind='NATIVE_FAILED_PROVIDER_CUSTODY'")
+                if json.loads(r["payload"]).get("ticket")==ticket]
+            require(not existing,"FAILED_PROVIDER_ALREADY_CUSTODIED")
+            payload={
+                "schema":"forge.f139.owner-native-provider-negative.v2"
+                    if late else "forge.f139.owner-native-provider-negative.v1",
+                "ticket":ticket,"run_id":report["run_id"],
+                "source_sha":report["source_sha"],
+                "provider_sha256":hash_bytes(canonical(report)),
+                "provider":report,"scientific_first_use":False,
+            }
+            if late:
+                require(row["stage"]=="QUARANTINED"
+                        and row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY",
+                        "LATE_PROVIDER_CUSTODY_TASK_NOT_QUARANTINED")
+                matches=[]
+                for q in self.conn.execute(
+                        "SELECT seq,sha,payload FROM events "
+                        "WHERE kind='ATTEMPT_QUARANTINED' ORDER BY seq"):
+                    qp=json.loads(q["payload"])
+                    if qp=={"ticket":ticket,
+                            "reason":"FAILED_OR_CANCELLED_NO_REPLAY"}:
+                        matches.append(q)
+                require(len(matches)==1,"LATE_PROVIDER_QUARANTINE_EVENT_AMBIGUOUS")
+                payload["quarantine_event_seq"]=matches[0]["seq"]
+                payload["quarantine_event_sha256"]=matches[0]["sha"]
+                self.event("NATIVE_FAILED_PROVIDER_CUSTODY",payload)
+            else:
+                require(row["stage"] in ("START_RISK","WAIT_PROVIDER"),
+                        "FAILED_PROVIDER_TASK_NOT_ACTIVE")
+                self.event("NATIVE_FAILED_PROVIDER_CUSTODY",payload)
+                self.conn.execute(
+                    "UPDATE tasks SET stage='QUARANTINED',quarantine_reason=? "
+                    "WHERE ticket=?",("FAILED_OR_CANCELLED_NO_REPLAY",ticket))
+                self.event("ATTEMPT_QUARANTINED",{
+                    "ticket":ticket,"reason":"FAILED_OR_CANCELLED_NO_REPLAY"})
+            self.verify()
+        return True
+
     def terminal(self,ticket: str,run_id:int,evidence_dir:str,evidence_sha:str):
         require(run_id>0 and SHA.fullmatch(self.meta()["source_sha"]) and
                 re.fullmatch(r"[a-f0-9]{64}",evidence_sha),"TERMINAL_PROOF_INVALID")
@@ -1369,6 +1472,64 @@ class GitHub:
                     "PROVIDER_ARTIFACT_NOT_QUALIFIED")
         return (rid,ar)
 
+    def failed_native_provider_report(self, run: dict, ticket: str,
+                                          source: str, started_at: str):
+        """Authenticate one completed failed native run without replaying it."""
+        require(isinstance(run,dict) and ticket.startswith("f139-nci04-")
+                and run.get("display_title")=="F139 "+ticket
+                and run.get("event")=="workflow_dispatch"
+                and run.get("name")=="F139 "+ticket
+                and run.get("workflow_id")==388797257
+                and run.get("path")==".github/workflows/"+WORKFLOW
+                and run.get("head_sha")==source and run.get("head_branch")=="main"
+                and run.get("run_attempt")==1 and isinstance(run.get("id"),int)
+                and run["id"]>0
+                and parse_time(run.get("created_at")) >=
+                    parse_time(started_at)-dt.timedelta(minutes=2)
+                and run.get("status")=="completed"
+                and run.get("conclusion")=="failure",
+                "FAILED_PROVIDER_SOURCE_EVENT_UNVERIFIED")
+        rid=run["id"]
+        jobs_doc=self.get(f"repos/{REPO}/actions/runs/{rid}/jobs?per_page=100")
+        arts_doc=self.get(f"repos/{REPO}/actions/runs/{rid}/artifacts?per_page=100")
+        jobs,arts=jobs_doc.get("jobs"),arts_doc.get("artifacts")
+        require(isinstance(jobs,list) and isinstance(arts,list)
+                and jobs_doc.get("total_count")==len(jobs)
+                and arts_doc.get("total_count")==len(arts)
+                and len(jobs)<=100 and len(arts)<=100,
+                "FAILED_PROVIDER_INDEX_TRUNCATED")
+        auth=[x for x in jobs if x.get("name")=="native-authorize"]
+        require(len(auth)==1 and auth[0].get("status")=="completed"
+                and auth[0].get("conclusion")=="success",
+                "FAILED_PROVIDER_AUTH_NOT_VERIFIED")
+        out={}
+        artifact_ids=[]
+        for oslabel in ("windows-latest","ubuntu-latest"):
+            match=[x for x in jobs
+                   if x.get("name")=="native-execute ("+oslabel+")"]
+            require(len(match)==1 and match[0].get("status")=="completed"
+                    and match[0].get("conclusion") in ("success","failure")
+                    and type(match[0].get("id")) is int and match[0]["id"]>0,
+                    "FAILED_PROVIDER_OS_JOB_INVALID")
+            out[oslabel]={"job_id":match[0]["id"],
+                          "conclusion":match[0]["conclusion"]}
+            named=[x for x in arts
+                   if x.get("name")=="forge-f139-native-receipt-"+oslabel]
+            require(len(named)==1 and named[0].get("expired") is False
+                    and type(named[0].get("id")) is int and named[0]["id"]>0
+                    and named[0].get("workflow_run",{}).get("id")==rid
+                    and named[0].get("workflow_run",{}).get("head_sha")==source
+                    and re.fullmatch(r"sha256:[a-f0-9]{64}",
+                                     named[0].get("digest") or ""),
+                    "FAILED_PROVIDER_ARTIFACT_INVALID")
+            artifact_ids.append(named[0]["id"])
+        require(any(v["conclusion"]=="failure" for v in out.values()),
+                "FAILED_PROVIDER_HAS_NO_FAILED_OS")
+        return {"ticket":ticket,"run_id":rid,"source_sha":source,
+                "jobs":out,"artifact_ids":sorted(artifact_ids),
+                "provider_terminal":"FAILURE_NO_REPLAY",
+                "scientific_first_use":False}
+
     def artifact(self,artifact_id:int)->bytes:
         require(isinstance(artifact_id,int) and artifact_id>0,"ARTIFACT_ID_INVALID")
         zipbytes=self.runner([f"repos/{REPO}/actions/artifacts/{artifact_id}/zip"])
@@ -1648,7 +1809,19 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # preserve START_RISK and do not transition to a retryable READY.
             code=str(exc).removeprefix("F139_")
             if code not in {"GITHUB_API_TIMEOUT","GITHUB_API_FAILED","GITHUB_API_INVALID_JSON"}:
-                db.quarantine(active["ticket"],code if re.fullmatch(r"[A-Z_]{3,72}",code) else "UNCLASSIFIED_REJECTION")
+                reporter=getattr(api,"failed_native_provider_report",None)
+                if (code=="FAILED_OR_CANCELLED_NO_REPLAY"
+                        and active["ticket"].startswith("f139-nci04-")
+                        and isinstance(locals().get("run"),dict)
+                        and callable(reporter)):
+                    report=reporter(
+                        run,active["ticket"],active["source_sha"],active["started_at"])
+                    db.custody_failed_native_provider(
+                        active["ticket"],report,late=False)
+                else:
+                    db.quarantine(active["ticket"],
+                        code if re.fullmatch(r"[A-Z_]{3,72}",code)
+                        else "UNCLASSIFIED_REJECTION")
             raise
     remaining=db.actives()
     if not source_matches:
@@ -1783,6 +1956,7 @@ def cli(argv=None):
     transition.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
+    sub.add_parser("custody-quarantined-native-provider-failures")
     loop=sub.add_parser("loop");loop.add_argument("--seconds",type=int,default=45)
     args=parser.parse_args(argv)
     if args.verb=="init":
@@ -1946,6 +2120,46 @@ def cli(argv=None):
                     db,run=run,jobs=jobs,artifacts=items,archive=archive,
                     owner_hmac_key=hmac_key,epoch=meta["epoch"])
                 print(json.dumps(result,sort_keys=True))
+        elif args.verb=="custody-quarantined-native-provider-failures":
+            # Exact original failed attempts only; no replay or new dispatch.
+            native_original_owner_profile(args.db)
+            api=GitHub()
+            checkout=Path(__file__).resolve().parent.parent
+            head=subprocess.run(["git","-C",str(checkout),"rev-parse","HEAD"],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,timeout=15,check=False)
+            clean=subprocess.run(["git","-C",str(checkout),"status","--porcelain",
+                                  "--untracked-files=all"],stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE,stdin=subprocess.DEVNULL,
+                                 timeout=15,check=False)
+            require(head.returncode==0 and clean.returncode==0
+                    and not clean.stdout.strip()
+                    and head.stdout.decode().strip()==api.protected_main(),
+                    "LATE_CUSTODY_CHECKOUT_NOT_PROTECTED_MAIN")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                already=set(db.verified_native_provider_failures())
+                rows=list(db.conn.execute(
+                    "SELECT ticket,source_sha,started_at,stage,quarantine_reason "
+                    "FROM tasks WHERE stage='QUARANTINED' "
+                    "AND ticket LIKE 'f139-nci04-%' ORDER BY started_at,ticket"))
+                added=[]
+                for row in rows:
+                    if row["ticket"] in already or row["quarantine_reason"]!=(
+                            "FAILED_OR_CANCELLED_NO_REPLAY"):
+                        continue
+                    run=api.candidates(row["ticket"],row["started_at"])
+                    require(run is not None,"LATE_CUSTODY_PROVIDER_RUN_MISSING")
+                    report=api.failed_native_provider_report(
+                        run,row["ticket"],row["source_sha"],row["started_at"])
+                    db.custody_failed_native_provider(
+                        row["ticket"],report,late=True)
+                    added.append(row["ticket"])
+                print(json.dumps({
+                    "late_provider_negative_custody":"PASS",
+                    "added_tickets":added,
+                    "event_head":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
         elif args.verb=="transition-qualified-native":
             # The owner must run this exact, qualified, protected-main checkout;
             # never rewrite historical identities or reset the event chain.
