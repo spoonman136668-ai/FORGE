@@ -1,0 +1,114 @@
+name: Mind-Palace blocked workorder preservation shape read-only
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-workorder-preservation-shape-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-workorder-preservation-shape
+  cancel-in-progress: false
+jobs:
+  read:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect only preservation key shape in existing queue database
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$p,[string]$tag){if(-not $p){throw "MP_WORKORDER_SHAPE_$tag"}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $plane=Join-Path $env:USERPROFILE 'GolandProjects\ckb-plane'
+          $cfg=Join-Path $plane 'config\autonomy.yaml'
+          Need (Test-Path -LiteralPath $cfg -PathType Leaf) 'CONFIG'
+          $pre=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+          $script=@'
+          import json, sqlite3, sys, pathlib, re, urllib.parse
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          text=cfg.read_text(encoding="utf-8-sig")
+          state_indent=None
+          dbrel=None
+          for line in text.splitlines():
+              indent=len(line)-len(line.lstrip(" "))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+                  state_indent=indent;continue
+              if state_indent is None: continue
+              if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
+                  state_indent=None;continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+              if m:
+                  dbrel=m.group(1).strip().strip("\"'")
+                  break
+          if not dbrel:
+              raise RuntimeError("SQLITE_PATH_NOT_FOUND")
+          candidate=pathlib.Path(dbrel)
+          dbpath=(candidate if candidate.is_absolute() else root / candidate).resolve()
+          if not dbpath.is_relative_to(root) or not dbpath.is_file():
+              raise RuntimeError("SQLITE_OUTSIDE_ROOT_OR_MISSING")
+          if dbpath.stat().st_size>1024*1024*1024:
+              raise RuntimeError("SQLITE_TOO_LARGE")
+          # immutable=1 and mode=ro guarantee no SQLite sidecar writes
+          uri="file:"+urllib.parse.quote(str(dbpath).replace("\\","/"),safe="/:")+"?mode=ro&immutable=1"
+          with sqlite3.connect(uri,uri=True,timeout=1.0) as conn:
+              conn.execute("PRAGMA query_only=ON")
+              cur=conn.execute("SELECT raw FROM queue_items WHERE id=? LIMIT 1",("KTRADE_RB1_SINGLE_TRACK_20261022",))
+              row=cur.fetchone()
+          if row is None:
+              raise RuntimeError("WORKORDER_NOT_PRESENT_IN_READ_SNAPSHOT")
+          raw=row[0]
+          if not isinstance(raw,(bytes,str)) or len(raw)>1048576:
+              raise RuntimeError("ENVELOPE_INVALID_OR_TOO_LARGE")
+          obj=json.loads(raw)
+          yamltext=obj.get("work_order_yaml","")
+          if not isinstance(yamltext,str) or len(yamltext)>1048576:
+              raise RuntimeError("YAML_ABSENT_OR_INVALID")
+          lines=yamltext.splitlines()
+          keys={}
+          for i,line in enumerate(lines):
+              match=re.match(r"^(\s*)(preserve|preservation)\s*:\s*(.*?)\s*$",line)
+              if not match:
+                  continue
+              key=match.group(2); value=match.group(3)
+              depth=len(match.group(1))
+              if value and not value.startswith("#"):
+                  shape="INLINE_SCALAR_OR_FLOW"
+              else:
+                  descendants=[s for s in lines[i+1:] if s.strip() and not s.lstrip().startswith("#")]
+                  if not descendants:
+                      shape="EMPTY"
+                  else:
+                      nxt=descendants[0]
+                      ndepth=len(nxt)-len(nxt.lstrip(" "))
+                      shape=("EMPTY" if ndepth<=depth else
+                             "SEQUENCE" if nxt.lstrip().startswith("- ") else
+                             "MAPPING" if re.match(r"^[^:#]+:",nxt.lstrip()) else
+                             "OTHER")
+              keys.setdefault(key,[]).append({"shape":shape,"indent":depth,"line_count":len(lines)})
+          if len(keys.get("preservation",[]))!=1:
+              raise RuntimeError("PRESERVATION_KEY_COUNT_NOT_ONE")
+          print("MP_WORKORDER_SHAPE_PRESERVATION_PRESENT=TRUE")
+          print("MP_WORKORDER_SHAPE_PRESERVATION_TYPE="+keys["preservation"][0]["shape"])
+          print("MP_WORKORDER_SHAPE_PRESERVE_KEY_COUNT="+str(len(keys.get("preserve",[]))))
+          print("MP_WORKORDER_SHAPE_LINE_COUNT="+str(len(lines)))
+          print("MP_WORKORDER_SHAPE_READONLY_DB=TRUE")
+          print("MP_WORKORDER_SHAPE_CONTENT_DISCLOSED=FALSE")
+          '@
+          & python.exe -B -c $script $plane $cfg
+          Need ($LASTEXITCODE -eq 0) 'PYTHON_EXTRACT'
+          Need ((Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $pre) 'CONFIG_MUTATED'
+          Write-Host 'MP_WORKORDER_SHAPE_CONFIG_HASH_UNCHANGED=PASS'
+          Write-Host 'MP_WORKORDER_SHAPE_CONTROLLER_AND_QUEUE_WRITES=0'
+          Write-Host 'MP_WORKORDER_SHAPE_KTRADE_ACTIONS=0'
