@@ -5,7 +5,10 @@ from pathlib import Path
 import sys
 
 from public_source import ROLES,COUNTS
-from runner import ARMS
+# Independent receipt reconciliation MUST NOT load/train models or import NumPy.
+# This is the prospectively frozen arm inventory, repeated as literals.
+ARMS=("NAR_H13","RNN_H12","SSM_DIAGONAL_H14",
+      "PARALLEL_CATEGORICAL_4","UNCONDITIONAL")
 
 SCHEMA="forge.optimizer.language.l3.native-neural-comparison.v1"
 QUALITY=("exact_semantic_utterance","mean_chunk_accuracy",
