@@ -23,11 +23,16 @@ OBSERVATION_FIELDS = frozenset({
 
 
 def _number(value, name, *, positive=False):
-    identity.need(type(value) in (float, int) and math.isfinite(value),
+    identity.need(type(value) in (float, int),
                   "TURNAROUND_INVALID_" + name.upper())
-    identity.need(value > 0 if positive else value >= 0,
+    try:
+        number = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise identity.Refused("ELANG_TURNAROUND_INVALID_" + name.upper()) from exc
+    identity.need(math.isfinite(number) and
+                  (number > 0 if positive else number >= 0),
                   "TURNAROUND_INVALID_" + name.upper())
-    return float(value)
+    return number
 
 
 def _integer(value, name, *, positive=False):
