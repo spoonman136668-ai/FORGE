@@ -1,0 +1,173 @@
+name: MP controller operational admission preflight (read only)
+on:
+  push:
+    branches: [diagnostics/mp-native-admission-preflight-20261023]
+    paths: [.github/workflows/mp-native-admission-preflight-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-native-admission-preflight-20261023
+  cancel-in-progress: false
+jobs:
+  custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Read-only original controller authority and rollback preimages
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$truth,[string]$code) {if(-not $truth){throw ('MP_ADMISSION_PREFLIGHT_'+$code)}}
+          function Hash([string]$path){return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-native-admission-preflight-20261023') 'EVENT_SCOPE'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT_SHA'
+          $parent='cc6a5b0156152f25ebdbfdd7b0fe788c078bf055'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'QUALIFIER_PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-native-admission-preflight-20261023.yml') 'ONE_FILE_SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'GIT_DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT_MISSING'
+          Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_REPARSE'
+          $files=@(
+            'go.mod','go.sum','internal\plane\model.go','internal\plane\autonomy.go',
+            'internal\plane\engine.go','internal\plane\autonomy_controls.go',
+            'internal\plane\webui_bridge.go','internal\plane\objective.go',
+            'internal\plane\mind_palace_auto_discovery.go','bin\ckb-plane.exe',
+            'config\autonomy.yaml','config\local-operations.json'
+          )
+          $before=@{}
+          foreach($f in $files){
+            $p=Join-Path $root $f
+            Need (Test-Path -LiteralPath $p -PathType Leaf) 'SOURCE_COMPONENT_MISSING'
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_COMPONENT_REPARSE'
+            $before[$f]=Hash $p
+          }
+          $digest=([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes((($files | ForEach-Object {$_+':'+$before[$_]}) -join ([string][char]10))))).ToLowerInvariant()
+          Need ($digest -ceq 'cf4b563a4e4d80ef319d71663ac4738550b3c798b60d147de67eaeacb51d4cba') 'LIVE_PREIMAGE_IDENTITY_DRIFT'
+          Write-Host 'MP_ADMISSION_12_COMPONENT_SOURCE_CONFIG_BINARY_IDENTITY=PASS'
+          $beforeProcesses=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($beforeProcesses.Count -le 1) 'MULTIPLE_CONTROLLER_PROCESSES'
+          Write-Host ('MP_ADMISSION_CONTROLLER_PROCESS_COUNT='+$beforeProcesses.Count)
+          $processBinding='NONE'
+          if($beforeProcesses.Count -eq 1){
+            $exepath=[string]$beforeProcesses[0].ExecutablePath
+            if([string]::IsNullOrWhiteSpace($exepath)){$processBinding='UNVERIFIABLE'}
+            elseif([string]::Equals([IO.Path]::GetFullPath($exepath),[IO.Path]::GetFullPath((Join-Path $root 'bin\ckb-plane.exe')),[StringComparison]::OrdinalIgnoreCase)){$processBinding='MATCH'}
+            else{$processBinding='MISMATCH'}
+          }
+          Write-Host ('MP_ADMISSION_INSTALLED_RUNNING_EXECUTABLE_BINDING='+$processBinding)
+          $temp=Join-Path $env:RUNNER_TEMP ('mp-admission-ro-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_COLLISION'
+          New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
+          $script=@'
+          import hashlib, pathlib, re, sqlite3, sys, urllib.parse, datetime, json
+          root=pathlib.Path(sys.argv[1]).resolve()
+          config=(root/'config'/'autonomy.yaml').resolve()
+          temp=pathlib.Path(sys.argv[2]).resolve()
+          def need(v,c):
+              if not v:raise RuntimeError('MP_ADMISSION_DB_'+c)
+          data=config.read_text(encoding='utf-8-sig')
+          state_indent=None
+          target=None
+          for line in data.splitlines():
+              indent=len(line)-len(line.lstrip(' '))
+              if re.fullmatch(r'\s*state:\s*(?:#.*)?',line):
+                  state_indent=indent
+                  continue
+              if state_indent is None:continue
+              if line.strip() and not line.lstrip().startswith('#') and indent<=state_indent:
+                  state_indent=None
+                  continue
+              mat=re.fullmatch(r'\s*sqlite_path:\s*(.+?)\s*(?:#.*)?',line)
+              if mat:
+                  target=mat.group(1).strip().strip('"\'')
+                  break
+          need(target is not None,'DB_LOCATOR')
+          candidate=pathlib.Path(target)
+          live=(candidate if candidate.is_absolute() else root/candidate).resolve()
+          need(live.is_relative_to(root) and live.is_file() and live.stat().st_size<=1073741824,'DB_SOURCE_OUT_OF_SCOPE')
+          def digest(path):
+              h=hashlib.sha256()
+              with path.open('rb') as f:
+                  for chunk in iter(lambda:f.read(1048576),b''):h.update(chunk)
+              return h.hexdigest()
+          sidecars=[pathlib.Path(str(live)+suffix) for suffix in ('','-wal','-shm')]
+          before={str(f):digest(f) for f in sidecars if f.exists()}
+          print('MP_ADMISSION_WAL_PRESENT='+str(sidecars[1].exists()).upper())
+          uri='file:'+urllib.parse.quote(str(live).replace('\\','/'),safe='/:')+'?mode=ro&immutable=1'
+          with sqlite3.connect(uri,uri=True,timeout=1.0) as origin:
+              origin.execute('PRAGMA query_only=ON')
+              with sqlite3.connect(str(temp)) as backup:origin.backup(backup)
+          after={str(f):digest(f) for f in sidecars if f.exists()}
+          need(before==after,'LIVE_DB_OR_SIDECAR_CHANGED')
+          with sqlite3.connect(str(temp)) as db:
+              need(db.execute('PRAGMA integrity_check').fetchone()[0]=='ok','SNAPSHOT_INTEGRITY')
+              work=db.execute('SELECT count(*) FROM work_orders').fetchone()[0]
+              queue=db.execute('SELECT count(*) FROM queue_items').fetchone()[0]
+              need(work==199 and queue==202,'RECORD_COUNTS_CHANGED')
+              settings=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation','paused','autonomy_status','autonomy_heartbeat','installation_id')"))
+              authority=settings.get('autonomy_authority','MISSING')
+              generation=settings.get('autonomy_generation','')
+              paused=settings.get('paused','')
+              need(authority in ('plane','original','test'),'AUTHORITY_VALUE_INVALID')
+              need(generation.isdigit(),'GENERATION_VALUE_INVALID')
+              print('MP_ADMISSION_CONTROLLER_AUTHORITY='+authority)
+              print('MP_ADMISSION_CONTROLLER_GENERATION='+generation)
+              print('MP_ADMISSION_DISPATCH_PAUSED='+str(paused).lower())
+              print('MP_ADMISSION_HEARTBEAT_FIELD_PRESENT='+str(bool(settings.get('autonomy_heartbeat'))).upper())
+              print('MP_ADMISSION_QUEUED_ENVELOPES='+str(queue))
+              print('MP_ADMISSION_PRESERVED_WORK_ORDERS='+str(work))
+              summary=dict(db.execute('SELECT state,count(*) FROM queue_items GROUP BY state'))
+              for state in sorted(summary):
+                  if re.fullmatch(r'[A-Z_]{1,40}',state):
+                      print('MP_ADMISSION_QUEUE_STATE_'+state+'='+str(summary[state]))
+                  else:raise RuntimeError('UNRECOGNIZED_QUEUE_STATE')
+              leases=db.execute('SELECT count(*) FROM worker_leases').fetchone()[0]
+              active=db.execute("SELECT count(*) FROM queue_items WHERE state IN ('RUNNING','RETRY_WAIT','FINALIZING')").fetchone()[0]
+              print('MP_ADMISSION_OUTSTANDING_WORKER_LEASES='+str(leases))
+              print('MP_ADMISSION_ACTIVE_QUEUE_ENVELOPES='+str(active))
+              rows=db.execute("SELECT id,state FROM work_orders").fetchall()
+              matches=[(id,state) for id,state in rows if hashlib.sha256(id.encode()).hexdigest().startswith('78a1e2d8241c')]
+              need(len(matches)==1 and matches[0][1]=='BLOCKED','HISTORICAL_DEFECT_MISSING_OR_CHANGED')
+              offending=matches[0][0]
+              qstatus=db.execute('SELECT state FROM queue_items WHERE id=?',(offending,)).fetchone()
+              qvalue=qstatus[0] if qstatus else 'ABSENT'
+              need(qvalue=='ABSENT' or bool(re.fullmatch(r'[A-Z_]{1,40}',qvalue)),'BAD_QUEUE_STATUS')
+              print('MP_ADMISSION_HISTORICAL_BAD_ORDER_STATE=BLOCKED')
+              print('MP_ADMISSION_HISTORICAL_BAD_ORDER_QUEUE_STATE='+qvalue)
+              print('MP_ADMISSION_HISTORICAL_BAD_ORDER_LEASES='+str(db.execute('SELECT count(*) FROM worker_leases WHERE work_order_id=?',(offending,)).fetchone()[0]))
+              event_count,event_max=db.execute('SELECT count(*),coalesce(max(id),0) FROM events').fetchone()
+              print('MP_ADMISSION_EVENT_COUNT='+str(event_count))
+              print('MP_ADMISSION_EVENT_HEAD_ID='+str(event_max))
+              print('MP_ADMISSION_SNAPSHOT_DB_READ_ONLY=PASS')
+              print('MP_ADMISSION_ACCEPTANCE_NOT_GRANTED=TRUE')
+          '@
+          try {
+            & python.exe -B -c $script $root (Join-Path $temp 'admission-readonly.db')
+            Need ($LASTEXITCODE -eq 0) 'DATABASE_PREFLIGHT'
+            $afterProcesses=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($afterProcesses.Count -eq $beforeProcesses.Count) 'PROCESS_COUNT_DRIFT'
+            if($beforeProcesses.Count -eq 1){Need ($afterProcesses[0].ProcessId -eq $beforeProcesses[0].ProcessId) 'PROCESS_ID_DRIFT'}
+            foreach($f in $files){Need ((Hash (Join-Path $root $f)) -ceq $before[$f]) 'LIVE_COMPONENT_DRIFT'}
+            Write-Host 'MP_ADMISSION_LIVE_PROCESS_AND_12_COMPONENT_POSTIMAGES_UNCHANGED=PASS'
+            Write-Host 'MP_ADMISSION_NATIVE_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_ADMISSION_PRODUCTION_MUTATIONS=0'
+            Write-Host 'MP_ADMISSION_GITHUB_MERGES=0'
+            Write-Host 'MP_ADMISSION_PRODUCTION_MEMORY_WRITES=0'
+            Write-Host 'MP_ADMISSION_OPERATIONAL_CUSTODY_READONLY=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $temp)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_ADMISSION_SCRATCH_CLEAN=PASS'
+          }
