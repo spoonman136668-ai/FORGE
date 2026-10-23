@@ -12,7 +12,7 @@ import re
 import unittest
 
 FILE = Path(__file__).with_name("ci_timing_negative_20261023.json")
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
+SHA = re.compile(r"[0-9a-f]{40}\Z")
 
 
 class OriginalCINegative(unittest.TestCase):
