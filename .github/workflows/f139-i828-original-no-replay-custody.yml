@@ -1,0 +1,227 @@
+name: F139 original failed-provider i828 exact no-replay custody
+on:
+  push:
+    branches: [operations/f139-i828-original-failure-custody-20261023]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-original-failed-provider-i828
+  cancel-in-progress: false
+jobs:
+  qualify-and-admit-one-original-negative:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: \${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Fail-closed GitHub original-provider attestation, scratch then original custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/operations/f139-i828-original-failure-custody-20261023' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY) {
+             throw 'F139_I828_ORIGINAL_OWNER_RUNNER_OR_RETRY_INVALID'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1) {
+            throw 'F139_I828_ORIGINAL_CONTROLLER_NOT_RUNNING'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $ownerSid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($ownerSid -cne $identity.User.Value){throw 'F139_I828_OWNER_SID_DRIFT'}
+          $options=[string]$task.Actions[0].Arguments
+          function Get-Opt([string]$name){
+            $m=[regex]::Match($options,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_I828_TASK_OPTION_MISSING_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $root=Get-Opt 'RepositoryRoot'
+          $database=Get-Opt 'Database'
+          $python=Get-Opt 'PythonExe'
+          if([IO.Path]::GetFileName((Get-Opt 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             [IO.Path]::GetFullPath($database) -ine
+               [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))) {
+            throw 'F139_I828_ORIGINAL_TASK_ROUTE_DRIFT'
+          }
+          $source='58dc4cc483349249c98f1620b51b843b9e927468'
+          $gitHead=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          $gitDirty=(& git.exe -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $gitHead -cne $source -or $gitDirty.Length -ne 0) {
+            throw 'F139_I828_ORIGINAL_SOURCE_NOT_CLEAN_PROTECTED'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $main -cne $source) {
+            throw 'F139_I828_PROTECTED_MAIN_DRIFT'
+          }
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($database))) ('f139-i828-qualification-'+$env:GITHUB_RUN_ID+'.sqlite')
+          foreach($suffix in @('','-wal','-shm')) {
+            if(Test-Path -LiteralPath ($scratch+$suffix)){throw 'F139_I828_SCRATCH_NOT_NEW'}
+          }
+          $program=@'
+          import json,pathlib,re,sqlite3,subprocess,sys
+          from f139.local_controller import Database,GitHub,SingleOwner,require,WORKFLOW,REPO,parse_time
+          original=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          source=sys.argv[3]
+          ticket="f139-nci04-i828-58dc4cc48334-facb55d3"
+          rid=40041425693
+          windows_id=120713239964
+          ubuntu_id=120713239930
+          linux_artifact=12539108377
+          api=GitHub()
+          # All references come from GitHub authenticated original records.
+          run=api.get(f"repos/{REPO}/actions/runs/{rid}")
+          require(isinstance(run,dict)
+                  and run.get("id")==rid and run.get("run_attempt")==1
+                  and run.get("name")=="F139 "+ticket
+                  and run.get("display_title")=="F139 "+ticket
+                  and run.get("event")=="workflow_dispatch"
+                  and run.get("workflow_id")==388797257
+                  and run.get("path")==".github/workflows/"+WORKFLOW
+                  and run.get("head_branch")=="main"
+                  and run.get("head_sha")==source
+                  and run.get("status")=="completed"
+                  and run.get("conclusion")=="failure",
+                  "I828_ORIGINAL_PROVIDER_WORKFLOW_DRIFT")
+          jd=api.get(f"repos/{REPO}/actions/runs/{rid}/jobs?per_page=100")
+          ad=api.get(f"repos/{REPO}/actions/runs/{rid}/artifacts?per_page=100")
+          jobs=jd.get("jobs"); arts=ad.get("artifacts")
+          require(isinstance(jobs,list) and isinstance(arts,list)
+                  and len(jobs)==jd.get("total_count")
+                  and len(arts)==ad.get("total_count")
+                  and len(jobs)<=100 and len(arts)<=100,
+                  "I828_PROVIDER_RECORDS_TRUNCATED")
+          def exactly_one(items,pred):
+              found=[x for x in items if pred(x)]
+              require(len(found)==1,"I828_JOB_OR_ARTIFACT_AMBIGUOUS")
+              return found[0]
+          auth=exactly_one(jobs,lambda j:j.get("name")=="native-authorize")
+          win=exactly_one(jobs,lambda j:j.get("name")=="native-execute (windows-latest)")
+          linux=exactly_one(jobs,lambda j:j.get("name")=="native-execute (ubuntu-latest)")
+          require(auth.get("conclusion")=="success" and auth.get("status")=="completed"
+                  and win.get("id")==windows_id and win.get("conclusion")=="failure"
+                  and win.get("status")=="completed"
+                  and linux.get("id")==ubuntu_id and linux.get("conclusion")=="failure"
+                  and linux.get("status")=="completed",
+                  "I828_GENUINE_CROSS_OS_FAILURE_NOT_AUTHENTIC")
+          require(len(arts)==1
+                  and all(x.get("name")!="forge-f139-native-receipt-windows-latest"
+                          for x in arts),
+                  "I828_WINDOWS_ARTIFACT_NO_LONGER_ABSENT")
+          art=exactly_one(arts,lambda a:a.get("name")=="forge-f139-native-receipt-ubuntu-latest")
+          require(art.get("id")==linux_artifact and art.get("expired") is False
+                  and art.get("workflow_run",{}).get("id")==rid
+                  and art.get("workflow_run",{}).get("head_sha")==source
+                  and isinstance(art.get("digest"),str)
+                  and re.fullmatch(r"sha256:[a-f0-9]{64}",art["digest"]) is not None,
+                  "I828_LINUX_ORIGINAL_ARTIFACT_DRIFT")
+          logs=subprocess.run(
+              ["gh","run","view",str(rid),"--repo",REPO,
+               "--job",str(windows_id),"--log"],
+              stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+              stdin=subprocess.DEVNULL,timeout=60,check=False)
+          require(logs.returncode==0
+                  and b"F139_NCI04_WORKER_FAIL_CLOSED F139_NCI04_ORIGINAL_BYTES_DRIFT" in logs.stdout,
+                  "I828_WINDOWS_ORIGINAL_BYTE_GUARD_LOG_UNAVAILABLE")
+          # Single authentic run, matching source, no success claim, missing
+          # Windows artifact is recorded as missing, never substituted/fabricated.
+          report={"ticket":ticket,"run_id":rid,"source_sha":source,
+                  "jobs":{"windows-latest":{"job_id":windows_id,"conclusion":"failure"},
+                          "ubuntu-latest":{"job_id":ubuntu_id,"conclusion":"failure"}},
+                  "artifact_ids":[linux_artifact],
+                  "provider_terminal":"FAILURE_NO_REPLAY",
+                  "scientific_first_use":False}
+          ro=sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,timeout=30)
+          ro.execute("PRAGMA query_only=ON")
+          try:
+              dest=sqlite3.connect(str(scratch))
+              try:ro.backup(dest)
+              finally:dest.close()
+          finally:ro.close()
+          def check_state(db, expected_head=None):
+              db.verify()
+              meta=db.meta()
+              require(meta["source_sha"]==source and meta["enabled"]==1
+                      and meta["legacy_suspended"]==1
+                      and meta["head_seq"]==154,
+                      "I828_LIVE_LEDGER_BOUNDARY_NOT_EVENT154")
+              if expected_head:
+                  require(meta["head_hash"]==expected_head,"I828_LIVE_EVENT_HEAD_CHANGED")
+              row=db.conn.execute(
+                  "SELECT ticket,source_sha,stage,started_at,run_id,quarantine_reason "
+                  "FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+              require(row is not None and row["source_sha"]==source
+                      and row["stage"] in ("WAIT_PROVIDER","START_RISK")
+                      and row["run_id"] is None,
+                      "I828_NOT_STILL_ORIGINAL_PENDING_RUN")
+              winner=api.candidates(ticket,row["started_at"])
+              require(isinstance(winner,dict) and winner.get("id")==rid
+                      and winner.get("run_attempt")==1
+                      and parse_time(winner.get("created_at"))>=
+                         parse_time(row["started_at"])-__import__("datetime").timedelta(minutes=2),
+                      "I828_ORIGINAL_CANDIDATE_DID_NOT_MATCH_OWNER_START")
+              preexisting=[x for x in db.conn.execute(
+                  "SELECT payload FROM events WHERE kind='NATIVE_FAILED_PROVIDER_CUSTODY'")
+                  if json.loads(x["payload"]).get("ticket")==ticket]
+              require(not preexisting,"I828_ALREADY_CUSTODIED")
+              require(not db.conn.execute(
+                  "SELECT 1 FROM events WHERE kind='PROVIDER_VERIFIED_TERMINAL' "
+                  "AND payload LIKE ?",("%"+ticket+"%",)).fetchone(),
+                  "I828_ORIGINAL_WORK_ALREADY_TERMINAL")
+              return meta
+          test=Database(scratch)
+          try:
+              before=check_state(test)
+              test.custody_failed_native_provider(ticket,report,late=False)
+              test.verify()
+              require(test.meta()["head_seq"]==156
+                      and test.conn.execute("SELECT stage FROM tasks WHERE ticket=?",
+                          (ticket,)).fetchone()["stage"]=="QUARANTINED",
+                      "I828_SCRATCH_QUARANTINE_FAILED")
+              print("F139_I828_SINGLE_ARTIFACT_FAIL_NO_REPLAY_SCRATCH=PASS",flush=True)
+              oldhead=before["head_hash"]
+          finally:test.close()
+          # Exact same authenticated negative report, with the original
+          # SingleOwner mutex. No task stop, no scheduler or worker replay.
+          with SingleOwner(original.with_suffix(".lock")):
+              live=Database(original)
+              try:
+                  before=check_state(live,expected_head=oldhead)
+                  live.custody_failed_native_provider(ticket,report,late=False)
+                  live.verify()
+                  after=live.meta()
+                  require(after["head_seq"]==156 and
+                          live.conn.execute("SELECT stage FROM tasks WHERE ticket=?",
+                              (ticket,)).fetchone()["stage"]=="QUARANTINED",
+                          "I828_LIVE_QUARANTINE_NOT_DURABLE")
+                  print("F139_I828_ORIGINAL_FAILED_PROVIDER_CUSTODY=PASS",flush=True)
+                  print("F139_I828_QUARANTINE_EVENT156=PASS",flush=True)
+                  print("F139_I828_FINAL_EVENT_HEAD="+after["head_hash"],flush=True)
+                  print("F139_I828_GENUINE_WINDOWS_PREIMAGE_FAILURE_UNCHANGED=TRUE",flush=True)
+                  print("F139_I828_ORIGINAL_WINDOWS_RECEIPT_ABSENT=TRUE",flush=True)
+                  print("F139_I828_RERUNS=ZERO",flush=True)
+                  print("F139_I828_SCIENTIFIC_FIRST_USE=FALSE",flush=True)
+              finally:live.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $program $database $scratch $source
+            if($LASTEXITCODE -ne 0) {throw 'F139_I828_CUSTODY_STOPPED_FAIL_CLOSED'}
+          }finally{
+            Pop-Location
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running'){throw 'F139_I828_ORIGINAL_OWNER_NOT_RUNNING'}
+          Write-Output 'F139_I828_SAME_ORIGINAL_CONTROLLER_RUNNING=PASS'
