@@ -1,0 +1,82 @@
+name: ITD-01 O1 source-only diagnostic qualification
+
+on:
+  push:
+    branches: [research/itd01-o1-public-causal-memory-20261023]
+    paths:
+      - '.github/workflows/itd01-o1-sourceonly.yml'
+      - 'research/itd01_o1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: itd01-o1-sourceonly
+  cancel-in-progress: false
+
+jobs:
+  native-sourceonly:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9
+        with:
+          persist-credentials: false
+          fetch-depth: 12
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify bounded delta and exact unchanged parent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = '00f33f56139f792a65cd193200706d13f93fe0b3'
+          $ancestor = (& git merge-base $base HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $base) { throw 'O1_BASE_IDENTITY_DRIFT' }
+          $expected = @(
+            '.github/workflows/itd01-o1-sourceonly.yml',
+            'research/itd01_o1/O1_SOURCE_ONLY_PROTOCOL.json',
+            'research/itd01_o1/causal_memory.py',
+            'research/itd01_o1/test_causal_memory.py'
+          )
+          $actual = @(& git diff --name-only $base HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or (Compare-Object $expected $actual)) {
+            throw 'O1_PATCH_SCOPE_DRIFT'
+          }
+          Write-Host 'O1_PARENT_AND_BOUNDED_DELTA=PASS'
+      - name: Handwritten public-only tests (no protected roles)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s research/itd01_o1 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O1_DIAGNOSTIC_TEST_FAILURE' }
+          Write-Host 'O1_HANDWRITTEN_DIAGNOSTICS=PASS'
+          Write-Host 'O1_LEARNED_COMPOSITION=NOT_CLAIMED'
+          Write-Host 'O1_SOURCE_BORN_COHORTS=ZERO'
+          Write-Host 'O1_SCIENTIFIC_FIRST_USE=NONE'
+      - name: One final FORGE Go regression, vet and build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O1_FULL_GO_REGRESSION=PASS
+      - name: Clean worktree and no side effects
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirty = @(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'O1_WORKTREE_DIRTY' }
+          Write-Host 'O1_SOURCEONLY_NO_DISPATCH=PASS'
