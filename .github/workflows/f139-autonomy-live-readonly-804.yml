@@ -51,5 +51,17 @@ jobs:
           & python.exe -B -c $py $db
           if($LASTEXITCODE -ne 0){throw 'F139_READONLY_AUDIT_FAILED'}
           Write-Output ('F139_DEPLOYED_HEAD='+$head)
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          if($processes.Count -ne 1){throw 'F139_CONTROLLER_PROCESS_NOT_SINGLE'}
+          $proc=Get-Process -Id $processes[0].ProcessId -ErrorAction Stop
+          Write-Output ('F139_CONTROLLER_PID='+$proc.Id)
+          Write-Output ('F139_CONTROLLER_START='+$proc.StartTime.ToString('o'))
+          Write-Output ('F139_CONTROLLER_CPU_SECONDS='+$proc.CPU)
+          $log=Join-Path ([IO.Path]::GetDirectoryName($db)) 'logs\controller.log'
+          if(!(Test-Path -LiteralPath $log -PathType Leaf)){throw 'F139_CONTROLLER_LOG_MISSING'}
+          Write-Output 'F139_CONTROLLER_LOG_TAIL_BEGIN'
+          Get-Content -LiteralPath $log -Tail 120
+          Write-Output 'F139_CONTROLLER_LOG_TAIL_END'
           Write-Output 'F139_OWNER_SQLITE_MUTATIONS=ZERO'
           Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
