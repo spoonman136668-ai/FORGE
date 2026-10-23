@@ -1,0 +1,111 @@
+name: R18 owner executable health-path differential read-only
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ckb-r18-health-differential.yml]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r18-health-differential
+  cancel-in-progress: false
+jobs:
+  differential:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Compare exact registered health CLI with active original R18 R5 image without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $wp=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+              $who.Name -ine 'LINKDEADKB\camar' -or
+              !$wp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_READONLY_ADMIN_OWNER_AUTHORITY_MISMATCH'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $healthScript=Join-Path $root 'operations\Read-PlaneHealth.ps1'
+          $registeredExe=Join-Path $root 'bin\ckb-plane.exe'
+          $expectedScript='3fc875e2f115c8adcf1dafb36c033be3c1d100e900456a636c7ca3aac536fdf5'
+          $expectedConfig='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+          $expectedR5='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
+          foreach($path in @($config,$healthScript,$registeredExe)){
+            if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw 'R18_REQUIRED_PREIMAGE_MISSING'}
+          }
+          function Sha([string]$path){(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $scriptHash=Sha $healthScript
+          $configHash=Sha $config
+          $registeredHash=Sha $registeredExe
+          if($scriptHash -cne $expectedScript -or $configHash -cne $expectedConfig){
+            throw 'R18_HEALTH_OPERATION_OR_CONFIG_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notlike '*Start-R18-Controller.ps1*'){
+            throw 'R18_ORIGINAL_SCHEDULED_TASK_IDENTITY_DRIFT'
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$procs[0].ExecutablePath)){
+            throw 'R18_CONTROLLER_SINGLETON_DRIFT'
+          }
+          $runningExe=[string]$procs[0].ExecutablePath
+          $runningHash=Sha $runningExe
+          if($runningHash -cne $expectedR5){throw 'R18_RUNNING_R5_IMAGE_DRIFT'}
+          $pidBefore=[int]$procs[0].ProcessId
+          function Probe([string]$exe,[string]$tag){
+            $out=Join-Path $env:RUNNER_TEMP ('r18h-'+$env:GITHUB_RUN_ID+'-'+$tag+'.out')
+            $err=Join-Path $env:RUNNER_TEMP ('r18h-'+$env:GITHUB_RUN_ID+'-'+$tag+'.err')
+            if((Test-Path -LiteralPath $out) -or (Test-Path -LiteralPath $err)){throw 'R18_PROBE_OUTPUT_COLLISION'}
+            try{
+              $p=Start-Process -FilePath $exe -ArgumentList @('controller','status','--config',('"' + $config + '"')) -NoNewWindow -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -ErrorAction Stop
+              if(!$p.WaitForExit(30000)){
+                try{$p.Kill()}catch{}
+                throw 'R18_READONLY_STATUS_TIMEOUT'
+              }
+              $stderr=[IO.File]::ReadAllText($err)
+              if($p.ExitCode -ne 0){
+                $kind=if($stderr.Contains('field preservation not found in type plane.WorkOrder')){'LEGACY_PRESERVATION_PARSE'}else{'OTHER_NONZERO'}
+                return [ordered]@{exit=[int]$p.ExitCode;classification=$kind}
+              }
+              if((Get-Item -LiteralPath $out).Length -gt 16777216){throw 'R18_NATIVE_STATUS_UNBOUNDED'}
+              $status=ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($out)) -ErrorAction Stop
+              return [ordered]@{
+                exit=0;classification='STATUS_OK';authority=[string]$status.authority;
+                generation=[string]$status.generation;paused=[bool]$status.paused;
+                heartbeat_stale=[bool]$status.heartbeat_stale;
+                controller_status=[string]$status.controller_status
+              }
+            }finally{
+              Remove-Item -LiteralPath $out,$err -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $registered=Probe $registeredExe 'registered'
+          $running=Probe $runningExe 'running'
+          $post=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          $afterTask=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if($post.Count -ne 1 -or [int]$post[0].ProcessId -ne $pidBefore -or
+             [string]$afterTask.State -cne 'Running' -or
+             (Sha $config) -cne $configHash -or (Sha $healthScript) -cne $scriptHash -or
+             (Sha $registeredExe) -cne $registeredHash -or (Sha $runningExe) -cne $runningHash){
+            throw 'R18_HOST_PREPOST_IDENTITY_DRIFT'
+          }
+          $result=[ordered]@{
+            schema='ckb-plane.r18-health-executable-differential.v1';
+            active_r5_sha256=$runningHash;registered_cli_sha256=$registeredHash;
+            same_binary=($runningHash -ceq $registeredHash);
+            exact_new_qualified_image_already_running=($runningHash -ceq '20067651a836eb3dc095fc26b3c2d9ed04701d8ab4be298ef57de28869414b65');
+            registered=$registered;active=$running;
+            original_pid_unchanged=$true;task_unchanged=$true;config_unchanged=$true;
+            controller_resume_invoked=$false;queue_submitted=$false;binary_replaced=$false;
+            database_written_by_audit=$false
+          }
+          $j=$result|ConvertTo-Json -Compress -Depth 6
+          if([Text.Encoding]::UTF8.GetByteCount($j) -gt 4096){throw 'R18_AUDIT_OUTPUT_OVERSIZED'}
+          Write-Host ('R18_HEALTH_DIFFERENTIAL='+$j)
+          Write-Host 'R18_OWNER_READONLY_DIFFERENTIAL=PASS'
+          Write-Host 'R18_PRODUCTION_CUTOVER=NOT_ATTEMPTED'
