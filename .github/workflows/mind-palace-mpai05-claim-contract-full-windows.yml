@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Pin three files, run 26 focused tests and one complete Windows regression
+      - name: Pin three files, run 28 focused tests and one complete Windows regression
         shell: pwsh
         env:
           GIT_TERMINAL_PROMPT: '0'
@@ -32,7 +32,7 @@ jobs:
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $branch='proposal/mp-ai05-untrusted-runtime-claim-contract-20261023'
-          $source='3135def069d1b0f9dcda2371bac460217c0eff44'
+          $source='195ec06ce9f993c21fb5913b1a62e34f4096ffb9'
           $base='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
           $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-claims-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
@@ -69,10 +69,10 @@ jobs:
             Push-Location $root
             try {
               $count=(& python.exe -B -c "import unittest; print(unittest.defaultTestLoader.discover('tests', pattern='test_mpai05_runtime_claims.py').countTestCases())" | Out-String).Trim()
-              Need ($LASTEXITCODE -eq 0 -and $count -ceq '26') 'FOCUSED_TEST_DISCOVERY'
+              Need ($LASTEXITCODE -eq 0 -and $count -ceq '28') 'FOCUSED_TEST_DISCOVERY'
               & python.exe -B -m unittest discover -s tests -p test_mpai05_runtime_claims.py -v
               Need ($LASTEXITCODE -eq 0) 'FOCUSED_TESTS'
-              Write-Host 'MPAI05_UNTRUSTED_CLAIMS_26_TESTS=PASS'
+              Write-Host 'MPAI05_UNTRUSTED_CLAIMS_28_TESTS=PASS'
             } finally { Pop-Location }
             foreach($p in $protected){
               Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('FOCUSED_HASH_'+$p)
