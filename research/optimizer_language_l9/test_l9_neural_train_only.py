@@ -41,7 +41,7 @@ class NeuralTrainOnlyPrefit(unittest.TestCase):
     def test_full_roles_guard_required(self):
         source=(ROOT/"l9_neural_train_only.py").read_text()
         self.assertIn('if x.role == "L9_TRAIN"',source)
-        self.assertIn('if x.role == "L9_SELECT"',source)
+        self.assertIn('sum(x.role == "L9_SELECT"',source)
         self.assertIn('not any(x.role == "L9_AUDIT_DEV"',source)
         self.assertIn("model.train_neural(arm, train, seed, device=\"cpu\")",source)
         self.assertIn('"audit_dev_reference_consumed": False',source)
