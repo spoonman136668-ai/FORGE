@@ -1809,10 +1809,12 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # preserve START_RISK and do not transition to a retryable READY.
             code=str(exc).removeprefix("F139_")
             if code not in {"GITHUB_API_TIMEOUT","GITHUB_API_FAILED","GITHUB_API_INVALID_JSON"}:
+                reporter=getattr(api,"failed_native_provider_report",None)
                 if (code=="FAILED_OR_CANCELLED_NO_REPLAY"
                         and active["ticket"].startswith("f139-nci04-")
-                        and isinstance(locals().get("run"),dict)):
-                    report=api.failed_native_provider_report(
+                        and isinstance(locals().get("run"),dict)
+                        and callable(reporter)):
+                    report=reporter(
                         run,active["ticket"],active["source_sha"],active["started_at"])
                     db.custody_failed_native_provider(
                         active["ticket"],report,late=False)
