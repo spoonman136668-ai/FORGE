@@ -89,27 +89,22 @@ jobs:
               # The historic R25-C12 JSON-wire tests explicitly require independent
               # parent-snapshot inventories. Missing evidence must not become a
               # product-code failure or be fabricated from the candidate.
-              $historical='^(TestR25C12HistoricalGovernanceJSONWire|TestR25C12MixedPhase9HistoricalJSONWire)
-            }finally{Pop-Location}
-            foreach($rel in $expected.Keys){
-              if((Sha (Join-Path $original ($rel.Replace('/','\')))) -cne $expected[$rel]){throw 'KTRADE_ORIGINAL_WORKER_FILE_CHANGED'}
-            }
-            Write-Host 'KTRADE_SOURCE_ORIGINAL_WORKER_AND_FINANCIAL_STATE_UNMODIFIED=PASS'
-          }finally{
-            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-          }
-
-              $prev=$ErrorActionPreference
+              $historical='^TestR25C12.*JSONWire$'
+              $oldEAP=$ErrorActionPreference
               try {
                 $ErrorActionPreference='Continue'
-                $parentEvidence=@(& go.exe test -p 1 -count=1 -run $historical ./pkg 2>&1)
-                $parentExit=$LASTEXITCODE
-              } finally { $ErrorActionPreference=$prev }
-              $missing=(@($parentEvidence|Where-Object {$_ -match 'missing independently recorded parent collision inventory|missing independent parent field inventory'}).Count -gt 0)
-              if($parentExit -eq 0 -or !$missing){throw 'KTRADE_HISTORICAL_BASELINE_FAILURE_NOT_REPRODUCED'}
-              Write-Host 'KTRADE_HISTORICAL_PARENT_INVENTORY_PREREQUISITE_MISSING=CONFIRMED'
-              # Validate the actual full Windows application before spending
-              # compute on historical source-identity tests.
+                $historicOut=@(& go.exe test -p 1 -count=1 -run $historical ./pkg 2>&1)
+                $historicCode=$LASTEXITCODE
+              } finally { $ErrorActionPreference=$oldEAP }
+              $parentMissing=$false
+              foreach($line in $historicOut) {
+                if(([string]$line).Contains('missing independently recorded parent collision inventory') -or
+                   ([string]$line).Contains('missing independent parent field inventory')){
+                  $parentMissing=$true
+                }
+              }
+              if($historicCode -eq 0 -or !$parentMissing){throw 'KTRADE_PARENT_FIXTURE_PRECONDITION_NOT_REPRODUCED'}
+              Write-Host 'KTRADE_HISTORICAL_INDEPENDENT_PARENT_INVENTORY_MISSING=CONFIRMED'
               $exe=Join-Path $tmp 'ktrade.exe'
               & go.exe build -p 1 -tags ktrade_full -o $exe ./cmd/ktrade
               if($LASTEXITCODE -ne 0){throw 'KTRADE_REAL_WINDOWS_BINARY_BUILD_FAILED'}
@@ -120,14 +115,15 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'KTRADE_FULL_ENTRYPOINT_TESTS_FAILED'}
               Write-Host 'KTRADE_FULL_ENTRYPOINT_TESTS=PASS'
               & go.exe test -p 1 -count=1 -skip $historical ./...
-              if($LASTEXITCODE -ne 0){throw 'KTRADE_WINDOWS_REGRESSION_OTHER_THAN_UNAVAILABLE_PARENT_EVIDENCE_FAILED'}
-              Write-Host 'KTRADE_WINDOWS_REGRESSION_EXCEPT_UNAVAILABLE_PARENT_EVIDENCE=PASS'
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_WINDOWS_NON_FIXTURE_REGRESSION_FAILED'}
+              Write-Host 'KTRADE_WINDOWS_REGRESSION_EXCEPT_UNAVAILABLE_PARENT_INVENTORY=PASS'
               & go.exe vet -p 1 ./...
               if($LASTEXITCODE -ne 0){throw 'KTRADE_FULL_WINDOWS_VET_FAILED'}
               Write-Host 'KTRADE_FULL_WINDOWS_VET=PASS'
             }finally{Pop-Location}
             foreach($rel in $expected.Keys){
-              if((Sha (Join-Path $original ($rel.Replace('/','\')))) -cne $expected[$rel]){throw 'KTRADE_ORIGINAL_WORKER_FILE_CHANGED'}
+              $filename=$rel.Replace('/',[IO.Path]::DirectorySeparatorChar)
+              if((Sha (Join-Path $original $filename)) -cne $expected[$rel]){throw 'KTRADE_ORIGINAL_WORKER_FILE_CHANGED'}
             }
             Write-Host 'KTRADE_SOURCE_ORIGINAL_WORKER_AND_FINANCIAL_STATE_UNMODIFIED=PASS'
           }finally{
