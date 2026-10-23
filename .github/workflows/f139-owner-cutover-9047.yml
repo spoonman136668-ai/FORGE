@@ -1,0 +1,180 @@
+name: FORGE F139 guarded original owner cutover 9047
+on:
+  push:
+    branches: [operations/f139-owner-cutover-9047-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-original-owner-cutover
+  cancel-in-progress: false
+jobs:
+  cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Transition and reactivate the same original F139 owner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $target='9047b840b1e33f15a8a9da9670a8ca0bcf7169d7'
+          $old='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $taskName='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_WRONG_OWNER_RUNNER'}
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or $task.State -ne 'Running'){
+            throw 'F139_ORIGINAL_TASK_NOT_SINGLE_RUNNING'
+          }
+          $args=[string]$task.Actions[0].Arguments
+          function Read-Arg([string]$name){
+            $m=[regex]::Match($args,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_TASK_ARG_MISSING_'+$name)}
+            return [IO.Path]::GetFullPath($m.Groups[1].Value)
+          }
+          $root=Read-Arg 'RepositoryRoot'
+          $db=Read-Arg 'Database'
+          $python=Read-Arg 'PythonExe'
+          $wrapper=Read-Arg 'File'
+          if([IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1'){
+            throw 'F139_TASK_WRAPPER_DRIFT'
+          }
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $old -or $dirty.Length -ne 0){
+            throw 'F139_OWNER_CHECKOUT_PRECONDITION_DRIFT'
+          }
+          $pre=@'
+          import json,pathlib,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          try:
+              con.execute('PRAGMA query_only=ON')
+              m=dict(con.execute('SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1').fetchone())
+              pending=[dict(r) for r in con.execute("SELECT ticket,stage FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER')")]
+              assert m['source_sha']=='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+              assert m['enabled']==1 and m['legacy_suspended']==1 and m['head_seq']>=118
+              assert not pending
+              print(json.dumps(m,sort_keys=True,separators=(',',':')))
+          finally:
+              con.close()
+          '@
+          $preRaw=(& $python -B -c $pre $db | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_OWNER_LEDGER_PRECHECK_FAILED'}
+          $preMeta=$preRaw | ConvertFrom-Json
+          Write-Output ('F139_PRE_CUTOVER_HEAD_SEQ='+$preMeta.head_seq)
+          Write-Output ('F139_PRE_CUTOVER_EVENT_HEAD='+$preMeta.head_hash)
+          $stopped=$false
+          $checkoutMoved=$false
+          try {
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            $stopped=$true
+            $deadline=(Get-Date).AddSeconds(40)
+            do {
+              Start-Sleep -Milliseconds 500
+              $ps=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                Where-Object {$_.CommandLine -and
+                  $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($db)})
+            } while($ps.Count -ne 0 -and (Get-Date) -lt $deadline)
+            if($ps.Count -ne 0){throw 'F139_OLD_OWNER_PROCESS_DID_NOT_STOP'}
+            & git.exe -C $root fetch --no-tags -- $env:GITHUB_WORKSPACE $target
+            if($LASTEXITCODE -ne 0){throw 'F139_LOCAL_TARGET_FETCH_FAILED'}
+            & git.exe -C $root checkout --detach $target
+            if($LASTEXITCODE -ne 0){throw 'F139_TARGET_CHECKOUT_FAILED'}
+            $checkoutMoved=$true
+            $newHead=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $newDirty=(& git.exe -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+            if($newHead -cne $target -or $newDirty.Length -ne 0){
+              throw 'F139_TARGET_CHECKOUT_NOT_EXACT_CLEAN'
+            }
+            $transitionPath=Join-Path $env:RUNNER_TEMP 'f139-source-transition-approval.json'
+            $transition=[ordered]@{
+              schema='forge.f139.nci04.owner-source-transition-approval.v1'
+              from_source_sha=$old
+              to_source_sha=$target
+              expected_event_head_sha256=[string]$preMeta.head_hash
+              sealed_23_event_head_sha256='eea95c859f9a59f700612c3b7b39152abc78827981976e9d86567c29fa03ff87'
+              native_development_only=$true
+              scientific_first_use=$false
+              new_controller=$false
+              paid_api_calls=0
+            }
+            [IO.File]::WriteAllText($transitionPath,($transition | ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -m f139.local_controller --db $db transition-qualified-native --approval $transitionPath
+              if($LASTEXITCODE -ne 0){throw 'F139_SOURCE_TRANSITION_FAILED'}
+            } finally { Pop-Location }
+            $headRead=@'
+          import json,pathlib,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+'?mode=ro',uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          try:
+              con.execute('PRAGMA query_only=ON')
+              print(json.dumps(dict(con.execute('SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1').fetchone()),sort_keys=True,separators=(',',':')))
+          finally:
+              con.close()
+          '@
+            $afterTransitionRaw=(& $python -B -c $headRead $db | Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw 'F139_TRANSITION_READBACK_FAILED'}
+            $afterTransition=$afterTransitionRaw | ConvertFrom-Json
+            if($afterTransition.source_sha -cne $target -or [int]$afterTransition.head_seq -ne ([int]$preMeta.head_seq+1)){
+              throw 'F139_TRANSITION_READBACK_DRIFT'
+            }
+            $activatePath=Join-Path $env:RUNNER_TEMP 'f139-native-activation-approval.json'
+            $activate=[ordered]@{
+              schema='forge.f139.nci04.owner-native-approval.v1'
+              source_sha=$target
+              expected_event_head_sha256=[string]$afterTransition.head_hash
+              native_development_approved=$true
+              scientific_first_use=$false
+              create_controller=$false
+              paid_api_calls=0
+            }
+            [IO.File]::WriteAllText($activatePath,($activate | ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -m f139.local_controller --db $db activate-native --approval $activatePath
+              if($LASTEXITCODE -ne 0){throw 'F139_NATIVE_REACTIVATION_FAILED'}
+            } finally { Pop-Location }
+            $finalRaw=(& $python -B -c $headRead $db | Out-String).Trim()
+            if($LASTEXITCODE -ne 0){throw 'F139_FINAL_READBACK_FAILED'}
+            $final=$finalRaw | ConvertFrom-Json
+            if($final.source_sha -cne $target -or [int]$final.head_seq -ne ([int]$preMeta.head_seq+2)){
+              throw 'F139_FINAL_LEDGER_DRIFT'
+            }
+            Write-Output ('F139_POST_CUTOVER_HEAD_SEQ='+$final.head_seq)
+            Write-Output ('F139_POST_CUTOVER_EVENT_HEAD='+$final.head_hash)
+            Write-Output 'F139_SOURCE_TRANSITION=PASS'
+            Write-Output 'F139_NATIVE_REACTIVATION=PASS'
+            Write-Output 'F139_NEW_CONTROLLER_CREATED=FALSE'
+            Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
+          }
+          finally {
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'f139-source-transition-approval.json') -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'f139-native-activation-approval.json') -Force -ErrorAction SilentlyContinue
+            if($stopped){
+              Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+              $deadline=(Get-Date).AddSeconds(40)
+              do {
+                Start-Sleep -Milliseconds 500
+                $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                $ps=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+                  Where-Object {$_.CommandLine -and
+                    $_.CommandLine.Contains('f139.local_controller') -and
+                    $_.CommandLine.Contains($db)})
+              } while(($task.State -ne 'Running' -or $ps.Count -ne 1) -and (Get-Date) -lt $deadline)
+              if($task.State -ne 'Running' -or $ps.Count -ne 1){
+                throw 'F139_SAME_OWNER_RESTART_FAILED'
+              }
+              Write-Output 'F139_SAME_ORIGINAL_OWNER_RESTART=PASS'
+            }
+          }
