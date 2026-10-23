@@ -1,0 +1,112 @@
+name: MP-WC01 existing retrieval pin reconciliation isolated Windows
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/mp-wc01-retrieval-pin-reconcile.yml]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - name: Source-verified offline Mind-Palace context retrieval, no live mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+              throw 'MPWC01_OWNER_RUNNER_IDENTITY_DRIFT'
+          }
+          $plane='C:\Users\camar\GolandProjects\ckb-plane'
+          $source='C:\Users\camar\GolandProjects\Mind-Palace'
+          $liveScript=Join-Path $plane 'operations\Read-MindPalaceContext.ps1'
+          $liveConfig=Join-Path $plane 'config\autonomy.yaml'
+          $newMind='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          $beforeContext='8e5a59576b105150a4c42c1bccece0c6a7939c6a5fa3bb85b881885434c5aac0'
+          function Sha([string]$file){return (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          if((Sha $liveScript) -cne $beforeContext){throw 'MPWC01_REGISTERED_OPERATION_PREIMAGE_DRIFT'}
+          if(!(Test-Path -LiteralPath $liveConfig -PathType Leaf)){throw 'MPWC01_CONFIG_MISSING'}
+          $oldConfig=Sha $liveConfig
+          $oldContext=Sha $liveScript
+          $oldRecords=Sha (Join-Path $source '.ice\records.json')
+          $sourceHead=@(& git.exe -C $source rev-parse HEAD)
+          if($LASTEXITCODE -ne 0 -or $sourceHead.Count -ne 1){throw 'MPWC01_MIND_PALACE_SOURCE_UNAVAILABLE'}
+          foreach($arg in @('tools/context-pack-budgeted.ps1','tools/context-pack-tiered.ps1','tools/mind.ps1')){
+             $dirty=@(& git.exe -C $source status --porcelain -- $arg)
+             if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPWC01_LIVE_MIND_PALACE_TOOL_DIRTY'}
+          }
+          $base=Join-Path $env:RUNNER_TEMP ('mpwc01-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $base){throw 'MPWC01_STAGING_EXISTS'}
+          $user=Join-Path $base 'User'
+          $palace=Join-Path $user 'GolandProjects\Mind-Palace'
+          $planeTemp=Join-Path $base 'Plane'
+          New-Item -ItemType Directory -Path (Join-Path $planeTemp 'operations'),(Join-Path $planeTemp 'config'),(Split-Path -Parent $palace) -Force -ErrorAction Stop|Out-Null
+          try{
+            & git.exe clone --local --no-hardlinks --no-checkout -- $source $palace
+            if($LASTEXITCODE -ne 0){throw 'MPWC01_LOCAL_SOURCE_CLONE_FAILED'}
+            & git.exe -C $palace checkout --detach $newMind
+            if($LASTEXITCODE -ne 0){throw 'MPWC01_MAIN_IDENTITY_UNAVAILABLE'}
+            $observed=@(& git.exe -C $palace rev-parse HEAD)
+            if($LASTEXITCODE -ne 0 -or $observed.Count -ne 1 -or $observed[0] -cne $newMind){throw 'MPWC01_MAIN_DRIFT'}
+            $blobs=@{
+               'tools/context-pack-budgeted.ps1'='ab29b4c74abe051039e8fc75ee6320a30445a790'
+               'tools/context-pack-tiered.ps1'='9bcf9debd6c7477ae2287fbdf7edcb16e11c0131'
+               'tools/mind.ps1'='bb8c46f3c22f689e5f44dbe06ccc286014bd9130'
+            }
+            foreach($entry in $blobs.GetEnumerator()){
+              $observedBlob=@(& git.exe -C $palace rev-parse ('HEAD:'+$entry.Key))
+              if($LASTEXITCODE -ne 0 -or $observedBlob.Count -ne 1 -or $observedBlob[0] -cne $entry.Value){throw ('MPWC01_TARGET_TOOL_BLOB_DRIFT:'+$entry.Key)}
+            }
+            $script=[IO.File]::ReadAllText($liveScript)
+            function PatchOnce([string]$text,[string]$old,[string]$new,[string]$code){
+               if($text.Split(@($old),[StringSplitOptions]::None).Length -ne 2){throw ('MPWC01_PATCH_ANCHOR_DRIFT:'+ $code)}
+               return $text.Replace($old,$new)
+            }
+            $script=PatchOnce $script 'eab30125d8467cf52c7434728b397e53542703c4' 'ab29b4c74abe051039e8fc75ee6320a30445a790' 'budgeted blob'
+            $script=PatchOnce $script '4ac92afeb56d32c172ef9a503fa5aa1e468e1bfe' '9bcf9debd6c7477ae2287fbdf7edcb16e11c0131' 'tiered blob'
+            $script=PatchOnce $script '6b8ff8a8ea5de5c6a9ba392f828f2889ece4bb87' 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130' 'mind blob'
+            if($script -notmatch '(?m)^\$PackParams = @\{\s*$'){throw 'MPWC01_PACK_PARAMETER_ANCHOR_MISSING'}
+            $script=PatchOnce $script '$PackParams = @{' ('$PackParams = @{'+"\n"+'    NoTelemetryLedger = $true') 'no telemetry'
+            $candidate=Join-Path $planeTemp 'operations\Read-MindPalaceContext.ps1'
+            [IO.File]::WriteAllText($candidate,$script,[Text.UTF8Encoding]::new($false))
+            Copy-Item -LiteralPath $liveConfig -Destination (Join-Path $planeTemp 'config\autonomy.yaml') -ErrorAction Stop
+            $parseErrors=$null;$tokens=$null
+            [void][Management.Automation.Language.Parser]::ParseFile($candidate,[ref]$tokens,[ref]$parseErrors)
+            if(@($parseErrors).Count -ne 0){throw 'MPWC01_CANDIDATE_POWERSHELL_PARSE_FAIL'}
+            $scriptSHA=Sha $candidate
+            Write-Host ('MPWC01_CANDIDATE_SCRIPT_SHA256='+$scriptSHA)
+            $env:USERPROFILE=$user
+            $env:CKB_PLANE_LOCAL_EXEC='1'
+            $raw=@(& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $candidate -Query 'KTRADE prior engineering decisions bounded repair context' -Project KTRADE 2>&1)
+            if($LASTEXITCODE -ne 0){throw ('MPWC01_ISOLATED_RETRIEVAL_FAILED:'+($raw|Select-Object -Last 2|Out-String).Trim())}
+            $output=($raw -join [Environment]::NewLine).Trim()
+            if([Text.Encoding]::UTF8.GetByteCount($output) -gt 7168){throw 'MPWC01_WRAPPER_TOO_LARGE'}
+            $pack=$output|ConvertFrom-Json
+            if([string]$pack.schema -cne 'ckb-plane.mind-palace-context.v1' -or
+               [string]$pack.context_pack_schema -cne 'mind-palace.context-pack-budgeted.v1' -or
+               [string]$pack.context_pack_source_schema -cne 'mind-palace.context-pack-tiered.v2' -or
+               [bool]$pack.authorizes_execution -or [bool]$pack.authorizes_acceptance -or
+               ![bool]$pack.advisory_only -or [bool]$pack.durable_context_written -or [bool]$pack.git_written -or
+               [int]$pack.context_pack_bytes -gt 6144 -or [int]$pack.model_context_bytes -gt 4096 -or
+               [int]$pack.model_context_bytes -ne [Text.Encoding]::UTF8.GetByteCount([string]$pack.model_context)){
+               throw 'MPWC01_BUDGETED_CONTEXT_CONTRACT_FAILED'
+            }
+            if((Sha (Join-Path $palace '.ice\records.json')) -cne [string]$pack.records_sha256){throw 'MPWC01_SHADOW_RECORD_HASH_DRIFT'}
+            $changed=@(& git.exe -C $palace status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $changed.Count -ne 0){throw ('MPWC01_ISOLATED_SOURCE_WRITE_DETECTED:'+ ($changed -join ','))}
+            if((Sha $liveScript) -cne $oldContext -or (Sha $liveConfig) -cne $oldConfig -or
+               (Sha (Join-Path $source '.ice\records.json')) -cne $oldRecords){throw 'MPWC01_LIVE_ORIGINALS_CHANGED'}
+            Write-Host ('MPWC01_MODEL_CONTEXT_BYTES='+[int]$pack.model_context_bytes)
+            Write-Host ('MPWC01_BUDGETED_PACK_BYTES='+[int]$pack.context_pack_bytes)
+            Write-Host 'MPWC01_EXISTING_RETRIEVAL_OFFLINE_RECONCILIATION=PASS'
+            Write-Host 'MPWC01_LIVE_PLANE_AND_DURABLE_RECORDS_UNCHANGED=PASS'
+            Write-Host 'MPWC01_NO_LIVE_PROMOTION_NO_TOKEN_SAVINGS_CLAIM=PASS'
+          }finally{
+            $env:CKB_PLANE_LOCAL_EXEC=$null
+            $env:USERPROFILE='C:\Users\camar'
+            Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+          }
