@@ -50,6 +50,34 @@ def require(ok: bool, reason: str) -> None:
 def _sha40(value) -> bool:
     return isinstance(value, str) and SHA40.fullmatch(value) is not None
 
+def candidate_identity(lane: str, target_commit: str, path: str,
+                       after_sha256: str) -> str:
+    require(lane in REPOS and _sha40(target_commit)
+            and isinstance(path, str)
+            and isinstance(after_sha256, str)
+            and re.fullmatch(r"[a-f0-9]{64}", after_sha256) is not None,
+            "CANDIDATE_IDENTITY_INPUT_INVALID")
+    return digest(canonical({
+        "schema": "forge.f139.native-autonomy-feed-candidate-identity.v1",
+        "lane": lane, "target_commit": target_commit,
+        "path": path, "after_sha256": after_sha256,
+    }))
+
+
+def candidate_identity_from_intent_base64(encoded: str) -> str:
+    require(isinstance(encoded, str) and 0 < len(encoded) <= 60000,
+            "HISTORICAL_INTENT_INVALID")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        doc = json.loads(raw)
+    except (ValueError, UnicodeError, binascii.Error) as exc:
+        raise NativeFeedDenied("F139_NATIVE_FEED_HISTORICAL_INTENT_INVALID") from exc
+    require(isinstance(doc, dict), "HISTORICAL_INTENT_INVALID")
+    return candidate_identity(
+        doc.get("lane"), doc.get("target_commit"),
+        doc.get("path"), doc.get("after_sha256"))
+
+
 
 def _decode_content(doc: dict, *, allow_empty: bool = False) -> tuple[bytes, str]:
     require(isinstance(doc, dict) and doc.get("type") == "file"
@@ -230,6 +258,8 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
                         pr["title"][len(TITLE_PREFIX):].strip())[:180],
         "issue_body": proposal["issue_body"],
         "intent_base64": json.loads(proposal["issue_body"])["intent_base64"],
+        "candidate_identity": candidate_identity(
+            lane, target_commit, path, digest(after)),
         "qualification_key": proposal["qualification_key"],
         "source_evidence_sha256": digest(canonical(evidence)),
         "scientific_first_use": False,
@@ -237,11 +267,13 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
 
 
 def prepare_feed(get: Callable[[str], object], *, source_sha: str,
-                 existing_intent_base64: set[str]) -> dict:
+                 existing_candidate_identities: set[str]) -> dict:
     """Return up to two issue drafts; caller decides whether to create them."""
     require(callable(get) and _sha40(source_sha)
-            and isinstance(existing_intent_base64, set)
-            and all(isinstance(x, str) for x in existing_intent_base64),
+            and isinstance(existing_candidate_identities, set)
+            and all(isinstance(x, str)
+                    and re.fullmatch(r"[a-f0-9]{64}", x) is not None
+                    for x in existing_candidate_identities),
             "CALLER_INPUT_INVALID")
     policy_raw = get("repos/" + FORGE_REPO + "/issues/" + str(POLICY_ISSUE))
     policy = inspect_policy(policy_raw, source_sha)
@@ -267,10 +299,10 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                     "reason": str(exc),
                 })
                 continue
-            if candidate["intent_base64"] in existing_intent_base64:
+            if candidate["candidate_identity"] in existing_candidate_identities:
                 continue
             candidates.append(candidate)
-            existing_intent_base64.add(candidate["intent_base64"])
+            existing_candidate_identities.add(candidate["candidate_identity"])
             if len(candidates) >= policy["max_issue_creations_per_cycle"]:
                 return {"enabled": True, "candidates": candidates,
                         "rejected": rejected}
