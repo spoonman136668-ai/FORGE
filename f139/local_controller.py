@@ -245,6 +245,82 @@ class Database:
                 and re.fullmatch(r"[a-f0-9]{64}", row["head_hash"]), "METADATA_CORRUPT")
         return dict(row)
 
+    def verified_native_provider_failures(self):
+        """Identify durable failed provider starts; no external API, no replay.
+
+        This augments, never replaces, the two sealed original negatives.
+        Only original-owner event records with an exact observed terminal
+        provider attempt and adjacent quarantine event qualify.
+        """
+        accepted = {}
+        for event in self.conn.execute(
+                "SELECT seq,sha,payload FROM events "
+                "WHERE kind='NATIVE_FAILED_PROVIDER_CUSTODY' ORDER BY seq"):
+            doc = json.loads(event["payload"])
+            require(isinstance(doc,dict) and set(doc)=={
+                    "schema","ticket","run_id","source_sha",
+                    "provider_sha256","provider","scientific_first_use"}
+                    and doc["schema"]==
+                        "forge.f139.owner-native-provider-negative.v1"
+                    and doc["scientific_first_use"] is False,
+                    "PROVIDER_NEGATIVE_CUSTODY_FIELDS_DRIFT")
+            ticket=doc["ticket"]
+            report=doc["provider"]
+            require(isinstance(ticket,str)
+                    and ticket.startswith("f139-nci04-")
+                    and TICKET.fullmatch(ticket) is not None
+                    and ticket not in accepted
+                    and isinstance(doc["source_sha"],str)
+                    and SHA.fullmatch(doc["source_sha"]) is not None
+                    and type(doc["run_id"]) is int and doc["run_id"]>0
+                    and isinstance(report,dict)
+                    and set(report)=={
+                        "ticket","run_id","source_sha","jobs","artifact_ids",
+                        "provider_terminal","scientific_first_use"}
+                    and report["ticket"]==ticket
+                    and report["run_id"]==doc["run_id"]
+                    and report["source_sha"]==doc["source_sha"]
+                    and report["provider_terminal"]=="FAILURE_NO_REPLAY"
+                    and report["scientific_first_use"] is False
+                    and doc["provider_sha256"]==hash_bytes(canonical(report)),
+                    "PROVIDER_NEGATIVE_CUSTODY_DIGEST_OR_TICKET")
+            jobs=report["jobs"]
+            require(isinstance(jobs,dict)
+                    and set(jobs)=={"windows-latest","ubuntu-latest"}
+                    and any(jobs[name].get("conclusion")=="failure"
+                            for name in jobs)
+                    and all(isinstance(jobs[name],dict)
+                            and set(jobs[name])=={"job_id","conclusion"}
+                            and type(jobs[name]["job_id"]) is int
+                            and jobs[name]["job_id"]>0
+                            and jobs[name]["conclusion"] in ("success","failure")
+                            for name in jobs)
+                    and isinstance(report["artifact_ids"],list)
+                    and all(type(x) is int and x>0
+                            for x in report["artifact_ids"])
+                    and report["artifact_ids"]==sorted(set(report["artifact_ids"])),
+                    "PROVIDER_NEGATIVE_OS_OR_ARTIFACT_INVALID")
+            row=self.conn.execute(
+                "SELECT stage,source_sha,run_id,evidence_dir,evidence_sha,"
+                "quarantine_reason FROM tasks WHERE ticket=?",
+                (ticket,)).fetchone()
+            following=self.conn.execute(
+                "SELECT kind,payload FROM events WHERE seq=?",
+                (event["seq"]+1,)).fetchone()
+            require(row is not None and row["stage"]=="QUARANTINED"
+                    and row["source_sha"]==doc["source_sha"]
+                    and row["run_id"] is None and not row["evidence_dir"]
+                    and row["evidence_sha"] is None
+                    and row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY"
+                    and following is not None
+                    and following["kind"]=="ATTEMPT_QUARANTINED"
+                    and json.loads(following["payload"])=={
+                        "ticket":ticket,
+                        "reason":"FAILED_OR_CANCELLED_NO_REPLAY"},
+                    "PROVIDER_NEGATIVE_NOT_ORIGINAL_QUARANTINE")
+            accepted[ticket]=(doc["source_sha"],event["sha"])
+        return accepted
+
     def verify(self):
         meta = self.meta()
         head, count = ZERO, 0
@@ -358,12 +434,20 @@ class Database:
                          and doc.get("schema") == "forge.f139.source-transition.v3"
                          and set(doc) == base_fields | {
                              "custodied_negative_tasks", "custodied_negative_tickets"})
-                require(is_v1 or is_v2 or is_v3, "SOURCE_TRANSITION_EVENT_FIELDS")
+                is_v4 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v4"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256"})
+                require(is_v1 or is_v2 or is_v3 or is_v4,
+                        "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
-                         and doc["custodied_negative_tasks"] == 2)
+                         and doc["custodied_negative_tasks"] == 2
+                         or is_v4 and type(doc["custodied_negative_tasks"]) is int
+                         and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
                         and SHA.fullmatch(doc["from_source_sha"])
                         and isinstance(doc["to_source_sha"], str)
@@ -408,6 +492,28 @@ class Database:
                                     for value in (t["from_source_sha"],
                                                   t["to_source_sha"])},
                                 "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
+                if is_v4:
+                    from f139.nci04_negative_owner_store import TICKET as FIRST
+                    from f139.nci04_split_negative_owner_store import TICKET as SECOND
+                    provider_failures=self.verified_native_provider_failures()
+                    expected=sorted({FIRST,SECOND}|set(provider_failures))
+                    require(len(provider_failures)>=1
+                            and doc["custodied_negative_tickets"]==expected
+                            and doc["custodied_negative_tasks"]==len(expected)
+                            and doc["provider_failures_sha256"]==hash_bytes(
+                                canonical([{"ticket":t,"source_sha":provider_failures[t][0],
+                                            "event_sha":provider_failures[t][1]}
+                                           for t in sorted(provider_failures)]))
+                            and source_transitions
+                            and source_transitions[-1]["schema"] in (
+                                "forge.f139.source-transition.v3",
+                                "forge.f139.source-transition.v4")
+                            and doc["from_source_sha"]==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["to_source_sha"] not in {
+                                sha for t in source_transitions
+                                for sha in (t["from_source_sha"],t["to_source_sha"])},
+                            "SOURCE_TRANSITION_V4_PROVIDER_CUSTODY_INVALID")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -431,8 +537,12 @@ class Database:
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v2"]
         negative_v3 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v3"]
-        negative_transitions = negative_v2 + negative_v3
-        require(len(negative_transitions) <= 20 and len(negative_v3) <= 10,
+        negative_v4 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v4"]
+        verified_provider_negatives=self.verified_native_provider_failures()
+        negative_transitions = negative_v2 + negative_v3 + negative_v4
+        require(len(negative_transitions) <= 30
+                and len(negative_v3) <= 10 and len(negative_v4) <= 10,
                 "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         require(not negative_v3 or certified_negative and certified_second,
                 "SECOND_NEGATIVE_CUSTODY_MISSING")
@@ -458,7 +568,14 @@ class Database:
                 and row["source_sha"] in historical_sources
                 and row["stage"] == "QUARANTINED" and row["run_id"] is None
                 and row["evidence_sha"] is None and not row["evidence_dir"])
-            historical = prior_verified or prior_certified_negative or prior_certified_second
+            prior_provider_failure = (
+                bool(negative_v4) and row["ticket"] in verified_provider_negatives
+                and verified_provider_negatives[row["ticket"]][0]==row["source_sha"]
+                and row["source_sha"] in historical_sources
+                and row["stage"]=="QUARANTINED" and row["run_id"] is None
+                and row["evidence_sha"] is None and not row["evidence_dir"])
+            historical = (prior_verified or prior_certified_negative
+                          or prior_certified_second or prior_provider_failure)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
@@ -533,6 +650,8 @@ class Database:
             SOURCE as SOURCE_706, TICKET as NEGATIVE_706,
             verify_second_negative_custody)
         recognized = {NEGATIVE_696: SOURCE_696, NEGATIVE_706: SOURCE_706}
+        provider_failures=self.verified_native_provider_failures()
+        recognized.update({ticket:source for ticket,(source,_) in provider_failures.items()})
         with self.transaction():
             self.verify()
             meta = self.meta()
@@ -606,6 +725,26 @@ class Database:
                         and self.active() is None and self.ready() is None,
                         "SOURCE_TRANSITION_TWO_NEGATIVES_NOT_CUSTODIED")
                 schema = "forge.f139.source-transition.v3"
+            elif len(certified)>=3:
+                from f139.nci04_owner_ledger import verify_native_activation
+                events=[
+                    json.loads(r["payload"]) for r in self.conn.execute(
+                        "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+                require(tickets==set(recognized)
+                        and len(provider_failures)>=1
+                        and verify_original_negative_custody(self)
+                        and verify_second_negative_custody(self)
+                        and verify_native_activation(self)
+                        and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v3",
+                            "forge.f139.source-transition.v4")
+                        and events[-1]["to_source_sha"]==meta["source_sha"]
+                        and new_source_sha not in {
+                            sha for e in events
+                            for sha in (e["from_source_sha"],e["to_source_sha"])}
+                        and self.active() is None and self.ready() is None,
+                        "SOURCE_TRANSITION_V4_NEGATIVES_NOT_CUSTODIED")
+                schema="forge.f139.source-transition.v4"
             else:
                 require(not allow_certified_negative and not certified,
                         "SOURCE_TRANSITION_NEGATIVE_NOT_PRESENT")
@@ -624,6 +763,12 @@ class Database:
                 event["custodied_negative_tasks"] = len(certified)
             if schema == "forge.f139.source-transition.v3":
                 event["custodied_negative_tickets"] = [NEGATIVE_696, NEGATIVE_706]
+            elif schema == "forge.f139.source-transition.v4":
+                event["custodied_negative_tickets"] = sorted(tickets)
+                event["provider_failures_sha256"]=hash_bytes(
+                    canonical([{"ticket":t,"source_sha":provider_failures[t][0],
+                                "event_sha":provider_failures[t][1]}
+                               for t in sorted(provider_failures)]))
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
@@ -1395,7 +1540,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     native_enabled = verify_native_activation(db)
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
-    require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
+    # An unrelated protected-main merge must not prevent evidence-only
+    # reconciliation of provider runs dispatched under the pinned old SHA.
+    # New issue intake and dispatch still fail closed until exact owner cutover.
+    protected_now=api.protected_main()
+    source_matches=(protected_now==meta["source_sha"])
     legacy_pending={}
     for active_record in db.actives():
         active=dict(active_record)
@@ -1440,6 +1589,12 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 db.quarantine(active["ticket"],code if re.fullmatch(r"[A-Z_]{3,72}",code) else "UNCLASSIFIED_REJECTION")
             raise
     remaining=db.actives()
+    if not source_matches:
+        return {"disposition":"MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED",
+                "owner_source_sha":meta["source_sha"],
+                "protected_main_sha":protected_now,
+                "active_tickets":[row["ticket"] for row in remaining],
+                "scientific_first_use":False}
     if len(remaining) >= 2:
         return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
                 "tickets":[row["ticket"] for row in remaining]}
@@ -1746,12 +1901,20 @@ def cli(argv=None):
                 from f139.nci04_split_negative_owner_store import (
                     verify_second_negative_custody, TICKET as SECOND_TICKET)
                 excluded_tickets={r["ticket"] for r in excluded}
+                provider_negative_tickets=set(db.verified_native_provider_failures())
                 has_certified_negative=(
                     len(excluded)==1 and excluded_tickets=={NEGATIVE_TICKET}
                     and excluded[0]["stage"]=="QUARANTINED"
                     and verify_original_negative_custody(db)
                     or len(excluded)==2
                     and excluded_tickets=={NEGATIVE_TICKET, SECOND_TICKET}
+                    and all(r["stage"]=="QUARANTINED" for r in excluded)
+                    and verify_original_negative_custody(db)
+                    and verify_second_negative_custody(db)
+                    or len(excluded)>=3
+                    and excluded_tickets==(
+                        {NEGATIVE_TICKET,SECOND_TICKET}|provider_negative_tickets)
+                    and bool(provider_negative_tickets)
                     and all(r["stage"]=="QUARANTINED" for r in excluded)
                     and verify_original_negative_custody(db)
                     and verify_second_negative_custody(db))

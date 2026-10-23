@@ -219,10 +219,14 @@ class SQLiteControllerTests(unittest.TestCase):
         self.assertEqual(self.db.status()['tasks'][0]['stage'],'QUARANTINED')
         self.assertEqual(len(self.gh.dispatches),1)
 
-    def test_main_sha_drift_fails_before_start(self):
+    def test_main_sha_drift_blocks_new_work_without_replaying(self):
         self.gh.head='0'*40
-        with self.assertRaisesRegex(F139Error,'MAIN_SOURCE_DRIFT'):self.call()
+        outcome=self.call()
+        self.assertEqual(outcome['disposition'],'MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED')
+        self.assertEqual(outcome['owner_source_sha'],SHA)
+        self.assertEqual(outcome['protected_main_sha'],'0'*40)
         self.assertEqual(len(self.gh.dispatches),0)
+        self.db.verify()
 
     def test_db_missing_and_existing_init_rejected(self):
         with self.assertRaisesRegex(F139Error,'DATABASE_ALREADY_EXISTS'):Database.initialize(self.path,SHA)

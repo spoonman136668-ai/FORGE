@@ -76,6 +76,26 @@ class NativeWorkerTests(unittest.TestCase):
         self.assertEqual((self.repo / "cognition" / "sample.go").read_bytes(), BEFORE)
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
+    def test_yggdrasil_staged_git_history_has_no_original_remote(self):
+        after=b"def local_state():\n    return 1\n"
+        candidate=self.intent(
+            lane="Yggdrasil",
+            target_repository="spoonman136668-ai/Yggdrasil",
+            toolchain_identity="python3.11.11",
+            path="yggdrasil/online_state.py",
+            before_sha256=digest(b""),
+            after_sha256=digest(after),
+            after_base64=base64.b64encode(after).decode(),
+        )
+        stage=stage_candidate(candidate,self.repo,self.sandbox)
+        root=stage / "checkout"
+        self.assertEqual(git(root,"rev-parse","HEAD"),self.sha)
+        self.assertEqual(git(root,"rev-parse","HEAD^{tree}"),self.tree)
+        self.assertEqual(git(root,"remote"),"")
+        self.assertEqual((root / "yggdrasil/online_state.py").read_bytes(),after)
+        self.assertEqual(git(self.repo,"status","--porcelain"),"")
+        self.assertFalse((self.repo / "yggdrasil").exists())
+
     def test_dirty_checkout_rejected_before_staging(self):
         (self.repo / "cognition" / "sample.go").write_bytes(b"unexpected")
         with self.assertRaisesRegex(NativeContractError, "CHECKOUT_DIRTY"):
