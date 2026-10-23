@@ -87,7 +87,7 @@ class Q21N01SourceOnlyTests(unittest.TestCase):
         p.validate(frozen, previous)
         source = Path(g.__file__).read_text(encoding="utf-8")
         self.assertNotIn("cross_repository_authentication", source)
-        self.assertNotIn("github.com/spoonman136668-ai/ckb-plane", source)
+        self.assertNotIn("github.com/", source)
         self.assertNotIn("workflow_dispatch", source)
         self.assertNotIn("execute_development(", source)
         self.assertNotIn("original_firstuse", source)
