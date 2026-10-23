@@ -45,17 +45,24 @@ jobs:
             throw 'L1_PREEXISTING_NATIVE_RESEARCH_ANCESTRY_DRIFT'
           }
           $expected=@(
+            '.github/workflows/optimizer-l1-language.yml',
             '.github/workflows/optimizer-l1-sourceonly.yml',
             'research/optimizer_l1/L1_FROZEN_CHARTER.json',
+            'research/optimizer_l1/compare_source.py',
             'research/optimizer_l1/public_source.py',
-            'research/optimizer_l1/test_source.py',
             'research/optimizer_l1/qualify_source.py',
-            'research/optimizer_l1/compare_source.py'
+            'research/optimizer_l1/test_source.py',
+            'research/optimizer_language_l1/L1_FROZEN_PROTOCOL.json',
+            'research/optimizer_language_l1/compare.py',
+            'research/optimizer_language_l1/learners.py',
+            'research/optimizer_language_l1/public_language.py',
+            'research/optimizer_language_l1/runner.py',
+            'research/optimizer_language_l1/test_realization.py'
           )
           $actual=@(& git diff --name-only $parent HEAD)
           if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
               (Compare-Object $actual $expected)) {
-            throw 'L1_NOT_BOUNDED_ADDITIVE_SOURCE'
+            throw 'L1_CONSOLIDATED_EXACT_THIRTEEN_FILE_ADDITIVE_SCOPE_DRIFT'
           }
           $p='research/optimizer_l1/L1_FROZEN_CHARTER.json'
           $sha='3ad23bfc02403494f30e85bbed30b62aca620e3c'
@@ -64,6 +71,18 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $gitBlob -cne $sha -or
               $diskBlob -cne $sha) {
             throw 'L1_PROSPECTIVE_CHARTER_IDENTITY_DRIFT'
+          }
+          # Exact union of the independent precommitted charter and model 
+          # tracks; neither frozen protocol is modified or weakened.
+          $pins=@{
+            'research/optimizer_l1/L1_FROZEN_CHARTER.json'='3ad23bfc02403494f30e85bbed30b62aca620e3c'
+            'research/optimizer_language_l1/L1_FROZEN_PROTOCOL.json'='efcd5c7f322d58a3cadabcb2f7f926a9cadd56d4'
+          }
+          foreach ($fp in $pins.Keys) {
+            $original=(& git rev-parse ('HEAD:'+$fp)).Trim()
+            $local=(& git hash-object --no-filters -- $fp).Trim()
+            if ($LASTEXITCODE -ne 0 -or $original -cne $pins[$fp] -or
+                $local -cne $pins[$fp]) { throw 'L1_DUAL_FROZEN_PROTOCOL_DRIFT' }
           }
           Write-Host 'L1_CHARTER_AND_NATIVE_SCIENCE_ISOLATION=PASS'
       - name: Ten public meaning-to-text source and role custody tests
