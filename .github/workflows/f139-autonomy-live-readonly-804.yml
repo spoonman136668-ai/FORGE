@@ -1,4 +1,4 @@
-name: FORGE F139 live autonomy read-only audit 804
+name: FORGE F139 live autonomy read-only audit 804 806
 on:
   push:
     branches: [diagnostics/f139-autonomy-live-804-20261023]
@@ -34,16 +34,16 @@ jobs:
           try:
               con.execute('PRAGMA query_only=ON')
               meta=dict(con.execute('SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1').fetchone())
-              rows=[dict(r) for r in con.execute("SELECT ticket,lane,source_sha,stage,started_at,run_id FROM tasks WHERE ticket LIKE 'f139-nci04-i804-%' ORDER BY ticket")]
+              rows=[dict(r) for r in con.execute("SELECT ticket,lane,source_sha,stage,started_at,run_id FROM tasks WHERE ticket LIKE 'f139-nci04-i804-%' OR ticket LIKE 'f139-nci04-i806-%' ORDER BY ticket")]
               events=[]
               for r in con.execute("SELECT seq,kind,payload,sha FROM events ORDER BY seq DESC LIMIT 20"):
                   d=dict(r)
-                  if '804' in d['payload'] or d['kind'] in ('NATIVE_DEVELOPMENT_ADMITTED','TASK_INTAKE','BEFORE_DISPATCH_INTENT','DISPATCH_POST_RETURNED'):
+                  if ('804' in d['payload'] or '806' in d['payload']) or d['kind'] in ('NATIVE_DEVELOPMENT_ADMITTED','TASK_INTAKE','BEFORE_DISPATCH_INTENT','DISPATCH_POST_RETURNED'):
                       events.append(d)
               active=[dict(r) for r in con.execute("SELECT ticket,stage,started_at,run_id FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY started_at,ticket")]
               print('F139_LIVE_META='+json.dumps(meta,sort_keys=True))
-              print('F139_ISSUE804_TASKS='+json.dumps(rows,sort_keys=True))
-              print('F139_ISSUE804_RECENT_EVENTS='+json.dumps(events,sort_keys=True))
+              print('F139_ISSUE804_806_TASKS='+json.dumps(rows,sort_keys=True))
+              print('F139_ISSUE804_806_RECENT_EVENTS='+json.dumps(events,sort_keys=True))
               print('F139_LIVE_PENDING='+json.dumps(active,sort_keys=True))
           finally:
               con.close()
