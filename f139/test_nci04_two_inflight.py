@@ -85,6 +85,39 @@ class NativeDualInFlightTests(unittest.TestCase):
         self.assertFalse(any(
             ticket==issues[2].ticket for ticket in api.dispatches))
 
+    def test_explicit_owner_migration_from_original_unique_index(self):
+        old=("CREATE UNIQUE INDEX only_one_active_f139_task "
+             "ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER')")
+        self.db.conn.execute("DROP TRIGGER guard_two_native_active")
+        self.db.conn.execute("DROP INDEX only_one_active_f139_task")
+        self.db.conn.execute(old)
+        self.assertFalse(self.db.dual_native_schema())
+        self.db.verify()  # Historical one-slot custody remains readable.
+        old_head=self.db.meta()["head_hash"]
+        old_count=self.db.meta()["head_seq"]
+        self.assertTrue(self.db.enable_native_two_slots())
+        self.assertTrue(self.db.dual_native_schema())
+        self.db.verify()
+        self.assertEqual(self.db.meta()["head_seq"], old_count+1)
+        self.assertNotEqual(self.db.meta()["head_hash"], old_head)
+        self.assertFalse(self.db.enable_native_two_slots())
+        self.assertEqual(self.db.meta()["head_seq"], old_count+1)
+        # The index is a server-side safety barrier as well as a Python guard.
+        self.assertTrue(verify_native_activation(self.db))
+
+    def test_explicit_upgrade_rejects_active_or_dirty_owner(self):
+        work=self.work(890)
+        self.assertTrue(self.db.dual_native_schema())
+        # Never rebuild an active controller schema even if the method is
+        # called directly without the strictly guarded owner-only CLI.
+        self.db.conn.execute(
+            "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha) "
+            "VALUES(?,?,?,'READY',?)",
+            (work.ticket,work.lane,work.source_sha,"a"*64))
+        with self.assertRaisesRegex(
+                Exception,"TWO_SLOT_OWNER_MIGRATION_NOT_IDLE"):
+            self.db.enable_native_two_slots()
+
     def test_native_started_second_before_first_provider_has_finished(self):
         issues=[self.work(813),self.work(814)]
         api=self.Provider(issues)
