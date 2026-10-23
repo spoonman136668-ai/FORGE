@@ -107,11 +107,58 @@ jobs:
               & node.exe scripts/probe_brave_chart.cjs $bundle
               if($LASTEXITCODE -ne 0){throw 'RB2_REAL_BRAVE_MONACO_UI_ACCEPTANCE_FAILED'}
               Write-Host 'RB2_REAL_BRAVE_MONACO_PINE_SAVE=PASS'
+              # Preserve an operator-downloadable preview only after all
+              # native and Brave acceptance checks pass.
+              $preview=Join-Path $env:GITHUB_WORKSPACE ('rb2-preview-'+$env:GITHUB_RUN_ID)
+              if(Test-Path -LiteralPath $preview){throw 'RB2_PREVIEW_CUSTODY_COLLISION'}
+              New-Item -ItemType Directory -Path $preview -ErrorAction Stop | Out-Null
+              $srcZip=Join-Path $bundle 'KTRADE-Portable.zip'
+              $dstZip=Join-Path $preview 'KTRADE-Portable.zip'
+              Copy-Item -LiteralPath $srcZip -Destination $dstZip -ErrorAction Stop
+              $srcHash=(Get-FileHash -LiteralPath $srcZip -Algorithm SHA256).Hash.ToLowerInvariant()
+              $dstHash=(Get-FileHash -LiteralPath $dstZip -Algorithm SHA256).Hash.ToLowerInvariant()
+              if($srcHash -cne $dstHash){throw 'RB2_PREVIEW_ZIP_HASH_DRIFT'}
+              Copy-Item -LiteralPath (Join-Path $bundle 'package-manifest.json') -Destination (Join-Path $preview 'package-manifest.json') -ErrorAction Stop
+              $notice=@(
+                'KTRADE RB2 DEVELOPER PREVIEW - NOT COMPLETE AND NOT FOR LIVE TRADING'
+                'This preview tests actual charts, editor, Monaco, saved Pine scripts and Brave hosting.'
+                'The integrated paper-trading lifecycle is not yet available. Never use with a broker account.'
+                'Do not replace or overwrite an installed KTRADE application or any original user data.'
+                'Unzip KTRADE-Portable.zip to a NEW writable directory and run Start-KTRADE-Portable.ps1.'
+                'Requires an installed Brave Browser. LIVE remains disabled and unqualified.'
+                ('Exact source SHA: '+$sourceSha)
+                ('Portable ZIP SHA256: '+$dstHash)
+              ) -join [Environment]::NewLine
+              [IO.File]::WriteAllText((Join-Path $preview 'READ_ME_FIRST.txt'),$notice,[Text.UTF8Encoding]::new($false))
+              Write-Host ('RB2_PREVIEW_SOURCE_SHA='+$sourceSha)
+              Write-Host ('RB2_PREVIEW_ZIP_SHA256='+$dstHash)
+              Write-Host 'RB2_DEVELOPER_PREVIEW_STAGED_AFTER_REAL_BRAVE=PASS'
 
 
 
-              Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_APP_NOT_STARTED=TRUE'
+
+              Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_DISPOSABLE_APP_SMOKE=EXECUTED'
             }finally{Pop-Location}
           }finally{
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
           }
+
+      - name: Publish disarmed developer preview only after full check
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: KTRADE-RB2-DEV-PREVIEW-${{ github.run_id }}
+          path: rb2-preview-${{ github.run_id }}/*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+      - name: Clean up private preview staging
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $preview=Join-Path $env:GITHUB_WORKSPACE ('rb2-preview-'+$env:GITHUB_RUN_ID)
+          $base=[IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\\')+'\\'
+          $full=[IO.Path]::GetFullPath($preview)
+          if(!$full.StartsWith($base,[StringComparison]::OrdinalIgnoreCase)){throw 'RB2_PREVIEW_CLEANUP_ESCAPE'}
+          if(Test-Path -LiteralPath $full){Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop}
