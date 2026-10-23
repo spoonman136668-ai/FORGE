@@ -415,8 +415,11 @@ class Database:
         # chain, preventing cross-kind issue replay and fabricated task records.
         from f139.nci04_owner_ledger import audit_native_events
         audit_native_events(self)
-        active = self.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')").fetchone()[0]
-        require(active <= 1, "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
+        active_rows = self.actives()
+        require(len(active_rows) <= 2 and (
+            len(active_rows) <= 1 or all(
+                r["ticket"].startswith("f139-nci04-") for r in active_rows)),
+            "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
 
     @contextlib.contextmanager
     def transaction(self):
@@ -714,8 +717,14 @@ class Database:
         return {"issue_number":str(r["issue_number"]), "issue_id":str(r["issue_id"]),
                 "body_sha256":r["body_sha256"],"target_package":r["target_package"]}
 
+    def actives(self):
+        # Multiple provider tickets, ONE original owner mutex and SQLite log.
+        return list(self.conn.execute(
+            "SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') "
+            "ORDER BY started_at,ticket LIMIT 3"))
+
     def active(self):
-        return self.conn.execute("SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 1").fetchone()
+        return self.actives()[0] if self.actives() else None
 
     def ready(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage='READY' ORDER BY ticket LIMIT 1").fetchone()
@@ -727,7 +736,12 @@ class Database:
             require(m["enabled"]==1 and m["legacy_suspended"]==1,"CONTROLLER_INACTIVE")
             starts = m["starts"] if m["day"]==day else 0
             require(starts<LIMIT_PER_DAY,"DAILY_START_LIMIT")
-            require(self.active() is None,"CONCURRENT_ACTIVE_START_RISK")
+            in_flight = self.actives()
+            native = ticket.startswith("f139-nci04-")
+            require((len(in_flight) < 2 and
+                     all(r["ticket"].startswith("f139-nci04-")
+                         for r in in_flight)) if native else not in_flight,
+                    "CONCURRENT_ACTIVE_START_RISK")
             row=self.conn.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
             require(row is not None and row["stage"]=="READY", "TASK_ALREADY_CLAIMED")
             if ticket.startswith("f139-nci04-"):
@@ -1306,16 +1320,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
     require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
-    active=db.active()
-    if active is not None:
-        active=dict(active)
+    for active_record in db.actives():
+        active=dict(active_record)
         try:
             run=api.candidates(active["ticket"],active["started_at"])
             if run is None:
-                return {"disposition":"START_RISK_PENDING_NO_REDISPATCH","ticket":active["ticket"]}
+                continue  # Ambiguous provider startup remains sticky for this ticket.
             result=api.run_proof(run,active["ticket"],active["source_sha"],active["started_at"])
             if result is None:
-                return {"disposition":"WORKER_RUNNING_NO_REDISPATCH","ticket":active["ticket"]}
+                continue  # One in-flight native worker must not starve the second.
             rid,artifacts=result
             archives={}
             for oslabel in ("ubuntu-latest","windows-latest"):
@@ -1345,10 +1358,17 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             if code not in {"GITHUB_API_TIMEOUT","GITHUB_API_FAILED","GITHUB_API_INVALID_JSON"}:
                 db.quarantine(active["ticket"],code if re.fullmatch(r"[A-Z_]{3,72}",code) else "UNCLASSIFIED_REJECTION")
             raise
+    remaining=db.actives()
+    if len(remaining) >= 2:
+        return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
+                "tickets":[row["ticket"] for row in remaining]}
+    if remaining and not remaining[0]["ticket"].startswith("f139-nci04-"):
+        return {"disposition":"LEGACY_WORKER_RUNNING_NO_REDISPATCH",
+                "ticket":remaining[0]["ticket"]}
     ready=db.ready()
     if ready is None and db.admit_d2j_succession():
         ready=db.ready()
-    if ready is None and db.meta()["head_seq"] >= 23:
+    if ready is None and db.active() is None and db.meta()["head_seq"] >= 23:
         # Only issue-authorized development tasks; never invent work to stay busy.
         # Reuse the existing SQLite mutex, source check, and daily dispatch budget.
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
