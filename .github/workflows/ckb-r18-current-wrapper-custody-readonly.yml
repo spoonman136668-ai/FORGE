@@ -1,4 +1,4 @@
-name: R220 independent elevated post-cutover read-only acceptance
+name: R221 postcutover sustained native and queue read-only audit
 on:
   push:
     branches: [diagnostics/ckb-rb1-live-admission-20261022]
@@ -112,3 +112,67 @@ jobs:
           Write-Host 'R220_POSTCUTOVER_DB_READONLY_AUTHORITY=PASS'
           Write-Host 'R220_POSTCUTOVER_NO_KTRADE_WORKORDER_ACTIONS=PASS'
           Write-Host 'R220_POSTCUTOVER_LIVE_ACCEPTANCE=PASS'
+
+          # R221: contrast repeated live native reads and bounded SQL aggregates.
+          # This does not mutate queues, worker leases, KTRADE, or science.
+          $audit=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect('file:'+db.as_posix()+'?mode=ro',uri=True,timeout=8)
+          con.execute('PRAGMA query_only=ON')
+          def counts(table):
+              return dict(con.execute("SELECT state,COUNT(*) FROM "+table+" GROUP BY state").fetchall())
+          try:
+              work=counts("work_orders")
+              queue=counts("queue_items")
+              leases=int(con.execute("SELECT COUNT(*) FROM worker_leases").fetchone()[0])
+              unfinished=int(con.execute("SELECT COUNT(*) FROM process_records WHERE finished=0").fetchone()[0])
+              head=int(con.execute("SELECT COALESCE(MAX(id),0) FROM events").fetchone()[0])
+              settings=dict(con.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              print(json.dumps(dict(work_orders=work,queue=queue,leases=leases,unfinished=unfinished,event_head=head,settings=settings),sort_keys=True,separators=(',',':')))
+          finally:
+              con.close()
+          '@
+          function Observe-R221 {
+            $out=@(& python.exe -B -c $audit $db)
+            if($LASTEXITCODE-ne0 -or @($out).Count-ne1){throw 'R221_STATE_OBSERVATION_READ_FAILED'}
+            $row=$out[0]|ConvertFrom-Json
+            if([string]$row.settings.autonomy_authority -cne 'plane' -or
+               [string]$row.settings.autonomy_generation -cne '6' -or
+               [string]$row.settings.paused -cne 'false'){
+              throw 'R221_STATE_OBSERVATION_AUTHORITY_DRIFT'
+            }
+            return $row
+          }
+          $initial=Observe-R221
+          $pid1=[int]$process[0].ProcessId
+          Start-Sleep -Seconds 12
+          $task2=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $procs2=@((Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)|
+            Where-Object {[string]$_.CommandLine -match '(?i)\bcontroller\s+run\b'})
+          if([string]$task2.State-cne'Running' -or $procs2.Count-ne1 -or
+             [string]$procs2[0].ExecutablePath -ine $newExe){
+            throw 'R221_SUSTAINED_NATIVE_SINGLETON_DRIFT'
+          }
+          $native2=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8
+          if([string]$native2.authority-cne'plane' -or [string]$native2.generation-cne'6' -or
+             [bool]$native2.heartbeat_stale -or [bool]$native2.paused -or
+             [bool]$native2.accepted_ref_mutation_allowed){
+            throw 'R221_SUSTAINED_NATIVE_AUTHORITY_DRIFT'
+          }
+          $end=Observe-R221
+          if([int64]$end.event_head -lt [int64]$initial.event_head){
+            throw 'R221_EVENT_LEDGER_REGRESSION'
+          }
+          Write-Host 'R221_SUSTAINED_LIVE_NATIVE_TWO_SAMPLES=PASS'
+          Write-Host ('R221_INITIAL_EVENT_HEAD='+[string]$initial.event_head)
+          Write-Host ('R221_FINAL_EVENT_HEAD='+[string]$end.event_head)
+          Write-Host ('R221_INITIAL_WORK_ORDER_STATES='+($initial.work_orders|ConvertTo-Json -Compress))
+          Write-Host ('R221_FINAL_WORK_ORDER_STATES='+($end.work_orders|ConvertTo-Json -Compress))
+          Write-Host ('R221_INITIAL_QUEUE_STATES='+($initial.queue|ConvertTo-Json -Compress))
+          Write-Host ('R221_FINAL_QUEUE_STATES='+($end.queue|ConvertTo-Json -Compress))
+          Write-Host ('R221_WORKER_LEASES_AT_FINAL='+[string]$end.leases)
+          Write-Host ('R221_UNFINISHED_PROCESS_RECORDS_AT_FINAL='+[string]$end.unfinished)
+          Write-Host 'R221_INDEPENDENT_READ_ONLY_PROGRESS_SNAPSHOT=PASS'
+
