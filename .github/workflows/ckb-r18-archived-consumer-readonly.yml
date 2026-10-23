@@ -1,0 +1,58 @@
+name: R18 identify archived YAML consumer (read only)
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-archived-consumer-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 22
+          persist-credentials: false
+      - name: Inspect objective and queue historical linkage without writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base 2cdc36d356b2bbb035d9077199964f5df58b49b6 HEAD) -cne '2cdc36d356b2bbb035d9077199964f5df58b49b6'){throw 'R18_ARCHIVE_INSPECTION_CUSTODY_DRIFT'}
+          $files=@(& git.exe diff --name-only 2cdc36d356b2bbb035d9077199964f5df58b49b6 HEAD)
+          if($LASTEXITCODE -ne 0 -or $files.Count -ne 1 -or $files[0] -cne '.github/workflows/ckb-r18-archived-consumer-readonly.yml'){throw 'R18_ARCHIVE_READONLY_SCOPE_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'){throw 'R18_CONTROLLER_BINARY_DRIFT'}
+          $py=@'
+          import sqlite3,sys,json,hashlib
+          p=sys.argv[1].replace('\\','/')
+          c=sqlite3.connect('file:'+p+'?mode=ro',uri=True,timeout=5)
+          try:
+            c.execute('pragma query_only=on')
+            tables={x[0] for x in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            print('R18_ACTIVE_OBJECTIVES_TABLE='+str('objectives' in tables))
+            print('R18_ARCHIVED_PRESERVATION_WORK_ORDERS='+str(c.execute("SELECT count(*) FROM work_orders WHERE instr(CAST(yaml AS TEXT),'preservation:')>0").fetchone()[0]))
+            if 'objectives' in tables:
+              objs=c.execute("SELECT id,raw FROM objectives ORDER BY priority DESC,id").fetchall()
+              print('R18_OBJECTIVES_TOTAL='+str(len(objs)))
+              for ident,raw in objs[:100]:
+                obj=json.loads(raw)
+                cur=obj.get('current_work_order_id','')
+                if not cur: continue
+                row=c.execute("SELECT state,yaml FROM work_orders WHERE id=?",(cur,)).fetchone()
+                q=c.execute("SELECT state FROM queue_items WHERE id=?",(cur,)).fetchone()
+                legacy=bool(row and b'preservation:' in (row[1] if isinstance(row[1],bytes) else str(row[1]).encode()))
+                key=hashlib.sha256(cur.encode()).hexdigest()[:12]
+                print('R18_OBJECTIVE_CURRENT='+key+'|objective_status='+str(obj.get('status'))+'|work_state='+str(row[0] if row else 'ABSENT')+'|queue_state='+str(q[0] if q else 'ABSENT')+'|legacy_preservation='+str(legacy))
+            print('R18_ARCHIVED_CONSUMER_READ_ONLY=PASS')
+          finally:c.close()
+          '@
+          & python.exe -B -c $py (Join-Path $root 'state\autonomy.db')
+          if($LASTEXITCODE -ne 0){throw 'R18_ARCHIVED_CONSUMER_READONLY_SQL_FAILED'}
