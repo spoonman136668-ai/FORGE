@@ -236,7 +236,14 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
         if (sum(x["admitted_day"] == now[:10] for x in rows) >= MAX_DAILY
                 or native_recent_starts(db, now) >= MAX_STARTS_PER_WINDOW):
             return False
-        require(db.active() is None and db.ready() is None,
+        in_flight=db.actives()
+        # Allow a second *native* ticket while the first is at the provider.
+        # Owner lock, unique issue/ticket admission and provider receipts stay
+        # the same. A third worker or any mixed legacy/non-native run defers.
+        if len(in_flight) >= 2:
+            return False
+        require(db.ready() is None and all(
+                x["ticket"].startswith("f139-nci04-") for x in in_flight),
                 "OTHER_WORK_PENDING")
         intent = frozen_issue_record(issue, meta["head_hash"], now[:10])
         manifest_sha = digest(canonical(intent))
