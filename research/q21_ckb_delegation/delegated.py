@@ -4,6 +4,8 @@ FORGE is a cross-platform runtime only. A manually supplied CKB run ID is a
 lookup hint, never authority. Verify the CKB owner's live GitHub run, one-time
 first-use history, successful owner-once job, exact admitted source tree, and
 the FORGE worker's own non-replayed owner dispatch before loading any model.
+The deployed CKB source is the already-qualified protected main at
+3fc3b5ddd6d5a105a95ea83dbabaccc989dc6dbc; no draft PR #600 dependency.
 Source-free prospective Q21 development only. No protected first-use.
 """
 from __future__ import annotations
@@ -22,9 +24,10 @@ import admit_exact as owner
 import execute_dev as ckbdev
 
 WORKFLOW = "q21-forge-delegated-development.yml"
-CKB_TREE = "53fa1f0757f88ff96fa63cbf219c5805d44d6fab"
-CKB_WORKFLOW_BLOB = "42235916f3e2acdfeaa68d59ed5db639e49cfe4f"
-CKB_EXECUTOR_BLOB = "722e47dcdbf5affd2102dbf2d329c4c55ea40d69"
+CKB_AUTHORIZED_COMMIT = "3fc3b5ddd6d5a105a95ea83dbabaccc989dc6dbc"
+CKB_TREE = "2ae819ca348a90827595f7dbcbfcf7d412deeb67"
+CKB_WORKFLOW_BLOB = "ef0689ed1ad7de7a93af73a8ccc63224942ff03d"
+CKB_OWNER_TEST_BLOB = "ea99a2a92c431087e885c7ccc8ee93bc9728fd97"
 SOURCE = owner.SOURCE
 SCOPE = "FRESH_Q21_FIT_TRAIN_FIT_VALID_DEV_ONLY"
 
@@ -94,16 +97,15 @@ def attest(owner_run_id, env, get):
     history(get, owner.CKB, owner.WORKFLOW, ckb_id)
 
     ckb_sha = ckb.get("head_sha")
-    need(type(ckb_sha) is str and len(ckb_sha)==40 and
-         all(c in "0123456789abcdef" for c in ckb_sha),
-         "CKB_COMMIT_MISSING")
+    need(ckb_sha == CKB_AUTHORIZED_COMMIT,
+         "CKB_DEPLOYED_OWNER_SOURCE_NOT_EXACT")
     tree = get("/repos/" + owner.CKB + "/git/commits/" + ckb_sha)
     need((tree.get("tree") or {}).get("sha") == CKB_TREE,
          "CKB_AUTHORIZED_EXACT_TREE_DRIFT")
     for path, digest in (
         (".github/workflows/"+owner.WORKFLOW, CKB_WORKFLOW_BLOB),
         ("research/q21/admit_exact.py", "cebda244cf0899e60ef07162969b594340b67b74"),
-        ("research/q21/execute_dev.py", CKB_EXECUTOR_BLOB),
+        ("research/q21/test_admit_exact.py", CKB_OWNER_TEST_BLOB),
     ):
         item = get("/repos/" + owner.CKB + "/contents/"+path+"?ref="+ckb_sha)
         need(item.get("sha")==digest and item.get("type")=="file",
