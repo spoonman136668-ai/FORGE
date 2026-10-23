@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='d983d7223959775f8bc905e739718910cc2ec479'
+          $sourceSha='5abddd69102081b1916cf22effe8a82e76485c46'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -85,6 +85,38 @@ jobs:
               & go.exe test -mod=readonly -count=1 -p 1 ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile
               if($LASTEXITCODE -ne 0){throw 'RB2_ISOLATED_PAPER_LEDGER_FOCUSED_FAILED'}
               Write-Host 'RB2_ISOLATED_PAPER_LEDGER_AND_RECONCILE_FOCUSED=PASS'
+              # Authentic TradeGuard is NOT present in shipping KTRADE. Run an
+              # independent, disposable, pinned CKB-donor checkout that copies
+              # only the source-locked KTRADE Pine-to-paper qualification files.
+              # No installed app, broker, local controller or persistent queue.
+              $donorSha='520cfe124fdd7e8dcbf16b6a6f38229b43db7dbc'
+              $donor=Join-Path $tmp 'donor-original'
+              & git.exe init --quiet -- $donor
+              if($LASTEXITCODE -ne 0){throw 'RB2_DONOR_INIT_FAILED'}
+              & git.exe -C $donor fetch --depth=1 --no-tags -- 'https://github.com/spoonman136668-ai/ckb.git' $donorSha
+              if($LASTEXITCODE -ne 0){throw 'RB2_DONOR_READONLY_FETCH_FAILED'}
+              & git.exe -C $donor checkout --quiet --detach FETCH_HEAD
+              if($LASTEXITCODE -ne 0){throw 'RB2_DONOR_CHECKOUT_FAILED'}
+              if((& git.exe -C $donor rev-parse HEAD).Trim() -cne $donorSha){throw 'RB2_DONOR_HEAD_DRIFT'}
+              if((& git.exe -C $donor rev-parse 'HEAD:pkg/risk.go').Trim() -cne '8469df654777548266448d1bf02192e780c8ebad'){
+                throw 'RB2_AUTHENTIC_DONOR_TRADEGUARD_SOURCE_DRIFT'
+              }
+              foreach($module in @('paperproposal','papertrading','paperreconcile')){
+                $targetDir=Join-Path $donor ('internal/'+$module)
+                if(Test-Path -LiteralPath $targetDir){Remove-Item -LiteralPath $targetDir -Recurse -Force -ErrorAction Stop}
+                Copy-Item -LiteralPath (Join-Path $root ('internal/'+$module)) -Destination $targetDir -Recurse -ErrorAction Stop
+              }
+              $testDir=Join-Path $donor 'tests/donor-shadow'
+              if(!(Test-Path -LiteralPath $testDir)){New-Item -ItemType Directory -Path $testDir -Force | Out-Null}
+              foreach($name in @('shadow_test.go','reconcile_test.go','rb2_pine_authentic_paper_test.go')){
+                Copy-Item -LiteralPath (Join-Path $root ('tests/donor-shadow/'+$name)) -Destination (Join-Path $testDir $name) -ErrorAction Stop
+              }
+              Push-Location $donor
+              try{
+                & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_donor_shadow -run '^TestRB2ActualPine' ./tests/donor-shadow
+                if($LASTEXITCODE -ne 0){throw 'RB2_NATIVE_PINE_AUTHENTIC_TRADEGUARD_PAPER_END_TO_END_FAILED'}
+              }finally{Pop-Location}
+              Write-Host 'RB2_NATIVE_PINE_AUTHENTIC_DONOR_PAPER_END_TO_END_SHADOW=PASS'
               & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading ./internal/paperproposal ./internal/paperreconcile
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_VET_FAILED'}
               Write-Host 'RB2_NATIVE_VET=PASS'
