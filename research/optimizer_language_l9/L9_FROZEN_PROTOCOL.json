@@ -1,0 +1,180 @@
+{
+  "schema": "forge.optimizer.language.l9.webnlg-cross-domain-v1",
+  "status": "PROTOCOL_ONLY_COMMITTED_BEFORE_WEBNLG_SOURCE_PARSE_OR_MODEL_CODE",
+  "frozen_parent_main": "58dc4cc483349249c98f1620b51b843b9e927468",
+  "scientific_question": "Does a learned compositional meaning-to-language mechanism preserve requested facts and produce useful human-like text on categories not observed during training, at a competitive total resource cost, rather than merely memorizing domain-specific E2E patterns?",
+  "prior_boundary": {
+    "source": "Optimizer L8 draft PR #815",
+    "result": "Bounded positive: frozen L7 constrained realizer used TRAIN-learned human-language patterns on 160/160 fresh E2E public DEV MRs with 700/704 five-field literal hits and no canonical fallback.",
+    "unresolved": [
+      "four audited requested-value misses",
+      "literal copy is not semantic entailment",
+      "single-reference token F1 is not fluency",
+      "no cross-domain transfer",
+      "no matched strong recurrent/transformer resource comparison",
+      "no quality-to-compute Pareto qualification"
+    ]
+  },
+  "source": {
+    "dataset": "WebNLG 3.0 English RDF-to-text",
+    "repository": "https://gitlab.com/shimorina/webnlg-dataset.git",
+    "repository_master_tip_required_prefix": "587fa698",
+    "release_tree_required_commit_prefix": "a7ea49b5",
+    "release_path": "release_v3.0/en",
+    "license": "CC BY-NC-SA 4.0",
+    "citations": [
+      "Gardent, Shimorina, Narayan, Perez-Beltrachini (ACL 2017)",
+      "WebNLG+ Challenge 2020"
+    ],
+    "rules": [
+      "Resolve full Git commit identities from metadata before reading corpus bytes.",
+      "Verify the release_v3.0 tree ancestry contains the required a7ea49b5 prefix uniquely.",
+      "Commit an exact source-manifest follow-up before any training/dev XML or JSON is parsed.",
+      "Official WebNLG test data is protected and MUST NOT be fetched, parsed, scored, copied, or used for model selection in L9.",
+      "Raw corpus text and XML/JSON are not committed as repository files or workflow artifacts."
+    ]
+  },
+  "frozen_split_rule": {
+    "unit": "WebNLG canonical category name",
+    "category_partition": "For each category C, compute SHA256(UTF8(lowercase(trim(C)))); first digest byte modulo 4 == 0 => L9_AUDIT_CATEGORY, otherwise L9_TRAIN_CATEGORY. No category may cross partitions.",
+    "train_selection_within_training_categories": "Use only official TRAIN examples in L9_TRAIN_CATEGORY categories. Canonical example identity SHA256 determines role: digest first byte modulo 5 == 0 => L9_SELECT, otherwise L9_TRAIN.",
+    "audit": "Use only official DEV examples in L9_AUDIT_CATEGORY categories. All are L9_AUDIT_DEV. Do not tune on them.",
+    "minimums": {
+      "train_examples": 1000,
+      "select_examples": 150,
+      "audit_examples": 120,
+      "audit_categories": 2
+    },
+    "fail_closed": "If deterministic partition does not meet all minimums, stop and revise only through a new protocol version before any model fitting."
+  },
+  "semantic_input": {
+    "representation": "Ordered canonical RDF triple set with normalized subject, predicate, object strings; retain original triple identity and reference grouping.",
+    "canonicalization": "Sort triples by normalized subject,predicate,object only for hashing/accounting; models receive a deterministic serialization with explicit triple boundaries.",
+    "forbidden_shortcuts": [
+      "reference text at inference",
+      "DEV/AUDIT lexicalization inventory fitting",
+      "official TEST",
+      "pretrained paid API",
+      "hidden answers in IDs, filenames or route labels"
+    ]
+  },
+  "methods": [
+    {
+      "id": "CANONICAL_FACTS",
+      "class": "deterministic nonfluent fidelity control",
+      "training": "none",
+      "purpose": "coverage/cost lower bound; never call fluent language"
+    },
+    {
+      "id": "TRAIN_REFERENCE_RETRIEVAL",
+      "class": "trained-memory control",
+      "training": "same L9_TRAIN supervised examples",
+      "purpose": "memorization/reference reuse baseline"
+    },
+    {
+      "id": "COMPOSITIONAL_PATTERN",
+      "class": "Optimizer candidate",
+      "training": "learn predicate-conditioned lexical/delexical phrase structures and compose them for new triple graphs",
+      "constraints": [
+        "no canonical-fact fallback hidden inside candidate",
+        "explicit abstention if candidate cannot realize a graph under frozen constraints",
+        "route attribution for every output"
+      ]
+    },
+    {
+      "id": "GRU_SEQ2SEQ",
+      "class": "conventional recurrent learned control",
+      "training": "from scratch on exact same L9_TRAIN examples; no pretrained embeddings",
+      "resource_match": "parameter ceiling selected prospectively from candidate serialized trained-state size band; training examples and information identical"
+    },
+    {
+      "id": "SMALL_TRANSFORMER",
+      "class": "conventional autoregressive transformer control",
+      "training": "from scratch on exact same L9_TRAIN examples; no pretrained weights",
+      "resource_match": "same target parameter/storage band as GRU and candidate where architecture permits; disclose deviations"
+    }
+  ],
+  "selection": {
+    "allowed": "L9_SELECT only",
+    "chooses": [
+      "candidate composition thresholds/search bounds",
+      "GRU seed/early-stop epoch from preregistered small grid",
+      "Transformer seed/early-stop epoch from preregistered small grid"
+    ],
+    "forbidden": "No L9_AUDIT_DEV tuning, retrying thresholds after audit results, or architecture changes after audit exposure."
+  },
+  "metrics": {
+    "semantic_fidelity": [
+      "subject/object entity coverage with normalization and exact source-slot denominators",
+      "per-triple requested-content coverage using TRAIN-derived relation lexicalization map only",
+      "explicit missing-triple count",
+      "extra source-entity mentions not present in input graph",
+      "negation-marker conflicts around asserted source relations as a high-recall proxy, NOT adjudicated contradiction",
+      "abstention retained as zero coverage in all aggregate denominators"
+    ],
+    "language_quality": [
+      "multi-reference token F1 where references are available",
+      "chrF computed against all available references",
+      "sentence completeness/terminal punctuation proxy",
+      "repetition rate and unresolved placeholder rate"
+    ],
+    "resources": [
+      "total training CPU and wall time",
+      "selection CPU and wall time",
+      "audit inference CPU and serial wall time",
+      "peak RSS and Python traced memory",
+      "serialized model/checkpoint bytes including optimizer state where retained",
+      "source bytes read",
+      "candidate verification/repair cost included in total inference",
+      "FLOPs only if actually measured; otherwise NOT_MEASURED",
+      "energy only if actually measured; otherwise NOT_MEASURED"
+    ],
+    "cross_domain": [
+      "all audit metrics reported by held-out category and macro-averaged over held-out categories",
+      "no micro-only success claim"
+    ]
+  },
+  "advancement": {
+    "engineering": [
+      "exact source custody and deterministic role identities reconcile on Linux and Windows",
+      "focused adversarial tests PASS on both OS",
+      "one complete FORGE regression PASS after candidate source is finalized"
+    ],
+    "scientific": [
+      "candidate must beat TRAIN_REFERENCE_RETRIEVAL on held-out-category semantic coverage without higher extra-entity proxy rate",
+      "candidate must not be statistically or practically dominated by both GRU_SEQ2SEQ and SMALL_TRANSFORMER on quality versus total measured resources",
+      "no hard false-positive semantic acceptance",
+      "results reproduce on at least two preregistered training seeds for learned controls"
+    ],
+    "no_go": [
+      "cross-domain semantic coverage collapses",
+      "gain disappears when canonical fallback is disabled",
+      "matched conventional control dominates quality and resources",
+      "hidden verification/repair cost erases claimed compute gain",
+      "source/role identity drift or protected TEST exposure"
+    ]
+  },
+  "governance": {
+    "additive_only": true,
+    "unchanged": [
+      "NCI-04",
+      "ITD-01",
+      "BIO",
+      "Mass Research",
+      "Q21 successor and frozen negatives",
+      "FORGE F139 controller/authority",
+      "Wingless",
+      "Yggdrasil",
+      "L1-L8 evidence and candidate histories"
+    ],
+    "authority": "CKB-plane remains sole execution/orchestration authority; GitHub-hosted qualification may run isolated public-development science only.",
+    "forbidden": [
+      "merge to protected main from this gate",
+      "new controller, scheduler or competing queue",
+      "paid API",
+      "production/runtime activation",
+      "official WebNLG test consumption",
+      "scientific GO from protocol or source-custody PASS alone"
+    ]
+  }
+}
