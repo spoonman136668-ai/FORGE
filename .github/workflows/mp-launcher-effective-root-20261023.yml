@@ -1,0 +1,118 @@
+name: MP effective CKB controller launch root custody
+on:
+  push:
+    branches: [diagnostics/mp-launcher-effective-root-20261023]
+    paths: [.github/workflows/mp-launcher-effective-root-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-launcher-effective-root-20261023
+  cancel-in-progress: false
+jobs:
+  provenance:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Compare running image to scheduled launcher effective root read-only
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$tag){if(-not $yes){throw ('MP_EFFECTIVE_LAUNCH_'+$tag)}}
+          function SHA([string]$path){return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()}
+          function Same([string]$one,[string]$two){return [string]::Equals([IO.Path]::GetFullPath($one),[IO.Path]::GetFullPath($two),[StringComparison]::OrdinalIgnoreCase)}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-launcher-effective-root-20261023') 'REF'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='b53d41e36d1c0293f46e3e41fdc0069dd4b58593'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $delta=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-launcher-effective-root-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $installedExe=Join-Path $root 'bin\ckb-plane.exe'
+          $installedScript=Join-Path $root 'scripts\Start-CKBPlane.ps1'
+          $installedCfg=Join-Path $root 'config\autonomy.yaml'
+          foreach($f in @($installedExe,$installedScript,$installedCfg)){
+            Need (Test-Path -LiteralPath $f -PathType Leaf) 'INSTALLED_FILE_MISSING'
+            Need (((Get-Item -LiteralPath $f).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'INSTALLED_LINK'
+          }
+          Need ((SHA $installedExe) -ceq '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6') 'INSTALLED_EXE_DRIFT'
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procs.Count -eq 1) 'NOT_SINGLETON'
+          $proc=$procs[0]
+          $running=[IO.Path]::GetFullPath([string]$proc.ExecutablePath)
+          Need (Test-Path -LiteralPath $running -PathType Leaf) 'RUNNING_EXE_NOT_FOUND'
+          Need (((Get-Item -LiteralPath $running).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'RUNNING_IMAGE_ALIAS'
+          Need ((SHA $running) -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc') 'RUNNING_EXE_DRIFT'
+          Write-Host 'MP_EFFECTIVE_INSTALLED_AND_RUNNING_EXE_PINNED=PASS'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Need (@($task.Actions).Count -eq 1) 'TASK_ACTION_COUNT'
+          $action=$task.Actions[0]
+          Need ([IO.Path]::GetFileName([string]$action.Execute) -imatch '^powershell(\.exe)?$|^pwsh(\.exe)?$') 'TASK_SHELL'
+          $args=[string]$action.Arguments
+          $fileRx='(?i)(?:^|\s)-File\s+(?:"([^"]+)"|''([^'']+)''|(\S+))'
+          $fileHit=[regex]::Matches($args,$fileRx)
+          Need ($fileHit.Count -eq 1) 'TASK_FILE_ARG'
+          $fileCandidate=@($fileHit[0].Groups[1],$fileHit[0].Groups[2],$fileHit[0].Groups[3] | Where-Object {$_.Success -and $_.Value})[0].Value
+          Need ([IO.Path]::IsPathRooted($fileCandidate)) 'TASK_SCRIPT_NOT_ABSOLUTE'
+          $script=[IO.Path]::GetFullPath($fileCandidate)
+          Need (Test-Path -LiteralPath $script -PathType Leaf) 'TASK_SCRIPT_NOT_FOUND'
+          Need (((Get-Item -LiteralPath $script).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'TASK_SCRIPT_ALIAS'
+          $scriptSHA=SHA $script
+          Need ($scriptSHA -ceq '47d8a25fe7b60fb0b96874249ef2de2a59fbe95cce722538abe524b86954d577') 'TASK_SCRIPT_HASH_DRIFT'
+          Write-Host 'MP_EFFECTIVE_TASK_SCRIPT_PINNED=PASS'
+          $planeRx='(?i)(?:^|\s)-Plane\s+(?:"([^"]+)"|''([^'']+)''|(\S+))'
+          $planeHit=[regex]::Matches($args,$planeRx)
+          Need ($planeHit.Count -le 1) 'TASK_PLANE_ARG_AMBIGUOUS'
+          $targetPlane=$null
+          if($planeHit.Count -eq 1){
+             $gr=@($planeHit[0].Groups[1],$planeHit[0].Groups[2],$planeHit[0].Groups[3])
+             $hit=@($gr | Where-Object {$_.Success -and $_.Value})
+             Need ($hit.Count -eq 1) 'TASK_PLANE_PARSE'
+             $targetPlane=$hit[0].Value
+             Need ([IO.Path]::IsPathRooted($targetPlane)) 'RELATIVE_TASK_PLANE'
+             $targetPlane=[IO.Path]::GetFullPath($targetPlane)
+          }
+          Write-Host ('MP_EFFECTIVE_TASK_PLANE_ARGUMENT_PRESENT='+($null -ne $targetPlane).ToString().ToUpperInvariant())
+          if($null -ne $targetPlane){
+             Write-Host ('MP_EFFECTIVE_TASK_PLANE_EQUALS_INSTALLED_ROOT='+(Same $targetPlane $root).ToString().ToUpperInvariant())
+             Write-Host ('MP_EFFECTIVE_RUNNING_EXE_EQUALS_TASK_PLANE_BIN='+(Same $running (Join-Path $targetPlane 'bin\ckb-plane.exe')).ToString().ToUpperInvariant())
+             Write-Host ('MP_EFFECTIVE_TASK_SCRIPT_IS_IN_PLANE_ROOT='+($script.StartsWith(([IO.Path]::GetFullPath($targetPlane)).TrimEnd([char]92)+[char]92,[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          }
+          $scriptText=[IO.File]::ReadAllText($script)
+          $matches=([regex]::Matches($scriptText,'(?i)bin\\ckb-plane\.exe')).Count
+          Write-Host ('MP_EFFECTIVE_LAUNCH_SCRIPT_BIN_REFERENCES='+$matches)
+          Write-Host ('MP_EFFECTIVE_LAUNCH_SCRIPT_COMMAND_RUN=' + ($scriptText -match '(?i)controller[^\r\n]{0,90}run').ToString().ToUpperInvariant())
+          $procCmd=[string]$proc.CommandLine
+          Write-Host ('MP_EFFECTIVE_RUNNING_CONFIG_EQUALS_EXPECTED='+($procCmd.Contains([IO.Path]::GetFullPath($installedCfg),[StringComparison]::OrdinalIgnoreCase)).ToString().ToUpperInvariant())
+          $parentPid=[uint32]$proc.ParentProcessId
+          $parents=@(Get-CimInstance Win32_Process -Filter "ProcessId=$parentPid" -ErrorAction Stop)
+          if($parents.Count -eq 1){
+             $p=$parents[0]
+             Write-Host ('MP_EFFECTIVE_PARENT_POWERSHELL='+([IO.Path]::GetFileName([string]$p.Name) -imatch '^powershell\.exe$|^pwsh\.exe$').ToString().ToUpperInvariant())
+             Write-Host ('MP_EFFECTIVE_PARENT_COMMAND_CONTAINS_TASK_SCRIPT='+([string]$p.CommandLine).Contains($script,[StringComparison]::OrdinalIgnoreCase).ToString().ToUpperInvariant())
+             if($targetPlane){
+                Write-Host ('MP_EFFECTIVE_PARENT_COMMAND_CONTAINS_TASK_PLANE='+([string]$p.CommandLine).Contains($targetPlane,[StringComparison]::OrdinalIgnoreCase).ToString().ToUpperInvariant())
+             }
+             $started=[Management.ManagementDateTimeConverter]::ToDateTime([string]$proc.CreationDate).ToUniversalTime()
+             $taskTime=(Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller').LastRunTime.ToUniversalTime()
+             Write-Host ('MP_EFFECTIVE_TASK_LAST_RUN_WITHIN_PROCESS_10MIN='+([Math]::Abs(($started-$taskTime).TotalMinutes) -le 10).ToString().ToUpperInvariant())
+             $scriptModified=(Get-Item -LiteralPath $script).LastWriteTimeUtc
+             Write-Host ('MP_EFFECTIVE_SCRIPT_MODIFIED_AFTER_PROCESS_START='+($scriptModified -gt $started).ToString().ToUpperInvariant())
+          }else{Write-Host 'MP_EFFECTIVE_PARENT_PROCESS_LOOKUP=UNAVAILABLE'}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($after.Count -eq 1 -and $after[0].ProcessId -eq $proc.ProcessId) 'PROCESS_CHANGED'
+          Need ((SHA $running) -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc') 'RUNNING_BINARY_CHANGED'
+          Need ((SHA $script) -ceq $scriptSHA -and (SHA $installedExe) -ceq '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6') 'ORIGINAL_COMPONENT_CHANGED'
+          Write-Host 'MP_EFFECTIVE_PRE_POST_PROCESS_AND_FILE_HASHES_STABLE=PASS'
+          Write-Host 'MP_EFFECTIVE_CONTROLLER_OR_SCHEDULER_COMMANDS=0'
+          Write-Host 'MP_EFFECTIVE_PRODUCTION_CHANGES=0'
+          Write-Host 'MP_EFFECTIVE_LAUNCH_ROOT_DIAGNOSIS=PASS'
