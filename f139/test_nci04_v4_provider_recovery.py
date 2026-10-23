@@ -97,6 +97,23 @@ class OwnerProviderV4(TwoNegativeControllerIntegration):
             self.assertEqual(val["custodied_negative_tasks"],4)
             self.assertEqual(len(val["custodied_negative_tickets"]),4)
             self.assertEqual(len(val["provider_failures_sha256"]),64)
+            # Original-owner recovery: the first v4 source transition was
+            # sealed but activation failed. Permit exactly one idle, no-new-
+            # dispatch v4 successor, then require new per-source approval.
+            self.db.transition_source("e"*40,allow_certified_negative=True)
+            self.assertEqual(self.db.meta()["source_sha"],"e"*40)
+            approval={
+                "schema":"forge.f139.nci04.owner-native-approval.v1",
+                "source_sha":"e"*40,
+                "expected_event_head_sha256":self.db.meta()["head_hash"],
+                "native_development_approved":True,
+                "scientific_first_use":False,"create_controller":False,
+                "paid_api_calls":0,
+            }
+            from f139.nci04_owner_ledger import verify_native_activation
+            self.assertTrue(activate_native(self.db,approval))
+            self.assertTrue(verify_native_activation(self.db))
+            self.assertEqual(self.db.meta()["head_seq"],len(prior_events)+3)
             self.db.close()
             from f139.local_controller import Database
             self.db=Database(self.path)

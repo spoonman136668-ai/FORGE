@@ -388,7 +388,25 @@ def activate_native(db, approval: dict) -> bool:
                         and t["custodied_negative_tickets"] ==
                             [NEGATIVE_TICKET, SECOND_TICKET]
                         for t in transitions))
-            require(one_certified or two_certified, "UNVERIFIED_HISTORICAL_TASK")
+            # Do not discard the two sealed original negatives. Only a
+            # source-bound v4 transition with independently custodied real
+            # failed-provider jobs can extend native development authority.
+            v4=[t for t in transitions
+                if t["schema"]=="forge.f139.source-transition.v4"]
+            provider_failures=db.verified_native_provider_failures()
+            all_certified={NEGATIVE_TICKET,SECOND_TICKET}|set(provider_failures)
+            four_certified=(
+                len(failures)>=3
+                and bool(provider_failures)
+                and failed_tickets==all_certified
+                and all(row["stage"]=="QUARANTINED" for row in failures)
+                and verify_original_negative_custody(db)
+                and verify_second_negative_custody(db)
+                and v4 and v4[-1]["to_source_sha"]==meta["source_sha"]
+                and v4[-1]["custodied_negative_tasks"]==len(all_certified)
+                and v4[-1]["custodied_negative_tickets"]==sorted(all_certified))
+            require(one_certified or two_certified or four_certified,
+                    "UNVERIFIED_HISTORICAL_TASK")
         prior=meta["head_hash"]
         db.event(ACTIVATION_KIND,{
             "schema":ACTIVATION_SCHEMA,"source_sha":meta["source_sha"],
