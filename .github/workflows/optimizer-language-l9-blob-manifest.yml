@@ -1,0 +1,77 @@
+name: Optimizer L9 WebNLG exact train dev blob manifest
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-blob-manifest.yml'
+permissions:
+  contents: read
+concurrency:
+  group: optimizer-language-l9-blob-manifest
+  cancel-in-progress: false
+jobs:
+  manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 5
+      - name: Enumerate exact TRAIN DEV Git blob identities without reading corpus blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_parent='7da6fb5ef479c21be7f7965fe50cc9d1fcec8bac'
+          test "$(git rev-parse HEAD~1)" = "$expected_parent"
+          changed="$(git diff --name-only "$expected_parent" HEAD)"
+          test "$changed" = '.github/workflows/optimizer-language-l9-blob-manifest.yml'
+          repo='https://gitlab.com/shimorina/webnlg-dataset.git'
+          release='a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          root="$RUNNER_TEMP/webnlg-l9-blob-manifest"
+          test ! -e "$root"
+          git clone --quiet --filter=blob:none --no-checkout "$repo" "$root"
+          got="$(git -C "$root" rev-parse "$release^{commit}")"
+          test "$got" = "$release"
+          train_tree="$(git -C "$root" rev-parse "$release:release_v3.0/en/train")"
+          dev_tree="$(git -C "$root" rev-parse "$release:release_v3.0/en/dev")"
+          test "$train_tree" = 'f7870bce053fa71fc1e2be2c0c2013e9f1c45433'
+          test "$dev_tree" = '70487b8ec5b11d8e54bfc13b9f7ac5ad153f4cae'
+          tmp="$RUNNER_TEMP/l9-blob-lines.txt"
+          : > "$tmp"
+          while IFS=$'\t' read -r meta path; do
+            mode="\${meta%% *}"
+            rest="\${meta#* }"
+            type="\${rest%% *}"
+            oid="\${rest##* }"
+            test "$type" = blob
+            case "$path" in
+              release_v3.0/en/train/*) role=TRAIN ;;
+              release_v3.0/en/dev/*) role=DEV ;;
+              *) echo "unexpected path=$path"; exit 1 ;;
+            esac
+            printf '%s\t%s\t%s\t%s\n' "$role" "$mode" "$oid" "$path" >> "$tmp"
+          done < <(git -C "$root" ls-tree -r "$release" release_v3.0/en/train release_v3.0/en/dev)
+          count="$(wc -l < "$tmp" | tr -d ' ')"
+          train_count="$(awk -F '\t' '$1=="TRAIN"{n++} END{print n+0}' "$tmp")"
+          dev_count="$(awk -F '\t' '$1=="DEV"{n++} END{print n+0}' "$tmp")"
+          test "$count" -eq 176
+          test "$train_count" -eq 88
+          test "$dev_count" -eq 88
+          dup_oid_path="$(cut -f1,3,4 "$tmp" | sort | uniq -d | wc -l | tr -d ' ')"
+          test "$dup_oid_path" -eq 0
+          digest="$(sha256sum "$tmp" | awk '{print $1}')"
+          echo "L9_BLOB_MANIFEST_RELEASE_SHA=$release"
+          echo "L9_BLOB_MANIFEST_TRAIN_TREE=$train_tree"
+          echo "L9_BLOB_MANIFEST_DEV_TREE=$dev_tree"
+          echo "L9_BLOB_MANIFEST_TOTAL=$count"
+          echo "L9_BLOB_MANIFEST_TRAIN_COUNT=$train_count"
+          echo "L9_BLOB_MANIFEST_DEV_COUNT=$dev_count"
+          echo "L9_BLOB_MANIFEST_LINES_SHA256=$digest"
+          echo "L9_BLOB_MANIFEST_BEGIN"
+          cat "$tmp"
+          echo "L9_BLOB_MANIFEST_END"
+          echo "L9_BLOB_OBJECT_CONTENT_READS=0"
+          echo "L9_OFFICIAL_TEST_CONTENT_CONSUMED=FALSE"
+          rm -rf "$root" "$tmp"
+          echo "L9_EXACT_TRAIN_DEV_BLOB_METADATA=PASS"
