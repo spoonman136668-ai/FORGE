@@ -1,0 +1,116 @@
+name: F139 R38 authenticate real R7 Git source without execution
+on:
+  push:
+    branches: [fix/f139-r38-real-r7-provider-custody-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-r38-readonly-real-provider
+  cancel-in-progress: true
+jobs:
+  source-and-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Stable checkout
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact R37 foundation and bounded source-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=3250a507d7c21b4fbe322df1ed04a5c3dbf98857
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git merge-base HEAD "$base")" = "$base"
+          expected="$(printf '%s\n' '.github/workflows/qualify-f139-r38-real-source.yml' 'f139/nci04_r38_real_source.py' 'f139/test_nci04_r38_real_source.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R38_IMMUTABLE_R37_QUALIFIED_BASE=PASS
+      - name: Focused source transport, R7 manifest, V1 boundary and replay tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_r38_real_source.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_r7_package.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_pr_discovery.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_proposal_compiler.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_contract.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_two_inflight.py' -v
+          echo R38_FOCUSED_SOURCE_AND_AUTHORITY=PASS
+      - name: Authenticate actual frozen Wingless and Yggdrasil Git source from provider
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B -m f139.nci04_r38_real_source --output-dir "$RUNNER_TEMP/r38-real-source"
+          test -f "$RUNNER_TEMP/r38-real-source/wingless.json"
+          test -f "$RUNNER_TEMP/r38-real-source/yggdrasil.json"
+          test -f "$RUNNER_TEMP/r38-real-source/reconciliation.json"
+          echo R38_TWO_REAL_SOURCE_SNAPSHOTS=PASS
+      - name: One full F139 Python and Go regression vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R38_FINAL_REGRESSION=PASS
+      - name: Preserve provider source-only evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: r38-source-${{ matrix.os }}
+          path: ${{ runner.temp }}/r38-real-source/*.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: No controller or scientific side effects
+        shell: bash
+        run: |
+          echo R38_PROVIDER_READS=GET_ONLY
+          echo R38_NO_V2_OWNER_ISSUE_OR_WORKER=TRUE
+          echo R38_NO_F139_CONTROLLER_OR_SQLITE_MODIFICATION=TRUE
+          echo R38_NO_SCIENCE_OR_PROTECTED_FIRST_USE=TRUE
+  reconcile:
+    needs: source-and-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: r38-source-ubuntu-latest
+          path: evidence-ubuntu
+      - uses: actions/download-artifact@v4
+        with:
+          name: r38-source-windows-latest
+          path: evidence-windows
+      - name: Require byte-identical cross-OS original provider manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in wingless.json yggdrasil.json reconciliation.json; do
+            cmp "evidence-ubuntu/$file" "evidence-windows/$file"
+          done
+          echo R38_REAL_PROVIDER_CROSS_OS_MANIFEST_IDENTICAL=PASS
+          echo R38_FINAL_STATUS=SOURCE_ONLY_NO_SCIENCE
