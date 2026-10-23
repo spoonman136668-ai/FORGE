@@ -67,6 +67,14 @@ jobs:
           $env:TEMP=$gt;$env:TMP=$gt;$env:TMPDIR=$gt
           $env:GOFLAGS='-p=1'
           $env:GOMAXPROCS='1'
+          # SQLite is a real CGo dependency, not the stub compiled by Go's
+          # default CGO_ENABLED=0 on this owner Windows runner.
+          $compiler='C:\msys64\ucrt64\bin\gcc.exe'
+          if(!(Test-Path -LiteralPath $compiler -PathType Leaf)){throw 'KTRADE_SQLITE_CGO_COMPILER_UNAVAILABLE'}
+          $env:CGO_ENABLED='1'
+          $env:CC=$compiler
+          $env:PATH=(Split-Path -Parent $compiler)+[IO.Path]::PathSeparator+$env:PATH
+          Write-Host 'KTRADE_SQLITE_CGO_ENABLED_WITH_VERIFIED_OWNER_COMPILER=PASS'
           try{
             & git.exe init --quiet -- $repo
             if($LASTEXITCODE -ne 0){throw 'KTRADE_DISPOSABLE_INIT_FAILED'}
