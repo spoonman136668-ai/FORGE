@@ -1,0 +1,155 @@
+name: Optimizer L3 native trained NAR recurrent state-space controls
+
+on:
+  push:
+    branches: [research/optimizer-language-l3-neural-controls-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l3-neural.yml'
+      - 'research/optimizer_language_l3/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-language-l3-neural
+  cancel-in-progress: false
+
+jobs:
+  native-public-language:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      NUMEXPR_NUM_THREADS: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install free pinned CPU-only numerical wheel
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check --only-binary=:all: numpy==2.1.3
+          if ($LASTEXITCODE -ne 0) { throw 'L3_PINNED_FREE_NUMPY_UNAVAILABLE' }
+      - name: Frozen prospective first source source-only identity and protected work scopes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'L3_EXISTING_SCIENCE_PARENT_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-language-l3-neural.yml',
+            'research/optimizer_language_l3/L3_FROZEN_PROTOCOL.json',
+            'research/optimizer_language_l3/public_source.py',
+            'research/optimizer_language_l3/neural.py',
+            'research/optimizer_language_l3/l2_original_categorical.py',
+            'research/optimizer_language_l3/runner.py',
+            'research/optimizer_language_l3/test_neural.py',
+            'research/optimizer_language_l3/compare.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'L3_UNAUTHORIZED_NONADDITIVE_RESEARCH_DIFF'
+          }
+          $pins=@{
+            'research/optimizer_language_l3/L3_FROZEN_PROTOCOL.json'='aa60fc12c472dd594042cbf79bcbafade1b8c573'
+            'research/optimizer_language_l3/l2_original_categorical.py'='05fe6da94ab4a11f0f49aaa5a5ed83c171f865d5'
+          }
+          foreach ($path in $pins.Keys) {
+            $gitBlob=(& git rev-parse ('HEAD:'+$path)).Trim()
+            $diskBlob=(& git hash-object --no-filters -- $path).Trim()
+            if ($LASTEXITCODE -ne 0 -or $gitBlob -cne $pins[$path] -or
+                $diskBlob -cne $pins[$path]) { throw ('L3_ORIGINAL_OR_PROTOCOL_BLOB_DRIFT_'+$path) }
+          }
+          Write-Host 'L3_FROZEN_PROTOCOL_AND_ORIGINAL_L2_CONTROL=PASS'
+      - name: Twelve adversarial new source and actual backpropagation tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_language_l3 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'L3_FOCUSED_SOURCE_OR_BPTT_GRADIENT_FAILURE' }
+          Write-Host 'L3_FOCUSED_TESTS=PASS'
+      - name: Fit small neural comparators from scratch and evaluate immutable DEV roles
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'l3-public-neural-receipt.json'
+          python -B research/optimizer_language_l3/runner.py | Tee-Object -FilePath $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'L3_NEURAL_TRAIN_OR_PUBLIC_DEV_FAILURE' }
+          Write-Host 'L3_ALL_FIVE_SOURCE_FIVE_ARMS=EMITTED'
+          Write-Host 'L3_NO_FSA_OR_PRIOR_DEV_FIRST_USE=PASS'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l3-new-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/l3-public-neural-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One unchanged full FORGE Go test vet and build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo L3_ONE_FULL_GO_REGRESSION=PASS
+      - name: No mutations to active research source or authority
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'L3_UNEXPECTED_RESEARCH_OR_CONTROLLER_MUTATION' }
+          Write-Host 'L3_NCI_ITD_BIO_Q21_FORGE_UNCHANGED=PASS'
+
+  independent-native-comparison:
+    needs: native-public-language
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l3-new-native-ubuntu-24.04
+          path: native-evidence/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l3-new-native-windows-2022
+          path: native-evidence/windows
+      - name: Reconcile exact five role hashes and trained native outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l3/compare.py \
+            native-evidence/linux/l3-public-neural-receipt.json \
+            native-evidence/windows/l3-public-neural-receipt.json \
+            native-evidence/l3-cross-native-comparison.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l3-new-public-learned-native-comparison
+          path: native-evidence/l3-cross-native-comparison.json
+          if-no-files-found: error
+          retention-days: 30
