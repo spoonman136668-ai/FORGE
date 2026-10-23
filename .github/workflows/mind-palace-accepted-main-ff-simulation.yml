@@ -1,0 +1,103 @@
+name: Mind-Palace accepted main safe fast-forward simulation
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-accepted-main-ff-simulation.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-simulated-checkout-sync
+  cancel-in-progress: false
+jobs:
+  simulate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Simulate fast-forward and verify zero historic record loss in TEMP
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$tag){if(-not $ok){throw ('MP_FF_SIM_'+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $old='7ae81a209fa77e5381a669eb3cc0d736ef60ecd9'
+          $new='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-ff-sim-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $scratch 'repo'
+          $before=Join-Path $scratch 'old-records.json'
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $head=@(& git.exe ls-remote --exit-code $remote 'refs/heads/main')
+            Need ($LASTEXITCODE -eq 0 -and $head.Count -eq 1 -and
+              ([string]($head[0] -split '\s+')[0]) -ceq $new) 'ACCEPTED_REMOTE_ID'
+            & git.exe clone --quiet --single-branch --branch main $remote $repo
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            Need (((& git.exe -C $repo rev-parse HEAD | Out-String).Trim()) -ceq $new) 'CLONE_MAIN_ID'
+            & git.exe -C $repo merge-base --is-ancestor $old $new
+            Need ($LASTEXITCODE -eq 0) 'FF_ANCESTRY'
+            & git.exe -C $repo switch --quiet --detach $old
+            Need ($LASTEXITCODE -eq 0) 'OLD_DETACHED'
+            $pre=Join-Path $repo '.ice/records.json'
+            Copy-Item -LiteralPath $pre -Destination $before -ErrorAction Stop
+            $oldHash=(Get-FileHash -LiteralPath $pre -Algorithm SHA256).Hash.ToLowerInvariant()
+            $oldBlob=((& git.exe -C $repo rev-parse 'HEAD:.ice/records.json' | Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $oldBlob -ceq '3f49a1f95092132475ce6d6f29f5e0afaeca54d9') 'OLD_RECORDS_BLOB'
+            & git.exe -C $repo merge --ff-only $new
+            Need ($LASTEXITCODE -eq 0) 'FF_SIMULATION'
+            Need (((& git.exe -C $repo rev-parse HEAD | Out-String).Trim()) -ceq $new) 'NEW_HEAD'
+            $newBlob=((& git.exe -C $repo rev-parse 'HEAD:.ice/records.json' | Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $newBlob -ceq 'e3e548d41d9f22bf395fec41b4d2a978047dc131') 'NEW_RECORDS_BLOB'
+            $p=Join-Path $repo '.ice/records.json'
+            $py=@'
+          import json,sys
+          with open(sys.argv[1],encoding="utf-8-sig") as f: old=json.load(f)
+          with open(sys.argv[2],encoding="utf-8-sig") as f: new=json.load(f)
+          assert isinstance(old,list) and isinstance(new,list)
+          a={x["id"]:x for x in old}
+          b={x["id"]:x for x in new}
+          assert len(a)==len(old)==263 and len(b)==len(new)==265
+          assert all(k in b and b[k]==v for k,v in a.items())
+          assert len(set(b)-set(a))==2
+          print("MP_FF_SIM_263_OLD_RECORDS_PRESERVED=PASS")
+          print("MP_FF_SIM_TWO_NEW_RECORDS=PASS")
+          '@
+            $result=(& python.exe -B -c $py $before $p | Out-String)
+            Need ($LASTEXITCODE -eq 0) 'JSON_RECORD_PRESERVATION'
+            Write-Host $result.Trim()
+            $tool=@(
+              @('tools/context-pack-budgeted.ps1','ab29b4c74abe051039e8fc75ee6320a30445a790'),
+              @('tools/context-pack-tiered.ps1','9bcf9debd6c7477ae2287fbdf7edcb16e11c0131'),
+              @('tools/mind.ps1','bb8c46f3c22f689e5f44dbe06ccc286014bd9130')
+            )
+            foreach($x in $tool){
+              $blob=((& git.exe -C $repo rev-parse ('HEAD:'+$x[0]) | Out-String).Trim())
+              Need ($LASTEXITCODE -eq 0 -and $blob -ceq $x[1]) 'ACCEPTED_TOOL_BLOB'
+            }
+            Need (-not ((& git.exe -C $repo status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'SIMULATED_CHECKOUT_DIRTY'
+            $latest=@(& git.exe ls-remote --exit-code $remote 'refs/heads/main')
+            Need ($LASTEXITCODE -eq 0 -and $latest.Count -eq 1 -and
+              ([string]($latest[0] -split '\s+')[0]) -ceq $new) 'MAIN_MOVED'
+            Write-Host 'MP_FF_SIM_ACCEPTED_THREE_TOOL_BLOBS=PASS'
+            Write-Host "MP_FF_SIM_OLD_RECORD_SHA256=$oldHash"
+            Write-Host "MP_FF_SIM_NEW_RECORD_SHA256=$((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant())"
+            Write-Host 'MP_FF_SIM_ISOLATED_FAST_FORWARD=PASS'
+            Write-Host 'MP_FF_SIM_LIVE_WORKTREE_WRITES=0'
+            Write-Host 'MP_FF_SIM_KTRADE_CONTROLLER_TOUCHES=0'
+            Write-Host 'MP_FF_SIM_PRODUCTION_MEMORY_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_FF_SIM_SCRATCH_CLEAN=PASS'
+          }
