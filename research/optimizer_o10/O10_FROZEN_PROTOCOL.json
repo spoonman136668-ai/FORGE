@@ -1,0 +1,92 @@
+{
+  "schema": "forge.optimizer.o10.causal-memory-interventions.public-development.v1",
+  "stage": "SOURCE_ONLY_PROTOCOL_FROZEN_BEFORE_ANY_O10_GENERATOR_OR_RUN",
+  "main_parent_sha": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "prior_evidence": {
+    "O9 PR783": "engineered full regression/Windows/Linux equal, delayed echo retention positive small, parity negative, public episodic strongest",
+    "O8 PR782": "gated recurrent no competitive parity",
+    "O7 PR780": "learned supervised partition beats random only on one task",
+    "O2-O6": "all negatives retained and O4 costly HMM modest gains",
+    "Q20": "negative retained",
+    "Q21_Q21N01": "immutable; original scientific first use unadmitted"
+  },
+  "question": "Are failures of learned causal memory caused by failure to retain an early cue or action, or by the failure to use retained information at the eventual read/query? Test by controlled observable input counterfactuals with shared distractors and target noise.",
+  "source": {
+    "namespace": "o10-public-paired-v1",
+    "roles": [
+      "O10_TRAIN",
+      "O10_SELECT",
+      "O10_DEV"
+    ],
+    "episode_counts": {
+      "O10_TRAIN": 96,
+      "O10_SELECT": 24,
+      "O10_DEV": 32
+    },
+    "episode_steps": 36,
+    "query_positions": [
+      14,
+      26
+    ],
+    "intervention_action_time": 4,
+    "families": {
+      "CUE_RECALL": "Same base public actions and distractors and shared 5% query noise; paired intervention flips ONLY initial public cue, which flips delayed query response (post-query observed next bit naturally follows).",
+      "ACTION_PARITY": "Same initial public cue, distractors and shared 5% query noise; paired intervention flips ONLY public action at timestep 4, which flips the query response determined by initial cue XOR public action-1 parity.",
+      "NULL_NO_EFFECT": "Same public actions and distractors and single shared iid fair query target; paired intervention flips initial public cue but query answer remains unchanged."
+    },
+    "seed": "int.from_bytes(sha256(UTF8('o10-public-paired-v1:'+role+':'+family+':'+index))[:8],'big') -> Python random.Random",
+    "train_only": "Use unmodified/base episodes for all training; never use counterfactual twin TRAIN episodes for fitting. All roles contain deterministic pairs for source-digest audit.",
+    "select_only": "Use unmodified/base O10_SELECT for selecting only initializations 17/31, identical to O9. No source response, intervention, or DEV tuning.",
+    "dev_only": "Evaluate both base and the single paired counterfactual O10_DEV for every model without update. Pair differs only in publicly visible cue/action and the logically resulting query target (or stays same for NULL).",
+    "model_input": "Only current publicly visible observation, public action, episode-first marker and recurrent memory history, no explicit source family, intervention flag or desired answer."
+  },
+  "arms": {
+    "LEARNED_WRITE_READ_2": {
+      "model_source": "O9 EXACT Git blob",
+      "sha": "see source pins",
+      "trained": "12 epochs full query BPTT, two starts 17/31, original Adam, 2 slots 57 parameters"
+    },
+    "GRU_2": {
+      "trained": "same exact original O9 full query BPTT, 2 hidden cells 57 parameters",
+      "budget": "12 epochs, same Adam 0.01, two starts 17/31"
+    },
+    "GRU_4": {
+      "trained": "same original O9, 4 cells, 131 parameters; report capacity mismatch"
+    },
+    "O8_GATED_4": {
+      "trained": "same original O8 GATED_4 85 parameters, 12 epochs same Adam and public history"
+    },
+    "PUBLIC_EXPLICIT_EPISODIC": {
+      "trained": "original O8 fully trained public cue/action parity table, input-equivalent, engineered features"
+    },
+    "PUBLIC_MEMORY_LOGISTIC": {
+      "trained": "original O8 fully trained public cue/action-parity logistic with prespecified 50 epochs; engineered features"
+    },
+    "CURRENT_QUERY_COUNTS": {
+      "trained": "original O8 public query count control"
+    },
+    "ERASED_LEARNED_WRITE_READ_2": {
+      "trained": "no separate fitting, original selected LEARNED_WRITE_READ_2 with memory zeroed immediately before query"
+    },
+    "UNIFORM_05_DIAGNOSTIC": {
+      "trained": "none; always predicts 0.5"
+    }
+  },
+  "training": "Use exactly original O9 TrainedMemory and original O8 recurrent/control code via verbatim copies, without changes to model code, source blobs pinned. Identical O9 training/selection budgets; add no new mechanisms or labels.",
+  "evaluation": {
+    "primary": "Per family and arm average dev query NLL over 32 matched base and 32 intervention twins (64 queries). Report separately base and twin losses.",
+    "counterfactual_alignment": "Mean (p_twin - p_base)*(query_target_twin - query_target_base) for CUE_RECALL and ACTION_PARITY; greater positive means learned correct signed causal input sensitivity, zero means no sensitivity. NULL target differences zero by design, so report separately mean absolute |p_twin-p_base|, and not the signed alignment.",
+    "retained_state_ablation": "Difference in paired NLL between erased and normal selected two-slot model, plus signed alignment change after erasure; both use same checkpoint.",
+    "strong_conventional": "Min paired dev NLL among fit-selected GRU2/4, O8_GATED_4, public episodic, public logistic, current counts; note engineered feature and capacity asymmetry.",
+    "memory_cpu": "Full fit+selection process CPU per model, DEV pair inference CPU, model checkpoint bytes and trainable parameters; whole process peak RSS, traced Python allocations, process CPU.",
+    "cross_os": "9 exact role x family SHA256 digests and 27 family x arm query NLL results must match across native Linux/Windows within 1e-6; also check all causal sensitivity signed alignment within 1e-6.",
+    "precommitted_interpretation": "Do not claim transfer/intelligence or model improvement based on a single bounded public synthetic source. Report positives and negatives and compare to trained GRU with same 57 params. If signed alignment is absent for parity with explicit control positive, distinguish failure to preserve/use actionable history. No DEV-driven retune.",
+    "promotion": "No science GO from public DEV; external first-use FSA remains separate and blocked."
+  },
+  "guardrails": [
+    "No protected roles, no first-use, no D1, no CKB-plane controller alteration.",
+    "No rewriting O9 original code or O2-O9 scientific decisions.",
+    "No paid API or KTRADE broker changes.",
+    "One additive draft source-only O10 PR, native Linux/Windows focused, complete FORGE regression; no merge without independent review."
+  ]
+}
