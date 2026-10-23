@@ -12,6 +12,10 @@ class OwnerProviderV4(TwoNegativeControllerIntegration):
         self.append_second()
         self.transition()
         source=NEW_SOURCE
+        original23=self.db.conn.execute("SELECT sha FROM events WHERE seq=23").fetchone()["sha"]
+        synthetic=mock.patch("f139.nci04_owner_ledger.SEALED_OWNER_PREFIX_HEAD",original23)
+        synthetic.start()
+        self.addCleanup(synthetic.stop)
         self.assertEqual(self.db.meta()["source_sha"],source)
         approval={
             "schema":"forge.f139.nci04.owner-native-approval.v1",
