@@ -1,0 +1,45 @@
+name: FORGE F139 validate autonomy intake 804 806
+on:
+  push:
+    branches: [diagnostics/f139-autonomy-live-804-20261023]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Exact read-only owner issue validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for n in 804 806; do
+            gh api "repos/spoonman136668-ai/FORGE/issues/$n" > "/tmp/issue-$n.json"
+          done
+          python -B - <<'PY'
+          import base64,json,subprocess
+          from f139.nci04_owner_issue import inspect_owner_issue
+          SOURCE="fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5"
+          for n in (804,806):
+              raw=json.load(open(f"/tmp/issue-{n}.json",encoding="utf-8"))
+              body=json.loads(raw["body"])
+              intent=json.loads(base64.b64decode(body["intent_base64"],validate=True))
+              sha=intent["target_commit"]
+              provider=json.loads(subprocess.check_output(
+                  ["gh","api",f"repos/spoonman136668-ai/Wingless/git/commits/{sha}"],
+                  text=True))
+              try:
+                  doc=inspect_owner_issue(raw,protected_main=SOURCE,
+                      authenticated_target_commit=sha,
+                      authenticated_target_tree=provider["tree"]["sha"])
+                  print(f"F139_ISSUE_{n}_OWNER_CONTRACT=PASS ticket={doc.ticket} path={doc.candidate.path} qkey={doc.qualification_key}")
+              except Exception as exc:
+                  print(f"F139_ISSUE_{n}_OWNER_CONTRACT=FAIL {type(exc).__name__}:{exc}")
+                  raise
+          PY
+          echo F139_INTAKE_VALIDATION_NO_WRITES=TRUE
