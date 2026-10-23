@@ -1395,7 +1395,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     native_enabled = verify_native_activation(db)
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
-    require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
+    # An unrelated protected-main merge must not prevent evidence-only
+    # reconciliation of provider runs dispatched under the pinned old SHA.
+    # New issue intake and dispatch still fail closed until exact owner cutover.
+    protected_now=api.protected_main()
+    source_matches=(protected_now==meta["source_sha"])
     legacy_pending={}
     for active_record in db.actives():
         active=dict(active_record)
@@ -1440,6 +1444,12 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 db.quarantine(active["ticket"],code if re.fullmatch(r"[A-Z_]{3,72}",code) else "UNCLASSIFIED_REJECTION")
             raise
     remaining=db.actives()
+    if not source_matches:
+        return {"disposition":"MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED",
+                "owner_source_sha":meta["source_sha"],
+                "protected_main_sha":protected_now,
+                "active_tickets":[row["ticket"] for row in remaining],
+                "scientific_first_use":False}
     if len(remaining) >= 2:
         return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
                 "tickets":[row["ticket"] for row in remaining]}
