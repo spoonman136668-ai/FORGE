@@ -22,10 +22,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_parent='7da6fb5ef479c21be7f7965fe50cc9d1fcec8bac'
-          test "$(git rev-parse HEAD~1)" = "$expected_parent"
+          expected_parent='762b6fe753cab5b7f0cb1b662da099d7f6ed9b11'
+          actual_parent="$(git rev-parse HEAD~1)"
+          echo "L9_BLOB_GUARD_PARENT=$actual_parent"
+          test "$actual_parent" = "$expected_parent"
           changed="$(git diff --name-only "$expected_parent" HEAD)"
+          printf 'L9_BLOB_GUARD_CHANGED=%s\n' "$changed"
           test "$changed" = '.github/workflows/optimizer-language-l9-blob-manifest.yml'
+          echo "L9_BLOB_GUARD_LINEAGE=PASS"
           repo='https://gitlab.com/shimorina/webnlg-dataset.git'
           release='a7ea49b5ffa5011edf81e8530c59b3552a965023'
           root="$RUNNER_TEMP/webnlg-l9-blob-manifest"
