@@ -6,11 +6,14 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
-import resource
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+try:
+    import resource
+except ImportError:
+    resource = None
 
 import l9_model_suite as m
 import l9_split_builder as split
@@ -209,7 +212,7 @@ def main():
         "state_sha256": {"candidate":digest(candidate_state),"retrieval":digest(retrieval_state)},
         "state_bytes": {"candidate":len(candidate_state),"retrieval":len(retrieval_state)},
         "fit": {"wall_seconds":round(train_wall,3),"cpu_seconds":round(train_cpu,3)},
-        "peak_maxrss_os_units": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        "peak_maxrss_os_units": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None,
         "split_counts": {"train":len(train),"select":len(select),"audit_dev_model_consumption":0},
         "official_test_consumed":False,
         "selection_uses_proxy_not_adjudicated_semantics":True,
