@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='3314416e88dda127c74711d93029df73fd955203'
+          $sourceSha='e5fe637bc3081d0b290781f20892ebd7a08a4bb9'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -76,7 +76,10 @@ jobs:
               & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_full -run '^TestRB2' ./pkg/apphost ./cmd/ktrade
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_TESTS_FAILED'}
               Write-Host 'RB2_FOCUSED_BRAVE_AND_FAIL_CLOSED_FEED=PASS'
-              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade
+              & go.exe test -mod=readonly -count=1 -p 1 ./internal/papertrading
+              if($LASTEXITCODE -ne 0){throw 'RB2_ISOLATED_PAPER_LEDGER_FOCUSED_FAILED'}
+              Write-Host 'RB2_ISOLATED_PAPER_LEDGER_FOCUSED=PASS'
+              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade ./internal/papertrading
               if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_VET_FAILED'}
               Write-Host 'RB2_NATIVE_VET=PASS'
               $exe=Join-Path $tmp 'ktrade-stopped.exe'
