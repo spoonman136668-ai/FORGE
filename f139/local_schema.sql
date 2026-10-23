@@ -25,7 +25,20 @@ CREATE TABLE tasks (
   evidence_sha TEXT,
   quarantine_reason TEXT
 );
-CREATE UNIQUE INDEX only_one_active_f139_task ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER');
+CREATE UNIQUE INDEX only_one_active_f139_task ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER') AND ticket NOT LIKE 'f139-nci04-%';
+CREATE TRIGGER guard_two_native_active BEFORE UPDATE OF stage ON tasks
+WHEN NEW.stage IN ('START_RISK','WAIT_PROVIDER')
+BEGIN
+  SELECT CASE WHEN (
+    SELECT COUNT(*) FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')
+      AND ticket<>NEW.ticket
+  ) >= 2 OR (NEW.ticket NOT LIKE 'f139-nci04-%' AND EXISTS (
+    SELECT 1 FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket
+  )) OR (NEW.ticket LIKE 'f139-nci04-%' AND EXISTS (
+    SELECT 1 FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')
+      AND ticket<>NEW.ticket AND ticket NOT LIKE 'f139-nci04-%'
+  )) THEN RAISE(ABORT,'F139_TWO_ACTIVE_PROVIDER_LIMIT') END;
+END;
 CREATE TABLE events (
   seq INTEGER PRIMARY KEY CHECK(seq>0),
   kind TEXT NOT NULL,
