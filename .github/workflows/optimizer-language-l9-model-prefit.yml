@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          parent='acd42e94d63ff2ea3d10097f24d892ff12c65bc3'
+          parent='bd93b9cc9739e4ee527acd5bf304822e859f1846'
           test "$(git rev-parse HEAD~1)" = "$parent"
           test "$(git diff --name-only "$parent" HEAD)" = '.github/workflows/optimizer-language-l9-model-prefit.yml'
           root='research/optimizer_language_l9'
@@ -88,6 +88,7 @@ jobs:
           grep -qx 'epochs=4,8,12' "$RUNNER_TEMP/l9-prefit-values"
           artifacts="$(find "$root" -type f \( -name '*.pt' -o -name '*.pth' -o -name '*.ckpt' -o -name '*.bin' \) -print)"
           test -z "$artifacts"
+          find "$root" -type d -name '__pycache__' -prune -exec rm -rf {} +
           test -z "$(git status --porcelain)"
           echo "suite_blob=710ce648a30ffc55647f689c5f4aa3ac13b07066" >> "$GITHUB_OUTPUT"
           echo "tests_blob=4fd1ad2aa3609746f4454628a946c38e1a34fa63" >> "$GITHUB_OUTPUT"
@@ -121,7 +122,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $parent='acd42e94d63ff2ea3d10097f24d892ff12c65bc3'
+          $parent='bd93b9cc9739e4ee527acd5bf304822e859f1846'
           if((& git rev-parse 'HEAD~1').Trim() -cne $parent){throw 'L9_PREFIT_PARENT_DRIFT'}
           $changed=@(& git diff --name-only $parent HEAD)
           if($changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/optimizer-language-l9-model-prefit.yml'){throw 'L9_PREFIT_SCOPE_DRIFT'}
@@ -172,6 +173,7 @@ jobs:
           } finally { Pop-Location }
           $artifacts=@(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {$_.Extension -in @('.pt','.pth','.ckpt','.bin')})
           if($artifacts.Count -ne 0){throw 'L9_WINDOWS_CHECKPOINT_CREATED'}
+          @(Get-ChildItem -LiteralPath $root -Recurse -Directory -Filter '__pycache__' -ErrorAction SilentlyContinue) | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           if(@(& git status --porcelain).Count -ne 0){throw 'L9_WINDOWS_DIRTY'}
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'suite_blob=710ce648a30ffc55647f689c5f4aa3ac13b07066' -Encoding utf8
           Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value 'tests_blob=4fd1ad2aa3609746f4454628a946c38e1a34fa63' -Encoding utf8
