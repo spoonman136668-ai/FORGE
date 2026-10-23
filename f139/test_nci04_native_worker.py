@@ -8,7 +8,9 @@ import unittest
 from unittest.mock import patch
 
 from f139.nci04_native_contract import SCHEMA, digest, parse_intent, NativeContractError
-from f139.nci04_native_worker import stage_candidate, verify_fixed_commands, COMMANDS
+from f139.nci04_native_worker import (
+    stage_candidate, verify_fixed_commands, COMMANDS, R7_COMMANDS, commands_for,
+)
 
 CONTROLLER = "a" * 40
 BEFORE = b"package cognition\n"
@@ -153,6 +155,65 @@ class NativeWorkerTests(unittest.TestCase):
             self.assertEqual(kw["env"]["GOPROXY"], "off")
         self.assertIsNone(proof["child_peak_rss_bytes"])
         self.assertFalse(proof["unattended_controller_dispatch_verified"])
+
+    def test_r7_exact_test_paths_select_fixed_research_inventory(self):
+        wing = self.intent(
+            path="research/native/itd01/r7/native_test.go",
+            before_sha256=digest(b""),
+        )
+        self.assertEqual(commands_for(wing), R7_COMMANDS["Wingless"])
+        self.assertIn(("go", "test", "-count=1", "./..."),
+                      commands_for(wing))
+        self.assertIn(("go", "vet", "./..."), commands_for(wing))
+        legacy = self.intent()
+        self.assertEqual(commands_for(legacy), COMMANDS["Wingless"])
+
+    def test_yggdrasil_zero_or_unproven_unittest_count_fails_closed(self):
+        after = b"import unittest\nclass T(unittest.TestCase):\n    def test_x(self): self.assertTrue(True)\n"
+        candidate = self.intent(
+            lane="Yggdrasil",
+            target_repository="spoonman136668-ai/Yggdrasil",
+            toolchain_identity="python3.11.11",
+            path="research/native/itd01/r7/test_native_cells.py",
+            before_sha256=digest(b""),
+            after_sha256=digest(after),
+            after_base64=base64.b64encode(after).decode(),
+        )
+        stage = stage_candidate(candidate, self.repo, self.sandbox)
+        calls = []
+        def zero(argv, **kw):
+            calls.append(tuple(argv))
+            return subprocess.CompletedProcess(
+                argv, 0, b"----------------------------------------------------------------------\nRan 0 tests in 0.000s\n\nOK\n")
+        report = verify_fixed_commands(candidate, stage, runner=zero)
+        self.assertFalse(report["qualification_complete"])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(report["commands"][0]["outcome"], "TEST_FAILURE")
+        self.assertIn("ZERO_OR_UNPROVEN_UNITTEST_COUNT",
+                      report["commands"][0]["excerpt"])
+
+    def test_yggdrasil_positive_test_count_allows_fixed_r7_inventory(self):
+        after = b"import unittest\nclass T(unittest.TestCase):\n    def test_x(self): self.assertTrue(True)\n"
+        candidate = self.intent(
+            lane="Yggdrasil",
+            target_repository="spoonman136668-ai/Yggdrasil",
+            toolchain_identity="python3.11.11",
+            path="research/native/itd01/r7/test_native_cells.py",
+            before_sha256=digest(b""),
+            after_sha256=digest(after),
+            after_base64=base64.b64encode(after).decode(),
+        )
+        stage = stage_candidate(candidate, self.repo, self.sandbox)
+        calls = []
+        def positive(argv, **kw):
+            calls.append(tuple(argv))
+            if "unittest" in argv:
+                return subprocess.CompletedProcess(
+                    argv, 0, b"----------------------------------------------------------------------\nRan 8 tests in 0.001s\n\nOK\n")
+            return subprocess.CompletedProcess(argv, 0, b"compiled\n")
+        report = verify_fixed_commands(candidate, stage, runner=positive)
+        self.assertTrue(report["qualification_complete"])
+        self.assertEqual(calls, list(R7_COMMANDS["Yggdrasil"]))
 
     def test_failure_preserved_no_build_or_false_acceptance(self):
         candidate = self.intent()
