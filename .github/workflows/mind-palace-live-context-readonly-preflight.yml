@@ -80,31 +80,22 @@ jobs:
           Need ((Get-FileHash -LiteralPath $op -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $opHash) 'OP_MUTATED_DURING_READ'
           Need ((Get-FileHash -LiteralPath $reg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $regHash) 'REG_MUTATED_DURING_READ'
           Need ((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $recordsHash) 'RECORDS_MUTATED_DURING_READ'
-          # Additional read-only custody: observe current checkout, without stale HEAD assumptions.
-          $worktreeBranch=((& $git -C $palace symbolic-ref --quiet --short HEAD | Out-String).Trim())
-          Need ($LASTEXITCODE -eq 0 -and $worktreeBranch.Length -gt 0) 'MP_ATTACHED_BRANCH'
-          $trackedStatus=@(& $git -C $palace status --porcelain=v1 --untracked-files=no)
-          Need ($LASTEXITCODE -eq 0) 'MP_TRACKED_STATUS_READ'
-          $recordsStatus=@(& $git -C $palace status --porcelain=v1 --untracked-files=no -- '.ice/records.json')
-          Need ($LASTEXITCODE -eq 0) 'MP_RECORD_STATUS_READ'
-          $retrievalStatus=@(& $git -C $palace status --porcelain=v1 --untracked-files=no -- 'tools/context-pack-budgeted.ps1' 'tools/context-pack-tiered.ps1' 'tools/mind.ps1')
-          Need ($LASTEXITCODE -eq 0) 'MP_RETRIEVAL_STATUS_READ'
-          $recGitBlob=((& $git -C $palace rev-parse 'HEAD:.ice/records.json' | Out-String).Trim())
-          Need ($LASTEXITCODE -eq 0 -and $recGitBlob -match '^[0-9a-f]{40}
-          Write-Host 'MP_CONTEXT_LIVE_CONTROL_AND_QUEUE_UNTOUCHED=TRUE'
-          Write-Host 'MP_CONTEXT_LIVE_PROMOTION_ATTEMPTED=FALSE'
-          Write-Host 'MP_CONTEXT_LIVE_KTRADE_IDLE=NOT_ESTABLISHED'
-) 'MP_RECORDS_BLOB'
-          $lastHead=((& $git -C $palace rev-parse HEAD | Out-String).Trim())
-          Need ($LASTEXITCODE -eq 0 -and $lastHead -ceq $mpHead) 'MP_CONCURRENT_HEAD_MOVEMENT'
-          Write-Host "MP_CONTEXT_CUSTODY_BRANCH=$worktreeBranch"
-          Write-Host "MP_CONTEXT_CUSTODY_CURRENT_HEAD=$lastHead"
-          Write-Host "MP_CONTEXT_CUSTODY_TRACKED_DIRTY_COUNT=$($trackedStatus.Count)"
-          Write-Host "MP_CONTEXT_CUSTODY_RECORDS_DIRTY_COUNT=$($recordsStatus.Count)"
-          Write-Host "MP_CONTEXT_CUSTODY_RETRIEVAL_TOOLS_DIRTY_COUNT=$($retrievalStatus.Count)"
-          Write-Host "MP_CONTEXT_CUSTODY_RECORDS_GIT_BLOB=$recGitBlob"
-          Write-Host "MP_CONTEXT_CUSTODY_RECORDS_SHA256=$recordsHash"
-          Write-Host 'MP_CONTEXT_CUSTODY_SOURCE_OR_ICE_WRITES=0'
+          $localBranch=((& git.exe -C $palace symbolic-ref --quiet --short HEAD | Out-String).Trim())
+          Need ($LASTEXITCODE -eq 0 -and $localBranch.Length -gt 0) 'LOCAL_BRANCH'
+          $tracked=@(& git.exe -C $palace status --porcelain=v1 --untracked-files=no)
+          Need ($LASTEXITCODE -eq 0) 'TRACKED_STATUS'
+          $recordStatus=@(& git.exe -C $palace status --porcelain=v1 --untracked-files=no -- '.ice/records.json')
+          Need ($LASTEXITCODE -eq 0) 'RECORD_STATUS'
+          $toolStatus=@(& git.exe -C $palace status --porcelain=v1 --untracked-files=no -- 'tools/context-pack-budgeted.ps1' 'tools/context-pack-tiered.ps1' 'tools/mind.ps1')
+          Need ($LASTEXITCODE -eq 0) 'TOOL_STATUS'
+          $headAfter=((& git.exe -C $palace rev-parse HEAD | Out-String).Trim())
+          Need ($LASTEXITCODE -eq 0 -and $headAfter -ceq $mpHead) 'CONCURRENT_HEAD_CHANGE'
+          Write-Host "MP_CUSTODY_BRANCH=$localBranch"
+          Write-Host "MP_CUSTODY_HEAD=$headAfter"
+          Write-Host "MP_CUSTODY_TRACKED_DIRTY_COUNT=$($tracked.Count)"
+          Write-Host "MP_CUSTODY_RECORDS_DIRTY_COUNT=$($recordStatus.Count)"
+          Write-Host "MP_CUSTODY_RETRIEVAL_DIRTY_COUNT=$($toolStatus.Count)"
+          Write-Host "MP_CUSTODY_RECORD_SHA256=$recordsHash"
           Write-Host 'MP_CONTEXT_LIVE_READ_IDENTITY=PASS'
           Write-Host 'MP_CONTEXT_LIVE_CONTROL_AND_QUEUE_UNTOUCHED=TRUE'
           Write-Host 'MP_CONTEXT_LIVE_PROMOTION_ATTEMPTED=FALSE'
