@@ -1,0 +1,55 @@
+name: FORGE F139 live autonomy read-only audit 804
+on:
+  push:
+    branches: [diagnostics/f139-autonomy-live-804-20261023]
+permissions:
+  contents: read
+jobs:
+  original-owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Verify live original F139 ledger and issue 804 state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_WRONG_OWNER_RUNNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($task.State -ne 'Running'){throw 'F139_CONTROLLER_NOT_RUNNING'}
+          $arg=[string]$task.Actions[0].Arguments
+          $m=[regex]::Match($arg,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'F139_DB_ARGUMENT_MISSING'}
+          $db=[IO.Path]::GetFullPath($m.Groups[1].Value)
+          $m2=[regex]::Match($arg,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if(-not $m2.Success){throw 'F139_ROOT_ARGUMENT_MISSING'}
+          $root=[IO.Path]::GetFullPath($m2.Groups[1].Value)
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_GIT_HEAD_FAILED'}
+          $py=@'
+          import json,sqlite3,sys,pathlib
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(db.as_uri()+'?mode=ro',uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          try:
+              con.execute('PRAGMA query_only=ON')
+              meta=dict(con.execute('SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1').fetchone())
+              rows=[dict(r) for r in con.execute("SELECT ticket,lane,source_sha,stage,started_at,run_id FROM tasks WHERE ticket LIKE 'f139-nci04-i804-%' ORDER BY ticket")]
+              events=[]
+              for r in con.execute("SELECT seq,kind,payload,sha FROM events ORDER BY seq DESC LIMIT 20"):
+                  d=dict(r)
+                  if '804' in d['payload'] or d['kind'] in ('NATIVE_DEVELOPMENT_ADMITTED','TASK_INTAKE','BEFORE_DISPATCH_INTENT','DISPATCH_POST_RETURNED'):
+                      events.append(d)
+              active=[dict(r) for r in con.execute("SELECT ticket,stage,started_at,run_id FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY started_at,ticket")]
+              print('F139_LIVE_META='+json.dumps(meta,sort_keys=True))
+              print('F139_ISSUE804_TASKS='+json.dumps(rows,sort_keys=True))
+              print('F139_ISSUE804_RECENT_EVENTS='+json.dumps(events,sort_keys=True))
+              print('F139_LIVE_PENDING='+json.dumps(active,sort_keys=True))
+          finally:
+              con.close()
+          '@
+          & python.exe -B -c $py $db
+          if($LASTEXITCODE -ne 0){throw 'F139_READONLY_AUDIT_FAILED'}
+          Write-Output ('F139_DEPLOYED_HEAD='+$head)
+          Write-Output 'F139_OWNER_SQLITE_MUTATIONS=ZERO'
+          Write-Output 'F139_SCIENTIFIC_FIRST_USE=FALSE'
