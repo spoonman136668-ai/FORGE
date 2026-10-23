@@ -163,7 +163,7 @@ class L8FrozenFallbackAudit(unittest.TestCase):
         report=evaluate(model,self.new["L8_AUDIT_DEV"][:5],
                         {k:set() for k in ("name","near","food","area")})
         self.assertEqual(report["records"],5)
-        self.assertEqual(report["all_keys_raw_literal_copy_proxy"],1.)
+        self.assertEqual(report["all_MR_keys_raw_literal_copy_proxy"],1.)
         self.assertEqual(report["abstention_count"],0)
         self.assertEqual(frozen,model.checkpoint())
 
