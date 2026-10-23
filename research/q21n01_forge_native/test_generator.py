@@ -86,7 +86,7 @@ class Q21N01SourceOnlyTests(unittest.TestCase):
         frozen, previous = p.read_protocol()
         p.validate(frozen, previous)
         source = Path(g.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("CKB_Q21_AUTH_READ_TOKEN", source)
+        self.assertNotIn("cross_repository_authentication", source)
         self.assertNotIn("github.com/spoonman136668-ai/ckb-plane", source)
         self.assertNotIn("workflow_dispatch", source)
         self.assertNotIn("execute_development(", source)
