@@ -120,16 +120,7 @@ jobs:
             $liveProfiles=Join-Path $live 'profiles'
             if(Test-Path -LiteralPath $liveProfiles -PathType Container){Copy-Item -LiteralPath $liveProfiles -Destination (Join-Path $offline 'profiles') -Recurse -Force}
             $yamlText=[IO.File]::ReadAllText($liveCfg)
-            $sqliteLine='(?m)^([ ]*sqlite_path:[ ]*)([^#\r\n]+)([ ]*(?:#.*)?)
-            Write-Host 'MP_RB1_COMPOSE_LIVE_WRITES=0'
-            Write-Host 'MP_RB1_COMPOSE_KTRADE_ACTIONS=0'
-            Write-Host 'MP_RB1_COMPOSE_PRODUCTION_MEMORY_WRITES=0'
-          } finally {
-            if (Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
-            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
-            Write-Host 'MP_RB1_COMPOSE_SCRATCH_CLEAN=PASS'
-          }
-
+            $sqliteLine='(?m)^([ ]*sqlite_path:[ ]*)([^#\r\n]+)([ ]*(?:#.*)?)$'
             $matches=[regex]::Matches($yamlText,$sqliteLine)
             Need ($matches.Count -eq 1) 'SQLITE_CONFIG_UNIQUE'
             $replacement='$1state/offline.db$3'
