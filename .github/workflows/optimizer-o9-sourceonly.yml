@@ -1,0 +1,102 @@
+name: Optimizer O9 learned public write read memory qualification
+
+on:
+  push:
+    branches: [research/optimizer-o9-learned-write-read-20261023]
+    paths:
+      - '.github/workflows/optimizer-o9-sourceonly.yml'
+      - 'research/optimizer_o9/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-o9-sourceonly
+  cancel-in-progress: false
+
+jobs:
+  native-public-memory:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Immutable O9 protocol original O8 controls and exact main source parent
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor = (& git merge-base $base HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $base) { throw 'O9_PARENT_DRIFT' }
+          $expected = @(
+            '.github/workflows/optimizer-o9-sourceonly.yml',
+            'research/optimizer_o9/O9_FROZEN_PROTOCOL.json',
+            'research/optimizer_o9/public_source.py',
+            'research/optimizer_o9/recurrent_memory.py',
+            'research/optimizer_o9/public_controls.py',
+            'research/optimizer_o9/trainable_memory.py',
+            'research/optimizer_o9/runner.py',
+            'research/optimizer_o9/test_learning.py'
+          )
+          $changes = @(& git diff --name-only $base HEAD)
+          if ($LASTEXITCODE -ne 0 -or $changes.Count -ne $expected.Count -or
+              (Compare-Object $changes $expected)) { throw 'O9_UNAUTHORIZED_DELTA' }
+          $pins = @{
+            'research/optimizer_o9/O9_FROZEN_PROTOCOL.json' = '1910e0328bed451c1dfbe2d36a10910ce80c4224'
+            'research/optimizer_o9/recurrent_memory.py' = '6f0e9d58718efdae0e448e9387d325cf653a81fc'
+            'research/optimizer_o9/public_controls.py' = 'aa8557641972b863876f882fab41a50d64bac735'
+          }
+          foreach ($file in $pins.Keys) {
+            $blob = (& git rev-parse ('HEAD:'+$file)).Trim()
+            $disk = (& git hash-object --no-filters -- $file).Trim()
+            if ($LASTEXITCODE -ne 0 -or $blob -cne $pins[$file] -or
+                $disk -cne $pins[$file]) { throw ('O9_IDENTITY_DRIFT_' + $file) }
+          }
+          Write-Host 'O9_FROZEN_INPUT_AND_ORIGINAL_CONTROLS=PASS'
+      - name: Eleven native adversarial write read GRU and source tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s research/optimizer_o9 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O9_FOCUSED_FAILURE' }
+          Write-Host 'O9_FOCUSED_MEMORY_TESTS=PASS'
+      - name: Frozen public train select and long delay DEV all ten arms
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B research/optimizer_o9/runner.py
+          if ($LASTEXITCODE -ne 0) { throw 'O9_PUBLIC_DEV_EXECUTION_FAILURE' }
+          Write-Host 'O9_COMPLETE_PUBLIC_DEV_RECEIPT=EMITTED'
+          Write-Host 'O9_PROTECTED_ORIGINAL_FIRST_USE=NONE'
+          Write-Host 'O9_FSA_SCIENTIFIC_ADMISSION=NONE'
+      - name: Single full FORGE Go regression vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O9_FINAL_GO_REGRESSION=PASS
+      - name: Source clean and no controller side effects
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $changes = @(& git status --porcelain --untracked-files=all)
+          if ($changes.Count -ne 0) { throw 'O9_DIRTY_SOURCE_WORKTREE' }
+          Write-Host 'O9_NO_CONTROL_PLANE_MUTATIONS=PASS'
