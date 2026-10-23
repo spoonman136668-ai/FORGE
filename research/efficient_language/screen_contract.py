@@ -60,6 +60,8 @@ def parse(raw):
     try:
         result = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
                             parse_constant=_bad_constant)
+    except Refused:
+        raise
     except (UnicodeError, ValueError, TypeError) as exc:
         raise Refused("ELANG_INVALID_JSON") from exc
     need(type(result) is dict, "NOT_OBJECT")
@@ -96,13 +98,16 @@ def validate(contract):
     c = contract["candidate"]
     _object(c, ("mechanism", "commit_sha", "tree_sha", "config_sha256"),
             "CANDIDATE_FIELDS")
-    need(c["mechanism"] in MECHANISMS and _hex(c["commit_sha"], 40)
+    need(type(c["mechanism"]) is str and c["mechanism"] in MECHANISMS
+         and _hex(c["commit_sha"], 40)
          and _hex(c["tree_sha"], 40) and _hex(c["config_sha256"]),
          "CANDIDATE_IDENTITY")
     comparator = contract["comparator"]
     _object(comparator, ("family", "commit_sha", "tree_sha", "config_sha256"),
             "COMPARATOR_FIELDS")
-    need(comparator["family"] in COMPARATORS and _hex(comparator["commit_sha"], 40)
+    need(type(comparator["family"]) is str
+         and comparator["family"] in COMPARATORS
+         and _hex(comparator["commit_sha"], 40)
          and _hex(comparator["tree_sha"], 40)
          and _hex(comparator["config_sha256"]), "COMPARATOR_IDENTITY")
     datasets = contract["data"]
