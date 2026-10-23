@@ -87,4 +87,78 @@ jobs:
             Write-Output ('R217_ELEVATED_CHILD_EXE='+[IO.Path]::GetFileName([string]$child.ExecutablePath))
             Write-Output ('R217_ELEVATED_CHILD_RESEARCH_REFERENCE='+([string]$child.CommandLine -match '(?i)(CKBR|research|Invoke-ResearchLoop)'))
           }
+          # One bounded process-activity interval, never suspending or terminating it.
+          $before=Get-Process -Id 800 -ErrorAction Stop
+          $cpu1=[double]$before.CPU
+          Start-Sleep -Seconds 8
+          $after=Get-Process -Id 800 -ErrorAction Stop
+          $fresh=@(Get-CimInstance Win32_Process -Filter 'ProcessId=800')
+          if($fresh.Count -ne 1 -or
+             ([datetime]$fresh[0].CreationDate).ToUniversalTime().ToString('o') -cne $born){
+            throw 'R217_ELEVATED_PROCESS_REUSED_DURING_OBSERVATION'
+          }
+          Write-Output ('R217_ELEVATED_EIGHT_SECOND_CPU_DELTA='+[math]::Round(([double]$after.CPU-$cpu1),3))
+          $threadSummary=@($after.Threads | Group-Object -Property ThreadState |
+             ForEach-Object {$_.Name+':'+$_.Count}) -join ','
+          Write-Output ('R217_ELEVATED_THREAD_STATES='+$threadSummary)
+          $cfgPath=Join-Path $root 'controller.json'
+          if(Test-Path -LiteralPath $cfgPath -PathType Leaf){
+            $cfg=Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json
+            if($cfg.schema -cne 'ckb-plane.research-loop-controller-config.v1'){
+              throw 'R217_ELEVATED_ORIGINAL_CONFIG_SCHEMA_DRIFT'
+            }
+            $stateRoot=[IO.Path]::GetFullPath([string]$cfg.state_root)
+            if(!$stateRoot.StartsWith('C:\ProgramData\CKBR\', [StringComparison]::OrdinalIgnoreCase)){
+              throw 'R217_ELEVATED_ORIGINAL_STATE_ROOT_UNEXPECTED'
+            }
+            $statePath=Join-Path $stateRoot 'state.json'
+            $receiptPath=Join-Path $stateRoot 'latest-receipt.json'
+            if(Test-Path -LiteralPath $receiptPath -PathType Leaf){
+              $receipt=Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+              Write-Output ('R217_ELEVATED_RECEIPT_STATUS='+[string]$receipt.status)
+              Write-Output ('R217_ELEVATED_RECEIPT_TIMESTAMP='+[string]$receipt.observed_at_utc)
+              Write-Output ('R217_ELEVATED_RECEIPT_WINGLESS='+[string]$receipt.wingless.state)
+              Write-Output ('R217_ELEVATED_RECEIPT_YGGDRASIL='+[string]$receipt.yggdrasil.state)
+              Write-Output ('R217_ELEVATED_RECEIPT_SCIENCE_OR_RUNTIME_FLAG='+[bool](
+                $receipt.codex_used -or $receipt.runtime_launched -or
+                $receipt.accepted_ref_mutated))
+            }
+            if(Test-Path -LiteralPath $statePath -PathType Leaf){
+              $state=Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+              Write-Output ('R217_ELEVATED_STATE_FIELD_NAMES='+(
+                @($state.PSObject.Properties.Name)|Sort-Object) -join ',')
+              if($null -ne $state.lanes){
+                foreach($name in @('Wingless','Yggdrasil')){
+                  $lane=$state.lanes.PSObject.Properties[$name]
+                  if($null -ne $lane){
+                    $values=$lane.Value
+                    foreach($key in @('state','status','stage')){
+                      $entry=$values.PSObject.Properties[$key]
+                      if($null -ne $entry){
+                        Write-Output ('R217_ELEVATED_STATE_'+$name+'_'+$key+'='+[string]$entry.Value)
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            Write-Output ('R217_ELEVATED_MUTEX_CONFIGURED='+(![string]::IsNullOrWhiteSpace([string]$cfg.mutex_name)))
+          }
+          $tasks=@(Get-ScheduledTask -ErrorAction Stop | Where-Object {
+            $_.TaskName -match '(?i)(CKB|research|controller|plane)' -or
+            @($_.Actions | Where-Object {
+              ([string]$_.Execute+' '+[string]$_.Arguments) -match '(?i)Invoke-ResearchLoop|CKBR\\research'
+            }).Count -gt 0
+          })
+          foreach($task in $tasks){
+            $isResearch=@($task.Actions | Where-Object {
+              ([string]$_.Execute+' '+[string]$_.Arguments) -match '(?i)Invoke-ResearchLoop|CKBR\\research'
+            }).Count -gt 0
+            $ownerS=[string]$task.Principal.UserId
+            Write-Output ('R217_ELEVATED_RELEVANT_TASK='+$task.TaskName+
+              ' state='+$task.State+
+              ' research_action='+$isResearch+
+              ' runs_as_owner='+($ownerS -ceq $who -or $ownerS -ceq $sid))
+          }
+          Write-Output ('R217_ELEVATED_TASKS_SCANNED='+$tasks.Count)
           Write-Output 'R217_ELEVATED_INSPECTION_READONLY=PASS'
