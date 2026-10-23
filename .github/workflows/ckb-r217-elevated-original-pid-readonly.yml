@@ -1,0 +1,90 @@
+name: CKB R217 one-time elevated original PID custody inspection (read-only)
+on:
+  push:
+    branches: [verify/ckb-r217-elevated-pid800-original-owner-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r217-elevated-original-pid-identity-once
+  cancel-in-progress: true
+jobs:
+  inspect-original-process-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Inspect current elevated host and one old PowerShell process without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'R217_ELEVATED_WRONG_OWNER_RUNNER'
+          }
+          $admin=[Security.Principal.WindowsPrincipal]::new(
+             [Security.Principal.WindowsIdentity]::GetCurrent()
+          ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Output ('R217_ELEVATED_ADMIN_TOKEN='+$admin)
+          $root='C:\ProgramData\CKBR\research'
+          $pin=Join-Path $root 'controller-qualified-sha.txt'
+          if(!(Test-Path -LiteralPath $pin -PathType Leaf)){
+            Write-Output 'R217_ELEVATED_ORIGINAL_RESEARCH_HOST_NOT_FOUND=TRUE'
+            exit 0
+          }
+          $sha=([IO.File]::ReadAllText($pin,[Text.Encoding]::UTF8)).Trim().ToLowerInvariant()
+          if($sha -cne '9d697540cd31c1925cf427bcbcdc9b605d64b536'){
+            Write-Output 'R217_ELEVATED_ORIGINAL_SOURCE_NOT_SAME=TRUE'
+            exit 0
+          }
+          Write-Output 'R217_ELEVATED_ORIGINAL_RESEARCH_SOURCE_IDENTICAL=TRUE'
+          $p=@(Get-CimInstance Win32_Process -Filter 'ProcessId=800' -ErrorAction Stop)
+          if($p.Count -ne 1){
+            Write-Output 'R217_ELEVATED_PID800_MISSING_OR_WRONG_HOST=TRUE'
+            exit 0
+          }
+          $process=$p[0]
+          $born=([datetime]$process.CreationDate).ToUniversalTime().ToString('o')
+          if($born -cne '2026-10-21T09:46:33.4336590Z'){
+            Write-Output ('R217_ELEVATED_PID_REUSED_UNSAFE='+$born)
+            exit 0
+          }
+          Write-Output 'R217_ELEVATED_PROCESS_BIRTH_MATCH=PASS'
+          $exe=[IO.Path]::GetFileName([string]$process.ExecutablePath)
+          $cmd=[string]$process.CommandLine
+          $who=''
+          $sid=''
+          try{
+            $o=Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+            if($o.ReturnValue -eq 0){$who=([string]$o.Domain)+'\'+([string]$o.User)}
+          }catch{}
+          try{
+            $o=Invoke-CimMethod -InputObject $process -MethodName GetOwnerSid -ErrorAction Stop
+            if($o.ReturnValue -eq 0){$sid=[string]$o.Sid}
+          }catch{}
+          Write-Output ('R217_ELEVATED_PROCESS_EXECUTABLE='+$exe)
+          Write-Output ('R217_ELEVATED_PROCESS_OWNER_AVAILABLE='+(![string]::IsNullOrWhiteSpace($sid)))
+          Write-Output ('R217_ELEVATED_PROCESS_OWNER_SID='+$sid)
+          Write-Output ('R217_ELEVATED_CMDLINE_READABLE='+(![string]::IsNullOrWhiteSpace($cmd)))
+          Write-Output ('R217_ELEVATED_CMDLINE_RESEARCH_LOOP='+($cmd -match '(?i)Invoke-ResearchLoop\.ps1'))
+          Write-Output ('R217_ELEVATED_CMDLINE_RESEARCH_REFERENCE='+($cmd -match '(?i)(CKBR|research|Invoke-ResearchLoop)'))
+          Write-Output ('R217_ELEVATED_PARENT_PID='+$process.ParentProcessId)
+          $parent=@(Get-CimInstance Win32_Process -Filter ('ProcessId='+$process.ParentProcessId))
+          if($parent.Count -eq 1){
+            Write-Output ('R217_ELEVATED_PARENT_EXE='+[IO.Path]::GetFileName([string]$parent[0].ExecutablePath))
+          }
+          $services=@(Get-CimInstance Win32_Service | Where-Object {
+            $_.ProcessId -eq $process.ParentProcessId
+          })
+          foreach($service in $services){
+            Write-Output ('R217_ELEVATED_PARENT_SERVICE='+$service.Name)
+            Write-Output ('R217_ELEVATED_PARENT_SERVICE_STATE='+$service.State)
+          }
+          $children=@(Get-CimInstance Win32_Process | Where-Object {
+            $_.ParentProcessId -eq 800
+          })
+          Write-Output ('R217_ELEVATED_CHILD_COUNT='+$children.Count)
+          foreach($child in $children){
+            Write-Output ('R217_ELEVATED_CHILD_EXE='+[IO.Path]::GetFileName([string]$child.ExecutablePath))
+            Write-Output ('R217_ELEVATED_CHILD_RESEARCH_REFERENCE='+([string]$child.CommandLine -match '(?i)(CKBR|research|Invoke-ResearchLoop)'))
+          }
+          Write-Output 'R217_ELEVATED_INSPECTION_READONLY=PASS'
