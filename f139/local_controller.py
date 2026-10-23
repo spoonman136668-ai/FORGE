@@ -1044,7 +1044,8 @@ class GitHub:
             "repos/spoonman136668-ai/Yggdrasil/",
         )
         require(isinstance(route, str) and route.startswith(allowed)
-                and ".." not in route and " " not in route
+                and "/../" not in route and not route.endswith("/..")
+                and "\\" not in route and " " not in route
                 and not route.startswith(("http://", "https://")),
                 "NATIVE_FEED_ROUTE_INVALID")
         raw = self.runner([route])
