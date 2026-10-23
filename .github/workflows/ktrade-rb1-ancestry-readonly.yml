@@ -1,0 +1,79 @@
+name: KTRADE RB1 candidate ancestry read-only triage
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ktrade-rb1-ancestry-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  triage:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Inspect immutable candidate Git metadata without reset or ref edits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'RB1_OWNER_TRIAGE_AUTHORITY_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $db=Join-Path $root 'state\autonomy.db'
+          $baseline='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $orderID='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $py=@'
+          import sqlite3,sys,json
+          db,w=sys.argv[1:]
+          c=sqlite3.connect('file:'+db.replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           row=c.execute('select state,attempt,reason,workspace,evidence from work_orders where id=?',(w,)).fetchone()
+           if not row: raise RuntimeError('RB1_ID_NOT_FOUND')
+           print(json.dumps(dict(zip(('state','attempt','reason','workspace','evidence'),row)),separators=(',',':')))
+          finally:c.close()
+          '@
+          $rows=@(& python.exe -B -c $py $db $orderID)
+          if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1){throw 'RB1_STATE_READ_FAILED'}
+          $job=($rows[0]|ConvertFrom-Json)
+          if([string]$job.state -cne 'BLOCKED' -or [int]$job.attempt -ne 2 -or
+             [string]$job.reason -notmatch 'BRANCH_ANCESTRY_INVALID'){throw 'RB1_FAILURE_STATE_CHANGED'}
+          $workspace=[IO.Path]::GetFullPath([string]$job.workspace)
+          $evidence=[IO.Path]::GetFullPath([string]$job.evidence)
+          $expectedPrefix=[IO.Path]::GetFullPath((Join-Path $root 'artifacts'))
+          if(!$workspace.StartsWith($expectedPrefix,[StringComparison]::OrdinalIgnoreCase) -or
+             !$evidence.StartsWith($expectedPrefix,[StringComparison]::OrdinalIgnoreCase) -or
+             !(Test-Path -LiteralPath $workspace -PathType Container)){throw 'RB1_PRIVATE_WORKSPACE_OUTSIDE_CUSTODY'}
+          function RunGit([string[]]$argv) {
+            $eap=$ErrorActionPreference
+            try{$ErrorActionPreference='Continue'; $out=@(& git.exe -C $workspace @argv 2>&1);$code=$LASTEXITCODE}
+            finally{$ErrorActionPreference=$eap}
+            return @{ exit=$code; output=($out -join '\n').Trim() }
+          }
+          $head=RunGit @('rev-parse','HEAD')
+          $branch=RunGit @('symbolic-ref','--short','HEAD')
+          $base=RunGit @('cat-file','-e',($baseline+'^{commit}'))
+          $ancestor=RunGit @('merge-base','--is-ancestor',$baseline,'HEAD')
+          $parent=RunGit @('rev-parse','HEAD^')
+          $commits=RunGit @('rev-list','--count',($baseline+'..HEAD'))
+          $dirty=RunGit @('status','--porcelain')
+          $gitdir=RunGit @('rev-parse','--git-dir')
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $sourceHead=@(& git.exe -C $source rev-parse HEAD)
+          if($LASTEXITCODE -ne 0 -or $sourceHead.Count -ne 1 -or $sourceHead[0] -cne $baseline){throw 'RB1_AUTHORIZED_SOURCE_BASELINE_DRIFT'}
+          $result=[ordered]@{schema='ktrade.r18-rb1-candidate-ancestry-diagnostic.v1';order=$orderID;
+            attempt=2;state=$job.state;reason=$job.reason;
+            workspace_git_dir_present=($gitdir.exit -eq 0);
+            candidate_head=if($head.exit -eq 0){$head.output}else{'INVALID'};
+            candidate_branch=if($branch.exit -eq 0){$branch.output}else{'INVALID'};
+            expected_worker_branch='codex/ktrade-rb1-single-track-20261022';
+            baseline_object_present=($base.exit -eq 0);
+            ancestry_exit=$ancestor.exit;parent_exists=($parent.exit -eq 0);
+            ahead_count=if($commits.exit -eq 0){$commits.output}else{'UNAVAILABLE'};
+            dirty_line_count=if($dirty.exit -eq 0){@($dirty.output -split '\n'|Where-Object {$_ -ne ''}).Count}else{-1};
+            original_git_baseline_unchanged=$true;
+            no_mutations=$true}
+          Write-Host ('RB1_CANDIDATE_READONLY_DIAGNOSIS='+($result|ConvertTo-Json -Compress -Depth 4))
+          Write-Host 'RB1_PRIVATE_CANDIDATE_PRESERVED=PASS'
