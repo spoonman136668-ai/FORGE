@@ -25,7 +25,7 @@ class OwnerProviderV4(TwoNegativeControllerIntegration):
         self.assertTrue(self.db.meta()["head_seq"]>=58)
         for issue,lane,failed in ((900,"Wingless","ubuntu-latest"),
                                   (901,"Yggdrasil","windows-latest")):
-            ticket="f139-nci04-i"+str(issue)+"-"+source[:12]+"-"+str(issue)*2
+            ticket="f139-nci04-i"+str(issue)+"-"+source[:12]+"-"+("a"*8 if issue==900 else "b"*8)
             provider={
                 "ticket":ticket,"run_id":39930000000+issue,
                 "source_sha":source,
