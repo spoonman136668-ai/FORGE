@@ -1394,14 +1394,19 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
     require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
+    legacy_pending={}
     for active_record in db.actives():
         active=dict(active_record)
         try:
             run=api.candidates(active["ticket"],active["started_at"])
             if run is None:
+                if not active["ticket"].startswith("f139-nci04-"):
+                    legacy_pending[active["ticket"]]="START_RISK_PENDING_NO_REDISPATCH"
                 continue  # Ambiguous provider startup remains sticky for this ticket.
             result=api.run_proof(run,active["ticket"],active["source_sha"],active["started_at"])
             if result is None:
+                if not active["ticket"].startswith("f139-nci04-"):
+                    legacy_pending[active["ticket"]]="WORKER_RUNNING_NO_REDISPATCH"
                 continue  # One in-flight native worker must not starve the second.
             rid,artifacts=result
             archives={}
@@ -1437,7 +1442,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
                 "tickets":[row["ticket"] for row in remaining]}
     if remaining and not remaining[0]["ticket"].startswith("f139-nci04-"):
-        return {"disposition":"LEGACY_WORKER_RUNNING_NO_REDISPATCH",
+        return {"disposition":legacy_pending.get(
+                    remaining[0]["ticket"],"WORKER_RUNNING_NO_REDISPATCH"),
                 "ticket":remaining[0]["ticket"]}
     ready=db.ready()
     if ready is None and db.admit_d2j_succession():
