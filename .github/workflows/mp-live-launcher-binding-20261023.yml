@@ -1,0 +1,131 @@
+name: MP controller launcher image binding proof read only
+on:
+  push:
+    branches: [diagnostics/mp-live-launcher-binding-20261023]
+    paths: [.github/workflows/mp-live-launcher-binding-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-live-launcher-binding-20261023
+  cancel-in-progress: false
+jobs:
+  ownership:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Check launch script and running image custody without invocation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$msg){if(-not $v){throw ('MP_LAUNCH_BINDING_'+$msg)}}
+          function H([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-live-launcher-binding-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
+          Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
+          $prior='8d448b9ab078deeb5a70b2b311524969b965c515'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $prior) 'PARENT'
+          $paths=@(& git.exe diff --name-only $prior HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $paths.Count -eq 1 -and $paths[0] -ceq '.github/workflows/mp-live-launcher-binding-20261023.yml') 'SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe=Join-Path $root 'bin\ckb-plane.exe'
+          $expectedScript=Join-Path $root 'scripts\Start-CKBPlane.ps1'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          foreach($f in @($exe,$expectedScript,$cfg)){
+             Need (Test-Path -LiteralPath $f -PathType Leaf) 'EXPECTED_FILE_MISSING'
+             Need (((Get-Item -LiteralPath $f).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'EXPECTED_FILE_REPARSE'
+          }
+          $installedHash=H $exe
+          $expectedScriptHash=H $expectedScript
+          Need ($installedHash -ceq '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6') 'INSTALLED_EXE_PREIMAGE_DRIFT'
+          $all=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($all.Count -eq 1) 'RUNNING_SINGLETON'
+          $child=$all[0]
+          Need (-not [string]::IsNullOrWhiteSpace([string]$child.ExecutablePath)) 'RUNNING_PATH_UNAVAILABLE'
+          $runningPath=[IO.Path]::GetFullPath([string]$child.ExecutablePath)
+          Need (Test-Path -LiteralPath $runningPath -PathType Leaf) 'RUNNING_EXE_MISSING'
+          Need (((Get-Item -LiteralPath $runningPath).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'RUNNING_EXE_REPARSE'
+          $runningHash=H $runningPath
+          Need ($runningHash -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc') 'RUNNING_IMAGE_HASH_DRIFT'
+          Write-Host 'MP_LAUNCH_RUNNING_EXE_PRIOR_HASH_MATCH=PASS'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Write-Host ('MP_LAUNCH_TASK_STATE='+[string]$task.State)
+          $taskActs=@($task.Actions)
+          Need ($taskActs.Count -eq 1) 'TASK_ONE_ACTION'
+          $action=$taskActs[0]
+          $actionExe=[string]$action.Execute
+          $shellClass=if([IO.Path]::GetFileName($actionExe) -imatch '^powershell(\.exe)?$'){'WINDOWS_POWERSHELL'}
+            elseif([IO.Path]::GetFileName($actionExe) -imatch '^pwsh(\.exe)?$'){'POWERSHELL_CORE'}
+            else{'UNEXPECTED'}
+          Need ($shellClass -ne 'UNEXPECTED') 'TASK_NOT_POWERSHELL'
+          Write-Host ('MP_LAUNCH_SHELL_CLASS='+$shellClass)
+          $args=[string]$action.Arguments
+          $rx='(?i)(?:^|\s)-File\s+(?:"([^"]+)"|''([^'']+)''|(\S+))'
+          $matches=@([regex]::Matches($args,$rx))
+          $candidate=$null
+          if($matches.Count -eq 1){
+              foreach($g in @($matches[0].Groups[1],$matches[0].Groups[2],$matches[0].Groups[3])){
+                 if($g.Success -and $g.Value){$candidate=$g.Value;break}
+              }
+          }
+          $taskScriptClass='UNRESOLVED'
+          $actualScriptHash='UNAVAILABLE'
+          if($candidate){
+             if(-not [IO.Path]::IsPathRooted($candidate)){$taskScriptClass='RELATIVE_SCRIPT_PATH'}
+             else {
+                $candidate=[IO.Path]::GetFullPath($candidate)
+                if(Test-Path -LiteralPath $candidate -PathType Leaf){
+                   Need (((Get-Item -LiteralPath $candidate).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'TASK_SCRIPT_REPARSE'
+                   $actualScriptHash=H $candidate
+                   $taskScriptClass=if([string]::Equals($candidate,[IO.Path]::GetFullPath($expectedScript),[StringComparison]::OrdinalIgnoreCase)){'INSTALLED_START_SCRIPT'}else{'OTHER_START_SCRIPT'}
+                }else{$taskScriptClass='SCRIPT_TARGET_NOT_PRESENT'}
+             }
+          }
+          Write-Host ('MP_LAUNCH_TASK_SCRIPT_CLASS='+$taskScriptClass)
+          Write-Host ('MP_LAUNCH_TASK_SCRIPT_SHA256='+$actualScriptHash)
+          Write-Host ('MP_LAUNCH_TASK_SCRIPT_EQUALS_INSTALLED_START='+($actualScriptHash -eq $expectedScriptHash).ToString().ToUpperInvariant())
+          $taskStart=@($args -split '\s+' | Where-Object {$_ -match '(?i)WithBridge'})
+          Write-Host ('MP_LAUNCH_TASK_BRIDGE_FLAG_PRESENT='+($taskStart.Count -gt 0).ToString().ToUpperInvariant())
+          $scriptLauncherClass='UNREAD'
+          if($taskScriptClass -eq 'INSTALLED_START_SCRIPT' -or $taskScriptClass -eq 'OTHER_START_SCRIPT'){
+            $raw=[IO.File]::ReadAllText($candidate)
+            $hasBin=$raw.Contains("bin\ckb-plane.exe",[StringComparison]::OrdinalIgnoreCase)
+            $hasRun=$raw -match '(?i)controller[^\r\n]{0,80}run'
+            $scriptLauncherClass=if($hasBin -and $hasRun){'NORMAL_BIN_CONTROLLER_RUN'}elseif($hasRun){'CONTROLLER_RUN_OTHER_PATH'}else{'NO_DIRECT_CONTROLLER_RUN_PATTERN'}
+          }
+          Write-Host ('MP_LAUNCH_TASK_SCRIPT_EXEC_PATTERN='+$scriptLauncherClass)
+          Write-Host ('MP_LAUNCH_RUNNING_CONFIG_MATCHES_INSTALLED='+([string]$child.CommandLine).Contains([IO.Path]::GetFullPath($cfg),[StringComparison]::OrdinalIgnoreCase).ToString().ToUpperInvariant())
+          $chain=@()
+          $cursor=$child
+          for($i=0;$i -lt 4;$i++){
+             if($null -eq $cursor){break}
+             $parentPid=[uint32]$cursor.ParentProcessId
+             if($parentPid -eq 0){break}
+             $parent=@(Get-CimInstance Win32_Process -Filter "ProcessId=$parentPid" -ErrorAction Stop)
+             if($parent.Count -ne 1){break}
+             $name=[IO.Path]::GetFileName([string]$parent[0].Name)
+             $class=if($name -imatch '^powershell\.exe$|^pwsh\.exe$'){'POWERSHELL'}
+                elseif($name -imatch '^taskeng\.exe$|^taskhostw\.exe$|^svchost\.exe$'){'WINDOWS_TASK_HOST'}
+                elseif($name -imatch '^cmd\.exe$'){'CMD'}
+                else{'OTHER'}
+             $chain+=($class)
+             $cursor=$parent[0]
+          }
+          Write-Host ('MP_LAUNCH_PARENT_CLASS_CHAIN='+($chain -join '>'))
+          Write-Host ('MP_LAUNCH_PARENT_IS_POWERSHELL='+($chain.Count -gt 0 -and $chain[0] -eq 'POWERSHELL').ToString().ToUpperInvariant())
+          $again=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($again.Count -eq 1 -and $again[0].ProcessId -eq $child.ProcessId) 'PROCESS_ID_DRIFT'
+          Need ((H $runningPath) -ceq $runningHash) 'RUNNING_EXE_POST_DRIFT'
+          Need ((H $exe) -ceq $installedHash -and (H $expectedScript) -ceq $expectedScriptHash) 'INSTALLED_SOURCE_POST_DRIFT'
+          Write-Host 'MP_LAUNCH_PRE_POST_SOURCE_AND_PROCESS_UNCHANGED=PASS'
+          Write-Host 'MP_LAUNCH_NO_CONTROLLER_COMMANDS=TRUE'
+          Write-Host 'MP_LAUNCH_NO_PRODUCTION_WRITES=TRUE'
+          Write-Host 'MP_LAUNCH_NO_QUEUE_OR_RUNNER_MUTATION=TRUE'
+          Write-Host 'MP_LAUNCH_BINDING_READONLY_COMPLETE=PASS'
