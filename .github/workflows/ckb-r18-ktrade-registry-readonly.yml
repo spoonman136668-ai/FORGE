@@ -1,0 +1,62 @@
+name: R18 owner KTRADE engineering registry and source inventory read only
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ckb-r18-ktrade-registry-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Verify original owner and inspect KTRADE engineering admission preconditions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R18_KTRADE_INVENTORY_AUTHORITY_MISMATCH'
+          }
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $wanted='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+          $hash=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($hash -cne $wanted){throw 'R18_KTRADE_CONFIG_PREIMAGE_DRIFT'}
+          $lines=[IO.File]::ReadAllLines($cfg)
+          $inRepos=$false;$names=@();$modes=@{};$current=''
+          foreach($line in $lines){
+            if($line -cmatch '^repos:\s*$'){$inRepos=$true;continue}
+            if(!$inRepos){continue}
+            if($line -cmatch '^[A-Za-z][A-Za-z_]*:\s*$'){break}
+            if($line -cmatch '^    ([A-Za-z0-9_-]+):\s*$'){$current=$Matches[1];$names+= $current;continue}
+            if($current -and $line -match '^        mode:\s*([a-z]+)\s*$'){$modes[$current]=$Matches[1]}
+          }
+          $engineering=@($names|Where-Object {$modes[$_] -ceq 'engineering'})
+          Write-Host ('R18_CONFIG_REGISTERED_ENGINEERING_KEYS='+($engineering -join ','))
+          Write-Host ('R18_KTRADE_ENGINEERING_REGISTERED='+[bool]($engineering -contains 'ktrade'))
+          $site='C:\Users\camar\GolandProjects'
+          $clones=@()
+          if(Test-Path -LiteralPath $site -PathType Container){
+            $candidates=@(Get-ChildItem -LiteralPath $site -Directory -ErrorAction Stop|Where-Object {$_.Name -match '(?i)ktrade'}|Select-Object -First 8)
+            foreach($c in $candidates){
+              if(!(Test-Path -LiteralPath (Join-Path $c.FullName '.git'))){continue}
+              $sha=@(& git.exe -C $c.FullName rev-parse HEAD 2>$null)
+              if($LASTEXITCODE -ne 0 -or $sha.Count -ne 1 -or $sha[0] -notmatch '^[0-9a-f]{40}$'){continue}
+              $dirty=@(& git.exe -C $c.FullName status --porcelain 2>$null)
+              if($LASTEXITCODE -ne 0){continue}
+              $clones+=@{directory_name=$c.Name;head=$sha[0];clean=($dirty.Count -eq 0)}
+            }
+          }
+          $out=@{schema='ckb-plane.r18-ktrade-registry-audit.v1';
+            config_preimage_sha256=$hash;engineering_keys=$engineering;
+            ktrade_registered=($engineering -contains 'ktrade');
+            bounded_source_clones=$clones;active_controller_touched=$false;
+            config_mutated=$false;queue_submitted=$false;deployment_attempted=$false}
+          $json=$out|ConvertTo-Json -Depth 5 -Compress
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'R18_INVENTORY_EXCESSIVE'}
+          Write-Host ('R18_KTRADE_REGISTRY_READONLY='+$json)
+          Write-Host 'R18_KTRADE_REGISTRY_INVENTORY=PASS'
