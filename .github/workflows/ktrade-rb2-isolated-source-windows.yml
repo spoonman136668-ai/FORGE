@@ -1,0 +1,71 @@
+name: KTRADE RB2 isolated real Windows compile and focused tests
+on:
+  push:
+    branches: [qualification/ktrade-rb2-go-brave-20261023]
+    paths: [.github/workflows/ktrade-rb2-isolated-source-windows.yml]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 40
+    steps:
+      - name: Exact private KTRADE RB2 disposable checkout, focused tests, stopped Windows build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/ktrade-rb2-go-brave-20261023' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'KTRADE_RB2_QUALIFIER_IDENTITY_MISMATCH'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
+          $sourceSha='c5b849d1d696f7ffd4c7d5b7f82a9b3cf684ca6d'
+          $target='refs/heads/rebuild/single-track-rb1-20261021'
+          $remote='https://github.com/spoonman136668-ai/ktrade.git'
+          $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $tmp){throw 'KTRADE_RB2_TEMP_COLLISION'}
+          New-Item -ItemType Directory -Path $tmp -ErrorAction Stop|Out-Null
+          $root=Join-Path $tmp 'source'
+          $env:GIT_TERMINAL_PROMPT='0'
+          $env:GCM_INTERACTIVE='never'
+          $env:GIT_CONFIG_NOSYSTEM='1'
+          $env:GOFLAGS='-p=1'
+          $env:GOMAXPROCS='2'
+          $env:CGO_ENABLED='1'
+          $compiler='C:\msys64\ucrt64\bin\gcc.exe'
+          if(!(Test-Path -LiteralPath $compiler -PathType Leaf)){throw 'RB2_REAL_SQLITE_COMPILER_MISSING'}
+          $env:CC=$compiler
+          $env:PATH=(Split-Path -Parent $compiler)+[IO.Path]::PathSeparator+$env:PATH
+          $gotemp=Join-Path $tmp 'temp'
+          New-Item -ItemType Directory -Path $gotemp|Out-Null
+          $env:TEMP=$gotemp; $env:TMP=$gotemp; $env:TMPDIR=$gotemp
+          try {
+            & git.exe init --quiet -- $root
+            if($LASTEXITCODE -ne 0){throw 'RB2_TEMP_GIT_INIT_FAILED'}
+            & git.exe -C $root fetch --depth=1 --no-tags -- $remote $target
+            if($LASTEXITCODE -ne 0){throw 'RB2_PRIVATE_SOURCE_READONLY_FETCH_UNAVAILABLE'}
+            & git.exe -C $root checkout --quiet --detach FETCH_HEAD
+            if($LASTEXITCODE -ne 0){throw 'RB2_PINNED_CHECKOUT_FAILED'}
+            $head=(& git.exe -C $root rev-parse HEAD).Trim()
+            $status=@(& git.exe -C $root status --porcelain)
+            if($head -cne $sourceSha -or $status.Count -ne 0){throw ('RB2_SOURCE_IDENTITY_DRIFT:'+ $head)}
+            Write-Host ('RB2_EXACT_SOURCE_SHA='+$head)
+            Push-Location $root
+            try {
+              & go.exe test -mod=readonly -count=1 -p 1 -tags ktrade_full -run '^TestRB2' ./pkg/apphost ./cmd/ktrade
+              if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_TESTS_FAILED'}
+              Write-Host 'RB2_FOCUSED_BRAVE_AND_FAIL_CLOSED_FEED=PASS'
+              & go.exe vet -mod=readonly -tags ktrade_full ./pkg/apphost ./cmd/ktrade
+              if($LASTEXITCODE -ne 0){throw 'RB2_FOCUSED_NATIVE_VET_FAILED'}
+              Write-Host 'RB2_NATIVE_VET=PASS'
+              $exe=Join-Path $tmp 'ktrade-stopped.exe'
+              & go.exe build -mod=readonly -p 1 -tags ktrade_full -o $exe ./cmd/ktrade
+              if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'RB2_FULL_WINDOWS_EXE_BUILD_FAILED'}
+              Write-Host ('RB2_STOPPED_EXE_SHA256='+((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()))
+              Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_APP_NOT_STARTED=TRUE'
+            }finally{Pop-Location}
+          }finally{
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          }
