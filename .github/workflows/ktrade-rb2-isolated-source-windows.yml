@@ -21,7 +21,7 @@ jobs:
           }
           $who=[Security.Principal.WindowsIdentity]::GetCurrent()
           if ($who.Name -ine 'LINKDEADKB\camar') {throw 'KTRADE_OWNER_WINDOWS_IDENTITY_MISMATCH'}
-          $sourceSha='2dc122110c84b681dfc12e138752f8a778530782'
+          $sourceSha='3aa68f9b24c9548ef2a76da4e19d996ebfa14801'
           $target='refs/heads/rebuild/single-track-rb1-20261021'
           $remote='https://github.com/spoonman136668-ai/ktrade.git'
           $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb2-qual-'+$env:GITHUB_RUN_ID)
@@ -77,6 +77,10 @@ jobs:
               }
               Write-Host ('RB2_PORTABLE_STAGED_FILE_COUNT='+$manifest.files.Count)
               Write-Host 'RB2_PORTABLE_SOURCE_PACKAGE=PASS; RB2_NOT_INSTALLED=TRUE'
+              & pwsh.exe -NoProfile -File windows/Probe-KTRADE-Portable-HTTP.ps1 -OutputRoot $bundle
+              if($LASTEXITCODE -ne 0){throw 'RB2_REAL_NATIVE_HTTP_AND_RESTART_TEST_FAILED'}
+              Write-Host 'RB2_REAL_NATIVE_UI_AND_PINE_PERSISTENCE=PASS'
+
 
               Write-Host 'RB2_OWNER_INSTALLED_DATA_ACCESSED=FALSE; RB2_BROKER_EXECUTION=FALSE; RB2_APP_NOT_STARTED=TRUE'
             }finally{Pop-Location}
