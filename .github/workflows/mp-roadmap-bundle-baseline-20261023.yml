@@ -23,7 +23,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-roadmap-bundle-baseline-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'BRANCH'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '6af6af322802d49ea6b38e47aac08418ab6ed3d2') 'PARENT'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq '05d953fb8cfe7489df1ae685a7807cab69f3035a') 'PARENT'
           $delta=@(& git.exe diff --name-only HEAD^ HEAD)
           Need ($delta.Count -eq 1 -and $delta[0] -ceq '.github/workflows/mp-roadmap-bundle-baseline-20261023.yml') 'SCOPE'
           Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY'
@@ -71,3 +71,23 @@ jobs:
           }
           Need ($found.Count -ge 2) 'SOURCE_SYMBOL_NOT_FOUND'
           Write-Host 'MP_BUNDLE_CAUSAL_SOURCE_AUDIT=PASS'
+
+          $needles2=@('func (p *Engine) exportCandidateLocked(', 'bundle create', 'bundle', 'func exportCandidate')
+          $hits=0
+          foreach($f in $goFiles){
+            $all=@(Get-Content -LiteralPath $f.FullName -Encoding UTF8)
+            for($j=0;$j -lt $all.Count;$j++){
+              if(-not $all[$j].Contains('func (p *Engine) exportCandidateLocked(') -and
+                 -not ($all[$j].Contains('bundle') -and $all[$j].Contains('git('))){
+                continue
+              }
+              $hits++
+              Need ($hits -le 12) 'UNBOUNDED_BUNDLE_HITS'
+              Write-Host ('MP_BUNDLE_EXPORT_HIT='+$f.Name+':'+($j+1))
+              for($k=[Math]::Max(0,$j-6);$k -le [Math]::Min($all.Count-1,$j+115);$k++){
+                Write-Host ('MP_BUNDLE_EXPORT_LINE_'+$f.Name+'_'+($k+1)+'='+[string]$all[$k])
+              }
+            }
+          }
+          Need ($hits -gt 0) 'NO_EXPORT_CODE'
+          Write-Host 'MP_BUNDLE_EXPORT_SOURCE_TRACE=PASS'
