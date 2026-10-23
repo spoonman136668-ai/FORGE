@@ -1,0 +1,48 @@
+name: R18 exact roadmap parent archive and paused state read only
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-roadmap-parent-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 18
+          persist-credentials: false
+      - name: Read pinned original ledger and roadmap parent candidates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $who.Name -ine 'LINKDEADKB\camar' -or !$admin -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base 3f4e576f2d4ce2102dc7a58f905b326b7a2c7f87 HEAD) -cne '3f4e576f2d4ce2102dc7a58f905b326b7a2c7f87'){throw 'R18_PARENT_INSPECTION_IDENTITY_DRIFT'}
+          $diff=@(& git.exe diff --name-only 3f4e576f2d4ce2102dc7a58f905b326b7a2c7f87 HEAD)
+          if($LASTEXITCODE -ne 0 -or $diff.Count -ne 1 -or $diff[0] -cne '.github/workflows/ckb-r18-roadmap-parent-readonly.yml'){throw 'R18_PARENT_INSPECTION_SCOPE_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant() -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'){throw 'R18_CONTROLLER_BUILD_CHANGED'}
+          $py=@'
+          import sqlite3,sys,json,hashlib
+          d=sys.argv[1].replace('\\','/')
+          c=sqlite3.connect('file:'+d+'?mode=ro',uri=True,timeout=4)
+          c.execute('pragma query_only=on')
+          try:
+           settings={k:v for k,v in c.execute("select key,value from settings where key in ('paused','autonomy_status','autonomy_generation','autonomy_heartbeat')")}
+           print('R18_CURRENT_CONTROL='+json.dumps(settings,separators=(',',':')))
+           historical=c.execute("select w.id,w.state,coalesce(q.state,'MISSING') from work_orders w left join queue_items q on q.id=w.id where instr(CAST(w.yaml AS TEXT),'preservation:')>0 order by w.id").fetchall()
+           for id,st,qs in historical:
+            print('R18_ARCHIVE='+id+'|state='+st+'|queue='+qs)
+           print('R18_LEGACY_RECORDS='+str(len(historical)))
+           print('R18_ROADMAP_PARENT_READ_ONLY=PASS')
+          finally:c.close()
+          '@
+          & python.exe -B -c $py (Join-Path $root 'state\autonomy.db')
+          if($LASTEXITCODE -ne 0){throw 'R18_PARENT_READONLY_SQL_FAILED'}
