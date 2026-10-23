@@ -1,4 +1,4 @@
-name: R18 guarded original controller repair
+name: R220 elevated live pre-cutover snapshot
 on:
   push:
     branches: [diagnostics/ckb-rb1-live-admission-20261022]
@@ -6,15 +6,15 @@ on:
 permissions:
   contents: read
 jobs:
-  cutover:
+  snapshot:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 20
-      - name: Exact qualified live status repair with rollback
+          fetch-depth: 2
+      - name: Exact elevated read-only CKB live snapshot
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
@@ -25,160 +25,84 @@ jobs:
              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
              $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
-             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
-             @(& git.exe status --porcelain).Count -ne 0){throw 'R18_ORIGINAL_OWNER_AUTHORITY_DRIFT'}
-          $base='ecbd672f0b3bba34d6e92d2f1475ea6dc80f605f'
-          $allowed=@('.github/workflows/ckb-rb1-live-admission-readonly.yml','.github/workflows/ckb-r18-native-task-shape-readonly.yml','.github/workflows/ckb-r18-guarded-original-cutover.yml','.github/workflows/ckb-r18-original-launch-diagnostic.yml')
-          $changed=@(& git.exe diff --name-only $base HEAD)
-          if($LASTEXITCODE -ne 0 -or @($changed|Where-Object {$_ -notin $allowed}).Count -ne 0){throw 'R18_PROMOTION_WORKFLOW_SCOPE_DRIFT'}
+             (& git.exe rev-parse HEAD).Trim() -cne $env:GITHUB_SHA -or
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R220_ELEVATED_SNAPSHOT_AUTHORITY_DRIFT'}
+          $changed=@(& git.exe diff --name-only HEAD^ HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-guarded-original-cutover.yml'){
+            throw 'R220_ELEVATED_SNAPSHOT_SCOPE_DRIFT'
+          }
+          function Sha([string]$p){
+            if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw ('R220_MISSING_FILE='+$p)}
+            (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
           $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5'
-          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022'
-          $oldExe=Join-Path $old 'bin\ckb-plane.exe'
-          $newExe=Join-Path $new 'bin\ckb-plane.exe'
-          $incoming=Join-Path $env:RUNNER_TEMP ('r18-retained-'+$env:GITHUB_RUN_ID)
-          if(Test-Path -LiteralPath $incoming){throw 'R18_ARTIFACT_STAGING_PATH_REUSED'}
-          New-Item -Path $incoming -ItemType Directory -ErrorAction Stop|Out-Null
-          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
-          & $gh run download 39874370998 -R spoonman136668-ai/ckb-plane -n r18-qualified-status-and-strict-active-recovery -D $incoming
-          if($LASTEXITCODE -ne 0){throw 'R18_QUALIFIED_ARTIFACT_DOWNLOAD_NOT_AUTHORIZED'}
-          $manifestFile=Join-Path $incoming 'manifest.json'
-          $manifest=Get-Content -LiteralPath $manifestFile -Raw|ConvertFrom-Json
-          if($manifest.schema -cne 'ckb-plane.r18-status-and-active-recovery-candidate.v1' -or
-             $manifest.artifact_run -cne '39874370998' -or
-             $manifest.source_sha -cne 'cf4e2a0c8df0f2534e0d0ea94a0b0122e414b3d5' -or
-             $manifest.original_recovery_sha256 -cne 'c6c25f773bd2ea09999963b37746d820a1a303876b2664f5c88ba8bf1720fa83' -or
-             $manifest.full_regression_run -cne '39873054923' -or
-             $manifest.full_regression_evidence -cne 'R18_STARTUP_FULL_REGRESSION_BASELINE_FILTERED=PASS' -or
-             $manifest.nonbaseline_vet_evidence -cne 'R18_STARTUP_VET_NONBASELINE=PASS' -or
-             $manifest.sha256 -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8' -or
-             $manifest.live_promoted -ne $false){throw 'R18_TRANSFER_MANIFEST_SOURCE_DRIFT'}
-          $candidate=Join-Path $incoming 'ckb-plane.exe'
           $config=Join-Path $root 'config\autonomy.yaml'
+          $bridge=Join-Path $root 'config\webui-bridge.json'
           $db=Join-Path $root 'state\autonomy.db'
-          $oldHash='c4e314e14db5f1890e275439171cb22343581d601ba86a4bedfd2e66efe501e2'
-          $newHash='9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'
-          $wrapperHash='e25977f2e887d665f1458d3f085d5eacf71c824ac0f27cf3ebafe7e9bd074a3b'
           $taskName='CKB-plane Controller'
-          function Sha([string]$path){(Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
-          function One([string]$path){
-            $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
-            if($p.Count -ne 1 -or [string]$p[0].ExecutablePath -ine $path){throw 'R18_CONTROLLER_SINGLETON_MISMATCH'}
-            return $p[0]
-          }
-          function ReadState {
-            $s=@'
-          import sqlite3,sys,json
-          db=sys.argv[1].replace('\\','/')
-          c=sqlite3.connect('file:'+db+'?mode=ro',uri=True)
-          try:
-           c.execute('pragma query_only=on')
-           d={x[0]:x[1] for x in c.execute("select key,value from settings where key in ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
-           d['leases']=c.execute('select count(*) from worker_leases').fetchone()[0]
-           d['pending']=c.execute("select count(*) from queue_items where state not in ('COMPLETED','REVIEWED')").fetchone()[0]
-           print(json.dumps(d))
-          finally:c.close()
-          '@
-            $result=@(& python.exe -B -c $s $db)
-            if($LASTEXITCODE -ne 0 -or $result.Count -ne 1){throw 'R18_DB_OBSERVATION_FAILED'}
-            return $result[0]|ConvertFrom-Json
-          }
-          if((Sha $oldExe) -cne $oldHash -or
-             (Sha $config) -cne '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c' -or
-             (Sha $candidate) -cne $newHash){throw 'R18_SOURCE_OR_RELEASE_IDENTITY_CHANGED'}
-          if(Test-Path -LiteralPath $new){if((Sha $newExe) -cne $newHash){throw 'R18_EXISTING_STAGED_RELEASE_CHANGED'}}
           $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){throw 'R18_SCHEDULED_TASK_DRIFT'}
-          [void](One $oldExe)
+          $taskInfo=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1){throw 'R220_TASK_ACTION_COUNT_DRIFT'}
+          Write-Host ('R220_TASK_STATE='+[string]$task.State)
+          Write-Host ('R220_TASK_LAST_RESULT='+[string]$taskInfo.LastTaskResult)
+          Write-Host ('R220_TASK_EXECUTE='+[string]$task.Actions[0].Execute)
+          Write-Host ('R220_TASK_ARGUMENTS='+[string]$task.Actions[0].Arguments)
+          Write-Host ('R220_TASK_WORKDIR='+[string]$task.Actions[0].WorkingDirectory)
+          Write-Host ('R220_TASK_PRINCIPAL='+[string]$task.Principal.UserId)
+          Write-Host ('R220_TASK_RUNLEVEL='+[string]$task.Principal.RunLevel)
+          Write-Host ('R220_TASK_LOGONTYPE='+[string]$task.Principal.LogonType)
           $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
-          if(!$m.Success){throw 'R18_WRAPPER_PATH_MISSING'}
+          if(!$m.Success){throw 'R220_WRAPPER_PATH_NOT_FOUND'}
           $wrapper=$m.Groups[1].Value.Trim('"',"'"," ")
-          if((Split-Path -Leaf $wrapper) -cne 'Start-R18-Controller.ps1' -or (Sha $wrapper) -cne $wrapperHash){throw 'R18_WRAPPER_SOURCE_DRIFT'}
-          $originalBytes=[IO.File]::ReadAllBytes($wrapper)
-          $originalText=[Text.Encoding]::UTF8.GetString($originalBytes)
-          if(![Linq.Enumerable]::SequenceEqual([byte[]]$originalBytes,[byte[]][Text.Encoding]::UTF8.GetBytes($originalText)) -or
-             ($originalText.Split(@($old),[StringSplitOptions]::None).Length-1) -ne 1){throw 'R18_WRAPPER_RELEASE_PIN_AMBIGUOUS'}
-          $state=ReadState
-          if($state.paused -cne 'true' -or $state.autonomy_authority -cne 'plane' -or
-             $state.autonomy_generation -cne '6' -or [int]$state.leases -ne 0 -or [int]$state.pending -ne 0){throw 'R18_UNSAFE_ACTIVE_CONTROLLER'}
-          Write-Host 'R18_ALL_PREMUTATION_CUSTODY_AND_IDLE_CHECKS=PASS'
-          $stopped=$false;$swapped=$false
-          try {
-            if(!(Test-Path -LiteralPath $new)){Copy-Item -LiteralPath $old -Destination $new -Recurse -ErrorAction Stop}
-            Copy-Item -LiteralPath $candidate -Destination $newExe -Force -ErrorAction Stop
-            if((Sha $newExe) -cne $newHash -or (Sha $oldExe) -cne $oldHash){throw 'R18_CANDIDATE_STAGING_INVALID'}
-            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
-            $stopped=$true
-            $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
-            if($p.Count -gt 1){throw 'R18_UNEXPECTED_DUPLICATE_PROCESS'}
-            if($p.Count -eq 1){
-              if([string]$p[0].ExecutablePath -ine $oldExe){throw 'R18_UNEXPECTED_PROCESS_PATH'}
-              Stop-Process -Id $p[0].ProcessId -Force -ErrorAction Stop
-            }
-            Start-Sleep -Seconds 2
-            if(@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'").Count -ne 0){throw 'R18_OLD_CONTROLLER_REMAINED_RUNNING'}
-            $ready=$false
-            for($j=0;$j -lt 30;$j++){
-              $st=[string](Get-ScheduledTask -TaskName $taskName).State
-              if($st -eq 'Ready'){$ready=$true;break}
-              Start-Sleep -Seconds 1
-            }
-            if(!$ready){throw 'R18_SCHEDULER_NOT_READY_AFTER_STOP'}
-            $normalWrapper=$originalText.Replace($old,$new)
-            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($normalWrapper))
-            $swapped=$true
-            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-            $started=$false
-            for($i=0;$i -lt 25;$i++){
-              Start-Sleep -Seconds 1
-              $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
-              if($p.Count -gt 1){throw 'R18_MORE_THAN_ONE_CONTROLLER'}
-              if($p.Count -eq 1 -and [string]$p[0].ExecutablePath -ieq $newExe){$started=$true;break}
-            }
-            if(!$started){
-              $currentTask=Get-ScheduledTask -TaskName $taskName
-              $taskInfo=Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
-              $seen=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
-              Write-Host ('R18_LAUNCH_TASK_STATE='+[string]$currentTask.State)
-              Write-Host ('R18_LAUNCH_TASK_RESULT='+[string]$taskInfo.LastTaskResult)
-              Write-Host ('R18_LAUNCH_CONTROLLERS_SEEN='+$seen.Count)
-              Write-Host ('R18_LAUNCH_ORIGINAL_RUNNING='+[bool](@($seen|Where-Object {$_.ExecutablePath -ieq $oldExe}).Count))
-              Write-Host ('R18_LAUNCH_CANDIDATE_RUNNING='+[bool](@($seen|Where-Object {$_.ExecutablePath -ieq $newExe}).Count))
-              throw 'R18_NEW_CONTROLLER_NOT_RUNNING'
-            }
-            $raw=@(& $newExe controller status --config $config 2>&1)
-            if($LASTEXITCODE -ne 0){throw 'R18_LEGACY_STATUS_STILL_FAILS'}
-            $status=($raw -join [Environment]::NewLine)|ConvertFrom-Json
-            if($status.authority -cne 'plane' -or [string]$status.generation -cne '6'){throw 'R18_AUTHORITY_CHANGED'}
-            Write-Host 'R18_HISTORICAL_STATUS_FIXED=PASS'
-            Start-Sleep -Seconds 12
-            $after=ReadState
-            [void](One $newExe)
-            if($after.paused -cne 'true' -or $after.autonomy_authority -cne 'plane' -or
-               $after.autonomy_generation -cne '6' -or [int]$after.leases -ne 0 -or [int]$after.pending -ne 0){throw 'R18_IDLE_CONTROLLER_STATE_DRIFT'}
-            if(((Get-Date).ToUniversalTime()-[datetime]::Parse([string]$after.autonomy_heartbeat).ToUniversalTime()).TotalSeconds -gt 60){throw 'R18_HEARTBEAT_STALE'}
-            if([IO.File]::ReadAllText($wrapper) -cne $normalWrapper){throw 'R18_WRAPPER_CONTENTS_CHANGED'}
-            Write-Host 'R18_ORIGINAL_STARTUP_WRAPPER_SEMANTICS_PRESERVED=PASS'
-            Write-Host 'R18_GUARDED_LIVE_STATUS_REPAIR_INSTALLED=PASS'
-            Write-Host 'R18_CONTROLLER_PAUSED_PENDING_AUTHENTICATED_BRIDGE_RESUME=TRUE'
-            Write-Host ('R18_PROMOTED_BINARY_SHA256='+$newHash)
-          }catch{
-            Write-Host ('R18_REPAIR_BLOCKED='+[string]$_.Exception.Message)
-            if($stopped){
-              try{
-                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-                foreach($p in @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")){
-                  if([string]$p.ExecutablePath -ieq $oldExe -or [string]$p.ExecutablePath -ieq $newExe){
-                    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
-                  }
-                }
-                if($swapped){[IO.File]::WriteAllBytes($wrapper,$originalBytes)}
-                if((Sha $wrapper) -cne $wrapperHash){throw 'R18_ROLLBACK_WRAPPER_MISMATCH'}
-                Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
-                Start-Sleep -Seconds 5
-                [void](One $oldExe)
-                Write-Host 'R18_EXACT_ORIGINAL_ROLLBACK=PASS'
-              }catch{Write-Host ('R18_ROLLBACK_FAILED='+[string]$_.Exception.Message)}
-            }
-            throw
+          Write-Host ('R220_WRAPPER_PATH='+$wrapper)
+          Write-Host ('R220_WRAPPER_SHA256='+(Sha $wrapper))
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Write-Host ('R220_CKB_PROCESS_COUNT='+$procs.Count)
+          foreach($p in $procs){
+            Write-Host ('R220_PROCESS_PID='+$p.ProcessId)
+            Write-Host ('R220_PROCESS_PATH='+[string]$p.ExecutablePath)
+            Write-Host ('R220_PROCESS_SHA256='+(Sha ([string]$p.ExecutablePath)))
+            Write-Host ('R220_PROCESS_COMMANDLINE='+[string]$p.CommandLine)
+            Write-Host ('R220_PROCESS_PARENT_PID='+[string]$p.ParentProcessId)
           }
+          Write-Host ('R220_CONFIG_SHA256='+(Sha $config))
+          Write-Host ('R220_BRIDGE_SHA256='+(Sha $bridge))
+          if(Test-Path -LiteralPath (Join-Path $root '.git')){
+            $h=(& git.exe -C $root rev-parse HEAD).Trim()
+            if($LASTEXITCODE-eq0){Write-Host ('R220_LIVE_CHECKOUT_HEAD='+$h)}
+            $dirty=@(& git.exe -C $root status --porcelain --untracked-files=all)
+            if($LASTEXITCODE-eq0){Write-Host ('R220_LIVE_CHECKOUT_DIRTY_COUNT='+$dirty.Count)}
+          }
+          $py=@'
+          import json,sqlite3,sys
+          db=sys.argv[1].replace('\\','/')
+          con=sqlite3.connect('file:'+db+'?mode=ro',uri=True,timeout=8)
+          con.execute('pragma query_only=on')
+          try:
+              settings={str(k):str(v) for k,v in con.execute("select key,value from settings where key in ('paused','autonomy_authority','autonomy_generation','autonomy_heartbeat')")}
+              counts={str(k):int(v) for k,v in con.execute("select state,count(*) from work_orders group by state")}
+              active=[{'id':str(i),'state':str(s),'attempt':int(a)} for i,s,a in con.execute("select id,state,attempt from work_orders where state in ('AUTHORIZED','READY','DISPATCHED','ENGINEERING','CANDIDATE','ACCEPTING','REJECTED_RETRYABLE') order by rowid")]
+              leases=[{'id':str(i),'attempt':int(a),'owner':str(o)} for i,a,o in con.execute("select work_order_id,attempt,owner from worker_leases order by work_order_id")]
+              k=con.execute("select state,attempt,reason from work_orders where id='KTRADE_RB1_SINGLE_TRACK_20261022'").fetchone()
+              print(json.dumps({'settings':settings,'counts':counts,'active':active,'leases':leases,'ktrade':None if k is None else {'state':str(k[0]),'attempt':int(k[1]),'reason':str(k[2])}},separators=(',',':')))
+          finally:
+              con.close()
+          '@
+          $state=@(& python.exe -B -c $py $db)
+          if($LASTEXITCODE-ne0 -or $state.Count-ne1){throw 'R220_DB_READONLY_FAILED'}
+          Write-Host ('R220_DB_STATE='+$state[0])
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $activePtr=Join-Path $store 'state\active-release'
+          if(Test-Path -LiteralPath $activePtr -PathType Leaf){
+            $rid=[IO.File]::ReadAllText($activePtr).Trim()
+            Write-Host ('R220_ACTIVE_RELEASE_ID='+$rid)
+            $rexe=Join-Path (Join-Path (Join-Path $store 'releases') $rid) 'bin\ckb-plane.exe'
+            if(Test-Path -LiteralPath $rexe -PathType Leaf){Write-Host ('R220_ACTIVE_RELEASE_EXE_SHA256='+(Sha $rexe))}
+          }else{Write-Host 'R220_ACTIVE_RELEASE_ID=UNAVAILABLE'}
+          if($procs.Count-eq1){
+            $raw=@(& ([string]$procs[0].ExecutablePath) controller status --config $config --bridge-config $bridge 2>&1)
+            Write-Host ('R220_STATUS_EXIT='+$LASTEXITCODE)
+            Write-Host ('R220_STATUS_TEXT='+($raw -join ' '))
+          }
+          Write-Host 'R220_ELEVATED_PRECUTOVER_READONLY=PASS'
+          Write-Host 'R220_LIVE_MUTATION=FALSE'
