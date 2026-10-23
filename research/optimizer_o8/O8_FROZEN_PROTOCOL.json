@@ -1,0 +1,91 @@
+{
+  "schema": "forge.optimizer.o8.learned-multistep-predictive-memory.v1",
+  "stage": "PROSPECTIVELY_FROZEN_BEFORE_ANY_SOURCE_OR_MODEL_CODE",
+  "base_main": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "prior_custody": {
+    "O7_PR_780": "SPLIT_LEARNER_BETTER_THAN_RANDOM_ABLATION_BUT_WORSE_THAN_STRONG_CONVENTIONAL",
+    "O6_PR_777": "GATED_LOCAL_NO_GO",
+    "O5_PR_776": "ONLINE_FASTER_BUT_ACCURACY_LOSS",
+    "O4_PR_775": "BATCH_HMM_SOMETIMES_BETTER_BUT_UNMATCHED_COST",
+    "O3_PR_773": "SMALL_RECURRENT_NO_GO",
+    "O2_PR_772": "SELECTIVE_REPLAY_NO_GO",
+    "Q20": "DEV_NO_GO",
+    "Q21_Q21N01": "FROZEN_NO_PROTECTED_ROLE_CONSUMPTION"
+  },
+  "objective": "Detect whether an architecture learns to retain experience across 10 or 18 distractor transitions and use it to predict a delayed query response; isolate the impact of state, recurrent gating, information availability, memory capacity and complete resource cost.",
+  "status": "SOURCE_ONLY_PUBLIC_DEVELOPMENT_NO_SCIENTIFIC_GO",
+  "role_namespace": "o8-public-20261023-v1",
+  "roles": [
+    "O8_PUBLIC_TRAIN",
+    "O8_PUBLIC_SELECT",
+    "O8_PUBLIC_DEV"
+  ],
+  "episodes_by_role": {
+    "O8_PUBLIC_TRAIN": 96,
+    "O8_PUBLIC_SELECT": 24,
+    "O8_PUBLIC_DEV": 32
+  },
+  "episode_steps": 24,
+  "delays": [
+    10,
+    18
+  ],
+  "source_rule": "random.Random(first 8 bytes of SHA256 UTF8('o8-public-20261023-v1:'+role+':'+family+':'+index))",
+  "families": {
+    "A_DELAYED_ECHO": "One public initial cue observation o0; 10 or 18 intervening steps contain iid distractor observations and iid binary actions. At query action=2, next public observation is initial cue XOR Bernoulli(0.05); all other public next bits are iid fair.",
+    "B_DELAYED_ACTION_PARITY": "Same public initial cue and iid distractors. The only query's next public observation is cue XOR parity of all preceding public action=1 events XOR Bernoulli(0.05). Query action=2. Previous action is never privileged.",
+    "NULL_DELAYED_QUERY_IID": "Identical public query timing/action distributions, but next public query observation is iid fair independent of public history."
+  },
+  "public_contract": "At each t, model receives only current public bit o_t, public action a_t in {0,1,2}, and episode reset flag true only at t=0; predicts o_(t+1) before it is revealed. Evaluation metric is ONLY delayed query next-bit NLL; non-query bit never used as supervision. During offline fitting query target can be used for postprediction gradient; hidden cue/parity is never supplied as a label or feature.",
+  "models": {
+    "GATED_2": "Trainable two-cell sigmoid retention gate and tanh candidate, recurrent query-only BPTT, 12 epochs, Adam lr=0.01, exact 24-step truncation, clips 2.0, starts 17 and 31, selected on O8_PUBLIC_SELECT",
+    "GATED_4": "Same gated recurrent architecture with four-cell capacity; independent frozen capacity variant 12 epochs, same Adam and starts, selected on O8_PUBLIC_SELECT",
+    "VANILLA_4": "Four-cell vanilla tanh recurrence with query-only BPTT, 12 epochs, Adam lr=0.01, clips 2.0, starts 17 and 31; approximate capacity comparison with parameter counts explicitly reported",
+    "ERASED_GATED_2": "No retraining: evaluate predeclared selected GATED_2 checkpoint with its state replaced by zeros immediately before final delayed query; identical query public features; report causal ablation but NOT a separately trained competitor",
+    "PUBLIC_QUERY_COUNTS": "Fitted Laplace+1 table on (current_o,query_action,delay bucket), exact identical TRAIN episodes, no retained earlier cue.",
+    "PUBLIC_EPISODIC_TABLE": "Fitted Laplace+1 table on (initial_public_cue, parity_of_observed_actions_before_query), explicitly engineered history features, full episode-history conventional comparator; no hidden labels, but not parameter-capacity matched.",
+    "PUBLIC_LOGISTIC_MEMORY": "Fully trained logistic next-query-bit predictor with engineered public initial cue, action parity, cue*parity, query delay indicator and current observation, full-batch SGD 50 epochs fixed lr 0.3, L2 0.001; disclose feature advantage and parameter count."
+  },
+  "frozen_training": {
+    "random_initializations": [
+      17,
+      31
+    ],
+    "recurrent_epochs": 12,
+    "adam_rate": 0.01,
+    "adam_beta1": 0.9,
+    "adam_beta2": 0.999,
+    "adam_epsilon": 1e-8,
+    "gradient_clip": 2,
+    "select": "minimum O8_PUBLIC_SELECT query NLL only",
+    "public_logistic_epochs": 50,
+    "public_logistic_rate": 0.3,
+    "public_logistic_l2": 0.001,
+    "query_noise": 0.05,
+    "query_delays": [
+      10,
+      18
+    ],
+    "episode_action_query": 2,
+    "release": "no post-O8_PUBLIC_DEV tuning/reallocation"
+  },
+  "evaluation": {
+    "primary": "Query-only Bernoulli mean next-bit NLL nats/bit per fresh family",
+    "conventional_control": "minimum of trained PUBLIC_QUERY_COUNTS, PUBLIC_EPISODIC_TABLE and PUBLIC_LOGISTIC_MEMORY",
+    "ablation": "ERASED_GATED_2 query NLL minus GATED_2 query NLL (positive means learned history state helps)",
+    "capacity": "compare GATED_2 to GATED_4 without selecting capacity on DEV",
+    "recurrent": "compare GATED_4 to VANILLA_4 with actual parameter counts, training CPU and serialized state disclosure",
+    "memory": "record full checkpoint size, learned state dimension and no-update DEV preservation",
+    "cost": "per-model training plus initialization selection CPU, DEV inference CPU, process CPU, tracemalloc peak and process peak RSS",
+    "cross_os": "all nine role/family SHA256 hashes exactly identical and all 3×7 reportable model/ablation NLLs agree within 1e-6 between native Linux and Windows",
+    "null": "do not treat noise overfit as discovery"
+  },
+  "limits": [
+    "No protected original, HELD cohort, Q21/Q21N role, FSA admission, external science dispatch, Wingless/Yggdrasil integration or promotion.",
+    "No changes to original O1–O7 source, frozen budgets, negatives or evidence.",
+    "No architecture rediscovery claim from predesigned gate, public parity features or synthetic source.",
+    "No new controller, scheduler, queue, live D1/Cloudflare mutation, KTRADE/broker operation or paid API.",
+    "Separate draft, native Win/Linux, final Go regression and existing public FORGE checks required before review."
+  ],
+  "advancement": "Only a reproducible retained-state effect with matched information and an acceptable accuracy-versus-cost tradeoff justifies prospectively testing truly unfamiliar independent source families; no scientific GO from this public development."
+}
