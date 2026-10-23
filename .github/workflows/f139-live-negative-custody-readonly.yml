@@ -1,0 +1,43 @@
+name: FORGE F139 live negative custody read only
+on:
+  push:
+    branches: [diagnostics/f139-live-negative-custody-set-20261023]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Read owner ledger only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $a=[string]$t.Actions[0].Arguments
+          $m=[regex]::Match($a,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          $r=[regex]::Match($a,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if(-not($m.Success -and $r.Success)){throw 'F139_TASK_ARGS_MISSING'}
+          $db=[IO.Path]::GetFullPath($m.Groups[1].Value)
+          $root=[IO.Path]::GetFullPath($r.Groups[1].Value)
+          $code=@'
+          import json,sqlite3,sys
+          con=sqlite3.connect("file:"+sys.argv[1].replace("\\","/")+"?mode=ro",uri=True)
+          con.row_factory=sqlite3.Row
+          try:
+            m=dict(con.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone())
+            q=[dict(x) for x in con.execute("SELECT ticket,source_sha,stage,started_at,quarantine_reason FROM tasks WHERE stage='QUARANTINED' ORDER BY ticket")]
+            e=[]
+            for x in con.execute("SELECT seq,kind,payload,sha FROM events WHERE kind IN ('NATIVE_FAILED_PROVIDER_CUSTODY','ATTEMPT_QUARANTINED') ORDER BY seq"):
+              d=dict(x); d["payload"]=json.loads(d["payload"]); e.append(d)
+            print("F139_META="+json.dumps(m,sort_keys=True))
+            print("F139_QUARANTINED="+json.dumps(q,sort_keys=True))
+            print("F139_NEGATIVE_EVENTS="+json.dumps(e,sort_keys=True))
+          finally: con.close()
+          '@
+          & python.exe -B -c $code $db
+          if($LASTEXITCODE -ne 0){throw 'F139_READONLY_SQL_FAILED'}
+          $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          Write-Output ('F139_TASK_ROOT_HEAD='+$head)
+          Write-Output ('F139_TASK_STATE='+$t.State)
+          Write-Output 'F139_OWNER_SQLITE_MUTATIONS=ZERO'
