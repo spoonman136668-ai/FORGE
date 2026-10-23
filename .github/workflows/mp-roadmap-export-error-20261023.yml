@@ -1,0 +1,126 @@
+name: MP original Git bundle failure isolated diagnostic
+on:
+  push:
+    branches: [diagnostics/mp-roadmap-export-error-20261023]
+    paths: [.github/workflows/mp-roadmap-export-error-20261023.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GCM_INTERACTIVE: Never
+      GH_PROMPT_DISABLED: '1'
+      GOFLAGS: '-buildvcs=false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Reproduce untouched baseline test and inspect isolated Git error
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_BUNDLE_DIAG_'+$code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-roadmap-export-error-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'IDENTITY'
+          Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='2d258530bc52d1c13f196ea2fd46b7788593765e'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changes=@(& git.exe diff --name-only $parent HEAD)
+          Need ($changes.Count -eq 1 -and $changes[0] -ceq '.github/workflows/mp-roadmap-export-error-20261023.yml') 'ONE_FILE_SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'CLEAN'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $temp=Join-Path $env:RUNNER_TEMP ('mp-bundle-diag-'+$env:GITHUB_RUN_ID)
+          $copy=Join-Path $temp 'source'
+          Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_COLLISION'
+          New-Item -ItemType Directory -Path $copy -Force|Out-Null
+          $source='internal\plane\model.go'
+          $model=Join-Path $root $source
+          $gitSource=Join-Path $root 'internal\plane\git.go'
+          $test=Join-Path $root 'internal\plane\roadmap_current_frontier_r7_test.go'
+          foreach($p in @($model,$gitSource,$test,(Join-Path $root 'go.mod'),(Join-Path $root 'go.sum'))){
+            Need (Test-Path -LiteralPath $p -PathType Leaf) 'REQUIRED_COMPONENT_MISSING'
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'LINK_REFUSED'
+          }
+          Need ((& git.exe hash-object -- $model).Trim() -ceq '9412cc9deff0603bf33d69681f347e9633442d64') 'MODEL_IDENTITY'
+          Need ((Get-FileHash -LiteralPath $test -Algorithm SHA256).Hash.ToLowerInvariant() -ceq '5734be369b7bc8e9b1435125ae80f926453399c669a31ed098740e26cd849a41') 'TEST_IDENTITY'
+          $pinned=@{}
+          $names=@('internal','cmd','scripts','research-controller','examples','web','ui','assets','templates','contracts','docs','proposals','tests','testdata','pkg')
+          try {
+            foreach($name in $names){
+              $src=Join-Path $root $name
+              if(-not (Test-Path -LiteralPath $src -PathType Container)){continue}
+              foreach($it in @(Get-ChildItem -LiteralPath $src -Recurse -Force -ErrorAction Stop)){
+                Need (($it.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_SYMLINK'
+                if(-not $it.PSIsContainer){
+                  $rel=$it.FullName.Substring($root.Length).TrimStart('\')
+                  $pinned[$rel]=(Get-FileHash -LiteralPath $it.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              }
+              Copy-Item -LiteralPath $src -Destination $copy -Recurse -Force -ErrorAction Stop
+            }
+            Copy-Item -LiteralPath (Join-Path $root 'go.mod') -Destination $copy -ErrorAction Stop
+            Copy-Item -LiteralPath (Join-Path $root 'go.sum') -Destination $copy -ErrorAction Stop
+            foreach($rel in $pinned.Keys){
+              Need ((Get-FileHash -LiteralPath (Join-Path $copy $rel) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $pinned[$rel]) 'SOURCE_COPY_DRIFT'
+            }
+            Write-Host ('MP_BUNDLE_UNMODIFIED_SOURCE_VERIFIED_FILES='+$pinned.Count)
+            $target=Join-Path $copy 'internal\plane\git.go'
+            $sourceText=[IO.File]::ReadAllText($target)
+            $anchor='return "", &gitCommandError{operation: operation, output: output, cause: e}'
+            Need ($sourceText.Split(@($anchor),[StringSplitOptions]::None).Length -eq 2) 'GIT_ERROR_ANCHOR'
+            $insert=@'
+          if operation == "bundle" {
+              println("MP_BUNDLE_CAPTURED_GIT_ERROR_BEGIN")
+              println(output)
+              println("MP_BUNDLE_CAPTURED_GIT_ERROR_END")
+          }
+          '@
+            $instrumented=$sourceText.Replace($anchor,$insert+$anchor)
+            [IO.File]::WriteAllText($target,$instrumented,[Text.UTF8Encoding]::new($false))
+            Push-Location $copy
+            try {
+              & git.exe init -q
+              Need ($LASTEXITCODE -eq 0) 'TEMP_GIT'
+              & git.exe config user.name 'isolated test'
+              & git.exe config user.email 'test@invalid.example'
+              & git.exe add --all
+              Need ($LASTEXITCODE -eq 0) 'TEMP_STAGE'
+              & git.exe -c commit.gpgsign=false commit -q -m 'synthetic baseline fixture'
+              Need ($LASTEXITCODE -eq 0) 'TEMP_COMMIT'
+              $oldPref=$ErrorActionPreference
+              try{
+                $ErrorActionPreference='Continue'
+                $result=@(& go.exe test ./internal/plane -run '^TestRoadmapCurrentFrontierPostBTVMaterializesBTV03$' -count=1 -v -timeout=120s 2>&1)
+                $rc=$LASTEXITCODE
+              }finally{$ErrorActionPreference=$oldPref}
+              foreach($line in $result){
+                $txt=[string]$line
+                if($txt.Contains('MP_BUNDLE_CAPTURED_GIT_') -or $txt.Contains('fatal:') -or $txt.Contains('error:') -or $txt.Contains('git bundle failed') -or $txt.Contains('FAIL') -or $txt.Contains('Refusing')){
+                  Write-Host $txt
+                }
+              }
+              if($rc -eq 0){
+                Write-Host 'MP_BUNDLE_BASELINE_FOCUSED_CASE=PASS'
+              }else{
+                Write-Host 'MP_BUNDLE_BASELINE_FOCUSED_CASE=FAIL_REPRODUCED'
+              }
+              Need (@($result | Where-Object {[string]$_ -match 'MP_BUNDLE_CAPTURED_GIT_ERROR_BEGIN'}).Count -gt 0) 'ORIGINAL_BUNDLE_ERROR_NOT_CAPTURED'
+              Write-Host 'MP_BUNDLE_ORIGINAL_ERROR_SOURCE_OBSERVED=PASS'
+            } finally {Pop-Location}
+            foreach($rel in $pinned.Keys){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $rel) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $pinned[$rel]) 'LIVE_SOURCE_POSTIMAGE_DRIFT'
+            }
+            Write-Host 'MP_BUNDLE_LIVE_SOURCE_UNCHANGED=PASS'
+            Write-Host 'MP_BUNDLE_PRODUCTION_WRITES=0'
+            Write-Host 'MP_BUNDLE_CONTROLLERS_STARTED=0'
+          }finally{
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_CLEAN'
+            Write-Host 'MP_BUNDLE_PRIVATE_TEMP_CLEAN=PASS'
+          }
