@@ -1036,6 +1036,52 @@ class GitHub:
         except (ValueError,UnicodeDecodeError) as exc:
             raise F139Error("F139_GITHUB_API_INVALID_JSON") from exc
 
+    def native_repo_get(self, route: str):
+        """Read-only provider for the bounded native autonomy feeder."""
+        allowed = (
+            "repos/"+REPO+"/",
+            "repos/spoonman136668-ai/Wingless/",
+            "repos/spoonman136668-ai/Yggdrasil/",
+        )
+        require(isinstance(route, str) and route.startswith(allowed)
+                and ".." not in route and " " not in route
+                and not route.startswith(("http://", "https://")),
+                "NATIVE_FEED_ROUTE_INVALID")
+        raw = self.runner([route])
+        try:
+            return json.loads(raw)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise F139Error("F139_GITHUB_API_INVALID_JSON") from exc
+
+    def create_native_feed_issue(self, *, title: str, body: str):
+        """Create an ordinary existing-schema owner issue; never dispatch here."""
+        from f139.nci04_owner_issue import LABEL, OWNER, MAX_BODY_BYTES
+        require(isinstance(title, str) and title.startswith("F139 auto-feed ")
+                and 0 < len(title) <= 180
+                and isinstance(body, str)
+                and 0 < len(body.encode("utf-8")) <= MAX_BODY_BYTES,
+                "NATIVE_FEED_ISSUE_PAYLOAD_INVALID")
+        raw = self.runner([
+            "--method", "POST", "repos/"+REPO+"/issues",
+            "-f", "title="+title, "-f", "body="+body,
+            "-f", "labels[]="+LABEL,
+        ])
+        try:
+            issue = json.loads(raw)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise F139Error("F139_GITHUB_API_INVALID_JSON") from exc
+        require(isinstance(issue, dict) and issue.get("state") == "open"
+                and isinstance(issue.get("number"), int)
+                and isinstance(issue.get("id"), int)
+                and isinstance(issue.get("user"), dict)
+                and issue["user"].get("login") == OWNER
+                and issue.get("author_association") == "OWNER"
+                and issue.get("body") == body
+                and LABEL in [x.get("name") for x in issue.get("labels", [])
+                              if isinstance(x, dict)],
+                "NATIVE_FEED_CREATED_ISSUE_UNVERIFIED")
+        return issue
+
     def protected_main(self):
         branch=self.get("repos/"+REPO+"/branches/main")
         sha=branch.get("commit",{}).get("sha")
@@ -1629,11 +1675,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 ready=db.ready()
             break
     if ready is None and native_enabled:
-        # Inert in the shipping controller. Exact future source-transition and
-        # owner activation are mandatory before this gate can be called.
         # Same single-owner lock, SQLite ledger and once-only budget as D2K.
+        # A source-pinned owner policy may replenish this EXISTING issue intake
+        # from explicit owner-authored "F139 autonomy DEV:" native PRs. It
+        # creates no second controller/scheduler/queue and grants no science.
         from f139.nci04_owner_ledger import admit_native_issue, native_events
+        from f139.nci04_autonomy_feed import prepare_feed
+        import base64
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
+        events = native_events(db)
         # Reconstruct historical identities only from the already-verified
         # append-only owner ledger. The public issue label alone cannot
         # reauthorize or replay any old native candidate.
@@ -1641,15 +1691,44 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             event["issue_number"]: (
                 event["issue_id"], event["source_sha"],
                 event["issue_body_sha256"], event["ticket"])
-            for event in native_events(db)
+            for event in events
         }
-        for native_issue in api.native_eligible_issues(
-                meta["source_sha"], historical_issues=historical_issues):
+        eligible = api.native_eligible_issues(
+            meta["source_sha"], historical_issues=historical_issues)
+        for native_issue in eligible:
             if native_issue.ticket in known:
                 continue
             if admit_native_issue(db, native_issue, timestamp):
                 ready = db.ready()
             break
+        if ready is None and not eligible:
+            existing_intents = {
+                event["native_intent_base64"] for event in events
+                if isinstance(event.get("native_intent_base64"), str)
+            }
+            # No unauthenticated owner issue is inferred: the feed policy
+            # itself is owner-authored and exact-source pinned, and every PR
+            # candidate is independently rebound to an immutable commit/tree.
+            feed = prepare_feed(
+                api.native_repo_get, source_sha=meta["source_sha"],
+                existing_intent_base64=existing_intents)
+            created_numbers = []
+            for candidate in feed["candidates"]:
+                created = api.create_native_feed_issue(
+                    title=candidate["issue_title"],
+                    body=candidate["issue_body"])
+                created_numbers.append(created["number"])
+            if created_numbers:
+                # Reuse the unchanged owner-issue authentication and ledger
+                # admission path. Never dispatch directly from a PR.
+                eligible = api.native_eligible_issues(
+                    meta["source_sha"], historical_issues=historical_issues)
+                for native_issue in eligible:
+                    if native_issue.number not in created_numbers:
+                        continue
+                    if admit_native_issue(db, native_issue, timestamp):
+                        ready = db.ready()
+                    break
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
