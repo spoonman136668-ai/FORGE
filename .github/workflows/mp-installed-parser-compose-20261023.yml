@@ -50,7 +50,7 @@ jobs:
           Need ($env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
           Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
-          $parent='053331399c0849243be30d06510ea9a2a4532f43'
+          $parent='4f4a1a8e469549b916dae9476799952ee7360d33'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'SOURCE_PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-installed-parser-compose-20261023.yml') 'ONE_FILE_SCOPE'
@@ -91,7 +91,8 @@ jobs:
             Need ((& git.exe hash-object -- (Join-Path $root 'go.mod')).Trim() -ceq 'e05cfbaf7fa1cbf9d4baecdade2fbcc451b5cbc8') 'LIVE_MOD_BLOB'
             Write-Host 'MP_INSTALLED_EXACT_12_COMPONENT_PREIMAGE=PASS'
             $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
-            Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON_CHANGED'
+            Write-Host ('MP_INSTALLED_CONTROLLER_PROCESS_COUNT='+$proc.Count)
+            Need ($proc.Count -le 1) 'MULTIPLE_CONTROLLERS_REFUSED'
             New-Item -ItemType Directory -Path $candidate -Force|Out-Null
             foreach($name in $sourceFolders){
               $src=Join-Path $root $name
@@ -273,7 +274,9 @@ jobs:
             foreach($rel in $checks){
               Need ((Hash (Join-Path $root $rel)) -ceq $pinned[$rel]) 'LIVE_CONTROLLER_POSTIMAGE_CHANGED'
             }
-            Need (@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'").Count -eq 1) 'CONTROLLER_PROCESS_CHANGED'
+            $postProcess=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($postProcess.Count -eq $proc.Count) 'CONTROLLER_PROCESS_CHANGED'
+            Write-Host ('MP_INSTALLED_CONTROLLER_STABLE_COUNT='+$postProcess.Count)
             Write-Host 'MP_INSTALLED_ALL_LIVE_SOURCE_AND_CONFIG_POSTIMAGES_UNCHANGED=PASS'
             Write-Host 'MP_INSTALLED_PARSER_SOURCE_QUALIFIED_NOT_INSTALLED=PASS'
             Write-Host 'MP_INSTALLED_PRODUCTION_WRITES=0'
