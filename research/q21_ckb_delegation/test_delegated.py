@@ -46,10 +46,10 @@ def route(path):
     if path.startswith("/repos/"+d.owner.CKB+"/contents/"):
         if path.endswith("/"+d.owner.WORKFLOW+"?ref="+d.CKB_AUTHORIZED_COMMIT):
             return {"sha":d.CKB_WORKFLOW_BLOB,"type":"file"}
-        if path.endswith("/admit_exact.py?ref="+"b"*40):
+        if path.endswith("/admit_exact.py?ref="+d.CKB_AUTHORIZED_COMMIT):
             return {"sha":"cebda244cf0899e60ef07162969b594340b67b74","type":"file"}
-        if path.endswith("/execute_dev.py?ref="+"b"*40):
-            return {"sha":d.CKB_EXECUTOR_BLOB,"type":"file"}
+        if path.endswith("/test_admit_exact.py?ref="+d.CKB_AUTHORIZED_COMMIT):
+            return {"sha":d.CKB_OWNER_TEST_BLOB,"type":"file"}
     if path=="/repos/"+d.owner.CKB+"/actions/runs/87654321/jobs?per_page=100":
         return {"total_count":1,"jobs":[{"name":"owner-once",
                                          "status":"completed",
