@@ -1,0 +1,60 @@
+name: KTRADE RB1 Windows SQLite CGO toolchain verification
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ktrade-rb1-cgo-sqlite-check.yml]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Verify source-locked Windows SQLite runtime compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $who.Name -ine 'LINKDEADKB\camar'){throw 'KTRADE_SQLITE_OWNER_RUNNER_MISMATCH'}
+          $src='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          if(@(& git.exe -C $src rev-parse HEAD) -cne @('bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96') -or
+             @(& git.exe -C $src status --porcelain).Count -ne 0){throw 'KTRADE_SQLITE_SOURCE_IDENTITY_DRIFT'}
+          Write-Host ('KTRADE_WINDOWS_GO_VERSION='+(& go.exe version))
+          Write-Host ('KTRADE_WINDOWS_DEFAULT_CGO='+(& go.exe env CGO_ENABLED))
+          Write-Host ('KTRADE_WINDOWS_CC='+(& go.exe env CC))
+          $candidates=@(
+            (Get-Command gcc.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source),
+            'C:\msys64\ucrt64\bin\gcc.exe',
+            'C:\msys64\mingw64\bin\gcc.exe',
+            'C:\mingw64\bin\gcc.exe'
+          )
+          $gcc=@($candidates|Where-Object {$_ -and (Test-Path -LiteralPath $_ -PathType Leaf)}|Select-Object -Unique)
+          if($gcc.Count -eq 0){
+            Write-Host 'KTRADE_SQLITE_CGO_COMPILER_AVAILABLE=FALSE'
+            Write-Host 'KTRADE_SQLITE_CURRENT_BINARY_RUNTIME_NOT_QUALIFIED=TRUE'
+          }else{
+            $env:CGO_ENABLED='1'
+            $env:CC=$gcc[0]
+            $ver=@(& $env:CC --version)
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_CGO_COMPILER_BROKEN'}
+            Write-Host ('KTRADE_SQLITE_CGO_COMPILER='+$gcc[0])
+            Write-Host ('KTRADE_SQLITE_CGO_COMPILER_VERSION='+([string]$ver[0]))
+            $env:GOMAXPROCS='1'
+            $env:GOFLAGS='-p=1'
+            Push-Location $src
+            try {
+              & go.exe test -p 1 -count=1 -run '^TestSQLite' ./internal/paperauthority
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_SQLITE_CGO_TESTS_FAILED'}
+              Write-Host 'KTRADE_SQLITE_CGO_TESTS=PASS'
+              $temp=Join-Path $env:RUNNER_TEMP ('ktrade-cgo-'+$env:GITHUB_RUN_ID+'.exe')
+              if(Test-Path -LiteralPath $temp){throw 'KTRADE_CGO_BUILD_COLLISION'}
+              try{
+                & go.exe build -p 1 -tags ktrade_full -o $temp ./cmd/ktrade
+                if($LASTEXITCODE -ne 0){throw 'KTRADE_CGO_FULL_SOURCE_BUILD_FAILED'}
+                Write-Host ('KTRADE_CGO_FULL_WINDOWS_EXE_SHA256='+((Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash.ToLowerInvariant()))
+              }finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
+            }finally{Pop-Location}
+          }
+          Write-Host 'KTRADE_CGO_OWNER_SOURCE_AND_INSTALLED_DATA_UNCHANGED=PASS'
