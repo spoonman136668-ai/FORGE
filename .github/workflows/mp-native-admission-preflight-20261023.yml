@@ -30,7 +30,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
           Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-native-admission-preflight-20261023') 'EVENT_SCOPE'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT_SHA'
-          $parent='522668a427cbf89025e8f3a7639be5f6dfa45295'
+          $parent='2c7a987d0b1cfa63e5f6104b0079bcee43e17eff'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'QUALIFIER_PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-native-admission-preflight-20261023.yml') 'ONE_FILE_SCOPE'
@@ -69,11 +69,25 @@ jobs:
             else{$processBinding='MISMATCH'}
           }
           Write-Host ('MP_ADMISSION_INSTALLED_RUNNING_EXECUTABLE_BINDING='+$processBinding)
+          $processHashClass='UNAVAILABLE'
+          $processImageLocation='UNAVAILABLE'
+          if($beforeProcesses.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace([string]$beforeProcesses[0].ExecutablePath)){
+            $procPath=[IO.Path]::GetFullPath([string]$beforeProcesses[0].ExecutablePath)
+            $rootPath=[IO.Path]::GetFullPath($root).TrimEnd([char]92)+[char]92
+            if($procPath.StartsWith($rootPath,[StringComparison]::OrdinalIgnoreCase)){$processImageLocation='WITHIN_INSTALL_ROOT'}
+            else{$processImageLocation='OUTSIDE_INSTALL_ROOT'}
+            if(Test-Path -LiteralPath $procPath -PathType Leaf){
+              Need (((Get-Item -LiteralPath $procPath).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'PROCESS_EXE_REPARSE'
+              $processHashClass=if((Hash $procPath) -ceq $before['bin\ckb-plane.exe']){'SAME_BYTES'}else{'DIFFERENT_BYTES'}
+            }else{$processHashClass='EXECUTABLE_PATH_NOT_PRESENT'}
+          }
+          Write-Host ('MP_ADMISSION_RUNNING_IMAGE_PATH_CLASS='+$processImageLocation)
+          Write-Host ('MP_ADMISSION_RUNNING_IMAGE_HASH_CLASS='+$processHashClass)
           $temp=Join-Path $env:RUNNER_TEMP ('mp-admission-ro-'+$env:GITHUB_RUN_ID)
           Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_COLLISION'
           New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
           $script=@'
-          import hashlib, pathlib, re, sqlite3, sys, urllib.parse, datetime, json
+          import hashlib, pathlib, re, sqlite3, sys, urllib.parse, datetime, json, shutil
           root=pathlib.Path(sys.argv[1]).resolve()
           config=(root/'config'/'autonomy.yaml').resolve()
           temp=pathlib.Path(sys.argv[2]).resolve()
@@ -107,6 +121,22 @@ jobs:
           sidecars=[pathlib.Path(str(live)+suffix) for suffix in ('','-wal','-shm')]
           before={str(f):digest(f) for f in sidecars if f.exists()}
           print('MP_ADMISSION_WAL_PRESENT='+str(sidecars[1].exists()).upper())
+          copied=temp.parent/'wal-aware.db'
+          for idx,f in enumerate(sidecars):
+              if f.exists():
+                  limit=1073741824 if idx==0 else 134217728
+                  need(f.stat().st_size<=limit,'SOURCE_SIDECAR_OVER_BOUNDED_SIZE')
+                  destination=pathlib.Path(str(copied)+('' if idx==0 else ('-wal' if idx==1 else '-shm')))
+                  shutil.copyfile(f,destination)
+          copied_url='file:'+urllib.parse.quote(str(copied).replace('\\','/'),safe='/:')+'?mode=ro'
+          with sqlite3.connect(copied_url,uri=True,timeout=1.0) as walview:
+              walview.execute('PRAGMA query_only=ON')
+              need(walview.execute('PRAGMA integrity_check').fetchone()[0]=='ok','WAL_AWARE_INTEGRITY')
+              wal_counts=(walview.execute('SELECT count(*) FROM work_orders').fetchone()[0],walview.execute('SELECT count(*) FROM queue_items').fetchone()[0])
+              wal_head=walview.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
+          print('MP_ADMISSION_WAL_AWARE_WORK_ORDER_COUNT='+str(wal_counts[0]))
+          print('MP_ADMISSION_WAL_AWARE_QUEUE_COUNT='+str(wal_counts[1]))
+          print('MP_ADMISSION_WAL_AWARE_EVENT_HEAD='+str(wal_head))
           uri='file:'+urllib.parse.quote(str(live).replace('\\','/'),safe='/:')+'?mode=ro&immutable=1'
           with sqlite3.connect(uri,uri=True,timeout=1.0) as origin:
               origin.execute('PRAGMA query_only=ON')
@@ -118,6 +148,8 @@ jobs:
               work=db.execute('SELECT count(*) FROM work_orders').fetchone()[0]
               queue=db.execute('SELECT count(*) FROM queue_items').fetchone()[0]
               need(work==199 and queue==202,'RECORD_COUNTS_CHANGED')
+              need((work,queue)==wal_counts,'IMMUTABLE_WAL_COUNTS_DIVERGED')
+              print('MP_ADMISSION_WAL_AWARE_COUNTS_MATCH_IMMUTABLE=PASS')
               settings=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation','paused','autonomy_status','autonomy_heartbeat','installation_id')"))
               authority=settings.get('autonomy_authority','MISSING')
               generation=settings.get('autonomy_generation','')
@@ -150,6 +182,8 @@ jobs:
               print('MP_ADMISSION_HISTORICAL_BAD_ORDER_QUEUE_STATE='+qvalue)
               print('MP_ADMISSION_HISTORICAL_BAD_ORDER_LEASES='+str(db.execute('SELECT count(*) FROM worker_leases WHERE work_order_id=?',(offending,)).fetchone()[0]))
               event_count,event_max=db.execute('SELECT count(*),coalesce(max(id),0) FROM events').fetchone()
+              need(event_max==wal_head,'WAL_EVENT_HEAD_DIVERGED')
+              print('MP_ADMISSION_WAL_AWARE_EVENT_HEAD_MATCH=PASS')
               print('MP_ADMISSION_EVENT_COUNT='+str(event_count))
               print('MP_ADMISSION_EVENT_HEAD_ID='+str(event_max))
               print('MP_ADMISSION_SNAPSHOT_DB_READ_ONLY=PASS')
