@@ -1,0 +1,181 @@
+name: MP native stored work order baseline diagnosis (read-only)
+on:
+  push:
+    branches: [diagnostics/mp-stored-order-baseline-20261023]
+    paths: [.github/workflows/mp-stored-order-baseline-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-native-stored-order-diagnosis
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Bound and classify stored baselines in isolated SQLite backup
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$code) {
+            if(-not $yes){throw ('MP_STORED_BASELINE_'+$code)}
+          }
+          function Hash([string]$p) {return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-stored-order-baseline-20261023') 'BRANCH'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='7bf64d9d5f74600a211372ad61547b13305222a9'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $scope=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $scope.Count -eq 1 -and $scope[0] -ceq '.github/workflows/mp-stored-order-baseline-20261023.yml') 'SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT'
+          Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_LINK'
+          $files=@(
+            'go.mod','go.sum','internal\plane\model.go','internal\plane\autonomy.go',
+            'internal\plane\engine.go','internal\plane\autonomy_controls.go',
+            'internal\plane\webui_bridge.go','internal\plane\objective.go',
+            'internal\plane\mind_palace_auto_discovery.go','bin\ckb-plane.exe',
+            'config\autonomy.yaml','config\local-operations.json'
+          )
+          $before=@{}
+          foreach($f in $files) {
+            $p=Join-Path $root $f
+            Need (Test-Path -LiteralPath $p -PathType Leaf) 'REQUIRED_FILE_MISSING'
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_LINK'
+            $before[$f]=Hash $p
+          }
+          $nl=[string][char]10
+          $payload=(($files|ForEach-Object{$_+':'+$before[$_]}) -join $nl)
+          $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($payload))).ToLowerInvariant()
+          Need ($digest -ceq 'cf4b563a4e4d80ef319d71663ac4738550b3c798b60d147de67eaeacb51d4cba') 'SOURCE_PREIMAGE_DRIFT'
+          Write-Host 'MP_STORED_BASELINE_NATIVE_12_COMPONENTS=PASS'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-db-baseline-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $beforeProc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($beforeProc.Count -le 1) 'MULTIPLE_CONTROLLERS'
+          $script=@'
+          import hashlib, json, pathlib, posixpath, re, sqlite3, sys, urllib.parse
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          dst=pathlib.Path(sys.argv[3]).resolve()
+          def require(cond, why):
+              if not cond: raise RuntimeError('MP_STORED_BASELINE_'+why)
+          contents=cfg.read_text(encoding='utf-8-sig')
+          state_section=None
+          db_name=None
+          for line in contents.splitlines():
+              indent=len(line)-len(line.lstrip(' '))
+              if re.fullmatch(r'\s*state:\s*(?:#.*)?',line):
+                  state_section=indent
+                  continue
+              if state_section is None:continue
+              if line.strip() and not line.lstrip().startswith('#') and indent<=state_section:
+                  state_section=None
+                  continue
+              m=re.fullmatch(r'\s*sqlite_path:\s*(.+?)\s*(?:#.*)?',line)
+              if m:
+                  db_name=m.group(1).strip().strip("\"'")
+                  break
+          require(db_name is not None,'DB_LOCATOR_ABSENT')
+          path=pathlib.Path(db_name)
+          src=(path if path.is_absolute() else root/path).resolve()
+          require(src.is_relative_to(root) and src.is_file() and src.stat().st_size<=1073741824,'DB_OUT_OF_SCOPE')
+          def digest(p):
+              h=hashlib.sha256()
+              with p.open('rb') as f:
+                  for b in iter(lambda:f.read(1048576),b''):h.update(b)
+              return h.hexdigest()
+          orig=digest(src)
+          uri='file:'+urllib.parse.quote(str(src).replace('\\','/'),safe='/:')+'?mode=ro&immutable=1'
+          with sqlite3.connect(uri,uri=True,timeout=1.0) as con:
+              con.execute('PRAGMA query_only=ON')
+              with sqlite3.connect(dst) as d: con.backup(d)
+          require(digest(src)==orig,'SOURCE_DB_CHANGED')
+          with sqlite3.connect(dst) as db:
+              require(db.execute('PRAGMA integrity_check').fetchone()[0]=='ok','TEMP_INTEGRITY')
+              cols={x[1] for x in db.execute('PRAGMA table_info(work_orders)')}
+              require({'id','yaml','state'}.issubset(cols),'TABLE_SCHEMA')
+              rows=db.execute('SELECT id, state, yaml FROM work_orders ORDER BY rowid').fetchall()
+              require(1<=len(rows)<=1024,'BOUNDED_RECORD_COUNT')
+              queue=db.execute('SELECT count(*) FROM queue_items').fetchone()[0]
+              require(0<=queue<=1024,'QUEUE_COUNT')
+          print('MP_STORED_BASELINE_TEMP_DB_BACKUP_INTEGRITY=PASS')
+          print('MP_STORED_BASELINE_WORK_ORDER_COUNT='+str(len(rows)))
+          print('MP_STORED_BASELINE_QUEUE_COUNT='+str(queue))
+          pat=re.compile(r'^[0-9a-f]{40}$')
+          sid=re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$')
+          summary={}
+          failing=[]
+          for idx,(record,state,raw) in enumerate(rows):
+              require(isinstance(record,str) and isinstance(state,str) and isinstance(raw,(bytes,str)),'ROW_TYPE')
+              blob=raw if isinstance(raw,bytes) else raw.encode('utf-8')
+              require(len(blob)<1048576,'RECORD_SIZE')
+              src_text=blob.decode('utf-8','strict')
+              # WorkOrder.baseline is a root-level YAML mapping; process only its own indentation.
+              matches=list(re.finditer(r'(?m)^baseline:\s*(?:#.*)?$',src_text))
+              fields={}
+              if len(matches)==1:
+                  lines=src_text[matches[0].end():].splitlines()
+                  for line in lines:
+                      if re.match(r'^\S',line) and line.strip() and not line.lstrip().startswith('#'):break
+                      m=re.match(r'^[ \t]+(ref|sha):[ \t]*(.*?)[ \t]*$',line)
+                      if m:
+                          value=m.group(2).split(' #',1)[0].strip()
+                          if len(value)>=2 and value[0]==value[-1] and value[0] in ('"',"'"):
+                              value=value[1:-1]
+                          fields[m.group(1)]=value
+              ref=fields.get('ref','')
+              sha=fields.get('sha','')
+              accepted=ref.startswith('accepted/') and bool(ref[9:])
+              local=ref.startswith('local-candidate/') and bool(sid.fullmatch(ref[len('local-candidate/'):]))
+              safe=bool(ref) and not any(c in ref for c in '\\:\x00\r\n') and not ref.startswith('/') and posixpath.normpath(ref)==ref and ref!='..' and not ref.startswith('../')
+              reason=('MAPPING_SHAPE' if len(matches)!=1 else
+                      'REF_MISSING' if not ref else
+                      'SHA_MISSING' if not sha else
+                      'SHA_LENGTH' if len(sha)!=40 else
+                      'SHA_NOT_LOWER_HEX' if not pat.fullmatch(sha) else
+                      'REF_NOT_ALLOWED' if not (accepted or local) else
+                      'REF_UNSAFE' if not safe else 'BASELINE_SHAPE_PASS')
+              summary[reason]=summary.get(reason,0)+1
+              if reason!='BASELINE_SHAPE_PASS':
+                  token=hashlib.sha256(record.encode()).hexdigest()[:12]
+                  failing.append((idx,token,state,reason,len(ref),len(sha)))
+          for k in sorted(summary):
+              print('MP_STORED_BASELINE_CATEGORY_'+k+'='+str(summary[k]))
+          print('MP_STORED_BASELINE_INVALID_COUNT='+str(len(failing)))
+          for idx,token,state,reason,rn,sn in failing[:12]:
+              safe_state=state if re.fullmatch('[A-Z_]{1,40}',state) else 'OTHER'
+              print('MP_STORED_BASELINE_DEFECT_'+str(idx)+'=ID_SHA256_PREFIX_'+token+' STATE_'+safe_state+' CLASS_'+reason+' REF_LEN_'+str(rn)+' SHA_LEN_'+str(sn))
+          print('MP_STORED_BASELINE_ALL_RAW_RECORDS_UNMODIFIED=TRUE')
+          '@
+          try {
+            & python.exe -B -c $script $root $cfg (Join-Path $scratch 'offline.db')
+            Need ($LASTEXITCODE -eq 0) 'SNAPSHOT_CLASSIFIER'
+            foreach($f in $files) {
+              Need ((Hash (Join-Path $root $f)) -ceq $before[$f]) 'LIVE_COMPONENT_POSTIMAGE_CHANGED'
+            }
+            $afterProc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($afterProc.Count -eq $beforeProc.Count) 'CONTROLLER_PROCESS_CHANGED'
+            Write-Host 'MP_STORED_BASELINE_LIVE_COMPONENTS_UNCHANGED=PASS'
+            Write-Host 'MP_STORED_BASELINE_CONTROLLER_INVOCATIONS=0'
+            Write-Host 'MP_STORED_BASELINE_LIVE_SQLITE_WRITES=0'
+            Write-Host 'MP_STORED_BASELINE_LIVE_MEMORY_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_STORED_BASELINE_SCRATCH_CLEAN=PASS'
+          }
