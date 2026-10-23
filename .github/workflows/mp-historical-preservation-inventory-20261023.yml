@@ -1,0 +1,322 @@
+name: MP historical unversioned preservation inventory read only
+on:
+  push:
+    branches: [diagnostics/mp-historical-preservation-inventory-20261023]
+    paths: [.github/workflows/mp-historical-preservation-inventory-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-historical-preservation-inventory-20261023
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Inventory historical unversioned preservation records from a read-only SQLite snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_HIST_INV_'+$code)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-historical-preservation-inventory-20261023') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='58dc4cc483349249c98f1620b51b843b9e927468'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-historical-preservation-inventory-20261023.yml') 'SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'WORKFLOW_DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT'
+          Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_REPARSE'
+          $protected=@(
+            'config\autonomy.yaml',
+            'config\local-operations.json',
+            'bin\ckb-plane.exe'
+          )
+          foreach($optional in @('internal\plane\model.go','internal\plane\status_projection.go','scripts\Start-CKBPlane.ps1')){
+            if(Test-Path -LiteralPath (Join-Path $root $optional) -PathType Leaf){$protected += $optional}
+          }
+          $before=@{}
+          foreach($rel in $protected){
+            $p=Join-Path $root $rel
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ('FILE_MISSING_'+$rel)
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) ('FILE_REPARSE_'+$rel)
+            $before[$rel]=Hash $p
+          }
+          $procBefore=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procBefore.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $pidBefore=[int]$procBefore[0].ProcessId
+          Write-Host 'MP_HIST_INV_SINGLE_CONTROLLER_PREIMAGE=PASS'
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-historical-inventory-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $script=@'
+          import hashlib, json, pathlib, re, sqlite3, sys, urllib.parse
+
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          snapshot=pathlib.Path(sys.argv[3]).resolve()
+
+          def need(v,code):
+              if not v:
+                  raise RuntimeError("MP_HIST_INV_"+code)
+
+          def sha(data):
+              if isinstance(data,str):
+                  data=data.encode("utf-8")
+              return hashlib.sha256(data).hexdigest()
+
+          def safe_state(value):
+              return value if isinstance(value,str) and re.fullmatch(r"[A-Z_]{1,64}",value) else "OTHER"
+
+          def table_columns(db,name):
+              try:
+                  return {r[1] for r in db.execute("PRAGMA table_info("+name+")")}
+              except sqlite3.Error:
+                  return set()
+
+          def table_exists(db,name):
+              return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone() is not None
+
+          config=cfg.read_text(encoding="utf-8-sig")
+          state_indent=None
+          db_name=None
+          for line in config.splitlines():
+              indent=len(line)-len(line.lstrip(" "))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+                  state_indent=indent
+                  continue
+              if state_indent is None:
+                  continue
+              if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
+                  state_indent=None
+                  continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+              if m:
+                  db_name=m.group(1).strip().strip("\"'")
+                  break
+          need(db_name is not None,"DB_LOCATOR")
+          candidate=pathlib.Path(db_name)
+          live=(candidate if candidate.is_absolute() else root/candidate).resolve()
+          need(live.is_relative_to(root) and live.is_file(),"DB_SCOPE")
+          need(live.stat().st_size <= 1073741824,"DB_SIZE")
+
+          # SQLite online backup from a read-only connection is WAL-aware and transaction-consistent.
+          uri="file:"+urllib.parse.quote(str(live).replace("\\","/"),safe="/:")+"?mode=ro"
+          with sqlite3.connect(uri,uri=True,timeout=5.0) as origin:
+              origin.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(str(snapshot)) as out:
+                  origin.backup(out)
+          with sqlite3.connect(str(snapshot)) as db:
+              need(db.execute("PRAGMA integrity_check").fetchone()[0]=="ok","SNAPSHOT_INTEGRITY")
+              cols=table_columns(db,"work_orders")
+              need({"id","state","yaml"}.issubset(cols),"WORK_ORDER_SCHEMA")
+              rows=db.execute("SELECT rowid,id,state,yaml,coalesce(attempt,0),coalesce(reason,'') FROM work_orders ORDER BY rowid").fetchall()
+              need(1 <= len(rows) <= 4096,"WORK_ORDER_COUNT_BOUND")
+              qcount=db.execute("SELECT count(*) FROM queue_items").fetchone()[0] if table_exists(db,"queue_items") else 0
+              event_head=db.execute("SELECT coalesce(max(id),0) FROM events").fetchone()[0] if table_exists(db,"events") and "id" in table_columns(db,"events") else 0
+              print("MP_HIST_INV_SNAPSHOT_INTEGRITY=PASS")
+              print("MP_HIST_INV_WORK_ORDER_COUNT="+str(len(rows)))
+              print("MP_HIST_INV_QUEUE_COUNT="+str(qcount))
+              print("MP_HIST_INV_EVENT_HEAD="+str(event_head))
+
+              root_pres=re.compile(r"(?m)^preservation:\s*(?:#.*)?$")
+              root_schema=re.compile(r"(?m)^preservation_schema:\s*")
+              root_scalar=lambda key,text: re.search(r"(?m)^"+re.escape(key)+r":\s*(.*?)\s*$",text)
+
+              allowed={"acceptedinterfaces","behaviorcontracts","evidencecontracts","interfacecontracts","sourcecontracts","uimarkers"}
+              historical=[]
+              for rowid,work_id,state,raw,attempt,reason in rows:
+                  blob=raw if isinstance(raw,bytes) else str(raw).encode("utf-8")
+                  need(len(blob) <= 1048576,"YAML_SIZE_BOUND")
+                  try:
+                      text=blob.decode("utf-8","strict")
+                  except UnicodeDecodeError:
+                      continue
+                  matches=list(root_pres.finditer(text))
+                  if len(matches)!=1 or root_schema.search(text):
+                      continue
+                  tail=text[matches[0].end():]
+                  block=[]
+                  for line in tail.splitlines():
+                      if line and not line[0].isspace() and not line.lstrip().startswith("#"):
+                          break
+                      block.append(line)
+                  content_lines=[x for x in block if x.strip() and not x.lstrip().startswith("#")]
+                  need(bool(content_lines),"PRESERVATION_EMPTY")
+                  indents=[len(x)-len(x.lstrip(" ")) for x in content_lines]
+                  first_indent=min(indents)
+                  keys=[]
+                  for line in content_lines:
+                      indent=len(line)-len(line.lstrip(" "))
+                      if indent != first_indent:
+                          continue
+                      m=re.match(r"^\s*([A-Za-z0-9_]+):",line)
+                      if m:
+                          keys.append(m.group(1))
+                  need(len(keys)==6 and set(keys)==allowed and len(set(keys))==6,"PRESERVATION_SIX_KEY_SHAPE")
+
+                  def scalar(key):
+                      m=root_scalar(key,text)
+                      if not m:
+                          return ""
+                      value=m.group(1).split(" #",1)[0].strip()
+                      if len(value)>=2 and value[0]==value[-1] and value[0] in ("'",'"'):
+                          value=value[1:-1]
+                      return value
+
+                  baseline_ref=""
+                  baseline_sha=""
+                  bm=re.search(r"(?m)^baseline:\s*(?:#.*)?$",text)
+                  if bm:
+                      lines=text[bm.end():].splitlines()
+                      for line in lines:
+                          if line and not line[0].isspace() and not line.lstrip().startswith("#"):
+                              break
+                          m=re.match(r"^\s+(ref|sha):\s*(.*?)\s*$",line)
+                          if m:
+                              val=m.group(2).split(" #",1)[0].strip()
+                              if len(val)>=2 and val[0]==val[-1] and val[0] in ("'",'"'):
+                                  val=val[1:-1]
+                              if m.group(1)=="ref": baseline_ref=val
+                              else: baseline_sha=val
+
+                  worker_branch=""
+                  wm=re.search(r"(?m)^worker:\s*(?:#.*)?$",text)
+                  if wm:
+                      for line in text[wm.end():].splitlines():
+                          if line and not line[0].isspace() and not line.lstrip().startswith("#"):
+                              break
+                          m=re.match(r"^\s+branch:\s*(.*?)\s*$",line)
+                          if m:
+                              worker_branch=m.group(1).split(" #",1)[0].strip().strip("\"'")
+                              break
+
+                  qstate="ABSENT"
+                  if table_exists(db,"queue_items"):
+                      q=db.execute("SELECT state FROM queue_items WHERE id=?",(work_id,)).fetchone()
+                      if q: qstate=safe_state(q[0])
+
+                  leases=0
+                  if table_exists(db,"worker_leases") and "work_order_id" in table_columns(db,"worker_leases"):
+                      leases=db.execute("SELECT count(*) FROM worker_leases WHERE work_order_id=?",(work_id,)).fetchone()[0]
+
+                  active_process=0
+                  if table_exists(db,"process_records"):
+                      pc=table_columns(db,"process_records")
+                      if "work_order_id" in pc:
+                          if "finished" in pc:
+                              active_process=db.execute("SELECT count(*) FROM process_records WHERE work_order_id=? AND finished=0",(work_id,)).fetchone()[0]
+                          else:
+                              active_process=db.execute("SELECT count(*) FROM process_records WHERE work_order_id=?",(work_id,)).fetchone()[0]
+
+                  worker_attempts=0
+                  if table_exists(db,"worker_attempts") and "work_order_id" in table_columns(db,"worker_attempts"):
+                      worker_attempts=db.execute("SELECT count(*) FROM worker_attempts WHERE work_order_id=?",(work_id,)).fetchone()[0]
+
+                  evidence_seals=0
+                  if table_exists(db,"evidence_seals") and "work_order_id" in table_columns(db,"evidence_seals"):
+                      evidence_seals=db.execute("SELECT count(*) FROM evidence_seals WHERE work_order_id=?",(work_id,)).fetchone()[0]
+
+                  acceptance_passes=0
+                  if table_exists(db,"acceptance_runs") and "work_order_id" in table_columns(db,"acceptance_runs"):
+                      ac=table_columns(db,"acceptance_runs")
+                      if "result" in ac:
+                          acceptance_passes=db.execute("SELECT count(*) FROM acceptance_runs WHERE work_order_id=? AND result='PASS'",(work_id,)).fetchone()[0]
+                      else:
+                          acceptance_passes=db.execute("SELECT count(*) FROM acceptance_runs WHERE work_order_id=?",(work_id,)).fetchone()[0]
+
+                  event_count=0
+                  latest_event="ABSENT"
+                  if table_exists(db,"events") and "work_order_id" in table_columns(db,"events"):
+                      event_count=db.execute("SELECT count(*) FROM events WHERE work_order_id=?",(work_id,)).fetchone()[0]
+                      ec=table_columns(db,"events")
+                      if "type" in ec:
+                          order="id" if "id" in ec else "rowid"
+                          er=db.execute("SELECT type FROM events WHERE work_order_id=? ORDER BY "+order+" DESC LIMIT 1",(work_id,)).fetchone()
+                          if er:
+                              latest_event=safe_state(er[0])
+
+                  active_work={"AUTHORIZED","DISPATCHED","ENGINEERING","CANDIDATE","ACCEPTING","REJECTED_RETRYABLE"}
+                  active_queue={"QUEUED","RUNNING","RETRY_WAIT","FINALIZING","WAITING_FOR_EXTERNAL_ORCHESTRATOR"}
+                  terminal_queue={"COMPLETED","REVIEWED","FAILED","BLOCKED","ABSENT"}
+
+                  if leases>0 or active_process>0 or state in active_work or qstate in active_queue:
+                      classification="ACTIVE_DO_NOT_REISSUE"
+                  elif state=="ACCEPTED" and qstate in terminal_queue:
+                      classification="TERMINAL_ACCEPTED_NO_REISSUE"
+                  elif state in {"BLOCKED","FAILED"} and qstate in terminal_queue:
+                      classification="TERMINAL_BLOCKED_NO_REISSUE"
+                  elif state=="DRAFT" and qstate in {"ABSENT","FAILED","BLOCKED","REVIEWED"}:
+                      classification="PENDING_INTENT_REVIEW"
+                  else:
+                      classification="UNKNOWN_FAIL_CLOSED"
+
+                  record={
+                      "row_index":int(rowid),
+                      "id_sha256":sha(work_id),
+                      "yaml_sha256":sha(blob),
+                      "state":safe_state(state),
+                      "queue_state":qstate,
+                      "attempt":int(attempt),
+                      "classification":classification,
+                      "leases":int(leases),
+                      "active_processes":int(active_process),
+                      "worker_attempts":int(worker_attempts),
+                      "acceptance_passes":int(acceptance_passes),
+                      "evidence_seals":int(evidence_seals),
+                      "event_count":int(event_count),
+                      "latest_event_type":latest_event,
+                      "repo_sha256":sha(scalar("repo")) if scalar("repo") else "",
+                      "title_sha256":sha(scalar("title")) if scalar("title") else "",
+                      "baseline_ref_sha256":sha(baseline_ref) if baseline_ref else "",
+                      "baseline_sha":baseline_sha if re.fullmatch(r"[0-9a-f]{40}",baseline_sha or "") else "",
+                      "worker_branch_sha256":sha(worker_branch) if worker_branch else "",
+                      "preservation_keys_sha256":sha("\n".join(sorted(keys))),
+                  }
+                  historical.append(record)
+
+              print("MP_HIST_INV_UNVERSIONED_SIX_KEY_COUNT="+str(len(historical)))
+              classes={}
+              for rec in historical:
+                  classes[rec["classification"]]=classes.get(rec["classification"],0)+1
+                  print("MP_HIST_INV_RECORD_JSON="+json.dumps(rec,sort_keys=True,separators=(",",":")))
+              for key in sorted(classes):
+                  print("MP_HIST_INV_CLASS_"+key+"="+str(classes[key]))
+              need(len(historical)==10,"EXPECTED_TEN_RECORDS")
+              need(not any(r["classification"]=="ACTIVE_DO_NOT_REISSUE" for r in historical),"ACTIVE_HISTORICAL_RECORD_PRESENT")
+              need(not any(r["classification"]=="UNKNOWN_FAIL_CLOSED" for r in historical),"UNKNOWN_HISTORICAL_RECORD_PRESENT")
+              print("MP_HIST_INV_ALL_TEN_CLASSIFIED_WITHOUT_ACTIVE_OWNERSHIP=PASS")
+              print("MP_HIST_INV_RAW_YAML_LOGGED=FALSE")
+              print("MP_HIST_INV_RAW_IDS_LOGGED=FALSE")
+              print("MP_HIST_INV_LIVE_SQLITE_WRITES=0")
+          '@
+          try {
+            & python.exe -B -c $script $root (Join-Path $root 'config\autonomy.yaml') (Join-Path $scratch 'inventory.db')
+            Need ($LASTEXITCODE -eq 0) 'INVENTORY_SCRIPT'
+            $procAfter=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($procAfter.Count -eq 1 -and [int]$procAfter[0].ProcessId -eq $pidBefore) 'CONTROLLER_POSTIMAGE'
+            foreach($rel in $protected){
+              Need ((Hash (Join-Path $root $rel)) -ceq $before[$rel]) ('FILE_POSTIMAGE_'+$rel)
+            }
+            Write-Host 'MP_HIST_INV_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+            Write-Host 'MP_HIST_INV_NATIVE_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_HIST_INV_QUEUE_MUTATIONS=0'
+            Write-Host 'MP_HIST_INV_PRODUCTION_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_HIST_INV_SCRATCH_CLEAN=PASS'
+          }
