@@ -1,0 +1,86 @@
+{
+  "schema": "forge.optimizer.o9.learned-write-read-public-development.v1",
+  "frozen_stage": "FREEZE_PRECEDES_SOURCE_CREATION_MODEL_IMPLEMENTATION_AND_DEV_FIRST_USE",
+  "baseline_main_sha": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "inherited_negative_custody": {
+    "O8_PR_782": "DELAYED_QUERY_EXPLICIT_HISTORY_OUTPERFORMS_TRAINED_2_4_CELL_RECURRENCE",
+    "O7_PR_780": "SUPERVISED_PARTITION_BEATS_RANDOM_SPLITS_NOT_STRONG_CONTROLS",
+    "O6_PR_777": "SURPRISE_GATED_LOCAL_NEGATIVE",
+    "O5_PR_776": "FAST_ONLINE_LEARNING_PREDICTIVE_NEGATIVE",
+    "Q20": "PUBLIC_DEV_NO_GO",
+    "Q21_Q21N01": "PROTECTED_ROLES_UNTOUCHED"
+  },
+  "objective": "Test whether genuinely trained differentiable episodic write/read gating learns which earlier public observations to retrieve at delayed query, improves against frozen-routing and erasure controls, and survives conventional cost/accuracy comparison.",
+  "claim_boundary": "PUBLIC synthetic supervised memory routing, NOT discovered universal architecture, transfer or Q21 first use.",
+  "roles": [
+    "O9_PUBLIC_TRAIN",
+    "O9_PUBLIC_SELECT",
+    "O9_PUBLIC_DEV"
+  ],
+  "namespace": "o9-20261023-memory-routing-v1",
+  "episodes_by_role": {
+    "O9_PUBLIC_TRAIN": 96,
+    "O9_PUBLIC_SELECT": 24,
+    "O9_PUBLIC_DEV": 32
+  },
+  "steps_per_episode": 24,
+  "query_t": [
+    10,
+    18
+  ],
+  "new_source": {
+    "A_ONE_CUE_RECALL": "o0 fair public bit; q in {10,18}; all other public bits iid fair; action q =2; target next o at q = o0 XOR Bernoulli(.05); previous action at q-1 iid binary.",
+    "B_SELECT_TWO_CUES": "o0 first fair public cue; observation o4 second fair public cue supplied via next observation at t3; query at q in {10,18} action=2; action at q-1 is selector 0 or 1 and target query bit equals first cue for 0, second cue for 1 XOR Bernoulli(.05); all other observations iid fair.",
+    "C_CUE_ACTION_PARITY": "o0 fair public cue; every prequery action 0/1 fair and public; query action 2; target query bit equals o0 XOR parity of prequery action 1 XOR Bernoulli(.05); rest observations iid fair.",
+    "NULL_IID_QUERY": "query timings/action distribution identical; query next public bit iid fair, initial o0 fair, other public bits iid fair. No systematic target dependence on public history."
+  },
+  "seed_law": "seed=int.from_bytes(sha256(UTF8(namespace+':'+role+':'+family+':'+index)).digest()[:8],'big'), Python Random",
+  "learner_information": "Sequence o_t,a_t (action=2 indicates query), t/T and t==0,t==4 publicly observable. B selector is publicly observable action at q-1. No source-family identifier, hidden label, next target or role is supplied as learner feature. All train/query supervision occurs exclusively on O9_PUBLIC_TRAIN query target; SELECT only for restart selection.",
+  "models": {
+    "LEARNED_WRITE_READ": "Differentiable external episodic store one public event per prequery timestep; per-event 7-d feature [1,o_t,action0,action1,is_t0,is_t4,t/24]. Train 7 write-logit weights, 7 base read-score weights, 7 query-selector interaction read-score weights, and 3 sigmoid output weights (bias, read value-0.5, selector) with exact per-query gradient and Adam. write sigmoid and read softmax over public events t<=q. 40 epochs, per-example Adam lr=.03, clipping norm2, two independent starts 17,31, restart chosen on SELECT. Query selector=action at q-1; baseline and targets never fed in features.",
+    "LEARNED_READ_FIXED_WRITE": "Same architecture and training but write-mask fixed=1 for all events; train only read and output weights. Same training budget and starts.",
+    "FROZEN_RANDOM_ROUTE": "Same event memory; fixed random write and read parameters from respective seed; only three query output weights trained at same epochs/lr; compare learning routes against frozen route.",
+    "ERASED_LEARNED_HISTORY": "No training/selection of own. Reuse exact selected LEARNED_WRITE_READ checkpoint but erase all prequery events before query (only public current query event remains).",
+    "O8_GATED4_FROZEN_CODE": "Byte-identical original O8 gated recurrence from O8 source blob 6f0e9d58718efdae0e448e9387d325cf653a81fc. Fit fresh O9_PUBLIC_TRAIN with original 12 epochs 0.01 Adam and independent starts17/31 selected SELECT.",
+    "PUBLIC_EPISODIC_TABLE": "Fully fitted Laplace+1 counts; on A key o0, B key (o0,o4,selector), C key (o0,action_parity), NULL key (o0,action_parity). All are explicitly engineered from PUBLIC history; ability witness not capacity match.",
+    "CURRENT_QUERY_COUNTS": "Fully fitted Laplace+1 counts keyed (current o at query, query delay), no earlier memory.",
+    "UNIFORM_NULL": "Fixed p=0.5 next bit, no training, NULL behavior diagnostic."
+  },
+  "frozen_hyperparams": {
+    "starts": [
+      17,
+      31
+    ],
+    "learned_epochs": 40,
+    "learned_adam_lr": 0.03,
+    "learned_beta1": 0.9,
+    "learned_beta2": 0.999,
+    "learned_epsilon": 1e-8,
+    "learned_gradient_clip": 2,
+    "obs_noise": 0.05,
+    "softmax_memory_events": "t from 0 through query inclusive",
+    "per_event_features": 7,
+    "output_weights": 3,
+    "o8_gated_epochs": 12,
+    "o8_gated_lr": 0.01,
+    "selection": "minimum public SELECT query-only NLL by start with lowest seed tie break"
+  },
+  "evaluation": {
+    "primary": "PUBLIC_DEV query-only next-bit mean NLL, lower better, for all eight arms all four families",
+    "causal_state_ablation": "ERASED_LEARNED_HISTORY DEV NLL minus LEARNED_WRITE_READ DEV NLL; positive supports contribution of retrieved prequery history, NOT independently learned generalization.",
+    "routing_ablation": "FROZEN_RANDOM_ROUTE and LEARNED_READ_FIXED_WRITE vs LEARNED_WRITE_READ; all have identical public information; differing trainable parameter budget explicit.",
+    "info_witness": "PUBLIC_EPISODIC_TABLE trained on PUBLIC cue or parity history; not same parameter count/feature extractor.",
+    "strong_baseline": "O8_GATED4_FROZEN_CODE retrained on identical O9 training source identities; trained cost per full two restarts measured.",
+    "bias_checks": "NULL IID must be reported without fabricated positive; disclose correlation that can arise by chance in finite DEV.",
+    "resource": "record full learning model checkpoint including optimizer state, inferred parameters, fit+SELECT CPU, DEV CPU, source generation CPU, process CPU and peak RSS/tracemalloc.",
+    "cross_os": "All 12 family×role source digests identical across Windows and Linux; all 32 family×arm DEV NLL outputs agree within 1e-6.",
+    "standards": "No selection on DEV, no post-DEV retuning/replaying same frozen identity, record all signed gains even negative; no scientific GO from PUBLIC DEV."
+  },
+  "guardrails": [
+    "No FSA, original Q21/Q21N01, HELD, native Wingless/Yggdrasil, KTRADE, broker or controller changes.",
+    "No paid API or extra scheduler/queue; GitHub hosted native Windows/Linux development only.",
+    "Source-only additive draft PR and exact ancestry/immutable protocol blob.",
+    "Do not merge on synthetic DEV findings, and do not treat engineered event positions as spontaneously learned representations.",
+    "No hidden generator state or source-family key given to learners; all models see identical public trajectories."
+  ]
+}
