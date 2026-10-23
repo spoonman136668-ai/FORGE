@@ -28,7 +28,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-roadmap-export-error-20261023' -and $env:GITHUB_EVENT_NAME -ceq 'push') 'IDENTITY'
           Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          $parent='242596fd9f84618222245798a02bec33a625f38b'
+          $parent='4f7010d262575d4b7a082e5200882abd4a9f1476'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changes=@(& git.exe diff --name-only $parent HEAD)
           Need ($changes.Count -eq 1 -and $changes[0] -ceq '.github/workflows/mp-roadmap-export-error-20261023.yml') 'ONE_FILE_SCOPE'
@@ -37,6 +37,8 @@ jobs:
           $root='C:\Users\camar\GolandProjects\ckb-plane'
           $temp=Join-Path $env:RUNNER_TEMP ('mp-bundle-diag-'+$env:GITHUB_RUN_ID)
           $copy=Join-Path $temp 'source'
+          $shortTemp=Join-Path $env:USERPROFILE 'mpt'
+          Need (-not (Test-Path -LiteralPath $shortTemp)) 'SHORT_TEMP_ALREADY_EXISTS'
           Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_COLLISION'
           New-Item -ItemType Directory -Path $copy -Force|Out-Null
           $source='internal\plane\model.go'
@@ -52,6 +54,11 @@ jobs:
           $pinned=@{}
           $names=@('internal','cmd','scripts','research-controller','examples','web','ui','assets','templates','contracts','docs','proposals','tests','testdata','pkg')
           try {
+            New-Item -ItemType Directory -Path $shortTemp -ErrorAction Stop | Out-Null
+            $env:TEMP=$shortTemp
+            $env:TMP=$shortTemp
+            $env:TMPDIR=$shortTemp
+            Write-Host 'MP_BUNDLE_SHORT_TEMP_ENVIRONMENT=ENABLED'
             foreach($name in $names){
               $src=Join-Path $root $name
               if(-not (Test-Path -LiteralPath $src -PathType Container)){continue}
@@ -110,8 +117,8 @@ jobs:
               }else{
                 Write-Host 'MP_BUNDLE_BASELINE_FOCUSED_CASE=FAIL_REPRODUCED'
               }
-              Need (@($result | Where-Object {[string]$_ -match 'MP_BUNDLE_CAPTURED_GIT_ERROR_BEGIN'}).Count -gt 0) 'ORIGINAL_BUNDLE_ERROR_NOT_CAPTURED'
-              Write-Host 'MP_BUNDLE_ORIGINAL_ERROR_SOURCE_OBSERVED=PASS'
+              Need ($rc -eq 0) 'SHORT_TEMP_FOCUSED_TEST_DID_NOT_PASS'
+              Write-Host 'MP_BUNDLE_SHORT_PATH_FOCUSED_ROADMAP_TEST=PASS'
             } finally {Pop-Location}
             foreach($rel in $pinned.Keys){
               Need ((Get-FileHash -LiteralPath (Join-Path $root $rel) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $pinned[$rel]) 'LIVE_SOURCE_POSTIMAGE_DRIFT'
@@ -120,6 +127,8 @@ jobs:
             Write-Host 'MP_BUNDLE_PRODUCTION_WRITES=0'
             Write-Host 'MP_BUNDLE_CONTROLLERS_STARTED=0'
           }finally{
+            if(Test-Path -LiteralPath $shortTemp){Remove-Item -LiteralPath $shortTemp -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $shortTemp)) 'SHORT_TEMP_CLEAN'
             if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
             Need (-not (Test-Path -LiteralPath $temp)) 'TEMP_CLEAN'
             Write-Host 'MP_BUNDLE_PRIVATE_TEMP_CLEAN=PASS'
