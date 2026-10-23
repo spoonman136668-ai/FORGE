@@ -1,0 +1,111 @@
+name: KTRADE RB1 existing Codex candidate full Windows source build
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ktrade-rb1-existing-candidate-full-windows-build.yml]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Original two source files integrated into disposable full KTRADE build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'KTRADE_INTEGRATED_SOURCE_OWNER_CUSTODY_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $base='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $expected=@{
+            'internal/paperreconcile/reconcile.go'='0cc90c6340ae654e8feea5eed56be60849b094892851c17eb725d85c280ac0aa'
+            'internal/paperreconcile/reconcile_test.go'='1a13aa2459aef12c54828b2dae4c13c5631ca84b145616a4d9ce3a687fe4d2ef'
+          }
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          $py=@'
+          import sqlite3,sys,json
+          c=sqlite3.connect('file:'+sys.argv[1].replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           row=c.execute('select state,attempt,reason,workspace from work_orders where id=?',(sys.argv[2],)).fetchone()
+           if row is None: raise RuntimeError('WORK_ORDER_NOT_FOUND')
+           print(json.dumps(dict(zip(('state','attempt','reason','workspace'),row)),separators=(',',':')))
+          finally:c.close()
+          '@
+          $lines=@(& python.exe -B -c $py (Join-Path $root 'state\autonomy.db') $id)
+          if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1){throw 'KTRADE_ORDER_READ_ONLY_STATE_UNAVAILABLE'}
+          $job=$lines[0]|ConvertFrom-Json
+          if($job.state -cne 'BLOCKED' -or [int]$job.attempt -ne 2 -or
+             [string]$job.reason -cne 'BRANCH_ANCESTRY_INVALID'){throw 'KTRADE_ORDER_STATE_DRIFT'}
+          $original=[IO.Path]::GetFullPath([string]$job.workspace)
+          $prefix=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(!$original.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'KTRADE_WORKTREE_CUSTODY_ESCAPE'}
+          if(@(& git.exe -C $original rev-parse HEAD) -cne @($base) -or $LASTEXITCODE -ne 0){throw 'KTRADE_ORIGINAL_HEAD_DRIFT'}
+          if(@(& git.exe -C $source rev-parse HEAD) -cne @($base) -or $LASTEXITCODE -ne 0){throw 'KTRADE_SOURCE_HEAD_DRIFT'}
+          $changes=@(& git.exe -C $original diff --name-only HEAD --)
+          if($LASTEXITCODE -ne 0 -or $changes.Count -ne 2 -or
+             @($changes|Where-Object {$_ -notin @($expected.Keys)}).Count -ne 0){throw 'KTRADE_ORIGINAL_CHANGED_PATHS_DRIFT'}
+          $untracked=@(& git.exe -C $original ls-files --others --exclude-standard)
+          if($LASTEXITCODE -ne 0 -or $untracked.Count -gt 0){throw 'KTRADE_ORIGINAL_UNTRACKED_FILE_DRIFT'}
+          foreach($rel in $expected.Keys){
+            if((Sha (Join-Path $original ($rel.Replace('/','\')))) -cne $expected[$rel]){throw 'KTRADE_PRESERVED_CANDIDATE_HASH_DRIFT'}
+          }
+          $tmp=Join-Path $env:RUNNER_TEMP ('ktrade-rb1-full-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $tmp){throw 'KTRADE_TEMP_COLLISION'}
+          New-Item -ItemType Directory -Path $tmp -ErrorAction Stop|Out-Null
+          $repo=Join-Path $tmp 'repo'
+          $work=Join-Path $tmp 'work'
+          $gt=Join-Path $tmp 'go-temp'
+          New-Item -ItemType Directory -Path $gt -ErrorAction Stop|Out-Null
+          $env:TEMP=$gt;$env:TMP=$gt;$env:TMPDIR=$gt
+          $env:GOFLAGS='-p=1'
+          $env:GOMAXPROCS='1'
+          try{
+            & git.exe init --quiet -- $repo
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_DISPOSABLE_INIT_FAILED'}
+            & git.exe -C $repo fetch --depth=1 --no-tags --no-write-fetch-head -- $source $base
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_DISPOSABLE_FETCH_FAILED'}
+            & git.exe -C $repo worktree add -b codex/rb1-full-qualification $work $base
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_DISPOSABLE_WORKTREE_FAILED'}
+            foreach($rel in $expected.Keys){
+              $file=$rel.Replace('/','\')
+              Copy-Item -LiteralPath (Join-Path $original $file) -Destination (Join-Path $work $file) -ErrorAction Stop
+              if((Sha (Join-Path $work $file)) -cne $expected[$rel]){throw 'KTRADE_DISPOSABLE_FILE_BYTES_CHANGED'}
+            }
+            & git.exe -C $work merge-base --is-ancestor $base HEAD
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_DISPOSABLE_BASELINE_ANCESTRY_FAIL'}
+            & git.exe -C $work diff --check HEAD --
+            if($LASTEXITCODE -ne 0){throw 'KTRADE_DISPOSABLE_WHITESPACE_FAIL'}
+            Write-Host 'KTRADE_ORIGINAL_RB1_SOURCE_AND_CODEX_DIFF_RECREATED=PASS'
+            Push-Location $work
+            try{
+              & go.exe test -p 1 -count=1 ./...
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_FULL_WINDOWS_TESTS_FAILED'}
+              Write-Host 'KTRADE_FULL_WINDOWS_TESTS=PASS'
+              & go.exe test -p 1 -count=1 -tags ktrade_full ./cmd/ktrade
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_FULL_ENTRYPOINT_TESTS_FAILED'}
+              Write-Host 'KTRADE_FULL_ENTRYPOINT_TESTS=PASS'
+              & go.exe vet -p 1 ./...
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_FULL_WINDOWS_VET_FAILED'}
+              Write-Host 'KTRADE_FULL_WINDOWS_VET=PASS'
+              $exe=Join-Path $tmp 'ktrade.exe'
+              & go.exe build -p 1 -tags ktrade_full -o $exe ./cmd/ktrade
+              if($LASTEXITCODE -ne 0){throw 'KTRADE_REAL_WINDOWS_BINARY_BUILD_FAILED'}
+              if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'KTRADE_REAL_EXE_MISSING'}
+              Write-Host ('KTRADE_FULL_SOURCE_WINDOWS_EXE_SHA256='+(Sha $exe))
+              Write-Host 'KTRADE_EXE_DISPOSABLE_NOT_INSTALLED=PASS'
+            }finally{Pop-Location}
+            foreach($rel in $expected.Keys){
+              if((Sha (Join-Path $original ($rel.Replace('/','\')))) -cne $expected[$rel]){throw 'KTRADE_ORIGINAL_WORKER_FILE_CHANGED'}
+            }
+            Write-Host 'KTRADE_SOURCE_ORIGINAL_WORKER_AND_FINANCIAL_STATE_UNMODIFIED=PASS'
+          }finally{
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          }
