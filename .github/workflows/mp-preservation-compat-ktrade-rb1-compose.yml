@@ -1,0 +1,111 @@
+name: MP preservation parser plus KTRADE RB1 branch compatibility
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mp-preservation-compat-ktrade-rb1-compose.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-parser-ktrade-source-composition
+  cancel-in-progress: false
+jobs:
+  compose:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compose preserved KTRADE RB1 model with parser delta in TEMP and run regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$tag) {if(-not $yes){throw ("MP_RB1_COMPOSE_"+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $rb1Branch='audit/r18-rb1-installed-source-integration-20261023'
+          $rb1SHA='10e21c0b5b5b12db6c9bae3a70d7cb348ef86a9d'
+          $mpBranch='proposal/compat-preservation-yaml-readonly-20261023'
+          $mpSHA='6783083f58379fd68945de1065f85e2e87573eb3'
+          $scratch=Join-Path $env:RUNNER_TEMP ("mp-rb1-compose-"+$env:GITHUB_RUN_ID)
+          $rb1=Join-Path $scratch 'rb1'
+          $mp=Join-Path $scratch 'candidate'
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force|Out-Null
+          function Pin([string]$ref,[string]$expect){
+            $v=@(& git.exe ls-remote --exit-code $remote ("refs/heads/"+$ref))
+            Need ($LASTEXITCODE -eq 0 -and $v.Count -eq 1 -and ([string]($v[0] -split '\s+')[0]) -ceq $expect) 'REMOTE_SHA_DRIFT'
+          }
+          function UniqueReplace([string]$s,[string]$old,[string]$new,[string]$tag){
+            Need ($s.IndexOf($old,[StringComparison]::Ordinal) -ge 0 -and
+              $s.IndexOf($old,[StringComparison]::Ordinal) -eq $s.LastIndexOf($old,[StringComparison]::Ordinal)) ($tag+'_ANCHOR')
+            return $s.Replace($old,$new)
+          }
+          try {
+            Pin $rb1Branch $rb1SHA
+            Pin $mpBranch $mpSHA
+            & git.exe clone --quiet --single-branch --branch $rb1Branch $remote $rb1
+            Need ($LASTEXITCODE -eq 0) 'RB1_CLONE'
+            & git.exe clone --quiet --single-branch --branch $mpBranch $remote $mp
+            Need ($LASTEXITCODE -eq 0) 'MP_CLONE'
+            Need (((& git.exe -C $rb1 rev-parse HEAD|Out-String).Trim()) -ceq $rb1SHA) 'RB1_SOURCE_PIN'
+            Need (((& git.exe -C $mp rev-parse HEAD|Out-String).Trim()) -ceq $mpSHA) 'MP_SOURCE_PIN'
+            $target=Join-Path $rb1 'snapshot/source/internal/plane/model.go'
+            $patch=Join-Path $mp 'implementations/mp-controller-preservation-compat-v1/overlay/internal/plane/model.go'
+            $NL=[string][char]10
+            $CRLF=([string][char]13)+$NL
+            $old=[IO.File]::ReadAllText($target).Replace($CRLF,$NL)
+            $candidate=[IO.File]::ReadAllText($patch).Replace($CRLF,$NL)
+            $modelBlob=((& git.exe -C $rb1 rev-parse 'HEAD:snapshot/source/internal/plane/model.go'|Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $modelBlob -ceq '2f9104e75d394e44914fcd3f0be975dba9034456') 'RB1_MODEL_BLOB_DRIFT'
+            $field=([string][char]9)+'Preserve      []string '+([char]96)+'yaml:"preserve"'+([char]96)
+            $add=([string][char]9)+'Preservation *PreservationContract '+([char]96)+'yaml:"preservation,omitempty" json:"preservation,omitempty"'+([char]96)
+            $composed=UniqueReplace $old $field ($field+$NL+$add) 'FIELD'
+            $first='type PreservationContract struct {'
+            $last='func decodeYAML(b []byte, v any) error {'
+            $start=$candidate.IndexOf($first,[StringComparison]::Ordinal)
+            $end=$candidate.IndexOf($last,[StringComparison]::Ordinal)
+            Need ($start -ge 0 -and $end -gt $start) 'CONTRACT_BODY'
+            $contract=$candidate.Substring($start,$end-$start)
+            Need (-not $old.Contains($first)) 'RB1_PRESERVATION_ALREADY_PRESENT'
+            $composed=UniqueReplace $composed $last ($contract+$last) 'CONTRACT_STRUCT'
+            $tail=([string][char]9)+'return nil'+$NL+'}'+$NL+$NL+'var hardForbidden'
+            $validation=([string][char]9)+'if e:=w.Preservation.Validate(); e!=nil {return e}'+$NL
+            $composed=UniqueReplace $composed $tail ($validation+$tail) 'VALIDATION'
+            $inverted=UniqueReplace $composed ($validation+$tail) $tail 'INVERT_VALIDATOR'
+            $inverted=UniqueReplace $inverted ($contract+$last) $last 'INVERT_STRUCT'
+            $inverted=UniqueReplace $inverted ($field+$NL+$add) $field 'INVERT_FIELD'
+            Need ($inverted -ceq $old) 'RB1_MODEL_NOT_PRESERVED'
+            [IO.File]::WriteAllText($target,$composed,[Text.UTF8Encoding]::new($false))
+            $test=Join-Path $mp 'implementations/mp-controller-preservation-compat-v1/overlay/internal/plane/workorder_preservation_compat_test.go'
+            Copy-Item -LiteralPath $test -Destination (Join-Path $rb1 'snapshot/source/internal/plane/workorder_preservation_compat_test.go') -Force
+            Write-Host 'MP_RB1_COMPOSE_THREE_ADDITIONS_ONLY=PASS'
+            Write-Host 'MP_RB1_COMPOSE_KTRADE_BASELINE_CODE_PRESERVED=PASS'
+            Push-Location (Join-Path $rb1 'snapshot/source')
+            try {
+              & go.exe test ./internal/plane -run '^(TestPreservationCompat|TestKTRADERB1)' -count=1
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED_GO'
+              Write-Host 'MP_RB1_COMPOSE_FOCUSED_GO=PASS'
+              & go.exe test ./...
+              Need ($LASTEXITCODE -eq 0) 'FULL_GO'
+              Write-Host 'MP_RB1_COMPOSE_FULL_GO=PASS'
+            } finally {Pop-Location}
+            Pin $rb1Branch $rb1SHA
+            Pin $mpBranch $mpSHA
+            Write-Host 'MP_RB1_COMPOSE_SOURCE_IDENTITIES=PASS'
+            Write-Host 'MP_RB1_COMPOSE_LIVE_WRITES=0'
+            Write-Host 'MP_RB1_COMPOSE_KTRADE_ACTIONS=0'
+            Write-Host 'MP_RB1_COMPOSE_PRODUCTION_MEMORY_WRITES=0'
+          } finally {
+            if (Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_RB1_COMPOSE_SCRATCH_CLEAN=PASS'
+          }
