@@ -40,9 +40,10 @@ jobs:
             'internal/paperreconcile/reconcile_test.go'='1a13aa2459aef12c54828b2dae4c13c5631ca84b145616a4d9ce3a687fe4d2ef'
           }
           function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
-          function Git([string]$where,[string[]]$args){
+          function Git([string]$where,[string[]]$argv){
+            # Explicit parameter name: avoid PowerShell's automatic $args binding.
             $save=$ErrorActionPreference
-            try{$ErrorActionPreference='Continue';$out=@(& git.exe -C $where @args 2>&1);$code=$LASTEXITCODE}
+            try{$ErrorActionPreference='Continue';$out=@(& git.exe -C $where @argv 2>&1);$code=$LASTEXITCODE}
             finally{$ErrorActionPreference=$save}
             return @{exit=$code;text=($out -join [Environment]::NewLine).Trim()}
           }
