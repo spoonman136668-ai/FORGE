@@ -1,0 +1,123 @@
+name: FORGE original owner direct private Mind-Palace bounded context read
+on:
+  push:
+    branches: [verify/forge-mind-palace-live-read-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: forge-private-mp-direct-read-once
+  cancel-in-progress: false
+jobs:
+  private-bounded-context-read:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Read bounded private Mind-Palace advisory context without CKB-plane
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: 'Never'
+          GH_PROMPT_DISABLED: '1'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'MP_LIVE_READ_NOT_ORIGINAL_FORGE_OWNER'
+          }
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $before=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+          if($LASTEXITCODE -ne 0 -or $before.Count -ne 1){throw 'MP_PRIVATE_MAIN_REF_UNAVAILABLE'}
+          $pin=([string]$before[0] -split '\s+')[0]
+          if($pin -cnotmatch '^[a-f0-9]{40}$'){throw 'MP_COMMIT_PIN_INVALID'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('forge-mp-pinned-read-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'MP_PRIVATE_SCRATCH_REUSE'}
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $root=Join-Path $scratch 'repo'
+          try {
+            & git.exe clone --quiet --filter=blob:none --depth 1 --no-checkout --single-branch --branch main $remote $root
+            if($LASTEXITCODE -ne 0){throw 'MP_PRIVATE_CLONE_UNAVAILABLE'}
+            $filter=(& git.exe -C $root config --get remote.origin.partialclonefilter | Out-String).Trim()
+            if($filter -cne 'blob:none'){throw 'MP_UNBOUNDED_PRIVATE_CLONE_REJECTED'}
+            $sha=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            if($sha -cne $pin){throw 'MP_MAIN_CHANGED_BEFORE_READ'}
+            & git.exe -C $root sparse-checkout set --no-cone '/.ice/remote-bootstrap.json' '/.ice/remote-catalog.json' '/.ice/remote-index.ndjson'
+            if($LASTEXITCODE -ne 0){throw 'MP_SPARSE_READ_SCOPE_INVALID'}
+            & git.exe -C $root checkout --force $pin
+            if($LASTEXITCODE -ne 0){throw 'MP_PRIVATE_PINNED_CHECKOUT_FAILED'}
+            $code=@'
+          import json,hashlib,pathlib,sys
+          root=pathlib.Path(sys.argv[1])
+          names=(".ice/remote-bootstrap.json",".ice/remote-catalog.json",".ice/remote-index.ndjson")
+          for name in names:
+              if not (root/name).is_file():raise RuntimeError("MP_REQUIRED_INDEX_FILE_MISSING")
+          def jsonfile(name):
+              payload=(root/name).read_bytes()
+              if not payload or len(payload)>1048576:raise RuntimeError("MP_DOCUMENT_BUDGET")
+              return json.loads(payload)
+          b=jsonfile(names[0]);c=jsonfile(names[1])
+          index=(root/names[2]).read_bytes()
+          if len(index)>1048576 or not index.endswith(b"\n"):raise RuntimeError("MP_INDEX_BUDGET")
+          if (b.get("schema")!="mind-palace.remote-bootstrap.v1"
+              or c.get("schema")!="mind-palace.remote-catalog.v1"
+              or b["source"]["records_sha256"]!=c["source"]["records_sha256"]
+              or b.get("retrieval_transport")!="direct-repository-read"
+              or c.get("retrieval_transport")!="direct-repository-read"
+              or c.get("control_plane_required") is not False
+              or c.get("index")!=names[2]):
+              raise RuntimeError("MP_RETRIEVAL_CONTRACT_DRIFT")
+          lines=index.splitlines()
+          if len(lines)!=c["active_record_count"] or not 0<len(lines)<25000:
+              raise RuntimeError("MP_INDEX_RECORD_COUNT_DRIFT")
+          covered=set()
+          for project,rng in c["projects"].items():
+              lo,hi,qty=rng["start_line"],rng["end_line"],rng["count"]
+              if qty!=hi-lo+1 or lo<1 or hi>len(lines):
+                  raise RuntimeError("MP_PROJECT_RANGE_DRIFT")
+              new=set(range(lo,hi+1))
+              if covered.intersection(new):raise RuntimeError("MP_PROJECT_RANGES_OVERLAP")
+              covered|=new
+          if len(covered)!=len(lines):raise RuntimeError("MP_PROJECT_RANGE_INCOMPLETE")
+          projects=("__global__","Wingless","Yggdrasil","Research")
+          grouped={}
+          for project in projects:
+              if project not in c["projects"]:raise RuntimeError("MP_RESEARCH_PROJECT_MISSING")
+              rng=c["projects"][project]
+              grouped[project]=[]
+              for n in range(rng["start_line"],rng["end_line"]+1):
+                  obj=json.loads(lines[n-1])
+                  actual=obj.get("project") or "__global__"
+                  if actual!=project or obj.get("status") not in ("current","confirmed","observed"):
+                      raise RuntimeError("MP_ADVISORY_RECORD_IDENTITY")
+                  if (not obj.get("id") or not obj.get("source_refs")
+                      or not obj.get("statement") or len(obj["statement"].encode("utf-8"))>1600):
+                      raise RuntimeError("MP_ADVISORY_SOURCE_PROVENANCE")
+                  grouped[project].append(obj)
+          selected=list(grouped["__global__"])
+          if len(selected)>14:raise RuntimeError("MP_GOVERNANCE_CONTEXT_BUDGET")
+          for i in range(14-len(selected)):
+              project=projects[1:][i%3]
+              if grouped[project]:selected.append(grouped[project].pop(0))
+          canonical=json.dumps([
+              {"id":x["id"],"kind":x["kind"],"statement":x["statement"],"source_refs":x["source_refs"]}
+              for x in selected],sort_keys=True,separators=(",",":"),ensure_ascii=True).encode("ascii")
+          if len(canonical)>16384:raise RuntimeError("MP_CONTEXT_TOKEN_BUDGET")
+          print("MP_DIRECT_READ_VALIDATED_RECORDS="+str(len(selected)))
+          print("MP_PRIVATE_REMOTE_RECORDS="+str(len(lines)))
+          print("MP_DIRECT_READ_CONTEXT_SHA256="+hashlib.sha256(canonical).hexdigest())
+          print("MP_DIRECT_READ_ADVISORY_ONLY=TRUE")
+          print("MP_DIRECT_READ_CKB_PLANE_REQUIRED=FALSE")
+          print("MP_DIRECT_READ_SCIENTIFIC_ACCEPTANCE=FALSE")
+          '@
+            & python.exe -B -c $code $root
+            if($LASTEXITCODE -ne 0){throw 'MP_ORIGINAL_PRIVATE_CONTEXT_READ_FAILED'}
+            $after=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            if($LASTEXITCODE -ne 0 -or $after.Count -ne 1 -or (([string]$after[0] -split '\s+')[0]) -cne $pin){
+              throw 'MP_PRIVATE_MAIN_MOVED_DURING_READ'
+            }
+            Write-Output ('MP_DIRECT_PRIVATE_SOURCE_SHA='+$pin)
+            Write-Output 'MP_FORGE_DIRECT_READ=PASS'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            if(Test-Path -LiteralPath $scratch){throw 'MP_PRIVATE_SCRATCH_NOT_CLEAN'}
+          }
