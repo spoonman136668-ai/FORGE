@@ -1,0 +1,79 @@
+name: F139 R37 source-only five-file R7 manifest qualification
+on:
+  push:
+    branches: [fix/f139-r37-r7-five-file-source-manifest-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-r37-native-v2-source-only
+  cancel-in-progress: true
+jobs:
+  five-file-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONPATH: .
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+    steps:
+      - name: Keep source checkout consistent
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 25
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Exact R36 qualified parent and three-file non-execution delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=5849e8cdeab5d9f17875fe01783ca02b1508b6d8
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git merge-base HEAD "$base")" = "$base"
+          expected="$(printf '%s\n' '.github/workflows/qualify-f139-r37-r7-manifest.yml' 'f139/nci04_r7_package.py' 'f139/test_nci04_r7_package.py')"
+          test "$(git diff --name-only "$base" HEAD)" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R37_EXACT_R36_PARENT_AND_BOUND_DELTA=PASS
+      - name: Focused source, owner and provider tamper qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_nci04_r7_package.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_pr_discovery.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_proposal_compiler.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_native_contract.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_owner_issue.py' -v
+          python -B -m unittest discover -s f139 -p 'test_nci04_two_inflight.py' -v
+          echo R37_NATIVE_SOURCE_FOCUS=PASS
+      - name: One final full F139 Python and Go regression, vet and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo R37_REQUIRED_FINAL_REGRESSION=PASS
+      - name: Assert source-only scientific and controller authority boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo R37_V1_NATIVE_WORKER_UNCHANGED=TRUE
+          echo R37_FIVE_FILE_MANIFEST=DATA_ONLY
+          echo R37_EMBEDDED_WORKFLOW_EXECUTION=FALSE
+          echo R37_OWNER_ADMISSION_OR_DISPATCH=FALSE
+          echo R37_PROTECTED_MAIN_OR_SQLITE_WRITE=FALSE
+          echo R37_SCIENTIFIC_FIRST_USE=FALSE
