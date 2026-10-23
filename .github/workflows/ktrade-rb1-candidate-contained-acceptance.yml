@@ -1,0 +1,118 @@
+name: KTRADE RB1 preserved candidate dry acceptance in sealed shallow Git clone
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ktrade-rb1-candidate-contained-acceptance.yml]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Recheck original RB1 worker contents in disposable correct-depth checkout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'RB1_ISOLATED_ACCEPTANCE_OWNER_CUSTODY_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $db=Join-Path $root 'state\autonomy.db'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $base='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $branchName='codex/ktrade-rb1-single-track-20261022'
+          $py=@'
+          import sqlite3,sys,json
+          c=sqlite3.connect('file:'+sys.argv[1].replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           row=c.execute('select state,attempt,reason,workspace from work_orders where id=?',(sys.argv[2],)).fetchone()
+           if not row: raise RuntimeError('RB1_ORDER_NOT_FOUND')
+           print(json.dumps(dict(zip(('state','attempt','reason','workspace'),row)),separators=(',',':')))
+          finally:c.close()
+          '@
+          $raw=@(& python.exe -B -c $py $db $id)
+          if($LASTEXITCODE -ne 0 -or $raw.Count -ne 1){throw 'RB1_CANDIDATE_DB_READ_FAILED'}
+          $job=($raw[0]|ConvertFrom-Json)
+          if($job.state -cne 'BLOCKED' -or [int]$job.attempt -ne 2 -or
+             $job.reason -cne 'BRANCH_ANCESTRY_INVALID'){throw 'RB1_NOT_IN_FROZEN_FAILURE_STATE'}
+          $original=[IO.Path]::GetFullPath([string]$job.workspace)
+          $prefix=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(!$original.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'RB1_CANDIDATE_WORKSPACE_ESCAPE'}
+          $changed=@(& git.exe -C $original diff --name-only HEAD --)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 2){throw 'RB1_CHANGE_INVENTORY_DRIFT'}
+          $needed=@('internal/paperreconcile/reconcile.go','internal/paperreconcile/reconcile_test.go')
+          foreach($path in $changed){if($path -notin $needed){throw 'RB1_UNEXPECTED_CANDIDATE_PATH'}}
+          foreach($path in $needed){if($path -notin $changed){throw 'RB1_MISSING_CANDIDATE_PATH'}}
+          $untracked=@(& git.exe -C $original ls-files --others --exclude-standard)
+          if($LASTEXITCODE -ne 0 -or $untracked.Count -gt 0){throw 'RB1_UNTRACKED_SOURCE_DRIFT'}
+          $head=@(& git.exe -C $original rev-parse HEAD)
+          $workerBranch=@(& git.exe -C $original symbolic-ref --short HEAD)
+          $srcHead=@(& git.exe -C $source rev-parse HEAD)
+          if($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or $srcHead.Count -ne 1 -or
+             $head[0] -cne $base -or $srcHead[0] -cne $base -or
+             $workerBranch.Count -ne 1 -or $workerBranch[0] -cne $branchName){throw 'RB1_CANDIDATE_GIT_IDENTITY_DRIFT'}
+          $isShallow=@(& git.exe -C $source rev-parse --is-shallow-repository)
+          if($LASTEXITCODE -ne 0 -or $isShallow.Count -ne 1 -or $isShallow[0] -cne 'true'){throw 'RB1_SOURCE_SHALLOW_EXPECTATION_DRIFT'}
+          $sourceStatus=@(& git.exe -C $source status --porcelain)
+          if($LASTEXITCODE -ne 0 -or $sourceStatus.Count -ne 0){throw 'RB1_AUTHORIZED_SOURCE_DIRTY'}
+          function Sha([string]$path){return (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          $originalHashes=@{}
+          foreach($rel in $needed){$originalHashes[$rel]=Sha (Join-Path $original ($rel.Replace('/','\')))}
+          $tmp=Join-Path $env:RUNNER_TEMP ('rb1-existing-candidate-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $tmp){throw 'RB1_ISOLATED_REPLAY_COLLISION'}
+          New-Item -Path $tmp -ItemType Directory -ErrorAction Stop|Out-Null
+          $private=Join-Path $tmp 'private'
+          $work=Join-Path $tmp 'worktree'
+          $goTemp=Join-Path $tmp 'temp'
+          New-Item -Path $goTemp -ItemType Directory -ErrorAction Stop|Out-Null
+          $env:TEMP=$goTemp;$env:TMP=$goTemp;$env:TMPDIR=$goTemp
+          try{
+            & git.exe init --quiet -- $private
+            if($LASTEXITCODE -ne 0){throw 'RB1_ISOLATED_INIT_FAILED'}
+            & git.exe -C $private fetch --depth=1 --no-tags --no-write-fetch-head -- $source $base
+            if($LASTEXITCODE -ne 0){throw 'RB1_ISOLATED_SHALLOW_FETCH_FAILED'}
+            & git.exe -C $private worktree add -b $branchName $work $base
+            if($LASTEXITCODE -ne 0){throw 'RB1_ISOLATED_WORKTREE_FAILED'}
+            foreach($rel in $needed){
+              $filename=$rel.Replace('/','\')
+              Copy-Item -LiteralPath (Join-Path $original $filename) -Destination (Join-Path $work $filename) -ErrorAction Stop
+              if((Sha (Join-Path $work $filename)) -cne $originalHashes[$rel]){throw 'RB1_CANDIDATE_BYTES_CHANGED_IN_REPLAY'}
+            }
+            $newHead=@(& git.exe -C $work rev-parse HEAD)
+            $graph=@(& git.exe -C $work merge-base --is-ancestor $base HEAD)
+            if($LASTEXITCODE -ne 0 -or $newHead.Count -ne 1 -or $newHead[0] -cne $base){throw 'RB1_VALIDATED_SHALLOW_GRAPH_FAILED'}
+            $shallow=@(& git.exe -C $work rev-parse --is-shallow-repository)
+            if($LASTEXITCODE -ne 0 -or $shallow.Count -ne 1 -or $shallow[0] -cne 'true'){throw 'RB1_ISOLATED_SHALLOW_BOUNDARY_MISSING'}
+            & git.exe -C $work diff --check HEAD --
+            if($LASTEXITCODE -ne 0){throw 'RB1_CANDIDATE_WHITESPACE_FAILED'}
+            $newChanged=@(& git.exe -C $work diff --name-only HEAD --)
+            if($LASTEXITCODE -ne 0 -or $newChanged.Count -ne 2 -or
+               @($newChanged|Where-Object {$_ -notin $needed}).Count -ne 0){throw 'RB1_CANDIDATE_DIFF_NOT_REPRODUCED'}
+            Write-Host 'RB1_ISOLATED_CORRECT_DEPTH_GRAPH_AND_EXACT_DIFF=PASS'
+            Push-Location $work
+            try{
+              & go.exe test -p 1 -count=1 -run '^TestReconciliationIsolatedProductInventoryAndExactRetry$' ./internal/paperreconcile
+              if($LASTEXITCODE -ne 0){throw 'RB1_CANDIDATE_RECONCILIATION_FOCUSED_FAILED'}
+              & go.exe test -p 1 -count=1 ./internal/paperreconcile
+              if($LASTEXITCODE -ne 0){throw 'RB1_CANDIDATE_RECONCILIATION_PACKAGE_FAILED'}
+              & go.exe vet ./internal/paperreconcile
+              if($LASTEXITCODE -ne 0){throw 'RB1_CANDIDATE_RECONCILIATION_VET_FAILED'}
+            }finally{Pop-Location}
+            Write-Host 'RB1_ISOLATED_PAPER_RECONCILIATION_TESTS_AND_VET=PASS'
+            foreach($rel in $needed){if((Sha (Join-Path $original ($rel.Replace('/','\')))) -cne $originalHashes[$rel]){throw 'RB1_ORIGINAL_CANDIDATE_MUTATED'}}
+            $srcStatusAfter=@(& git.exe -C $source status --porcelain)
+            if($LASTEXITCODE -ne 0 -or $srcStatusAfter.Count -ne 0){throw 'RB1_AUTHORIZED_SOURCE_MODIFIED'}
+            Write-Host 'RB1_CANDIDATE_ORIGINAL_SOURCE_AND_CONTROLLER_UNMODIFIED=PASS'
+            Write-Host ('RB1_REPLAY_CODE_FILE_SHA256='+$originalHashes[$needed[0]])
+            Write-Host ('RB1_REPLAY_TEST_FILE_SHA256='+$originalHashes[$needed[1]])
+          }finally{
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+          }
