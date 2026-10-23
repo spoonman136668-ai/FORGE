@@ -245,17 +245,26 @@ class Database:
                 and re.fullmatch(r"[a-f0-9]{64}", row["head_hash"]), "METADATA_CORRUPT")
         return dict(row)
 
-    def verified_native_provider_failures(self):
+    def verified_native_provider_failures(self, *, through_seq=None):
         """Identify durable failed provider starts; no external API, no replay.
+
+        through_seq scopes evidence to custody that existed before a historical
+        source-transition event, so later negatives cannot retroactively change
+        an already sealed transition's ticket set.
 
         This augments, never replaces, the two sealed original negatives.
         Only original-owner event records with an exact observed terminal
         provider attempt and adjacent quarantine event qualify.
         """
         accepted = {}
+        require(through_seq is None or
+                type(through_seq) is int and through_seq>0,
+                "PROVIDER_NEGATIVE_CUSTODY_CUTOFF_INVALID")
         for event in self.conn.execute(
                 "SELECT seq,sha,payload FROM events "
                 "WHERE kind='NATIVE_FAILED_PROVIDER_CUSTODY' ORDER BY seq"):
+            if through_seq is not None and event["seq"]>=through_seq:
+                continue
             doc = json.loads(event["payload"])
             base_fields={"schema","ticket","run_id","source_sha",
                          "provider_sha256","provider","scientific_first_use"}
@@ -520,7 +529,8 @@ class Database:
                 if is_v4:
                     from f139.nci04_negative_owner_store import TICKET as FIRST
                     from f139.nci04_split_negative_owner_store import TICKET as SECOND
-                    provider_failures=self.verified_native_provider_failures()
+                    provider_failures=self.verified_native_provider_failures(
+                        through_seq=row["seq"])
                     expected=sorted({FIRST,SECOND}|set(provider_failures))
                     require(len(provider_failures)>=1
                             and doc["custodied_negative_tickets"]==expected
