@@ -4,6 +4,7 @@ import hashlib
 import json
 import unittest
 
+from f139.local_controller import GitHub
 from f139.nci04_autonomy_feed import (
     POLICY_ISSUE, POLICY_SCHEMA, TITLE_PREFIX, NativeFeedDenied,
     inspect_policy, prepare_feed,
@@ -187,6 +188,18 @@ class NativeAutonomyFeedTests(unittest.TestCase):
                               existing_candidate_identities=set())
         self.assertEqual(report["candidates"], [])
         self.assertEqual(report["rejected"], [])
+
+    def test_provider_compare_route_allowed_but_path_traversal_denied(self):
+        seen = []
+        api = GitHub(runner=lambda args: (
+            seen.append(args[0]) or b'{"status":"ahead"}'))
+        route = ("repos/spoonman136668-ai/Wingless/compare/" +
+                 "a"*40 + "..." + "b"*40)
+        self.assertEqual(api.native_repo_get(route), {"status": "ahead"})
+        self.assertEqual(seen, [route])
+        with self.assertRaisesRegex(Exception, "NATIVE_FEED_ROUTE_INVALID"):
+            api.native_repo_get(
+                "repos/spoonman136668-ai/Wingless/contents/../secret")
 
     def test_policy_cannot_turn_on_science_or_new_scheduler(self):
         p = FakeProvider()
