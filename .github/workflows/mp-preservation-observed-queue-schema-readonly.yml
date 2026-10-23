@@ -1,0 +1,138 @@
+name: MP parser strict actual workorder schema read-only qualification
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mp-preservation-observed-queue-schema-readonly.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-preservation-observed-queue-schema
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Decode actual persisted YAML in isolated scratch, never disclose content
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$valid,[string]$tag){if(-not $valid){throw ("MP_REAL_SCHEMA_"+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $branch='proposal/compat-preservation-yaml-readonly-20261023'
+          $pinned='6783083f58379fd68945de1065f85e2e87573eb3'
+          $live=Join-Path $env:USERPROFILE 'GolandProjects\ckb-plane'
+          $cfg=Join-Path $live 'config\autonomy.yaml'
+          $scratch=Join-Path $env:RUNNER_TEMP ("mp-observed-schema-"+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $scratch 'source'
+          $samples=Join-Path $scratch 'samples'
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $samples -Force|Out-Null
+          try {
+            Need (Test-Path -LiteralPath $cfg -PathType Leaf) 'LIVE_CONFIG'
+            $preCfg=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+            $preRef=@(& git.exe ls-remote --exit-code $remote ("refs/heads/"+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $preRef.Count -eq 1 -and ([string]($preRef[0] -split '\s+')[0]) -ceq $pinned) 'SOURCE_REF'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $repo
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            Need (((& git.exe -C $repo rev-parse HEAD|Out-String).Trim()) -ceq $pinned) 'SOURCE_HEAD'
+            $overlay=Join-Path $repo 'implementations/mp-controller-preservation-compat-v1/overlay/internal/plane/model.go'
+            Copy-Item -LiteralPath $overlay -Destination (Join-Path $repo 'snapshot/source/internal/plane/model.go') -Force
+            $py=@'
+          import json,sqlite3,sys,pathlib,re,urllib.parse,os
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          out=pathlib.Path(sys.argv[3]).resolve()
+          lines=cfg.read_text(encoding="utf-8-sig").splitlines()
+          in_state=False
+          state_indent=-1
+          dbrel=None
+          for s in lines:
+              indent=len(s)-len(s.lstrip(' '))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",s):
+                  state_indent=indent;in_state=True;continue
+              if in_state and s.strip() and not s.lstrip().startswith("#") and indent<=state_indent:
+                  in_state=False;continue
+              if not in_state:continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",s)
+              if m:
+                  dbrel=m.group(1).strip().strip('"\'')
+                  break
+          if not dbrel:raise RuntimeError("STATE_PATH_MISSING")
+          p=pathlib.Path(dbrel)
+          db=(p if p.is_absolute() else root/p).resolve()
+          if not db.is_relative_to(root) or not db.is_file() or db.stat().st_size>1073741824:raise RuntimeError("STATE_FILE_INVALID")
+          uri="file:"+urllib.parse.quote(str(db).replace("\\","/"),safe="/:")+"?mode=ro&immutable=1"
+          with sqlite3.connect(uri,uri=True,timeout=1.0) as c:
+              c.execute("PRAGMA query_only=ON")
+              rows=c.execute("SELECT raw FROM queue_items LIMIT 1025").fetchall()
+          if len(rows)>1024:raise RuntimeError("ENVELOPE_COUNT_LIMIT")
+          included=0
+          for (b,) in rows:
+              obj=json.loads(b)
+              v=obj.get("work_order_yaml","")
+              if not isinstance(v,str) or len(v)>1048576:raise RuntimeError("SOURCE_YAML_BOUND")
+              if re.search(r"(?m)^\s*preservation\s*:",v):
+                  included+=1
+                  (out/("record-%02d.yaml"%included)).write_text(v,encoding="utf-8",newline="\n")
+          if included!=10:raise RuntimeError("EXPECTED_TEN_PRESERVATION_ORDERS")
+          print("MP_REAL_SCHEMA_OBSERVED_WORKORDER_COUNT=10")
+          print("MP_REAL_SCHEMA_PRODUCTION_SQLITE_READ_ONLY=TRUE")
+          print("MP_REAL_SCHEMA_WORKORDER_CONTENT_NOT_DISCLOSED=TRUE")
+          '@
+            & python.exe -B -c $py $live $cfg $samples
+            Need ($LASTEXITCODE -eq 0) 'IMMUTABLE_QUEUE_EXTRACT'
+            $goTest=@'
+          package plane
+          import("os";"path/filepath";"testing";"gopkg.in/yaml.v3")
+          func TestObservedPreservationWorkOrders(t *testing.T) {
+            root:=os.Getenv("MP_REAL_SCHEMA_SCRATCH")
+            entries,e:=os.ReadDir(root);if e!=nil{t.Fatal("samples unavailable")}
+            if len(entries)!=10{t.Fatalf("observed sample count mismatch: %d",len(entries))}
+            for _,entry:=range entries{
+              raw,e:=os.ReadFile(filepath.Join(root,entry.Name()))
+              if e!=nil{t.Fatal("read sample failed")}
+              var w WorkOrder
+              if e:=decodeYAML(raw,&w);e!=nil{t.Fatalf("observed workorder rejects strict YAML schema: %v",e)}
+              if w.Preservation==nil || len(w.Preserve)==0 {t.Fatal("separate preservation and legacy fields missing")}
+              if e:=w.Preservation.Validate();e!=nil{t.Fatalf("observed preservation mapping invalid: %v",e)}
+              serialized,e:=yaml.Marshal(w);if e!=nil{t.Fatal("YAML roundtrip encoding failed")}
+              var back WorkOrder
+              if e:=decodeYAML(serialized,&back);e!=nil||back.Preservation==nil{t.Fatal("YAML roundtrip decoding failed")}
+            }
+          }
+          '@
+            $testPath=Join-Path $repo 'snapshot/source/internal/plane/observed_preservation_readonly_test.go'
+            [IO.File]::WriteAllText($testPath,$goTest)
+            $env:MP_REAL_SCHEMA_SCRATCH=$samples
+            Push-Location (Join-Path $repo 'snapshot/source')
+            try {
+              & go.exe test ./internal/plane -run '^TestObservedPreservationWorkOrders$' -count=1
+              Need ($LASTEXITCODE -eq 0) 'REAL_PAYLOAD_SCHEMA'
+            } finally {Pop-Location}
+            Need ((Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $preCfg) 'CONFIG_MUTATED'
+            $end=@(& git.exe ls-remote --exit-code $remote ("refs/heads/"+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $end.Count -eq 1 -and ([string]($end[0] -split '\s+')[0]) -ceq $pinned) 'REF_DRIFT'
+            Write-Host 'MP_REAL_SCHEMA_TEN_WORKORDERS_STRICT_DECODE=PASS'
+            Write-Host 'MP_REAL_SCHEMA_PRESERVE_AND_PRESERVATION_RETAINED=PASS'
+            Write-Host 'MP_REAL_SCHEMA_CONFIG_HASH_UNCHANGED=PASS'
+            Write-Host 'MP_REAL_SCHEMA_PRODUCTION_WRITES=0'
+            Write-Host 'MP_REAL_SCHEMA_KTRADE_ACTIONS=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_REAL_SCHEMA_SCRATCH_CLEAN=PASS'
+          }
