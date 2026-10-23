@@ -1,0 +1,107 @@
+name: MP installed controller source-lineage read-only preflight
+on:
+  push:
+    branches:
+      - diagnostics/mp-installed-lineage-preflight-20261023
+    paths:
+      - .github/workflows/mp-installed-lineage-preflight-20261023.yml
+permissions:
+  contents: read
+concurrency:
+  group: mp-installed-lineage-preflight-20261023
+  cancel-in-progress: false
+jobs:
+  custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify live-source lineage without modification or controller invocation
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Require([bool]$condition,[string]$code) {
+            if (-not $condition) { throw ('MP_LIVE_LINEAGE_' + $code) }
+          }
+          Require ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'WRONG_REPO'
+          Require ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-installed-lineage-preflight-20261023') 'WRONG_REF'
+          Require ($env:GITHUB_EVENT_NAME -ceq 'push') 'UNAUTHORIZED_EVENT'
+          Require ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'WRONG_RUNNER'
+          Require ($env:RUNNER_OS -ceq 'Windows') 'WRONG_OS'
+          Require ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT_IDENTITY'
+          Require ((@(& git.exe status --porcelain)).Count -eq 0) 'QUALIFIER_DIRTY'
+          $parent = '13b5dbee55f5436ed3449cab455a3aa751af5222'
+          Require ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'QUALIFIER_PARENT_DRIFT'
+          $changes = @(& git.exe diff --name-only $parent HEAD)
+          Require ($changes.Count -eq 1 -and $changes[0] -ceq '.github/workflows/mp-installed-lineage-preflight-20261023.yml') 'QUALIFIER_SCOPE_DRIFT'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $root = 'C:\Users\camar\GolandProjects\ckb-plane'
+          Require (Test-Path -LiteralPath $root -PathType Container) 'ROOT_MISSING'
+          Require (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_REPARSE'
+          $files = @(
+            'go.mod',
+            'go.sum',
+            'internal\plane\model.go',
+            'internal\plane\autonomy.go',
+            'internal\plane\engine.go',
+            'internal\plane\autonomy_controls.go',
+            'internal\plane\webui_bridge.go',
+            'internal\plane\objective.go',
+            'internal\plane\mind_palace_auto_discovery.go',
+            'bin\ckb-plane.exe',
+            'config\autonomy.yaml',
+            'config\local-operations.json'
+          )
+          $before = [ordered]@{}
+          foreach ($f in $files) {
+            $p = Join-Path $root $f
+            Require (Test-Path -LiteralPath $p -PathType Leaf) ('SOURCE_COMPONENT_MISSING_' + ($f -replace '[^a-zA-Z0-9]','_'))
+            Require (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'SOURCE_COMPONENT_REPARSE'
+            $before[$f] = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          $model = Join-Path $root 'internal\plane\model.go'
+          $autonomy = Join-Path $root 'internal\plane\autonomy.go'
+          $engine = Join-Path $root 'internal\plane\engine.go'
+          $discovery = Join-Path $root 'internal\plane\mind_palace_auto_discovery.go'
+          $modelTxt = [IO.File]::ReadAllText($model)
+          $autonomyTxt = [IO.File]::ReadAllText($autonomy)
+          $engineTxt = [IO.File]::ReadAllText($engine)
+          $discoveryTxt = [IO.File]::ReadAllText($discovery)
+          Require ($modelTxt.Contains('KnownFields(true)')) 'STRICT_DECODER_MISSING'
+          Require ($modelTxt.Contains('yaml:"preserve"')) 'LEGACY_PRESERVE_MISSING'
+          Require ($autonomyTxt.Contains('yaml:"objective_controller"')) 'OBJECTIVE_CONFIG_MISSING'
+          Require ($autonomyTxt.Contains('yaml:"mind_palace_auto_discovery"')) 'MP_CONFIG_MISSING'
+          Require ($engineTxt.Contains('initObjectives()')) 'OBJECTIVE_ENGINE_MISSING'
+          Require ($discoveryTxt.Contains('MindPalaceAutoDiscovery')) 'MP_DISCOVERY_IMPLEMENTATION_MISSING'
+          Write-Host 'MP_LIVE_SOURCE_OBJECTIVE_AND_DISCOVERY_INTEGRATIONS=PASS'
+          Write-Host 'MP_LIVE_SOURCE_STRICT_YAML_AND_LEGACY_PRESERVE=PASS'
+          $legacy = $modelTxt.Contains('yaml:"preservation,omitempty"')
+          Write-Host ('MP_LIVE_SOURCE_PRESERVATION_ALREADY_PRESENT=' + $legacy.ToString().ToUpperInvariant())
+          $modelBlob = (& git.exe hash-object -- $model).Trim()
+          $modBlob = (& git.exe hash-object -- (Join-Path $root 'go.mod')).Trim()
+          Write-Host ('MP_LIVE_MODEL_PREVIOUS_PIN_MATCH=' + ($modelBlob -ceq '9412cc9deff0603bf33d69681f347e9633442d64').ToString().ToUpperInvariant())
+          Write-Host ('MP_LIVE_GO_MODULE_PREVIOUS_PIN_MATCH=' + ($modBlob -ceq 'e05cfbaf7fa1cbf9d4baecdade2fbcc451b5cbc8').ToString().ToUpperInvariant())
+          $digestInput = (($files | ForEach-Object { $_ + ':' + $before[$_] }) -join "`n")
+          $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($digestInput))).ToLowerInvariant()
+          Write-Host ('MP_LIVE_SOURCE_AND_CONFIG_PREIMAGE_DIGEST=' + $digest)
+          $procs = @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Write-Host ('MP_LIVE_CKB_PROCESS_COUNT=' + $procs.Count)
+          foreach ($f in $files) {
+            $after = (Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            Require ($after -ceq $before[$f]) 'LIVE_PREIMAGE_DRIFT_DURING_READ'
+          }
+          Write-Host 'MP_LIVE_SOURCE_PRE_POST_HASHES_UNCHANGED=PASS'
+          Write-Host 'MP_LIVE_CONTROLLER_INVOCATIONS=0'
+          Write-Host 'MP_LIVE_SOURCE_WRITES=0'
+          Write-Host 'MP_LIVE_QUEUE_AND_RECORDS_ACCESSED=FALSE'
+          Write-Host 'MP_LIVE_CONTROLLERS_STARTED=0'
+          Write-Host 'MP_LIVE_QUALIFICATION_AND_ADMISSION_NOT_ATTEMPTED=TRUE'
+          Write-Host 'MP_LIVE_SOURCE_LINEAGE_READONLY_PREFLIGHT=PASS'
