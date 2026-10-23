@@ -89,6 +89,7 @@ jobs:
             [void][Management.Automation.Language.Parser]::ParseFile($candidate,[ref]$tokens,[ref]$parseErrors)
             if(@($parseErrors).Count -ne 0){throw 'MPWC01_CANDIDATE_POWERSHELL_PARSE_FAIL'}
             $scriptSHA=Sha $candidate
+            if($scriptSHA -cne '9ec73d85bb440a366501ea0c6c2064a0690b5dd5729254e905ef590d58f773db'){throw 'MPWC01_SEALED_CANDIDATE_IDENTITY_DRIFT'}
             Write-Host ('MPWC01_CANDIDATE_SCRIPT_SHA256='+$scriptSHA)
             $env:USERPROFILE=$user
             $env:CKB_PLANE_LOCAL_EXEC='1'
@@ -117,8 +118,35 @@ jobs:
             Write-Host 'MPWC01_EXISTING_RETRIEVAL_OFFLINE_RECONCILIATION=PASS'
             Write-Host 'MPWC01_LIVE_PLANE_AND_DURABLE_RECORDS_UNCHANGED=PASS'
             Write-Host 'MPWC01_NO_LIVE_PROMOTION_NO_TOKEN_SAVINGS_CLAIM=PASS'
+            $outputDir=Join-Path $env:RUNNER_TEMP 'mpwc01-qualified-operation'
+            if(Test-Path -LiteralPath $outputDir){throw 'MPWC01_CANDIDATE_OUTPUT_COLLISION'}
+            New-Item -Path $outputDir -ItemType Directory -ErrorAction Stop|Out-Null
+            Copy-Item -LiteralPath $candidate -Destination (Join-Path $outputDir 'Read-MindPalaceContext.ps1') -ErrorAction Stop
+            $manifest=[ordered]@{
+              schema='ckb-plane.mind-palace-context-pin-reconciliation.v1'
+              candidate_script_sha256=$scriptSHA
+              prior_script_sha256=$oldContext
+              local_mind_palace_head=$sourceHead[0]
+              known_budget_tool_blob='ab29b4c74abe051039e8fc75ee6320a30445a790'
+              known_tiered_tool_blob='9bcf9debd6c7477ae2287fbdf7edcb16e11c0131'
+              known_mind_tool_blob='7eb06b1a04525a074df6a9f7ac6fc901ca5a19f3'
+              retrieval_qualified=$true
+              owner_live_files_changed=$false
+              controller_promotion_authorized=$false
+              measured_codex_token_savings=$false
+            }
+            [IO.File]::WriteAllText((Join-Path $outputDir 'manifest.json'),($manifest|ConvertTo-Json -Depth 4 -Compress),[Text.UTF8Encoding]::new($false))
+            Write-Host 'MPWC01_PORTABLE_CANDIDATE_SEALED=PASS'
           }finally{
             $env:CKB_PLANE_LOCAL_EXEC=$null
             $env:USERPROFILE='C:\Users\camar'
             Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
           }
+
+      - name: Retain qualified source-only context operation and exact manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpwc01-existing-context-pin-reconciled
+          path: ${{ runner.temp }}/mpwc01-qualified-operation/
+          if-no-files-found: error
+          retention-days: 5
