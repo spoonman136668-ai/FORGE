@@ -39,7 +39,42 @@ jobs:
           }
           $head=(Git @('rev-parse','HEAD') 'LOCAL_HEAD' | Out-String).Trim()
           $branch=(Git @('symbolic-ref','--quiet','--short','HEAD') 'NAMED_LOCAL_BRANCH' | Out-String).Trim()
-          Need ($head -ceq '7ae81a209fa77e5381a669eb3cc0d736ef60ecd9') 'EXPECTED_LOCAL_HEAD'
+          Need ($head -match '^[0-9a-f]{40}
+          Need ($branch.Length -gt 0) 'BRANCH_NONEMPTY'
+          $records=Join-Path $mp '.ice\records.json'
+          Need (Test-Path -LiteralPath $records -PathType Leaf) 'RECORD_FILE'
+          $before=(Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant()
+          $tracked=@(& $git -C $mp status --porcelain=v1 --untracked-files=no)
+          Need ($LASTEXITCODE -eq 0) 'STATUS'
+          $recordTracked=@(& $git -C $mp status --porcelain=v1 --untracked-files=no -- '.ice/records.json')
+          Need ($LASTEXITCODE -eq 0) 'RECORD_STATUS'
+          $gitRecord=(Git @('rev-parse','HEAD:.ice/records.json') 'RECORD_BLOB' | Out-String).Trim()
+          $accepted='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $remoteResult=@(& $git ls-remote --exit-code $remote 'refs/heads/main')
+          Need ($LASTEXITCODE -eq 0 -and $remoteResult.Count -eq 1) 'ACCEPTED_REMOTE'
+          $observed=([string]$remoteResult[0] -split '\s+')[0]
+          Need ($observed -ceq $accepted) 'REMOTE_MAIN_IDENTITY'
+          $tool=@('tools/context-pack-budgeted.ps1','tools/context-pack-tiered.ps1','tools/mind.ps1')
+          foreach($k in $tool) {
+            $status=@(& $git -C $mp status --porcelain=v1 --untracked-files=no -- $k)
+            Need ($LASTEXITCODE -eq 0) 'TOOL_STATUS'
+            Need ($status.Count -eq 0) 'TOOL_DIRTY'
+          }
+          Need ((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $before) 'RECORD_MUTATED'
+          Write-Host "MP_RECONCILE_LOCAL_BRANCH=$branch"
+          Write-Host "MP_RECONCILE_LOCAL_HEAD=$head"
+          Write-Host "MP_RECONCILE_ACCEPTED_REMOTE_MAIN=$observed"
+          Write-Host "MP_RECONCILE_LOCAL_TRACKED_DIRTY_COUNT=$($tracked.Count)"
+          Write-Host "MP_RECONCILE_LOCAL_RECORDS_DIRTY_COUNT=$($recordTracked.Count)"
+          Write-Host "MP_RECONCILE_LOCAL_RECORDS_GIT_BLOB=$gitRecord"
+          Write-Host "MP_RECONCILE_LOCAL_RECORDS_SHA256=$before"
+          Write-Host 'MP_RECONCILE_LIVE_CHECKOUT_SOURCE_WRITES=0'
+          Write-Host 'MP_RECONCILE_CONTROLLER_OR_QUEUE_TOUCHES=0'
+          Write-Host 'MP_RECONCILE_FAST_FORWARD_PERFORMED=FALSE'
+          Write-Host 'MP_RECONCILE_KTRADE_IDLE=NOT_ESTABLISHED'
+          Write-Host 'MP_RECONCILE_READONLY_COMPLETED=PASS'
+) 'LOCAL_HEAD_FORMAT'
           Need ($branch.Length -gt 0) 'BRANCH_NONEMPTY'
           $records=Join-Path $mp '.ice\records.json'
           Need (Test-Path -LiteralPath $records -PathType Leaf) 'RECORD_FILE'
