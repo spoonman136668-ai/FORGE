@@ -1,0 +1,149 @@
+name: Optimizer O14 prospective public structural zero-shot transfer
+
+on:
+  push:
+    branches: [research/optimizer-o14-public-structural-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-o14-transfer.yml'
+      - 'research/optimizer_o14/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-o14-transfer
+  cancel-in-progress: false
+
+jobs:
+  public-native-development:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Require exact source-only ancestry original model blobs and preregistration
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'O14_PROTECTED_MAIN_PARENT_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-o14-transfer.yml',
+            'research/optimizer_o14/O14_FROZEN_PROTOCOL.json',
+            'research/optimizer_o14/o13_original_belief.py',
+            'research/optimizer_o14/o4_original_controls.py',
+            'research/optimizer_o14/public_source.py',
+            'research/optimizer_o14/runner.py',
+            'research/optimizer_o14/test_transfer.py',
+            'research/optimizer_o14/compare.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'O14_ADDITIVE_SOURCE_ONLY_DELTA_DRIFT'
+          }
+          $pins=@{
+            'research/optimizer_o14/O14_FROZEN_PROTOCOL.json'='75d5add69ebde66811b29374ac1c1df44d3a1601'
+            'research/optimizer_o14/o13_original_belief.py'='790d241163f1aeee9c8c6b5539c74a49fd044879'
+            'research/optimizer_o14/o4_original_controls.py'='3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c'
+          }
+          foreach ($path in $pins.Keys) {
+            $fromGit=(& git rev-parse ('HEAD:'+$path)).Trim()
+            $fromDisk=(& git hash-object --no-filters -- $path).Trim()
+            if ($LASTEXITCODE -ne 0 -or $fromGit -cne $pins[$path] -or
+                $fromDisk -cne $pins[$path]) {
+              throw ('O14_ORIGINAL_CONTROL_OR_FROZEN_PROTOCOL_DRIFT_'+$path)
+            }
+          }
+          Write-Host 'O14_FROZEN_PROTOCOL_AND_ORIGINAL_MODELS=PASS'
+      - name: Ten adversarial role-family custody and original fitted controls tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_o14 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O14_FOCUSED_TRANSFER_TESTS_FAIL' }
+          Write-Host 'O14_PUBLIC_ZERO_SHOT_TESTS=PASS'
+      - name: Fit on public binary training only then evaluate all five frozen world families
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'o14-public-receipt.json'
+          python -B research/optimizer_o14/runner.py | Tee-Object -FilePath $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'O14_PUBLIC_FIT_AND_STRUCTURAL_TRANSFER_FAIL' }
+          Write-Host 'O14_FIVE_FAMILY_EIGHT_ARM_DEV_RECEIPT=EMITTED'
+          Write-Host 'O14_PROTECTED_AND_PRIOR_DEV_FIRST_USE=ZERO'
+          Write-Host 'O14_NATIVE_CANDIDATE_PROMOTION=NONE'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o14-public-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/o14-public-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One full FORGE Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O14_SINGLE_FINAL_GO_REGRESSION=PASS
+      - name: No existing repository or authority mutations
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'O14_UNEXPECTED_WORKTREE_MUTATION' }
+          Write-Host 'O14_CKB_FORGE_WINGLESS_YGGDRASIL_UNCHANGED=PASS'
+
+  reconcile-native-transfer:
+    needs: public-native-development
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o14-public-native-ubuntu-24.04
+          path: native-evidence/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o14-public-native-windows-2022
+          path: native-evidence/windows
+      - name: Enforce preregistered nine source hashes and 40 public DEV losses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o14/compare.py \
+            native-evidence/linux/o14-public-receipt.json \
+            native-evidence/windows/o14-public-receipt.json \
+            native-evidence/o14-cross-os-zero-shot-report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o14-public-structural-transfer-cross-os-comparison
+          path: native-evidence/o14-cross-os-zero-shot-report.json
+          if-no-files-found: error
+          retention-days: 30
