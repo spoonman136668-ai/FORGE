@@ -734,10 +734,18 @@ class Database:
                         and len(provider_failures)>=1
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
-                        and verify_native_activation(self)
                         and events and events[-1]["schema"] in (
                             "forge.f139.source-transition.v3",
                             "forge.f139.source-transition.v4")
+                        and (verify_native_activation(self)
+                             or (events[-1]["schema"]==
+                                     "forge.f139.source-transition.v4"
+                                 and self.conn.execute(
+                                     "SELECT kind FROM events ORDER BY seq DESC LIMIT 1"
+                                 ).fetchone()["kind"]=="SOURCE_TRANSITION_ADMITTED"
+                                 and not self.conn.execute(
+                                     "SELECT 1 FROM tasks WHERE source_sha=? LIMIT 1",
+                                     (meta["source_sha"],)).fetchone()))
                         and events[-1]["to_source_sha"]==meta["source_sha"]
                         and new_source_sha not in {
                             sha for e in events
