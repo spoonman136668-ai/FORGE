@@ -12,7 +12,7 @@ from source import canonical
 
 ARMS=(
     "REFERENCE_RETRIEVAL","DELEX_TEMPLATE","CONSTRAINED_TEMPLATE",
-    "NO_FALLBACK_CONSTRAINED","CANONICAL_FACTS",
+    "CANONICAL_FACTS","NO_FALLBACK_CONSTRAINED",
 )
 AUDIT_KEYS=("name","near","food","area","eattype")
 
