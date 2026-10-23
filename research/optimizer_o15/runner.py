@@ -35,6 +35,16 @@ def stable(x):
     return json.dumps(x,sort_keys=True,separators=(",",":"),allow_nan=False)
 def digest(x):
     return hashlib.sha256(stable(x).encode("utf-8")).hexdigest()
+def source_only_identity(x):
+    # Public source/time-independent identity; keep original measured CPU
+    # in the receipt, never mix variable wall/CPU cost into source custody.
+    if isinstance(x,dict):
+        return {k:source_only_identity(v) for k,v in x.items()
+                if k not in ("source_process_and_model_CPU_ns",
+                             "model_choice_CPU_ns")}
+    if isinstance(x,list):
+        return [source_only_identity(z) for z in x]
+    return x
 def blob(path):
     p=subprocess.run(["git","hash-object","--",str(path)],capture_output=True,
                      text=True,timeout=25)
@@ -357,7 +367,7 @@ def run(root):
                 result["scenarios"].append({
                    "k_true_source_constructor_auditor_only":k,"replica":rep,
                    "shared_FIT_original_real_reset_episodes":FIT_N,
-                   "shared_FIT_public_source_identity_SHA256":digest(fit),
+                   "shared_FIT_public_source_identity_SHA256":digest(source_only_identity(fit)),
                    "original_SOURCE_actual_learned_lag":lag,
                    "FIT_model_costs_and_source_free_states":costs,
                    "DEV_original_source_actual_reward_by_arm":rows,
@@ -378,7 +388,7 @@ def run(root):
         need(result["original_source_real_total_resets"]==1296 and
              result["original_source_REAL_legal_step_calls"]==66096,
              "REAL_EXTERNAL_SOURCE_ACTION_BUDGET_CHANGED")
-        result["shared_FIT_public_source_SHA256"]=digest(public_fit)
+        result["shared_FIT_public_source_SHA256"]=digest(source_only_identity(public_fit))
         result["disposition"]=(
           "O15_PUBLIC_HANDDESIGNED_LOCAL_RELEVANCE_LEARNING_SUPPORTED_NO_SUPERIORITY"
           if all(per) else "O15_PUBLIC_LOCAL_LAG_SELECTION_NO_GO")
