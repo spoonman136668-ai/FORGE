@@ -50,7 +50,8 @@ jobs:
             'research/optimizer_o10/phase.py',
             'research/optimizer_o10/controls.py',
             'research/optimizer_o10/runner.py',
-            'research/optimizer_o10/test_composition.py'
+            'research/optimizer_o10/test_composition.py',
+            'research/optimizer_o10/cross_os_compare.py'
           )
           $actual = @(& git diff --name-only $parent HEAD)
           if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
@@ -77,11 +78,19 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -B research/optimizer_o10/runner.py
+          $receipt = Join-Path $env:RUNNER_TEMP 'o10-public-receipt.json'
+          python -B research/optimizer_o10/runner.py | Tee-Object -FilePath $receipt
           if ($LASTEXITCODE -ne 0) { throw 'O10_PUBLIC_DEV_FIT_FAILURE' }
           Write-Host 'O10_ALL_32_DEV_RESULTS=EMITTED'
           Write-Host 'O10_PROTECTED_FIRST_USE=ZERO'
           Write-Host 'O10_SCIENCE_PROMOTION=NONE'
+      - name: Retain full native public result for immutable cross-OS acceptance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o10-receipt-${{ matrix.os }}
+          path: ${{ runner.temp }}/o10-public-receipt.json
+          if-no-files-found: error
+          retention-days: 14
       - name: One final FORGE Go test vet build
         if: ${{ matrix.os == 'ubuntu-24.04' }}
         shell: bash
@@ -99,3 +108,33 @@ jobs:
           $dirty = @(& git status --porcelain --untracked-files=all)
           if ($dirty.Count -ne 0) { throw 'O10_DIRTY_WORKTREE' }
           Write-Host 'O10_AUTHORITY_UNMODIFIED=PASS'
+
+  cross-os-public-reconciliation:
+    name: Frozen native identity and NLL reconciliation
+    needs: public-source-qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o10-receipt-ubuntu-24.04
+          path: native-results/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o10-receipt-windows-2022
+          path: native-results/windows
+      - name: Enforce preregistered twelve digest and thirty-two NLL cross-OS requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o10/cross_os_compare.py \
+            native-results/linux/o10-public-receipt.json \
+            native-results/windows/o10-public-receipt.json
