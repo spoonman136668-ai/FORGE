@@ -70,9 +70,9 @@ class PredictivePartition:
                     right = [r for r in rows if r[0][feat] == 1]
                     if min(len(left), len(right)) < MIN_CHILD:
                         continue
-                    after = sum(nll(y, smoothed(part))
-                                for part in (left, right)
-                                for _, y in part)
+                    left_prob, right_prob = smoothed(left), smoothed(right)
+                    after = (sum(nll(y, left_prob) for _, y in left)
+                             + sum(nll(y, right_prob) for _, y in right))
                     gain = before_cost-after-SPLIT_PENALTY_PER_RECORD*len(examples)
                     if self.randomized:
                         tag = canonical({"path":path,"feature":feat,
