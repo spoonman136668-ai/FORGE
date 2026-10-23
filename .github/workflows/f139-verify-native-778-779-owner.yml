@@ -1,0 +1,117 @@
+name: F139 live native Wingless 778 779 original-owner terminal custody
+on:
+  push:
+    branches: [verify/f139-native-778-779-terminal-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-original-owner-778-779-readonly
+  cancel-in-progress: false
+jobs:
+  original-owner-sqlite-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Verify authentic terminal results in original owner immutable ledger
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_NOT_ORIGINAL_OWNER_RUNNER'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $user=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          $principal=[string]$task.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $user -or @($task.Actions).Count -ne 1 -or
+             $task.State -ne 'Running'){throw 'F139_ORIGINAL_TASK_NOT_RUNNING'}
+          $opts=@{}
+          $argString=[string]$task.Actions[0].Arguments
+          foreach($key in @('RepositoryRoot','Database','PythonExe')){
+            $m=[regex]::Match($argString,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_ORIGINAL_CONTROLLER_ROUTE_DRIFT'}
+            $opts[$key]=$m.Groups[1].Value
+          }
+          $root=[IO.Path]::GetFullPath($opts.RepositoryRoot)
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $head -cne 'fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'){
+            throw 'F139_ORIGINAL_DEPLOYED_SOURCE_DRIFT'
+          }
+          $live=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($opts.Database)})
+          if($live.Count -ne 1){throw 'F139_ORIGINAL_PROCESS_COUNT_NOT_ONE'}
+          $code=@'
+          import json,sqlite3,sys,pathlib
+          from f139.local_controller import canonical,hash_bytes,ZERO
+          path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          connection=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=20)
+          connection.row_factory=sqlite3.Row
+          try:
+              meta=dict(connection.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              assert meta["source_sha"]=="fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5"
+              assert meta["enabled"]==meta["legacy_suspended"]==1
+              head=ZERO
+              count=0
+              terminal={}
+              dispatch={}
+              for row in connection.execute("SELECT * FROM events ORDER BY seq"):
+                  count+=1
+                  doc=json.loads(row["payload"])
+                  assert row["seq"]==count and row["prior_sha"]==head
+                  assert canonical(doc).decode()==row["payload"]
+                  head=hash_bytes(canonical({"seq":count,"prior_sha":head,
+                                             "kind":row["kind"],"payload":doc}))
+                  assert row["sha"]==head
+                  if row["kind"]=="PROVIDER_VERIFIED_TERMINAL":
+                      terminal.setdefault(doc["ticket"],[]).append(doc["run_id"])
+                  if row["kind"]=="BEFORE_DISPATCH_INTENT":
+                      dispatch[doc["ticket"]]=dispatch.get(doc["ticket"],0)+1
+              assert meta["head_seq"]==count and meta["head_hash"]==head
+              expected={
+                "f139-nci04-i778-fe54d7b8f819-b517fdeb":39942845762,
+                "f139-nci04-i779-fe54d7b8f819-0588601e":39942935746,
+              }
+              stages={}
+              for r in connection.execute("SELECT stage FROM tasks"):
+                  stages[r["stage"]]=stages.get(r["stage"],0)+1
+              for ticket,run_id in expected.items():
+                  row=connection.execute(
+                    "SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+                  assert row is not None,("ADMISSION_MISSING",ticket)
+                  print("F139_NATIVE_TICKET="+json.dumps(
+                    {"ticket":ticket,"stage":row["stage"],"run_id":row["run_id"],
+                     "receipt_present":bool(row["evidence_dir"] and row["evidence_sha"])},
+                     sort_keys=True))
+                  assert row["stage"]=="VERIFIED",("TERMINAL_NOT_RECONCILED",ticket,row["stage"])
+                  assert row["run_id"]==run_id
+                  assert len(terminal.get(ticket,[]))==1 and terminal[ticket][0]==run_id
+                  assert dispatch.get(ticket,0)==1
+                  assert row["evidence_sha"] and len(row["evidence_sha"])==64
+                  assert row["evidence_dir"] and pathlib.Path(row["evidence_dir"]).is_dir()
+              assert stages.get("VERIFIED",0)>=13
+              assert stages.get("QUARANTINED",0)==4
+              assert stages.get("WAIT_PROVIDER",0)==0
+              assert stages.get("START_RISK",0)==0
+              print("F139_ORIGINAL_LEDGER_EVENT_SEQ="+str(count))
+              print("F139_ORIGINAL_LEDGER_EVENT_SHA="+head)
+              print("F139_ORIGINAL_TASK_STAGES="+json.dumps(stages,sort_keys=True))
+              print("F139_TWO_LIVE_WINGLESS_RECEIPTS=VERIFIED_NO_REPLAY")
+              print("F139_ORIGINAL_PROVIDER_ARTIFACT_DIRECTORY=ON_DISK")
+              print("F139_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              connection.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $opts.PythonExe -B -c $code $opts.Database
+            if($LASTEXITCODE -ne 0){throw 'F139_AUTHENTIC_TERMINAL_CUSTODY_FAILURE'}
+          }finally{Pop-Location}
+          Write-Output 'F139_ORIGINAL_OWNER_READONLY_VERIFIED=PASS'
