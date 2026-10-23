@@ -18,8 +18,14 @@ class O15PreSource(unittest.TestCase):
     def test_local_can_learn_lag_from_delayed_public_reward(self):
         for lag in (3,7):
             sample=[]
-            for ep in range(12):
-                history=[(i*7+ep*3+i//5)%4 for i in range(51)]
+            # Independently sampled, SOURCE-FREE unit cases: the prior
+            # arithmetic 4-suit cycle aliases different lags and therefore
+            # cannot distinguish temporal credit. No original source episode
+            # has been executed before this correction.
+            import random
+            for ep in range(48):
+                rng=random.Random(1103+97*ep+17*lag)
+                history=[rng.randrange(4) for i in range(51)]
                 rows=[]
                 for t in range(51):
                     action=(t+ep)%4
