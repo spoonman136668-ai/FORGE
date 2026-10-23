@@ -99,7 +99,7 @@ class RecordCredit(Writer):
             if eligible:
                 mean_gradient=[sum(g[k] for g in eligible)/len(eligible)
                                for k in range(8)]
-                self.w=[max(-6.,min(6.,w+self.LR*adv*g))
+                self.w=[max(-6.,min(6.,w+self.LR*advantage*g))
                         for w,g in zip(self.w,mean_gradient)]
                 self.fit_updates+=1
             self.reward_events+=1
