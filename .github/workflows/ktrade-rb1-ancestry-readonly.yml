@@ -101,4 +101,34 @@ jobs:
             original_git_baseline_unchanged=$true;
             no_mutations=$true}
           Write-Host ('RB1_CANDIDATE_READONLY_DIAGNOSIS='+($result|ConvertTo-Json -Compress -Depth 4))
+          # Inventory only metadata from the already BLOCKED attempt: no diff
+          # contents, no git repair, no reset, no live controller changes.
+          $changedPaths=RunGit @('diff','--name-only','HEAD','--')
+          $newPaths=RunGit @('ls-files','--others','--exclude-standard')
+          $diffStatus=RunGit @('diff','--check')
+          if($changedPaths.exit -ne 0 -or $newPaths.exit -ne 0){throw 'RB1_FAILED_ATTEMPT_FILE_METADATA_UNAVAILABLE'}
+          $paths=@($changedPaths.output -split '\n'|Where-Object {$_ -ne ''})+@($newPaths.output -split '\n'|Where-Object {$_ -ne ''})
+          $allow=@('cmd/','internal/','pkg/','static/','templates/','strategies/','tests/','tools/','web/','docs/','ui/','assets/')
+          $scope=@($paths|ForEach-Object {
+            $path=$_
+            $approved=($path -eq 'go.mod' -or $path -eq 'go.sum' -or @($allow|Where-Object {$path.StartsWith($_,[StringComparison]::Ordinal)}).Count -gt 0)
+            [ordered]@{path=$path;within_requested_scope=$approved}
+          })
+          $pyDetail=@'
+          import sqlite3,sys,json
+          c=sqlite3.connect('file:'+sys.argv[1].replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           attempts=[dict(attempt=r[0],worker=r[1],exit_code=r[2] if r[2] is not None else 'UNREPORTED') for r in c.execute('select attempt,worker,exit_code from worker_attempts where work_order_id=? order by attempt',(sys.argv[2],))]
+           runs=c.execute('select id,result from acceptance_runs where work_order_id=? order by id desc limit 1',(sys.argv[2],)).fetchall()
+           checks=[dict(name=r[0],passed=bool(r[1])) for r in c.execute('select name,pass from acceptance_checks where run_id=?',(runs[0][0],))] if runs else []
+           print(json.dumps(dict(worker_attempts=attempts,acceptance_checks=checks),separators=(',',':')))
+          finally:c.close()
+          '@
+          $detail=@(& python.exe -B -c $pyDetail $db $orderID)
+          if($LASTEXITCODE -ne 0 -or $detail.Count -ne 1){throw 'RB1_WORKER_METADATA_UNAVAILABLE'}
+          $inventory=[ordered]@{schema='ktrade.r18-rb1-attempt2-preserved-diff-metadata.v1';
+            work_order_id=$orderID;attempt=2;path_inventory=$scope;diff_whitespace_clean=($diffStatus.exit -eq 0);
+            native_attempt_and_acceptance_summary=($detail[0]|ConvertFrom-Json);read_only=$true}
+          Write-Host ('RB1_PRESERVED_ATTEMPT2_METADATA='+($inventory|ConvertTo-Json -Compress -Depth 6))
           Write-Host 'RB1_PRIVATE_CANDIDATE_PRESERVED=PASS'
