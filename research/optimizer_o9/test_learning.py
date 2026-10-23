@@ -17,7 +17,7 @@ class O9LearnedMemoryTests(unittest.TestCase):
         self.assertEqual(tuple(p["models"]),ARMS)
         self.assertEqual(p["fresh_public_source"]["counts"],COUNTS)
         self.assertEqual(p["fresh_public_source"]["length"],STEPS)
-        self.assertEqual(p["prior_custody"]["Q20"],"DEV_NO_GO")
+        self.assertIn("Q20 scientific negatives",p["preserve"])
 
     def test_distinct_new_roles_delayed_queries_and_public_input_chain(self):
         for family in FAMILIES:
