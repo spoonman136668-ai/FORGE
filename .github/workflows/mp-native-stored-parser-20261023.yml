@@ -50,7 +50,7 @@ jobs:
           Need ($env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
           Need ($env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE' -and $env:RUNNER_OS -ceq 'Windows') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'CHECKOUT'
-          $parent='7bf64d9d5f74600a211372ad61547b13305222a9'
+          $parent='92ca1763652c938b1f3d06c9804dbe8be38d305f'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'SOURCE_PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-native-stored-parser-20261023.yml') 'ONE_FILE_SCOPE'
@@ -252,70 +252,70 @@ jobs:
             $diag=Join-Path $candidate 'internal\plane\mp_native_stored_diagnostic_test.go'
             Need (-not (Test-Path -LiteralPath $diag)) 'DIAG_TEST_COLLISION'
             $goDiag=@'
-package plane
+          package plane
 
-import (
- "crypto/sha256"
- "database/sql"
- "encoding/hex"
- "fmt"
- "os"
- "regexp"
- "strings"
- "testing"
-)
+          import (
+           "crypto/sha256"
+           "database/sql"
+           "encoding/hex"
+           "fmt"
+           "os"
+           "regexp"
+           "strings"
+           "testing"
+          )
 
-func TestMPNativeStoredRecordValidation(t *testing.T) {
- p:=os.Getenv("MP_DIAG_TEMP_SQLITE")
- if p=="" {t.Fatal("MP_DIAG_DB_NOT_SET")}
- db,e:=sql.Open("sqlite",p)
- if e!=nil {t.Fatal(e)}
- defer db.Close()
- rows,e:=db.Query("SELECT id,state,yaml FROM work_orders ORDER BY rowid")
- if e!=nil {t.Fatal(e)}
- defer rows.Close()
- counts:=map[string]int{}
- total,invalid:=0,0
- validState:=regexp.MustCompile("^[A-Z_]{1,40}$")
- for rows.Next(){
-  var id,state string
-  var raw []byte
-  if e=rows.Scan(&id,&state,&raw);e!=nil{t.Fatal(e)}
-  if len(raw)>1048576{t.Fatal("MP_DIAG_UNBOUNDED_YAML")}
-  total++
-  if total>1024{t.Fatal("MP_DIAG_UNBOUNDED_ROWS")}
-  _,parseErr:=ParseOrder(raw)
-  reason:="PARSE_PASS"
-  if parseErr!=nil{
-   invalid++
-   errText:=parseErr.Error()
-   switch{
-   case strings.Contains(errText,"exact accepted ref and 40-character SHA required"):reason="BASELINE_REF_OR_SHA_INVALID"
-   case strings.Contains(errText,"field ") && strings.Contains(errText,"not found"):reason="UNKNOWN_STRICT_YAML_FIELD"
-   case strings.Contains(errText,"mapping"):reason="YAML_MAPPING_INVALID"
-   case strings.Contains(errText,"PRESERVATION"):reason="PRESERVATION_CONTRACT_INVALID"
-   default:reason="OTHER_STRICT_VALIDATION"
-   }
-   if invalid<=15{
-    hash:=sha256.Sum256([]byte(id))
-    status:=state
-    if !validState.MatchString(status){status="OTHER"}
-    fmt.Printf("MP_NATIVE_INVALID_RECORD_INDEX=%d ID_SHA256_PREFIX=%s STATE=%s CLASS=%s\n",total-1,hex.EncodeToString(hash[:])[:12],status,reason)
-   }
-  }
-  counts[reason]++
- }
- if e=rows.Err();e!=nil{t.Fatal(e)}
- if total<1 || total>1024{t.Fatal("MP_DIAG_ROW_COUNT")}
- fmt.Printf("MP_NATIVE_STORED_RECORD_TOTAL=%d\n",total)
- fmt.Printf("MP_NATIVE_STORED_RECORD_PARSE_PASS=%d\n",counts["PARSE_PASS"])
- fmt.Printf("MP_NATIVE_STORED_RECORD_INVALID=%d\n",invalid)
- for _,name:=range []string{"BASELINE_REF_OR_SHA_INVALID","UNKNOWN_STRICT_YAML_FIELD","YAML_MAPPING_INVALID","PRESERVATION_CONTRACT_INVALID","OTHER_STRICT_VALIDATION"}{
-  fmt.Printf("MP_NATIVE_STORED_RECORD_CLASS_%s=%d\n",name,counts[name])
- }
- if invalid==0{t.Fatal("MP_DIAG_PRIOR_CLI_FAILURE_NOT_REPRODUCED")}
- fmt.Println("MP_NATIVE_STORED_VALIDATOR_OFFLINE_DIAGNOSIS=PASS")
-}
+          func TestMPNativeStoredRecordValidation(t *testing.T) {
+           p:=os.Getenv("MP_DIAG_TEMP_SQLITE")
+           if p=="" {t.Fatal("MP_DIAG_DB_NOT_SET")}
+           db,e:=sql.Open("sqlite",p)
+           if e!=nil {t.Fatal(e)}
+           defer db.Close()
+           rows,e:=db.Query("SELECT id,state,yaml FROM work_orders ORDER BY rowid")
+           if e!=nil {t.Fatal(e)}
+           defer rows.Close()
+           counts:=map[string]int{}
+           total,invalid:=0,0
+           validState:=regexp.MustCompile("^[A-Z_]{1,40}$")
+           for rows.Next(){
+            var id,state string
+            var raw []byte
+            if e=rows.Scan(&id,&state,&raw);e!=nil{t.Fatal(e)}
+            if len(raw)>1048576{t.Fatal("MP_DIAG_UNBOUNDED_YAML")}
+            total++
+            if total>1024{t.Fatal("MP_DIAG_UNBOUNDED_ROWS")}
+            _,parseErr:=ParseOrder(raw)
+            reason:="PARSE_PASS"
+            if parseErr!=nil{
+             invalid++
+             errText:=parseErr.Error()
+             switch{
+             case strings.Contains(errText,"exact accepted ref and 40-character SHA required"):reason="BASELINE_REF_OR_SHA_INVALID"
+             case strings.Contains(errText,"field ") && strings.Contains(errText,"not found"):reason="UNKNOWN_STRICT_YAML_FIELD"
+             case strings.Contains(errText,"mapping"):reason="YAML_MAPPING_INVALID"
+             case strings.Contains(errText,"PRESERVATION"):reason="PRESERVATION_CONTRACT_INVALID"
+             default:reason="OTHER_STRICT_VALIDATION"
+             }
+             if invalid<=15{
+              hash:=sha256.Sum256([]byte(id))
+              status:=state
+              if !validState.MatchString(status){status="OTHER"}
+              fmt.Printf("MP_NATIVE_INVALID_RECORD_INDEX=%d ID_SHA256_PREFIX=%s STATE=%s CLASS=%s\n",total-1,hex.EncodeToString(hash[:])[:12],status,reason)
+             }
+            }
+            counts[reason]++
+           }
+           if e=rows.Err();e!=nil{t.Fatal(e)}
+           if total<1 || total>1024{t.Fatal("MP_DIAG_ROW_COUNT")}
+           fmt.Printf("MP_NATIVE_STORED_RECORD_TOTAL=%d\n",total)
+           fmt.Printf("MP_NATIVE_STORED_RECORD_PARSE_PASS=%d\n",counts["PARSE_PASS"])
+           fmt.Printf("MP_NATIVE_STORED_RECORD_INVALID=%d\n",invalid)
+           for _,name:=range []string{"BASELINE_REF_OR_SHA_INVALID","UNKNOWN_STRICT_YAML_FIELD","YAML_MAPPING_INVALID","PRESERVATION_CONTRACT_INVALID","OTHER_STRICT_VALIDATION"}{
+            fmt.Printf("MP_NATIVE_STORED_RECORD_CLASS_%s=%d\n",name,counts[name])
+           }
+           if invalid==0{t.Fatal("MP_DIAG_PRIOR_CLI_FAILURE_NOT_REPRODUCED")}
+           fmt.Println("MP_NATIVE_STORED_VALIDATOR_OFFLINE_DIAGNOSIS=PASS")
+          }
           '@
             [IO.File]::WriteAllText($diag,$goDiag,[Text.UTF8Encoding]::new($false))
             $env:MP_DIAG_TEMP_SQLITE=Join-Path $offline 'state\offline.db'
