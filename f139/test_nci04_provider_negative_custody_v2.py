@@ -35,11 +35,12 @@ class ProviderNegativeCustodyTests(unittest.TestCase):
             "scientific_first_use":False,
         }
 
-    def start(self, number):
+    def start(self, number, minute=0):
         work=self.work(number)
-        self.assertTrue(admit_native_issue(
-            self.db,work,"2026-10-23T21:00:00Z"))
-        self.db.claim(work.ticket,"2026-10-23T21:00:01Z")
+        admitted=f"2026-10-23T21:{minute:02d}:00Z"
+        started=f"2026-10-23T21:{minute:02d}:01Z"
+        self.assertTrue(admit_native_issue(self.db,work,admitted))
+        self.db.claim(work.ticket,started)
         self.db.dispatch_observed(work.ticket)
         return work
 
@@ -92,7 +93,7 @@ class ProviderNegativeCustodyTests(unittest.TestCase):
         self.db.custody_failed_native_provider(work.ticket,report,late=True)
         with self.assertRaisesRegex(Exception,"ALREADY_CUSTODIED"):
             self.db.custody_failed_native_provider(work.ticket,report,late=True)
-        other=self.start(904)
+        other=self.start(904, minute=11)
         bad=self.report(other.ticket,40030000031)
         bad["source_sha"]="f"*40
         with self.assertRaisesRegex(Exception,"TASK_SOURCE_DRIFT"):
