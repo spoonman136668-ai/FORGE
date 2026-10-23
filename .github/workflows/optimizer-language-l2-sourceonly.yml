@@ -1,0 +1,142 @@
+name: Optimizer language L2 dependent-phrase public qualification
+
+on:
+  push:
+    branches: [research/optimizer-language-l2-dependent-phrases-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l2-sourceonly.yml'
+      - 'research/optimizer_language_l2/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-language-l2-sourceonly
+  cancel-in-progress: false
+
+jobs:
+  native-public-dependent-language:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Pin preregistration and protect all active native research from delta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'L2_EXISTING_SCIENTIFIC_FRONTIER_PARENT_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-language-l2-sourceonly.yml',
+            'research/optimizer_language_l2/L2_FROZEN_PROTOCOL.json',
+            'research/optimizer_language_l2/public_source.py',
+            'research/optimizer_language_l2/learners.py',
+            'research/optimizer_language_l2/runner.py',
+            'research/optimizer_language_l2/test_dependent.py',
+            'research/optimizer_language_l2/compare.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'L2_NOT_BOUNDED_ADDITIVE_SEVEN_FILE_SOURCE'
+          }
+          $p='research/optimizer_language_l2/L2_FROZEN_PROTOCOL.json'
+          $sha='363c9b6bb40b062340d695842c0b1d17b5f5a737'
+          $head=(& git rev-parse ('HEAD:'+$p)).Trim()
+          $disk=(& git hash-object --no-filters -- $p).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $sha -or
+              $disk -cne $sha) {
+            throw 'L2_FROZEN_PROSPECTIVE_PROTOCOL_DRIFT'
+          }
+          Write-Host 'L2_SOURCE_FROZEN_AND_ACTIVE_RESEARCH_ISOLATED=PASS'
+      - name: Twelve prospective source custody mechanism and fit tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_language_l2 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'L2_DEPENDENT_PHRASE_TEST_FAILURE' }
+          Write-Host 'L2_FOCUSED_TESTS=PASS'
+      - name: Fit six registered controls and emit all synthetic public outcomes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'l2-public-receipt.json'
+          python -B research/optimizer_language_l2/runner.py | Tee-Object -FilePath $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'L2_FITTED_LANGUAGE_RUN_FAILURE' }
+          Write-Host 'L2_ALL_FOUR_ROLES_SIX_ARMS=EMITTED'
+          Write-Host 'L2_NO_PROTECTED_FIRST_USE_OR_NATIVE_INTEGRATION=PASS'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l2-public-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/l2-public-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One final unchanged FORGE Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo L2_FINAL_GO_REGRESSION=PASS
+      - name: Fail if any source/authority side effects occurred
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'L2_UNEXPECTED_SOURCE_SIDE_EFFECT' }
+          Write-Host 'L2_NCI_ITD_BIO_Q21_FORGE_CONTROLLERS_UNTOUCHED=PASS'
+
+  independent-cross-os-public-results:
+    needs: native-public-dependent-language
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l2-public-native-ubuntu-24.04
+          path: native-results/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l2-public-native-windows-2022
+          path: native-results/windows
+      - name: Enforce 4 frozen source SHA256 and 24 fitted-model public metric comparisons
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l2/compare.py \
+            native-results/linux/l2-public-receipt.json \
+            native-results/windows/l2-public-receipt.json \
+            native-results/l2-native-reconciliation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l2-dependent-language-native-reconciliation
+          path: native-results/l2-native-reconciliation.json
+          if-no-files-found: error
+          retention-days: 30
