@@ -1,0 +1,47 @@
+name: R18 current installed wrapper and paused controller custody
+on:
+  push:
+    branches: [diagnostics/ckb-rb1-live-admission-20261022]
+    paths: [.github/workflows/ckb-r18-current-wrapper-custody-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Inspect guarded current release and task without modification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             (& git.exe merge-base 8a335af10937d975c49d27fafa4f0b5af308f905 HEAD) -cne '8a335af10937d975c49d27fafa4f0b5af308f905'){throw 'R18_CURRENT_WRAPPER_SCOPE_OR_OWNER_DRIFT'}
+          $changed=@(& git.exe diff --name-only 8a335af10937d975c49d27fafa4f0b5af308f905 HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-current-wrapper-custody-readonly.yml'){throw 'R18_READONLY_WORKFLOW_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1){throw 'R18_TASK_ACTION_COUNT_CHANGED'}
+          $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
+          if(!$m.Success){throw 'R18_TASK_WRAPPER_REFERENCE_MISSING'}
+          $wrapper=$m.Groups[1].Value.Trim('"',"'"," ")
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022\bin\ckb-plane.exe'
+          $sha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -cne '9b105790ebcc3793c7b692f1df685e7ff265c850a279485fd2957917bedd7bd8'){throw 'R18_LIVE_BINARY_NOT_LAST_QUALIFIED_BUILD'}
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($process.Count -ne 1 -or [string]$process[0].ExecutablePath -ine $exe){throw 'R18_NO_EXACT_CURRENT_CONTROLLER_SINGLETON'}
+          $wrapperSha=(Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash.ToLowerInvariant()
+          $raw=[IO.File]::ReadAllText($wrapper)
+          Write-Host ('R18_CURRENT_WRAPPER_SHA256='+$wrapperSha)
+          Write-Host ('R18_CURRENT_WRAPPER_RELEASE_PATH_REFERENCES='+($raw.Split(@('PLANE-R18-OWNER-PAUSED-R5-STRICTSTART-20261022'),[StringSplitOptions]::None).Length-1))
+          Write-Host ('R18_CURRENT_TASK_STATE='+$task.State)
+          Write-Host ('R18_CURRENT_CONTROLLER_PID_PRESENT='+[bool]($process.Count -eq 1))
+          Write-Host ('R18_CURRENT_EXE_SHA256='+$sha)
+          Write-Host 'R18_CURRENT_ORIGINAL_TASK_AND_STATE_UNCHANGED=PASS'
