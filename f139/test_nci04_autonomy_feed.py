@@ -93,7 +93,7 @@ class NativeAutonomyFeedTests(unittest.TestCase):
     def test_enabled_owner_single_commit_source_candidate_compiles_v1_issue(self):
         p = FakeProvider()
         report = prepare_feed(p.get, source_sha=p.source,
-                              existing_intent_base64=set())
+                              existing_candidate_identities=set())
         self.assertTrue(report["enabled"])
         self.assertEqual(len(report["candidates"]), 1)
         self.assertEqual(report["rejected"], [])
@@ -119,20 +119,20 @@ class NativeAutonomyFeedTests(unittest.TestCase):
         p.policy["enabled"] = False
         self.assertEqual(
             prepare_feed(p.get, source_sha=p.source,
-                         existing_intent_base64=set()),
+                         existing_candidate_identities=set()),
             {"enabled": False, "candidates": [], "rejected": []})
 
     def test_policy_source_drift_fails_closed(self):
         p = FakeProvider()
         with self.assertRaisesRegex(NativeFeedDenied, "POLICY_SCOPE_DRIFT"):
             prepare_feed(p.get, source_sha="9" * 40,
-                         existing_intent_base64=set())
+                         existing_candidate_identities=set())
 
     def test_non_owner_matching_pr_is_rejected_not_executed(self):
         p = FakeProvider()
         p.pr["user"] = {"login": "attacker"}
         report = prepare_feed(p.get, source_sha=p.source,
-                              existing_intent_base64=set())
+                              existing_candidate_identities=set())
         self.assertEqual(report["candidates"], [])
         self.assertRegex(report["rejected"][0]["reason"],
                          "PR_NOT_EXPLICIT_OWNER_CANDIDATE")
@@ -146,7 +146,7 @@ class NativeAutonomyFeedTests(unittest.TestCase):
                 value = dict(value, total_commits=2, ahead_by=2)
             return value
         report = prepare_feed(get, source_sha=p.source,
-                              existing_intent_base64=set())
+                              existing_candidate_identities=set())
         self.assertEqual(report["candidates"], [])
         self.assertRegex(report["rejected"][0]["reason"],
                          "HEAD_DELTA_NOT_EXACTLY_ONE_COMMIT_FILE")
@@ -155,7 +155,7 @@ class NativeAutonomyFeedTests(unittest.TestCase):
         p = FakeProvider()
         p.path = ".github/workflows/pwn.yml"
         report = prepare_feed(p.get, source_sha=p.source,
-                              existing_intent_base64=set())
+                              existing_candidate_identities=set())
         self.assertEqual(report["candidates"], [])
         self.assertRegex(report["rejected"][0]["reason"],
                          "HEAD_FILE_NOT_ALLOWED_MODIFICATION")
@@ -163,17 +163,28 @@ class NativeAutonomyFeedTests(unittest.TestCase):
     def test_existing_exact_intent_is_deduped(self):
         p = FakeProvider()
         first = prepare_feed(p.get, source_sha=p.source,
-                             existing_intent_base64=set())
-        known = {first["candidates"][0]["intent_base64"]}
+                             existing_candidate_identities=set())
+        known = {first["candidates"][0]["candidate_identity"]}
         second = prepare_feed(p.get, source_sha=p.source,
-                              existing_intent_base64=known)
+                              existing_candidate_identities=known)
         self.assertEqual(second["candidates"], [])
+
+    def test_same_patch_dedupes_even_if_provenance_intent_changes(self):
+        p = FakeProvider()
+        first = prepare_feed(p.get, source_sha=p.source,
+                             existing_candidate_identities=set())
+        identity = first["candidates"][0]["candidate_identity"]
+        # Dedupe is the immutable patch, not compiler metadata/intent bytes.
+        self.assertEqual(
+            prepare_feed(p.get, source_sha=p.source,
+                         existing_candidate_identities={identity})["candidates"],
+            [])
 
     def test_nonprefixed_owner_pr_is_ignored(self):
         p = FakeProvider()
         p.pr["title"] = "ordinary draft"
         report = prepare_feed(p.get, source_sha=p.source,
-                              existing_intent_base64=set())
+                              existing_candidate_identities=set())
         self.assertEqual(report["candidates"], [])
         self.assertEqual(report["rejected"], [])
 
