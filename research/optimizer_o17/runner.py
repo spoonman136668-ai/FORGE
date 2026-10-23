@@ -27,7 +27,7 @@ O16_PARENT="7f3ce9fca6151c9db7dc163535431069960ef299"
 
 def source_seed_o17(role,di,rep,i):
     if role=="LAG_FIT":return source_seed("FIT",di,rep,i)
-    return (10100000 if role=="POLICY_FIT" else 10300000)+400000*di+10000*rep+i
+    return (11100000 if role=="POLICY_FIT" else 12300000)+400000*di+10000*rep+i
 
 def run(cls):
     out={"schema":"forge.optimizer.o17.original-public-phase-retention-v1",
