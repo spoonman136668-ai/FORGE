@@ -1,0 +1,149 @@
+name: Optimizer L5 external source trained subword completion
+
+on:
+  push:
+    branches: [research/optimizer-language-l5-subword-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l5-subword.yml'
+      - 'research/optimizer_language_l5/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-language-l5
+  cancel-in-progress: false
+
+jobs:
+  native-public-subword:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      L5_EXTERNAL_CORPUS_PATH: ${{ github.workspace }}/../l5-external.txt
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Freeze source-only code footprint and original research identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $common=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $common -cne $parent) {
+            throw 'L5_PROTECTED_MAIN_ANCESTRY_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-language-l5-subword.yml',
+            'research/optimizer_language_l5/L5_FROZEN_PROTOCOL.json',
+            'research/optimizer_language_l5/source.py',
+            'research/optimizer_language_l5/models.py',
+            'research/optimizer_language_l5/runner.py',
+            'research/optimizer_language_l5/test_subword.py',
+            'research/optimizer_language_l5/compare.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'L5_NONADDITIVE_DEVELOPMENT_SOURCE_MUTATION'
+          }
+          $f='research/optimizer_language_l5/L5_FROZEN_PROTOCOL.json'
+          $expectedBlob='d011f7f528c508f30c50a731d145d72f73782c88'
+          $gitblob=(& git rev-parse ('HEAD:'+$f)).Trim()
+          $diskblob=(& git hash-object --no-filters -- $f).Trim()
+          if ($LASTEXITCODE -ne 0 -or $gitblob -cne $expectedBlob -or
+              $diskblob -cne $expectedBlob) {
+            throw 'L5_SOURCE_PROTOCOL_FIRST_COMMIT_IDENTITY_DRIFT'
+          }
+          Write-Host 'L5_SOURCE_AND_NATIVE_SCIENCE_ISOLATION=PASS'
+      - name: Byte-verify separate public Alice source before any token analysis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -c "import sys;sys.path.insert(0,'research/optimizer_language_l5');from source import acquire;print('L5_EXTERNAL_VERIFIED_SHA256='+acquire(sys.argv[1]))" $env:L5_EXTERNAL_CORPUS_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'L5_INVALID_EXTERNAL_GIT_BLOB' }
+      - name: Eleven fixed scope, source novelty, model inference and edit-distance tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_language_l5 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'L5_FOCUSED_PREFIX_LEARNER_TEST_FAIL' }
+          Write-Host 'L5_FOCUSED_TESTS=PASS'
+      - name: Fit six frozen public word and subword learners and report all heldout results
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'l5-external-subword-receipt.json'
+          python -B research/optimizer_language_l5/runner.py $env:L5_EXTERNAL_CORPUS_PATH | Tee-Object -FilePath $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'L5_PUBLIC_EXTERNAL_DEV_FAIL' }
+          Write-Host 'L5_THREE_SOURCE_ROLES_SIX_LEARNERS=EMITTED'
+          Write-Host 'L5_NO_OLD_PROTECTED_DEV_REUSE=PASS'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l5-subword-public-${{ matrix.os }}
+          path: ${{ runner.temp }}/l5-external-subword-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One final existing FORGE Go test vet build on Linux
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo L5_FINAL_GO_REGRESSION=PASS
+      - name: Ensure no source text or original research changes
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'L5_SOURCE_OR_RESEARCH_WORKTREE_MUTATION' }
+          Write-Host 'L5_EXISTING_NATIVE_RESEARCH_CONTROLLERS=UNCHANGED'
+
+  native-reconciliation:
+    needs: native-public-subword
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l5-subword-public-ubuntu-24.04
+          path: receipts/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l5-subword-public-windows-2022
+          path: receipts/windows
+      - name: Enforce SHA and all 18 role-arm word outputs and signed numeric fidelity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l5/compare.py \
+            receipts/linux/l5-external-subword-receipt.json \
+            receipts/windows/l5-external-subword-receipt.json \
+            receipts/l5-independent-native-reconciliation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l5-external-subword-native-comparison
+          path: receipts/l5-independent-native-reconciliation.json
+          if-no-files-found: error
+          retention-days: 30
