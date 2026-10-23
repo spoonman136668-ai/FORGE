@@ -40,7 +40,7 @@ jobs:
           if([IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1'){throw 'F139_TASK_WRAPPER_DRIFT'}
           $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
           $dirty=(& git.exe -C $root status --porcelain --untracked-files=all | Out-String).Trim()
-          if($LASTEXITCODE -ne 0 -or $head -cne $old -or $dirty.Length -ne 0){throw 'F139_OWNER_CHECKOUT_PRECONDITION_DRIFT'}
+          if($LASTEXITCODE -ne 0 -or $head -cne $target -or $dirty.Length -ne 0){throw 'F139_OWNER_CHECKOUT_PRECONDITION_DRIFT'}
           $read=@'
           import json,pathlib,sqlite3,sys
           p=pathlib.Path(sys.argv[1]).resolve(strict=True)
@@ -71,14 +71,53 @@ jobs:
                 Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
             } while($ps.Count -ne 0 -and (Get-Date) -lt $deadline)
             if($ps.Count -ne 0){throw 'F139_OLD_OWNER_PROCESS_DID_NOT_STOP'}
-            & git.exe -C $root fetch --no-tags -- $env:GITHUB_WORKSPACE $target
-            if($LASTEXITCODE -ne 0){throw 'F139_LOCAL_TARGET_FETCH_FAILED'}
-            & git.exe -C $root checkout --detach $target
-            if($LASTEXITCODE -ne 0){throw 'F139_TARGET_CHECKOUT_FAILED'}
             if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $target -or ((& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()).Length -ne 0){throw 'F139_TARGET_CHECKOUT_NOT_EXACT_CLEAN'}
+            $late=@'
+          import json,pathlib,sys
+          root=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import (
+              Database,GitHub,SingleOwner,native_original_owner_profile,require)
+          dbpath=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          native_original_owner_profile(dbpath)
+          api=GitHub()
+          db=Database(dbpath)
+          try:
+              with SingleOwner(dbpath.with_suffix(".lock")):
+                  db.verify()
+                  already=set(db.verified_native_provider_failures())
+                  added=[]
+                  for ticket in (
+                      "f139-nci04-i813-9047b840b1e3-9dad93e1",
+                      "f139-nci04-i814-9047b840b1e3-de06e1ba"):
+                      if ticket in already:
+                          continue
+                      row=db.conn.execute(
+                          "SELECT ticket,source_sha,started_at,stage,quarantine_reason "
+                          "FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+                      require(row is not None and row["stage"]=="QUARANTINED"
+                              and row["source_sha"]==
+                                  "9047b840b1e33f15a8a9da9670a8ca0bcf7169d7"
+                              and row["quarantine_reason"]==
+                                  "FAILED_OR_CANCELLED_NO_REPLAY",
+                              "EXACT_LATE_CUSTODY_TASK_DRIFT")
+                      run=api.candidates(ticket,row["started_at"])
+                      require(run is not None,"EXACT_LATE_CUSTODY_RUN_MISSING")
+                      report=api.failed_native_provider_report(
+                          run,ticket,row["source_sha"],row["started_at"])
+                      db.custody_failed_native_provider(ticket,report,late=True)
+                      added.append(ticket)
+                  require(set(db.verified_native_provider_failures()) >= set(added),
+                          "EXACT_LATE_CUSTODY_READBACK_FAILED")
+                  print(json.dumps({"exact_late_custody":"PASS",
+                      "added":added,"event_head":db.meta()["head_hash"],
+                      "scientific_first_use":False},sort_keys=True))
+          finally:
+              db.close()
+          '@
             Push-Location -LiteralPath $root
             try {
-              & $python -B -m f139.local_controller --db $db custody-quarantined-native-provider-failures
+              & $python -B -c $late $db $root
               if($LASTEXITCODE -ne 0){throw 'F139_LATE_PROVIDER_CUSTODY_FAILED'}
             } finally { Pop-Location }
             $afterCustodyRaw=(& $python -B -c $read $db | Out-String).Trim()
