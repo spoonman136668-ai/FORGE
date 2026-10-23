@@ -1,0 +1,139 @@
+name: FORGE F139 prepare frozen R7 owner intents
+on:
+  push:
+    branches: [operations/f139-r7-intake-prep-9047-20261023]
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Build canonical source-authenticated development issue bodies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import base64,hashlib,json,subprocess
+          SOURCE="9047b840b1e33f15a8a9da9670a8ca0bcf7169d7"
+          EMPTY=hashlib.sha256(b"").hexdigest()
+          def canon(x):
+              return json.dumps(x,sort_keys=True,separators=(",",":"),ensure_ascii=True).encode("ascii")
+          def digest(x):
+              return hashlib.sha256(x).hexdigest()
+          def gh(route):
+              raw=subprocess.check_output(["gh","api",route])
+              return json.loads(raw)
+          def show(path):
+              return subprocess.check_output(["git","show",SOURCE+":"+path])
+          harness=digest(canon({
+              "native_contract_sha256":digest(show("f139/nci04_native_contract.py")),
+              "native_worker_sha256":digest(show("f139/nci04_native_worker.py")),
+              "signed_receipt_sha256":digest(show("f139/nci04_signed_native.py")),
+              "worker_workflow_sha256":digest(show(".github/workflows/forge-f139-development-worker.yml")),
+          }))
+          cases=[
+              {
+                "tag":"WINGLESS","lane":"Wingless","repo":"spoonman136668-ai/Wingless",
+                "target":"0b831325f68432b544bdf18acd5bee3da26ea82c",
+                "child":"c9d08cba5b7028251336b91f82bbe3067015cdee",
+                "path":"research/native/itd01/r7/native_test.go",
+                "prereg":"research/native/itd01/r7/PREREG.md",
+                "toolchain":"go1.25.0",
+                "commands":[
+                    ["go","test","-count=1","./research/native/itd01/r7/..."],
+                    ["go","vet","./research/native/itd01/r7/..."],
+                    ["go","test","-count=1","./..."],
+                    ["go","vet","./..."],["go","build","./..."],
+                ],
+              },
+              {
+                "tag":"YGGDRASIL","lane":"Yggdrasil","repo":"spoonman136668-ai/Yggdrasil",
+                "target":"707a392cb0c2420d12f6a77e5a7f412e8ccaf3b9",
+                "child":"75da519b6c3c0c9838a2c3e3c9c78100cc041c64",
+                "path":"research/native/itd01/r7/test_native_cells.py",
+                "prereg":"research/native/itd01/r7/PREREG.md",
+                "toolchain":"python3.11.11",
+                "commands":[
+                    ["python","-B","-m","unittest","discover","-s","research/native/itd01/r7","-p","test_native_cells.py","-v"],
+                    ["python","-B","-m","unittest","discover","-s","tests","-p","test_*.py","-v"],
+                    ["python","-B","-m","compileall","-q","yggdrasil","scripts","research/native/itd01/r7"],
+                ],
+              },
+          ]
+          for case in cases:
+              target_commit=gh("repos/"+case["repo"]+"/git/commits/"+case["target"])
+              assert target_commit["sha"]==case["target"]
+              tree=target_commit["tree"]["sha"]
+              child=gh("repos/"+case["repo"]+"/git/commits/"+case["child"])
+              assert child["sha"]==case["child"] and len(child["parents"])==1
+              assert child["parents"][0]["sha"]==case["target"]
+              comparison=gh("repos/"+case["repo"]+"/compare/"+case["target"]+"..."+case["child"])
+              assert comparison["ahead_by"]==1 and comparison["behind_by"]==0
+              assert [(f["filename"],f["status"]) for f in comparison["files"]]==[(case["path"],"added")]
+              target_tree=gh("repos/"+case["repo"]+"/git/trees/"+tree+"?recursive=1")
+              assert not target_tree.get("truncated")
+              assert case["path"] not in {x["path"] for x in target_tree["tree"]}
+              filedoc=gh("repos/"+case["repo"]+"/contents/"+case["path"]+"?ref="+case["child"])
+              assert filedoc["type"]=="file" and filedoc["encoding"]=="base64"
+              after=base64.b64decode(filedoc["content"],validate=False)
+              assert 0<len(after)<=32768 and b"\x00" not in after
+              after.decode("utf-8")
+              preregdoc=gh("repos/"+case["repo"]+"/contents/"+case["prereg"]+"?ref="+case["target"])
+              prereg=base64.b64decode(preregdoc["content"],validate=False)
+              dependency=digest(canon({
+                  "kind":"exact-target-tree-snapshot",
+                  "repository":case["repo"],"commit":case["target"],"tree":tree,
+              }))
+              suite=digest(canon({
+                  "candidate_test_sha256":digest(after),
+                  "fixed_commands":case["commands"],
+              }))
+              intent={
+                  "schema":"forge.f139.nci04.native-candidate-intent.v1",
+                  "controller_source_sha":SOURCE,
+                  "lane":case["lane"],
+                  "target_repository":case["repo"],
+                  "target_commit":case["target"],
+                  "target_tree_sha":tree,
+                  "dependency_sha256":dependency,
+                  "qualification_harness_sha256":harness,
+                  "training_config_sha256":digest(prereg),
+                  "toolchain_identity":case["toolchain"],
+                  "suite_identity_sha256":suite,
+                  "path":case["path"],
+                  "before_sha256":EMPTY,
+                  "after_sha256":digest(after),
+                  "after_base64":base64.b64encode(after).decode("ascii"),
+                  "worker_mode":"isolated-candidate-only",
+                  "scientific_first_use":False,
+                  "paid_api_calls":0,
+                  "accepted_ref_mutations":0,
+                  "optimizer_policy_mutations":0,
+                  "protected_holdouts_accessed":0,
+              }
+              raw=canon(intent)
+              identity={k:v for k,v in intent.items() if k!="after_base64"}
+              qkey=digest(canon(identity))
+              body=canon({
+                  "schema":"forge.f139.nci04.owner-native-development.v1",
+                  "source_sha":SOURCE,
+                  "lane":case["lane"],
+                  "kind":"native-cognitive-candidate",
+                  "intent_base64":base64.b64encode(raw).decode("ascii"),
+                  "scientific_first_use":False,
+                  "paid_model_calls":0,
+              })
+              assert len(raw)<=44000 and len(body)<=60000
+              print("F139_R7_"+case["tag"]+"_TARGET_TREE="+tree)
+              print("F139_R7_"+case["tag"]+"_AFTER_SHA256="+digest(after))
+              print("F139_R7_"+case["tag"]+"_QUALIFICATION_KEY="+qkey)
+              print("F139_R7_"+case["tag"]+"_ISSUE_BODY_B64="+base64.b64encode(body).decode("ascii"))
+          print("F139_R7_PREPARATION_SCIENTIFIC_FIRST_USE=FALSE")
+          print("F139_R7_PREPARATION_ACCEPTED_REF_MUTATIONS=ZERO")
+          PY
