@@ -1514,6 +1514,7 @@ def cli(argv=None):
     init=sub.add_parser("init");init.add_argument("--source-sha",required=True)
     queue=sub.add_parser("queue");queue.add_argument("--manifest",type=Path,required=True)
     sub.add_parser("status")
+    sub.add_parser("upgrade-native-two-slots")  # explicit original-owner action only
     enable=sub.add_parser("activate");enable.add_argument("--legacy-suspended-evidence",type=Path,required=True)
     sub.add_parser("tick")
     owner_native=sub.add_parser("activate-native")
@@ -1550,6 +1551,32 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="upgrade-native-two-slots":
+            # This is NEVER invoked on controller startup or on the worker.
+            # The owner may explicitly migrate only its exact clean protected
+            # source, after existing controlled source transition, with no
+            # active tasks. No historical event is rewritten.
+            native_original_owner_profile(args.db)
+            api=GitHub()
+            require(api.protected_main()==db.meta()["source_sha"],
+                    "DUAL_NATIVE_UPGRADE_PROTECTED_SOURCE_DRIFT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"DUAL_NATIVE_UPGRADE_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git("rev-parse","HEAD")==db.meta()["source_sha"]
+                    and _git("status","--porcelain","--untracked-files=all")=="",
+                    "DUAL_NATIVE_UPGRADE_UNQUALIFIED_CHECKOUT")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                upgraded=db.enable_native_two_slots()
+                print(json.dumps({
+                    "native_two_slot_schema_upgraded":upgraded,
+                    "source_sha":db.meta()["source_sha"],
+                    "event_head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
         elif args.verb=="custody-original-native-negative":
             # One authorized, development-only owner CLI. No GitHub dispatch
             # method, second task, new controller or scientific first-use.
