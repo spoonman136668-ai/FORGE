@@ -318,12 +318,12 @@ def verify_fixed_commands(candidate: Candidate, stage: Path, *,
         # SHA256 preserved in the report. Do not substitute a mock success.
         if (candidate.lane == "Yggdrasil" and outcome == "PASS"
                 and tuple(argv[:4]) == ("python", "-B", "-m", "unittest")):
-            summaries = re.findall(rb"(?m)^Ran ([0-9]+) tests? in [0-9.]+s\\s*$",
+            summaries = re.findall(rb"(?m)^Ran ([0-9]+) tests? in [0-9.]+s\s*$",
                                    output)
             if len(summaries) != 1 or int(summaries[0]) == 0:
                 diagnostic = ("F139_YGGDRASIL_ZERO_OR_UNVERIFIED_TESTS: "
                               "native unittest reported no proven executed "
-                              "tests; worker-generated TEST_FAILURE/1\\n")
+                              "tests; worker-generated TEST_FAILURE/1\n")
                 outcome, returncode = "TEST_FAILURE", 1
         # Preserve the digest/byte count of actually captured native stdout;
         # annotate truncation in the excerpt, never forge a full-output hash.
