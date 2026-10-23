@@ -1,0 +1,86 @@
+name: Mind-Palace live context read-only identity preflight
+on:
+  push:
+    branches: [diagnostics/mind-palace-private-bridge-20261013]
+    paths: ['.github/workflows/mind-palace-live-context-readonly-preflight.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mind-palace-readonly-live-context-identity
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read-only installed operation and Mind-Palace source identity
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$tag){if(-not $ok){throw ('MP_CONTEXT_LIVE_PREFLIGHT_'+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/diagnostics/mind-palace-private-bridge-20261013' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER_ID'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $plane=Join-Path $env:USERPROFILE 'GolandProjects\ckb-plane'
+          $palace=Join-Path $env:USERPROFILE 'GolandProjects\Mind-Palace'
+          Need ((Split-Path $plane -Leaf) -ceq 'ckb-plane' -and
+            (Split-Path $palace -Leaf) -ceq 'Mind-Palace') 'EXPECTED_DIRECTORIES'
+          function Regular([string]$p,[string]$tag) {
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ($tag+'_EXISTS')
+            Need (((Get-Item -LiteralPath $p).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) ($tag+'_NOT_LINK')
+          }
+          Need (Test-Path -LiteralPath $plane -PathType Container) 'PLANE_EXISTS'
+          Need (Test-Path -LiteralPath $palace -PathType Container) 'PALACE_EXISTS'
+          $op=Join-Path $plane 'operations\Read-MindPalaceContext.ps1'
+          $reg=Join-Path $plane 'config\local-operations.json'
+          $conf=Join-Path $plane 'config\autonomy.yaml'
+          $records=Join-Path $palace '.ice\records.json'
+          Regular $op 'OPERATION'
+          Regular $reg 'REGISTRY'
+          Regular $conf 'CONFIG'
+          Regular $records 'RECORDS'
+          $opHash=(Get-FileHash -LiteralPath $op -Algorithm SHA256).Hash.ToLowerInvariant()
+          $regHash=(Get-FileHash -LiteralPath $reg -Algorithm SHA256).Hash.ToLowerInvariant()
+          $recordsHash=(Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant()
+          $data=[IO.File]::ReadAllText($reg)|ConvertFrom-Json
+          $entries=@($data.operations | Where-Object { [string]$_.id -ceq 'mind-palace-context' })
+          Need ($entries.Count -eq 1) 'EXACT_CONTEXT_OPERATION'
+          $item=$entries[0]
+          Need ([string]$item.class -ceq 'diagnostic' -and
+            [string]$item.script -ceq 'operations/Read-MindPalaceContext.ps1') 'OPERATION_CONTRACT'
+          $claimed=[string]$item.script_sha256
+          Need ($claimed -match '^[0-9a-f]{64}$' -and $claimed -ceq $opHash) 'REGISTERED_FILE_SHA'
+          $cfg=[IO.File]::ReadAllText($conf)
+          $anchors=[regex]::Matches($cfg,'(?m)^\s*local_operations_sha256:\s*([0-9a-f]{64})\s*$')
+          Need ($anchors.Count -eq 1 -and $anchors[0].Groups[1].Value -ceq $regHash) 'REGISTERED_CONFIG_SHA'
+          Write-Host 'MP_CONTEXT_LIVE_REGISTRY_CONTRACT=PASS'
+          Write-Host "MP_CONTEXT_LIVE_OPERATION_SHA256=$opHash"
+          Write-Host "MP_CONTEXT_LIVE_REGISTRY_SHA256=$regHash"
+          $git='git.exe'
+          $mpHead=((& $git -C $palace rev-parse HEAD | Out-String).Trim())
+          Need ($LASTEXITCODE -eq 0 -and $mpHead -match '^[0-9a-f]{40}$') 'MP_LOCAL_HEAD'
+          Write-Host "MP_CONTEXT_LIVE_LOCAL_MIND_HEAD=$mpHead"
+          foreach($pair in @(
+            @('tools/context-pack-budgeted.ps1','BUDGET'),
+            @('tools/context-pack-tiered.ps1','TIERED'),
+            @('tools/mind.ps1','MIND')
+          )) {
+            $blob=((& $git -C $palace rev-parse ("HEAD:"+$pair[0]) | Out-String).Trim())
+            Need ($LASTEXITCODE -eq 0 -and $blob -match '^[0-9a-f]{40}$') ('LOCAL_BLOB_'+$pair[1])
+            Write-Host ("MP_CONTEXT_LIVE_LOCAL_"+$pair[1]+"_BLOB="+$blob)
+          }
+          Need ((Get-FileHash -LiteralPath $op -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $opHash) 'OP_MUTATED_DURING_READ'
+          Need ((Get-FileHash -LiteralPath $reg -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $regHash) 'REG_MUTATED_DURING_READ'
+          Need ((Get-FileHash -LiteralPath $records -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $recordsHash) 'RECORDS_MUTATED_DURING_READ'
+          Write-Host 'MP_CONTEXT_LIVE_READ_IDENTITY=PASS'
+          Write-Host 'MP_CONTEXT_LIVE_CONTROL_AND_QUEUE_UNTOUCHED=TRUE'
+          Write-Host 'MP_CONTEXT_LIVE_PROMOTION_ATTEMPTED=FALSE'
+          Write-Host 'MP_CONTEXT_LIVE_KTRADE_IDLE=NOT_ESTABLISHED'
