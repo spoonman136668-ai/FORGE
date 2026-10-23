@@ -262,7 +262,9 @@ class Database:
                     "schema","source_sha","prior_event_head_sha256",
                     "scientific_first_use"} and doc["schema"]==
                     "forge.f139.native-two-slot-owner-migration.v1"
-                    and doc["source_sha"]==meta["source_sha"]
+                    and doc["source_sha"]==(
+                        source_transitions[-1]["to_source_sha"] if source_transitions
+                        else meta["source_sha"])
                     and doc["prior_event_head_sha256"]==row["prior_sha"]
                     and doc["scientific_first_use"] is False,
                     "TWO_SLOT_MIGRATION_EVENT_DRIFT")
