@@ -89,11 +89,22 @@ jobs:
               $wHeadExit=$LASTEXITCODE
               $wShallow=@(& git.exe -C $normal rev-parse --is-shallow-repository)
               $wShallowExit=$LASTEXITCODE
-              & git.exe -C $normal merge-base --is-ancestor $base HEAD 2>$null
-              $ancestryExit=$LASTEXITCODE
+              $oldEAP=$ErrorActionPreference
+              try {
+                $ErrorActionPreference='Continue'
+                $gitDiagnostic=@(& git.exe -C $normal merge-base --is-ancestor $base HEAD 2>&1)
+                $ancestryExit=$LASTEXITCODE
+              } finally { $ErrorActionPreference=$oldEAP }
+              $boundedGitDiagnostic=(@($gitDiagnostic) | ForEach-Object { [string]$_ }) -join ' '
+              if($boundedGitDiagnostic -match 'Could not read ([0-9a-f]{40})') {
+                Write-Host ('KTRADE_ANCESTRY_MISSING_PARENT_SHA='+$Matches[1])
+              } elseif($boundedGitDiagnostic -match 'fatal:') {
+                Write-Host 'KTRADE_ANCESTRY_GIT_DIAGNOSTIC=FATAL_OTHER_REDACTED'
+              }
               Write-Host ('KTRADE_CURRENT_WORKTREE_HEAD_PINNED='+[string]($wHeadExit -eq 0 -and $wHead.Count -eq 1 -and $wHead[0] -ceq $base))
               Write-Host ('KTRADE_CURRENT_WORKTREE_SHALLOW='+[string]($wShallowExit -eq 0 -and $wShallow.Count -eq 1 -and $wShallow[0]))
               Write-Host ('KTRADE_CURRENT_WORKTREE_ANCESTRY_EXIT='+$ancestryExit)
             }else{Write-Host 'KTRADE_CURRENT_WORKSPACE=NOT_PRESENT'}
           }else{Write-Host 'KTRADE_CURRENT_WORKSPACE=EMPTY'}
           Write-Host 'READ_ONLY=PASS NO_CONTROLLER_RESTART=PASS NO_WORKORDER_MUTATION=PASS NO_FINANCIAL_DATA_ACCESS=PASS'
+          exit 0
