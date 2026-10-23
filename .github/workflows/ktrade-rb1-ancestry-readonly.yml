@@ -58,6 +58,10 @@ jobs:
           $base=RunGit @('cat-file','-e',($baseline+'^{commit}'))
           $ancestor=RunGit @('merge-base','--is-ancestor',$baseline,'HEAD')
           $parent=RunGit @('rev-parse','HEAD^')
+          $ancestorHead=RunGit @('merge-base','--is-ancestor','HEAD','HEAD')
+          $mergeBasePlain=RunGit @('merge-base',$baseline,'HEAD')
+          $ancestorWithSafe=RunGit @('-c','safe.directory=*','merge-base','--is-ancestor',$baseline,'HEAD')
+          $isShallow=RunGit @('rev-parse','--is-shallow-repository')
           $commits=RunGit @('rev-list','--count',($baseline+'..HEAD'))
           $dirty=RunGit @('status','--porcelain')
           $gitdir=RunGit @('rev-parse','--git-dir')
@@ -71,7 +75,14 @@ jobs:
             candidate_branch=if($branch.exit -eq 0){$branch.output}else{'INVALID'};
             expected_worker_branch='codex/ktrade-rb1-single-track-20261022';
             baseline_object_present=($base.exit -eq 0);
-            ancestry_exit=$ancestor.exit;parent_exists=($parent.exit -eq 0);
+            ancestry_exit=$ancestor.exit;
+            ancestry_error=if($ancestor.exit -eq 128){[string]$ancestor.output.Substring(0,[Math]::Min(300,$ancestor.output.Length))}else{''};
+            self_ancestry_exit=$ancestorHead.exit;
+            plain_merge_base_exit=$mergeBasePlain.exit;
+            plain_merge_base_result=if($mergeBasePlain.exit -eq 0){$mergeBasePlain.output}else{''};
+            safe_override_ancestry_exit=$ancestorWithSafe.exit;
+            shallow_repository=if($isShallow.exit -eq 0){$isShallow.output}else{'unknown'};
+            parent_exists=($parent.exit -eq 0);
             ahead_count=if($commits.exit -eq 0){$commits.output}else{'UNAVAILABLE'};
             dirty_line_count=if($dirty.exit -eq 0){@($dirty.output -split '\n'|Where-Object {$_ -ne ''}).Count}else{-1};
             original_git_baseline_unchanged=$true;
