@@ -172,6 +172,68 @@ class Database:
             conn.close()
         return cls(filename)
 
+    def dual_native_schema(self):
+        row=self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='only_one_active_f139_task'").fetchone()
+        expected=("CREATE UNIQUE INDEX only_one_active_f139_task "
+                  "ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER') "
+                  "AND ticket NOT LIKE 'f139-nci04-%'")
+        trigger=self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' "
+            "AND name='guard_two_native_active'").fetchone()
+        return row is not None and row["sql"] == expected and trigger is not None
+
+    def enable_native_two_slots(self):
+        """EXPLICIT owner-only index migration, never on startup/read/status.
+
+        Protected original event history survives unchanged; new event binds the
+        one-time SQLite index change and preserves the full SHA event chain.
+        """
+        self.verify()
+        meta=self.meta()
+        require(meta["enabled"]==1 and meta["legacy_suspended"]==1
+                and not self.actives() and self.ready() is None,
+                "TWO_SLOT_OWNER_MIGRATION_NOT_IDLE")
+        if self.dual_native_schema():
+            return False
+        old=("CREATE UNIQUE INDEX only_one_active_f139_task "
+             "ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER')")
+        row=self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='only_one_active_f139_task'").fetchone()
+        require(row is not None and row["sql"]==old,
+                "ORIGINAL_SQLITE_INDEX_IDENTITY_DRIFT")
+        with self.transaction():
+            self.conn.execute("DROP INDEX only_one_active_f139_task")
+            self.conn.execute(
+                "CREATE UNIQUE INDEX only_one_active_f139_task ON tasks((1)) "
+                "WHERE stage IN ('START_RISK','WAIT_PROVIDER') "
+                "AND ticket NOT LIKE 'f139-nci04-%'")
+            self.conn.execute(
+                "CREATE TRIGGER guard_two_native_active BEFORE UPDATE OF stage "
+                "ON tasks WHEN NEW.stage IN ('START_RISK','WAIT_PROVIDER') BEGIN "
+                "SELECT CASE WHEN "
+                "(SELECT COUNT(*) FROM tasks WHERE stage IN "
+                "('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket) >= 2 "
+                "OR (NEW.ticket NOT LIKE 'f139-nci04-%' AND EXISTS "
+                "(SELECT 1 FROM tasks WHERE stage IN "
+                "('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket)) "
+                "OR (NEW.ticket LIKE 'f139-nci04-%' AND EXISTS "
+                "(SELECT 1 FROM tasks WHERE stage IN "
+                "('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket "
+                "AND ticket NOT LIKE 'f139-nci04-%')) "
+                "THEN RAISE(ABORT,'F139_TWO_ACTIVE_PROVIDER_LIMIT') END; END")
+            self.event("NATIVE_TWO_SLOT_SCHEMA_ADMITTED",{
+                "schema":"forge.f139.native-two-slot-owner-migration.v1",
+                "source_sha":meta["source_sha"],
+                "prior_event_head_sha256":meta["head_hash"],
+                "scientific_first_use":False})
+            require(self.dual_native_schema(),
+                    "NATIVE_TWO_SLOT_INDEX_MIGRATION_INVALID")
+            self.verify()
+        return True
+
     def close(self):
         self.conn.close()
 
@@ -195,6 +257,18 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "NATIVE_TWO_SLOT_SCHEMA_ADMITTED":
+                require(isinstance(doc,dict) and set(doc)=={
+                    "schema","source_sha","prior_event_head_sha256",
+                    "scientific_first_use"} and doc["schema"]==
+                    "forge.f139.native-two-slot-owner-migration.v1"
+                    and doc["source_sha"]==(
+                        source_transitions[-1]["to_source_sha"] if source_transitions
+                        else meta["source_sha"])
+                    and doc["prior_event_head_sha256"]==row["prior_sha"]
+                    and doc["scientific_first_use"] is False,
+                    "TWO_SLOT_MIGRATION_EVENT_DRIFT")
+                require(self.dual_native_schema(),"TWO_SLOT_INDEX_MISSING")
             if row["kind"] == "DEVELOPMENT_WORK_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "source_sha", "ticket", "issue_number", "issue_id",
@@ -415,8 +489,11 @@ class Database:
         # chain, preventing cross-kind issue replay and fabricated task records.
         from f139.nci04_owner_ledger import audit_native_events
         audit_native_events(self)
-        active = self.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER')").fetchone()[0]
-        require(active <= 1, "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
+        active_rows = self.actives()
+        require(len(active_rows) <= (2 if self.dual_native_schema() else 1)
+                and (len(active_rows)<=1 or all(
+                    r["ticket"].startswith("f139-nci04-") for r in active_rows)),
+                "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
 
     @contextlib.contextmanager
     def transaction(self):
@@ -714,8 +791,14 @@ class Database:
         return {"issue_number":str(r["issue_number"]), "issue_id":str(r["issue_id"]),
                 "body_sha256":r["body_sha256"],"target_package":r["target_package"]}
 
+    def actives(self):
+        # Multiple provider tickets, ONE original owner mutex and SQLite log.
+        return list(self.conn.execute(
+            "SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') "
+            "ORDER BY started_at,ticket LIMIT 3"))
+
     def active(self):
-        return self.conn.execute("SELECT * FROM tasks WHERE stage IN ('START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 1").fetchone()
+        return self.actives()[0] if self.actives() else None
 
     def ready(self):
         return self.conn.execute("SELECT * FROM tasks WHERE stage='READY' ORDER BY ticket LIMIT 1").fetchone()
@@ -727,7 +810,14 @@ class Database:
             require(m["enabled"]==1 and m["legacy_suspended"]==1,"CONTROLLER_INACTIVE")
             starts = m["starts"] if m["day"]==day else 0
             require(starts<LIMIT_PER_DAY,"DAILY_START_LIMIT")
-            require(self.active() is None,"CONCURRENT_ACTIVE_START_RISK")
+            in_flight = self.actives()
+            native = ticket.startswith("f139-nci04-")
+            require((self.dual_native_schema()
+                     and len(in_flight) < 2 and
+                     all(r["ticket"].startswith("f139-nci04-")
+                         for r in in_flight)) if native and in_flight
+                     else not in_flight,
+                    "CONCURRENT_ACTIVE_START_RISK")
             row=self.conn.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
             require(row is not None and row["stage"]=="READY", "TASK_ALREADY_CLAIMED")
             if ticket.startswith("f139-nci04-"):
@@ -1306,16 +1396,20 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     meta=db.meta()
     require(meta["enabled"]==1 and meta["legacy_suspended"]==1,"CONTROLLER_INACTIVE_OR_LEGACY_RUNNING")
     require(api.protected_main()==meta["source_sha"],"MAIN_SOURCE_DRIFT")
-    active=db.active()
-    if active is not None:
-        active=dict(active)
+    legacy_pending={}
+    for active_record in db.actives():
+        active=dict(active_record)
         try:
             run=api.candidates(active["ticket"],active["started_at"])
             if run is None:
-                return {"disposition":"START_RISK_PENDING_NO_REDISPATCH","ticket":active["ticket"]}
+                if not active["ticket"].startswith("f139-nci04-"):
+                    legacy_pending[active["ticket"]]="START_RISK_PENDING_NO_REDISPATCH"
+                continue  # Ambiguous provider startup remains sticky for this ticket.
             result=api.run_proof(run,active["ticket"],active["source_sha"],active["started_at"])
             if result is None:
-                return {"disposition":"WORKER_RUNNING_NO_REDISPATCH","ticket":active["ticket"]}
+                if not active["ticket"].startswith("f139-nci04-"):
+                    legacy_pending[active["ticket"]]="WORKER_RUNNING_NO_REDISPATCH"
+                continue  # One in-flight native worker must not starve the second.
             rid,artifacts=result
             archives={}
             for oslabel in ("ubuntu-latest","windows-latest"):
@@ -1345,10 +1439,18 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             if code not in {"GITHUB_API_TIMEOUT","GITHUB_API_FAILED","GITHUB_API_INVALID_JSON"}:
                 db.quarantine(active["ticket"],code if re.fullmatch(r"[A-Z_]{3,72}",code) else "UNCLASSIFIED_REJECTION")
             raise
+    remaining=db.actives()
+    if len(remaining) >= 2:
+        return {"disposition":"TWO_NATIVE_WORKERS_ACTIVE_NO_REDISPATCH",
+                "tickets":[row["ticket"] for row in remaining]}
+    if remaining and not remaining[0]["ticket"].startswith("f139-nci04-"):
+        return {"disposition":legacy_pending.get(
+                    remaining[0]["ticket"],"WORKER_RUNNING_NO_REDISPATCH"),
+                "ticket":remaining[0]["ticket"]}
     ready=db.ready()
     if ready is None and db.admit_d2j_succession():
         ready=db.ready()
-    if ready is None and db.meta()["head_seq"] >= 23:
+    if ready is None and db.active() is None and db.meta()["head_seq"] >= 23:
         # Only issue-authorized development tasks; never invent work to stay busy.
         # Reuse the existing SQLite mutex, source check, and daily dispatch budget.
         known = {row["ticket"] for row in db.conn.execute("SELECT ticket FROM tasks")}
@@ -1420,6 +1522,7 @@ def cli(argv=None):
     init=sub.add_parser("init");init.add_argument("--source-sha",required=True)
     queue=sub.add_parser("queue");queue.add_argument("--manifest",type=Path,required=True)
     sub.add_parser("status")
+    sub.add_parser("upgrade-native-two-slots")  # explicit original-owner action only
     enable=sub.add_parser("activate");enable.add_argument("--legacy-suspended-evidence",type=Path,required=True)
     sub.add_parser("tick")
     owner_native=sub.add_parser("activate-native")
@@ -1456,6 +1559,32 @@ def cli(argv=None):
             GitHub().legacy_dispatchers_disabled()
             legacy_windows_task_disabled()
             db.enable(legacy_suspended=True)
+        elif args.verb=="upgrade-native-two-slots":
+            # This is NEVER invoked on controller startup or on the worker.
+            # The owner may explicitly migrate only its exact clean protected
+            # source, after existing controlled source transition, with no
+            # active tasks. No historical event is rewritten.
+            native_original_owner_profile(args.db)
+            api=GitHub()
+            require(api.protected_main()==db.meta()["source_sha"],
+                    "DUAL_NATIVE_UPGRADE_PROTECTED_SOURCE_DRIFT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"DUAL_NATIVE_UPGRADE_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git("rev-parse","HEAD")==db.meta()["source_sha"]
+                    and _git("status","--porcelain","--untracked-files=all")=="",
+                    "DUAL_NATIVE_UPGRADE_UNQUALIFIED_CHECKOUT")
+            with SingleOwner(args.db.with_suffix(".lock")):
+                upgraded=db.enable_native_two_slots()
+                print(json.dumps({
+                    "native_two_slot_schema_upgraded":upgraded,
+                    "source_sha":db.meta()["source_sha"],
+                    "event_head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
         elif args.verb=="custody-original-native-negative":
             # One authorized, development-only owner CLI. No GitHub dispatch
             # method, second task, new controller or scientific first-use.
