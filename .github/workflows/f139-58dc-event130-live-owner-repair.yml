@@ -280,7 +280,8 @@ jobs:
                 Start-Sleep -Milliseconds 500
                 $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
                 $alive=@(ControllerProcesses)
-              }while((([string]$task.State -cne 'Running' -or $alive.Count -ne 1) -and (Get-Date) -lt $until)
+                $keepWaiting=(([string]$task.State -cne 'Running') -or ($alive.Count -ne 1)) -and ((Get-Date) -lt $until)
+              }while($keepWaiting)
               if([string]$task.State -cne 'Running' -or $alive.Count -ne 1){
                 throw 'F139_SAME_ORIGINAL_OWNER_RESTART_FAILED'
               }
