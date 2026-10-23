@@ -1,4 +1,4 @@
-name: R220 owner-registry exact read-only custody
+name: R220 elevated isolated native historical-state compatibility proof
 on:
   push:
     branches: [diagnostics/ckb-rb1-live-admission-20261022]
@@ -6,18 +6,18 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: r220-owner-registry-readonly-20261023
+  group: r220-owner-isolated-native-proof-20261023
   cancel-in-progress: false
 jobs:
-  inspect:
+  prove:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Attest exact private registry and scripts on owner host without exporting contents
+      - name: Prove qualified executable against private owner state clone, never live
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
@@ -29,60 +29,144 @@ jobs:
              $env:GITHUB_REF -cne 'refs/heads/diagnostics/ckb-rb1-live-admission-20261022' -or
              $env:GITHUB_RUN_ATTEMPT -cne '1' -or
              (& git.exe rev-parse HEAD).Trim() -cne $env:GITHUB_SHA -or
-             @(& git.exe status --porcelain).Count -ne 0){throw 'R220_OWNER_READONLY_AUTHORITY_DRIFT'}
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R220_OWNER_PROOF_AUTHORITY_DRIFT'}
           $changed=@(& git.exe diff --name-only HEAD^ HEAD)
-          if($LASTEXITCODE-ne0 -or $changed.Count-ne1 -or
+          if($LASTEXITCODE-ne0 -or @($changed).Count-ne1 -or
              $changed[0] -cne '.github/workflows/ckb-r18-current-wrapper-custody-readonly.yml'){
-            throw 'R220_OWNER_READONLY_SCOPE_DRIFT'
+            throw 'R220_OWNER_PROOF_WORKFLOW_SCOPE_DRIFT'
           }
           function Sha([string]$p){
-            if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw 'R220_OWNER_REQUIRED_FILE_MISSING'}
+            if(!(Test-Path -LiteralPath $p -PathType Leaf)){throw ('R220_PROOF_REQUIRED_FILE_MISSING='+$p)}
             (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
           }
           $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $config=Join-Path $root 'config\autonomy.yaml'
-          $registry=Join-Path $root 'config\local-operations.json'
-          $expectedRegistry='f625142599d2557342f637f0c65ec86be11598a95b80c9a625764795bfbfa84a'
-          $expectedConfig='a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'
+          $ownerConfig=Join-Path $root 'config\autonomy.yaml'
+          $ownerReg=Join-Path $root 'config\local-operations.json'
+          $ownerDB=Join-Path $root 'state\autonomy.db'
           $oldExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-RB1-ADMISSION-20261023\bin\ckb-plane.exe'
-          $oldSha='0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'
-          if((Sha $config)-cne$expectedConfig -or (Sha $oldExe)-cne$oldSha){
-            throw 'R220_OWNER_INSTALLED_PREIMAGE_CHANGED'
+          $wrapper='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564\Start-R18-Controller.ps1'
+          $expectedOriginal='0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'
+          $expectedConfig='a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'
+          $expectedRegistry='f625142599d2557342f637f0c65ec86be11598a95b80c9a625764795bfbfa84a'
+          $expectedWrapper='47d8a25fe7b60fb0b96874249ef2de2a59fbe95cce722538abe524b86954d577'
+          if((Sha $oldExe)-cne$expectedOriginal -or (Sha $ownerConfig)-cne$expectedConfig -or
+             (Sha $ownerReg)-cne$expectedRegistry -or (Sha $wrapper)-cne$expectedWrapper){
+            throw 'R220_OWNER_PROOF_LIVE_PREIMAGE_DRIFT'
           }
-          $txt=[IO.File]::ReadAllText($config)
-          $m=[regex]::Matches($txt,'(?m)^\s*local_operations_sha256:\s*([0-9a-f]{64})\s*$')
-          $p=[regex]::Matches($txt,'(?m)^\s*local_operations_config:\s*(\S+)\s*$')
-          if($m.Count-ne1 -or $p.Count-ne1 -or
-             $m[0].Groups[1].Value-cne$expectedRegistry -or
-             $p[0].Groups[1].Value-cne'config/local-operations.json'){
-            throw 'R220_OWNER_PINNED_REGISTRY_CONFIG_DRIFT'
-          }
-          if((Sha $registry)-cne$expectedRegistry){throw 'R220_OWNER_REGISTRY_BYTES_MISMATCH'}
-          Write-Host 'R220_EXACT_OWNER_REGISTRY_SHA256=PASS'
-          $obj=(Get-Content -LiteralPath $registry -Raw -ErrorAction Stop)|ConvertFrom-Json
-          if($obj.schema-cne'ckb-plane.local-operations.v1'){throw 'R220_OWNER_REGISTRY_SCHEMA_DRIFT'}
-          $count=0
-          $ids=@{}
-          foreach($op in @($obj.operations)){
-            if([string]$op.id -cnotmatch '^[a-z0-9][a-z0-9-]{0,79}$' -or $ids.ContainsKey([string]$op.id) -or
-               [string]$op.script -cnotmatch '^operations/[A-Za-z0-9_-]+\.ps1$' -or
-               [string]$op.script_sha256 -cnotmatch '^[0-9a-f]{64}$'){
-              throw 'R220_OWNER_REGISTRY_OPERATION_CONTRACT_DRIFT'
+          function AssertOriginalSingleton {
+            $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+            $all=@((Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)|
+              Where-Object {[string]$_.CommandLine -match '(?i)\bcontroller\s+run\b'})
+            if([string]$task.State-cne'Running' -or $all.Count-ne1 -or
+               [string]$all[0].ExecutablePath -ine $oldExe){
+              throw 'R220_OWNER_PROOF_LIVE_SINGLETON_DRIFT'
             }
-            $ids[[string]$op.id]=$true
-            $script=Join-Path $root ([string]$op.script).Replace('/','\')
-            if((Sha $script) -cne ([string]$op.script_sha256)){
-              throw 'R220_OWNER_OPERATION_SCRIPT_HASH_DRIFT'
-            }
-            $count++
           }
-          if($count-lt1){throw 'R220_OWNER_REGISTRY_EMPTY'}
-          Write-Host ('R220_EXACT_OWNER_OPERATION_SCRIPTS=PASS count='+$count)
-          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
-          $procs=@((Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)|
-            Where-Object {[string]$_.CommandLine -match '(?i)\bcontroller\s+run\b'})
-          if([string]$task.State -cne 'Running' -or $procs.Count-ne1 -or
-             [string]$procs[0].ExecutablePath -ine $oldExe){throw 'R220_OWNER_CONTROLLER_SINGLETON_DRIFT'}
-          Write-Host 'R220_CURRENT_CONTROLLER_SINGLETON=PASS'
-          Write-Host 'R220_OWNER_REGISTRY_CUSTODY_READONLY=PASS'
-          Write-Host 'R220_LIVE_MUTATION=FALSE'
+          AssertOriginalSingleton
+          $qualifiedRun='40033968112'
+          $qualifiedSHA='88f4a4df30ad63efa468f1bbdc780dde6ce4b191'
+          $status=(& gh.exe run view $qualifiedRun -R spoonman136668-ai/ckb-plane --json status,conclusion,headSha --jq '[.status,.conclusion,.headSha]|join(" ")' 2>&1|Out-String).Trim()
+          if($LASTEXITCODE-ne0 -or $status-cne('completed success '+$qualifiedSHA)){
+            throw ('R220_QUALIFIED_RUN_NOT_GREEN='+$status)
+          }
+          $base=Join-Path $env:RUNNER_TEMP ('r220-owner-proof-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $base){throw 'R220_OWNER_PROOF_STAGING_COLLISION'}
+          New-Item -ItemType Directory -Path $base -ErrorAction Stop|Out-Null
+          try{
+            $artifact=Join-Path $base 'artifact'
+            New-Item -ItemType Directory -Path $artifact -ErrorAction Stop|Out-Null
+            & gh.exe run download $qualifiedRun -R spoonman136668-ai/ckb-plane -n r220-live-compatible-installed-source -D $artifact
+            if($LASTEXITCODE-ne0){throw 'R220_QUALIFIED_ARTIFACT_DOWNLOAD_FAILED'}
+            $exe=Join-Path $artifact 'ckb-plane.exe'
+            $manifest=Get-Content -LiteralPath (Join-Path $artifact 'manifest.json') -Raw -ErrorAction Stop|ConvertFrom-Json
+            if($manifest.schema-cne'ckb-plane.r220-live-compatible-installed-source.v1' -or
+               $manifest.source_sha-cne$qualifiedSHA -or
+               $manifest.run_id-cne$qualifiedRun -or
+               [string]$manifest.owner_native_runtime_proof-cne'PENDING' -or
+               [bool]$manifest.live_promoted -or
+               [string]$manifest.live_config_sha256-cne$expectedConfig -or
+               [string]$manifest.owner_registry_sha256-cne$expectedRegistry -or
+               [string]$manifest.predecessor_live_sha256-cne$expectedOriginal -or
+               (Sha $exe)-cne[([string]$manifest.sha256)]){
+              throw 'R220_QUALIFIED_CANDIDATE_CUSTODY_DRIFT'
+            }
+            Write-Host ('R220_OWNER_CANDIDATE_SHA256='+[string]$manifest.sha256)
+            Write-Host 'R220_QUALIFIED_CANDIDATE_CUSTODY=PASS'
+            $clone=Join-Path $base 'isolated'
+            New-Item -ItemType Directory -Path $clone -ErrorAction Stop|Out-Null
+            Copy-Item -LiteralPath (Join-Path $root 'config') -Destination (Join-Path $clone 'config') -Recurse -ErrorAction Stop
+            New-Item -ItemType Directory -Path (Join-Path $clone 'state') -ErrorAction Stop|Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $clone 'operations') -ErrorAction Stop|Out-Null
+            $cloneCfg=Join-Path $clone 'config\autonomy.yaml'
+            $cloneReg=Join-Path $clone 'config\local-operations.json'
+            if((Sha $cloneCfg)-cne$expectedConfig -or (Sha $cloneReg)-cne$expectedRegistry){
+              throw 'R220_PRIVATE_CLONE_CONFIG_CHANGED'
+            }
+            $ops=(Get-Content -LiteralPath $cloneReg -Raw -ErrorAction Stop|ConvertFrom-Json).operations
+            $seen=@{}
+            foreach($op in @($ops)){
+              $rel=[string]$op.script
+              $hash=[string]$op.script_sha256
+              if($rel-cnotmatch '^operations/[A-Za-z0-9_-]+\.ps1$' -or
+                 $hash-cnotmatch '^[0-9a-f]{64}$'){throw 'R220_OWNER_PROOF_SCRIPT_CONTRACT_INVALID'}
+              if($seen.ContainsKey($rel)){continue}
+              $seen[$rel]=$true
+              $src=Join-Path $root ($rel.Replace('/','\'))
+              $dst=Join-Path $clone ($rel.Replace('/','\'))
+              if((Sha $src)-cne$hash){throw 'R220_OWNER_PROOF_SCRIPT_PREIMAGE_DRIFT'}
+              Copy-Item -LiteralPath $src -Destination $dst -ErrorAction Stop
+              if((Sha $dst)-cne$hash){throw 'R220_OWNER_PROOF_SCRIPT_CLONE_DRIFT'}
+            }
+            Write-Host ('R220_EXACT_PRIVATE_REGISTRY_SCRIPT_CLONE=PASS count='+$seen.Count)
+            $dstDB=Join-Path $clone 'state\autonomy.db'
+            $sqlite=@'
+          import sqlite3,sys
+          from pathlib import Path
+          src=Path(sys.argv[1]).resolve(strict=True)
+          dst=Path(sys.argv[2])
+          if dst.exists():
+              raise RuntimeError("R220_DB_CLONE_ALREADY_EXISTS")
+          source=sqlite3.connect("file:"+src.as_posix()+"?mode=ro",uri=True,timeout=10)
+          source.execute("PRAGMA query_only=ON")
+          target=sqlite3.connect(str(dst))
+          try:
+              source.backup(target,pages=128,sleep=.05)
+              target.execute("PRAGMA integrity_check")
+              if target.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
+                  raise RuntimeError("R220_SQLITE_CLONE_INTEGRITY")
+              target.commit()
+          finally:
+              target.close()
+              source.close()
+          print("R220_OWNER_DB_RO_SNAPSHOT=PASS")
+          '@
+            $copy=@(& python.exe -B -c $sqlite $ownerDB $dstDB)
+            if($LASTEXITCODE-ne0 -or @($copy).Count-ne1 -or $copy[0]-cne'R220_OWNER_DB_RO_SNAPSHOT=PASS'){
+              throw 'R220_OWNER_SQLITE_READONLY_CLONE_FAILED'
+            }
+            Write-Host $copy[0]
+            AssertOriginalSingleton
+            $output=Join-Path $base 'status.stdout'
+            $errors=Join-Path $base 'status.stderr'
+            $process=Start-Process -FilePath $exe -ArgumentList @('controller','status','--config',$cloneCfg) -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $output -RedirectStandardError $errors
+            if($process.ExitCode-ne0){
+              $why=([IO.File]::ReadAllText($errors)).Trim()
+              throw ('R220_OWNER_CLONE_STATUS_FAILED='+$why.Substring(0,[Math]::Min(300,$why.Length)))
+            }
+            $doc=Get-Content -LiteralPath $output -Raw|ConvertFrom-Json
+            if([string]$doc.authority-cne'plane' -or [string]$doc.generation-cne'6' -or
+               [bool]$doc.accepted_ref_mutation_allowed -or @($doc.jobs).Count-lt100){
+              throw 'R220_OWNER_CLONED_HISTORY_STATUS_CONTRACT_DRIFT'
+            }
+            Write-Host 'R220_OWNER_CLONED_HISTORICAL_STATUS=PASS'
+            Write-Host ('R220_OWNER_CLONED_OBSERVABLE_ORDERS='+@($doc.jobs).Count)
+            AssertOriginalSingleton
+            if((Sha $oldExe)-cne$expectedOriginal -or (Sha $ownerReg)-cne$expectedRegistry){
+              throw 'R220_OWNER_LIVE_UNCHANGED_POSTPROOF_FAILED'
+            }
+            Write-Host 'R220_PRODUCTION_SOURCE_DB_WRITE=FALSE'
+            Write-Host 'R220_OWNER_LIVE_CONTROLLER_UNCHANGED=PASS'
+            Write-Host 'R220_ISOLATED_NATIVE_COMPATIBILITY=PASS'
+          }finally{
+            Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+          }
