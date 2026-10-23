@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected_parent='762b6fe753cab5b7f0cb1b662da099d7f6ed9b11'
+          expected_parent='dd68796fdb396b8891fd160fbee9d3d360240e09'
           actual_parent="$(git rev-parse HEAD~1)"
           echo "L9_BLOB_GUARD_PARENT=$actual_parent"
           test "$actual_parent" = "$expected_parent"
@@ -35,6 +35,7 @@ jobs:
           root="$RUNNER_TEMP/webnlg-l9-blob-manifest"
           test ! -e "$root"
           git clone --quiet --filter=blob:none --no-checkout "$repo" "$root"
+          echo "L9_BLOB_GUARD_EXTERNAL_METADATA_CLONE=PASS"
           got="$(git -C "$root" rev-parse "$release^{commit}")"
           test "$got" = "$release"
           train_tree="$(git -C "$root" rev-parse "$release:release_v3.0/en/train")"
@@ -44,10 +45,10 @@ jobs:
           tmp="$RUNNER_TEMP/l9-blob-lines.txt"
           : > "$tmp"
           while IFS=$'\t' read -r meta path; do
-            mode="\${meta%% *}"
-            rest="\${meta#* }"
-            type="\${rest%% *}"
-            oid="\${rest##* }"
+            mode="${meta%% *}"
+            rest="${meta#* }"
+            type="${rest%% *}"
+            oid="${rest##* }"
             test "$type" = blob
             case "$path" in
               release_v3.0/en/train/*) role=TRAIN ;;
