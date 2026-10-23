@@ -1,0 +1,140 @@
+name: Optimizer L1 additive language source-only qualification
+
+on:
+  push:
+    branches: [research/optimizer-l1-parallel-language-20261023]
+    paths:
+      - '.github/workflows/optimizer-l1-sourceonly.yml'
+      - 'research/optimizer_l1/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-l1-sourceonly
+  cancel-in-progress: false
+
+jobs:
+  source-custody:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Immutable charter source-only diff and original research authority
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'L1_PREEXISTING_NATIVE_RESEARCH_ANCESTRY_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-l1-sourceonly.yml',
+            'research/optimizer_l1/L1_FROZEN_CHARTER.json',
+            'research/optimizer_l1/public_source.py',
+            'research/optimizer_l1/test_source.py',
+            'research/optimizer_l1/qualify_source.py',
+            'research/optimizer_l1/compare_source.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'L1_NOT_BOUNDED_ADDITIVE_SOURCE'
+          }
+          $p='research/optimizer_l1/L1_FROZEN_CHARTER.json'
+          $sha='3ad23bfc02403494f30e85bbed30b62aca620e3c'
+          $gitBlob=(& git rev-parse ('HEAD:'+$p)).Trim()
+          $diskBlob=(& git hash-object --no-filters -- $p).Trim()
+          if ($LASTEXITCODE -ne 0 -or $gitBlob -cne $sha -or
+              $diskBlob -cne $sha) {
+            throw 'L1_PROSPECTIVE_CHARTER_IDENTITY_DRIFT'
+          }
+          Write-Host 'L1_CHARTER_AND_NATIVE_SCIENCE_ISOLATION=PASS'
+      - name: Ten public meaning-to-text source and role custody tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_l1 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'L1_PUBLIC_SOURCE_TEST_FAILURE' }
+          Write-Host 'L1_SOURCE_FOCUSED_TESTS=PASS'
+      - name: Emit public source roster but no trained model or DEV result
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'l1-source-only.json'
+          python -B research/optimizer_l1/qualify_source.py $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'L1_SOURCE_RECEIPT_FAILURE' }
+          Write-Host 'L1_MODEL_TRAINING_AND_SCIENCE=NOT_ACTIVATED'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l1-source-only-${{ matrix.os }}
+          path: ${{ runner.temp }}/l1-source-only.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One final Go tests vet build for unchanged FORGE repository
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo L1_FROZEN_RESEARCH_FINAL_REGRESSION=PASS
+      - name: Clean source-only worktree and no dispatch
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'L1_SOURCE_WORKTREE_MUTATED' }
+          Write-Host 'L1_EXISTING_OWNERS_AND_SCHEDULERS_UNCHANGED=PASS'
+
+  independent-source-reconciliation:
+    needs: source-custody
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l1-source-only-ubuntu-24.04
+          path: source-receipts/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l1-source-only-windows-2022
+          path: source-receipts/windows
+      - name: Enforce exact additive governance and four public source SHA256 identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_l1/compare_source.py \
+            source-receipts/linux/l1-source-only.json \
+            source-receipts/windows/l1-source-only.json \
+            source-receipts/l1-comparison.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l1-public-source-only-cross-os-report
+          path: source-receipts/l1-comparison.json
+          if-no-files-found: error
+          retention-days: 30
