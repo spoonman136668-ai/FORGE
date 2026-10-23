@@ -25,7 +25,8 @@ jobs:
           $source='C:\Users\camar\GolandProjects\Mind-Palace'
           $liveScript=Join-Path $plane 'operations\Read-MindPalaceContext.ps1'
           $liveConfig=Join-Path $plane 'config\autonomy.yaml'
-          $newMind='de31cdb4dfc29220eeaf52c9a1eab8c8a5b2a5cc'
+          # Read the actual source already present on the owner workstation.
+          # Its exact trusted retrieval tool blobs are checked independently below.
           $beforeContext='8e5a59576b105150a4c42c1bccece0c6a7939c6a5fa3bb85b881885434c5aac0'
           function Sha([string]$file){return (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
           if((Sha $liveScript) -cne $beforeContext){throw 'MPWC01_REGISTERED_OPERATION_PREIMAGE_DRIFT'}
@@ -48,10 +49,12 @@ jobs:
           try{
             & git.exe clone --local --no-hardlinks --no-checkout -- $source $palace
             if($LASTEXITCODE -ne 0){throw 'MPWC01_LOCAL_SOURCE_CLONE_FAILED'}
-            & git.exe -C $palace checkout --detach $newMind
-            if($LASTEXITCODE -ne 0){throw 'MPWC01_MAIN_IDENTITY_UNAVAILABLE'}
+            & git.exe -C $palace checkout --detach $sourceHead[0]
+            if($LASTEXITCODE -ne 0){throw 'MPWC01_LOCAL_HEAD_UNAVAILABLE'}
             $observed=@(& git.exe -C $palace rev-parse HEAD)
-            if($LASTEXITCODE -ne 0 -or $observed.Count -ne 1 -or $observed[0] -cne $newMind){throw 'MPWC01_MAIN_DRIFT'}
+            if($LASTEXITCODE -ne 0 -or $observed.Count -ne 1 -or $observed[0] -cne $sourceHead[0]){throw 'MPWC01_SOURCE_HEAD_DRIFT'}
+            Copy-Item -LiteralPath (Join-Path $source '.ice\records.json') -Destination (Join-Path $palace '.ice\records.json') -Force -ErrorAction Stop
+            if((Sha (Join-Path $palace '.ice\records.json')) -cne $oldRecords){throw 'MPWC01_RECORD_SNAPSHOT_MISMATCH'}
             $blobs=@{
                'tools/context-pack-budgeted.ps1'='ab29b4c74abe051039e8fc75ee6320a30445a790'
                'tools/context-pack-tiered.ps1'='9bcf9debd6c7477ae2287fbdf7edcb16e11c0131'
@@ -70,7 +73,7 @@ jobs:
             $script=PatchOnce $script '4ac92afeb56d32c172ef9a503fa5aa1e468e1bfe' '9bcf9debd6c7477ae2287fbdf7edcb16e11c0131' 'tiered blob'
             $script=PatchOnce $script '6b8ff8a8ea5de5c6a9ba392f828f2889ece4bb87' 'bb8c46f3c22f689e5f44dbe06ccc286014bd9130' 'mind blob'
             if($script -notmatch '(?m)^\$PackParams = @\{\s*$'){throw 'MPWC01_PACK_PARAMETER_ANCHOR_MISSING'}
-            $script=PatchOnce $script '$PackParams = @{' ('$PackParams = @{'+"\n"+'    NoTelemetryLedger = $true') 'no telemetry'
+            $script=PatchOnce $script '$PackParams = @{' ('$PackParams = @{' + [Environment]::NewLine + '    NoTelemetryLedger = $true') 'no telemetry'
             $candidate=Join-Path $planeTemp 'operations\Read-MindPalaceContext.ps1'
             [IO.File]::WriteAllText($candidate,$script,[Text.UTF8Encoding]::new($false))
             Copy-Item -LiteralPath $liveConfig -Destination (Join-Path $planeTemp 'config\autonomy.yaml') -ErrorAction Stop
@@ -97,7 +100,8 @@ jobs:
             }
             if((Sha (Join-Path $palace '.ice\records.json')) -cne [string]$pack.records_sha256){throw 'MPWC01_SHADOW_RECORD_HASH_DRIFT'}
             $changed=@(& git.exe -C $palace status --porcelain --untracked-files=all)
-            if($LASTEXITCODE -ne 0 -or $changed.Count -ne 0){throw ('MPWC01_ISOLATED_SOURCE_WRITE_DETECTED:'+ ($changed -join ','))}
+            $unexpected=@($changed|Where-Object {$_ -notmatch '^ M \.ice/records\.json$' -and $_ -notmatch '^M  \.ice/records\.json$'})
+            if($LASTEXITCODE -ne 0 -or $unexpected.Count -ne 0){throw ('MPWC01_ISOLATED_SOURCE_WRITE_DETECTED:'+($unexpected -join ','))}
             if((Sha $liveScript) -cne $oldContext -or (Sha $liveConfig) -cne $oldConfig -or
                (Sha (Join-Path $source '.ice\records.json')) -cne $oldRecords){throw 'MPWC01_LIVE_ORIGINALS_CHANGED'}
             Write-Host ('MPWC01_MODEL_CONTEXT_BYTES='+[int]$pack.model_context_bytes)
