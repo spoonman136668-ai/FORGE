@@ -19,8 +19,6 @@ class L1AlignedLanguage(unittest.TestCase):
         self.assertEqual(tuple(p["models"]),ARMS)
         self.assertEqual(p["roles"],COUNTS)
         self.assertIn("not parameter-matched",
-                      p["models"]["AUTOREGRESSIVE_CHUNK"]
-                      if isinstance(p["models"],dict) else
                       p["training"]["model_capacity"])
 
     def test_exact_unique_role_data_and_frozen_hashes(self):
