@@ -1,0 +1,99 @@
+name: KTRADE RB2 native controller schema and shallow identity read-only
+on:
+  push:
+    branches: [diagnostics/ktrade-rb2-native-schema-20261023]
+    paths:
+      - .github/workflows/ktrade-rb2-native-schema-readonly.yml
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Read installed CKB controller and exact stored-order schema without writing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/ktrade-rb2-native-schema-20261023' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'KTRADE_RB2_ORIGINAL_OWNER_READONLY_CUSTODY_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $exe=Join-Path $root 'bin\ckb-plane.exe'
+          $db=Join-Path $root 'state\autonomy.db'
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $base='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          if(!(Test-Path -LiteralPath $exe -PathType Leaf) -or !(Test-Path -LiteralPath $db -PathType Leaf)) {
+            throw 'KTRADE_RB2_CONTROLLER_EXE_OR_STATE_MISSING'
+          }
+          $exeSha=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host ('CKB_ORIGINAL_INSTALLED_SHA256='+$exeSha)
+          Write-Host ('CKB_CURRENT_R18_RB1_NO_SHALLOW_SHA=' + [string]($exeSha -ceq '0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'))
+          Write-Host ('CKB_QUALIFIED_R18_RB1_SHALLOW_SHA=' + [string]($exeSha -ceq '0201bb928309e21e46c0a62b6c2ad4e2c8b7900da80b0e768c4f36cd0a49a40f'))
+          $py=@'
+          import json, os, re, sqlite3, sys, hashlib
+          db=sys.argv[1]
+          target=sys.argv[2]
+          uri='file:'+db.replace('\\','/')+'?mode=ro'
+          con=sqlite3.connect(uri,uri=True,timeout=8)
+          con.execute('PRAGMA query_only=ON')
+          try:
+              entries=con.execute('SELECT id,state,attempt,yaml,workspace FROM work_orders ORDER BY rowid').fetchall()
+              if len(entries)>10000: raise RuntimeError('WORK_ORDER_COUNT_UNBOUNDED')
+              incompatible=[]
+              target_result=None
+              for oid,state,attempt,yaml,workspace in entries:
+                  if not isinstance(oid,str): raise RuntimeError('WORK_ORDER_ID_INVALID')
+                  if isinstance(yaml,bytes): yaml=yaml.decode('utf-8','strict')
+                  if not isinstance(yaml,str): raise RuntimeError('WORK_ORDER_YAML_INVALID')
+                  if re.search(r'(?m)^\s*preservation\s*:',yaml):
+                      incompatible.append({'id':oid,'state':state,'attempt':attempt,'yaml_sha256':hashlib.sha256(yaml.encode()).hexdigest()})
+                  if oid==target:
+                      target_result={'id':oid,'state':state,'attempt':attempt,'workspace':workspace,'has_preservation_key':bool(re.search(r'(?m)^\s*preservation\s*:',yaml)),'has_preserve_key':bool(re.search(r'(?m)^preserve\s*:',yaml))}
+              print(json.dumps({'order_count':len(entries),'bad_preservation_count':len(incompatible),'bad_orders':incompatible[:20],'ktrade':target_result},separators=(',',':')))
+          finally:
+              con.close()
+          '@
+          $out=@(& python.exe -B -c $py $db $id)
+          if($LASTEXITCODE -ne 0 -or $out.Count -ne 1){throw 'KTRADE_RB2_SQLITE_READONLY_QUERY_FAILED'}
+          $report=$out[0]|ConvertFrom-Json
+          if($null -eq $report.ktrade -or $report.ktrade.id -cne $id){throw 'KTRADE_RB2_WORKORDER_CUSTODY_UNAVAILABLE'}
+          Write-Host ('CKB_READONLY_WORKORDER_COUNT='+$report.order_count)
+          Write-Host ('CKB_INCOMPATIBLE_PRESERVATION_ROWS='+$report.bad_preservation_count)
+          foreach($x in @($report.bad_orders)){
+            Write-Host ('CKB_SCHEMA_UNREADABLE_ORDER='+$x.id+' STATE='+$x.state+' ATTEMPT='+$x.attempt+' YAML_SHA256='+$x.yaml_sha256)
+          }
+          Write-Host ('KTRADE_ORDER_STATE='+$report.ktrade.state+' ATTEMPT='+$report.ktrade.attempt)
+          Write-Host ('KTRADE_ORDER_USES_PRESERVE='+$report.ktrade.has_preserve_key+' HAS_INVALID_PRESERVATION='+$report.ktrade.has_preservation_key)
+          if(!(Test-Path -LiteralPath $source -PathType Container)){throw 'KTRADE_RB2_LOCAL_SOURCE_MISSING'}
+          $srcHead=@(& git.exe -C $source rev-parse HEAD)
+          if($LASTEXITCODE -ne 0 -or $srcHead.Count -ne 1){throw 'KTRADE_RB2_SOURCE_GIT_READ_FAILED'}
+          $srcShallow=@(& git.exe -C $source rev-parse --is-shallow-repository)
+          if($LASTEXITCODE -ne 0 -or $srcShallow.Count -ne 1){throw 'KTRADE_RB2_SOURCE_GIT_SHALLOW_READ_FAILED'}
+          Write-Host ('KTRADE_SOURCE_HEAD_EQUALS_PIN='+[string]($srcHead[0] -ceq $base)+' SOURCE_SHALLOW='+$srcShallow[0])
+          $workspace=[string]$report.ktrade.workspace
+          $prefix=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(![string]::IsNullOrWhiteSpace($workspace)){
+            $normal=[IO.Path]::GetFullPath($workspace)
+            if(!$normal.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)){throw 'KTRADE_RB2_WORKSPACE_ESCAPE'}
+            if(Test-Path -LiteralPath $normal -PathType Container){
+              $wHead=@(& git.exe -C $normal rev-parse HEAD)
+              $wHeadExit=$LASTEXITCODE
+              $wShallow=@(& git.exe -C $normal rev-parse --is-shallow-repository)
+              $wShallowExit=$LASTEXITCODE
+              & git.exe -C $normal merge-base --is-ancestor $base HEAD 2>$null
+              $ancestryExit=$LASTEXITCODE
+              Write-Host ('KTRADE_CURRENT_WORKTREE_HEAD_PINNED='+[string]($wHeadExit -eq 0 -and $wHead.Count -eq 1 -and $wHead[0] -ceq $base))
+              Write-Host ('KTRADE_CURRENT_WORKTREE_SHALLOW='+[string]($wShallowExit -eq 0 -and $wShallow.Count -eq 1 -and $wShallow[0]))
+              Write-Host ('KTRADE_CURRENT_WORKTREE_ANCESTRY_EXIT='+$ancestryExit)
+            }else{Write-Host 'KTRADE_CURRENT_WORKSPACE=NOT_PRESENT'}
+          }else{Write-Host 'KTRADE_CURRENT_WORKSPACE=EMPTY'}
+          Write-Host 'READ_ONLY=PASS NO_CONTROLLER_RESTART=PASS NO_WORKORDER_MUTATION=PASS NO_FINANCIAL_DATA_ACCESS=PASS'
