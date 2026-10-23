@@ -1,0 +1,137 @@
+{
+  "schema": "forge.optimizer.language.l1.parallel-slot-realization-public.v1",
+  "status": "FROZEN_FIRST_BEFORE_ANY_L1_SOURCE_OR_LEARNER",
+  "main_parent": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "governance": {
+    "q21_current": "R28/R29/R30 Q21 source-only engineering draft, FSA protected first-use not authorized. Preserve all originals, no speculative merge or Q21 dispatch.",
+    "history": "Preserve Q20/Q21 negatives and original O1-O14 candidate identities, particularly O14 public unfamiliar transfer scientific NO-GO.",
+    "new_lane": "Optimizer Language L1 separate source-only exploratory track; no Wingless/Yggdrasil native integration or CKB/FORGE scheduler mutation."
+  },
+  "portfolio": [
+    "Latent cognitive-state to language: L1 treats an EXTERNALLY PROVIDED structured meaning record as a proxy only, not an acquired cognitive state.",
+    "Learned hierarchical concept to phrase/utterance: later L2 test explicit learned representations and phrase structure.",
+    "Adaptive character/word/phrase/chunk resolution: later L3 information/compute matched experiment.",
+    "Parallel chunk generation and selective learned verification/repair: L1 development test.",
+    "Reusable learned linguistic structures composing unseen factual combinations: L1 holdout actor-object pairs, limited synthetic compositional scope."
+  ],
+  "experimental_question": "Can factorized parallel, non-next-token per-slot conditional utterance realization with selectively learned autoregressive repair generate meaning-fidelitous surface text with better quality-vs-cost than trained left-to-right conditional chunk models on held-out combinations?",
+  "role_namespace": "ol1-20261023-language-synthetic-v1",
+  "roles": {
+    "L1_TRAIN": 512,
+    "L1_SELECT": 96,
+    "L1_INDOMAIN_DEV": 128,
+    "L1_NOVEL_COMPOSITION_DEV": 80
+  },
+  "source": "Unique meaning tuples chosen by deterministic SHA256-sorted ranking. Disjoint TRAIN/SELECT/INDOMAIN from nonwithheld tuples. Entire actor 'eli' × object 'door' pair excluded from TRAIN/SELECT/INDOMAIN and 80 unique heldout examples sampled from exactly this withheld pair. All lexical parts occur in other FIT examples. No aligned source leakage; target slots are PUBLIC training annotation given equally to all models.",
+  "meaning_fields": [
+    "agent",
+    "verb",
+    "object",
+    "tense",
+    "negative",
+    "manner"
+  ],
+  "meaning_space": {
+    "agent": [
+      "ava",
+      "ben",
+      "cyra",
+      "drew",
+      "eli"
+    ],
+    "verb": [
+      "open",
+      "close",
+      "move",
+      "inspect",
+      "lift",
+      "carry"
+    ],
+    "object": [
+      "gate",
+      "box",
+      "book",
+      "lamp",
+      "door"
+    ],
+    "tense": [
+      "present",
+      "past",
+      "future"
+    ],
+    "negative": [
+      0,
+      1
+    ],
+    "manner": [
+      "quickly",
+      "slowly",
+      "carefully"
+    ]
+  },
+  "surface_schema": [
+    "subject",
+    "aux",
+    "negation",
+    "verb",
+    "determiner",
+    "object",
+    "adverb",
+    "punctuation"
+  ],
+  "surface_rules": "Public supervised aligned surface slots: lowercase subject/object/adverb, the, '.', clause tense/neg determines aux and finite/bare verb; present affirmative inflects third-person, past affirmative inflects past, other cases bare verb. Render nonempty slots joined by single spaces with final '.' directly. Annotation reveals slot boundaries to ALL learners and gives an engineered syntactic scaffold; do not claim learned grammar/discovery.",
+  "models": {
+    "PARALLEL_FACTOR": "8 separately trained categorical slot models; each selects meaning-field subsets of size 0..3 via L1_SELECT NLL with small complexity penalty; Laplace 0.5 smoothed TRAIN conditional counts; all slot predictions condition on meaning only and can conceptually run in parallel.",
+    "AUTOREGRESSIVE_CHUNK": "Same aligned TRAIN and model search budget, but candidate slot features also allow the preceding generated surface chunk; left-to-right dependent categorical chunk generation and teacher-forced FIT counts, selected on L1_SELECT likelihood with identical smoothing.",
+    "PARALLEL_SELECTIVE_REPAIR": "Reuse fitted PARALLEL_FACTOR and AUTOREGRESSIVE_CHUNK models; initially emit 8 factor slots then left-to-right verify with trained AR head; if AR p(proposed)<threshold and p(best)>p(proposed) replace. Threshold in [0.05,0.15,0.30] fixed by L1_SELECT exact match only; include total BOTH fitted checkpoints and verification compute/serial depth.",
+    "PARALLEL_UNCONDITIONAL": "Public TRAIN fitted slot-wise smoothed majority words without meaning; ablation.",
+    "FULL_MEANING_LOOKUP": "Public TRAIN exact six-field meaning tuple to aligned surface tokens; unseen meaning tuple falls back to slot-wise majority; memorization control.",
+    "SOURCE_KNOWN_TEMPLATE_DIAGNOSTIC": "Privileged generator template; measures task information upper bound ONLY, not eligible trained comparator."
+  },
+  "training": {
+    "source_seed": "SHA256('ol1-20261023-language-synthetic-v1'+':'+meaning_record_canonical) lexicographic ordering",
+    "alpha": 0.5,
+    "feature_subsets_max_size": 3,
+    "subset_selection_penalty_nll_per_feature": 0.001,
+    "repair_thresholds": [
+      0.05,
+      0.15,
+      0.3
+    ],
+    "all_model_selection_select_only": true,
+    "model_capacity": "All trained slot models search same max 3 input features per slot; AR has one additional input field (previous chunk), so not parameter-matched. Full training corpus 512 target strings plus aligned slot annotations shared equally."
+  },
+  "metrics": {
+    "quality": [
+      "exact utterance string match",
+      "mean fraction of 8 correct semantic surface slots",
+      "actor/action/object/tense/negation/manner slot consistency",
+      "heldout previously unseen actor-object pair versus in-domain",
+      "character normalized edit distance",
+      "punctuation and grammatical surface validity"
+    ],
+    "resource": [
+      "total fit+feature-search CPU per model, including SELECT",
+      "inference process CPU",
+      "measured wall latency per utterance",
+      "serialized trained table bytes",
+      "serialized model counts/entries",
+      "Python tracemalloc peak",
+      "operation proxies: categorical count lookups, candidate scoring and sequential dependency stages; do NOT mislabel lookup operations as FLOPs",
+      "energy unavailable on hosted runners: label NOT_MEASURED"
+    ],
+    "validation": [
+      "L1_TRAIN and L1_SELECT only for fitting/feature selection/repair threshold; 128 L1_INDOMAIN_DEV and 80 L1_NOVEL_COMPOSITION_DEV inspected once per frozen experiment",
+      "cross-OS 4 source SHA256 hashes exact, per-model per-family metrics agreement 1e-6",
+      "FAIL closed on hidden tuple leakage, source overlap, checkpoint mutation, missing evaluation arms or cross-OS drift"
+    ],
+    "advancement": "NO architectural/scientific GO from tiny aligned synthetic surface realization. Real comparator suite still requires capacity- and compute-matched trained recurrent/state-space/transformer language models, nonautoregressive baselines, unaligned independent natural-language text, reasoning and coding fidelity tests, and energy where measurable. Do not claim language-model replacement or reduction in sequential wall latency merely because heads are conditionally independent."
+  },
+  "policy": [
+    "Frozen protocol Git blob exact; no source/learner code before protocol.",
+    "Do not replay old DEV or FSA Q21 HELD.",
+    "Only additive new research/optimizer_language_l1/ and workflow on protected main; draft unmerged.",
+    "No paid API, external science scheduler, native Wingless/Yggdrasil, controller, or KTRADE/broker change.",
+    "Preserve signed negative/positive outcomes and avoid retuning after seeing L1_DEV."
+  ]
+}
