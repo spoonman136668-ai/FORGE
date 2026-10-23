@@ -30,7 +30,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and $env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
           Need ($env:GITHUB_EVENT_NAME -ceq 'push' -and $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-r220-versioned-preservation-20261023') 'EVENT'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          $parent='3bc2ba72fdbe765b85bbd0c801608eed496ecb21'
+          $parent='7633304c542d355ba4fdcffe3ba9bae6f5cb236e'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $diff=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $diff.Count -eq 1 -and $diff[0] -ceq '.github/workflows/mp-r220-versioned-preservation-20261023.yml') 'WORKFLOW_SCOPE'
@@ -38,7 +38,7 @@ jobs:
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
           $repo='https://github.com/spoonman136668-ai/ckb-plane.git'
           $base='7b7d01f26cfe4d051956f82c7c45f6df507ecd0a'
-          $candidate='ecd9481e6d6e266bb6f76d0e3469d0765607f49d'
+          $candidate='89da48e542ab03eff1f483a53fdd7b4ab3334e0c'
           $branch='proposal/mp-preservation-r220-versioned-20261023'
           $remoteMain=@(& git.exe ls-remote --exit-code $repo refs/heads/main)
           Need ($LASTEXITCODE -eq 0 -and $remoteMain.Count -eq 1 -and ([string]($remoteMain[0] -split '\s+')[0]) -ceq $base) 'R220_MAIN_DRIFT'
@@ -56,14 +56,15 @@ jobs:
           $env:TMPDIR=$shortTemp
           try {
             $checkout=Join-Path $shortTemp 'ckb'
-            & git.exe clone --quiet --depth 4 --single-branch --branch $branch $repo $checkout
+            & git.exe clone --quiet --depth 6 --single-branch --branch $branch $repo $checkout
             Need ($LASTEXITCODE -eq 0 -and (& git.exe -C $checkout rev-parse HEAD).Trim() -ceq $candidate) 'CLONE_PIN'
-            Need ((& git.exe -C $checkout rev-parse 'HEAD~3').Trim() -ceq $base) 'SOURCE_ANCESTRY'
+            Need ((& git.exe -C $checkout rev-parse 'HEAD~5').Trim() -ceq $base) 'SOURCE_ANCESTRY'
             $changed=@(& git.exe -C $checkout diff --name-only $base $candidate)
-            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3) 'EXACT_THREE_SOURCE_FILES'
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 4) 'EXACT_THREE_SOURCE_FILES'
             $expected=@(
               'snapshot/source/internal/plane/model.go',
               'snapshot/source/internal/plane/mp_preservation_r220_versioned_test.go',
+              'snapshot/source/internal/plane/status_projection.go',
               'snapshot/source/internal/plane/workorder_preservation_compat_test.go'
             )
             Need ((@($changed|Sort-Object) -join '|') -ceq (@($expected|Sort-Object) -join '|')) 'CANDIDATE_DELTA_SCOPE'
