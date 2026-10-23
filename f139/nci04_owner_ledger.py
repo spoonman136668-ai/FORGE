@@ -240,7 +240,7 @@ def admit_native_issue(db, issue: NativeIssue, now: str) -> bool:
         # Allow a second *native* ticket while the first is at the provider.
         # Owner lock, unique issue/ticket admission and provider receipts stay
         # the same. A third worker or any mixed legacy/non-native run defers.
-        if len(in_flight) >= 2:
+        if len(in_flight) >= 2 or (in_flight and not db.dual_native_schema()):
             return False
         require(db.ready() is None and all(
                 x["ticket"].startswith("f139-nci04-") for x in in_flight),
