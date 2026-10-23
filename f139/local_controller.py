@@ -172,6 +172,68 @@ class Database:
             conn.close()
         return cls(filename)
 
+    def dual_native_schema(self):
+        row=self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='only_one_active_f139_task'").fetchone()
+        expected=("CREATE UNIQUE INDEX only_one_active_f139_task "
+                  "ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER') "
+                  "AND ticket NOT LIKE 'f139-nci04-%'")
+        trigger=self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' "
+            "AND name='guard_two_native_active'").fetchone()
+        return row is not None and row["sql"] == expected and trigger is not None
+
+    def enable_native_two_slots(self):
+        """EXPLICIT owner-only index migration, never on startup/read/status.
+
+        Protected original event history survives unchanged; new event binds the
+        one-time SQLite index change and preserves the full SHA event chain.
+        """
+        self.verify()
+        meta=self.meta()
+        require(meta["enabled"]==1 and meta["legacy_suspended"]==1
+                and not self.actives() and self.ready() is None,
+                "TWO_SLOT_OWNER_MIGRATION_NOT_IDLE")
+        if self.dual_native_schema():
+            return False
+        old=("CREATE UNIQUE INDEX only_one_active_f139_task "
+             "ON tasks((1)) WHERE stage IN ('START_RISK','WAIT_PROVIDER')")
+        row=self.conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='only_one_active_f139_task'").fetchone()
+        require(row is not None and row["sql"]==old,
+                "ORIGINAL_SQLITE_INDEX_IDENTITY_DRIFT")
+        with self.transaction():
+            self.conn.execute("DROP INDEX only_one_active_f139_task")
+            self.conn.execute(
+                "CREATE UNIQUE INDEX only_one_active_f139_task ON tasks((1)) "
+                "WHERE stage IN ('START_RISK','WAIT_PROVIDER') "
+                "AND ticket NOT LIKE 'f139-nci04-%'")
+            self.conn.execute(
+                "CREATE TRIGGER guard_two_native_active BEFORE UPDATE OF stage "
+                "ON tasks WHEN NEW.stage IN ('START_RISK','WAIT_PROVIDER') BEGIN "
+                "SELECT CASE WHEN "
+                "(SELECT COUNT(*) FROM tasks WHERE stage IN "
+                "('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket) >= 2 "
+                "OR (NEW.ticket NOT LIKE 'f139-nci04-%' AND EXISTS "
+                "(SELECT 1 FROM tasks WHERE stage IN "
+                "('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket)) "
+                "OR (NEW.ticket LIKE 'f139-nci04-%' AND EXISTS "
+                "(SELECT 1 FROM tasks WHERE stage IN "
+                "('START_RISK','WAIT_PROVIDER') AND ticket<>NEW.ticket "
+                "AND ticket NOT LIKE 'f139-nci04-%')) "
+                "THEN RAISE(ABORT,'F139_TWO_ACTIVE_PROVIDER_LIMIT') END; END")
+            self.event("NATIVE_TWO_SLOT_SCHEMA_ADMITTED",{
+                "schema":"forge.f139.native-two-slot-owner-migration.v1",
+                "source_sha":meta["source_sha"],
+                "prior_event_head_sha256":meta["head_hash"],
+                "scientific_first_use":False})
+            require(self.dual_native_schema(),
+                    "NATIVE_TWO_SLOT_INDEX_MIGRATION_INVALID")
+            self.verify()
+        return True
+
     def close(self):
         self.conn.close()
 
@@ -195,6 +257,16 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "NATIVE_TWO_SLOT_SCHEMA_ADMITTED":
+                require(isinstance(doc,dict) and set(doc)=={
+                    "schema","source_sha","prior_event_head_sha256",
+                    "scientific_first_use"} and doc["schema"]==
+                    "forge.f139.native-two-slot-owner-migration.v1"
+                    and doc["source_sha"]==meta["source_sha"]
+                    and doc["prior_event_head_sha256"]==row["prior_sha"]
+                    and doc["scientific_first_use"] is False,
+                    "TWO_SLOT_MIGRATION_EVENT_DRIFT")
+                require(self.dual_native_schema(),"TWO_SLOT_INDEX_MISSING")
             if row["kind"] == "DEVELOPMENT_WORK_ADMITTED":
                 require(isinstance(doc, dict) and set(doc) == {
                     "schema", "source_sha", "ticket", "issue_number", "issue_id",
@@ -416,10 +488,10 @@ class Database:
         from f139.nci04_owner_ledger import audit_native_events
         audit_native_events(self)
         active_rows = self.actives()
-        require(len(active_rows) <= 2 and (
-            len(active_rows) <= 1 or all(
-                r["ticket"].startswith("f139-nci04-") for r in active_rows)),
-            "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
+        require(len(active_rows) <= (2 if self.dual_native_schema() else 1)
+                and (len(active_rows)<=1 or all(
+                    r["ticket"].startswith("f139-nci04-") for r in active_rows)),
+                "MULTIPLE_ACTIVE_PROVIDER_DISPATCHES")
 
     @contextlib.contextmanager
     def transaction(self):
@@ -738,9 +810,11 @@ class Database:
             require(starts<LIMIT_PER_DAY,"DAILY_START_LIMIT")
             in_flight = self.actives()
             native = ticket.startswith("f139-nci04-")
-            require((len(in_flight) < 2 and
+            require((self.dual_native_schema()
+                     and len(in_flight) < 2 and
                      all(r["ticket"].startswith("f139-nci04-")
-                         for r in in_flight)) if native else not in_flight,
+                         for r in in_flight)) if native and in_flight
+                     else not in_flight,
                     "CONCURRENT_ACTIVE_START_RISK")
             row=self.conn.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
             require(row is not None and row["stage"]=="READY", "TASK_ALREADY_CLAIMED")
