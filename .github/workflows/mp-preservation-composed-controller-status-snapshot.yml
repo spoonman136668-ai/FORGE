@@ -195,6 +195,13 @@ jobs:
               elseif($errText -match 'WORK_ORDER_|SOURCE_|PRESERVATION_|BASELINE_'){$kind='STORED_WORKORDER_CONTRACT'}
               elseif($errText -match 'disk I/O error|database is locked|SQLITE_|sqlite:|no such table'){$kind='ISOLATED_SQLITE_STATUS'}
               Write-Host ("MP_CLI_OFFLINE_STATUS_FAILURE_CLASS="+$kind)
+              if($kind -eq 'WORKORDER_SCHEMA_PARSE'){
+                $match=[regex]::Match($errText,'field ([A-Za-z_][A-Za-z0-9_]{0,47}) not found in type ([A-Za-z_][A-Za-z0-9_\.]{0,79})')
+                if($match.Success){
+                  Write-Host ('MP_CLI_UNKNOWN_SCHEMA_FIELD='+$match.Groups[1].Value)
+                  Write-Host ('MP_CLI_UNKNOWN_SCHEMA_TYPE='+$match.Groups[2].Value)
+                }
+              }
             }
             Need ($statusExit -eq 0) 'OFFLINE_CONTROLLER_STATUS'
             $obj=($output | Out-String) | ConvertFrom-Json
