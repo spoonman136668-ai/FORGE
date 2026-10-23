@@ -1,0 +1,109 @@
+name: L9 frozen neural TRAIN checkpoint fits (public development)
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-neural-train.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-neural-train-frozen
+  cancel-in-progress: false
+
+jobs:
+  train:
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [GRU_SEQ2SEQ, SMALL_TRANSFORMER]
+        seed: [1701, 1702]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      L9_ARM: ${{ matrix.arm }}
+      L9_SEED: ${{ matrix.seed }}
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify frozen source and TEST protection before fitting
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'e842a11824e76c7376942f3072541837bc00292c'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-neural-train.yml'
+          p='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_neural_train_only.py)" = 'd35dca9850fe51132002b9a5941c111381486aba'
+          test "$(git rev-parse HEAD:$p/test_l9_neural_train_only.py)" = '94a2f783f3a2c5b927a7ec2f4edc215dc32ddf16'
+          test "$(git rev-parse HEAD:$p/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          (cd "$p" && python -m unittest -q test_l9_neural_train_only.py test_l9_train_select_candidate.py test_l9_model_suite.py test_l9_split_builder.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_NEURAL_SOURCE_FROZEN=PASS
+          echo L9_OFFICIAL_TEST_FORBIDDEN=TRUE
+      - name: Obtain and verify public, pinned PyTorch CPU toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch;assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch,sys
+          assert torch.__version__.split("+")[0]=="2.5.1", "unqualified torch version"
+          assert not torch.cuda.is_available(), "CUDA cannot be used in CPU-only contract"
+          torch.set_num_threads(2)
+          print("L9_PINNED_TORCH_VERSION="+torch.__version__)
+          print("L9_PINNED_PYTHON_VERSION="+sys.version.split()[0])
+          print("L9_TRAIN_ACCELERATOR=CPU_ONLY")
+          PY
+      - name: Fit exactly one frozen neural arm and seed on L9_TRAIN only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="$RUNNER_TEMP/webnlg-l9"
+          git clone --quiet --filter=blob:none --no-checkout https://gitlab.com/shimorina/webnlg-dataset.git "$ext"
+          test "$(git -C "$ext" rev-parse 'a7ea49b5ffa5011edf81e8530c59b3552a965023^{commit}')" = 'a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          dest="$RUNNER_TEMP/l9-neural-$L9_ARM-$L9_SEED"
+          python research/optimizer_language_l9/l9_neural_train_only.py --webnlg-repo "$ext" --arm "$L9_ARM" --seed "$L9_SEED" --out "$dest"
+          python - "$dest" "$L9_ARM" "$L9_SEED" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]);arm=sys.argv[2];seed=int(sys.argv[3])
+          r=json.loads((p/"receipt.json").read_text())
+          assert r["schema"]=="forge.optimizer.language.l9.neural-train-only-development-v1"
+          assert r["arm"]==arm and r["seed"]==seed
+          assert r["status"]=="NEURAL_TRAIN_COMPLETE_SELECT_NOT_RUN_DEVELOPMENT_ONLY"
+          assert r["checkpoint_epochs"]==[4,8,12]
+          assert r["train_examples"]==8480
+          assert r["role_identity_sha256"]=="b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726"
+          assert r["model_suite_git_blob"]=="710ce648a30ffc55647f689c5f4aa3ac13b07066"
+          assert r["select_fidelity_scored"] is False
+          assert r["audit_dev_reference_consumed"] is False and r["official_test_consumed"] is False
+          assert len(r["checkpoints"])==3
+          for epoch,info in r["checkpoints"].items():
+              data=(p/info["inference_file"]).read_bytes()
+              assert hashlib.sha256(data).hexdigest()==info["inference_sha256"]
+              assert len(data)==info["inference_bytes"]<=3145728
+              assert info["training_checkpoint_bytes"]<=12582912
+          print("L9_NEURAL_SEED_CHECKPOINTS_SHA_VERIFIED=PASS")
+          print("L9_NEURAL_RECEIPT_SHA256="+hashlib.sha256((p/"receipt.json").read_bytes()).hexdigest())
+          print("L9_SELECT_SCORED=FALSE")
+          print("L9_AUDIT_DEV_CONSUMED=FALSE")
+          print("L9_OFFICIAL_TEST_CONSUMED=FALSE")
+          PY
+          rm -rf "$ext"
+      - name: Persist only sealed inference checkpoint bytes and numerical receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l9-train-${{ matrix.arm }}-${{ matrix.seed }}
+          path: ${{ runner.temp }}/l9-neural-${{ matrix.arm }}-${{ matrix.seed }}/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 1
