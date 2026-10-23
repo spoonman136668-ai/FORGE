@@ -17,6 +17,23 @@ class OwnerProviderV4(TwoNegativeControllerIntegration):
         synthetic.start()
         self.addCleanup(synthetic.stop)
         self.assertEqual(self.db.meta()["source_sha"],source)
+        # Synthetic predecessor fixture: add the same six historical
+        # verified identities the original frozen D2K foundation requires.
+        # Production checks remain unmodified and are exercised directly.
+        from f139.nci04_negative_owner_store import SOURCE_SHA as OLD_SOURCE
+        historic=(
+            ("f139-d2c-wingless-659bb1f4d751","Wingless",44),
+            ("f139-d2j-wingless-5a252f8dde24","Wingless",45),
+            ("f139-d2j-yggdrasil-5a252f8dde24","Yggdrasil",46),
+            ("f139-d2k-i687-5a252f8dde24-5a2ecddb","Wingless",39513293606),
+            ("f139-d2k-i688-5a252f8dde24-02ded761","Yggdrasil",39513381790),
+        )
+        for ticket,lane,rid in historic:
+            self.db.conn.execute(
+                "INSERT INTO tasks(ticket,lane,source_sha,stage,manifest_sha,"
+                "run_id,evidence_dir,evidence_sha) VALUES(?,?,?,'VERIFIED',?,?,?,?)",
+                (ticket,lane,OLD_SOURCE,"a"*64,rid,
+                 "/synthetic/verified","b"*64))
         approval={
             "schema":"forge.f139.nci04.owner-native-approval.v1",
             "source_sha":source,
