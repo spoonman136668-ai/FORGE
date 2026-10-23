@@ -1,0 +1,227 @@
+name: R18 RB1 guarded original-controller admission cutover
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ckb-r18-rb1-guarded-cutover.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r18-rb1-one-shot-owner-native-cutover
+  cancel-in-progress: false
+jobs:
+  cutover:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+      - name: Original owner guarded paper-only engineering admission with rollback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+             (& git.exe rev-parse HEAD) -cne $env:GITHUB_SHA -or
+             @(& git.exe status --porcelain).Count -ne 0){throw 'R18_RB1_CUTOVER_OWNER_IDENTITY_DRIFT'}
+          $known='534bccaea7e1290bc24fad38dcf680d8539d13e2'
+          if((& git.exe merge-base $known HEAD) -cne $known){throw 'R18_RB1_CUTOVER_AUDIT_ANCESTRY_DRIFT'}
+          $changed=@(& git.exe diff --name-only $known HEAD)
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 1 -or $changed[0] -cne '.github/workflows/ckb-r18-rb1-guarded-cutover.yml'){throw 'R18_RB1_CUTOVER_SCRIPT_SCOPE_DRIFT'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $clone='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-LEGACY-ROADMAP-HOLD-20261023'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-RB1-ADMISSION-20261023'
+          $oldExe=Join-Path $old 'bin\ckb-plane.exe'
+          $newExe=Join-Path $new 'bin\ckb-plane.exe'
+          $oldSHA='23a39506a93000200881d4916f320a819bb8590d3465cc5154588f32a2a5a065'
+          $newSHA='0f2474480a2ff075b52d524e2f6935d3e86903ff029657e23f50b4356b8d9ffc'
+          $oldConfigSHA='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+          $rb1='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $taskName='CKB-plane Controller'
+          $gh=(Get-Command gh.exe -ErrorAction Stop).Source
+          function Sha([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          function One([string]$p){
+            $ps=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+            if($ps.Count -ne 1 -or [string]$ps[0].ExecutablePath -ine $p){throw 'R18_RB1_CONTROLLER_SINGLETON_DRIFT'}
+            return $ps[0]
+          }
+          $python=@'
+          import json,sqlite3,sys,pathlib
+          db,root=sys.argv[1:]
+          c=sqlite3.connect('file:'+db.replace('\\','/')+'?mode=ro',uri=True,timeout=10)
+          c.execute('pragma query_only=on')
+          try:
+           s=dict(c.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation','qualification_digest','qualification_receipt','autonomy_heartbeat')"))
+           p=pathlib.Path(s.get('qualification_receipt',''))
+           good=p.resolve().is_relative_to(pathlib.Path(root).resolve())
+           q=json.loads(p.read_text(encoding='utf-8')) if good and p.is_file() else {}
+           d={'authority':s.get('autonomy_authority'),'generation':s.get('autonomy_generation'),'paused':s.get('paused'),
+              'qualification_receipt_consistent':bool(q.get('passed')) and q.get('config_and_tool_digest')==s.get('qualification_digest'),
+              'leases':c.execute('select count(*) from worker_leases').fetchone()[0],
+              'nonterminal':c.execute("select count(*) from queue_items where state not in ('COMPLETED','REVIEWED')").fetchone()[0]}
+           print(json.dumps(d,separators=(',',':')))
+          finally:c.close()
+          '@
+          function Native {
+            $lines=@(& python.exe -B -c $python $db $root)
+            if($LASTEXITCODE -ne 0 -or $lines.Count -ne 1){throw 'R18_RB1_NATIVE_STATE_OBSERVATION_FAILED'}
+            return ($lines[0]|ConvertFrom-Json)
+          }
+          function GoodState($state){
+            return $state.authority -ceq 'plane' -and $state.generation -ceq '6' -and
+              $state.paused -ceq 'false' -and $state.qualification_receipt_consistent -eq $true -and
+              [int]$state.leases -eq 0 -and [int]$state.nonterminal -eq 0
+          }
+          if((Sha $oldExe) -cne $oldSHA -or (Sha $config) -cne $oldConfigSHA -or
+             (Sha (Join-Path $root 'internal\plane\model.go')) -cne '7fbce6ae1e10a1310a02f2e1b185c47df103146578b9eb8e7908c9c996142382'){
+            throw 'R18_RB1_INSTALLED_RELEASE_SOURCE_CONFIG_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){throw 'R18_RB1_ORIGINAL_TASK_DRIFT'}
+          [void](One $oldExe)
+          $action=[string]$task.Actions[0].Arguments
+          $match=[regex]::Match($action,'(?i)([A-Z]:\\[^\r\n]*?\.ps1)')
+          if(!$match.Success){throw 'R18_RB1_TASK_WRAPPER_MISSING'}
+          $wrapper=$match.Groups[1].Value.Trim('"',"'"," ")
+          if((Split-Path -Leaf $wrapper) -cne 'Start-R18-Controller.ps1'){throw 'R18_RB1_WRAPPER_NAME_DRIFT'}
+          $ghRecord=@(& $gh api repos/spoonman136668-ai/FORGE/actions/runs/39927311603)
+          if($LASTEXITCODE -ne 0){throw 'R18_RB1_INDEPENDENT_OWNER_AUDIT_UNAVAILABLE'}
+          $audit=($ghRecord -join [Environment]::NewLine)|ConvertFrom-Json
+          if($audit.status -cne 'completed' -or $audit.conclusion -cne 'success' -or
+             $audit.head_sha -cne '534bccaea7e1290bc24fad38dcf680d8539d13e2'){
+            throw 'R18_RB1_PRIOR_WRAPPER_AUDIT_NOT_QUALIFIED'
+          }
+          $audited=@(& $gh run view 39927311603 -R spoonman136668-ai/FORGE --log 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R18_RB1_PRIOR_AUDIT_LOG_UNAVAILABLE'}
+          $hashMatches=@($audited|ForEach-Object{
+            if($_ -match 'RB1_CURRENT_WRAPPER_SHA256=([a-f0-9]{64})'){$Matches[1]}
+          })
+          if($hashMatches.Count -ne 1){throw 'R18_RB1_WRAPPER_AUDIT_HASH_AMBIGUOUS'}
+          $wrapperSHA=$hashMatches[0]
+          if((Sha $wrapper) -cne $wrapperSHA){throw 'R18_RB1_WRAPPER_CHANGED_SINCE_AUDIT'}
+          $wrapperBytes=[IO.File]::ReadAllBytes($wrapper)
+          $wrapperText=[Text.Encoding]::UTF8.GetString($wrapperBytes)
+          if(($wrapperText.Split(@($old),[StringSplitOptions]::None).Length-1) -ne 1 -or
+             ![Linq.Enumerable]::SequenceEqual([byte[]]$wrapperBytes,[byte[]][Text.Encoding]::UTF8.GetBytes($wrapperText))){throw 'R18_RB1_WRAPPER_CONTENT_INVALID'}
+          $state=Native
+          if(!(GoodState $state)){throw 'R18_RB1_EXISTING_NATIVE_NOT_IDLE_AND_QUALIFIED'}
+          $gitHead=@(& git.exe -C $clone rev-parse HEAD)
+          $gitBranch=@(& git.exe -C $clone symbolic-ref --short HEAD)
+          $origin=@(& git.exe -C $clone remote get-url origin)
+          $dirty=@(& git.exe -C $clone status --porcelain)
+          if($LASTEXITCODE -ne 0 -or $gitHead.Count -ne 1 -or $gitHead[0] -cne $rb1 -or
+             $gitBranch.Count -ne 1 -or $gitBranch[0] -cne 'rebuild/single-track-rb1-20261021' -or
+             $dirty.Count -ne 0 -or $origin.Count -ne 1 -or
+             $origin[0] -notmatch '^(git@github(-spoonman)?|https://github\.com)[/:]spoonman136668-ai/ktrade(\.git)?$'){
+            throw 'R18_RB1_CLONE_OR_REMOTE_PREIMAGE_DRIFT'
+          }
+          $source=$origin[0]
+          $oldBytes=[IO.File]::ReadAllBytes($config)
+          $oldText=[Text.Encoding]::UTF8.GetString($oldBytes)
+          if(($oldText -match '(?m)^    ktrade:\s*$') -or
+             ([regex]::Matches($oldText,'(?m)^repos:\r?\n')).Count -ne 1){throw 'R18_RB1_REGISTRY_ALREADY_CHANGED'}
+          $line='    ktrade:'+"\n"+'        remote: "'+$source+'"'+"\n"+
+              '        local_path: C:\Users\camar\GolandProjects\ktrade-rb1-plane'+"\n"+'        mode: engineering'+"\n"
+          $newText=[regex]::Replace($oldText,'(?m)^repos:\r?\n',"repos:\n"+$line)
+          if($newText -ceq $oldText){throw 'R18_RB1_NO_CONFIG_CHANGE'}
+          $input=Join-Path $env:RUNNER_TEMP ('r18-rb1-artifact-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $input){throw 'R18_RB1_ARTIFACT_STAGING_COLLISION'}
+          New-Item -Path $input -ItemType Directory -ErrorAction Stop|Out-Null
+          & $gh run download 39926739415 -R spoonman136668-ai/ckb-plane -n r18-rb1-unified-original-source -D $input
+          if($LASTEXITCODE -ne 0){throw 'R18_RB1_QUALIFIED_ARTIFACT_UNAVAILABLE'}
+          $manifest=(Get-Content -LiteralPath (Join-Path $input 'manifest.json') -Raw)|ConvertFrom-Json
+          if($manifest.schema -cne 'ckb-plane.r18-rb1-unified-original-source.v1' -or
+             $manifest.run_id -cne '39926739415' -or
+             $manifest.source_sha -cne '10588677b7599b063198646651a2f21bfbb6fa36' -or
+             $manifest.r18_qualified_source_sha -cne '7e91cbb85be8afe8704fa489929d31214798b0b5' -or
+             $manifest.rb1_qualified_source_sha -cne '3dc167724b7154a6e4e481632fbd7ac4f4abeb5e' -or
+             $manifest.predecessor_live_sha256 -cne $oldSHA -or
+             $manifest.sha256 -cne $newSHA -or
+             $manifest.live_promoted -ne $false){throw 'R18_RB1_QUALIFIED_ARTIFACT_MANIFEST_INVALID'}
+          $candidate=Join-Path $input 'ckb-plane.exe'
+          if((Sha $candidate) -cne $newSHA -or (Test-Path -LiteralPath $new)){throw 'R18_RB1_CANDIDATE_OR_DESTINATION_DRIFT'}
+          Write-Host 'R18_RB1_ALL_OWNER_PREMUTATION_EVIDENCE=PASS'
+          $taskStopped=$false;$mutated=$false;$newStarted=$false
+          try{
+            Copy-Item -LiteralPath $old -Destination $new -Recurse -ErrorAction Stop
+            Copy-Item -LiteralPath $candidate -Destination $newExe -Force -ErrorAction Stop
+            if((Sha $newExe) -cne $newSHA -or (Sha $oldExe) -cne $oldSHA){throw 'R18_RB1_RELEASE_STAGING_INVALID'}
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $taskStopped=$true
+            $seen=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+            if($seen.Count -ne 1 -or [string]$seen[0].ExecutablePath -ine $oldExe){throw 'R18_RB1_UNEXPECTED_ACTIVE_PROCESS'}
+            Stop-Process -Id $seen[0].ProcessId -Force -ErrorAction Stop
+            $ready=$false
+            for($i=0;$i -lt 25;$i++){
+              if(@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'").Count -eq 0 -and
+                 [string](Get-ScheduledTask -TaskName $taskName).State -ceq 'Ready'){$ready=$true;break}
+              Start-Sleep -Seconds 1
+            }
+            if(!$ready){throw 'R18_RB1_CONTROLLER_NOT_STOPPED'}
+            [IO.File]::WriteAllBytes($wrapper,[Text.Encoding]::UTF8.GetBytes($wrapperText.Replace($old,$new)))
+            [IO.File]::WriteAllBytes($config,[Text.Encoding]::UTF8.GetBytes($newText))
+            $mutated=$true
+            $newConfigHash=Sha $config
+            $proofRaw=@(& $newExe controller qualify --config $config 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'R18_RB1_NATIVE_QUALIFICATION_REJECTED'}
+            $proof=($proofRaw -join [Environment]::NewLine)|ConvertFrom-Json
+            if($proof.passed -ne $true){throw 'R18_RB1_NATIVE_QUALIFICATION_NOT_PASS'}
+            Write-Host 'R18_RB1_NEW_CONFIG_NATIVE_WINDOWS_REQUALIFICATION=PASS'
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $newStarted=$true
+            $booted=$false
+            for($j=0;$j -lt 25;$j++){
+              Start-Sleep -Seconds 1
+              $seen=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+              if($seen.Count -gt 1){throw 'R18_RB1_DUPLICATE_CONTROLLERS'}
+              if($seen.Count -eq 1 -and [string]$seen[0].ExecutablePath -ieq $newExe){$booted=$true;break}
+            }
+            if(!$booted){throw 'R18_RB1_RESTART_CANDIDATE_NOT_RUNNING'}
+            $rawStatus=@(& $newExe controller status --config $config 2>&1)
+            if($LASTEXITCODE -ne 0){throw 'R18_RB1_RESTART_STATUS_FAILED'}
+            $runtimeStatus=($rawStatus -join [Environment]::NewLine)|ConvertFrom-Json
+            if($runtimeStatus.authority -cne 'plane' -or [string]$runtimeStatus.generation -cne '6' -or
+               $runtimeStatus.paused -ne $false){throw 'R18_RB1_NEW_CONTROLLER_STATE_MISMATCH'}
+            Start-Sleep -Seconds 8
+            $after=Native
+            [void](One $newExe)
+            if(!(GoodState $after) -or (Sha $config) -cne $newConfigHash){throw 'R18_RB1_NEW_CONTROLLER_NOT_QUALIFIED_IDLE'}
+            if(((Get-Date).ToUniversalTime()-[datetime]::Parse([string]$after.paused).ToUniversalTime()).TotalSeconds -lt -1){} # noop
+            Write-Host ('R18_RB1_INSTALLED_RELEASE_SHA256='+$newSHA)
+            Write-Host ('R18_RB1_INSTALLED_CONFIG_SHA256='+$newConfigHash)
+            Write-Host 'R18_RB1_SINGLE_ORIGINAL_CONTROLLER_ENGINEERING_REGISTRY=PASS'
+            Write-Host 'R18_RB1_NATIVE_KTRADE_QUEUE_NOT_SUBMITTED=TRUE'
+          }catch{
+            Write-Host ('R18_RB1_GUARDED_CUTOVER_BLOCKED='+[string]$_.Exception.Message)
+            if($taskStopped){
+              try{
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                foreach($proc in @(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")){
+                  if([string]$proc.ExecutablePath -ieq $oldExe -or [string]$proc.ExecutablePath -ieq $newExe){
+                    Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+                  }
+                }
+                if($mutated){
+                  [IO.File]::WriteAllBytes($wrapper,$wrapperBytes)
+                  [IO.File]::WriteAllBytes($config,$oldBytes)
+                  if((Sha $wrapper) -cne $wrapperSHA -or (Sha $config) -cne $oldConfigSHA){throw 'R18_RB1_RESTORE_PREIMAGE_MISMATCH'}
+                  $restore=@(& $oldExe controller qualify --config $config 2>&1)
+                  if($LASTEXITCODE -ne 0){throw 'R18_RB1_ROLLBACK_NATIVE_REQUALIFICATION_FAILED'}
+                }
+                Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+                Start-Sleep -Seconds 5
+                [void](One $oldExe)
+                Write-Host 'R18_RB1_ORIGINAL_CONTROLLER_ROLLBACK=PASS'
+              }catch{Write-Host ('R18_RB1_ROLLBACK_FAILURE='+[string]$_.Exception.Message)}
+            }
+            throw
+          }
