@@ -1054,11 +1054,11 @@ class GitHub:
             raise F139Error("F139_GITHUB_API_INVALID_JSON") from exc
 
     def prepare_native_feed(self, source_sha: str,
-                            existing_intent_base64: set[str]):
+                            existing_candidate_identities: set[str]):
         from f139.nci04_autonomy_feed import prepare_feed
         return prepare_feed(
             self.native_repo_get, source_sha=source_sha,
-            existing_intent_base64=existing_intent_base64)
+            existing_candidate_identities=existing_candidate_identities)
 
     def create_native_feed_issue(self, *, title: str, body: str):
         """Create an ordinary existing-schema owner issue; never dispatch here."""
@@ -1708,15 +1708,19 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 ready = db.ready()
             break
         if ready is None and not eligible and callable(feeder):
-            existing_intents = {
-                event["native_intent_base64"] for event in events
+            from f139.nci04_autonomy_feed import (
+                candidate_identity_from_intent_base64)
+            existing_candidates = {
+                candidate_identity_from_intent_base64(
+                    event["native_intent_base64"])
+                for event in events
                 if isinstance(event.get("native_intent_base64"), str)
             }
             # No unauthenticated owner issue is inferred: the feed policy
             # itself is owner-authored and exact-source pinned, and every PR
             # candidate is independently rebound to an immutable commit/tree.
             feed = feeder(
-                meta["source_sha"], existing_intents)
+                meta["source_sha"], existing_candidates)
             created_numbers = []
             for candidate in feed["candidates"]:
                 created = api.create_native_feed_issue(
