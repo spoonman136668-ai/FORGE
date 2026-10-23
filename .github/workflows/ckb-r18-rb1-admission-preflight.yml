@@ -1,0 +1,76 @@
+name: R18 RB1 live source and admission preflight read only
+on:
+  push:
+    branches: [audit/ckb-r18-health-differential-20261023]
+    paths: [.github/workflows/ckb-r18-rb1-admission-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Verify immutable source and live RB1 intake preimages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($owner)
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/audit/ckb-r18-health-differential-20261023' -or
+             $owner.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'RB1_PREFLIGHT_ORIGINAL_OWNER_REQUIRED'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $model=Join-Path $root 'internal\plane\model.go'
+          $goMod=Join-Path $root 'go.mod'
+          $source=Join-Path 'C:\Users\camar\GolandProjects' 'ktrade-rb1-plane'
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R18-LEGACY-ROADMAP-HOLD-20261023\bin\ckb-plane.exe'
+          $expectedRelease='23a39506a93000200881d4916f320a819bb8590d3465cc5154588f32a2a5a065'
+          $expectedCfg='6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'
+          $expectedRB1='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          if((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedCfg -or
+             (Get-FileHash -LiteralPath $release -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expectedRelease){
+            throw 'RB1_PREFLIGHT_INSTALLED_CONTROLLER_PREIMAGE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if([string]$task.State -cne 'Running' -or $processes.Count -ne 1){throw 'RB1_PREFLIGHT_SINGLETON_TASK_DRIFT'}
+          $running=(Get-FileHash -LiteralPath $processes[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($running -cne $expectedRelease){throw 'RB1_PREFLIGHT_ACTIVE_CONTROLLER_DRIFT'}
+          if(!(Test-Path -LiteralPath $goMod -PathType Leaf) -or !(Test-Path -LiteralPath $model -PathType Leaf) -or
+             !(Test-Path -LiteralPath (Join-Path $source '.git'))){throw 'RB1_PREFLIGHT_SOURCE_MISSING'}
+          $srcHash=(Get-FileHash -LiteralPath $model -Algorithm SHA256).Hash.ToLowerInvariant()
+          $rbHead=@(& git.exe -C $source rev-parse HEAD)
+          if($LASTEXITCODE -ne 0 -or $rbHead.Count -ne 1 -or $rbHead[0] -cne $expectedRB1){throw 'RB1_PREFLIGHT_SOURCE_SHA_DRIFT'}
+          $rbDirty=@(& git.exe -C $source status --porcelain)
+          if($LASTEXITCODE -ne 0 -or $rbDirty.Count -ne 0){throw 'RB1_PREFLIGHT_SOURCE_DIRTY'}
+          $branch=@(& git.exe -C $source symbolic-ref --short HEAD)
+          if($LASTEXITCODE -ne 0 -or $branch.Count -ne 1){throw 'RB1_PREFLIGHT_BRANCH_UNAVAILABLE'}
+          $remote=@(& git.exe -C $source config --get remote.origin.url)
+          $remoteKnown=($remote.Count -eq 1 -and $remote[0] -match '(?i)(github[\w-]*:|github.com[:/])spoonman136668-ai/ktrade(\.git)?$')
+          $cfgText=[IO.File]::ReadAllText($config)
+          $oldKeys=($cfgText -match '(?m)^    ckb:\s*$') -and ($cfgText -match '(?m)^    ktrade_knowledge:\s*$')
+          if(!$oldKeys){throw 'RB1_PREFLIGHT_CONFIG_ANCHOR_MISSING'}
+          if($cfgText -match '(?m)^    ktrade:\s*$'){throw 'RB1_PREFLIGHT_ALREADY_REGISTERED'}
+          $code=[IO.File]::ReadAllText($model)
+          $hasValidate=($code.Contains('func (w WorkOrder) Validate() error {'))
+          $hasBaseline=($code.Contains('baselineRefAllowed(w.Baseline.Ref)'))
+          $alreadyPatched=$code.Contains('isKTRADERB1PinnedBaseline')
+          if(!$hasValidate -or !$hasBaseline -or $alreadyPatched){throw 'RB1_PREFLIGHT_NATIVE_SOURCE_ALREADY_CHANGED'}
+          $result=@{
+            schema='ckb-plane.r18-rb1-live-admission-preflight.v1'
+            active_sha256=$running;model_sha256=$srcHash;config_sha256=$expectedCfg
+            rb1_head=$rbHead[0];rb1_clean=$true;rb1_branch=$branch[0]
+            rb1_remote_expected=$remoteKnown;rb1_git_remote_present=($remote.Count -eq 1)
+            config_has_engineering_ckb=$oldKeys;config_has_engineering_ktrade=$false
+            model_validate_anchor=$hasValidate;model_baseline_anchor=$hasBaseline
+            controller_or_data_modified=$false;worker_or_queue_launched=$false
+          }
+          $json=$result|ConvertTo-Json -Compress -Depth 4
+          if([Text.Encoding]::UTF8.GetByteCount($json) -gt 4096){throw 'RB1_PREFLIGHT_OVERSIZED'}
+          Write-Host ('RB1_OWNER_PREFLIGHT='+$json)
+          Write-Host 'RB1_OWNER_READONLY_SOURCE_REGISTRY_PREFLIGHT=PASS'
