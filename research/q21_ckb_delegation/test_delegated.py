@@ -32,7 +32,7 @@ def route(path):
     if path=="/repos/"+d.owner.CKB+"/actions/runs/87654321":
         return {"id":87654321,"event":"workflow_dispatch",
                 "head_branch":"main",
-                "head_sha":"b"*40,
+                "head_sha":d.CKB_AUTHORIZED_COMMIT,
                 "path":".github/workflows/"+d.owner.WORKFLOW,
                 "run_attempt":1,"actor":{"login":d.owner.OWNER},
                 "triggering_actor":{"login":d.owner.OWNER},
@@ -41,10 +41,10 @@ def route(path):
         return {"total_count":1,"workflow_runs":[{"id":12345678}]}
     if path.startswith("/repos/"+d.owner.CKB+"/actions/workflows/"):
         return {"total_count":1,"workflow_runs":[{"id":87654321}]}
-    if path=="/repos/"+d.owner.CKB+"/git/commits/"+"b"*40:
+    if path=="/repos/"+d.owner.CKB+"/git/commits/"+d.CKB_AUTHORIZED_COMMIT:
         return {"tree":{"sha":d.CKB_TREE}}
     if path.startswith("/repos/"+d.owner.CKB+"/contents/"):
-        if path.endswith("/"+d.owner.WORKFLOW+"?ref="+"b"*40):
+        if path.endswith("/"+d.owner.WORKFLOW+"?ref="+d.CKB_AUTHORIZED_COMMIT):
             return {"sha":d.CKB_WORKFLOW_BLOB,"type":"file"}
         if path.endswith("/admit_exact.py?ref="+"b"*40):
             return {"sha":"cebda244cf0899e60ef07162969b594340b67b74","type":"file"}
@@ -90,11 +90,12 @@ class TestDelegate(unittest.TestCase):
             "/repos/"+d.owner.CKB+"/actions/runs/87654321",
             "/repos/"+d.owner.CKB+"/actions/workflows/"+d.owner.WORKFLOW+
               "/runs?event=workflow_dispatch&per_page=100",
-            "/repos/"+d.owner.CKB+"/git/commits/"+"b"*40,
+            "/repos/"+d.owner.CKB+"/git/commits/"+d.CKB_AUTHORIZED_COMMIT,
             "/repos/"+d.owner.CKB+"/contents/.github/workflows/"+
-              d.owner.WORKFLOW+"?ref="+"b"*40,
+              d.owner.WORKFLOW+"?ref="+d.CKB_AUTHORIZED_COMMIT,
             "/repos/"+d.owner.CKB+"/actions/runs/87654321/jobs?per_page=100",
             "/repos/"+d.owner.CKB+"/actions/runs/87654321/artifacts?per_page=100",
+            "/repos/"+d.owner.CKB+"/actions/runs/87654321",
         ]
         mutate=[
             lambda z:z["actor"].update(login="impostor"),
@@ -105,6 +106,7 @@ class TestDelegate(unittest.TestCase):
             lambda z:z.update(sha="0"*40),
             lambda z:z["jobs"][0].update(conclusion="failure"),
             lambda z:z["artifacts"][0].update(expired=True),
+            lambda z:z.update(head_sha="0"*40),
         ]
         for n,(path,alter) in enumerate(zip(paths,mutate)):
             with self.subTest(index=n):
