@@ -1,0 +1,92 @@
+name: L9 seven-method audit metric-engine SYNTHETIC preflight only
+on:
+  pull_request:
+    branches: [research/l9-audit-firstuse-source-prefit-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: l9-frozen-seven-method-synthetic-metrics-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-no-firstuse:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Exact source boundary, unchanged protected protocol and fail-closed FORGE first-use
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=d1c195a3525cf39b2ac4153a7fa62f61f30167d3
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git rev-parse HEAD:AGENTS.md)" = 39926d2277ac01c8114f03561bd8e001fcc3b582
+          test "$(git rev-parse HEAD:nativefirstuse/firstuse.go)" = d53d10f990b752f65e1b9e547fd2e5c9b0855f37
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_neural_select_only.py)" = 91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_seal_select.py)" = af06d6671954b9e8c5cf23c720e5efa89d919528
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/l9_audit_metric_synthetic.py","research/optimizer_language_l9/test_l9_audit_metric_synthetic.py",".github/workflows/l9-audit-seven-method-synthetic.yml"}; assert a==b,(a,b)'
+          grep -Fq 'func AuthorizeLiveOriginal(Review)error{return ErrNoScienceAuthority}' nativefirstuse/firstuse.go
+          echo 'L9_FORGE_NATIVE_FIRSTUSE_REMAINS_FAIL_CLOSED=TRUE'
+      - name: Qualify seven-method synthetic evaluator and original first-use boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_audit_metric_synthetic.py -v
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_audit_firstuse_prefit.py -v
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_mixed_v1_v2_seal.py -v
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - name: Execute invented three-category seven-method evaluation, never WebNLG
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l9/l9_audit_metric_synthetic.py \
+            --out "$RUNNER_TEMP/l9-seven-method-synthetic-metrics.json"
+          python - "$RUNNER_TEMP/l9-seven-method-synthetic-metrics.json" <<'PY'
+          import hashlib,json,sys
+          raw=open(sys.argv[1],'rb').read()
+          r=json.loads(raw)
+          assert r['schema']=='forge.optimizer.language.l9.synthetic-seven-method-metrics-v1'
+          assert r['source_role']=='L9_SYNTHETIC_PREFIT_ONLY'
+          assert len(r['methods'])==7 and len(r['categories'])==3
+          assert r['synthetic_graph_count']==3
+          assert not r['scientific_go'] and not r['first_use_authorized']
+          assert r['real_audit_cases_scored']==0
+          assert r['real_audit_reference_bytes_read']==0
+          assert r['official_test_bytes_read']==0
+          assert not r['independent_semantic_adjudication']
+          assert not r['training_selection_or_model_loading_performed']
+          assert all(r['category_metrics'][c][m]['semantic_entailment_adjudicated'] is False
+                     for c in r['categories'] for m in r['methods'])
+          assert all(r['macro_metrics'][m]['total_abstentions']==3
+                     for m in r['methods'] if m.startswith('SMALL_TRANSFORMER'))
+          print('L9_SYNTHETIC_EVALUATOR_3_CATEGORIES_7_METHODS=PASS')
+          print('L9_PROTECTED_319_CASE_AUDIT_EXECUTED=FALSE')
+          print('L9_INDEPENDENT_SEMANTIC_FIDELITY_ESTABLISHED=FALSE')
+          print('L9_SYNTHETIC_EVALUATOR_CANONICAL_SHA256='+hashlib.sha256(raw).hexdigest())
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l9-seven-method-synthetic-${{ matrix.os }}
+          path: ${{ runner.temp }}/l9-seven-method-synthetic-metrics.json
+          if-no-files-found: ignore
