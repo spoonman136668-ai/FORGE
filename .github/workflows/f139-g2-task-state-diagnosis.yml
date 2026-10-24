@@ -1,0 +1,74 @@
+name: F139 G2 original task read-only restart diagnosis
+on:
+  push:
+    branches: [operations/f139-g2-original-owner-cutover-20261024]
+    paths: [.github/workflows/f139-g2-task-state-diagnosis.yml]
+permissions:
+  contents: read
+jobs:
+  original-task-readonly-diagnosis:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Read original scheduled task, process and immutable ledger without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_G2_READONLY_OWNER_NOT_AUTHENTICATED'
+          }
+          $name='FORGE-F139-UnifiedController'
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+          Write-Output ('F139_G2_TASK_STATE='+[string]$t.State)
+          Write-Output ('F139_G2_TASK_LAST_RESULT='+[string]$info.LastTaskResult)
+          Write-Output ('F139_G2_TASK_LAST_RUN='+$info.LastRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ('F139_G2_TASK_NEXT_RUN='+$info.NextRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ('F139_G2_TASK_TRIGGER_COUNT='+@($t.Triggers).Count)
+          Write-Output ('F139_G2_TASK_ACTION_COUNT='+@($t.Actions).Count)
+          Write-Output ('F139_G2_TASK_MULTIPLE_INSTANCES='+[string]$t.Settings.MultipleInstances)
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$key){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G2_TASK_ARG_NOT_FROZEN'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database';$root=Arg 'RepositoryRoot';$python=Arg 'PythonExe'
+          $hash=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          Write-Output ('F139_G2_ORIGINAL_SOURCE='+$hash)
+          Write-Output ('F139_G2_ORIGINAL_CHECKOUT_CLEAN='+(
+            ((& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()).Length -eq 0))
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          Write-Output ('F139_G2_OWNER_PROCESS_COUNT='+$proc.Count)
+          $inspect=@'
+          import pathlib,sqlite3,sys,json
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          db=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          db.row_factory=sqlite3.Row
+          db.execute("PRAGMA query_only=ON")
+          m=dict(db.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          counts={r["stage"]:r["n"] for r in db.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+          tail=[dict(r) for r in db.execute("SELECT seq,kind FROM events WHERE seq>=177 ORDER BY seq")]
+          print("F139_G2_READONLY_OWNER_META="+json.dumps(m,sort_keys=True))
+          print("F139_G2_READONLY_STAGE_COUNTS="+json.dumps(counts,sort_keys=True))
+          print("F139_G2_READONLY_EVENT_TAIL="+json.dumps(tail,sort_keys=True))
+          db.close()
+          '@
+          & $python -B -c $inspect $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G2_READONLY_SQLITE_FAILED'}
+          try {
+            $events=@(Get-WinEvent -FilterHashtable @{
+              LogName='Microsoft-Windows-TaskScheduler/Operational';
+              StartTime=(Get-Date).AddMinutes(-40)
+            } -ErrorAction Stop |Where-Object {$_.Message -like '*FORGE-F139-UnifiedController*'}|Select-Object -First 12)
+            foreach($e in $events){
+              $short=([string]$e.Message -replace '[\r\n]+',' ')
+              Write-Output ('F139_G2_TASK_EVENT='+$e.Id+':'+$e.TimeCreated.ToUniversalTime().ToString('o')+':'+$short.Substring(0,[Math]::Min(380,$short.Length)))
+            }
+          }catch{
+            Write-Output ('F139_G2_TASK_EVENT_ACCESS='+$_.Exception.GetType().Name)
+          }
