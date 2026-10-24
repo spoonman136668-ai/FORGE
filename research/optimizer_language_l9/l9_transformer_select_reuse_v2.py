@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from datetime import datetime
 import time
 import tracemalloc
 
@@ -29,7 +30,11 @@ def _require(flag,reason):
 def _sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
-def assert_admission(seed, original_job_json, original_run_json, prefit_run_json):
+def _utc(value):
+    _require(isinstance(value,str) and value.endswith("Z"),"time evidence malformed")
+    return datetime.fromisoformat(value.replace("Z","+00:00"))
+
+def assert_admission(seed, original_job_json, original_run_json, prefit_run_json, original_log_text=""):
     """Independently fetched authenticated GitHub JSON, not operator-written claims.
 
     Workflow custody MUST fetch these from GitHub REST with actions:read and
@@ -41,11 +46,25 @@ def assert_admission(seed, original_job_json, original_run_json, prefit_run_json
     _require(original_job_json.get("id")==pair["job_id"],"original job identity drift")
     _require(original_job_json.get("run_id")==pair["run_id"],"original job/run mismatch")
     _require(original_job_json.get("status")=="completed","ORIGINAL_SELECT_NOT_TERMINAL")
-    _require(original_job_json.get("conclusion") in ("failure","timed_out"),"ORIGINAL_SELECT_NOT_FAILED")
+    original_outcome=original_job_json.get("conclusion")
+    _require(original_outcome in ("failure","timed_out","cancelled"),"ORIGINAL_SELECT_NOT_FAILED")
+    if original_outcome=="cancelled":
+        # GitHub Actions reports the exact 90m job timeout as "cancelled".
+        # Generic operator cancellations must remain inadmissible.
+        start=_utc(original_job_json.get("started_at"))
+        finish=_utc(original_job_json.get("completed_at"))
+        elapsed=(finish-start).total_seconds()
+        _require(89*60 <= elapsed <= 92*60,"ORIGINAL_CANCEL_NOT_90MIN_TIMEOUT")
+        steps=original_job_json.get("steps",[])
+        _require(isinstance(steps,list),"original step attestation missing")
+        score=[s for s in steps if s.get("name")=="Full frozen L9_SELECT only (no audit model exposure)"]
+        _require(len(score)==1 and score[0].get("conclusion")=="cancelled","SCORING_STEP_NOT_TIMED_OUT")
+        _require("The operation was canceled." in original_log_text,
+                 "ORIGINAL_TIMEOUT_LOG_MISSING")
     _require(original_run_json.get("id")==pair["run_id"],"original run mismatch")
     _require(original_run_json.get("head_sha")==pair["head_sha"],"original source commit mismatch")
     _require(original_run_json.get("status")=="completed","ORIGINAL_RUN_NOT_TERMINAL")
-    _require(original_run_json.get("conclusion") in ("failure","timed_out"),"ORIGINAL_RUN_NOT_FAILED")
+    _require(original_run_json.get("conclusion")==original_outcome,"ORIGINAL_RUN_JOB_OUTCOME_MISMATCH")
     _require(prefit_run_json.get("id")==REQUIRED_PREFIT_RUN,"synthetic prefit run drift")
     _require(prefit_run_json.get("head_sha")==REQUIRED_PREFIT_HEAD,"synthetic prefit source drift")
     _require(prefit_run_json.get("status")=="completed" and prefit_run_json.get("conclusion")=="success","SYNTHETIC_PREFIT_NOT_QUALIFIED")
@@ -94,11 +113,12 @@ def score_epoch(net,examples,proxies):
         "evaluation_cpu_seconds":round(time.process_time()-cpu,3),
     }
 
-def run(repo, artifact, seed, out, original_job_path, original_run_path, prefit_run_path):
+def run(repo, artifact, seed, out, original_job_path, original_run_path, prefit_run_path, original_log_path):
     _require(seed in ORIGINAL_JOBS,"unfrozen seed")
     _require(not out.exists(),"no receipt overwrite")
     raw=[p.read_bytes() for p in (original_job_path,original_run_path,prefit_run_path)]
-    assert_admission(seed,*[json.loads(x) for x in raw])
+    log_raw=original_log_path.read_bytes()
+    assert_admission(seed,*[json.loads(x) for x in raw], original_log_text=log_raw.decode("utf-8"))
     import torch
     _require(torch.__version__.split("+")[0]=="2.5.1" and not torch.cuda.is_available(),"torch frozen runtime drift")
     torch.set_num_threads(2)
@@ -134,6 +154,7 @@ def run(repo, artifact, seed, out, original_job_path, original_run_path, prefit_
         "original_failure_job_id":ORIGINAL_JOBS[seed]["job_id"],
         "original_failure_run_id":ORIGINAL_JOBS[seed]["run_id"],
         "original_failure_receipt_sha256":_sha(raw[0]),
+        "original_timeout_log_sha256":_sha(log_raw),
         "original_workflow_receipt_sha256":_sha(raw[1]),
         "cross_os_synthetic_prefit_run":REQUIRED_PREFIT_RUN,
         "synthetic_prefit_receipt_sha256":_sha(raw[2]),
@@ -167,7 +188,8 @@ def main():
     p.add_argument("--original-job-json",type=Path,required=True)
     p.add_argument("--original-run-json",type=Path,required=True)
     p.add_argument("--prefit-run-json",type=Path,required=True)
+    p.add_argument("--original-job-log",type=Path,required=True)
     p.add_argument("--out",type=Path,required=True)
     a=p.parse_args()
-    run(a.webnlg_repo,a.checkpoint_artifact,a.seed,a.out,a.original_job_json,a.original_run_json,a.prefit_run_json)
+    run(a.webnlg_repo,a.checkpoint_artifact,a.seed,a.out,a.original_job_json,a.original_run_json,a.prefit_run_json,a.original_job_log)
 if __name__=="__main__":main()
