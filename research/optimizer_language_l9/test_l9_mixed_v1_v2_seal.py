@@ -64,8 +64,9 @@ class MixedSelectSealTests(unittest.TestCase):
             "selected_epoch":12,"selected_checkpoint_sha256":
                 m.FROZEN_CHECKPOINTS[("SMALL_TRANSFORMER",seed)][12]}
 
-    def test_real_source_identity_and_pending_gate(self):
-        self.assertIsNone(m.V2_RECEIPTS[1701])
+    def test_real_source_identity_and_both_actual_pinned_receipts(self):
+        self.assertEqual(m.V2_RECEIPTS[1701],
+            "d17ffdf04aa8c38a77d23baab2d68219183a599ace8e920aab0cf0f89e83d539")
         self.assertEqual(m.legacy.SELECT_SCHEMA,
             "forge.optimizer.language.l9.neural-select-development-v1")
         self.assertNotEqual(m.SCHEMA,m.legacy.SCHEMA)
@@ -121,10 +122,10 @@ class MixedSelectSealTests(unittest.TestCase):
                 with self.subTest(seed=seed,negative=i),self.assertRaises(ValueError):
                     m.check_v2(d,seed)
 
-    def test_no_v2_1701_artifact_blocks_seal_even_with_other_receipts(self):
+    def test_missing_original_custody_inputs_block_seal(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);out=root/"seal.json"
-            with self.assertRaisesRegex(ValueError,"PENDING_AUTHENTICATED_V2_SEED_1701"):
+            with self.assertRaises(FileNotFoundError):
                 m.mixed_seal(root/"missing-candidate",root/"missing",out)
             self.assertFalse(out.exists())
 
