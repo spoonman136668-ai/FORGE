@@ -30,7 +30,7 @@ def varied_target(np, joints, bounds, index, delta):
     limits = np.asarray(bounds, dtype=np.float64)
     if values.shape != (9,) or limits.shape != (2, 9):
         raise PairFailure("JOINT_DOMAIN", -1, ["shape"])
-    if index not in (0, 2) or delta not in (0.04, -0.03):
+    if (index, delta) not in ((0, 0.04), (2, -0.03)):
         raise PairFailure("JOINT_DOMAIN", -1, ["unfrozen_intervention"])
     if not np.all(np.isfinite(values)) or not np.all(np.isfinite(limits)):
         raise PairFailure("JOINT_DOMAIN", -1, ["nonfinite"])
