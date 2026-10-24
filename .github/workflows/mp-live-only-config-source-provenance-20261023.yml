@@ -1,0 +1,60 @@
+name: MP live-only config source provenance
+on:
+  push:
+    branches: [diagnostics/mp-postmerge-live-config-precheck-20261023]
+    paths: [.github/workflows/mp-live-only-config-source-provenance-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-live-only-config-source-provenance-20261023
+  cancel-in-progress: true
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Trace live-only config fields to installed source without values
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_PROV_'+$code)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT'
+          $protected=@('config\autonomy.yaml','bin\ckb-plane.exe')
+          $before=@{}
+          foreach($rel in $protected){$p=Join-Path $root $rel;Need(Test-Path -LiteralPath $p -PathType Leaf)('MISSING_'+$rel);$before[$rel]=Hash $p}
+
+          $terms=@(
+            'wingless_stage1','WinglessStage1','service_program','service_sha256','model_bytes','runtime_sha256',
+            'advisory','OpenCode','opencode','api_key_env','allow_work_order_metadata','sidecar_executable','sidecar_config_sha256','max_concurrent'
+          )
+          $files=@(Get-ChildItem -LiteralPath $root -Recurse -File -Include *.go,*.ps1,*.json,*.yaml,*.yml -ErrorAction Stop |
+            Where-Object {$_.FullName -notmatch '\\.git\\|\\vendor\\|\\node_modules\\|\\evidence\\|\\workspaces\\'})
+          $hits=@{}
+          foreach($file in $files){
+            $rel=$file.FullName.Substring($root.Length).TrimStart('\')
+            foreach($term in $terms){
+              $m=@(Select-String -LiteralPath $file.FullName -SimpleMatch -Pattern $term -ErrorAction SilentlyContinue)
+              if($m.Count -gt 0){
+                if(-not $hits.ContainsKey($rel)){$hits[$rel]=New-Object System.Collections.Generic.HashSet[string]}
+                [void]$hits[$rel].Add($term)
+              }
+            }
+          }
+          Need ($hits.Count -gt 0) 'NO_SOURCE_HITS'
+          foreach($rel in ($hits.Keys | Sort-Object)){
+            $p=Join-Path $root $rel
+            $termList=([string[]]$hits[$rel] | Sort-Object) -join ','
+            Write-Host ('MP_PROV_FILE='+$rel+' SHA256='+(Hash $p)+' TERMS='+$termList)
+          }
+          foreach($rel in $protected){Need((Hash (Join-Path $root $rel)) -ceq $before[$rel])('POSTIMAGE_'+$rel)}
+          Write-Host ('MP_PROV_MATCHED_FILES='+$hits.Count)
+          Write-Host 'MP_PROV_CONFIG_VALUES_LOGGED=FALSE'
+          Write-Host 'MP_PROV_LIVE_WRITES=0'
+          Write-Host 'MP_PROV_SOURCE_TRACE=PASS'
