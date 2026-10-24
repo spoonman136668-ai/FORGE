@@ -1,4 +1,4 @@
-name: MP-AI01 real Codex failure receipts into admitted-source read-only reflect proposal
+name: MP-AI01 genuine development feedback fail-closed at scientific Probe gate
 on:
   push:
     branches: [qualification/mpai01-real-feedback-reflect-20261024]
@@ -48,6 +48,7 @@ jobs:
           SOURCE_BLOB="e3e548d41d9f22bf395fec41b4d2a978047dc131"
           CANDIDATE="250208e94d998cf0452923a4d02bb99e0eb208b9"
           REFLECT_BLOB="ee7fe1bafaa8512843a984d2446fc035835803d5"
+          PROBE_BLOB="fdd6b2c6f0470cf69172c2968fe265b2d41e33db"
           RUN=40088045136
           JOB=120854883831
           RUN_HEAD="06b31f955501433525a8cb0f0b2d698643f7879b"
@@ -83,6 +84,13 @@ jobs:
           refmodule=tmp/"mpai01_reflect.py";refmodule.write_bytes(raw)
           spec=importlib.util.spec_from_file_location("mpai01_reflect",refmodule)
           obj=importlib.util.module_from_spec(spec);spec.loader.exec_module(obj)
+          need(cmd("git","-C",str(source),"rev-parse",CANDIDATE+":agentic/mpai01_probe.py").strip()==PROBE_BLOB,
+               "PROBE_MODULE_BLOB_DRIFT")
+          probe_raw=subprocess.run(["git","-C",str(source),"cat-file","blob",PROBE_BLOB],
+              stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,timeout=30).stdout
+          probe_module=tmp/"mpai01_probe.py";probe_module.write_bytes(probe_raw)
+          probe_spec=importlib.util.spec_from_file_location("mpai01_probe",probe_module)
+          probe_api=importlib.util.module_from_spec(probe_spec);probe_spec.loader.exec_module(probe_api)
           sys.path.insert(0,str(source/"tools"))
           from mindpalace_readonly import MemorySnapshot
           snapshot=MemorySnapshot(source,PIN,["Mind-Palace"])
@@ -155,6 +163,35 @@ jobs:
           negative2["observations"][1]["task_id"]=negative2["observations"][0]["task_id"]
           need(obj.propose(snapshot,negative2,project="Mind-Palace",task=task)["proposals"]==[],
                "TASK_UNIQUENESS_NEGATIVE")
+          # An authentic developer-only paired run provides zero unexposed
+          # holdout tasks and only one actual independent model class.
+          # Do not fill either missing dimension with fake tasks/models.
+          incomplete={
+              "schema":"mind-palace.mpai01-paired-probe.v1",
+              "source_sha":PIN,"proposal_id":proposals[0]["proposal_id"],
+              "preregistration":{
+                  "policy":"paired-holdout-v1",
+                  "development_task_ids":["dev-1","dev-2","dev-3","dev-4"],
+                  "holdout_task_ids":[],
+                  "max_total_token_ratio":1.0,
+                  "max_total_latency_ratio":1.0
+              },
+              "receipts":[]
+          }
+          try:
+              probe_api.probe(result,incomplete)
+          except probe_api.ProbeError as exc:
+              need(str(exc)=="MPAI01_PROBE_TASK_COUNT","UNEXPECTED_NO_GO_ERROR")
+          else:
+              raise AssertionError("MPAI01_REAL_UNVERIFIED_DEVELOPMENT_ACCEPTED_AS_HOLDOUT")
+          print("MPAI01_REAL_PROBE_DEV_ONLY_REJECTED=PASS",flush=True)
+          print("MPAI01_REAL_NO_FABRICATED_HOLDOUT_OR_SECOND_MODEL=TRUE",flush=True)
+          # The independently observed comparison to a matched placebo in
+          # GitHub run 40088522117 failed the development joint efficiency
+          # rule. This separate negative remains authoritative; no new
+          # interpretation or retrofitting that four-task development set.
+          print("MPAI01_REAL_PREVIOUS_PLACEBO_JOINT_GATE=NO_GO",flush=True)
+          print("MPAI01_REAL_COMPOSE_NO_ADOPTION=PASS",flush=True)
           after=cmd("git","ls-remote","--exit-code",remote,"refs/heads/main")
           need(after.split()[0]==PIN,"MAIN_DRIFT_AFTER")
           print("MPAI01_REAL_PROPOSAL_ID="+proposals[0]["proposal_id"],flush=True)
