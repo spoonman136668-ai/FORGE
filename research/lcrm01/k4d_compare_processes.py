@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """K4D independent-process exact outcome comparison; no re-evaluation."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -34,7 +35,7 @@ def compare(a,b,protocol):
                 "index":i,"case":expected[i],
                 "process_a_status":x.get("status"),
                 "process_b_status":y.get("status"),
-                "differing_fields":sorted(set(x)|set(y)-set()),
+                "differing_fields":sorted(k for k in set(x)|set(y) if x.get(k)!=y.get(k)),
             })
     passed = (not mismatches and a["result"]=="PASS_ALL_EIGHT" and b["result"]=="PASS_ALL_EIGHT")
     return {"schema":"mass.lcrm01.k4d.cross-process-replication.v1",
@@ -57,7 +58,7 @@ def main():
         raise RuntimeError("OUTPUT_NOT_FRESH")
     first=json.loads(a.first.read_text(encoding="utf-8"))
     second=json.loads(a.second.read_text(encoding="utf-8"))
-    pin=first.get("protocol_sha256")
+    pin=hashlib.sha256(FROZEN.read_bytes()).hexdigest()
     result=compare(first,second,pin)
     a.output.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     print("LCRM01_K4D_REPLICATION="+result["result"])
