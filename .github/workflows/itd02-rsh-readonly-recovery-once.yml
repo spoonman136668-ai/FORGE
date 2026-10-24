@@ -38,12 +38,12 @@ jobs:
           func main(){
             raw,err:=os.ReadFile(os.Args[1]);if err!=nil{panic(err)}
             p,err:=researchfeed.PreviewCandidates(raw);if err!=nil{panic(err)}
-            if len(p.Entries)!=6||!p.AdvisoryOnly||p.ScientificAccepted||p.ScientificFirstUseCleared||
+            if len(p.Entries)!=9||!p.AdvisoryOnly||p.ScientificAccepted||p.ScientificFirstUseCleared||
                p.ExecutionAuthorized||p.OriginalBytesAuthenticated{panic("RSH_CLAIM_OR_LANE_COUNT_DRIFT")}
             lanes:=map[string]bool{}
             for _,e:=range p.Entries{
-              if e.EvidenceState!="SOURCE_POINTER_ONLY"||e.ReportedSHA256!=""||lanes[e.Lane]{
-                panic("RSH_UNQUALIFIED_OR_DUPLICATE_SOURCE_POINTER")
+              if e.EvidenceState!="SOURCE_POINTER_ONLY"||e.ReportedSHA256!=""{
+                panic("RSH_UNQUALIFIED_SOURCE_POINTER")
               }
               lanes[e.Lane]=true
             }
@@ -67,7 +67,7 @@ jobs:
           raw=path.read_bytes()
           doc=json.loads(raw)
           assert doc["schema"]=="forge.research-six-lane-source-candidates.v1"
-          assert len(doc["candidates"])==6
+          assert len(doc["candidates"])==9
           output=[]
           for c in doc["candidates"]:
             assert c["evidence_state"]=="SOURCE_POINTER_ONLY"
@@ -105,9 +105,9 @@ jobs:
           (root/"source-readbacks.json").write_text(json.dumps({"schema":"forge.itd02.rsh-source-readbacks.v1","entries":output,
             "original_evidence_authenticated":False,"scientific_first_use":False,"execute_requested":False},indent=2)+"\n")
           verified=sum("git_blob_sha1" in e for e in output)
-          assert len(output)==6 and verified==5
+          assert len(output)==9 and verified==7
           print("ITD02_RSH_GIT_SOURCE_PATHS_AND_BLOBS_VERIFIED="+str(verified))
-          print("ITD02_RSH_PRIVATE_SOURCE_POINTERS_UNVERIFIED=1")
+          print("ITD02_RSH_PRIVATE_SOURCE_POINTERS_UNVERIFIED=2")
           print("ITD02_ORIGINAL_EVIDENCE_SCIENTIFICALLY_AUTHENTICATED=FALSE")
           PY
       - name: Retain nonauthorizing manifest without protected repository writes
