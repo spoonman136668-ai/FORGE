@@ -1,0 +1,68 @@
+name: L9 frozen conventional Transformer compute parity static audit
+on:
+  pull_request:
+    branches:
+      - research/optimizer-language-l9-webnlg-transfer-20261023
+permissions:
+  contents: read
+concurrency:
+  group: l9-compute-parity-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-and-falsification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Assert exact original model, evaluator and three-path research-only delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=ac93aec4d774b9d81b2fdc9bb6992d45882823d4
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_neural_select_only.py)" = 91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e
+          git diff --name-only "$base" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/l9_compute_parity_preflight.py","research/optimizer_language_l9/test_l9_compute_parity_preflight.py",".github/workflows/l9-compute-parity-static.yml"}; assert a==b,(a,b)'
+      - name: Verify immutable source and conditional cost upper bound without audit/TEST
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_compute_parity_preflight.py -v
+          python -B research/optimizer_language_l9/l9_compute_parity_preflight.py --out "$RUNNER_TEMP/l9_compute_parity_source.json"
+          python - "$RUNNER_TEMP/l9_compute_parity_source.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding='utf8'))
+          assert x['max_forward_invocations_if_no_early_eos']==6630012
+          assert x['max_cumulative_decoder_prefix_tokens_if_no_early_eos']==1703913084
+          assert x['disposition']=='SOURCE_STATIC_BENCHMARK_COST_PARITY_UNQUALIFIED'
+          assert not x['audit_dev_loaded'] and not x['official_test_loaded']
+          assert not x['compute_or_energy_measured'] and not x['scientific_quality_measured']
+          print('L9_STATIC_COST_CONFUND_SOURCE=PASS')
+          print('L9_COMPUTE_PARETO_SCIENTIFIC_GO=FALSE')
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+          sha256sum "$RUNNER_TEMP/l9_compute_parity_source.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l9-source-only-compute-parity-${{ matrix.os }}
+          path: ${{ runner.temp }}/l9_compute_parity_source.json
+          if-no-files-found: ignore
