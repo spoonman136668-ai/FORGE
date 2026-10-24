@@ -1,0 +1,52 @@
+name: MP R1A roadmap source custody
+on:
+  push:
+    branches: [diagnostics/mp-r1a-roadmap-source-custody-20261024]
+    paths: [.github/workflows/mp-r1a-roadmap-source-custody-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Rescue exact hash-pinned R1A roadmap source files
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_R1A_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $root='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1A\internal\plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT_MISSING'
+          $pins=[ordered]@{
+            'pine_successor.go'='9bd9fbf86646f419c9ca49ece71599be1ab5dcd0e324a1e375f4b29b13a8c857'
+            'roadmap_catalog_v2.go'='4793147f85afbc1cebd038403ea69ea152e3da39cc38ff54c0179994e7e7517d'
+            'roadmap_catalog_v2_bridge.go'='c789f053f762e12f1ef80696b6095c00ec8c6599a3f00f5ac498063a29527760'
+            'roadmap_catalog_v2_test.go'='07cc744f8d5e2787342ea7911d89a95ba9ac4b9628a3a62e04b3d53cc977024e'
+            'roadmap_successors.json'='fe4e9aaf47fd846ecec6ef834c98b0c0f5662a3505befb72be75a6c487dbdc79'
+          }
+          $stage=Join-Path $env:RUNNER_TEMP 'mp-r1a-roadmap'
+          if(Test-Path -LiteralPath $stage){Remove-Item -LiteralPath $stage -Recurse -Force}
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          foreach($name in $pins.Keys){
+            $src=Join-Path $root $name
+            Need (Test-Path -LiteralPath $src -PathType Leaf) ('MISSING_'+$name)
+            $actual=Sha $src
+            Need ($actual -ceq $pins[$name]) ('HASH_'+$name)
+            Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name) -Force
+            Write-Host ('MP_R1A_FILE='+$name+' sha256='+$actual)
+          }
+          Write-Host 'MP_R1A_HASH_PINNED_CUSTODY=PASS'
+          "MP_R1A_STAGE=$stage" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Upload exact R1A roadmap source set
+        uses: actions/upload-artifact@v4
+        with:
+          name: mp-r1a-roadmap-source
+          path: ${{ env.MP_R1A_STAGE }}
+          if-no-files-found: error
+          retention-days: 7
