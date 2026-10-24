@@ -11,7 +11,10 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import resource
+try:
+    import resource
+except ImportError:
+    resource = None
 import time
 import tracemalloc
 
@@ -37,6 +40,7 @@ def assert_fit_receipt(receipt: dict, arm: str, seed: int) -> None:
         "arm":arm, "seed":seed,
         "role_identity_sha256":ROLE_SHA,
         "model_suite_git_blob":SUITE_BLOB,
+        "source_release_sha":"a7ea49b5ffa5011edf81e8530c59b3552a965023",
         "train_examples":8480, "select_count_loaded_but_unseen_by_fit":2154,
         "select_fidelity_scored":False,
         "audit_dev_reference_consumed":False,
@@ -155,7 +159,7 @@ def run(repo: Path, artifact: Path, arm: str, seed: int, out: Path):
         "selected_metric_is_nonadjudicated_proxy":True,
         "fit_receipt_sha256":sha((artifact/"receipt.json").read_bytes()),
         "python_peak_traced_bytes":peak,
-        "rss_linux_kb":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+        "rss_linux_kb":resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None,
         "verification_cost_included_in_metric":True,
         "audit_dev_reference_consumed":False,"official_test_consumed":False,
         "flops":"NOT_MEASURED","energy":"NOT_MEASURED",
