@@ -1,0 +1,109 @@
+name: MP installed source provenance binding
+on:
+  push:
+    branches: [diagnostics/mp-installed-source-provenance-20261023]
+    paths: [.github/workflows/mp-installed-source-provenance-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-installed-source-provenance-20261023
+  cancel-in-progress: false
+jobs:
+  provenance:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Bind installed capability files to existing CKB Git objects and refs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_PROV_'+$c)}}
+          function Sha256([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-installed-source-provenance-20261023') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $parent='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-installed-source-provenance-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $live -PathType Container) 'LIVE_ROOT'
+          $pre=@{}
+          foreach($rel in @('config\autonomy.yaml','bin\ckb-plane.exe')){
+            $p=Join-Path $live $rel
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ('PRE_'+$rel)
+            $pre[$rel]=Sha256 $p
+          }
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPid=[int]$proc[0].ProcessId
+
+          $installed=@()
+          $installed += @(Get-ChildItem -LiteralPath (Join-Path $live 'internal\plane') -File -Filter '*.go' |
+            Where-Object {$_.Name -match '^(model|engine|wingless_stage1_|opencode_|mind_palace_webui_context)'})
+          $installed += @(Get-ChildItem -LiteralPath (Join-Path $live 'cmd\ckb-plane') -File -Filter '*.go' |
+            Where-Object {$_.Name -in @('main.go','main_advisory_test.go')})
+          Need ($installed.Count -eq 27) 'EXPECTED_27_FILES'
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-installed-prov-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $mirror=Join-Path $scratch 'ckb.git'
+          try {
+            & git.exe clone --quiet --mirror https://github.com/spoonman136668-ai/ckb-plane.git $mirror
+            Need ($LASTEXITCODE -eq 0) 'MIRROR_CLONE'
+            $refs=@(& git.exe -C $mirror for-each-ref '--format=%(refname)' refs/heads)
+            Need ($LASTEXITCODE -eq 0 -and $refs.Count -gt 0) 'REFS'
+            $coverage=@{}
+            foreach($ref in $refs){$coverage[$ref]=0}
+            $presentCount=0
+            foreach($f in $installed){
+              $rel=$f.FullName.Substring($live.Length).TrimStart('\')
+              $relGit=$rel.Replace('\','/')
+              $oid=(& git.exe -C $mirror hash-object --no-filters -- $f.FullName).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $oid -match '^[0-9a-f]{40}$') ('HASH_'+$rel)
+              $present=$true
+              & git.exe -C $mirror cat-file -e ($oid+'^{blob}') 2>$null
+              if($LASTEXITCODE -ne 0){$present=$false}
+              if($present){$presentCount++}
+              $matches=@()
+              if($present){
+                foreach($ref in $refs){
+                  $got=''
+                  try{$got=(& git.exe -C $mirror rev-parse ($ref+':'+$relGit) 2>$null).Trim()}catch{}
+                  if($got -ceq $oid){
+                    $coverage[$ref]=[int]$coverage[$ref]+1
+                    if($matches.Count -lt 8){$matches += $ref}
+                  }
+                }
+              }
+              Write-Host ('MP_PROV_FILE path='+$rel+' sha256='+(Sha256 $f.FullName)+' git_blob='+$oid+' object_present='+$present.ToString().ToLowerInvariant()+' matching_refs='+($matches -join ','))
+            }
+            Write-Host ('MP_PROV_OBJECT_PRESENT_COUNT='+$presentCount)
+            $ranked=@($coverage.GetEnumerator() | Sort-Object -Property @{Expression='Value';Descending=$true}, @{Expression='Name';Descending=$false})
+            foreach($row in $ranked | Select-Object -First 20){
+              Write-Host ('MP_PROV_REF_COVERAGE ref='+$row.Name+' matched='+$row.Value+'/27')
+            }
+            $full=@($ranked | Where-Object {[int]$_.Value -eq 27})
+            Write-Host ('MP_PROV_FULL_COVERAGE_REF_COUNT='+$full.Count)
+            foreach($row in $full | Select-Object -First 20){
+              Write-Host ('MP_PROV_FULL_COVERAGE_REF='+$row.Name)
+            }
+            Write-Host 'MP_PROV_CONTENT_LOGGED=FALSE'
+            Write-Host 'MP_PROV_REPO_WRITES=0'
+            Write-Host 'MP_PROV_LIVE_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+            foreach($rel in $pre.Keys){Need ((Sha256 (Join-Path $live $rel)) -ceq $pre[$rel]) ('POST_'+$rel)}
+            Write-Host 'MP_PROV_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+            Write-Host 'MP_PROV_SCRATCH_CLEAN=PASS'
+          }
