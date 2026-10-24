@@ -30,11 +30,15 @@ jobs:
             $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai04-mpai05-composed-20261024' -and
             $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
           Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          # On Windows the accepted main includes nested archival paths; allow Git long-path clones only within this one-shot runner process.
+          $env:GIT_CONFIG_COUNT='1'
+          $env:GIT_CONFIG_KEY_0='core.longpaths'
+          $env:GIT_CONFIG_VALUE_0='true'
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $branch='proposal/mpai04-mpai05-compose-20261024'
           $source='250208e94d998cf0452923a4d02bb99e0eb208b9'
           $base='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
-          $scratch=Join-Path $env:RUNNER_TEMP ('mpai0405-composed-'+$env:GITHUB_RUN_ID)
+          $scratch=Join-Path $env:RUNNER_TEMP ('m45-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
           $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
             '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
@@ -113,6 +117,9 @@ jobs:
             ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $fstdout -RedirectStandardError $fstderr
             $foutput=[IO.File]::ReadAllText($fstdout)+[IO.File]::ReadAllText($fstderr)
             if($fp.ExitCode -ne 0){
+              Write-Host ('MPAI0405_UQ51_GIT_FILENAME_TOO_LONG=' + [bool]($foutput -match 'Filename too long|path too long|File name too long'))
+              Write-Host ('MPAI0405_UQ51_GIT_PERMISSION_DENIED=' + [bool]($foutput -match 'Permission denied|Access is denied'))
+              Write-Host ('MPAI0405_UQ51_GIT_SECURITY_POLICY=' + [bool]($foutput -match 'unsafe repository|dubious ownership|safe.directory'))
               $codes=@([regex]::Matches($foutput,'UQ[0-9]+_[A-Z0-9_]+')|ForEach-Object{$_.Value}|Select-Object -Unique)
               if($codes.Count -gt 0){ Write-Host ('MPAI0405_UQ51_FAILURE_CODES='+($codes -join ',')) }
               $kind=@([regex]::Matches($foutput,'(ParserError|CommandNotFoundException|NativeCommandError|UQ51_[A-Z0-9_]+|GitError)')|ForEach-Object{$_.Value}|Select-Object -Unique)
