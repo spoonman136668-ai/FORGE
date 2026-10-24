@@ -1,0 +1,107 @@
+name: F139 G2 authentic original-owner consumed-negative preflight
+on:
+  push:
+    branches: [diagnostics/f139-g2-real-owner-no-replay-20261024]
+    paths: [.github/workflows/f139-g2-authentic-negative-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  read-only-original-owner-negative:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Authenticate consumed mechanism #840 from original owner ledger and refuse republication
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $source='ff1f8efb65c3728b8cd2afe0fed1fa0d9ee00fe5'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_G2_NO_REPLAY_RUNNER_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'F139_G2_OWNER_TOPOLOGY_DRIFT'
+          }
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$key){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G2_ORIGINAL_TASK_ARG_UNVERIFIED'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database';$python=Arg 'PythonExe';$root=Arg 'RepositoryRoot'
+          if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $source){
+            throw 'F139_G2_ORIGINAL_SOURCE_MISMATCH'
+          }
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-g2-original-negative-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_G2_SCRATCH_EXISTS'}
+          $verify=@'
+          import pathlib,sqlite3,sys
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64
+          from f139.nci04_owner_ledger import native_events
+          from f139.nci04_candidate_publisher import publisher_preflight,PublisherDenied
+          from f139.nci04_candidate_producer import produce,LANE,PATH,candidate_mechanism_identity
+          from f139.nci04_native_contract import digest
+          path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          source=sys.argv[3]
+          raw=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=30)
+          raw.execute("PRAGMA query_only=ON")
+          assert not scratch.exists()
+          copy=sqlite3.connect(scratch)
+          raw.backup(copy)
+          copy.close()
+          db=Database(scratch)
+          try:
+              db.verify()
+              meta=db.meta()
+              assert meta["source_sha"]==source and meta["head_seq"]>=179
+              task=db.conn.execute("SELECT stage FROM tasks WHERE ticket LIKE 'f139-nci04-i840-%'").fetchone()
+              assert task and task["stage"]=="QUARANTINED",task
+              events=native_events(db)
+              existing={candidate_identity_from_intent_base64(e["native_intent_base64"])
+                  for e in events if isinstance(e.get("native_intent_base64"),str)}
+              assert existing
+              api=GitHub()
+              get=api.native_repo_get
+              parent="992ef142aaa551156749a1de484a971b9a0c092f"
+              blob_doc=get("repos/spoonman136668-ai/Yggdrasil/contents/"+PATH+"?ref="+parent)
+              import base64
+              from f139.nci04_autonomy_feed import _decode_content
+              before,blob=_decode_content(blob_doc)
+              generated=produce(lane=LANE,path=PATH,parent_commit=parent,
+                  before_bytes=before,pinned_before_sha256=digest(before),
+                  history_sha256=meta["head_hash"],consumed_mechanism_sha256=set())
+              assert generated["candidate_identity"] in existing, "F139_G2_ORIGINAL_NEGATIVE_CANDIDATE_NOT_BOUND"
+              try:
+                  publisher_preflight(get,source_sha=source,parent_commit=parent,
+                      historical_sha256=meta["head_hash"],
+                      consumed_mechanisms={candidate_mechanism_identity()},
+                      existing_candidate_identities=existing)
+                  raise AssertionError("F139_G2_CONSUMED_MECHANISM_REPLAY_ACCEPTED")
+              except PublisherDenied as exc:
+                  assert "PREVIOUSLY_CONSUMED_MECHANISM_NO_REPLAY" in str(exc),str(exc)
+              print("F139_G2_AUTHENTIC_840_CANDIDATE_IDENTITY_MATCH=PASS")
+              print("F139_G2_AUTHENTIC_NEGATIVE_NOT_REPUBLISHED=PASS")
+              print("F139_G2_OWNER_LEDGER_HEAD="+str(meta["head_seq"]))
+              print("F139_G2_WRITES=0")
+              print("F139_G2_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:db.close()
+          raw.close()
+          print("F139_G2_ORIGINAL_DATABASE_READONLY=PASS")
+          '@
+          try{
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -c $verify $db $scratch $source
+              if($LASTEXITCODE -ne 0){throw 'F139_G2_AUTHENTIC_NEGATIVE_PREFLIGHT_FAILED'}
+            }finally{Pop-Location}
+          }finally{
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
