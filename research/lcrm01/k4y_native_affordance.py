@@ -202,7 +202,7 @@ def report(dev):
 
 def experiment(bin_r1,bin_r2):
  start_wall=time.perf_counter();start_cpu=time.process_time()
- fit,starts,audit,source_wall,control=fit()
+ train_stream,starts,audit,source_wall,control=fit()
  base={"schema":SCHEMA,"gate":"LCRM01-K4Y",
     "FIT_episodes":len(starts),"FIT_public_experience_count":len(fit),
     "FIT_original_public_experiences":fit,"FIT_source_balance":audit,
@@ -215,7 +215,7 @@ def experiment(bin_r1,bin_r2):
   base["result"]="FIT_SOURCE_NOT_QUALIFIED_HELDOUT_UNCONSUMED"
   return base
  base["FIT_conventional_sha256"]=sha(canon(control).encode())
- learners,y1,y2,info=train(fit,bin_r1,bin_r2)
+ learners,y1,y2,info=train(train_stream,bin_r1,bin_r2)
  try:
   base["native_FIT_custody"]=info
   check=evaluation("CHECK",learners,y1,y2,control)
