@@ -1,0 +1,81 @@
+name: F139 R4 single-owner pre-cutover readiness (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-r4-single-owner-cutover-readiness-readonly-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect original owner task and complete immutable SQLite readiness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_R4_WRONG_RUNNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){throw 'F139_R4_TASK_SHAPE_DRIFT'}
+          if([string]$task.State -cnotin @('Ready','Running')){throw 'F139_R4_TASK_NOT_ENABLED'}
+          $options=[string]$task.Actions[0].Arguments
+          function ReadArg([string]$name) {
+            $m=[regex]::Match($options,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_R4_TASK_ARGS_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=ReadArg 'RepositoryRoot'
+          $db=ReadArg 'Database'
+          $python=ReadArg 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_R4_OWNER_DB_ROUTE_DRIFT'
+          }
+          $source=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($source -cne '8eca700c39223e176dea55f488b6f3397ce4e27a'){
+            throw 'F139_R4_OWNER_INSTALLED_SHA_DRIFT'
+          }
+          Write-Host ('F139_R4_ORIGINAL_TASK_STATE=' + [string]$task.State)
+          $check=@'
+          import hashlib,json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          try:
+              m=conn.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert m is not None and m["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              assert m["enabled"]==1 and m["legacy_suspended"]==1
+              active=conn.execute("SELECT stage,count(*) AS n FROM tasks WHERE stage NOT IN ('VERIFIED','QUARANTINED') GROUP BY stage").fetchall()
+              active=[(r["stage"],r["n"]) for r in active]
+              total=conn.execute("SELECT count(*) FROM tasks").fetchone()[0]
+              native=conn.execute("SELECT count(*) FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED'").fetchone()[0]
+              assert native>=22 and m["head_seq"]>=206
+              prev="0"*64
+              seq=0
+              for row in conn.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  seq+=1
+                  assert row["seq"]==seq and row["prior_sha"]==prev
+                  payload=json.loads(row["payload"])
+                  canon=lambda o:(json.dumps(o,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode()
+                  assert row["payload"]==canon(payload).decode("ascii")
+                  expect=hashlib.sha256(canon({"seq":seq,"kind":row["kind"],"payload":payload,"prior_sha":prev})).hexdigest()
+                  assert expect==row["sha"]
+                  prev=row["sha"]
+              assert seq==m["head_seq"] and prev==m["head_hash"]
+              print("F139_R4_ACTIVE_NONTERMINAL_COUNT="+str(sum(x[1] for x in active)))
+              print("F139_R4_ORIGINAL_TOTAL_TASKS="+str(total))
+              print("F139_R4_ORIGINAL_NATIVE_ADMISSIONS="+str(native))
+              print("F139_R4_ORIGINAL_EVENT_CHAIN=PASS")
+              print("F139_R4_ORIGINAL_EVENT_HEAD="+str(seq))
+              print("F139_R4_INSTALLED_SOURCE_PIN=PASS")
+              print("F139_R4_NO_READONLY_AUDIT_MUTATIONS=TRUE")
+              print("F139_R4_OWNER_MIGRATION_PERFORMED=FALSE")
+              assert not active, "F139_R4_WORK_PRESENT_NO_CUTOVER"
+              print("F139_R4_NO_ACTIVE_WORK=PASS")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $check $root $db
+          if($LASTEXITCODE -ne 0){throw 'F139_R4_READINESS_FAILED'}
