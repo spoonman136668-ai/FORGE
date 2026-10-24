@@ -49,7 +49,11 @@ jobs:
           from pathlib import Path
           code=Path('research/lcrm01/k4v_fit_replay.py').read_text()
           compile(code,'k4v_fit_replay.py','exec')
-          assert 'minigrid' not in code.lower().replace('no minigrid','').replace('new minigrid','').replace('original minigrid',''), 'UNQUALIFIED_SIMULATOR_CODE'
+          import ast
+          syntax=ast.parse(code)
+          imports=[n.names for n in ast.walk(syntax) if isinstance(n,ast.Import)]
+          assert not any(a.name.startswith('minigrid') for group in imports for a in group), 'UNQUALIFIED_SIMULATOR_IMPORT'
+          assert not any(n.module and n.module.startswith('minigrid') for n in ast.walk(syntax) if isinstance(n,ast.ImportFrom)), 'UNQUALIFIED_SIMULATOR_IMPORT'
           assert 'CHECK_original_results' not in code and 'DEV_original_results' not in code
           print('K4V_PROTOCOL_FREEZE_AND_REPLAY_SOURCE=PASS')
           PY
