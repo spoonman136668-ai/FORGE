@@ -1,0 +1,45 @@
+name: L9 protected graph-to-inference synthetic qualification
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-source-inference-qualify.yml'
+permissions:
+  contents: read
+jobs:
+  graph-inference-synthetic:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify all frozen sources and synthetic-only graph-inference tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'c9415cb7bc581f5f6ac3f3dd86841628a73c76f6'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-source-inference-qualify.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_first_use_source_pipeline.py)" = 'b26ea752197d027a43822dd499896054eb10413a'
+          test "$(git rev-parse HEAD:$p/test_l9_first_use_source_pipeline.py)" = 'a578c73967ff9e0704bd84d76467fc84660b3825'
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/l9_audit_pre_admission.py)" = 'cb69fafb9f1d7db51c49f0dcf6ca228630b78893'
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$p/l9_transformer_select_reuse_v2.py)" = 'e934b48ea1ab8df3c1f65554b02d240b0c57f811'
+          test "$(git rev-parse HEAD:$p/l9_split_builder.py)" = '79aa0384fe3fb220e83efdaf0f87d468a076b735'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          python -m py_compile "$p/l9_first_use_source_pipeline.py" "$p/test_l9_first_use_source_pipeline.py"
+          (cd "$p" && python -m unittest -v test_l9_first_use_source_pipeline.py test_l9_first_use_scoring_core.py test_l9_audit_pre_admission.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_GRAPH_ONLY_SOURCE_AND_FROZEN_INFERENCE_SYNTHETIC=PASS
+          echo L9_AUDIT_REFERENCES_EXPOSED=FALSE
+          echo L9_SCIENTIFIC_GO=FALSE
