@@ -18,7 +18,7 @@ class StructuralFalsificationTests(unittest.TestCase):
         self.assertTrue(all(x.role=="L9_TRAIN" for x in train))
         self.assertEqual([sum(v["category"]==k for v in test) for k in exp.TEST_CATEGORIES],
                          list(exp.SIZES))
-        self.assertTrue({x.graph_id for x in train}.isdisjoint(
+        self.assertTrue({x.graph_sha256 for x in train}.isdisjoint(
             {x["graph_id"] for x in test}))
         self.assertTrue(all("NewSubject" in x["triples"][0].subject for x in test))
         self.assertTrue(all("TrainSubject" in x.triples[0].subject for x in train))
@@ -97,7 +97,7 @@ class StructuralFalsificationTests(unittest.TestCase):
     def test_baseline_train_role_guard_and_output_path_guard(self):
         train=exp.training()
         fake=copy.deepcopy(train)
-        fake[0]=exp.m.Example("L9_AUDIT_DEV",fake[0].graph_id,
+        fake[0]=exp.m.Example("L9_AUDIT_DEV",fake[0].graph_sha256,
                               fake[0].triples,fake[0].reference)
         with self.assertRaisesRegex(ValueError,"BASELINE_FIT_TRAIN_ONLY"):
             exp.fit_slot_control(fake)
