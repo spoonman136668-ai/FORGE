@@ -1,0 +1,35 @@
+name: Mass K5D constructed causal world composition first use
+on:
+  push:
+    branches: [research/mass-lcrm01-k5d-causal-composition-20261024]
+permissions:
+  contents: read
+jobs:
+  true-source-causal-composition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source original native and true causal interventions
+        run: bash research/lcrm01/k5d_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k5d-original-causal-composition-evidence
+          path: |
+            ${{ runner.temp }}/k5d/process-a.json
+            ${{ runner.temp }}/k5d/process-b.json
+            ${{ runner.temp }}/k5d/comparison.json
+            ${{ runner.temp }}/k5d/process-a.log
+            ${{ runner.temp }}/k5d/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
