@@ -1,0 +1,35 @@
+name: Mass K5B original delayed cue reward learning in MemoryEnv
+on:
+  push:
+    branches: [research/mass-lcrm01-k5b-memory-cue-transfer-20261024]
+permissions:
+  contents: read
+jobs:
+  original-memory-physical-reward:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 16
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source and two actual MemoryEnv reward/choice experiments
+        run: bash research/lcrm01/k5b_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k5b-original-native-cue-memory-reward-evidence
+          path: |
+            ${{ runner.temp }}/k5b/process-a.json
+            ${{ runner.temp }}/k5b/process-b.json
+            ${{ runner.temp }}/k5b/comparison.json
+            ${{ runner.temp }}/k5b/process-a.log
+            ${{ runner.temp }}/k5b/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
