@@ -1,0 +1,43 @@
+name: Optimizer O20-T0 source-free negative evidence qualification
+on:
+  push:
+    branches: [research/optimizer-o20-action-credit-trainonly-20261024]
+    paths:
+      - "research/optimizer_o20_t0/**"
+      - ".github/workflows/optimizer-o20-t0-sourceonly.yml"
+  pull_request:
+    paths:
+      - "research/optimizer_o20_t0/**"
+      - ".github/workflows/optimizer-o20-t0-sourceonly.yml"
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 15
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Frozen-first ancestry and additive-source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse ea562e08d22081e29b4ef82de10650bf686ef492^)" = "8eca700c39223e176dea55f488b6f3397ce4e27a"
+          test "$(git show --format= --name-only ea562e08d22081e29b4ef82de10650bf686ef492)" = "research/optimizer_o20_t0/PREREG.md"
+          git merge-base --is-ancestor ea562e08d22081e29b4ef82de10650bf686ef492 HEAD
+          git diff --name-only 8eca700c39223e176dea55f488b6f3397ce4e27a HEAD | python -B -c 'import sys; actual=set(sys.stdin.read().splitlines()); expected={"research/optimizer_o20_t0/PREREG.md","research/optimizer_o20_t0/README.md","research/optimizer_o20_t0/experiment.py","research/optimizer_o20_t0/test_contract.py","research/optimizer_o20_t0/RESULT.json",".github/workflows/optimizer-o20-t0-sourceonly.yml"}; assert actual==expected,(actual,expected)'
+      - name: Validate complete frozen train-only negative without re-opening heldouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_o20_t0 -p "test_*.py" -v
+          python -B -c 'import json; d=json.load(open("research/optimizer_o20_t0/RESULT.json")); assert not d["go"]; assert d["original_ENV_reset_step_count"]==0; assert d["original_source_roles_consumed"]==0; assert set(d["families"])=={"C","D"}'
