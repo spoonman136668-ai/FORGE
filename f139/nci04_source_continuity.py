@@ -19,6 +19,7 @@ _SHA = re.compile(r"[a-f0-9]{40}\Z")
 _RESEARCH_GO = re.compile(r"researchfeed/[A-Za-z0-9][A-Za-z0-9_-]*\.go\Z")
 _RESEARCH_DOC = re.compile(r"docs/RSH-[0-9A-Za-z][0-9A-Za-z_.-]*\.md\Z")
 _FSA_READONLY_TEST = re.compile(r"fsaservice/rsh[0-9][0-9a-z_-]*_readonly_bridge_test\.go\Z")
+_RESEARCH_RECEIPT = re.compile(r"reference/research-originals/[0-9]{8}-[a-z0-9][a-z0-9_-]{0,63}-(?:raw-integrity-receipt|manifest)\.json\Z")
 MAX_COMMITS = 80
 MAX_CHANGED_FILES = 48
 MAX_TOTAL_CHANGED_LINES = 7000
@@ -42,6 +43,7 @@ def _research_only_path(path: object) -> bool:
         _RESEARCH_DOC.fullmatch(path) is not None
         or _RESEARCH_GO.fullmatch(path) is not None
         or _FSA_READONLY_TEST.fullmatch(path) is not None
+        or _RESEARCH_RECEIPT.fullmatch(path) is not None
     )
 
 
@@ -98,6 +100,11 @@ def prove_protected_research_only_advance(
                 and isinstance(f.get("patch"), str)
                 and 0 < len(f["patch"]) <= 120000,
                 "RUNTIME_OR_UNTRUSTED_FILE_CHANGED")
+        if _RESEARCH_RECEIPT.fullmatch(f["filename"]) is not None:
+            # Immutable data-only custody receipts may be ADDED, never
+            # rewritten or removed under a live owner source pin.
+            require(f["status"] == "added",
+                    "ORIGINAL_EVIDENCE_REWRITTEN")
         require(f["filename"] not in paths, "DUPLICATE_CHANGED_FILE")
         paths.add(f["filename"])
         count += f["changes"]
