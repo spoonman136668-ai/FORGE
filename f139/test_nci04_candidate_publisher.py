@@ -172,6 +172,16 @@ class OwnerPublisherTests(unittest.TestCase):
                 existing_candidate_identities=set())
         self.assertEqual(p.write_calls, [])
 
+    def test_candidate_completed_during_preflight_must_not_republish(self):
+        p = FakeOriginalOwner()
+        plan = p.preflight()
+        with self.assertRaisesRegex(PublisherDenied, "PREVIOUS_CANDIDATE"):
+            publish_single_draft(
+                p.get, p.write, plan, owner_witness=lambda: True,
+                consumed_mechanisms=set(),
+                existing_candidate_identities={plan["candidate_identity"]})
+        self.assertEqual(p.write_calls, [])
+
     def test_no_owner_witness_means_no_writes(self):
         p = FakeOriginalOwner()
         plan = p.preflight()
