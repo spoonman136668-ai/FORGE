@@ -1,0 +1,73 @@
+name: F139 G2 G3 bounded publisher qualification (one-shot)
+on:
+  push:
+    branches: [audit/f139-g2-g3-qualification-20261024]
+    paths: [.github/workflows/f139-g2-g3-stacked-source-qualification-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9a4bc0f43d6435f6dc33fd5bce73a0c6d1e507a8
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Pin exact G2 G3 source before any tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "9a4bc0f43d6435f6dc33fd5bce73a0c6d1e507a8"
+          echo F139_G2G3_PINNED_SOURCE=9a4bc0f43d6435f6dc33fd5bce73a0c6d1e507a8
+          echo F139_G2G3_NO_ORIGINAL_OWNER_OR_DISPATCH=TRUE
+      - name: Run focused G1 G2 G3 publisher and native source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest f139.test_nci04_candidate_producer f139.test_nci04_candidate_producer_g3 f139.test_nci04_candidate_publisher f139.test_nci04_g3_publisher -v
+      - name: Run full Python F139 and isolation regressions once
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          python -B -m unittest discover -s isolationguard -p 'test_*.py'
+          python -B isolationguard/check.py
+          python -B -m unittest discover -s fsad1 -p 'test_*.py'
+          python -B -m unittest discover -s scripts -p 'test_fsa_*py'
+      - name: Run Go tests, vet and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+      - name: Verify candidate publishing stays inert
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          from f139.nci04_candidate_publisher import RECIPE_G1, RECIPE_G3, SCHEMA
+          assert RECIPE_G1 == "g1-tier-local-pooling"
+          assert RECIPE_G3 == "g3-local-evidence-abstention"
+          assert SCHEMA == "forge.f139.g2.owner-draft-publisher.v1"
+          print("F139_G2G3_EXISTING_PUBLISHER_COMPAT=PASS")
+          print("F139_G2G3_PROTECTED_SCIENTIFIC_FIRST_USE=FALSE")
+          PY
