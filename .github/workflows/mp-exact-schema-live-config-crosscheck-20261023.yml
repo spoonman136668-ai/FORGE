@@ -1,0 +1,100 @@
+name: MP exact-schema live config crosscheck
+on:
+  push:
+    branches: [diagnostics/mp-postmerge-live-config-precheck-20261023]
+    paths: [.github/workflows/mp-exact-schema-live-config-crosscheck-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-exact-schema-live-config-crosscheck-20261023
+  cancel-in-progress: true
+
+jobs:
+  crosscheck:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Compare live config key structure to exact merged CKB schema
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_SCHEMA_'+$code)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-postmerge-live-config-precheck-20261023') 'BRANCH'
+          Write-Host 'MP_SCHEMA_CKB_MERGED_COMMIT=ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          Write-Host 'MP_SCHEMA_CKB_MERGED_TREE=ff1be00173249c7a0fc5df49b839943199763f30'
+          Write-Host 'MP_SCHEMA_MODEL_GO_BLOB=57bbf261cb53510ae680b48ddcd1addbce2b79a8'
+          Write-Host 'MP_SCHEMA_AUTONOMY_GO_BLOB=f5d99410c80627234c4d38df31a65d82d5087d53'
+
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          Need (Test-Path -LiteralPath $config -PathType Leaf) 'LIVE_CONFIG'
+          $before=Hash $config
+
+          $expected=@{
+            '__root__'=@('autonomy','server','state','profile','repos','execution','tools','policy')
+            'autonomy'=@('enabled','poll_seconds','retry_seconds','max_no_progress_seconds','remote_control','repository','repository_id','original_workflows')
+            'server'=@('bind','port')
+            'state'=@('sqlite_path')
+            'profile'=@('name')
+            'execution'=@('sandbox_syntax','enabled','codex_home','timeout_seconds','local_operations_config','local_operations_sha256')
+            'tools'=@('git','go','powershell','codex','node','playwright_root')
+            'policy'=@('accepted_ref_mutation','runtime_launch_allowed','arbitrary_shell_from_webui','max_attempts_per_work_order')
+            '__repo__'=@('remote','local_path','mode')
+          }
+
+          $unknown=New-Object System.Collections.Generic.List[string]
+          $top=''
+          $repoName=''
+          $seenTop=New-Object System.Collections.Generic.HashSet[string]
+          $seenAutonomy=New-Object System.Collections.Generic.HashSet[string]
+
+          foreach($raw in [IO.File]::ReadAllLines($config)){
+            if([string]::IsNullOrWhiteSpace($raw)){continue}
+            $trim=$raw.TrimStart()
+            if($trim.StartsWith('#') -or $trim.StartsWith('- ')){continue}
+            $indent=$raw.Length-$trim.Length
+            if($trim -notmatch '^([A-Za-z0-9_.-]+):'){continue}
+            $key=$Matches[1]
+            if($indent -eq 0){
+              $top=$key
+              $repoName=''
+              [void]$seenTop.Add($key)
+              if($expected['__root__'] -notcontains $key){$unknown.Add('root.'+$key)}
+              continue
+            }
+            if($indent -eq 2){
+              if($top -eq 'repos'){
+                $repoName=$key
+                continue
+              }
+              if($expected.ContainsKey($top)){
+                if($expected[$top] -notcontains $key){$unknown.Add($top+'.'+$key)}
+                if($top -eq 'autonomy'){[void]$seenAutonomy.Add($key)}
+              }
+              continue
+            }
+            if($indent -eq 4 -and $top -eq 'repos' -and $repoName){
+              if($expected['__repo__'] -notcontains $key){$unknown.Add('repos.*.'+$key)}
+              continue
+            }
+          }
+
+          $missingTop=@($expected['__root__'] | Where-Object {-not $seenTop.Contains($_)})
+          Write-Host ('MP_SCHEMA_LIVE_CONFIG_SHA256='+$before)
+          Write-Host ('MP_SCHEMA_UNKNOWN_COUNT='+$unknown.Count)
+          if($unknown.Count -gt 0){
+            Write-Host ('MP_SCHEMA_UNKNOWN_KEYS='+($unknown -join ','))
+          }
+          Write-Host ('MP_SCHEMA_AUTONOMY_KEYS_SEEN='+(([string[]]$seenAutonomy | Sort-Object) -join ','))
+          Need ($missingTop.Count -eq 0) ('MISSING_TOP_'+($missingTop -join ','))
+          Need ($unknown.Count -eq 0) ('UNKNOWN_KEYS_'+($unknown -join ','))
+          Need ((Hash $config) -ceq $before) 'CONFIG_CHANGED'
+          Write-Host 'MP_SCHEMA_EXACT_MERGED_SOURCE_LIVE_KEY_COMPAT=PASS'
+          Write-Host 'MP_SCHEMA_LIVE_WRITES=0'
