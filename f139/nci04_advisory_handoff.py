@@ -48,7 +48,7 @@ def history_digest(records: list[dict], *, nil: bool = False) -> str:
         "classification": r["classification"],
     } for r in records]
     raw = json.dumps(rows, separators=(",", ":"), ensure_ascii=False).encode()
-    return hashlib.sha256(b"FORGE-INFOGAIN-HISTORY-V1\\n" + raw).hexdigest()
+    return hashlib.sha256(b"FORGE-INFOGAIN-HISTORY-V1\n" + raw).hexdigest()
 
 
 def inspect_pr_advisory(body: object, *, lane: str,
