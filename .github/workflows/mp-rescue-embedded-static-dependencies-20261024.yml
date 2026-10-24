@@ -1,0 +1,93 @@
+name: MP rescue embedded static dependencies
+on:
+  push:
+    branches: [recovery/ckb-installed-source-snapshot-20261024]
+    paths: [.github/workflows/mp-rescue-embedded-static-dependencies-20261024.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mp-rescue-embedded-static-dependencies-20261024
+  cancel-in-progress: false
+jobs:
+  rescue:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Rescue only static files referenced by go embed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_EMBED_RESCUE_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/ckb-installed-source-snapshot-20261024') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $parent='e76c70529eb43c056aa6d183b9018a3b76c03850'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-rescue-embedded-static-dependencies-20261024.yml') 'SCOPE'
+
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $destRoot=Join-Path $env:GITHUB_WORKSPACE 'recovery\ckb-installed-source-snapshot-20261024\source'
+          Need (Test-Path -LiteralPath $live -PathType Container) 'LIVE_ROOT'
+          Need (Test-Path -LiteralPath $destRoot -PathType Container) 'DEST_ROOT'
+
+          $protected=@('config\autonomy.yaml','bin\ckb-plane.exe')
+          $pre=@{}
+          foreach($rel in $protected){
+            $p=Join-Path $live $rel
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ('PRE_'+$rel)
+            $pre[$rel]=Sha $p
+          }
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPid=[int]$proc[0].ProcessId
+
+          $targets=@(
+            'internal\plane\roadmap_successors.json',
+            'internal\plane\harness\browser.cjs'
+          )
+          $webRoot=Join-Path $live 'internal\plane\web'
+          Need (Test-Path -LiteralPath $webRoot -PathType Container) 'WEB_ROOT'
+          $targets += @(Get-ChildItem -LiteralPath $webRoot -File | ForEach-Object {$_.FullName.Substring($live.Length).TrimStart('\')})
+          $targets=@($targets | Sort-Object -Unique)
+          Need ($targets.Count -ge 3 -and $targets.Count -le 32) 'TARGET_COUNT_BOUND'
+
+          $manifest=@()
+          foreach($rel in $targets){
+            Need ($rel -match '^internal\\plane\\(roadmap_successors\.json|harness\\browser\.cjs|web\\[^\\]+)$') ('PATH_SCOPE_'+$rel)
+            $src=Join-Path $live $rel
+            Need (Test-Path -LiteralPath $src -PathType Leaf) ('SOURCE_'+$rel)
+            $item=Get-Item -LiteralPath $src
+            Need ($item.Length -le 1048576) ('SIZE_'+$rel)
+            $dst=Join-Path $destRoot $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+            Copy-Item -LiteralPath $src -Destination $dst -Force
+            Need ((Sha $dst) -ceq (Sha $src)) ('COPY_'+$rel)
+            $manifest += [ordered]@{path=$rel.Replace('\','/');sha256=(Sha $src);bytes=[long]$item.Length}
+            Write-Host ('MP_EMBED_RESCUE_FILE path='+$rel+' sha256='+(Sha $src)+' bytes='+$item.Length)
+          }
+
+          $manifestPath=Join-Path $destRoot 'RESCUE-EMBED-ASSET-MANIFEST.json'
+          [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
+          Write-Host ('MP_EMBED_RESCUE_COUNT='+$manifest.Count)
+          Write-Host ('MP_EMBED_RESCUE_MANIFEST_SHA256='+(Sha $manifestPath))
+
+          foreach($rel in $protected){Need ((Sha (Join-Path $live $rel)) -ceq $pre[$rel]) ('POST_'+$rel)}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+          Write-Host 'MP_EMBED_RESCUE_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+          Write-Host 'MP_EMBED_RESCUE_LIVE_WRITES=0'
+
+          & git.exe config user.name 'ckb-source-recovery'
+          & git.exe config user.email 'actions@users.noreply.github.com'
+          & git.exe add -- 'recovery/ckb-installed-source-snapshot-20261024/source'
+          Need (-not (& git.exe diff --cached --quiet; $LASTEXITCODE -eq 0)) 'NO_DELTA'
+          & git.exe commit -m 'recovery(ckb): preserve embedded static dependencies from installed source'
+          Need ($LASTEXITCODE -eq 0) 'COMMIT'
+          & git.exe push origin HEAD:recovery/ckb-installed-source-snapshot-20261024
+          Need ($LASTEXITCODE -eq 0) 'PUSH'
+          Write-Host ('MP_EMBED_RESCUE_COMMIT='+(& git.exe rev-parse HEAD).Trim())
