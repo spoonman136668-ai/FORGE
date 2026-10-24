@@ -1,0 +1,154 @@
+name: Mind-Palace MP-AI04+05 combined source native qualification
+on:
+  push:
+    branches: [qualification/mpai04-mpai05-composed-20261024]
+    paths: ['.github/workflows/mind-palace-mpai0405-compose-native-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai0405-compose-native
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Exact-source combined focused interfaces and one complete Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI0405_FULL_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai04-mpai05-composed-20261024' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai04-mpai05-compose-20261024'
+          $source='250208e94d998cf0452923a4d02bb99e0eb208b9'
+          $base='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai0405-composed-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $allow=@('agentic/mpai01_probe.py','agentic/mpai01_reflect.py','agentic/mpai03_git_custody.py',
+            'docs/MP-AI01-REFLECT-PROPOSE.md','docs/MP-AI02-SHARED-PROBE-MCP.md',
+            'docs/MP-AI03-GIT-EVIDENCE-CUSTODY.md','tests/test_mpai01_mcp_adapter.py',
+            'tests/test_mpai01_probe.py','tests/test_mpai01_reflect.py','tests/test_mpai02_probe_mcp.py',
+            'tests/test_mpai03_git_custody.py','tests/test_mpai04_admitted_memory.py',
+            'tests/test_mpn1_mcp.py','tools/mindpalace_mcp.py',
+            'agentic/mpai05_runtime_claims.py','tests/test_mpai05_runtime_claims.py',
+            'docs/MP-AI05-RUNTIME-CLAIMS.md')
+          $suites=@('test_mpai01_reflect.py','test_mpai01_probe.py','test_mpai01_mcp_adapter.py',
+            'test_mpai02_probe_mcp.py','test_mpai03_git_custody.py','test_mpai04_admitted_memory.py',
+            'test_mpn1_mcp.py','test_mpai05_runtime_claims.py')
+          $blobPins=@{
+            'agentic/mpai01_probe.py'='fdd6b2c6f0470cf69172c2968fe265b2d41e33db'
+            'agentic/mpai01_reflect.py'='ee7fe1bafaa8512843a984d2446fc035835803d5'
+            'agentic/mpai03_git_custody.py'='aa24923be28f667b7afa448985d4b0dee79a9d6c'
+            'docs/MP-AI01-REFLECT-PROPOSE.md'='61d00ebdddc854437533a04c9a090818f0bd580c'
+            'docs/MP-AI02-SHARED-PROBE-MCP.md'='d50a12d6d4a7e5f4da1f6887020fbb9a77515395'
+            'docs/MP-AI03-GIT-EVIDENCE-CUSTODY.md'='2f6cb1d0481b6651dab903e6335775ca734888e1'
+            'tests/test_mpai01_mcp_adapter.py'='92b9842fd603c96c29c24bcb8348b13dd5910664'
+            'tests/test_mpai01_probe.py'='0a6433deb64aaea69d533ec8f5a82fb0f50f882c'
+            'tests/test_mpai01_reflect.py'='33600c1dee691cef9f7b81ccaef1a58278197977'
+            'tests/test_mpai02_probe_mcp.py'='20a30b3e17e3842f02694cafa6150e0f029465f5'
+            'tests/test_mpai03_git_custody.py'='aa4cac4e98040e13de09847dbea008ba0625731d'
+            'tests/test_mpai04_admitted_memory.py'='64174b50a57ddd4ee2650c00cbd543499bb1ed05'
+            'tests/test_mpn1_mcp.py'='6085709d9fed1bfee4b8755e22b923dd251769d4'
+            'tools/mindpalace_mcp.py'='7da5731fe6edb8f0f9772418695dc13bcc7fb2aa'
+            'agentic/mpai05_runtime_claims.py'='68aedb4793f5c80fc91d7fdf1bf30e73276bc983'
+            'docs/MP-AI05-RUNTIME-CLAIMS.md'='8f80f5c3c717469a281b84045fbac38e5d190ce0'
+            'tests/test_mpai05_runtime_claims.py'='06f952f94c0e33a097e8884e689287b788b8f964'
+          }
+          $checks=@{}
+          $hashed=$false
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_'+$ref)
+          }
+          try{
+            Pin ('refs/heads/'+$branch) $source
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0 -and
+              (& git.exe -C $root rev-parse HEAD|Out-String).Trim() -ceq $source) 'HEAD'
+            & git.exe -C $root merge-base --is-ancestor $base $source
+            Need ($LASTEXITCODE -eq 0) 'ADMITTED_ANCESTRY'
+            $paths=@(& git.exe -C $root diff --name-only $base $source)
+            Need ($LASTEXITCODE -eq 0 -and $paths.Count -eq 17 -and
+              (($paths|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'SOURCE_SCOPE'
+            $parent=(& git.exe -C $root rev-parse 'HEAD^'|Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $parent -ceq $base) 'PARENT_SHA'
+            foreach($p in $blobPins.Keys){
+              $blob=(& git.exe -C $root rev-parse ('HEAD:'+$p) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $blob -ceq $blobPins[$p]) ('BLOB_'+$p)
+            }
+            Write-Host 'MPAI0405_17_ORIGINAL_GIT_BLOBS=PASS'
+            foreach($p in $guard){
+              $old=(& git.exe -C $root rev-parse ($base+':'+$p) | Out-String).Trim()
+              $now=(& git.exe -C $root rev-parse ('HEAD:'+$p) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $old -ceq $now) ('PROTECTED_SOURCE_'+$p)
+            }
+            Write-Host 'MPAI0405_NINE_PROTECTED_BLOBS=PASS'
+            foreach($p in $guard){
+              $checks[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed=$true
+            $tests=Join-Path $root 'tests'
+            foreach($suite in $suites){
+              & python.exe -B -m unittest discover -s $tests -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FAILED_'+$suite)
+              Write-Host ('MPAI0405_FOCUSED_SUITE_PASS='+$suite)
+            }
+            $countScript='import unittest; import pathlib; p="tests"; names=['test_mpai01_reflect.py','test_mpai01_probe.py','test_mpai01_mcp_adapter.py','test_mpai02_probe_mcp.py','test_mpai03_git_custody.py','test_mpai04_admitted_memory.py','test_mpn1_mcp.py','test_mpai05_runtime_claims.py']; print(sum(unittest.defaultTestLoader.discover(p,pattern=n).countTestCases() for n in names))'
+            Push-Location $root
+            try {
+              $count=(& python.exe -B -c $countScript | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $count -ceq '121') 'FOCUSED_DISCOVERY_COUNT'
+            } finally { Pop-Location }
+            Write-Host 'MPAI0405_COMPOSE_FOCUSED_121_TESTS=PASS'
+            foreach($p in $guard){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $checks[$p]) ('FOCUSED_HASH_'+$p)
+            }
+            $stdout=Join-Path $scratch 'full.stdout'
+            $stderr=Join-Path $scratch 'full.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $run=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $output=[IO.File]::ReadAllText($stdout)
+            if($run.ExitCode -ne 0){
+              $last=@([regex]::Matches($output,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object{$_.Value})
+              if($last.Count -gt 0){Write-Host ('MPAI0405_LAST_REGRESSION_TEST='+[string]$last[-1])}
+              throw 'MPAI0405_NATIVE_FULL_REGRESSION_FAILED'
+            }
+            Need ($output.Contains('Mind-Palace regression suite passed')) 'FULL_MARKER_MISSING'
+            Write-Host 'MPAI0405_FULL_WINDOWS_REGRESSION=PASS'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no|Out-String).Trim()) 'SOURCE_MUTATED'
+            Pin ('refs/heads/'+$branch) $source
+            Write-Host 'MPAI0405_SOURCE_IDENTITY_AND_ADMITTED_PARENT=PASS'
+            Write-Host 'MPAI0405_REAL_LLM_IMPROVEMENT=NOT_ESTABLISHED'
+            Write-Host 'MPAI0405_PAID_MODEL_CALLS=0'
+            Write-Host 'MPAI0405_PRODUCTION_WRITES=0'
+          } finally {
+            if($hashed){
+              foreach($p in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $checks[$p]) ('PROTECTED_HASH_DRIFT_'+$p)
+              }
+              Write-Host 'MPAI0405_NINE_PROTECTED_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Force -Recurse}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI0405_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
