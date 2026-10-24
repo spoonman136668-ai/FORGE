@@ -1,0 +1,65 @@
+name: L9 mixed V1 GRU V2 Transformer seal source-only prefit
+on:
+  pull_request:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: l9-mixed-v1-v2-seal-prefit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  static-dev-seal-fail-closed:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Fail on original model/role/selector drift or unrelated delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=3b94e666d97c67a585fa2be2518a173ae14c4824
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_neural_select_only.py)" = 91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_seal_select.py)" = af06d6671954b9e8c5cf23c720e5efa89d919528
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/l9_mixed_v1_v2_seal.py","research/optimizer_language_l9/test_l9_mixed_v1_v2_seal.py",".github/workflows/l9-mixed-v1-v2-seal-prefit.yml"}; assert a==b,(a,b)'
+      - name: Validate frozen source inputs and guard pending 1701 receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_mixed_v1_v2_seal.py -v
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_seal_select.py -v
+          python - <<'PY'
+          import sys
+          sys.path.insert(0,'research/optimizer_language_l9')
+          import l9_mixed_v1_v2_seal as mixed
+          import l9_seal_select as original
+          assert mixed.V2_RECEIPTS[1701] is None, 'PENDING_V2_1701_MUST_BE_FAIL_CLOSED'
+          assert mixed.V2_RECEIPTS[1702]=='e7da6758df045fbbfdff4b4b024fafcc886bd5a6c309f9d4b35a85cf163f9c3f'
+          assert original.SELECT_SCHEMA!=mixed.V2_SCHEMA
+          assert original.SCHEMA!=mixed.SCHEMA
+          assert mixed.ROLE_SHA=='b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726'
+          print('L9_MIXED_V1_V2_PREFIT=PASS_PENDING_REAL_1701_RECEIPT')
+          print('L9_ORIGINAL_V1_SEAL_UNCHANGED=TRUE')
+          print('L9_AUDIT_DEV_CONSUMED=FALSE')
+          print('L9_SCIENTIFIC_GO=FALSE')
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
