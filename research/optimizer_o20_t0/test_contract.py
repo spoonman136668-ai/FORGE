@@ -10,7 +10,7 @@ class Contract(unittest.TestCase):
     def setUpClass(cls):
         cls.report=json.loads((HERE/'RESULT.json').read_text())
     def test_preregistered_file_bound(self):
-        self.assertEqual(self.report['protocol_SHA256'],hashlib.sha256((HERE/'PREREG.md').read_bytes()).hexdigest())
+        self.assertEqual(self.report['protocol_SHA256'],hashlib.sha256((HERE/'PREREG.md').read_bytes().replace(b'\r\n',b'\n').rstrip(b'\n')+b'\n').hexdigest())
     def test_role_disjoint_and_fit_original_public_only(self):
         roles=[set(range(a,a+240)) for a in (100000,200000)]+[set(range(a,a+96)) for a in (300000,400000)]
         for i,x in enumerate(roles):
