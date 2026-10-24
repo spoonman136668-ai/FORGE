@@ -1,0 +1,179 @@
+{
+  "schema": "mass.lcrm01.k4k.frozen-outcome-aware-compressed-episodic-memory-v1",
+  "gate": "LCRM01-K4K",
+  "parent": {
+    "head": "b6e19f3321a47d0fac93924c36f55d5fd690169d",
+    "k4j_original_run": 40085927260,
+    "k4j_zip_sha256": "f64802f94f82553a8cfc03802a821559e3b2b845025e617d55f60605ef7a38af",
+    "k4j_primary_gain": 27.02804972850452,
+    "k4j_limit": "bounded conventional 1NN only, high inference cost/size"
+  },
+  "source": {
+    "causalworld_commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "env_blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e",
+    "policy_implementation": "frozen K4I raw observation 1NN scoring function"
+  },
+  "cohort": {
+    "world_variants": [
+      {
+        "id": 0,
+        "goal_dx": -0.055,
+        "goal_dy": -0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 1,
+        "goal_dx": -0.055,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 2,
+        "goal_dx": -0.055,
+        "goal_dy": 0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 3,
+        "goal_dx": -0.025,
+        "goal_dy": -0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 4,
+        "goal_dx": -0.025,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 5,
+        "goal_dx": -0.025,
+        "goal_dy": 0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 6,
+        "goal_dx": 0.025,
+        "goal_dy": -0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 7,
+        "goal_dx": 0.025,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 8,
+        "goal_dx": 0.025,
+        "goal_dy": 0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 9,
+        "goal_dx": 0.055,
+        "goal_dy": -0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 10,
+        "goal_dx": 0.055,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 11,
+        "goal_dx": 0.055,
+        "goal_dy": 0.035,
+        "phase": "FIT"
+      },
+      {
+        "id": 12,
+        "goal_dx": 0,
+        "goal_dy": -0.045,
+        "phase": "CHECK"
+      },
+      {
+        "id": 13,
+        "goal_dx": 0,
+        "goal_dy": 0.045,
+        "phase": "CHECK"
+      },
+      {
+        "id": 14,
+        "goal_dx": -0.05,
+        "goal_dy": -0.02,
+        "phase": "DEV"
+      },
+      {
+        "id": 15,
+        "goal_dx": -0.05,
+        "goal_dy": 0.02,
+        "phase": "DEV"
+      },
+      {
+        "id": 16,
+        "goal_dx": 0.05,
+        "goal_dy": -0.02,
+        "phase": "DEV"
+      },
+      {
+        "id": 17,
+        "goal_dx": 0.05,
+        "goal_dy": 0.02,
+        "phase": "DEV"
+      }
+    ],
+    "seed": 853,
+    "families": [
+      "reaching",
+      "pushing"
+    ],
+    "fit_episode_count": 96,
+    "check_episode_count": 16,
+    "dev_episode_count": 32,
+    "steps": 8,
+    "source_sha_pins": true
+  },
+  "models": {
+    "primary": "outcome_aware_4",
+    "other": [
+      "full_12",
+      "coverage_4",
+      "uniform_4",
+      "family_mean",
+      "ridge",
+      "fixed_low"
+    ],
+    "capacity_per_action_per_family": 4,
+    "outcome_aware_select": "Within each family/action FIT records chronological by frozen variant id: choose minimum-reward record; maximum-reward record (or next unused variant if tied); then greedily add record with maximum minimum *squared raw public feature distance* to selected records, breaking ties by lower FIT variant id, until four. Never use CHECK/DEV rewards.",
+    "coverage_select": "Start at lowest FIT variant id per arm; add farthest raw-feature record greedily as above to four.",
+    "uniform_select": "Select FIT chronological variant indices 0,3,6,9 (four of 12) per arm.",
+    "same_predictor": "K4I unmodified raw nearest-neighbor per-action reward lookup, winner highest predicted reward, ties lowest arm ID. Compressed states differ only in which original FIT records retained. No changes to original K4I predictor.",
+    "baselines": "Full 12 per arm raw 1NN, per-family mean-action policy, K4I ridge and fixed low. FIT data equally available to all models.",
+    "preregistered_primary": "Outcome-aware 4 vs full 12 and FIT family mean; coverage 4 and uniform 4 as conventional compressed counterfactual controls.",
+    "primary_advancement": "On REACHING new DEV, full 1NN must beat trained family mean by >0; compressed outcome-aware 4 must beat trained family mean by >=0.01 mean reward, retain >=0.80 of full-12 positive margin, strictly improve >=2 of 4 variants, select >=2 distinct actions; outcome-aware serialized checkpoint bytes <=0.5 of full-12 bytes and repeated identical-input per-method inference CPU <=0.65 of full-12. All criteria required; report if any fail; no selection of favorable methods based on DEV.",
+    "honest_comparison": "Report each fixed method's DEV rewards/selected arms, per-task family, CHECK, source-initial hashes, baseline and compressed checkpoints; any exploratory best-method comparison marked multiple comparisons.",
+    "fit_gate": "Require 12 distinct public FIT observations and >=2 distinct actual FIT reward-winner actions on reaching, else do not consume either CHECK or DEV.",
+    "resource_protocol": "Measure actual per-method inference process CPU nanoseconds over 200 complete passes of all 12 heldout public contexts in fixed method order; each repeated request checks same frozen selected action. Report shared FIT training CPU, total execution CPU/wall RSS, method saved model bytes and all original physics episodes. Ignore CPU timing values only in across-process source equality comparison.",
+    "negative_rule": "No change to frozen cohorts, bounds, model selection, compression criteria, FIT preprocessing, action menu or numerical thresholds after first execution, preserve all originals and lack of qualification.",
+    "claims_forbidden": [
+      "Wingless/Yggdrasil architecture positive",
+      "general unfamiliar-world cognition",
+      "scientific first-use or FSA admission",
+      "resource Pareto improvement without meeting both size/time",
+      "independent external scientific replication",
+      "protected integration"
+    ]
+  },
+  "governance": {
+    "public_dev_only": true,
+    "scientific_first_use": false,
+    "scientific_accepted": false,
+    "FORGE_main_mutation": false,
+    "F139_owner_changes": false,
+    "no_CKB_dependency": true,
+    "paid_API": false,
+    "controllers_created": 0
+  }
+}
