@@ -5,6 +5,10 @@ from k5g_active_sensing import PIN,SCHEMA,CONDITIONS,METHODS,BUDGETS,SEEDS
 
 def stable(o):
  r={k:v for k,v in o.items() if k!="resources"}
+ if "original_R3_native_checkpoint" in r:
+  fit=dict(r["original_R3_native_checkpoint"])
+  fit.pop("native_FIT_shared_wall_seconds",None)
+  r["original_R3_native_checkpoint"]=fit
  for key in ("CHECK_original_action_traces","DEV_original_action_traces"):
   if key in r:
    r[key]=[{p:v for p,v in row.items() if p not in
