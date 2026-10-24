@@ -1,0 +1,184 @@
+{
+  "schema": "mass.lcrm01.k4i.frozen-information-sufficiency-representation-v1",
+  "gate": "LCRM01-K4I",
+  "scope": "PUBLIC_DEV_NOT_SCIENTIFIC_FIRST_USE",
+  "predecessor": {
+    "K4H_head": "07cd3e040013d890d1f00e7de883bb9418053e23",
+    "K4H_run": 40084605681,
+    "K4H_negative": "CONTEXTUAL_GENERALIZATION_NOT_ESTABLISHED",
+    "K4F_negative": "NO_EVIDENCE_OF_SUPERIOR_UNFAMILIAR_TRANSFER"
+  },
+  "upstream": {
+    "commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e"
+  },
+  "world": {
+    "families": [
+      "reaching",
+      "pushing"
+    ],
+    "seed": 827,
+    "skip_frame": 10,
+    "episode_steps": 8,
+    "max_episode_length": 32,
+    "action_mode": "joint_positions",
+    "observation_mode": "structured",
+    "normalize_actions": false,
+    "normalize_observations": false
+  },
+  "variants": [
+    {
+      "id": 0,
+      "goal_dx": -0.06,
+      "goal_dy": -0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 1,
+      "goal_dx": -0.06,
+      "goal_dy": 0,
+      "phase": "FIT"
+    },
+    {
+      "id": 2,
+      "goal_dx": -0.06,
+      "goal_dy": 0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 3,
+      "goal_dx": -0.02,
+      "goal_dy": -0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 4,
+      "goal_dx": -0.02,
+      "goal_dy": 0,
+      "phase": "FIT"
+    },
+    {
+      "id": 5,
+      "goal_dx": -0.02,
+      "goal_dy": 0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 6,
+      "goal_dx": 0.02,
+      "goal_dy": -0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 7,
+      "goal_dx": 0.02,
+      "goal_dy": 0,
+      "phase": "FIT"
+    },
+    {
+      "id": 8,
+      "goal_dx": 0.02,
+      "goal_dy": 0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 9,
+      "goal_dx": 0.06,
+      "goal_dy": -0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 10,
+      "goal_dx": 0.06,
+      "goal_dy": 0,
+      "phase": "FIT"
+    },
+    {
+      "id": 11,
+      "goal_dx": 0.06,
+      "goal_dy": 0.04,
+      "phase": "FIT"
+    },
+    {
+      "id": 12,
+      "goal_dx": 0,
+      "goal_dy": -0.02,
+      "phase": "CHECK"
+    },
+    {
+      "id": 13,
+      "goal_dx": 0,
+      "goal_dy": 0.02,
+      "phase": "CHECK"
+    },
+    {
+      "id": 14,
+      "goal_dx": -0.045,
+      "goal_dy": -0.025,
+      "phase": "DEV"
+    },
+    {
+      "id": 15,
+      "goal_dx": -0.045,
+      "goal_dy": 0.025,
+      "phase": "DEV"
+    },
+    {
+      "id": 16,
+      "goal_dx": 0.045,
+      "goal_dy": -0.025,
+      "phase": "DEV"
+    },
+    {
+      "id": 17,
+      "goal_dx": 0.045,
+      "goal_dy": 0.025,
+      "phase": "DEV"
+    }
+  ],
+  "training": {
+    "FIT": 12,
+    "CHECK": 2,
+    "DEV": 4,
+    "action_arms": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "expected_FIT_episodes": 96,
+    "expected_CHECK_episodes": 16,
+    "expected_DEV_episodes": 32,
+    "action_rule": "K4H frozen all-low, all-center, all-high, even .2/odd .8 joint positions",
+    "world_rule": "K4H public task constructors, reaching three goals offset by (dx,dy), pushing tool and goal block offset oppositely in x and goal in y",
+    "FIT_source_test": "Count unique best actual action across twelve FIT contexts within each family. FIT action-rank diversity >=2 required for that family's information-sufficiency finding.",
+    "early_stop": "If BOTH families have fewer than two unique FIT-best actions, stop after FIT and preserve CHECK and DEV completely unconsumed. Otherwise proceed with all frozen models/cohorts without tuning.",
+    "first_use": "No CHECK/DEV outcome may affect predictor training, hyperparameters, feature selection, or model choice."
+  },
+  "conventional_methods": [
+    "FIT family mean best action",
+    "FIT raw-observation 1-NN action-conditioned reward",
+    "FIT variance-standardized 1-NN action-conditioned reward",
+    "FIT ridge action-conditioned reward",
+    "fixed untrained low action"
+  ],
+  "features": "Same 128 public flattened tanh(x/0.5) reset observation as K4H; no hidden simulator state/variant ID/future reward",
+  "normalized_features": "FIT-only centering divided by max(FIT std, 0.05) per public feature column",
+  "hyperparameters": {
+    "ridge_lambda": 1,
+    "nearest_neighbors": 1,
+    "std_floor": 0.05
+  },
+  "success": "For a family with FIT diversity and two or more distinct DEV reset observations, a predeclared contextual method must improve mean DEV return by >=0.01 over trained family mean and choose different actions between new DEV contexts. Report each method without selection by DEV; any best-of-methods is exploratory/multiple-comparison.",
+  "controls": "FIT 12 contexts x four actual arms per family. Every fitted model sees same data. CHECK diagnostic only. DEV actions chosen from read-only reset observation and frozen fitted state before actual DEV reward evaluation. Retain all negatives.",
+  "resources": "Report original raw FIT CHECK DEV physics rewards, independent resets, task/state hashes, FIT diversity, CPU/wall RSS, checkpoint size.",
+  "governance": {
+    "scientific_first_use": false,
+    "scientific_accepted": false,
+    "protected_merge": false,
+    "paid_api": false,
+    "new_controller": false,
+    "CKB_dependency": false,
+    "K4H_history_preserved": true
+  }
+}
