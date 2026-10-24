@@ -100,6 +100,13 @@ class AdvisoryHandoffTests(unittest.TestCase):
         self.assertEqual(len(result["rejected"]), 1)
         self.assertIn(expected, result["rejected"][0]["reason"])
 
+    def test_history_digest_uses_exact_go_domain_bytes(self):
+        self.assertEqual(history_digest([]), hashlib.sha256(
+            b"FORGE-INFOGAIN-HISTORY-V1\\n[]").hexdigest())
+
+    def test_unknown_advisory_schema_fails_closed(self):
+        self.deny(lambda a: a.update(schema="forge.f139.advisory-pr-handoff.v2"))
+
     def test_wrong_native_after_hash_denied(self):
         self.deny(lambda a: a.update(after_sha256="f" * 64))
 
