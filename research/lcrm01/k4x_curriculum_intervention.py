@@ -220,7 +220,7 @@ def science(rows,controllers):
    "scientific_first_use":False,"scientific_accepted":False}
 
 
-def execute(go_exe,p):
+def execute(go_exe,ygg_dir,p):
  import native_policy as native
  clock=time.perf_counter();cpu=time.process_time()
  model={}
@@ -238,7 +238,7 @@ def execute(go_exe,p):
        "result":"ORIGINAL_FIT_SOURCE_INSUFFICIENT_HOLDOUT_UNCONSUMED",
        "FIT":saved,"CHECK_episodes":0,"DEV_episodes":0,
        "scientific_first_use":False,"scientific_accepted":False}
-  wing,ygg,counts=open_trained_native(data,go_exe,None)
+  wing,ygg,counts=open_trained_native(data,go_exe,ygg_dir)
   entry["native_source_training"]=counts
   saved[regime]=entry
   model[regime]={"wingless":wing,"yggdrasil":ygg,
@@ -269,7 +269,7 @@ def main():
  try:
   p=protocol()
   sys.path.insert(0,str(args.ygg_source_dir.resolve()))
-  report=execute(args.go_binary,p)
+  report=execute(args.go_binary,args.ygg_source_dir,p)
   report["source_commit"]=p["sources"]["minigrid"]["commit"]
   report["wingless_commit"]=p["sources"]["wingless"]["commit"]
   report["yggdrasil_commit"]=p["sources"]["yggdrasil"]["commit"]
