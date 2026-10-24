@@ -1,0 +1,87 @@
+name: F139 R3 original-owner GitHub route diagnosis (read only)
+on:
+  push:
+    branches: [audit/f139-r3-original-owner-continuity-20261024]
+    paths:
+      - '.github/workflows/f139-r3-original-owner-gh-api-readonly-20261024.yml'
+permissions:
+  contents: read
+jobs:
+  diagnose-owner-gh:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Probe actual owner GH credential and bounded read-only feeder routes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_R3_OWNER_RUNNER_MISMATCH'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready')){throw 'F139_R3_OWNER_TASK_DISABLED'}
+          $owner=[string]$task.Principal.UserId
+          $ownerSid=if($owner -match '^S-1-'){$owner}else{
+            (New-Object Security.Principal.NTAccount($owner)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($ownerSid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){
+            throw 'F139_R3_RUNNER_NOT_ORIGINAL_OWNER_SID'
+          }
+          $probe=@'
+          import json,os,shutil,subprocess
+          exe=shutil.which("gh")
+          assert exe, "F139_R3_GH_BINARY_NOT_FOUND"
+          env=dict(os.environ)
+          env.pop("GH_TOKEN",None)
+          env.pop("GITHUB_TOKEN",None)
+          routes=(
+           ("RATE","rate_limit"),
+           ("MAIN","repos/spoonman136668-ai/FORGE/branches/main"),
+           ("POLICY","repos/spoonman136668-ai/FORGE/issues/807"),
+           ("OWNER_ISSUES","repos/spoonman136668-ai/FORGE/issues?state=open&labels=f139-native-development-eligible&per_page=100&page=1"),
+           ("WINGLESS_PRS","repos/spoonman136668-ai/Wingless/pulls?state=open&per_page=100&page=1"),
+           ("YGGDRASIL_PRS","repos/spoonman136668-ai/Yggdrasil/pulls?state=open&per_page=100&page=1"),
+          )
+          for label,route in routes:
+              try:
+                  proc=subprocess.run([exe,"api",route],env=env,stdin=subprocess.DEVNULL,
+                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=22,text=True)
+              except subprocess.TimeoutExpired:
+                  print("F139_R3_GH_"+label+"=TIMEOUT")
+                  continue
+              if proc.returncode:
+                  err=proc.stderr.lower()
+                  kind=("RATE_LIMIT" if "rate limit" in err else
+                        "BAD_CREDENTIALS" if "bad credentials" in err else
+                        "FORBIDDEN" if "403" in err else
+                        "UNAUTHORIZED" if "401" in err else
+                        "NOT_FOUND" if "404" in err else
+                        "TRANSPORT" if any(s in err for s in ("resolve host","connection","tls","timeout")) else
+                        "OTHER_NONZERO")
+                  print("F139_R3_GH_"+label+"="+kind)
+                  continue
+              try: doc=json.loads(proc.stdout)
+              except (ValueError,UnicodeError):
+                  print("F139_R3_GH_"+label+"=INVALID_JSON")
+                  continue
+              if label=="RATE":
+                  q=doc.get("resources",{}).get("core",{})
+                  print("F139_R3_GH_CORE_REMAINING="+str(q.get("remaining")))
+                  print("F139_R3_GH_CORE_LIMIT="+str(q.get("limit")))
+                  print("F139_R3_GH_CORE_RESET="+str(q.get("reset")))
+              elif label=="MAIN":
+                  print("F139_R3_GH_MAIN_SHA="+str(doc.get("commit",{}).get("sha",""))[:40])
+              elif label=="POLICY":
+                  try:
+                      policy=json.loads(doc["body"])
+                      print("F139_R3_GH_POLICY_ENABLED="+str(policy.get("enabled")))
+                  except Exception:
+                      print("F139_R3_GH_POLICY_PARSE=INVALID")
+              else:
+                  print("F139_R3_GH_"+label+"_ROWS="+str(len(doc) if isinstance(doc,list) else -1))
+              print("F139_R3_GH_"+label+"=PASS")
+          print("F139_R3_OWNER_CREDENTIAL_ROUTE_READONLY=TRUE")
+          '@
+          $python=(Get-Command python.exe -ErrorAction Stop).Source
+          & $python -B -c $probe
+          if($LASTEXITCODE -ne 0){throw 'F139_R3_CREDENTIAL_PROBE_EXCEPTION'}
+          Write-Output 'F139_R3_NO_MUTATION_OR_DISPATCH=TRUE'
