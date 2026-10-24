@@ -1,0 +1,128 @@
+name: F139 ITD-02 first new original-owner terminal and evidence custody
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-itd02-first-original-terminal-custody-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner-custody-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Verify genuine once-only admission, dual OS evidence, terminal and original hash chain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_ITD02_NOT_ORIGINAL_OWNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Running','Ready')){
+             throw 'F139_ITD02_OWNER_NOT_ACTIVE'
+          }
+          $args=[string]$task.Actions[0].Arguments
+          function ReadArg([string]$key){
+             $m=[regex]::Match($args,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+             if(-not $m.Success){throw 'F139_ITD02_TASK_ARGUMENTS_INVALID'}
+             return $m.Groups[1].Value
+          }
+          $root=ReadArg 'RepositoryRoot'
+          $db=ReadArg 'Database'
+          $python=ReadArg 'PythonExe'
+          $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          if($head -cne '8eca700c39223e176dea55f488b6f3397ce4e27a' -or
+             [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+             throw 'F139_ITD02_OWNER_SOURCE_OR_DB_DRIFT'
+          }
+          $audit=@'
+          import json,pathlib,sqlite3,sys,time,tempfile
+          import hashlib
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          db_path=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          tmp=pathlib.Path(sys.argv[3]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database, canonical, hash_bytes
+          from f139.nci04_owner_ledger import verify_native_activation
+          ticket="f139-nci04-i875-8eca700c3922-2ef31154"
+          provider_run=40097673349
+          conn=None
+          for attempt in range(12):
+              if conn is not None: conn.close()
+              conn=sqlite3.connect(db_path.as_uri()+"?mode=ro",uri=True,timeout=25)
+              conn.row_factory=sqlite3.Row
+              conn.execute("PRAGMA query_only=ON")
+              task=conn.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+              if task is not None and task["stage"]=="VERIFIED":break
+              if task is not None and task["stage"]=="QUARANTINED":
+                  raise AssertionError("ORIGINAL_PROVIDER_NEGATIVE_NOT_A_SUCCESS")
+              print("F139_ITD02_TERMINAL_NOT_YET_VISIBLE="+str(attempt+1),flush=True)
+              time.sleep(12)
+          else:raise AssertionError("F139_ITD02_TERMINAL_STILL_PENDING")
+          try:
+              stage=dict(task)
+              assert stage["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              assert stage["run_id"]==provider_run
+              assert stage["stage"]=="VERIFIED"
+              rows=[(r["kind"],json.loads(r["payload"]),r["seq"])
+                    for r in conn.execute("SELECT kind,payload,seq FROM events ORDER BY seq")]
+              def for_ticket(kind):
+                  return [r for r in rows if r[0]==kind and r[1].get("ticket")==ticket]
+              admission=for_ticket("NATIVE_DEVELOPMENT_ADMITTED")
+              intent=for_ticket("BEFORE_DISPATCH_INTENT")
+              returned=for_ticket("DISPATCH_POST_RETURNED")
+              terminal=for_ticket("PROVIDER_VERIFIED_TERMINAL")
+              assert len(admission)==len(intent)==len(returned)==len(terminal)==1
+              assert admission[0][1]["issue_number"]==875
+              assert terminal[0][1]["run_id"]==provider_run
+              assert admission[0][2]<intent[0][2]<returned[0][2]<terminal[0][2]
+              assert len(for_ticket("ATTEMPT_QUARANTINED"))==0
+              assert len(for_ticket("NATIVE_FAILED_PROVIDER_CUSTODY"))==0
+              assert admission[0][2]>195
+              directory=pathlib.Path(stage["evidence_dir"])
+              original=db_path.parent/"evidence"/ticket/str(provider_run)
+              assert directory.resolve(strict=True)==original.resolve(strict=True)
+              assert not directory.is_symlink()
+              assert {p.name for p in directory.iterdir()}=={
+                  "manifest.json","ubuntu-latest.zip","windows-latest.zip"}
+              payload=(directory/"manifest.json").read_bytes()
+              evidence=json.loads(payload)
+              assert payload==canonical(evidence)
+              assert evidence=={
+                  "schema":"forge.f139.windows-evidence-manifest.v1",
+                  "ticket":ticket,"run_id":provider_run,
+                  "sha256":{
+                      "ubuntu-latest":hash_bytes((directory/"ubuntu-latest.zip").read_bytes()),
+                      "windows-latest":hash_bytes((directory/"windows-latest.zip").read_bytes())},
+                  "scientific_originals":0,"approved_science":False,
+              }
+              assert hash_bytes(payload)==stage["evidence_sha"]
+              assert terminal[0][1]["evidence_sha"]==stage["evidence_sha"]
+              with tempfile.TemporaryDirectory(dir=tmp,prefix="f139-itd02-readonly-") as d:
+                  scratch=pathlib.Path(d)/"owner-snapshot.sqlite"
+                  snap=sqlite3.connect(str(scratch))
+                  try:conn.backup(snap)
+                  finally:snap.close()
+                  verified=Database(scratch)
+                  try:
+                      verified.verify()
+                      assert verify_native_activation(verified)
+                      metadata=verified.meta()
+                      assert metadata["head_seq"]>=199
+                      assert metadata["source_sha"]==stage["source_sha"]
+                      counts=dict(verified.conn.execute(
+                          "SELECT stage,COUNT(*) FROM tasks GROUP BY stage").fetchall())
+                      assert counts.get("VERIFIED",0)>=19
+                      assert counts.get("QUARANTINED",0)>=11
+                      print("F139_ITD02_ORIGINAL_EVENT_HEAD_SEQ="+str(metadata["head_seq"]))
+                      print("F139_ITD02_ORIGINAL_TASK_COUNTS="+json.dumps(counts,sort_keys=True))
+                  finally:verified.close()
+              print("F139_ITD02_ORIGINAL_ONCE_ONLY_ADMISSION=PASS")
+              print("F139_ITD02_ORIGINAL_ONCE_ONLY_DISPATCH=PASS")
+              print("F139_ITD02_NATIVE_UBUNTU_WINDOWS_RECEIPTS=PASS")
+              print("F139_ITD02_ORIGINAL_TERMINAL_AND_MANIFEST_CUSTODY=PASS")
+              print("F139_ITD02_ORIGINAL_APPEND_ONLY_CHAIN=PASS")
+              print("F139_ITD02_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:conn.close()
+          '@
+          & $python -B -c $audit $root $db $env:RUNNER_TEMP
+          if($LASTEXITCODE -ne 0){throw 'F139_ITD02_ORIGINAL_CUSTODY_AUDIT_FAILED'}
