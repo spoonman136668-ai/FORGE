@@ -1,0 +1,181 @@
+{
+  "schema": "mass.lcrm01.k4q.frozen-public-causal-observability-qualification-v1",
+  "gate": "LCRM01-K4Q",
+  "research_purpose": "Before new native predictive learner, verify that public initial-state changes lead to distinguishable observed action transitions and that a strong conventional transition learner predicts heldout state change better than a fixed action-conditioned transition mean.",
+  "parent": {
+    "head": "c748dd006741c1c8a82438e0a4388f67b2fca616",
+    "K4P_run": 40091156925,
+    "K4P_PR": 871,
+    "K4P_negative": "NO_QUALIFIED_REPEATABLE_PREDICTIVE_TRANSFER",
+    "K4P_confounds": [
+      "terminal-minus-reset feature shift virtually invariant within reaching arm across task goal offsets",
+      "picking previously always action1"
+    ]
+  },
+  "upstream": {
+    "git_commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "env_git_blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e",
+    "python": "3.9",
+    "numpy": "1.23.5",
+    "pybullet": "3.2.5",
+    "wheel_sha256": "9adcaa00de674a02549949f6f8d51b485bd7a23fbc87a1defb2067e1364f8202"
+  },
+  "source_design": {
+    "tasks": [
+      "reaching",
+      "pushing",
+      "picking"
+    ],
+    "variants": [
+      {
+        "id": 0,
+        "goal_dx": -0.105,
+        "goal_dy": -0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 1,
+        "goal_dx": -0.105,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 2,
+        "goal_dx": -0.105,
+        "goal_dy": 0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 3,
+        "goal_dx": -0.055,
+        "goal_dy": -0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 4,
+        "goal_dx": -0.055,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 5,
+        "goal_dx": -0.055,
+        "goal_dy": 0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 6,
+        "goal_dx": 0.055,
+        "goal_dy": -0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 7,
+        "goal_dx": 0.055,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 8,
+        "goal_dx": 0.055,
+        "goal_dy": 0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 9,
+        "goal_dx": 0.105,
+        "goal_dy": -0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 10,
+        "goal_dx": 0.105,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 11,
+        "goal_dx": 0.105,
+        "goal_dy": 0.065,
+        "phase": "FIT"
+      },
+      {
+        "id": 12,
+        "goal_dx": -0.085,
+        "goal_dy": -0.025,
+        "phase": "CHECK"
+      },
+      {
+        "id": 13,
+        "goal_dx": 0.085,
+        "goal_dy": 0.025,
+        "phase": "CHECK"
+      },
+      {
+        "id": 14,
+        "goal_dx": -0.095,
+        "goal_dy": 0.04,
+        "phase": "DEV"
+      },
+      {
+        "id": 15,
+        "goal_dx": -0.015,
+        "goal_dy": -0.04,
+        "phase": "DEV"
+      },
+      {
+        "id": 16,
+        "goal_dx": 0.015,
+        "goal_dy": 0.04,
+        "phase": "DEV"
+      },
+      {
+        "id": 17,
+        "goal_dx": 0.095,
+        "goal_dy": -0.04,
+        "phase": "DEV"
+      }
+    ],
+    "seed": 947,
+    "new_physical_intervention": "Use original public CausalWorld env.set_starting_state({'joint_positions': numpy float64 joints}, check_bounds=True) before env.reset in EVERY arm and public reset-only observer. Base joint positions are 3 repeats of (0,pi/4,-pi/4). Per joint j, initial displacement = 0.70*dx*(1 if j%3==0 else -.5) + 0.80*dy*(1 if j%3==1 else -.4) + 0.02*dx*((j//3)-1). All are safely inside original combined public intervention joint bounds. Require explicit success_signal True, otherwise fail closed without using the observations. No hidden state variables are supplied to policy; joint perturbation is a SOURCE/CONFOUND control, not model metadata.",
+    "goals": "Source constructor from K4P, public reaches three goal points shifted by dx,dy; public pushing tool and goal blocks shift oppositely; public picking tool block shifts dx,dy.",
+    "action_menu": "Unchanged K4H/K4P four distinct legal 9-joint-position action programs (all low, all mid, all high, mixed 20/80).",
+    "episode_steps": 8,
+    "skip_frame": 10,
+    "action_mode": "joint_positions",
+    "observation_mode": "structured",
+    "normalize_actions": false,
+    "normalize_observations": false,
+    "max_episode_length": 32,
+    "public_features": "128D tanh(raw structured obs/0.5), original K4P transformation; initial public obs x and final public obs z and state-change vector delta=z-x; never call private ground truth or use reward as a transition target.",
+    "phases": {
+      "FIT": 144,
+      "CHECK": 24,
+      "DEV": 48
+    },
+    "processes": 2,
+    "train_data_boundary": "FIT is simulator-physical-source calibration, not native candidate training. For a future ITD scientific trial all K4Q observed FIT/CHECK/DEV variants become consumed and excluded from future first-use."
+  },
+  "qualify": {
+    "FIT_first": "Run FIT 12 genuinely distinct public start states per task family * 4 paired legal actions. Check all reset SHA identical within each source case and action distinct, nonfinite states/rewards absent, all actions have 1-8 physical steps, and action-conditioned final-minus-reset varies nontrivially in ≥2 trained/tested task families.",
+    "action_causality": "At least 2 different actions per public source case produce final transition squared Euclidean distance >1e-4 for every family; per task family at least six of twelve FIT contexts yield distinct return profiles (max-min >0.01), and reaching FIT has at least two distinct realized reward-best action IDs.",
+    "observability": "Each task family has 12 unique public initial observation hashes and for each legal arm at least 2 unique public final-state-delta hashes with maximum pairwise 128D squared-delta-distance >=1e-4. Fail fit eligibility otherwise.",
+    "early_stop": "If any FIT source paired reset/action identity fails, or reaching lacks action-best diversity, or fewer than two of three task families have causal state transition variability, STOP WITHOUT CHECK/DEV consumption. Record original FIT negative.",
+    "forward_models": "FIT-only per-family and per-arm fixed mean 128D public delta (constant control), fully trained 1-nearest-neighbor delta using 128D FIT reset public features (strong nonparametric conventional control), and FIT-only per-arm linear ridge lambda1 predicting 128D public delta from [1,128 initial public features] using sample-space ridge. No native predictive-state candidate is trained. All models see identical 12 FIT source outcomes per arm.",
+    "frozen_holdout": "If FIT eligibility passes, save and JSON reload the FIT mean, 1NN records and ridge weights; freeze all fitted predictions on CHECK and DEV using SOURCE RESET-ONLY observations before generating ANY heldout rewards or transitions; verify all heldout source hashes before scoring.",
+    "positive": "Among CHECK+DEV heldout conditions, original source state transitions must remain action-sensitive and the best trained conventional predictor among 1NN and ridge must improve 128D delta-MSE against the FIT mean-delta predictor by ≥5% in at least two of three task families, separately on CHECK and on DEV (DO NOT use the better model for future science without independent preregistration). At least two families must have >=2 hindsight best actions across entire heldout DEV. No native transfer, novel architecture, or efficiency claim from this qualifier alone.",
+    "negative": "An action consequence that depends only on joint starting position and action while task goal changes but the resulting transition is independent of goal is a limited source. Report actual source differences, outcome diversity and baseline success separately, never label failed causal information evidence a new cognitive capability.",
+    "metrics": "All FIT/CHECK/DEV original rows per action incl public reset/end hashes, raw public 128D transformed states, return, delta, model squared MSE; model train CPU and inference CPU per method, full run wall/CPU/peak RSS and ZIP member hashes. Repeat two independent Python OS processes on one runner and require identical science ignoring timing.",
+    "governance": {
+      "scientific_first_use": false,
+      "scientific_accepted": false,
+      "no_FSA_first_use": true,
+      "no_F139_queue_change": true,
+      "no_CKB_plane": true,
+      "no_protected_merge": true,
+      "no_paid_APIs": true,
+      "no_Wingless_Yggdrasil_claim": true,
+      "prior_negative_immutable": true
+    }
+  }
+}
