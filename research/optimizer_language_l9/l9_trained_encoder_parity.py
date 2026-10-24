@@ -41,6 +41,7 @@ ARTIFACTS = {
 }
 EPOCHS = (4, 8, 12)
 MAX_STEPS = 16
+FULL_DECODE_CAP = 513
 LOGIT_ABS_LIMIT = 2e-5
 ROLE_SHA = "b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726"
 
@@ -98,7 +99,9 @@ def checkpoint_custody(folder: Path, seed: int) -> dict:
     return expected
 
 
-def compare_one(net, ids: list[int]) -> dict:
+def compare_one(net, ids: list[int], *, max_steps: int = MAX_STEPS) -> dict:
+    require(type(max_steps) is int and 1 <= max_steps <= FULL_DECODE_CAP,
+            "DECODE_STEP_CAP_DRIFT")
     import torch
     src = torch.tensor([ids], dtype=torch.long)
     enc_calls = [0]
@@ -108,12 +111,12 @@ def compare_one(net, ids: list[int]) -> dict:
     try:
         with torch.inference_mode():
             begin = time.perf_counter()
-            original = net.greedy(src, max_steps=MAX_STEPS)
+            original = net.greedy(src, max_steps=max_steps)
             original_s = time.perf_counter() - begin
             full_calls = enc_calls[0]
             enc_calls[0] = 0
             begin = time.perf_counter()
-            cached = cache.cached_encoder_greedy(net, src, max_steps=MAX_STEPS)
+            cached = cache.cached_encoder_greedy(net, src, max_steps=max_steps)
             cached_s = time.perf_counter() - begin
             cached_calls = enc_calls[0]
 
@@ -140,6 +143,7 @@ def compare_one(net, ids: list[int]) -> dict:
                     max_abs_error <= LOGIT_ABS_LIMIT, "TRAINED_LOGIT_DIVERGENCE")
             return {
                 "synthetic_input_bytes": len(ids),
+                "requested_max_steps": max_steps,
                 "generated_tokens": original.shape[1],
                 "token_ids_sha256": digest(json.dumps(
                     original[0].tolist(), separators=(",", ":")).encode("utf8")),
@@ -170,16 +174,19 @@ def run(folder: Path, seed: int) -> dict:
                                                    seed, epoch, folder)
         require(not net.training, "CHECKPOINT_NOT_EVAL")
         epoch_rows = [compare_one(net, ids) for ids in synthetic]
+        full_cap = (compare_one(net, synthetic[1], max_steps=FULL_DECODE_CAP)
+                    if epoch == 12 else None)
         rows.append({
             "epoch": epoch,
             "checkpoint_sha256": info["inference_sha256"],
             "source_test_count": len(epoch_rows),
             "synthetic_results": epoch_rows,
+            "full_cap_epoch_12_synthetic_equivalence": full_cap,
         })
         del net
 
     return {
-        "schema": "forge.optimizer.language.l9.trained-encoder-synthetic-parity-v1",
+        "schema": "forge.optimizer.language.l9.trained-encoder-synthetic-parity-v2", 
         "classification": "FROZEN_TRAIN_CHECKPOINT_SYNTHETIC_ENGINEERING_ONLY",
         "model_suite_git_blob": cache.FROZEN_MODEL_BLOB,
         "select_evaluator_git_blob": cache.FROZEN_SELECT_BLOB,
@@ -191,6 +198,9 @@ def run(folder: Path, seed: int) -> dict:
             ARTIFACTS[seed]["fit_receipt_sha256"],
         "all_frozen_epochs": list(EPOCHS),
         "synthetic_sources_per_checkpoint": len(synthetic),
+        "long_decode_requested_cap": FULL_DECODE_CAP,
+        "long_decode_eos_can_terminate_early": True,
+        "full_l9_select_equivalence_tested": False,
         "original_train_weights_loaded": True,
         "fit_reperformed": False,
         "original_select_scored": False,
