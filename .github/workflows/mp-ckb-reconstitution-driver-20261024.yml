@@ -98,6 +98,12 @@ jobs:
             New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
             Copy-Item -LiteralPath $f.FullName -Destination $target -Force
           }
+          $roadmap=Join-Path $live 'internal\plane\roadmap_successors.json'
+          Need (Test-Path -LiteralPath $roadmap -PathType Leaf) 'ROADMAP_ASSET'
+          Need ((Get-Item -LiteralPath $roadmap).Length -eq 62656) 'ROADMAP_ASSET_SIZE'
+          Need ((Sha $roadmap) -ceq '865db65ebc6b78be481671d625b08c850cc18c60f6477a1406d3bc36728bcb9e') 'ROADMAP_ASSET_HASH'
+          Copy-Item -LiteralPath $roadmap -Destination (Join-Path $dst 'internal\plane\roadmap_successors.json') -Force
+          Write-Host 'MP_RECON_ROADMAP_EMBED_ASSET=PINNED'
           Need ((Sha (Join-Path $dst 'internal\plane\model.go')) -ceq '7fbce6ae1e10a1310a02f2e1b185c47df103146578b9eb8e7908c9c996142382') 'MODEL_PREPATCH_ID'
 
           $patch=Join-Path $env:GITHUB_WORKSPACE 'recovery\mp-ckb-reconstitution-driver-20261024\model-preservation-reapply.patch'
