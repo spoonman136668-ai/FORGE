@@ -144,6 +144,8 @@ def verify_portable_receipt(raw, *, expected_ticket=None, expected_source=None):
     need(type(raw) is bytes and 0 < len(raw) <= MAX_BYTES, "RECEIPT_SIZE")
     try:
         obj = json.loads(raw, object_pairs_hook=_unique_json)
+    except PortableEvidenceDenied:
+        raise
     except (UnicodeError, ValueError, TypeError) as exc:
         raise PortableEvidenceDenied("F139_G4_RECEIPT_JSON") from exc
     _exact(obj, {"body", "body_sha256"}, "ENVELOPE_FIELDS")
