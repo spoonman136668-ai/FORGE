@@ -28,7 +28,7 @@ def sha256(raw):
 def canonical(value):
     return json.dumps(value,sort_keys=True,separators=(",",":"),allow_nan=False).encode()
 def git_blob(raw):
-    return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\0"+raw).hexdigest()
+    return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
 def fail(reason):
     raise RuntimeError("K4V_FAIL_CLOSED_"+reason)
 
@@ -66,7 +66,7 @@ def source_bytes(spec):
         meta=json.load(response)
     if meta.get("encoding")!="base64" or meta.get("type")!="file":
         fail("NATIVE_FILE_RESPONSE")
-    raw=base64.b64decode(meta["content"].replace("\\n",""),validate=True)
+    raw=base64.b64decode(meta["content"].replace("\n",""),validate=True)
     if git_blob(raw)!=spec["git_blob"] or meta["sha"]!=spec["git_blob"]:
         fail("NATIVE_BLOB_IDENTITY_"+spec["name"])
     return raw
@@ -249,7 +249,7 @@ def main():
       "original_check_dev_reused_for_evaluation":False,
       "native_scientific_accepted":False,"scientific_first_use":False,
       "independent_host_replication":False,"cases":cases}
-    args.output.write_text(json.dumps(receipt,sort_keys=True,indent=2)+"\\n")
+    args.output.write_text(json.dumps(receipt,sort_keys=True,indent=2)+"\n")
     print("K4V_AUTHENTIC_ORIGINAL_FIT_ONLY=PASS transitions_per_process=5955")
     print("K4V_SOURCE_STREAMS_IDENTICAL=PASS")
     print("K4V_NATIVE_POLICY_REPLAY_AND_COLD_RESTORE=PASS")
