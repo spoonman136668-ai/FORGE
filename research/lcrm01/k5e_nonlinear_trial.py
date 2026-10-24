@@ -193,7 +193,7 @@ def original_source(native,conventional,tree,nn,affine):
    src=[q["public_before"] for q in original if q["world"]==seed and q["action"]==a]
    if len(src)!=192 or len(set(src))!=192:
     raise ValueError("K5E_NOT_DISTINCT_PUBLIC_INTERVENTIONS")
- if any(original[i]["source_index"]!=original[i+30]["source_index"]+1
+ if any(original[i+30]["source_index"]!=original[i]["source_index"]+1
         for i in range(0,5700,30)):
   raise ValueError("K5E_SOURCE_NOT_INTERLEAVED")
  return original
