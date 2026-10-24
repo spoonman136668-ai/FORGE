@@ -1,0 +1,89 @@
+name: L10-B7 changing-state delayed-effect development qualification
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-changing-world-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10b7-state-change-frozen-dev-20261024
+  cancel-in-progress: false
+jobs:
+  state-change-development:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify frozen protocol and execute source-isolated adversarial suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'f881e2651a7360699712d404343e9d9a60a802e5'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l10-changing-world-qualify.yml'
+          p=research/optimizer_language_l10
+          test "$(git rev-parse HEAD:$p/L10_B7_CHANGING_WORLD_DEV_CONTRACT.json)" = 'd43c4965d23f984799c3d8781a44e31a30030c86'
+          test "$(git rev-parse HEAD:$p/l10_b7_changing_world_dev.py)" = '7aa5aa247e92a6d96c9f4c5196f84ed71bc603e1'
+          test "$(git rev-parse HEAD:$p/test_l10_b7_changing_world_dev.py)" = 'da8f967faf7956bc371bb25a2698211f6bbc7fd0'
+          test "$(git rev-parse HEAD:$p/l10_dev_source_custody.py)" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse HEAD:$p/l10_b6_scarce_design_dev.py)" = '5e4ebfbd57e8b4d8bbdfc59ff486f05ba696d274'
+          python -m py_compile "$p/l10_b7_changing_world_dev.py" "$p/test_l10_b7_changing_world_dev.py"
+          (cd "$p" && python -m unittest -v test_l10_semantic_dev_oracle.py test_l10_dev_source_controls.py test_l10_devfit_template_candidate.py test_l10_b4_effect_local_learning.py test_l10_b5_delayed_probe_dev.py test_l10_b6_scarce_design_dev.py test_l10_b7_changing_world_dev.py)
+          echo L10_B7_STATE_INTERFERENCE_ADVERSARIAL_PASS=TRUE
+      - name: Fixed synthetic-only state-dependent training and delayed checking
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import pathlib,sys,hashlib
+          sys.path.insert(0,str(pathlib.Path.cwd()/"research/optimizer_language_l10"))
+          import l10_b7_changing_world_dev as experiment
+          import l10_dev_source_custody as src
+          report=experiment.benchmark()
+          assert report["scientific_go"] is False and report["prospective_first_use_consumed"] is False
+          assert report["families"]==3 and report["check_episodes"]==3
+          assert len(report["outcomes"])==12
+          for row in report["outcomes"]:
+              assert row["decisions"]==36
+              assert row["correct"]+row["abstentions"]<=36
+          main=[x for x in report["outcomes"] if x["regime"]=="CLEAN"]
+          print("L10_B7_CLEAN="+str([(x["method"],x["correct"],x["abstentions"]) for x in main]))
+          summary=dict(schema="forge.optimizer.language.l10.b7-state-change-numerical-only-v1",
+             status="DEVELOPMENT_ONLY_NOT_CAUSAL_DISCOVERY",
+             source_role="L10_SYNTHETIC_DEV",family_count=3,
+             fit_episodes=3,check_episodes=3,decisions_per_method=36,
+             action_transition="P2 toggles hidden state",
+             public_model_knows_possible_unannounced_step_6_flip=True,
+             delayed_feedback_ticks=3,
+             groups=[dict(regime=x["regime"],method=x["method"],
+                 correct=x["correct"],abstentions=x["abstentions"],
+                 pre_interference_correct=x["pre_switch_correct"],
+                 post_interference_correct=x["post_switch_correct"],
+                 family_state_sha256=[r[3] for r in x["family_scores"]])
+                 for x in report["outcomes"]],
+             results_include_full_case_denominators=True,
+             per_os_resources_measured_but_excluded_from_consensus_sha=True,
+             energy="NOT_MEASURED",flops="NOT_MEASURED",
+             l9_untouched=True,prospective_first_use=False,scientific_go=False)
+          raw=src.canonical_bytes(summary)
+          out=pathlib.Path(sys.argv[1])/"l10b7-stateful-numerical-only.json"
+          out.write_bytes(raw)
+          print("L10_B7_CORE_NUMERIC_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l10").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L10_B7_PROTECTED_FIRST_USE=NOT_PERFORMED
+      - name: Preserve numerical evidence, without raw episode actions or labels
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l10b7-state-change-dev-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l10b7-stateful-numerical-only.json'
+          if-no-files-found: error
+          retention-days: 30
