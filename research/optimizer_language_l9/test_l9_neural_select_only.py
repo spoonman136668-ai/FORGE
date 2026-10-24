@@ -1,5 +1,6 @@
 """L9 neural SELECT verification, adversarial custody and role isolation."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 from unittest import TestCase
@@ -55,8 +56,8 @@ class SelectOnlyTests(TestCase):
         with self.assertRaises(ValueError):
             selection.model_from_checkpoint("GRU_SEQ2SEQ",1701,5,Path("/nonexistent"))
 
+    @__import__('unittest').skipUnless(importlib.util.find_spec('torch'), 'torch not installed in prefit environment')
     def test_malformed_checkpoint_rejected_pre_torch_load(self):
-        import torch
         v=self.valid_receipt()
         with tempfile.TemporaryDirectory() as dirname:
             d=Path(dirname)
@@ -87,6 +88,7 @@ class SelectOnlyTests(TestCase):
         self.assertIn('len(select)==2154',text)
         self.assertNotIn('e.role=="L9_AUDIT_DEV"',text)
 
+    @__import__('unittest').skipUnless(importlib.util.find_spec('torch'), 'torch not installed in prefit environment')
     def test_checkpoint_input_abstains_on_overlength(self):
         fake=("x"*(m.MAX_SOURCE_BYTES+64))
         triples=(m.Triple(fake,"prop","somewhere"),)
