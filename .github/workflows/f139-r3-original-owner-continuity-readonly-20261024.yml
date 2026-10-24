@@ -1,0 +1,93 @@
+name: F139 R3 original-owner continuity diagnosis (read only)
+on:
+  push:
+    branches: [audit/f139-r3-original-owner-continuity-20261024]
+    paths:
+      - '.github/workflows/f139-r3-original-owner-continuity-readonly-20261024.yml'
+permissions:
+  contents: read
+jobs:
+  inspect-original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe original scheduled task, SQLite ledger, and natural tick output only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_R3_OWNER_RUNNER_IDENTITY_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){throw 'F139_R3_OWNER_TASK_SHAPE_DRIFT'}
+          $state=[string]$task.State
+          if($state -cnotin @('Ready','Running')){throw 'F139_R3_ORIGINAL_TASK_INACTIVE'}
+          $argsText=[string]$task.Actions[0].Arguments
+          function TaskArg([string]$name) {
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_R3_OWNER_ARGS_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $db=TaskArg 'Database'
+          $root=TaskArg 'RepositoryRoot'
+          $py=TaskArg 'PythonExe'
+          $expectedDb=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          if([IO.Path]::GetFullPath($db) -ine $expectedDb){throw 'F139_R3_DATABASE_IDENTITY_DRIFT'}
+          $protected=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $protected -cne '8eca700c39223e176dea55f488b6f3397ce4e27a'){
+            throw 'F139_R3_ORIGINAL_SOURCE_DRIFT'
+          }
+          $code=@'
+          import json, pathlib, sqlite3, sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          db=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=25)
+          db.row_factory=sqlite3.Row
+          db.execute("PRAGMA query_only=ON")
+          try:
+              m=db.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert m is not None and m["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              assert m["enabled"]==1 and m["legacy_suspended"]==1 and m["head_seq"]>=206
+              counts=dict(db.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              print("F139_R3_SOURCE_PIN=PASS")
+              print("F139_R3_EVENT_SEQ="+str(m["head_seq"]))
+              print("F139_R3_STAGES="+json.dumps(counts,sort_keys=True))
+              recent=db.execute("SELECT seq,kind,payload FROM events WHERE seq>195 ORDER BY seq DESC LIMIT 12").fetchall()
+              for event in reversed(recent):
+                  payload=json.loads(event["payload"])
+                  ticket=payload.get("ticket","")
+                  if isinstance(ticket,str) and len(ticket)<=120 and event["kind"] in (
+                      "NATIVE_DEVELOPMENT_ADMITTED","BEFORE_DISPATCH_INTENT",
+                      "DISPATCH_POST_RETURNED","NATIVE_FAILED_PROVIDER_CUSTODY",
+                      "PROVIDER_VERIFIED_TERMINAL","ATTEMPT_QUARANTINED"):
+                      print("F139_R3_EVENT="+str(event["seq"])+":"+event["kind"]+":"+ticket)
+          finally:db.close()
+          '@
+          function Observe([string]$stage) {
+            Write-Output ('F139_R3_OBSERVATION='+$stage)
+            Write-Output ('F139_R3_TASK_STATE='+[string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController').State)
+            & $py -B -c $code $db
+            if($LASTEXITCODE -ne 0){throw 'F139_R3_READONLY_SQLITE_FAILED'}
+          }
+          Observe 'BEFORE'
+          $log=Join-Path ([IO.Path]::GetDirectoryName($db)) 'logs\controller.log'
+          if(-not (Test-Path -LiteralPath $log)){throw 'F139_R3_OWNER_LOG_MISSING'}
+          $before=(Get-Item -LiteralPath $log).Length
+          Start-Sleep -Seconds 47
+          Observe 'AFTER'
+          $after=(Get-Item -LiteralPath $log).Length
+          Write-Output ('F139_R3_LOG_GREW='+[string]($after -gt $before))
+          $lines=Get-Content -LiteralPath $log -Tail 210
+          $records=New-Object 'System.Collections.Generic.List[string]'
+          foreach($line in $lines){
+            $brace=$line.IndexOf('{')
+            if($brace -lt 0){continue}
+            try{$entry=$line.Substring($brace)|ConvertFrom-Json -ErrorAction Stop}catch{continue}
+            $disposition=if($entry.disposition){[string]$entry.disposition}elseif($entry.blocked){[string]$entry.blocked}else{''}
+            if($disposition -cmatch '^[A-Z0-9_]{3,120}$'){
+              $records.Add(([string]$entry.at)+':'+$disposition)
+            }
+          }
+          Write-Output ('F139_R3_TICKS_FOUND='+$records.Count)
+          $last=@($records | Select-Object -Last 12)
+          foreach($record in $last){Write-Output ('F139_R3_LATEST_TICK='+$record)}
+          Write-Output 'F139_R3_NO_OWNER_MUTATION=TRUE'
+          Write-Output 'F139_R3_NO_NEW_DISPATCH=TRUE'
+          Write-Output 'F139_R3_SCIENTIFIC_FIRST_USE=FALSE'
