@@ -17,6 +17,14 @@ INDEX = "archive/research/bio/2026-10-23/findings.json"
 PATH = re.compile(r"^archive/research/bio/2026-10-23/(original_reports|original_decisions)/[A-Za-z0-9_.-]+$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
+# The only prospective BIO-73 read in this API. It is executable source
+# obtained privately for an isolated source-qualification step, NOT runnable
+# content for this reader and NOT scientific first-use authorization.
+BIO73_ENV0_COMMIT = "7ad7230a82e3c748aa5336b7288ad2b45d42630c"
+BIO73_ENV0_PATH = "archive/research/bio/2026-10-23/bio73/bio73_source_preflight.py"
+BIO73_ENV0_BLOB = "d9218e5b1eb7b1da43092f96d91af3a07287ef2c"
+BIO73_ENV0_MAX_BYTES = 16384
+
 def blocked(code):
     raise ValueError("PRIVATE_BIO_READ_" + code)
 
@@ -90,3 +98,37 @@ class GitHubBIO:
         if hashlib.sha1(obj).hexdigest() != sha:
             blocked("FILE_GIT_BLOB_SHA")
         return raw
+
+    @staticmethod
+    def _verify_frozen_file(payload, expected_sha, maximum):
+        """Verify an exact GitHub Contents response; never execute the bytes."""
+        if not isinstance(payload, dict) or payload.get("type") != "file" or payload.get("encoding") != "base64":
+            blocked("FROZEN_SOURCE_FORMAT")
+        size = payload.get("size")
+        encoded = payload.get("content")
+        if (type(size) is not int or size < 1 or size > maximum or
+                payload.get("sha") != expected_sha or not isinstance(encoded, str)):
+            blocked("FROZEN_SOURCE_IDENTITY")
+        try:
+            raw = base64.b64decode("".join(encoded.splitlines()), validate=True)
+        except (ValueError, Exception):
+            blocked("FROZEN_SOURCE_DECODE")
+        if len(raw) != size:
+            blocked("FROZEN_SOURCE_SIZE")
+        git_blob = b"blob " + str(len(raw)).encode("ascii") + b"\x00" + raw
+        if hashlib.sha1(git_blob).hexdigest() != expected_sha:
+            blocked("FROZEN_SOURCE_GIT_BLOB_SHA")
+        return raw
+
+    def read_frozen_bio73_env0(self):
+        """Read ONLY frozen BIO-73 upstream preflight bytes on a private GET.
+
+        No caller-selected path/ref, no code execution, no runner selection,
+        no claim of an authorized scientific environment or FSA decision.
+        This method does not change the historical BIO reader's main pin.
+        """
+        route = ("contents/" + urllib.parse.quote(BIO73_ENV0_PATH, safe="/")
+                 + "?ref=" + BIO73_ENV0_COMMIT)
+        payload = self._get(route, 65536)
+        return self._verify_frozen_file(
+            payload, BIO73_ENV0_BLOB, BIO73_ENV0_MAX_BYTES)
