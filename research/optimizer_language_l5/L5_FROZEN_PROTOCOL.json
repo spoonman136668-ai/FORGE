@@ -1,0 +1,71 @@
+{
+  "schema": "forge.optimizer.language.l5.prospective-public-subword-v1",
+  "stage": "FIRST_PROTOCOL_ONLY_COMMIT_BEFORE_SOURCE_LEARNER_AND_DEV",
+  "parent": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "governance": {
+    "mode": "ADDITIVE_ISOLATED_PUBLIC_DEVELOPMENT",
+    "preserve": [
+      "NCI-04",
+      "ITD-01",
+      "BIO",
+      "Mass Research",
+      "Optimizer native",
+      "Q21 successor",
+      "FORGE controller/authority"
+    ],
+    "forbid": [
+      "FSA/Q21/Q21N01 protected scientific first-use",
+      "Old L1–L4 DEV reuse",
+      "New research queue/controller",
+      "Wingless/Yggdrasil integration",
+      "Paid API",
+      "Production mutations or promotion"
+    ]
+  },
+  "hypothesis": "Do independently learned character ngrams and reusable suffix chunks generate authentic unseen full words from identical visible three-character word prefixes and side context more faithfully than a fitted prefix lexicon, under bounded training/storage/inference costs?",
+  "scope_warning": "Public Alice text is not blinded science. Word-prefix completion does NOT demonstrate latent cognition, reasoning, free text creation, general language generation, coding or full LLM comparability.",
+  "external_source": {
+    "repository": "GITenberg/Alice-s-Adventures-in-Wonderland_11",
+    "commit": "7f18748e114b994d5d9454d5793581bc0b9cf9d7",
+    "file": "11-0.txt",
+    "git_blob_sha1": "0f25e9af379233267a09623e0c650472f9e463ea",
+    "bytes": 173595,
+    "url": "https://raw.githubusercontent.com/GITenberg/Alice-s-Adventures-in-Wonderland_11/7f18748e114b994d5d9454d5793581bc0b9cf9d7/11-0.txt",
+    "verification": "Require exact raw bytes + Git blob SHA1 before UTF8 parse, never commit source."
+  },
+  "source": {
+    "namespace": "l5-20261023-alice-prefix-subword-v1",
+    "physical_line_split": "Raw UTF8 splitlines, chronological first70% TRAIN, next15% SELECT, last15% DEV",
+    "tokenization": "lowercase regex [a-z]+(?:'[a-z]+)? on each original physical line, 9..50 tokens",
+    "target": "one word length5..18 matching [a-z]+ among interior indexes 3..len-4, selected by SHA256(namespace+':'+physical index) first8 modulo candidates. Expose only first3 letters plus last3/next3 words; gold full word for TRAIN/SELECT fitting and DEV scoring only",
+    "roles": {
+      "L5_TRAIN": 750,
+      "L5_SELECT": 120,
+      "L5_DEV": 160
+    },
+    "split_identity": "First unique windows per chronological role, exact physical line and canonical seven-word windows disjoint; fail on shortages",
+    "model_information": "Same public train gold/input for all models, no source gold or role/line ordinal exposed at inference"
+  },
+  "arms": {
+    "WORD_PREFIX_LEXICON": "Fitted training target word counts restricted to exact first3 chars, use training left/right conditional context smoothed counts; if none, emit prefix as abstention",
+    "CHAR_BIGRAM_BEAM": "Train character order2 transitions, beam12, max word len18, length penalty .04 per added character, smoothed counts .5; prefix-conditioned",
+    "CHAR_TRIGRAM_BEAM": "Train character order3 transitions, same beam/cost protocol",
+    "CHAR_4GRAM_BEAM": "Train character order4 transitions, same beam/cost protocol",
+    "CHAR_TRIGRAM_PLUS_CONTEXT": "Trigram beam12, rerank by frozen TRAIN word left/right context add0.5 smoothed logprob weight .35. Complete trigram+context fit/storage costs.",
+    "SUFFIX_CHUNK_REUSE": "Fit terminal suffix chunks length1..5 conditioned visible 3letter prefix if present else global suffix, add0.5, concatenate highest-count suffix to prefix; may emit unseen words."
+  },
+  "selection": "All hyperparameters frozen; SELECT is report-only and cannot tune model or beam. Same TRAIN exposure but different fit resources and parameter counts, no Pareto GO.",
+  "metrics": [
+    "Exact full word and char accuracy / normalized edit distance",
+    "Unseen-TRAIN-target word DEV exact accuracy and OOV fraction",
+    "Novel output fraction, prefix violation, abstention",
+    "Fit/SELECT CPU",
+    "Serial inference CPU/wall",
+    "Full checkpoint and training corpus bytes",
+    "Peak memory",
+    "Analytical lookup proxy NOT FLOPs",
+    "Energy NOT_MEASURED"
+  ],
+  "native_acceptance": "Windows/Linux tests; source exact SHA and each arm role output SHA + numeric fidelity exact, independent comparator fail-closed, Linux Go test vet build and separate FORGE full PR regression.",
+  "decision": "NO SCIENTIFIC GO from synthetic prefix completion; preserve all unfavorable results; no old DEV retuning or protected first-use."
+}
