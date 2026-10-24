@@ -13,6 +13,7 @@ class TrainedParityTests(unittest.TestCase):
         self.assertEqual(set(p.ARTIFACTS), {1701, 1702})
         self.assertEqual(p.EPOCHS, (4, 8, 12))
         self.assertEqual(p.MAX_STEPS, 16)
+        self.assertEqual(p.FULL_DECODE_CAP, 513)
         self.assertEqual(p.ROLE_SHA,
                          "b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726")
         for seed, row in p.ARTIFACTS.items():
@@ -22,6 +23,20 @@ class TrainedParityTests(unittest.TestCase):
                           row["fit_receipt_sha256"], *row["checkpoints"].values()]:
                 self.assertEqual(len(value), 64)
                 self.assertTrue(all(c in "0123456789abcdef" for c in value))
+
+    def test_long_decode_cap_rejects_outside_frozen_bounds(self):
+        for bad in (0, -1, 514, True):
+            with self.subTest(bad=bad), self.assertRaisesRegex(
+                    ValueError, "DECODE_STEP_CAP_DRIFT"):
+                p.compare_one(None, [1, 2, 3, p.frozen.EOS], max_steps=bad)
+
+    def test_original_full_decode_boundary_is_not_science_evidence(self):
+        raw = (Path(__file__).resolve().parent /
+               "l9_trained_encoder_parity.py").read_text()
+        self.assertIn('"full_l9_select_equivalence_tested": False', raw)
+        self.assertIn('"resource_pareto_qualified": False', raw)
+        self.assertIn('"long_decode_eos_can_terminate_early": True', raw)
+        self.assertIn("max_steps=FULL_DECODE_CAP", raw)
 
     def test_original_frozen_model_and_selector_exact_blobs(self):
         root = Path(__file__).resolve().parent
