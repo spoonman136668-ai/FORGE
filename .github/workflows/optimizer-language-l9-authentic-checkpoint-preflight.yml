@@ -8,7 +8,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: l9-firstuse-checkpoint-preflight-frozen-20261024
+  group: l9-firstuse-checkpoint-preflight-cleanup-v2-20261024
   cancel-in-progress: false
 jobs:
   authentic-frozen-checkpoints:
@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = '93512bc249786399aea2335e0b6d84591176209c'
+          test "$(git rev-parse HEAD^)" = '4dd0444a4e32081f8886e14ba151e1eadc417632'
           test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-authentic-checkpoint-preflight.yml'
           p=research/optimizer_language_l9
           test "$(git rev-parse HEAD:$p/l9_first_use_one_shot.py)" = '4df23fd86435bba094909dd90a17bda8575d8ba8'
@@ -151,6 +151,7 @@ jobs:
           dest.write_bytes(raw)
           print("L9_AUTHENTIC_CHECKPOINT_PREFIT_SHA256="+hashlib.sha256(raw).hexdigest())
           PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
           test -z "$(git status --porcelain)"
       - name: Preserve numerical synthetic prefit only; never checkpoint model weights
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
