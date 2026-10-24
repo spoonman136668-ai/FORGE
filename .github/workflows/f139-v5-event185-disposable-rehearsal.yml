@@ -1,0 +1,154 @@
+name: F139 v5 event185 authentic original-owner disposable rehearsal
+on:
+  push:
+    branches: [diagnostics/f139-v5-event185-disposable-rehearsal-20261024]
+    paths: [.github/workflows/f139-v5-event185-disposable-rehearsal.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-v5-event185-one-owner-scratch-audit
+  cancel-in-progress: false
+jobs:
+  original-owner-readonly-scratch:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 73e0992956502df597b1adc809e999b783383f57
+          persist-credentials: false
+      - name: Rehearse v5 source and native approval on isolated SQLite copy only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $candidate='73e0992956502df597b1adc809e999b783383f57'
+          $source='db9b45955d2b1f2c5ec419f2dd5296828396663c'
+          $head='21d5cf33217505a1ce22a3e3998d1c77ef5ddd3ad810708b6fcdd797a9478d6c'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_REF -cne 'refs/heads/diagnostics/f139-v5-event185-disposable-rehearsal-20261024' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_V5_OWNER_REHEARSAL_AUTHORITY_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+             [string]$t.State -cnotin @('Ready','Running')){
+            throw 'F139_V5_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $opt=[string]$t.Actions[0].Arguments
+          function Arg([string]$name){
+            $m=[regex]::Match($opt,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V5_TASK_ARGS_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database';$python=Arg 'PythonExe';$root=Arg 'RepositoryRoot'
+          if([IO.Path]::GetFullPath($env:GITHUB_WORKSPACE) -ieq
+             [IO.Path]::GetFullPath($root) -or
+             [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_V5_TEST_MUST_NOT_TOUCH_ORIGINAL_ROOT'
+          }
+          if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $source -or
+             ((& git.exe -C $env:GITHUB_WORKSPACE rev-parse HEAD|Out-String).Trim()) -cne $candidate){
+            throw 'F139_V5_PINNED_SOURCE_NOT_PRESENT'
+          }
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-v5-exact-event185-scratch-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_V5_NO_OVERWRITE_SCRATCH'}
+          $code=@'
+          import pathlib,sqlite3,sys,os,json
+          sys.path.insert(0,os.getcwd())
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import activate_native,verify_native_activation
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          old=sys.argv[3];oldhash=sys.argv[4];target=sys.argv[5]
+          con=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True,timeout=30)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          original=dict(con.execute(
+              "SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended "
+              "FROM meta WHERE id=1").fetchone())
+          assert original=={
+              "source_sha":old,"head_seq":185,"head_hash":oldhash,
+              "enabled":1,"legacy_suspended":1},original
+          counts={r["stage"]:r["n"] for r in con.execute(
+              "SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+          assert counts=={"QUARANTINED":10,"VERIFIED":18},counts
+          assert not scratch.exists()
+          dest=sqlite3.connect(scratch)
+          con.backup(dest)
+          dest.close()
+          d=Database(scratch)
+          try:
+              d.verify()
+              assert verify_native_activation(d)
+              assert d.active() is None and d.ready() is None
+              assert len(d.verified_native_provider_failures())==8
+              trans=[
+                  dict(r) for r in d.conn.execute(
+                      "SELECT seq,sha,payload FROM events "
+                      "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
+              v4=[r for r in trans if json.loads(r["payload"])["schema"]==
+                   "forge.f139.source-transition.v4"]
+              v5=[r for r in trans if json.loads(r["payload"])["schema"]==
+                   "forge.f139.source-transition.v5"]
+              assert len(v4)==10 and len(v5)==0,(len(v4),len(v5))
+              first=[(r["seq"],r["sha"]) for r in d.conn.execute(
+                  "SELECT seq,sha FROM events ORDER BY seq")]
+              d.transition_source(target,allow_certified_negative=True)
+              d.verify()
+              assert d.meta()["head_seq"]==186 and d.meta()["source_sha"]==target
+              event=d.conn.execute(
+                  "SELECT kind,payload FROM events WHERE seq=186").fetchone()
+              payload=json.loads(event["payload"])
+              assert event["kind"]=="SOURCE_TRANSITION_ADMITTED"
+              assert payload["schema"]=="forge.f139.source-transition.v5"
+              assert payload["v4_terminal_event_sha256"]==v4[-1]["sha"]
+              assert payload["custodied_negative_tasks"]==10
+              assert payload["scientific_first_use"] is False
+              approval={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":target,
+                  "expected_event_head_sha256":d.meta()["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,"create_controller":False,
+                  "paid_api_calls":0}
+              activate_native(d,approval)
+              d.verify()
+              assert verify_native_activation(d)
+              assert d.meta()["head_seq"]==187
+              preserved=[(r["seq"],r["sha"]) for r in d.conn.execute(
+                  "SELECT seq,sha FROM events ORDER BY seq LIMIT ?",(len(first),))]
+              assert first==preserved
+              final={r["stage"]:r["n"] for r in d.conn.execute(
+                  "SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              assert final==counts,final
+              print("F139_V5_ORIGINAL_EVENT185_HISTORY=PASS")
+              print("F139_V5_ORIGINAL_TEN_V4_SEALED=PASS")
+              print("F139_V5_SCRATCH_SOURCE186=PASS")
+              print("F139_V5_SCRATCH_NATIVE_ACTIVATION187=PASS")
+              print("F139_V5_ORIGINAL_NEGATIVES=10")
+              print("F139_V5_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:d.close()
+          after=dict(con.execute(
+              "SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended "
+              "FROM meta WHERE id=1").fetchone())
+          assert after==original,"F139_V5_ORIGINAL_META_MUTATED"
+          con.close()
+          print("F139_V5_ORIGINAL_SQLITE_READONLY_UNCHANGED=TRUE")
+          '@
+          try{
+            Push-Location -LiteralPath $env:GITHUB_WORKSPACE
+            try{
+              & $python -B -c $code $db $scratch $source $head $candidate
+              if($LASTEXITCODE -ne 0){throw 'F139_V5_ORIGINAL_SCRATCH_REHEARSAL_FAILED'}
+            }finally{Pop-Location}
+          }finally{
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
