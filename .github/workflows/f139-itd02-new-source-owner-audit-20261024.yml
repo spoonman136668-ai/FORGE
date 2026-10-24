@@ -1,0 +1,72 @@
+name: F139 original owner read-only ITD-02 source-eligibility inspection
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-itd02-new-source-owner-audit-20261024.yml]
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+jobs:
+  original-owner-eligibility:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Assess newly authored Wingless PR without admission or dispatch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='8eca700c39223e176dea55f488b6f3397ce4e27a'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_ITD02_NOT_ORIGINAL_OWNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running'){throw 'F139_ITD02_OWNER_NOT_RUNNING'}
+          $arguments=[string]$task.Actions[0].Arguments
+          function ReadPath([string]$key){
+             $match=[regex]::Match($arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+             if(-not $match.Success){throw 'F139_ITD02_ORIGINAL_ARGUMENT_DRIFT'}
+             return $match.Groups[1].Value
+          }
+          $root=ReadPath 'RepositoryRoot'
+          $db=ReadPath 'Database'
+          $python=ReadPath 'PythonExe'
+          $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($actual -cne $source -or [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+             throw 'F139_ITD02_ORIGINAL_SOURCE_MISMATCH'
+          }
+          $script=@'
+          import json, pathlib, sqlite3, sys
+          sys.path.insert(0,str(pathlib.Path(sys.argv[1]).resolve(strict=True)))
+          from f139.local_controller import GitHub
+          from f139.nci04_autonomy_feed import prepare_feed, candidate_identity_from_intent_base64
+          source=sys.argv[3]
+          p=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          try:
+              con.row_factory=sqlite3.Row
+              con.execute("PRAGMA query_only=ON")
+              meta=dict(con.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              assert meta["source_sha"]==source and meta["enabled"]==1 and meta["legacy_suspended"]==1
+              native=[json.loads(r["payload"]) for r in con.execute(
+                  "SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED' ORDER BY seq")]
+              existing={candidate_identity_from_intent_base64(e["native_intent_base64"]) for e in native}
+              print("F139_ITD02_ORIGINAL_HEAD_SEQ="+str(meta["head_seq"]))
+              print("F139_ITD02_HISTORICAL_IDENTITIES="+str(len(existing)))
+          finally:con.close()
+          feed=prepare_feed(GitHub().native_repo_get,source_sha=source,
+                            existing_candidate_identities=set(existing))
+          print("F139_ITD02_NEW_ELIGIBLE_COUNT="+str(len(feed["candidates"])))
+          for x in feed["candidates"]:
+              print("F139_ITD02_NEW_ELIGIBLE="+x["lane"]+":PR"+str(x["pr_number"])+
+                    ":ID"+x["candidate_identity"][:16])
+          print("F139_ITD02_REJECTED_COUNT="+str(len(feed["rejected"])))
+          for x in feed["rejected"]:
+              print("F139_ITD02_REJECTED="+x["lane"]+":PR"+str(x["pr_number"])+
+                    ":"+x["reason"])
+          print("F139_ITD02_READONLY=TRUE")
+          '@
+          & $python -B -c $script $root $db $source
+          if($LASTEXITCODE -ne 0){throw 'F139_ITD02_ELIGIBILITY_INSPECTION_FAILED'}
