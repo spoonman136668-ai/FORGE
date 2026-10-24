@@ -32,7 +32,9 @@ def extract_fit_only(raw):
     text=raw.decode("utf-8")
     match=re.search(r'(?<!\\)"FIT"\s*:',text)
     require(match is not None and text.count('"FIT"')==1,"FIT_FIELD_MISSING_OR_DUPLICATE")
-    fit,end=json.JSONDecoder().raw_decode(text,match.end())
+    pos=match.end()
+    while pos<len(text) and text[pos].isspace():pos+=1
+    fit,end=json.JSONDecoder().raw_decode(text,pos)
     require(type(fit) is dict,"FIT_SUBTREE_TYPE")
     return fit
 
