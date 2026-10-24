@@ -1,0 +1,99 @@
+name: Mass K4Y historical FIT-only forward feasibility and strong conventional controls
+on:
+  push:
+    branches: [research/mass-lcrm01-k4y-forward-feasibility-fit-only-20261024]
+    paths:
+      - research/lcrm01/k4y_*
+      - research/lcrm01/test_k4y_sourceonly.py
+      - .github/workflows/lcrm01-k4y-forward-identifiability.yml
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: k4y-history-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  source-free-original-fit-observability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 15
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify frozen predecessor before source-only code and deny simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/mass-lcrm01-k4y-forward-feasibility-fit-only-20261024
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$(git rev-parse 0085dcf7458cd907e3634853ddf825f22f1a95fa^)" = 2e3ff3d173f250be1324b2a79cc484bbcbf68a97
+          git merge-base --is-ancestor 0085dcf7458cd907e3634853ddf825f22f1a95fa HEAD
+          test "$(git hash-object research/lcrm01/k4y_frozen_forward_identifiability.json)" = bc201f4e5afd4fa055d259b9e6e39de826528fdd
+          python - <<'PY'
+          import ast,pathlib
+          p=pathlib.Path("research/lcrm01/k4y_fit_forward_identifiability.py")
+          root=ast.parse(p.read_text())
+          assert not any(n.module and n.module.startswith("minigrid") for n in ast.walk(root) if isinstance(n,ast.ImportFrom))
+          assert not any(x.name.startswith("minigrid") for n in ast.walk(root) if isinstance(n,ast.Import) for x in n.names)
+          print("K4Y_FREEZE_BEFORE_SOURCE_DIAGNOSIS=PASS")
+          PY
+      - name: Focused FIT-only safety and negative-control tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p 'test_k4y_sourceonly.py' -v
+      - name: Download exactly existing original K4X source, verify SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4y"
+          curl --fail --location --silent --show-error --retry 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12563223886/zip' \
+            -o "$RUNNER_TEMP/k4y/k4x_existing_original.zip"
+          printf 'ab2d7ea88985c5faf8c18bc3fea3d0f9416852885b546240f5449b9318047a38  %s\n' "$RUNNER_TEMP/k4y/k4x_existing_original.zip" | sha256sum -c -
+      - name: Two separate original-FIT-only replay processes, identical source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/k4y_fit_forward_identifiability.py --archive "$RUNNER_TEMP/k4y/k4x_existing_original.zip" --output "$RUNNER_TEMP/k4y/a.json"
+          python -B research/lcrm01/k4y_fit_forward_identifiability.py --archive "$RUNNER_TEMP/k4y/k4x_existing_original.zip" --output "$RUNNER_TEMP/k4y/b.json"
+          python - <<'PY'
+          import json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"k4y"
+          a=json.loads((root/"a.json").read_text())
+          b=json.loads((root/"b.json").read_text())
+          transient={"cpu_seconds","wall_seconds","peak_rss_bytes"}
+          for x in (a,b):
+              for key in transient:x.pop(key,None)
+          assert a==b,"K4Y_INDEPENDENT_PROCESS_SCIENCE_DRIFT"
+          assert a["source_original_episodes_executed"]==0
+          assert a["original_CHECK_DEV_rows_evaluated"] is False
+          assert a["native_architecture_superiority_claim"] is False
+          assert a["original_scientific_NO_GO_preserved"] is True
+          assert a["verdict"] in ("K4Y_PUBLIC_FORWARD_CONSEQUENCE_IDENTIFIABLE_IN_RECORDED_FIT","K4Y_NOT_IDENTIFIED")
+          print("K4Y_COLD_PROCESS_SCIENCE_REPRODUCED=PASS")
+          print("K4Y_FROZEN_VERDICT="+a["verdict"])
+          PY
+          git diff --exit-code
+      - name: Preserve only derived FIT predictor metrics, no original trace
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4y-historical-fit-forward-conditional
+          path: ${{ runner.temp }}/k4y/*.json
+          if-no-files-found: warn
+          retention-days: 90
