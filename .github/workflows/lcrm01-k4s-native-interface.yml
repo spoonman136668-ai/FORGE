@@ -1,0 +1,83 @@
+name: Mass K4S native source compatibility, no science evaluation
+on:
+  push:
+    branches: [research/mass-lcrm01-k4s-native-interface-20261024]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  isolated-readonly-native-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+      - name: Verify freeze-first original source and no protected mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse '54c910c5c453f1a5e7926caa21a7edfc07ce1425^')" = 'e542b58c33698d10473b891734af15dca46c12d6'
+          git merge-base --is-ancestor 54c910c5c453f1a5e7926caa21a7edfc07ce1425 HEAD
+          test "$(git hash-object research/lcrm01/k4s_frozen_native_interface.json)" = '3bde745740f8e495319ce5998a08bd8d72a4e5bd'
+          test "$(git hash-object research/lcrm01/k4r_frozen_independent_minigrid.json)" = 'cf87447b6eb47b33757a98ea6622ce2ea40bd022'
+          echo 'K4S_FROZEN_SOURCE=PASS'
+      - name: Qualify source-only native ownership and benchmark contract
+        shell: bash
+        run: PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p 'test_k4s_sourceonly.py' -v
+      - name: Retrieve ORIGINAL K4R first-use science with read-only source authorization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4s"
+          curl --fail --location --silent --show-error --retry 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12561177548/zip' \
+            -o "$RUNNER_TEMP/k4s/original-k4r.zip"
+          printf 'ba8c36c240cf6c7614231d78f307715aedab215ad36199be4d45c36d681720fd  %s\n' "$RUNNER_TEMP/k4s/original-k4r.zip" | sha256sum -c -
+      - name: Run actual Wingless Go and Yggdrasil Python API compatibility proofs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/k4s_native_interface_gate.py \
+            --artifact-zip "$RUNNER_TEMP/k4s/original-k4r.zip" \
+            --output "$RUNNER_TEMP/k4s/native-interface-evidence.json" | tee "$RUNNER_TEMP/k4s/native-interface-evidence.log"
+          python -B - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path(os.environ["RUNNER_TEMP"])/"k4s/native-interface-evidence.json"
+          d=json.loads(p.read_text())
+          assert d["schema"]=="mass.lcrm01.k4s.original-native-policy-source-admission-v1"
+          assert d["result"]=="NATIVE_POLICY_INTERFACE_NOT_READY"
+          assert d["source"]["source_qualified"] is True
+          assert len(d["native_implementations"])==3
+          assert d["native_implementations"][0]["native_go_test_pass"] is True
+          assert d["native_implementations"][1]["native_python_execution_pass"] is True
+          assert d["native_implementations"][2]["original_transition_predictor_present"] is True
+          assert all(x["native_model_policy_qualified"] is False for x in d["native_implementations"])
+          assert d["any_new_MINIGRID_episodes_executed"] is False
+          assert d["scientific_first_use"] is False and d["scientific_accepted"] is False
+          print("K4S_ORIGINAL_SOURCE_CUSTODY=PASS")
+          print("K4S_NATIVE_POLICY_ADVANCEMENT=BLOCKED_WITH_SOURCE_PROOF")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4s-original-source-native-interface-qualification
+          path: |
+            ${{ runner.temp }}/k4s/native-interface-evidence.json
+            ${{ runner.temp }}/k4s/native-interface-evidence.log
+          if-no-files-found: warn
+          retention-days: 90
