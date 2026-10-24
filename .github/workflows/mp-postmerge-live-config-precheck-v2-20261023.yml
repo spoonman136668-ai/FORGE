@@ -27,7 +27,7 @@ jobs:
           Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-postmerge-live-config-precheck-v2-20261023') 'BRANCH'
           Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
-          $parent='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          $parent='0c5eff020e06eba4313eeefbc55a42a0c9b3151e'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-postmerge-live-config-precheck-v2-20261023.yml') 'SCOPE'
@@ -66,36 +66,7 @@ jobs:
           Copy-Item -LiteralPath $liveConfig -Destination $configCopy -Force
           $liveConfigHash=Hash $liveConfig
           Write-Host ('MP_POSTMERGE_COMPAT_LIVE_CONFIG_SHA256='+$liveConfigHash)
-          $py=@'
-          import pathlib,re,sqlite3,sys,urllib.parse
-          root=pathlib.Path(sys.argv[1]).resolve()
-          cfg=pathlib.Path(sys.argv[2]).resolve()
-          out=pathlib.Path(sys.argv[3]).resolve()
-          text=cfg.read_text(encoding="utf-8-sig")
-          state_indent=None; db_name=None
-          for line in text.splitlines():
-              indent=len(line)-len(line.lstrip(" "))
-              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
-                  state_indent=indent; continue
-              if state_indent is None: continue
-              if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
-                  state_indent=None; continue
-              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
-              if m:
-                  db_name=m.group(1).strip().strip("\"'"); break
-          if db_name is None: raise RuntimeError("MP_POSTMERGE_COMPAT_DB_LOCATOR")
-          p=pathlib.Path(db_name)
-          live=(p if p.is_absolute() else root/p).resolve()
-          if not live.is_relative_to(root) or not live.is_file(): raise RuntimeError("MP_POSTMERGE_COMPAT_DB_SCOPE")
-          uri="file:"+urllib.parse.quote(str(live).replace("\\","/"),safe="/:")+"?mode=ro"
-          with sqlite3.connect(uri,uri=True,timeout=5.0) as src:
-              src.execute("PRAGMA query_only=ON")
-              with sqlite3.connect(str(out)) as dst: src.backup(dst)
-          with sqlite3.connect(str(out)) as db:
-              if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
-                  raise RuntimeError("MP_POSTMERGE_COMPAT_SNAPSHOT_INTEGRITY")
-          print("MP_POSTMERGE_COMPAT_SNAPSHOT_INTEGRITY=PASS")
-          '@
+          $py=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aW1wb3J0IHBhdGhsaWIscmUsc3FsaXRlMyxzeXMsdXJsbGliLnBhcnNlCnJvb3Q9cGF0aGxpYi5QYXRoKHN5cy5hcmd2WzFdKS5yZXNvbHZlKCkKY2ZnPXBhdGhsaWIuUGF0aChzeXMuYXJndlsyXSkucmVzb2x2ZSgpCm91dD1wYXRobGliLlBhdGgoc3lzLmFyZ3ZbM10pLnJlc29sdmUoKQp0ZXh0PWNmZy5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04LXNpZyIpCnN0YXRlX2luZGVudD1Ob25lCmRiX25hbWU9Tm9uZQpmb3IgbGluZSBpbiB0ZXh0LnNwbGl0bGluZXMoKToKICAgIGluZGVudD1sZW4obGluZSktbGVuKGxpbmUubHN0cmlwKCIgIikpCiAgICBpZiByZS5mdWxsbWF0Y2gociJccypzdGF0ZTpccyooPzojLiopPyIsbGluZSk6CiAgICAgICAgc3RhdGVfaW5kZW50PWluZGVudAogICAgICAgIGNvbnRpbnVlCiAgICBpZiBzdGF0ZV9pbmRlbnQgaXMgTm9uZToKICAgICAgICBjb250aW51ZQogICAgaWYgbGluZS5zdHJpcCgpIGFuZCBub3QgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCIjIikgYW5kIGluZGVudDw9c3RhdGVfaW5kZW50OgogICAgICAgIHN0YXRlX2luZGVudD1Ob25lCiAgICAgICAgY29udGludWUKICAgIG09cmUuZnVsbG1hdGNoKHIiXHMqc3FsaXRlX3BhdGg6XHMqKC4rPylccyooPzojLiopPyIsbGluZSkKICAgIGlmIG06CiAgICAgICAgZGJfbmFtZT1tLmdyb3VwKDEpLnN0cmlwKCkuc3RyaXAoIlwiJyIpCiAgICAgICAgYnJlYWsKaWYgZGJfbmFtZSBpcyBOb25lOgogICAgcmFpc2UgUnVudGltZUVycm9yKCJNUF9QT1NUTUVSR0VfQ09NUEFUX0RCX0xPQ0FUT1IiKQpwPXBhdGhsaWIuUGF0aChkYl9uYW1lKQpsaXZlPShwIGlmIHAuaXNfYWJzb2x1dGUoKSBlbHNlIHJvb3QvcCkucmVzb2x2ZSgpCmlmIG5vdCBsaXZlLmlzX3JlbGF0aXZlX3RvKHJvb3QpIG9yIG5vdCBsaXZlLmlzX2ZpbGUoKToKICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiTVBfUE9TVE1FUkdFX0NPTVBBVF9EQl9TQ09QRSIpCnVyaT0iZmlsZToiK3VybGxpYi5wYXJzZS5xdW90ZShzdHIobGl2ZSkucmVwbGFjZSgiXFwiLCIvIiksc2FmZT0iLzoiKSsiP21vZGU9cm8iCndpdGggc3FsaXRlMy5jb25uZWN0KHVyaSx1cmk9VHJ1ZSx0aW1lb3V0PTUuMCkgYXMgc3JjOgogICAgc3JjLmV4ZWN1dGUoIlBSQUdNQSBxdWVyeV9vbmx5PU9OIikKICAgIHdpdGggc3FsaXRlMy5jb25uZWN0KHN0cihvdXQpKSBhcyBkc3Q6CiAgICAgICAgc3JjLmJhY2t1cChkc3QpCndpdGggc3FsaXRlMy5jb25uZWN0KHN0cihvdXQpKSBhcyBkYjoKICAgIGlmIGRiLmV4ZWN1dGUoIlBSQUdNQSBpbnRlZ3JpdHlfY2hlY2siKS5mZXRjaG9uZSgpWzBdIT0ib2siOgogICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiTVBfUE9TVE1FUkdFX0NPTVBBVF9TTkFQU0hPVF9JTlRFR1JJVFkiKQpwcmludCgiTVBfUE9TVE1FUkdFX0NPTVBBVF9TTkFQU0hPVF9JTlRFR1JJVFk9UEFTUyIpCg=='))
           try {
             & python.exe -B -c $py $liveRoot $liveConfig $snap
             Need ($LASTEXITCODE -eq 0) 'SNAPSHOT'
@@ -107,28 +78,8 @@ jobs:
             Need (Test-Path -LiteralPath (Join-Path $source 'go.mod') -PathType Leaf) 'GOMOD'
 
             $testPath=Join-Path $source 'internal\plane\mp_postmerge_live_compat_test.go'
-            @'
-package plane
+            [IO.File]::WriteAllText($testPath,[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('cGFja2FnZSBwbGFuZQoKaW1wb3J0ICgKICAib3MiCiAgInRlc3RpbmciCikKCmZ1bmMgVGVzdE1QUG9zdG1lcmdlTGl2ZUNvbXBhdGliaWxpdHkodCAqdGVzdGluZy5UKSB7CiAgY2ZnUGF0aCA6PSBvcy5HZXRlbnYoIk1QX0xJVkVfQ09ORklHX0NPUFkiKQogIGxpdmVSb290IDo9IG9zLkdldGVudigiTVBfTElWRV9ST09UIikKICBzbmFwIDo9IG9zLkdldGVudigiTVBfTElWRV9EQl9TTkFQU0hPVCIpCiAgaWYgY2ZnUGF0aCA9PSAiIiB8fCBsaXZlUm9vdCA9PSAiIiB8fCBzbmFwID09ICIiIHsgdC5GYXRhbCgibWlzc2luZyBjb21wYXRpYmlsaXR5IGVudmlyb25tZW50IikgfQogIGMsIGVyciA6PSBMb2FkQ29uZmlnKGNmZ1BhdGgpCiAgaWYgZXJyICE9IG5pbCB7IHQuRmF0YWxmKCJMSVZFX0NPTkZJR19QQVJTRV9GQUlMRUQ6ICV2IiwgZXJyKSB9CiAgYy5TdGF0ZS5TUUxpdGVQYXRoID0gc25hcAogIHAsIGVyciA6PSBOZXdFbmdpbmUoYywgbGl2ZVJvb3QpCiAgaWYgZXJyICE9IG5pbCB7IHQuRmF0YWxmKCJMSVZFX0VOR0lORV9JTklUX0ZBSUxFRDogJXYiLCBlcnIpIH0KICBkZWZlciBwLlN0b3JlLkRCLkNsb3NlKCkKICBpZiBwLlN0b3JlID09IG5pbCB8fCBwLlN0b3JlLkRCID09IG5pbCB7IHQuRmF0YWwoIkxJVkVfRU5HSU5FX0lOSVRfU1RPUkVfTUlTU0lORyIpIH0KfQo=')),[Text.UTF8Encoding]::new($false))
 
-import (
-  "os"
-  "testing"
-)
-
-func TestMPPostmergeLiveCompatibility(t *testing.T) {
-  cfgPath := os.Getenv("MP_LIVE_CONFIG_COPY")
-  liveRoot := os.Getenv("MP_LIVE_ROOT")
-  snap := os.Getenv("MP_LIVE_DB_SNAPSHOT")
-  if cfgPath == "" || liveRoot == "" || snap == "" { t.Fatal("missing compatibility environment") }
-  c, err := LoadConfig(cfgPath)
-  if err != nil { t.Fatalf("LIVE_CONFIG_PARSE_FAILED: %v", err) }
-  c.State.SQLitePath = snap
-  p, err := NewEngine(c, liveRoot)
-  if err != nil { t.Fatalf("LIVE_ENGINE_INIT_FAILED: %v", err) }
-  defer p.Store.DB.Close()
-  if p.Store == nil || p.Store.DB == nil { t.Fatal("LIVE_ENGINE_INIT_STORE_MISSING") }
-}
-'@ | Set-Content -LiteralPath $testPath -Encoding utf8
 
             Push-Location $source
             try {
