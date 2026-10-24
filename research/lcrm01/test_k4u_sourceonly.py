@@ -14,7 +14,7 @@ def synthetic_outcomes():
         for seed in PHASE_SEEDS["DEV"]:
             for method in METHODS:
                 success=(method in ("wingless_native","yggdrasil_native",
-                       "learned_model_bfs","public_bfs_expert"))
+                       "learned_model_bfs","public_bfs_expert","tabular_q"))
                 data.append({"family":family,"seed":seed,"policy":method,
                     "success":success,"real_reward":0.8 if success else 0.0,
                     "first_action":seed%3})
@@ -28,7 +28,7 @@ class K4UOriginalSource(unittest.TestCase):
         self.assertEqual(tuple(PHASE_SEEDS["DEV"])[0],6100)
         self.assertEqual(p["sources"]["wingless"]["pr"],390)
         self.assertEqual(p["sources"]["yggdrasil"]["pr"],494)
-        self.assertFalse(p["governance"]["scientific_first_use"] if "scientific_first_use" in p["governance"] else p["evaluation"]["scientific_limit"].startswith("Even if both"))
+        self.assertTrue(p["governance"]["no_FSA_writer"])
 
     def test_public_features_only_excludes_hidden_env(self):
         st={"x":4,"y":5,"goal":(6,7),"dir":2,
@@ -60,7 +60,7 @@ class K4UOriginalSource(unittest.TestCase):
         # Strong baselines intentionally fail on FourRooms for tabular Q;
         # requiring both native systems to qualify is the frozen primary.
         q=evaluate(data)
-        self.assertFalse(q["per_candidate_frozen_gates"]["wingless_native"]["fourrooms_two_additional_wins_over_tabular_q"] is False)
+        self.assertFalse(q["per_candidate_frozen_gates"]["wingless_native"]["fourrooms_two_additional_wins_over_tabular_q"])
         native_bad=[r for r in data if r["family"]=="fourrooms"
                     and r["policy"]=="yggdrasil_native"]
         for r in native_bad:r["success"]=False;r["real_reward"]=0.
