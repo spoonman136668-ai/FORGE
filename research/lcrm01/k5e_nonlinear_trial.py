@@ -316,7 +316,7 @@ def main():
  if a.output.exists() or not a.output.parent.is_dir():raise RuntimeError("K5E_OUTPUT_NOT_FRESH")
  cpu=time.process_time();wall=time.perf_counter()
  try:
-  frozen()
+  freeze()
   result=study()
   result["frozen_protocol_sha256"]=sha(PIN.read_bytes())
   result["source_native_R7_git_blob"]=SOURCE_BLOB
