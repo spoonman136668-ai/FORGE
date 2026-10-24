@@ -34,23 +34,28 @@ def pin_checkout(root, expected_sha):
     if dirty:
         fail("DIRTY_SOURCE")
 
-def lookup(root, expected_sha, query, limit=5):
-    root = Path(root).resolve()
+def lookup(root, expected_sha, query, limit=5, source_read=None):
+    if source_read is None:
+        root = Path(root).resolve()
+        source_read = lambda rel, maximum: read(root, rel, maximum)
+    elif not callable(source_read) or not re.fullmatch(r"[0-9a-f]{40}", expected_sha):
+        fail("REMOTE_SOURCE_CONTRACT")
     if len(query) < 3 or len(query) > 180 or limit < 1 or limit > 8:
         fail("QUERY_BOUNDS")
     terms = set(WORD.findall(query.lower())) - STOP
     terms = {term for term in terms if len(term) >= 3}
     if not terms or len(terms) > 16:
         fail("QUERY_TERMS")
-    pin_checkout(root, expected_sha)
-    catalog_raw = read(root, CATALOG, 32768)
+    if root is not None:
+        pin_checkout(root, expected_sha)
+    catalog_raw = source_read(CATALOG, 32768)
     catalog = json.loads(catalog_raw)
     if catalog.get("schema") != "mind-palace.research-evidence-catalog.v1" or catalog.get("authority") != "ADVISORY_HISTORICAL_ONLY":
         fail("CATALOG_CONTRACT")
     entries = [item for item in catalog.get("research_archives", []) if item.get("program") == "BIO"]
     if len(entries) != 1 or entries[0].get("index") != BIO_INDEX or entries[0].get("scientific_acceptance") != "NOT_AUTHENTICATED_OR_ESTABLISHED":
         fail("ARCHIVE_CONTRACT")
-    idx_raw = read(root, BIO_INDEX, 250000)
+    idx_raw = source_read(BIO_INDEX, 250000)
     index = json.loads(idx_raw)
     findings = index.get("findings", [])
     if (index.get("schema") != "bio.findings.repo.historical.v1" or
@@ -79,7 +84,7 @@ def lookup(root, expected_sha, query, limit=5):
         declared = finding.get("source_sha256", "")
         if not REPORT_PATH.fullmatch(source) or not re.fullmatch(r"[0-9a-f]{64}", declared):
             fail("SOURCE_NOT_DIRECTLY_VERIFIABLE")
-        original = read(root, source, 250000)
+        original = source_read(source, 250000)
         actual = hashlib.sha256(original).hexdigest()
         if actual != declared:
             fail("SOURCE_HASH_DRIFT")
