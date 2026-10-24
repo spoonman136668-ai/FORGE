@@ -54,9 +54,16 @@ jobs:
           tmp=pathlib.Path(sys.argv[1]); source=tmp/"accepted"
           remote="https://github.com/spoonman136668-ai/Mind-Palace.git"
           def cmd(*args, capture=True):
+              env=os.environ.copy()
+              # FORGE's GITHUB_TOKEN only reads its own Actions job logs.
+              # Preserve the *existing* private Mind-Palace Git credential
+              # instead of accidentally overriding it with that repo-scoped token.
+              if args[0]=="git":
+                  env.pop("GH_TOKEN",None)
+                  env.pop("GITHUB_TOKEN",None)
               p=subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, encoding="utf-8", timeout=150, check=False)
-              if p.returncode: raise RuntimeError("ORIGINAL_SOURCE_OR_LOG_FETCH_FAILED")
+                               text=True, encoding="utf-8", timeout=150, check=False,env=env)
+              if p.returncode: raise RuntimeError("ORIGINAL_"+("GIT" if args[0]=="git" else "ACTIONS_LOG")+"_READ_FAILED")
               return p.stdout
           def need(x, code):
               if not x: raise AssertionError("MPAI01_REAL_"+code)
