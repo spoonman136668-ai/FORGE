@@ -1,0 +1,55 @@
+name: F139 G4 sole original owner unattended tick observation
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-g4-unattended-tick-observe-once-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner-continuity:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Observe two time-separated original-owner ticks without writing
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'ORIGINAL_OWNER_IDENTITY_DRIFT'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running'){throw 'ORIGINAL_OWNER_NOT_RUNNING'}
+          $args=[string]$t.Actions[0].Arguments
+          $match=[regex]::Match($args,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $match.Success){throw 'ORIGINAL_DATABASE_NOT_PINNED'}
+          $db=$match.Groups[1].Value
+          $log=Join-Path ([IO.Path]::GetDirectoryName($db)) 'logs\controller.log'
+          if(-not (Test-Path -LiteralPath $log)){throw 'ORIGINAL_CONTROLLER_LOG_ABSENT'}
+          $python=@'
+          import pathlib,sqlite3,sys
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          ro=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True)
+          try:
+              source,seq,head=ro.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              assert source=="8eca700c39223e176dea55f488b6f3397ce4e27a" and seq>=195
+              print("F139_G4_CURRENT_SOURCE_SHA="+source)
+              print("F139_G4_CURRENT_EVENT_SEQ="+str(seq))
+              print("F139_G4_CURRENT_STAGE_COUNTS="+str(dict(ro.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))))
+              print("F139_G4_NEW_POST_CUTOVER_EVENTS="+str(ro.execute("SELECT COUNT(*) FROM events WHERE seq>195").fetchone()[0]))
+          finally:ro.close()
+          '@
+          $py=(Get-Command python.exe -ErrorAction Stop).Source
+          & $py -B -c $python $db
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_OWNER_SQLITE_OBSERVATION_FAILED'}
+          $before=(Get-Item -LiteralPath $log).Length
+          Write-Output ('F139_G4_OWNER_LOG_BYTES_BEFORE='+$before)
+          Start-Sleep -Seconds 52
+          $t2=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop|
+              Where-Object{$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          if([string]$t2.State -cne 'Running' -or $running.Count -ne 1){throw 'ORIGINAL_OWNER_NOT_CONTINUOUSLY_RUNNING'}
+          & $py -B -c $python $db
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_OWNER_SECOND_SQLITE_OBSERVATION_FAILED'}
+          $after=(Get-Item -LiteralPath $log).Length
+          Write-Output ('F139_G4_OWNER_LOG_BYTES_AFTER='+$after)
+          if($after -le $before){throw 'ORIGINAL_OWNER_NO_NEW_RECONCILIATION_OUTPUT'}
+          Write-Output 'F139_G4_SINGLE_OWNER_UNATTENDED_TICK_OUTPUT=PASS'
+          Write-Output 'F139_G4_PROTECTED_SCIENTIFIC_FIRST_USE=FALSE'
