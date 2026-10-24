@@ -1,0 +1,112 @@
+name: F139 advisory PR834 original-owner disposable transition rehearsal
+on:
+  push:
+    branches: [operations/f139-advisory-834-safe-cutover-20261023]
+    paths: [.github/workflows/f139-advisory-834-preflight.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-advisory834-original-owner-preflight
+  cancel-in-progress: false
+jobs:
+  immutable-scratch-transition:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Existing original-owner state + disposable source transition and reactivation
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $source='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          $hash='d09955b92d146c2616994c53564caf054d98781d7460cdee4615d6f8a575ea09'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:OPENAI_API_KEY){throw 'F139_OWNER_RUNNER_UNQUALIFIED'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or [string]$t.State -cne 'Running') {
+            throw 'F139_ORIGINAL_OWNER_NOT_SINGLE_RUNNING'
+          }
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$name) {
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_MISSING_TASK_OPTION_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          $root=Arg 'RepositoryRoot'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_ORIGINAL_DATABASE_IDENTITY_DRIFT'
+          }
+          if(((& git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $source) {
+            throw 'F139_ORIGINAL_CHECKOUT_DRIFT'
+          }
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import activate_native
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          current=sys.argv[3]
+          head=sys.argv[4]
+          source=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True,timeout=30)
+          source.row_factory=sqlite3.Row
+          source.execute("PRAGMA query_only=ON")
+          original=dict(source.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert original=={"source_sha":current,"head_seq":169,"head_hash":head,"enabled":1,"legacy_suspended":1},original
+          counts={r["stage"]:r["n"] for r in source.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+          assert counts.get("QUARANTINED")==9 and counts.get("VERIFIED")==18 and sum(counts.values())==27,counts
+          assert not scratch.exists()
+          dest=sqlite3.connect(scratch)
+          source.backup(dest)
+          dest.close()
+          d=Database(scratch)
+          try:
+              d.verify()
+              assert d.active() is None and d.ready() is None
+              assert len(d.verified_native_provider_failures())==7
+              # Disposable target identity is deliberately NOT a real deployed
+              # commit; no scientific or dispatch authority is ever granted.
+              target="f"*40
+              d.transition_source(target,allow_certified_negative=True)
+              d.verify()
+              assert d.meta()["head_seq"]==170 and d.meta()["source_sha"]==target
+              proof={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":target,
+                  "expected_event_head_sha256":d.meta()["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,"create_controller":False,
+                  "paid_api_calls":0}
+              activate_native(d,proof)
+              d.verify()
+              assert d.meta()["head_seq"]==171
+              aftercounts={r["stage"]:r["n"] for r in d.conn.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              assert counts==aftercounts
+              print("F139_ADVISORY_834_SCRATCH_TRANSITION=PASS")
+              print("F139_ADVISORY_834_SCRATCH_ACTIVATION=PASS")
+              print("F139_ADVISORY_834_HISTORY_169_TO_171=PASS")
+              print("F139_ADVISORY_834_ORIGINAL_NEGATIVES_PRESERVED=9")
+              print("F139_ADVISORY_834_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:d.close()
+          after=dict(source.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert after==original,"F139_ORIGINAL_SQLITE_MUTATED"
+          print("F139_ADVISORY_834_ORIGINAL_SQLITE_UNMODIFIED=TRUE")
+          source.close()
+          '@
+          $scratch=Join-Path $env:RUNNER_TEMP 'f139-advisory834-disposable.sqlite'
+          if(Test-Path -LiteralPath $scratch){throw 'F139_SCRATCH_ALREADY_EXISTS'}
+          try {
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -c $code $db $scratch $source $hash
+              if($LASTEXITCODE -ne 0){throw 'F139_ADVISORY834_REHEARSAL_FAILED'}
+            } finally {Pop-Location}
+          } finally {
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+          }
