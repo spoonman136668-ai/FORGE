@@ -1,0 +1,157 @@
+name: MP-AI01 real Codex failure receipts into admitted-source read-only reflect proposal
+on:
+  push:
+    branches: [qualification/mpai01-real-feedback-reflect-20261024]
+    paths: ['.github/workflows/mpai01-real-feedback-reflect.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: mpai01-once-authenticated-original-log-reflection
+  cancel-in-progress: false
+jobs:
+  real-feedback:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 14
+    steps:
+      - name: Verify real original Codex job logs then feed source-qualified reflection without inference
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$why){if(-not $ok){throw ('MPAI01_REAL_'+$why)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai01-real-feedback-reflect-20261024' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Need (-not $env:OPENAI_API_KEY -and -not $env:AZURE_OPENAI_API_KEY) 'NO_PAID_API'
+          $tmp=Join-Path $env:RUNNER_TEMP ('mpai01-real-feedback-'+$env:GITHUB_RUN_ID)
+          Need (-not(Test-Path -LiteralPath $tmp)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+          try {
+            $script=Join-Path $tmp 'real_receipts.py'
+            $body=@'
+          import copy
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          PIN="7ad7230a82e3c748aa5336b7288ad2b45d42630c"
+          SOURCE_BLOB="e3e548d41d9f22bf395fec41b4d2a978047dc131"
+          CANDIDATE="250208e94d998cf0452923a4d02bb99e0eb208b9"
+          REFLECT_BLOB="ee7fe1bafaa8512843a984d2446fc035835803d5"
+          RUN=40088045136
+          JOB=120854883831
+          RUN_HEAD="06b31f955501433525a8cb0f0b2d698643f7879b"
+          tmp=pathlib.Path(sys.argv[1]); source=tmp/"accepted"
+          remote="https://github.com/spoonman136668-ai/Mind-Palace.git"
+          def cmd(*args, capture=True):
+              p=subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, encoding="utf-8", timeout=150, check=False)
+              if p.returncode: raise RuntimeError("ORIGINAL_SOURCE_OR_LOG_FETCH_FAILED")
+              return p.stdout
+          def need(x, code):
+              if not x: raise AssertionError("MPAI01_REAL_"+code)
+          ref=cmd("git","ls-remote","--exit-code",remote,"refs/heads/main")
+          need(ref.split()[0]==PIN,"MAIN_DRIFT_BEFORE")
+          cmd("git","clone","--quiet","--depth=1","--single-branch","--branch","main",remote,str(source))
+          need(cmd("git","-C",str(source),"rev-parse","HEAD").strip()==PIN,"MAIN_PIN")
+          need(cmd("git","-C",str(source),"rev-parse","HEAD:.ice/records.json").strip()==SOURCE_BLOB,"MEMORY_BLOB_PIN")
+          cmd("git","-C",str(source),"fetch","--quiet","--depth=1","origin",
+              "refs/pull/102/head:refs/remotes/origin/mpai01")
+          need(cmd("git","-C",str(source),"rev-parse","refs/remotes/origin/mpai01").strip()==CANDIDATE,
+               "CANDIDATE_HEAD_DRIFT")
+          need(cmd("git","-C",str(source),"rev-parse",CANDIDATE+":agentic/mpai01_reflect.py").strip()==REFLECT_BLOB,
+               "REFLECT_MODULE_BLOB_DRIFT")
+          raw=subprocess.run(["git","-C",str(source),"cat-file","blob",REFLECT_BLOB],
+              stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True,timeout=30).stdout
+          refmodule=tmp/"mpai01_reflect.py";refmodule.write_bytes(raw)
+          spec=importlib.util.spec_from_file_location("mpai01_reflect",refmodule)
+          obj=importlib.util.module_from_spec(spec);spec.loader.exec_module(obj)
+          sys.path.insert(0,str(source/"tools"))
+          from mindpalace_readonly import MemorySnapshot
+          snapshot=MemorySnapshot(source,PIN,["Mind-Palace"])
+          print("MPAI01_REAL_ACCEPTED_MEMORY_AND_REFLECT_MODULE=PASS",flush=True)
+          prefix="repos/spoonman136668-ai/FORGE/actions"
+          run=json.loads(cmd("gh","api",f"{prefix}/runs/{RUN}"))
+          need(run.get("conclusion")=="success" and run.get("head_sha")==RUN_HEAD,"ORIGINAL_RUN_AUTH")
+          jobs=json.loads(cmd("gh","api",f"{prefix}/runs/{RUN}/jobs?per_page=100"))
+          matches=[x for x in jobs.get("jobs",[]) if x.get("id")==JOB]
+          need(len(matches)==1 and matches[0].get("conclusion")=="success","ORIGINAL_JOB_AUTH")
+          log=cmd("gh","api",f"{prefix}/jobs/{JOB}/logs")
+          need(len(log)<=1200000 and len(log)>1000,"LOG_BYTES")
+          observations=[]
+          for line in log.splitlines():
+              if "MPAI05_DEV_RECEIPT=" not in line: continue
+              suffix=line.split("MPAI05_DEV_RECEIPT=",1)[1]
+              try: row=json.loads(suffix)
+              except json.JSONDecodeError: raise AssertionError("MPAI01_REAL_MALFORMED_ORIGINAL_RECEIPT")
+              need(set(row)=={"task","arm","correct","error","tokens","latency_ms"},"RECEIPT_SHAPE")
+              observations.append(row)
+          need(len(observations)==8 and
+              len({(e["task"],e["arm"]) for e in observations})==8,"COMPLETE_REAL_EIGHT")
+          failures=sorted([e for e in observations if e["arm"]=="baseline" and e["correct"] is False],
+                          key=lambda e:e["task"])
+          need([x["task"] for x in failures]==["dev-3","dev-4"] and
+               all(e["error"] is None for e in failures),"ORIGINAL_FAILURE_IDENTITY")
+          need(sum(e["correct"] is True for e in observations if e["arm"]=="candidate")==4,
+               "ORIGINAL_CANDIDATE_RESULTS")
+          print("MPAI01_REAL_ORIGINAL_EIGHT_MODEL_RECEIPTS_AUTHENTICATED_TO_GITHUB_RUN=PASS",flush=True)
+          document={"schema":"mind-palace.mpai01-observations.v1","source_sha":PIN,"observations":[]}
+          for e in failures:
+              t=e["task"]
+              document["observations"].append({
+                "event_id":f"forge-{RUN}-{JOB}-{t}-baseline",
+                "agent_class":"independent-agent",
+                "task_id":t,
+                "failure_code":"incorrect_decision",
+                "source_ref":f"gh-actions:{RUN}:job:{JOB}:receipt:{t}:baseline",
+                "source_sha":PIN,"result":"failure"})
+          task="Diagnose two previously observed incorrect development-task decisions with provenance"
+          result=obj.propose(snapshot,document,project="Mind-Palace",task=task)
+          need(result["source_sha"]==PIN and result["advisory"] is True,"PROPOSAL_SOURCE")
+          proposals=result["proposals"]
+          need(len(proposals)==1 and proposals[0]["status"]=="proposal_only" and
+               proposals[0]["distinct_tasks"]==2 and
+               proposals[0]["failure_code"]=="incorrect_decision" and
+               proposals[0]["requires_independent_holdout"] is True,"ONLY_PROPOSAL")
+          need(result["production_write_performed"] is False and
+               result["model_inference_performed"] is False and
+               result["improvement_qualified"] is False and
+               result["evidence_authenticity_verified"] is False and
+               result["consumer_identity_verified"] is False,"NO_AUTHORITY_PROMOTION")
+          negative=copy.deepcopy(document)
+          negative["observations"][1]["source_ref"]=negative["observations"][0]["source_ref"]
+          need(obj.propose(snapshot,negative,project="Mind-Palace",task=task)["proposals"]==[],
+               "SOURCE_UNIQUENESS_NEGATIVE")
+          negative2=copy.deepcopy(document)
+          negative2["observations"][1]["task_id"]=negative2["observations"][0]["task_id"]
+          need(obj.propose(snapshot,negative2,project="Mind-Palace",task=task)["proposals"]==[],
+               "TASK_UNIQUENESS_NEGATIVE")
+          after=cmd("git","ls-remote","--exit-code",remote,"refs/heads/main")
+          need(after.split()[0]==PIN,"MAIN_DRIFT_AFTER")
+          print("MPAI01_REAL_PROPOSAL_ID="+proposals[0]["proposal_id"],flush=True)
+          print("MPAI01_REAL_AUTHENTIC_DEVELOPMENT_FAILURES=2",flush=True)
+          print("MPAI01_REAL_TWO_FAIL_CLOSED_NEGATIVE_CONTROLS=PASS",flush=True)
+          print("MPAI01_REAL_PROPOSAL_ONLY_NO_ADOPTION=PASS",flush=True)
+          print("MPAI01_REAL_EVIDENCE_REFS_SHARE_ONE_JOB=TRUE",flush=True)
+          print("MPAI01_REAL_HOLDOUT_AND_IMPROVEMENT=NOT_ESTABLISHED",flush=True)
+          print("MPAI01_REAL_NO_PAID_MODEL_CALLS=TRUE",flush=True)
+          print("MPAI01_REAL_NO_PRODUCTION_WRITES=TRUE",flush=True)
+          '@
+            [IO.File]::WriteAllText($script,$body,[Text.UTF8Encoding]::new($false))
+            & python.exe -B $script $tmp
+            Need ($LASTEXITCODE -eq 0) 'EXECUTION'
+          }finally{
+            if(Test-Path -LiteralPath $tmp){Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Stop}
+            Need (-not(Test-Path -LiteralPath $tmp)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI01_REAL_SCRATCH_CLEAN=PASS'
+          }
