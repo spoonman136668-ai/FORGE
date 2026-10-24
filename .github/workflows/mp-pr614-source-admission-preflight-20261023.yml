@@ -28,7 +28,7 @@ jobs:
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-pr614-source-admission-preflight-20261023') 'BRANCH'
           Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          $parent='58dc4cc483349249c98f1620b51b843b9e927468'
+          $parent='0b61955d17d63759d4720fd3e58b2e75d1cc461f'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-pr614-source-admission-preflight-20261023.yml') 'SCOPE'
@@ -59,7 +59,7 @@ jobs:
 
           $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
           Need ($procs.Count -eq 1) 'CONTROLLER_SINGLETON'
-          $pid=[int]$procs[0].ProcessId
+          $controllerPid=[int]$procs[0].ProcessId
           $exe=[string]$procs[0].ExecutablePath
           Need ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf)) 'CONTROLLER_IMAGE'
           $liveExeHash=Hash $exe
@@ -136,7 +136,7 @@ jobs:
             & python.exe -B -c $py $root (Join-Path $root 'config\autonomy.yaml') (Join-Path $scratch 'snapshot.db')
             Need ($LASTEXITCODE -eq 0) 'DB_AUDIT'
             $afterProcs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
-            Need ($afterProcs.Count -eq 1 -and [int]$afterProcs[0].ProcessId -eq $pid) 'CONTROLLER_POSTIMAGE'
+            Need ($afterProcs.Count -eq 1 -and [int]$afterProcs[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
             foreach($rel in $protected){
               Need ((Hash (Join-Path $root $rel)) -ceq $before[$rel]) ('FILE_POSTIMAGE_'+$rel)
             }
