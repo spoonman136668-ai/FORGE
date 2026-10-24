@@ -1,0 +1,33 @@
+name: MP scan rescued Go embed dependencies
+on:
+  push:
+    branches: [recovery/ckb-installed-source-snapshot-20261024]
+    paths: [.github/workflows/mp-scan-rescued-embed-dependencies-20261024.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-scan-rescued-embed-dependencies-20261024
+  cancel-in-progress: false
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Enumerate go embed directives in rescued source
+        shell: bash
+        run: |
+          set -euo pipefail
+          root='recovery/ckb-installed-source-snapshot-20261024/source'
+          test -d "$root"
+          count=0
+          while IFS= read -r line; do
+            printf 'MP_EMBED_DIRECTIVE %s\n' "$line"
+            count=$((count+1))
+          done < <(grep -RIn --include='*.go' -E '^[[:space:]]*//go:embed[[:space:]]+' "$root" | sort)
+          echo "MP_EMBED_DIRECTIVE_COUNT=$count"
+          test "$count" -ge 1
+          test "$count" -le 64
