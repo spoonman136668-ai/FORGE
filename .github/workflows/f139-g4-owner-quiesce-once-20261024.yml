@@ -1,0 +1,127 @@
+name: F139 G4 one-shot original-owner quiesce
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-g4-owner-quiesce-once-20261024.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-g4-original-owner-one-shot-cutover
+  cancel-in-progress: false
+jobs:
+  original-owner-quiesce:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate and quiesce only the original owner, without database writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $main='52e007e83be08b851283fc4a6e213ea506469f43'
+          $expectedPR='e343974a863fbb51e7bc11d67233718e7cf1ae65'
+          $taskName='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_REF -cne 'refs/heads/cutover/f139-g4-single-owner-20261024' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:OPENAI_API_KEY){
+            throw 'F139_G4_QUIESCE_RUNNER_OR_AUTHORITY_INVALID'
+          }
+          $protected=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          $policy=((& gh api "repos/$repo/issues/807" --jq '.body'|Out-String).Trim()|ConvertFrom-Json)
+          $pr=(& gh api "repos/$repo/pulls/863"|ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $protected -cne $main -or
+             $policy.source_sha -cne $main -or
+             $policy.enabled -ne $true -or
+             $policy.scientific_first_use -ne $false -or
+             $policy.new_controller -ne $false -or
+             $policy.new_scheduler -ne $false -or
+             $policy.new_queue -ne $false -or
+             $pr.state -cne 'open' -or $pr.draft -ne $false -or
+             $pr.head.sha -cne $expectedPR -or
+             $pr.base.sha -cne $main -or $pr.merged -eq $true){
+            throw 'F139_G4_QUIESCE_PROTECTED_PR_OR_POLICY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if($task.State -cne 'Ready' -or
+             @($task.Actions).Count -ne 1 -or
+             @($task.Triggers).Count -ne 3){
+            throw 'F139_G4_QUIESCE_OWNER_NOT_IDLE'
+          }
+          $taskID=[string]$task.Principal.UserId
+          $sid=if($taskID -match '^S-1-'){$taskID}else{
+            (New-Object Security.Principal.NTAccount($taskID)).Translate(
+               [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){
+            throw 'F139_G4_QUIESCE_OWNER_SID_DRIFT'
+          }
+          $arg=[string]$task.Actions[0].Arguments
+          function Extract([string]$key){
+            $m=[regex]::Match($arg,'(?i)(?:^|\\s)-'+$key+'\\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G4_QUIESCE_OWNER_ARGUMENTS'}
+            return $m.Groups[1].Value
+          }
+          $db=Extract 'Database'
+          $root=Extract 'RepositoryRoot'
+          $python=Extract 'PythonExe'
+          $expectedDB=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDB) -or
+             [IO.Path]::GetFullPath($root) -ieq [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)){
+             throw 'F139_G4_QUIESCE_WRONG_DB_OR_WORKSPACE'
+          }
+          $checkout=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()
+          if($checkout -cne $main -or $dirty.Length -gt 0){
+             throw 'F139_G4_QUIESCE_ORIGINAL_CHECKOUT_DRIFT'
+          }
+          $script=@'
+          import json, pathlib, sqlite3, sys
+          path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          source=sys.argv[2]
+          con=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=30)
+          try:
+              con.row_factory=sqlite3.Row
+              con.execute("PRAGMA query_only=ON")
+              meta=dict(con.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              tasks=[dict(r) for r in con.execute("SELECT ticket,stage FROM tasks ORDER BY ticket")]
+              assert meta["source_sha"]==source and meta["enabled"]==1 and meta["legacy_suspended"]==1
+              assert meta["head_seq"]>=193
+              assert len(tasks)>=29
+              assert all(x["stage"] in ("VERIFIED","QUARANTINED") for x in tasks)
+              assert sum(x["stage"]=="VERIFIED" for x in tasks)>=18
+              assert sum(x["stage"]=="QUARANTINED" for x in tasks)>=11
+              assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0]==meta["head_seq"]
+              print("F139_G4_OWNER_QUIESCE_NO_ACTIVE_OR_PENDING=PASS")
+              print("F139_G4_QUIESCE_HEAD_SEQ="+str(meta["head_seq"]))
+              print("F139_G4_QUIESCE_HEAD_SHA256="+meta["head_hash"])
+          finally:con.close()
+          '@
+          & $python -B -c $script $db $main
+          if($LASTEXITCODE -ne 0){throw 'F139_G4_QUIESCE_ORIGINAL_SQLITE_NOT_TERMINAL'}
+          $again=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          $mainAgain=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          if($again.State -cne 'Ready' -or $mainAgain -cne $main){
+             throw 'F139_G4_QUIESCE_WINDOW_MOVED'
+          }
+          Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+          $disabled=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if($disabled.State -cne 'Disabled'){
+             throw 'F139_G4_QUIESCE_TASK_NOT_DISABLED'
+          }
+          & $python -B -c $script $db $main
+          if($LASTEXITCODE -ne 0){
+             throw 'F139_G4_QUIESCE_OWNER_STATE_CHANGED_AFTER_DISABLE'
+          }
+          Write-Output 'F139_G4_ORIGINAL_TASK_DISABLED=PASS'
+          Write-Output 'F139_G4_ORIGINAL_SQLITE_WRITES=ZERO'
+          Write-Output 'F139_G4_NO_NEW_CONTROLLER=TRUE'
+          Write-Output 'F139_G4_SCIENTIFIC_FIRST_USE=FALSE'
