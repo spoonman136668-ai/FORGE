@@ -62,7 +62,7 @@ func (g *GitHub) ResolveMain(ctx context.Context)(string,error){
 }
 func (g *GitHub) ReadAt(ctx context.Context,pin,path string)([]byte,error){
  if !lowerHex(pin,40){return nil,errors.New("FORGE_MIND_GITHUB_UNPINNED_READ")}
- if path!=BootstrapPath&&path!=CatalogPath&&path!=IndexPath {
+ if path!=BootstrapPath&&path!=CatalogPath&&path!=IndexPath&&path!="governance/unified-final-authority.v1.json" {
   return nil,errors.New("FORGE_MIND_GITHUB_PATH_NOT_ALLOWED")
  }
  b,err:=g.get(ctx,"contents/"+path+"?ref="+url.QueryEscape(pin))
