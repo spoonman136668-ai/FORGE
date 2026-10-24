@@ -1,0 +1,194 @@
+name: F139 G4 one-shot original-owner source migration
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-g4-owner-source-migration-once-20261024.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: f139-g4-original-owner-source-migration-once
+  cancel-in-progress: false
+jobs:
+  owner-migration:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Original disabled-owner source and ledger migration with native activation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $old='52e007e83be08b851283fc4a6e213ea506469f43'
+          $new='8eca700c39223e176dea55f488b6f3397ce4e27a'
+          $taskName='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_REF -cne 'refs/heads/cutover/f139-g4-single-owner-20261024' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:OPENAI_API_KEY){
+             throw 'G4_OWNER_MIGRATION_IDENTITY_REJECTED'
+          }
+          $protected=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          $policy=((& gh api "repos/$repo/issues/807" --jq '.body'|Out-String).Trim()|ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $protected -cne $new -or
+             $policy.enabled -ne $false -or $policy.source_sha -cne $old -or
+             $policy.scientific_first_use -ne $false){
+             throw 'G4_MIGRATION_PROTECTED_SOURCE_OR_POLICY_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$t.State -cne 'Disabled' -or @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+             throw 'G4_ORIGINAL_TASK_NOT_DISABLED'
+          }
+          $p=[string]$t.Principal.UserId
+          $sid=if($p -match '^S-1-'){$p}else{(New-Object Security.Principal.NTAccount($p)).Translate([Security.Principal.SecurityIdentifier]).Value}
+          if($sid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'G4_OWNER_SID_DRIFT'}
+          $arguments=[string]$t.Actions[0].Arguments
+          function Extract([string]$key) {
+             $m=[regex]::Match($arguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+             if(-not $m.Success){throw 'G4_TASK_ARGUMENT_DRIFT'}
+             return $m.Groups[1].Value
+          }
+          $root=Extract 'RepositoryRoot'
+          $db=Extract 'Database'
+          $python=Extract 'PythonExe'
+          $expectedDb=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb)){throw 'G4_OWNER_DB_PATH_DRIFT'}
+          $controller=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop|
+              Where-Object{$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          if($controller.Count -ne 0){throw 'G4_ORIGINAL_CONTROLLER_PROCESS_ACTIVE'}
+          $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()
+          if($head -cne $old -or $dirty.Length -ne 0){throw 'G4_ORIGINAL_CHECKOUT_NOT_OLD_CLEAN'}
+          $backup=Join-Path ([IO.Path]::GetDirectoryName($db)) ('f139-g4-pre-migration-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $backup){throw 'G4_BACKUP_PATH_COLLISION'}
+          $backupCode=@'
+          import pathlib,sqlite3,sys
+          path=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          backup=pathlib.Path(sys.argv[2])
+          source=sys.argv[3]
+          con=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=20)
+          try:
+              con.row_factory=sqlite3.Row
+              con.execute("PRAGMA query_only=ON")
+              meta=dict(con.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              tasks=[dict(x) for x in con.execute("SELECT ticket,stage FROM tasks ORDER BY ticket")]
+              assert meta["source_sha"]==source and meta["head_seq"]==193
+              assert len(tasks)==29 and sum(x["stage"]=="VERIFIED" for x in tasks)==18
+              assert sum(x["stage"]=="QUARANTINED" for x in tasks)==11
+              assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0]==193
+              assert not backup.exists()
+              snapshot=sqlite3.connect(str(backup))
+              try:con.backup(snapshot)
+              finally:snapshot.close()
+          finally:con.close()
+          proof=sqlite3.connect(backup.as_uri()+"?mode=ro",uri=True)
+          try:
+              assert proof.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+              assert proof.execute("SELECT head_seq,head_hash FROM meta WHERE id=1").fetchone()==(193,meta["head_hash"])
+          finally:proof.close()
+          print("F139_G4_ORIGINAL_BACKUP_SQLITE=PASS")
+          print("F139_G4_ORIGINAL_PRE_HEAD_SHA256="+meta["head_hash"])
+          '@
+          & $python -B -c $backupCode $db $backup $old
+          if($LASTEXITCODE -ne 0){throw 'G4_ORIGINAL_BACKUP_PROOF_FAILED'}
+          & git.exe -C $root fetch --no-tags origin main
+          if($LASTEXITCODE -ne 0){throw 'G4_FETCH_NEW_PROTECTED_SOURCE_FAILED'}
+          $fetched=(& git.exe -C $root rev-parse FETCH_HEAD|Out-String).Trim()
+          $protectedAgain=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          if($fetched -cne $new -or $protectedAgain -cne $new){
+             throw 'G4_MOVING_PROTECTED_SOURCE'
+          }
+          & git.exe -C $root checkout --detach $new
+          if($LASTEXITCODE -ne 0){throw 'G4_ORIGINAL_CHECKOUT_UPDATE_FAILED'}
+          $newHead=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          $dirtyAfter=(& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()
+          if($newHead -cne $new -or $dirtyAfter.Length -ne 0){
+             throw 'G4_ORIGINAL_NEW_CHECKOUT_NOT_CLEAN'
+          }
+          $transitionFile=Join-Path $env:RUNNER_TEMP ('g4-transition-'+$env:GITHUB_RUN_ID+'.json')
+          $approvalFile=Join-Path $env:RUNNER_TEMP ('g4-activation-'+$env:GITHUB_RUN_ID+'.json')
+          $makeTransition=@'
+          import json,pathlib,sqlite3,sys
+          from f139.nci04_owner_ledger import SEALED_OWNER_PREFIX_HEAD
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          output=pathlib.Path(sys.argv[2])
+          source=sys.argv[3];target=sys.argv[4]
+          c=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True)
+          try:
+              m=c.execute("SELECT source_sha,head_hash,head_seq FROM meta WHERE id=1").fetchone()
+              assert m[0]==source and m[2]==193 and not output.exists()
+              payload={"schema":"forge.f139.nci04.owner-source-transition-approval.v1",
+               "from_source_sha":source,"to_source_sha":target,
+               "expected_event_head_sha256":m[1],
+               "sealed_23_event_head_sha256":SEALED_OWNER_PREFIX_HEAD,
+               "native_development_only":True,"scientific_first_use":False,
+               "new_controller":False,"paid_api_calls":0}
+              output.write_text(json.dumps(payload,separators=(",",":")),encoding="utf-8")
+          finally:c.close()
+          '@
+          Set-Location -LiteralPath $root
+          try{
+             & $python -B -c $makeTransition $db $transitionFile $old $new
+             if($LASTEXITCODE -ne 0){throw 'G4_APPROVAL_PREPARE_FAILED'}
+             & $python -B -m f139.local_controller --db $db transition-qualified-native --approval $transitionFile
+             if($LASTEXITCODE -ne 0){throw 'G4_ORIGINAL_SOURCE_TRANSITION_FAILED'}
+             $makeActivation=@'
+          import json,pathlib,sqlite3,sys
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True);output=pathlib.Path(sys.argv[2])
+          source=sys.argv[3]
+          c=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True)
+          try:
+              m=c.execute("SELECT source_sha,head_hash,head_seq FROM meta WHERE id=1").fetchone()
+              assert m[0]==source and m[2]==194 and not output.exists()
+              approval={"schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":source,"expected_event_head_sha256":m[1],
+                  "native_development_approved":True,"scientific_first_use":False,
+                  "create_controller":False,"paid_api_calls":0}
+              output.write_text(json.dumps(approval,separators=(",",":")),encoding="utf-8")
+          finally:c.close()
+          '@
+             & $python -B -c $makeActivation $db $approvalFile $new
+             if($LASTEXITCODE -ne 0){throw 'G4_NATIVE_APPROVAL_PREPARE_FAILED'}
+             & $python -B -m f139.local_controller --db $db activate-native --approval $approvalFile
+             if($LASTEXITCODE -ne 0){throw 'G4_NATIVE_ACTIVATION_FAILED'}
+             $validate=@'
+          import pathlib,sqlite3,sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          old=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          target=sys.argv[3]
+          db=Database(pathlib.Path(sys.argv[1]))
+          try:
+              db.verify()
+              assert verify_native_activation(db)
+              assert db.meta()["source_sha"]==target
+              assert db.meta()["head_seq"]==195
+              c=sqlite3.connect(old.as_uri()+"?mode=ro",uri=True)
+              try:
+                  rows=lambda conn,sql:list(conn.execute(sql))
+                  assert rows(c,"SELECT * FROM tasks ORDER BY ticket")==rows(db.conn,"SELECT * FROM tasks ORDER BY ticket")
+                  original=rows(c,"SELECT * FROM events ORDER BY seq")
+                  now=rows(db.conn,"SELECT * FROM events ORDER BY seq")
+                  assert now[:len(original)]==original and len(now)==len(original)+2
+              finally:c.close()
+              print("F139_G4_ORIGINAL_SOURCE_TRANSITION=PASS")
+              print("F139_G4_ORIGINAL_NATIVE_ACTIVATION=PASS")
+              print("F139_G4_PREVIOUS_HISTORY_AND_TASKS=UNCHANGED")
+              print("F139_G4_ORIGINAL_POST_HEAD_SEQ="+str(db.meta()["head_seq"]))
+              print("F139_G4_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:db.close()
+          '@
+             & $python -B -c $validate $db $backup $new
+             if($LASTEXITCODE -ne 0){throw 'G4_ORIGINAL_POST_MIGRATION_VALIDATION_FAILED'}
+          }finally{
+             Remove-Item -LiteralPath $transitionFile,$approvalFile -Force -ErrorAction SilentlyContinue
+          }
+          if([string](Get-ScheduledTask -TaskName $taskName).State -cne 'Disabled'){
+             throw 'G4_ORIGINAL_TASK_UNEXPECTEDLY_STARTED'
+          }
+          Write-Output 'F139_G4_ORIGINAL_TASK_REMAINS_DISABLED=TRUE'
+          Write-Output 'F139_G4_FORGE_OWNER_ONLY=TRUE'
