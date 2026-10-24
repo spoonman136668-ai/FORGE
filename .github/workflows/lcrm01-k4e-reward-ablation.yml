@@ -1,0 +1,35 @@
+name: Mass Research K4E reward-history ablation
+on:
+  push:
+    branches: [research/mass-lcrm01-k4e-pushing-reward-ablation-20261024]
+permissions:
+  contents: read
+jobs:
+  pushing-memory-causal-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Execute frozen K4E candidate and matched unmodified baseline
+        run: bash research/lcrm01/k4e_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4e-original-two-process-reward-memory-results
+          path: |
+            ${{ runner.temp }}/k4e/process-a.json
+            ${{ runner.temp }}/k4e/process-b.json
+            ${{ runner.temp }}/k4e/cross-process.json
+            ${{ runner.temp }}/k4e/process-a.log
+            ${{ runner.temp }}/k4e/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
