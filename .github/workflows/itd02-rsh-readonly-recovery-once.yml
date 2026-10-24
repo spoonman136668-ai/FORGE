@@ -1,0 +1,114 @@
+name: ITD-02 original six-lane source pointer recovery (read-only)
+on:
+  push:
+    branches: [research/itd02-existing-sources-readonly-r1-20261024]
+    paths: [.github/workflows/itd02-rsh-readonly-recovery-once.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  source-intake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Reuse the existing six-lane preview tests, not another intake system
+        run: |
+          set -euo pipefail
+          go test -count=1 ./researchfeed
+      - name: Qualify exact advisory preview through production implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/itd02-source-recovery"
+          cat > "$RUNNER_TEMP/rsh_preview.go" <<'GO'
+          package main
+          import("encoding/json";"fmt";"os";"github.com/spoonman136668-ai/forge/researchfeed")
+          func main(){
+            raw,err:=os.ReadFile(os.Args[1]);if err!=nil{panic(err)}
+            p,err:=researchfeed.PreviewCandidates(raw);if err!=nil{panic(err)}
+            if len(p.Entries)!=6||!p.AdvisoryOnly||p.ScientificAccepted||p.ScientificFirstUseCleared||
+               p.ExecutionAuthorized||p.OriginalBytesAuthenticated{panic("RSH_CLAIM_OR_LANE_COUNT_DRIFT")}
+            lanes:=map[string]bool{}
+            for _,e:=range p.Entries{
+              if e.EvidenceState!="SOURCE_POINTER_ONLY"||e.ReportedSHA256!=""||lanes[e.Lane]{
+                panic("RSH_UNQUALIFIED_OR_DUPLICATE_SOURCE_POINTER")
+              }
+              lanes[e.Lane]=true
+            }
+            if len(lanes)!=6{panic("RSH_LANE_COVERAGE_INVALID")}
+            bytes,err:=json.MarshalIndent(p,"","  ");if err!=nil{panic(err)}
+            if err=os.WriteFile(os.Args[2],append(bytes,10),0600);err!=nil{panic(err)}
+            fmt.Println("ITD02_RSH_SIX_LANE_SOURCE_POINTER_PREVIEW=PASS")
+            fmt.Println("ITD02_RSH_FIRST_USE_SCIENCE_AND_EXECUTION=FALSE")
+          }
+          GO
+          go run "$RUNNER_TEMP/rsh_preview.go" \
+            research/itd02_sources/20261024_source_pointer_preview.json \
+            "$RUNNER_TEMP/itd02-source-recovery/preview.json"
+      - name: Independently compare source path bytes to authenticated Git blob identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,hashlib,json,os,pathlib,subprocess,sys
+          path=pathlib.Path("research/itd02_sources/20261024_source_pointer_preview.json")
+          raw=path.read_bytes()
+          doc=json.loads(raw)
+          assert doc["schema"]=="forge.research-six-lane-source-candidates.v1"
+          assert len(doc["candidates"])==6
+          output=[]
+          for c in doc["candidates"]:
+            assert c["evidence_state"]=="SOURCE_POINTER_ONLY"
+            assert c["scientific_accepted"] is False and c["first_use_cleared"] is False
+            assert c["execute_requested"] is False
+            route="repos/"+c["source_repo"]+"/contents/"+c["source_path"]+"?ref="+c["source_commit"]
+            p=subprocess.run(["gh","api",route],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=35)
+            if p.returncode!=0:
+              print("ITD02_UNRESOLVED_SOURCE="+c["lane"],file=sys.stderr)
+              raise SystemExit("SOURCE_READBACK_ACCESS_OR_IDENTITY_DENIED")
+            metadata=json.loads(p.stdout)
+            assert metadata["type"]=="file" and metadata["encoding"]=="base64"
+            payload=base64.b64decode(metadata["content"].replace("\n",""),validate=True)
+            assert len(payload)==metadata["size"] and len(payload)>0
+            blobhash=hashlib.sha1(b"blob "+str(len(payload)).encode()+b"\x00"+payload).hexdigest()
+            assert blobhash==metadata["sha"],"GIT_BLOB_IDENTITY_DRIFT"
+            output.append({"lane":c["lane"],"research_id":c["research_id"],
+              "source_repo":c["source_repo"],"source_commit":c["source_commit"],
+              "source_path":c["source_path"],"git_blob_sha1":blobhash,
+              "source_file_sha256":hashlib.sha256(payload).hexdigest(),
+              "bytes":len(payload),"evidence_state":"SOURCE_POINTER_ONLY",
+              "scientific_original_custody_authenticated":False,
+              "scientific_accepted":False})
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"itd02-source-recovery"
+          (root/"source-readbacks.json").write_text(json.dumps({"schema":"forge.itd02.rsh-source-readbacks.v1","entries":output,
+            "original_evidence_authenticated":False,"scientific_first_use":False,"execute_requested":False},indent=2)+"\n")
+          print("ITD02_RSH_GIT_SOURCE_PATHS_AND_BLOBS_VERIFIED="+str(len(output)))
+          print("ITD02_ORIGINAL_EVIDENCE_SCIENTIFICALLY_AUTHENTICATED=FALSE")
+          PY
+      - name: Retain nonauthorizing manifest without protected repository writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/itd02-source-recovery"
+          sha256sum preview.json source-readbacks.json > source-sha256-manifest.txt
+          sha256sum --check source-sha256-manifest.txt
+          echo ITD02_RSH_MANIFEST_VERIFIED=PASS
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: itd02-existing-research-source-pointers
+          path: ${{ runner.temp }}/itd02-source-recovery/
+          retention-days: 90
+          if-no-files-found: error
