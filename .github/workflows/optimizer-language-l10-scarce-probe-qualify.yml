@@ -1,0 +1,104 @@
+name: L10-B6 scarce active probe exact Bayesian development qualification
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-scarce-probe-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10b6-scarce-source-role-frozen-20261024
+  cancel-in-progress: false
+jobs:
+  exact-bayesian-scarce-development:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Confirm committed scientific identity and run adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'bdcb457bf1349d815d510e2426f039f0a1c2550f'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l10-scarce-probe-qualify.yml'
+          p=research/optimizer_language_l10
+          test "$(git rev-parse HEAD:$p/L10_B6_SCARCE_EXPERIMENT_DESIGN_CONTRACT.json)" = '7cf4b6f22d0fbef84c3ceb5185ccc9d40666aa55'
+          test "$(git rev-parse HEAD:$p/l10_b6_scarce_design_dev.py)" = '5e4ebfbd57e8b4d8bbdfc59ff486f05ba696d274'
+          test "$(git rev-parse HEAD:$p/test_l10_b6_scarce_design_dev.py)" = '3613bb73b8ae193a47740da56a5b20cd5edae7f3'
+          test "$(git rev-parse HEAD:$p/l10_b5_delayed_probe_dev.py)" = 'b2a61e9d5cc11f87ba26f1b9ffd18ddaf2bc51c8'
+          test "$(git rev-parse HEAD:$p/l10_b4_effect_local_learning.py)" = '6804e6cb3777f888b4a05251242148a3a38da27b'
+          test "$(git rev-parse HEAD:$p/l10_dev_source_custody.py)" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse HEAD:$p/l10_semantic_dev_oracle.py)" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          python -m py_compile "$p/l10_b6_scarce_design_dev.py" "$p/test_l10_b6_scarce_design_dev.py"
+          (cd "$p" && python -m unittest -v test_l10_semantic_dev_oracle.py test_l10_dev_source_controls.py test_l10_devfit_template_candidate.py test_l10_b4_effect_local_learning.py test_l10_b5_delayed_probe_dev.py test_l10_b6_scarce_design_dev.py)
+          echo L10_B6_EXACT_POSTERIOR_UNIT_AND_SOURCE_ISOLATION=PASS
+      - name: Run pre-frozen scarce synthetic DEV comparison, no prospective source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import pathlib,sys,hashlib
+          root=pathlib.Path.cwd()/"research/optimizer_language_l10"
+          sys.path.insert(0,str(root))
+          import l10_dev_source_custody as source
+          import l10_b6_scarce_design_dev as study
+          samples=source.development_collection("WITHHELD_MAPPING")
+          fit=[r for r in samples if r.split=="DEV_FIT"]
+          check=[r for r in samples if r.split=="DEV_CHECK"]
+          result=study.benchmark(fit,check)
+          assert result["prospectively_protected_examples_generated"]==0
+          assert len(result["outcomes"])==36
+          assert result["scientific_go"] is False
+          rows=[]
+          for budget in study.BUDGETS:
+              for cond in study.CONDITIONS:
+                  group=[r for r in result["outcomes"] if r["budget"]==budget and r["condition"]==cond]
+                  assert len(group)==6 and [x["method"] for x in group]==list(study.METHODS)
+                  entry=dict(budget=budget,condition=cond,
+                        methods=[x["method"] for x in group],
+                        exact=[x["micro_exact"] for x in group],
+                        abstentions=[x["micro_abstention"] for x in group],
+                        probes=[x["query_count"] for x in group],
+                        state_hashes=[x["learned_state_sha256"] for x in group],
+                        source_world_sha256=group[0]["source_fit_world_sha256"],
+                        posterior_sizes=[x["permutation_posterior_size"] for x in group],
+                        determined_code_counts=[x["fully_determined_relation_count"] for x in group])
+                  rows.append(entry)
+          assert all(x["budget"]<3 for x in rows)
+          clean_two=next(x for x in rows if x["condition"]=="DELAYED_CLEAN" and x["budget"]==2)
+          assert clean_two["exact"][2]==1.
+          assert all(x["exact"]==[0.]*6 for x in rows if x["condition"]=="DELAYED_NO_FEEDBACK")
+          summary=dict(schema="forge.optimizer.language.l10.b6-scarce-probe-numeric-v1",
+                status="SYNTHETIC_DEV_ONLY_EXACT_BAYES_COMPARISON_NOT_SCIENTIFIC_GO",
+                data_family_count=3,dev_fit=12,dev_check=12,
+                relation_code_count=3,probe_budgets=[1,2],
+                methods=list(study.METHODS),scenario_results=rows,
+                metric_semantics="whole_graph_exact_and_abstention_with_full_denominator",
+                public_bijective_prior_equal_for_all=True,
+                cost_cpu_wall_and_memory_measured_per_os_but_not_summed_into_hash=True,
+                energy="NOT_MEASURED",flops="NOT_MEASURED",
+                independent_unfamiliar_family_test=False,
+                protected_examples_used=0,scientific_go=False)
+          raw=source.canonical_bytes(summary)
+          (pathlib.Path(sys.argv[1])/"l10b6-numeric-core.json").write_bytes(raw)
+          print("L10_B6_CORE_NUMERIC_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("L10_B6_CLEAN_BUDGET_1="+str(next(x["exact"] for x in rows if x["budget"]==1 and x["condition"]=="DELAYED_CLEAN")))
+          print("L10_B6_CLEAN_BUDGET_2="+str(clean_two["exact"]))
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l10").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L10_B6_DEV_ONLY_NO_PROTECTED_FIRST_USE=TRUE
+      - name: Archive only numerical scientific results and content-addressed state hashes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l10b6-scarce-exact-bayesian-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l10b6-numeric-core.json'
+          if-no-files-found: error
+          retention-days: 30

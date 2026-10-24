@@ -1,0 +1,42 @@
+name: L10 semantic fidelity oracle synthetic development qualification
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-semantic-dev-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10-semantic-oracle-dev-only-20261024
+  cancel-in-progress: false
+jobs:
+  semantics-dev-only:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Exact prospective source control, development-only tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '87e8e1ecdee46c2d86e064f114b9f92e4a3b7742'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l10-semantic-dev-qualify.yml'
+          p=research/optimizer_language_l10
+          test "$(git rev-parse HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json)" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse HEAD:$p/l10_semantic_dev_oracle.py)" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          test "$(git rev-parse HEAD:$p/test_l10_semantic_dev_oracle.py)" = '70a7a4e440cb48a17e0c02b326f60c0f78bf583d'
+          python -m py_compile "$p/l10_semantic_dev_oracle.py" "$p/test_l10_semantic_dev_oracle.py"
+          (cd "$p" && python -m unittest -v test_l10_semantic_dev_oracle.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l10").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L10_SYNTAX_AND_PROPOSITIONAL_MEANING_ORACLE_DEV=PASS
+          echo L10_L9_AUDIT_AND_WEBNLG_REFERENCES_ACCESSED=ZERO
+          echo L10_PROSPECTIVE_NEW_FAMILY_SCORES=NONE
+          echo L10_SCIENTIFIC_GO=FALSE
