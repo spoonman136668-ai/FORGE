@@ -26,8 +26,8 @@ METHODS=("ygg_R7_causal_parent_model","native_R7_no_composition",
          "native_R7_no_world_identity","conventional_exhaustive_triple",
          "conventional_greedy_depth3","conventional_fullstate_1NN","conventional_affine_GF2")
 TRIPLES=tuple(itertools.combinations(range(8),3))
-SOURCE_BLOB="R7_SOURCE_BLOB_PENDING"
-WORLD_BLOB="K5E_WORLD_BLOB_PENDING"
+SOURCE_BLOB="204ecd993b954b23e66d6d1e8b3568e7c93183c5"
+WORLD_BLOB="a43643ee6435f15e42cc671f54a6e401f7188a98"
 
 def canonical(o):return json.dumps(o,sort_keys=True,separators=(",",":"),allow_nan=False)
 def sha(s):return hashlib.sha256(s).hexdigest()
