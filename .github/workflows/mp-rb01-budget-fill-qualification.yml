@@ -31,18 +31,19 @@ jobs:
           $env:GIT_CONFIG_VALUE_0='true'
           $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
           $branch='qualification/mp-rb01-on-mpai0405-20261024'
-          $target='abe4ae16fb5a619eb05acac87a6741763e8a7e11'
+          $target='6982daa9b57c0246900f693c4585dc93c4eb4320'
           $parent='250208e94d998cf0452923a4d02bb99e0eb208b9'
           $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
           $scratch=Join-Path $env:RUNNER_TEMP ('mp-rb01-'+$env:GITHUB_RUN_ID)
           $root=Join-Path $scratch 'repo'
-          $allow=@('tools/mindpalace_readonly.py','tests/test_mpn1_budget_fill.py')
+          $allow=@('tools/mindpalace_readonly.py','tests/test_mpn1_budget_fill.py','tests/test_mpn2a_git_blob_identity.py')
           $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
             '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
             '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
           $pins=@{
             'tools/mindpalace_readonly.py'='a36b2a748f776d4dc8eedeb932acc056b1dd2a20'
             'tests/test_mpn1_budget_fill.py'='c459cc4a23ffab2be804ebf432f2756f00b1e343'
+            'tests/test_mpn2a_git_blob_identity.py'='180e92a41a034affc920db81f0053b268b42e7d6'
             'tests/test_mpn1_mcp.py'='6085709d9fed1bfee4b8755e22b923dd251769d4'
           }
           $suites=@('test_mpn1_budget_fill.py','test_mpn1_mcp.py','test_mpn2a_git_blob_identity.py',
@@ -70,13 +71,13 @@ jobs:
             & git.exe -C $root merge-base --is-ancestor $accepted HEAD
             Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
             $changed=@(& git.exe -C $root diff --name-only $parent HEAD)
-            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 2 -and
-              (($changed|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'EXACT_TWO_FILE_SCOPE'
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'EXACT_THREE_FILE_SCOPE'
             foreach($name in $pins.Keys){
               $blob=(& git.exe -C $root rev-parse ('HEAD:'+$name) | Out-String).Trim()
               Need ($LASTEXITCODE -eq 0 -and $blob -ceq $pins[$name]) ('SOURCE_BLOB_'+$name)
             }
-            Write-Host 'MP_RB01_QUALIFIED_PARENT_AND_TWO_FILE_SCOPE=PASS'
+            Write-Host 'MP_RB01_QUALIFIED_PARENT_AND_THREE_FILE_SCOPE=PASS'
             foreach($name in $guard){
               $before=(& git.exe -C $root rev-parse ($accepted+':'+$name) | Out-String).Trim()
               $now=(& git.exe -C $root rev-parse ('HEAD:'+$name) | Out-String).Trim()
