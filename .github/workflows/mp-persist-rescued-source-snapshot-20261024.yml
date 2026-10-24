@@ -1,0 +1,70 @@
+name: MP persist rescued CKB source snapshot
+on:
+  push:
+    branches: [diagnostics/mp-installed-go-source-rescue-20261023]
+    paths: [.github/workflows/mp-persist-rescued-source-snapshot-20261024.yml]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: mp-persist-rescued-source-snapshot-20261024
+  cancel-in-progress: false
+jobs:
+  persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download installed-source rescue
+        uses: actions/download-artifact@v4
+        with:
+          name: mp-installed-go-source-rescue
+          run-id: 40050860442
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/rescue
+      - name: Download exact comparison manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: mp-installed-source-vs-main-comparison
+          run-id: 40051268189
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/compare
+      - name: Commit durable recovery snapshot branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          target='recovery/ckb-installed-source-snapshot-20261024'
+          git fetch origin "$target:$target"
+          git checkout "$target"
+          root='recovery/ckb-installed-source-snapshot-20261024'
+          rm -rf "$root"
+          mkdir -p "$root/source" "$root/evidence"
+          cp -a "$RUNNER_TEMP/rescue/." "$root/source/"
+          cp "$RUNNER_TEMP/compare/mp-source-diff.json" "$root/evidence/mp-source-diff.json"
+          cat > "$root/README.md" <<'EOF'
+          # CKB installed source recovery snapshot
+
+          This branch preserves the exact Go source bytes recovered read-only from the installed CKB-plane workstation source on 2026-10-24.
+
+          It is recovery custody only. It grants no execution, merge, acceptance, or live-install authority.
+
+          Source scope: go.mod, go.sum, cmd/ckb-plane/**/*.go, internal/plane/**/*.go.
+          Excluded: live config, SQLite state, credentials, tokens, evidence directories, binaries, workspaces.
+          EOF
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('recovery/ckb-installed-source-snapshot-20261024/README.md')
+          p.write_text('\n'.join(line[10:] if line.startswith('          ') else line for line in p.read_text().splitlines())+'\n')
+          PY
+          git config user.name 'ckb-source-recovery'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -- "$root"
+          git diff --cached --quiet && { echo 'MP_PERSIST_NO_DELTA'; exit 1; }
+          git commit -m 'recovery(ckb): preserve installed Go source snapshot and exact delta evidence'
+          git push origin "HEAD:$target"
+          echo "MP_PERSIST_RECOVERY_COMMIT=$(git rev-parse HEAD)"
+          echo "MP_PERSIST_SOURCE_MANIFEST_SHA256=$(sha256sum "$root/source/RESCUE-MANIFEST.json" | awk '{print $1}')"
+          echo "MP_PERSIST_COMPARE_MANIFEST_SHA256=$(sha256sum "$root/evidence/mp-source-diff.json" | awk '{print $1}')"
+          echo "MP_PERSIST_LIVE_WRITES=0"
