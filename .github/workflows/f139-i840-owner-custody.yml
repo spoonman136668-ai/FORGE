@@ -1,0 +1,104 @@
+name: F139 i840 immutable original-owner receipt audit
+on:
+  push:
+    branches: [diagnostics/f139-i840-terminal-owner-custody-20261023]
+    paths: [.github/workflows/f139-i840-owner-custody.yml]
+permissions:
+  contents: read
+jobs:
+  existing-owner-read-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify original controller and inspect only source-authenticated immutable i840 state
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $expectedSource='6d55a33589396f826b166b73d413de4dcb719a1c'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_I840_OWNER_RUNNER_UNQUALIFIED'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'F139_I840_ORIGINAL_OWNER_TASK_NOT_RUNNING'
+          }
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$name) {
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_I840_MISSING_TASK_OPTION_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          $root=Arg 'RepositoryRoot'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_I840_ORIGINAL_DB_IDENTITY_DRIFT'
+          }
+          if(((& git.exe -C $root rev-parse HEAD |Out-String).Trim()) -cne $expectedSource){
+            throw 'F139_I840_INSTALLED_SOURCE_DRIFT'
+          }
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-i840-scratch-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_I840_SCRATCH_COLLISION'}
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          from f139.local_controller import Database
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dst=pathlib.Path(sys.argv[2])
+          source_sha=sys.argv[3]
+          s=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True,timeout=30)
+          s.row_factory=sqlite3.Row
+          s.execute("PRAGMA query_only=ON")
+          before=dict(s.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert before["source_sha"]==source_sha and before["head_seq"]>=171
+          assert before["enabled"]==1 and before["legacy_suspended"]==1
+          assert not dst.exists()
+          copy=sqlite3.connect(dst)
+          s.backup(copy)
+          copy.close()
+          db=Database(dst)
+          try:
+              db.verify()
+              assert db.meta()["source_sha"]==source_sha
+              rows=list(db.conn.execute("SELECT ticket,stage,source_sha,run_id,quarantine_reason,evidence_sha FROM tasks WHERE ticket LIKE 'f139-nci04-i840-%'"))
+              assert len(rows)==1,[dict(r) for r in rows]
+              task=dict(rows[0])
+              assert task["source_sha"]==source_sha
+              kinds=[dict(r) for r in db.conn.execute("SELECT seq,kind FROM events ORDER BY seq DESC LIMIT 10")]
+              stages={r["stage"]:r["n"] for r in db.conn.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              print("F139_I840_ORIGINAL_DB_VERIFY=PASS")
+              print("F139_I840_LEDGER_HEAD_SEQ="+str(db.meta()["head_seq"]))
+              print("F139_I840_LEDGER_HEAD_SHA="+db.meta()["head_hash"])
+              print("F139_I840_TASK="+json.dumps(task,sort_keys=True))
+              print("F139_I840_STAGE_COUNTS="+json.dumps(stages,sort_keys=True))
+              print("F139_I840_LAST_EVENTS="+json.dumps(kinds,sort_keys=True))
+              print("F139_I840_NATIVE_FAILURE_CUSTODY_COUNT="+str(len(db.verified_native_provider_failures())))
+              if task["stage"]=="QUARANTINED":
+                  assert task["quarantine_reason"] is not None
+                  print("F139_I840_TERMINAL_QUARANTINE=PASS")
+              elif task["stage"]=="VERIFIED":
+                  print("F139_I840_UNEXPECTED_VERIFIED_CHECK_DETAIL")
+              else:
+                  print("F139_I840_TERMINAL=NOT_YET_CONFIRMED")
+          finally:
+              db.close()
+          after=dict(s.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert after==before,"F139_I840_ORIGINAL_DB_MUTATED"
+          print("F139_I840_ORIGINAL_DB_UNMODIFIED=PASS")
+          s.close()
+          '@
+          try {
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -c $code $db $scratch $expectedSource
+              if($LASTEXITCODE -ne 0){throw 'F139_I840_CUSTODY_AUDIT_REJECTED'}
+            } finally {Pop-Location}
+          } finally {
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
