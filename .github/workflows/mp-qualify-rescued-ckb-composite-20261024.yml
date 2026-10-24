@@ -1,0 +1,185 @@
+name: MP qualify rescued CKB composite candidate
+on:
+  push:
+    branches: [recovery/ckb-installed-source-snapshot-20261024]
+    paths: [.github/workflows/mp-qualify-rescued-ckb-composite-20261024.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-qualify-rescued-ckb-composite-20261024
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Reconstruct and qualify rescued composite against live config snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_COMPOSITE_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/ckb-installed-source-snapshot-20261024') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $parent='0ea3189a22f3965fd0355eeb540359ea0b6c25fb'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-qualify-rescued-ckb-composite-20261024.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $ckbRepo='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $base='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $remote=@(& git.exe ls-remote --exit-code $ckbRepo 'refs/heads/main')
+          Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and ([string]($remote[0]-split '\s+')[0]) -ceq $base) 'MAIN_DRIFT'
+
+          $rescueRoot=Join-Path $env:GITHUB_WORKSPACE 'recovery\ckb-installed-source-snapshot-20261024\source'
+          $manifestPath=Join-Path $rescueRoot 'RESCUE-MANIFEST.json'
+          Need (Test-Path -LiteralPath $manifestPath -PathType Leaf) 'RESCUE_MANIFEST'
+          Need ((Sha $manifestPath) -ceq '8e0a58912b7dac47a5600d508f8e86d44a7ace1f28383fd446e5b67167af81cd') 'RESCUE_MANIFEST_HASH'
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          Need (@($manifest).Count -eq 205) 'RESCUE_FILE_COUNT'
+
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $liveConfig=Join-Path $live 'config\autonomy.yaml'
+          $liveExe=Join-Path $live 'bin\ckb-plane.exe'
+          Need (Test-Path -LiteralPath $liveConfig -PathType Leaf) 'LIVE_CONFIG'
+          Need (Test-Path -LiteralPath $liveExe -PathType Leaf) 'LIVE_EXE'
+          $protected=@($liveConfig,$liveExe)
+          foreach($p in @(
+            (Join-Path $live 'config\local-operations.json'),
+            (Join-Path $live 'internal\plane\model.go'),
+            (Join-Path $live 'internal\plane\autonomy.go'),
+            (Join-Path $live 'internal\plane\engine.go'),
+            (Join-Path $live 'internal\plane\status_projection.go'),
+            (Join-Path $live 'scripts\Start-CKBPlane.ps1')
+          )){if(Test-Path -LiteralPath $p -PathType Leaf){$protected += $p}}
+          $pre=@{}
+          foreach($p in $protected){$pre[$p]=Sha $p}
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procs.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPid=[int]$procs[0].ProcessId
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-composite-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $clone=Join-Path $scratch 'ckb'
+          $snapshot=Join-Path $scratch 'live-snapshot.db'
+          $configCopy=Join-Path $scratch 'autonomy.yaml'
+          Copy-Item -LiteralPath $liveConfig -Destination $configCopy -Force
+          $liveConfigHash=Sha $liveConfig
+          Write-Host ('MP_COMPOSITE_LIVE_CONFIG_SHA256='+$liveConfigHash)
+
+          $py=@'
+import pathlib,re,sqlite3,sys,urllib.parse
+root=pathlib.Path(sys.argv[1]).resolve()
+cfg=pathlib.Path(sys.argv[2]).resolve()
+out=pathlib.Path(sys.argv[3]).resolve()
+text=cfg.read_text(encoding="utf-8-sig")
+state_indent=None; db_name=None
+for line in text.splitlines():
+    indent=len(line)-len(line.lstrip(" "))
+    if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+        state_indent=indent; continue
+    if state_indent is None: continue
+    if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
+        state_indent=None; continue
+    m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+    if m:
+        db_name=m.group(1).strip().strip("\"'"); break
+if db_name is None: raise RuntimeError("MP_COMPOSITE_DB_LOCATOR")
+p=pathlib.Path(db_name)
+live=(p if p.is_absolute() else root/p).resolve()
+if not live.is_relative_to(root) or not live.is_file(): raise RuntimeError("MP_COMPOSITE_DB_SCOPE")
+uri="file:"+urllib.parse.quote(str(live).replace("\\","/"),safe="/:")+"?mode=ro"
+with sqlite3.connect(uri,uri=True,timeout=5.0) as src:
+    src.execute("PRAGMA query_only=ON")
+    with sqlite3.connect(str(out)) as dst: src.backup(dst)
+with sqlite3.connect(str(out)) as db:
+    if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok": raise RuntimeError("MP_COMPOSITE_SNAPSHOT_INTEGRITY")
+    q=db.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0]
+    leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+    print("MP_COMPOSITE_ACTIVE_QUEUE="+str(q))
+    print("MP_COMPOSITE_LEASES="+str(leases))
+print("MP_COMPOSITE_SNAPSHOT_INTEGRITY=PASS")
+'@
+          try {
+            & python.exe -B -c $py $live $liveConfig $snapshot
+            Need ($LASTEXITCODE -eq 0) 'SNAPSHOT'
+
+            & git.exe clone --quiet --filter=blob:none --no-checkout $ckbRepo $clone
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            & git.exe -C $clone checkout --quiet --detach $base
+            Need ($LASTEXITCODE -eq 0 -and ((& git.exe -C $clone rev-parse HEAD).Trim() -ceq $base)) 'BASE_CHECKOUT'
+            $source=Join-Path $clone 'snapshot\source'
+
+            foreach($row in @($manifest)){
+              $rel=([string]$row.path).Replace('/','\')
+              $src=Join-Path $rescueRoot $rel
+              $dst=Join-Path $source $rel
+              Need (Test-Path -LiteralPath $src -PathType Leaf) ('RESCUE_PATH_'+$rel)
+              Need ((Sha $src) -ceq [string]$row.sha256) ('RESCUE_HASH_'+$rel)
+              New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+              Copy-Item -LiteralPath $src -Destination $dst -Force
+              Need ((Sha $dst) -ceq [string]$row.sha256) ('OVERLAY_HASH_'+$rel)
+            }
+            Write-Host 'MP_COMPOSITE_OVERLAY_205=PASS'
+
+            $testPath=Join-Path $source 'internal\plane\mp_recovery_live_compat_test.go'
+            $go=@'
+package plane
+import ("os";"testing")
+func TestMPRecoveryLiveCompatibility(t *testing.T){
+ cfg:=os.Getenv("MP_LIVE_CONFIG_COPY"); root:=os.Getenv("MP_LIVE_ROOT"); snap:=os.Getenv("MP_LIVE_DB_SNAPSHOT")
+ if cfg==""||root==""||snap==""{t.Fatal("missing compatibility environment")}
+ c,err:=LoadConfig(cfg); if err!=nil{t.Fatalf("LIVE_CONFIG_PARSE_FAILED: %v",err)}
+ c.State.SQLitePath=snap
+ p,err:=NewEngine(c,root); if err!=nil{t.Fatalf("LIVE_ENGINE_INIT_FAILED: %v",err)}
+ defer p.Store.DB.Close()
+ if p.Store==nil||p.Store.DB==nil{t.Fatal("LIVE_ENGINE_INIT_STORE_MISSING")}
+}
+'@
+            [IO.File]::WriteAllText($testPath,$go,[Text.UTF8Encoding]::new($false))
+
+            Push-Location $source
+            try {
+              $env:MP_LIVE_CONFIG_COPY=$configCopy
+              $env:MP_LIVE_ROOT=$live
+              $env:MP_LIVE_DB_SNAPSHOT=$snapshot
+
+              & go.exe test ./internal/plane -run '^(TestMPRecoveryLiveCompatibility|Test.*Preservation.*|Test.*R220.*|Test.*MindPalace.*)$' -count=1
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED'
+              Write-Host 'MP_COMPOSITE_FOCUSED=PASS'
+
+              & go.exe test ./... -count=1
+              Need ($LASTEXITCODE -eq 0) 'FULL_REGRESSION'
+              Write-Host 'MP_COMPOSITE_FULL_REGRESSION=PASS'
+
+              $built=Join-Path $scratch 'ckb-plane-rescued-composite.exe'
+              & go.exe build -trimpath -o $built ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $built -PathType Leaf)) 'BUILD'
+              Write-Host ('MP_COMPOSITE_BUILD_SHA256='+(Sha $built))
+              Write-Host 'MP_COMPOSITE_LIVE_CONFIG_PARSE_AND_INIT=PASS'
+              Write-Host 'MP_COMPOSITE_SECOND_CONTROLLER_STARTS=0'
+            } finally {
+              Remove-Item Env:MP_LIVE_CONFIG_COPY,Env:MP_LIVE_ROOT,Env:MP_LIVE_DB_SNAPSHOT -ErrorAction SilentlyContinue
+              Pop-Location
+            }
+
+            $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+            foreach($p in $protected){Need ((Sha $p) -ceq $pre[$p]) ('PROTECTED_POSTIMAGE_'+[IO.Path]::GetFileName($p))}
+            Write-Host 'MP_COMPOSITE_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+            Write-Host 'MP_COMPOSITE_LIVE_SQLITE_WRITES=0'
+            Write-Host 'MP_COMPOSITE_QUEUE_MUTATIONS=0'
+            Write-Host 'MP_COMPOSITE_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_COMPOSITE_PRODUCTION_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_COMPOSITE_SCRATCH_CLEAN=PASS'
+          }
