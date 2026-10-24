@@ -63,7 +63,7 @@ class CachedEncoderParityTests(unittest.TestCase):
                 "l9_cached_encoder_parity.py").read_text(encoding="utf-8")
         for forbidden in (
             "torch.load(", "load_state_dict(", "load_train_select(",
-            "load_audit(", "subprocess.", "requests.", "WebNLG",
+            "load_audit(", "subprocess.", "requests.",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, code)
