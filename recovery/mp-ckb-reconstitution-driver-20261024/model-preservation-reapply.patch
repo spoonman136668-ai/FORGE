@@ -1,0 +1,99 @@
+--- a/snapshot/source/internal/plane/model.go
++++ b/snapshot/source/internal/plane/model.go
+@@ -106,6 +106,8 @@
+ 	} `yaml:"scope"`
+ 	RequiredPaths []string `yaml:"required_paths"`
+ 	Preserve      []string `yaml:"preserve"`
++	PreservationSchema string `yaml:"preservation_schema,omitempty" json:"preservation_schema,omitempty"`
++	Preservation *PreservationContract `yaml:"preservation,omitempty" json:"preservation,omitempty"`
+ 	RequiredTests struct {
+ 		PowerShellScripts []string `yaml:"powershell_scripts"`
+ 		FocusedGo         []string `yaml:"focused_go"`
+@@ -121,6 +123,48 @@
+ 	UI        UIContract `yaml:"ui"`
+ }
+ 
++type PreservationContract struct {
++	AcceptedInterfaces any `yaml:"acceptedinterfaces,omitempty" json:"acceptedinterfaces,omitempty"`
++	BehaviorContracts any `yaml:"behaviorcontracts,omitempty" json:"behaviorcontracts,omitempty"`
++	EvidenceContracts any `yaml:"evidencecontracts,omitempty" json:"evidencecontracts,omitempty"`
++	InterfaceContracts any `yaml:"interfacecontracts,omitempty" json:"interfacecontracts,omitempty"`
++	SourceContracts any `yaml:"sourcecontracts,omitempty" json:"sourcecontracts,omitempty"`
++	UIMarkers any `yaml:"uimarkers,omitempty" json:"uimarkers,omitempty"`
++}
++
++func validPreservationValue(v any, depth int) bool {
++	if depth>12 {return false}
++	switch x:=v.(type) {
++	case nil, bool, int, int64, uint64, float64:
++		return true
++	case string:
++		return len(x)<=8192
++	case []any:
++		if len(x)>256 {return false}
++		for _, item:=range x {if !validPreservationValue(item,depth+1) {return false}}
++		return true
++	case map[string]any:
++		if len(x)>256 {return false}
++		for key,item:=range x {if len(key)==0||len(key)>128||!validPreservationValue(item,depth+1) {return false}}
++		return true
++	default:
++		return false
++	}
++}
++func (p *PreservationContract) Validate() error {
++	if p==nil {return nil}
++	values:=[]any{p.AcceptedInterfaces,p.BehaviorContracts,p.EvidenceContracts,p.InterfaceContracts,p.SourceContracts,p.UIMarkers}
++	present:=false
++	for _,v:=range values {
++		if v!=nil {
++			present=true
++			if !validPreservationValue(v,0) {return errors.New("PRESERVATION_CONTRACT_INVALID: type or bounds")}
++		}
++	}
++	if !present {return errors.New("PRESERVATION_CONTRACT_INVALID: empty mapping")}
++	return nil
++}
++
+ func decodeYAML(b []byte, v any) error {
+ 	d := yaml.NewDecoder(bytes.NewReader(b))
+ 	d.KnownFields(true)
+@@ -136,10 +180,15 @@
+ func ParseOrder(b []byte) (WorkOrder, error) {
+ 	var w WorkOrder
+ 	err := decodeYAML(b, &w)
+-	if err == nil {
+-		err = w.Validate()
+-	}
+-	return w, err
++	if err != nil {
++		// Retain the original strict error while identifying the bounded
++		// preservation field for historical-observation diagnostics.
++		if regexp.MustCompile("(?m)^preservation:").Match(b) {
++			return w, fmt.Errorf("preservation: %w", err)
++		}
++		return w, err
++	}
++	return w, w.Validate()
+ }
+ 
+ var safeID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$`)
+@@ -208,6 +257,18 @@
+ 			if id != "" && !regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_:-]*$`).MatchString(id) {
+ 				return errors.New("CONFIG_INVALID: invalid element ID")
+ 			}
++		}
++	}
++	if w.Preservation == nil {
++		if w.PreservationSchema != "" {
++			return errors.New("preservation: preservation_schema provided without preservation contract")
++		}
++	} else {
++		if w.PreservationSchema != "ckb-plane.preservation.v1" {
++			return errors.New("preservation: explicit preservation_schema ckb-plane.preservation.v1 required")
++		}
++		if err := w.Preservation.Validate(); err != nil {
++			return err
+ 		}
+ 	}
+ 	return nil
