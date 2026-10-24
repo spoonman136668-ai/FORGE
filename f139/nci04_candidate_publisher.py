@@ -164,7 +164,9 @@ def publisher_preflight(get: Callable[[str], object], *,
         "before_blob": before_blob, "after_blob": _sha1_blob(generated["source"]),
         "candidate_identity": generated["candidate_identity"],
         "candidate_source": generated["source"],
-        "source_sha256": generated["record"]["after_sha256"],
+        "source_sha256": (generated["record"]["source_after_sha256"]
+                          if recipe == RECIPE_G3 else
+                          generated["record"]["after_sha256"]),
         "history_sha256": historical_sha256,
         "mechanism_sha256": generated["record"]["mechanism_sha256"],
         "pr_title": generated["pr_title"],
