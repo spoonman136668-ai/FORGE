@@ -473,14 +473,20 @@ class Database:
                          and set(doc) == base_fields | {
                              "custodied_negative_tasks", "custodied_negative_tickets",
                              "provider_failures_sha256"})
-                require(is_v1 or is_v2 or is_v3 or is_v4,
+                is_v5 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v5"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256", "v4_terminal_event_sha256"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or is_v4 and type(doc["custodied_negative_tasks"]) is int
+                         or (is_v4 or is_v5)
+                         and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
                         and SHA.fullmatch(doc["from_source_sha"])
@@ -526,7 +532,7 @@ class Database:
                                     for value in (t["from_source_sha"],
                                                   t["to_source_sha"])},
                                 "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
-                if is_v4:
+                if is_v4 or is_v5:
                     from f139.nci04_negative_owner_store import TICKET as FIRST
                     from f139.nci04_split_negative_owner_store import TICKET as SECOND
                     provider_failures=self.verified_native_provider_failures(
@@ -542,13 +548,34 @@ class Database:
                             and source_transitions
                             and source_transitions[-1]["schema"] in (
                                 "forge.f139.source-transition.v3",
-                                "forge.f139.source-transition.v4")
+                                "forge.f139.source-transition.v4",
+                                "forge.f139.source-transition.v5")
                             and doc["from_source_sha"]==
                                 source_transitions[-1]["to_source_sha"]
                             and doc["to_source_sha"] not in {
                                 sha for t in source_transitions
                                 for sha in (t["from_source_sha"],t["to_source_sha"])},
                             "SOURCE_TRANSITION_V4_PROVIDER_CUSTODY_INVALID")
+                    if is_v5:
+                        sealed_v4 = [
+                            r for r in self.conn.execute(
+                                "SELECT seq,sha,payload FROM events "
+                                "WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                                "AND seq<? ORDER BY seq",(row["seq"],))
+                            if json.loads(r["payload"])["schema"] ==
+                                "forge.f139.source-transition.v4"]
+                        prior_v5 = [
+                            t for t in source_transitions if t["schema"] ==
+                                "forge.f139.source-transition.v5"]
+                        require(len(sealed_v4)==10
+                                and len(prior_v5)<4
+                                and source_transitions[-1]["schema"] in (
+                                    "forge.f139.source-transition.v4",
+                                    "forge.f139.source-transition.v5")
+                                and isinstance(doc["v4_terminal_event_sha256"],str)
+                                and doc["v4_terminal_event_sha256"] ==
+                                    sealed_v4[-1]["sha"],
+                                "SOURCE_TRANSITION_V5_V4_SEAL_INVALID")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -574,10 +601,14 @@ class Database:
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v3"]
         negative_v4 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v4"]
+        negative_v5 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v5"]
         verified_provider_negatives=self.verified_native_provider_failures()
-        negative_transitions = negative_v2 + negative_v3 + negative_v4
-        require(len(negative_transitions) <= 30
-                and len(negative_v3) <= 10 and len(negative_v4) <= 10,
+        negative_transitions = negative_v2 + negative_v3 + negative_v4 + negative_v5
+        require(len(negative_transitions) <= 34
+                and len(negative_v3) <= 10 and len(negative_v4) <= 10
+                and len(negative_v5) <= 4 and
+                (not negative_v5 or len(negative_v4)==10),
                 "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         require(not negative_v3 or certified_negative and certified_second,
                 "SECOND_NEGATIVE_CUSTODY_MISSING")
@@ -604,7 +635,7 @@ class Database:
                 and row["stage"] == "QUARANTINED" and row["run_id"] is None
                 and row["evidence_sha"] is None and not row["evidence_dir"])
             prior_provider_failure = (
-                bool(negative_v4) and row["ticket"] in verified_provider_negatives
+                bool(negative_v4 or negative_v5) and row["ticket"] in verified_provider_negatives
                 and verified_provider_negatives[row["ticket"]][0]==row["source_sha"]
                 and row["source_sha"] in historical_sources
                 and row["stage"]=="QUARANTINED" and row["run_id"] is None
@@ -771,10 +802,12 @@ class Database:
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
                             "forge.f139.source-transition.v3",
-                            "forge.f139.source-transition.v4")
+                            "forge.f139.source-transition.v4",
+                            "forge.f139.source-transition.v5")
                         and (verify_native_activation(self)
-                             or (events[-1]["schema"]==
-                                     "forge.f139.source-transition.v4"
+                             or (events[-1]["schema"] in
+                                     ("forge.f139.source-transition.v4",
+                                      "forge.f139.source-transition.v5")
                                  and self.conn.execute(
                                      "SELECT kind FROM events ORDER BY seq DESC LIMIT 1"
                                  ).fetchone()["kind"]=="SOURCE_TRANSITION_ADMITTED"
@@ -787,7 +820,18 @@ class Database:
                             for sha in (e["from_source_sha"],e["to_source_sha"])}
                         and self.active() is None and self.ready() is None,
                         "SOURCE_TRANSITION_V4_NEGATIVES_NOT_CUSTODIED")
-                schema="forge.f139.source-transition.v4"
+                prev_v4=[e for e in events if e["schema"]==
+                         "forge.f139.source-transition.v4"]
+                prev_v5=[e for e in events if e["schema"]==
+                         "forge.f139.source-transition.v5"]
+                if len(prev_v4)==10:
+                    require(len(prev_v5)<4,
+                            "SOURCE_TRANSITION_V5_BOUNDED_CAPACITY_EXHAUSTED")
+                    schema="forge.f139.source-transition.v5"
+                else:
+                    require(len(prev_v4)<10 and not prev_v5,
+                            "SOURCE_TRANSITION_V4_HISTORY_INVALID")
+                    schema="forge.f139.source-transition.v4"
             else:
                 require(not allow_certified_negative and not certified,
                         "SOURCE_TRANSITION_NEGATIVE_NOT_PRESENT")
@@ -806,12 +850,23 @@ class Database:
                 event["custodied_negative_tasks"] = len(certified)
             if schema == "forge.f139.source-transition.v3":
                 event["custodied_negative_tickets"] = [NEGATIVE_696, NEGATIVE_706]
-            elif schema == "forge.f139.source-transition.v4":
+            elif schema in ("forge.f139.source-transition.v4",
+                            "forge.f139.source-transition.v5"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
                                 "event_sha":provider_failures[t][1]}
                                for t in sorted(provider_failures)]))
+                if schema == "forge.f139.source-transition.v5":
+                    v4_rows=[
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                        if json.loads(r["payload"])["schema"] ==
+                            "forge.f139.source-transition.v4"]
+                    require(len(v4_rows)==10,
+                            "SOURCE_TRANSITION_V5_V4_SEAL_MISSING")
+                    event["v4_terminal_event_sha256"]=v4_rows[-1]["sha"]
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
