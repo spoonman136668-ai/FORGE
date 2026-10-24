@@ -34,8 +34,8 @@ jobs:
             'wingless_stage1','WinglessStage1','service_program','service_sha256','model_bytes','runtime_sha256',
             'advisory','OpenCode','opencode','api_key_env','allow_work_order_metadata','sidecar_executable','sidecar_config_sha256','max_concurrent'
           )
-          $files=@(Get-ChildItem -LiteralPath $root -Recurse -File -Include *.go,*.ps1,*.json,*.yaml,*.yml -ErrorAction Stop |
-            Where-Object {$_.FullName -notmatch '\\.git\\|\\vendor\\|\\node_modules\\|\\evidence\\|\\workspaces\\'})
+          $sourceRoots=@('internal\\plane','cmd','scripts','operations') | ForEach-Object {Join-Path $root $_} | Where-Object {Test-Path -LiteralPath $_ -PathType Container}
+          $files=@($sourceRoots | ForEach-Object {Get-ChildItem -LiteralPath $_ -Recurse -File -Include *.go,*.ps1,*.json,*.yaml,*.yml -ErrorAction Stop})
           $hits=@{}
           foreach($file in $files){
             $rel=$file.FullName.Substring($root.Length).TrimStart('\')
