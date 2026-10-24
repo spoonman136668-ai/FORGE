@@ -103,11 +103,8 @@ class StructuralFalsificationTests(unittest.TestCase):
             exp.fit_slot_control(fake)
         src=(Path(__file__).resolve().parent/"l9_charter_structural_dev.py").read_text()
         for forbidden in ("load_train_select(", "load_audit(", "torch.load(",
-                          "requests.", "urllib.", "git clone", "subprocess.",
-                          "L9_AUDIT_DEV", ""):
+                          "requests.", "urllib.", "git clone", "subprocess."):
             # The guard rejects executable forbidden calls, not limitations prose.
-            if forbidden.startswith("L9_AUDIT_DEV"):
-                continue
             self.assertNotIn(forbidden,src)
         self.assertIn("ONLY_SYNTHETIC_OUTPUT_ARG",src)
 
