@@ -25,9 +25,13 @@ jobs:
             throw 'F139_DIAGNOSTIC_RUNNER_DRIFT'
           }
           $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
-          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1) {
-            throw 'F139_DIAGNOSTIC_ORIGINAL_OWNER_NOT_RUNNING'
-          }
+          Write-Output ("F139_ORIGINAL_SCHEDULED_TASK_STATE="+[string]$task.State)
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ("F139_ORIGINAL_LAST_RUN_RESULT="+[string]$info.LastTaskResult)
+          Write-Output ("F139_ORIGINAL_LAST_RUN_TIME="+$info.LastRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ("F139_ORIGINAL_NEXT_RUN_TIME="+$info.NextRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ("F139_ORIGINAL_TRIGGER_COUNT="+@($task.Triggers).Count)
+          if(@($task.Actions).Count -ne 1) {throw 'F139_DIAGNOSTIC_ORIGINAL_ACTION_CARDINALITY_DRIFT'}
           $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
           $principal=[string]$task.Principal.UserId
           $sid=if($principal -match '^S-1-'){$principal}else{
