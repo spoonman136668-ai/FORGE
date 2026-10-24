@@ -1,0 +1,98 @@
+name: F139 event156 eight-negative safe source transition scratch
+on:
+  push:
+    branches: [qualification/f139-event156-next-source-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-event156-next-source-scratch
+  cancel-in-progress: false
+jobs:
+  exact-original-snapshot:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify old original source and next-source admission on disposable database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {throw 'F139_SCRATCH_RUNNER_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running'){throw 'F139_SCRATCH_OWNER_NOT_RUNNING'}
+          $text=[string]$task.Actions[0].Arguments
+          function Option([string]$name){
+            $m=[regex]::Match($text,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_ORIGINAL_ROUTE_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $root=Option 'RepositoryRoot'
+          $db=Option 'Database'
+          $python=Option 'PythonExe'
+          $expectedSource='58dc4cc483349249c98f1620b51b843b9e927468'
+          $expectedHead='d084f9b314e4c82953b3ed216d43720c517331112abcc9362762435647bca653'
+          if(((& git.exe -C $root rev-parse HEAD | Out-String).Trim()) -cne $expectedSource){
+            throw 'F139_SCRATCH_SOURCE_DRIFT'
+          }
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($db))) ('f139-event156-next-source-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_SCRATCH_ALREADY_EXISTS'}
+          $program=@'
+          import pathlib,sqlite3,sys
+          from f139.local_controller import Database,require
+          from f139.nci04_owner_ledger import activate_native,verify_native_activation
+          orig=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          old=sys.argv[3];oldhead=sys.argv[4]
+          con=sqlite3.connect(orig.as_uri()+"?mode=ro",uri=True,timeout=20)
+          con.execute('PRAGMA query_only=ON')
+          try:
+              out=sqlite3.connect(str(scratch))
+              try:con.backup(out)
+              finally:out.close()
+          finally:con.close()
+          db=Database(scratch)
+          try:
+              db.verify()
+              m=db.meta()
+              require(m["source_sha"]==old and m["head_seq"]==156 and
+                      m["head_hash"]==oldhead,"EVENT156_EXACT_ORIGINAL_CHAIN_REQUIRED")
+              require(db.active() is None and db.ready() is None,
+                      "EVENT156_NO_PENDING_REQUIRED")
+              neg=list(db.conn.execute("SELECT ticket FROM tasks WHERE stage='QUARANTINED'"))
+              require(len(neg)==8 and len(db.verified_native_provider_failures())==6,
+                      "EVENT156_ORIGINAL_EIGHT_NEGATIVES_INVALID")
+              target="1"*40
+              db.transition_source(target,allow_certified_negative=True)
+              db.verify()
+              require(db.meta()["source_sha"]==target and
+                      db.meta()["head_seq"]==157,"EVENT156_V4_TRANSITION_FAILURE")
+              approval={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":target,
+                  "expected_event_head_sha256":db.meta()["head_hash"],
+                  "native_development_approved":True,"scientific_first_use":False,
+                  "create_controller":False,"paid_api_calls":0}
+              require(activate_native(db,approval),"EVENT156_NATIVE_ACTIVATION_REJECTED")
+              db.verify()
+              require(db.meta()["head_seq"]==158 and verify_native_activation(db),
+                      "EVENT156_NEXT_SOURCE_NOT_VERIFIED")
+              require(len(list(db.conn.execute(
+                  "SELECT 1 FROM tasks WHERE stage='QUARANTINED'")))==8,
+                  "EVENT156_HISTORY_NOT_PRESERVED")
+              print("F139_EIGHT_NEGATIVE_SOURCE_SUCCESSION_SCRATCH=PASS",flush=True)
+              print("F139_EVENT156_TO_EVENT158_NATIVE_ACTIVATION=PASS",flush=True)
+              print("F139_SCIENTIFIC_FIRST_USE=FALSE",flush=True)
+          finally:db.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $program $db $scratch $expectedSource $expectedHead
+            if($LASTEXITCODE -ne 0){throw 'F139_SCRATCH_SOURCE_SUCCESSION_FAILED'}
+          }finally{
+            Pop-Location
+            foreach($ext in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$ext) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Output 'F139_ORIGINAL_LEDGER_UNMODIFIED=TRUE'
