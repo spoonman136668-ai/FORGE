@@ -33,7 +33,7 @@ def frozen():
     if p.get("schema")!="mass.lcrm01.k4q.frozen-public-causal-observability-qualification-v1":
         raise ValueError("K4Q_FROZEN_SCHEMA_DRIFT")
     v=p["source_design"]["variants"]
-    expected=[(dx,dy) for dx in (-.105,-.055,.055,.105) for dy in (-.065,0,.065)]
+    expected=[(dx,dy) for dx in (-.105,-.057,.057,.105) for dy in (-.065,0,.065)]
     expected += [(-.085,-.025),(.085,.025)]
     expected += [(-.095,.04),(-.015,-.04),(.015,.04),(.095,-.04)]
     if (len(v)!=18 or [(z["goal_dx"],z["goal_dy"]) for z in v]!=expected or
