@@ -20,21 +20,21 @@ class K4Y(unittest.TestCase):
             k.metrics([{"moved":1}],[1])
     def test_no_counterfactual_action(self):
         conf={"roles":{"curricula":["random_equal_budget"],"families":["empty"]},
-              "original":{"expected_original_fit_transitions_per_curriculum":6000}}
+              "original":{"expected_original_fit_transitions_per_curriculum":12000}}
         rows=[
           {"family":"empty","action":1,"seed":7300,"before":{"X":1},"after":{"X":1}},
           {"family":"empty","action":2,"seed":7300,"before":{"Direction":0,"FrontBlocked":True,"GoalX":2,"GoalY":3,"X":1,"Y":3},
              "after":{"Direction":0,"FrontBlocked":True,"GoalX":2,"GoalY":3,"X":1,"Y":3}}]
-        out=k.forward_rows({"random_equal_budget":{"FIT_source_gate":{"qualified":True},"fit_stream":([rows[0]]*5999+rows[1:])}},conf)
+        out=k.forward_rows({"random_equal_budget":{"FIT_source_gate":{"qualified":True},"fit_stream":([rows[0]]*5999+rows[1:]+[dict(rows[0],family="fourrooms")]*6000)}},conf)
         self.assertEqual(len(out["random_equal_budget"]),1)
         self.assertEqual(out["random_equal_budget"][0]["moved"],0)
     def test_fail_closed_observation_drift(self):
         conf={"roles":{"curricula":["random_equal_budget"],"families":["empty"]},
-              "original":{"expected_original_fit_transitions_per_curriculum":6000}}
+              "original":{"expected_original_fit_transitions_per_curriculum":12000}}
         r={"family":"empty","seed":7300,"action":2,"before":{"Direction":0,"FrontBlocked":True,"GoalX":2,"GoalY":3,"X":1,"Y":3},
            "after":{"Direction":1,"FrontBlocked":True,"GoalX":2,"GoalY":3,"X":1,"Y":3}}
         with self.assertRaisesRegex(ValueError,"FORWARD_ROTATION"):
-            k.forward_rows({"random_equal_budget":{"FIT_source_gate":{"qualified":True},"fit_stream":[r]*6000}},conf)
+            k.forward_rows({"random_equal_budget":{"FIT_source_gate":{"qualified":True},"fit_stream":[r]*6000+[{"family":"fourrooms","action":1,"seed":7300}]*6000}},conf)
     def test_fit_only_parser_never_decodes_dev(self):
         raw=b'{"FIT":{"random_equal_budget":{"fit_stream":[]}},"DEV_original_public_traces":{INVALID_JSON},"scientific":false}'
         p=k.extract_fit_only(raw)
