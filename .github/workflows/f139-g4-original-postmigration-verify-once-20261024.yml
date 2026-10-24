@@ -1,0 +1,80 @@
+name: F139 G4 original-owner postmigration independent readonly verification
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-g4-original-postmigration-verify-once-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-postmigration-verification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - name: Check original head, append-only preservation and native activation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'ORIGINAL_OWNER_IDENTITY'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Disabled'){throw 'ORIGINAL_OWNER_NOT_QUIESCED'}
+          $args=[string]$t.Actions[0].Arguments
+          $dbMatch=[regex]::Match($args,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          $rootMatch=[regex]::Match($args,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          $pyMatch=[regex]::Match($args,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not($dbMatch.Success -and $rootMatch.Success -and $pyMatch.Success)){
+              throw 'ORIGINAL_TASK_ARG_DRIFT'
+          }
+          $db=$dbMatch.Groups[1].Value
+          $root=$rootMatch.Groups[1].Value
+          $py=$pyMatch.Groups[1].Value
+          $checkout=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          if($checkout -cne '8eca700c39223e176dea55f488b6f3397ce4e27a'){
+              throw 'NEW_ORIGINAL_CHECKOUT_IDENTITY_DRIFT'
+          }
+          $backup=Join-Path ([IO.Path]::GetDirectoryName($db)) 'f139-g4-pre-migration-40091664066.sqlite'
+          $audit=@'
+          import json,pathlib,sqlite3,sys
+          sys.path.insert(0,str(pathlib.Path(sys.argv[1]).resolve(strict=True)))
+          from f139.local_controller import canonical,hash_bytes
+          from f139.nci04_owner_ledger import ACTIVATION_KIND
+          db=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          backup=pathlib.Path(sys.argv[3]).resolve(strict=True)
+          new="8eca700c39223e176dea55f488b6f3397ce4e27a"
+          ro=lambda p:sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          a=ro(db);b=ro(backup)
+          try:
+              old=b.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              now=a.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              assert old[0]=="52e007e83be08b851283fc4a6e213ea506469f43" and old[1]==193
+              assert now[0]==new and now[1]==195
+              rows=lambda conn,sql:[tuple(row) for row in conn.execute(sql)]
+              assert rows(a,"SELECT * FROM tasks ORDER BY ticket")==rows(b,"SELECT * FROM tasks ORDER BY ticket")
+              oldEvents=rows(b,"SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")
+              newEvents=rows(a,"SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq")
+              assert len(oldEvents)==193 and len(newEvents)==195
+              assert newEvents[:193]==oldEvents
+              assert [x[1] for x in newEvents[193:]]==["SOURCE_TRANSITION_ADMITTED",ACTIVATION_KIND]
+              prior="0"*64
+              for seq,kind,payload,prev,digest in newEvents:
+                  assert prev==prior
+                  assert digest==hash_bytes(canonical({"seq":seq,"kind":kind,"prior_sha":prev,"payload":json.loads(payload)}))
+                  prior=digest
+              assert prior==now[2]
+              stages=dict(rows(a,"SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              assert stages=={"QUARANTINED":11,"VERIFIED":18}
+              transition=json.loads(newEvents[-2][2])
+              activation=json.loads(newEvents[-1][2])
+              assert transition["from_source_sha"]==old[0] and transition["to_source_sha"]==new
+              assert activation["source_sha"]==new and activation["scientific_first_use"] is False
+              assert activation["development_only"] is True
+              print("F139_G4_ORIGINAL_SOURCE_AND_ACTIVATION=PASS")
+              print("F139_G4_ORIGINAL_APPEND_ONLY_195_EVENT_CHAIN=PASS")
+              print("F139_G4_ORIGINAL_ALL_29_TASKS_IDENTICAL=PASS")
+              print("F139_G4_ORIGINAL_FIRST_USE=FALSE")
+              print("F139_G4_ORIGINAL_HEAD_SHA256="+now[2])
+          finally:
+              a.close();b.close()
+          '@
+          & $py -B -c $audit $root $db $backup
+          if($LASTEXITCODE -ne 0){throw 'ORIGINAL_POSTMIGRATION_VERIFICATION_FAILED'}
+          Write-Output 'F139_G4_OWNER_TASK_STILL_DISABLED=TRUE'
