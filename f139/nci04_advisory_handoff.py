@@ -6,6 +6,7 @@ The original F139 single-owner ledger and exact native worker remain unchanged.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -38,6 +39,18 @@ def hex_id(value: object, length: int) -> bool:
         "[a-f0-9]{" + str(length) + "}", value) is not None
 
 
+def history_digest(records: list[dict], *, nil: bool = False) -> str:
+    """Mirror infogain.HistoryDigest's Go JSON field order and nil semantics."""
+    rows = None if nil else [{
+        "mechanism_sha256": r["mechanism_sha256"],
+        "source_sha": r["source_sha"],
+        "evidence_sha256": r["evidence_sha256"],
+        "classification": r["classification"],
+    } for r in records]
+    raw = json.dumps(rows, separators=(",", ":"), ensure_ascii=False).encode()
+    return hashlib.sha256(b"FORGE-INFOGAIN-HISTORY-V1\\n" + raw).hexdigest()
+
+
 def inspect_pr_advisory(body: object, *, lane: str,
                         controller_source_sha: str, head_commit: str,
                         target_commit: str, path: str,
@@ -51,7 +64,6 @@ def inspect_pr_advisory(body: object, *, lane: str,
     """
     if not isinstance(body, str) or not body.strip():
         return None
-    need(len(body.encode("utf-8")) <= 16384, "BODY_TOO_LARGE")
     try:
         doc = json.loads(body)
     except (ValueError, UnicodeError):
@@ -59,6 +71,7 @@ def inspect_pr_advisory(body: object, *, lane: str,
         return None
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
         return None
+    need(len(body.encode("utf-8")) <= 16384, "BODY_TOO_LARGE")
     need(set(doc) == {
         "schema", "lane", "controller_source_sha", "head_commit",
         "target_commit", "path", "after_sha256", "candidate_id", "decision",
@@ -94,6 +107,10 @@ def inspect_pr_advisory(body: object, *, lane: str,
     historical_sources, historical_mechanisms = set(), set()
     for record in history:
         need(isinstance(record, dict)
+             and set(record) == {
+                 "mechanism_sha256", "source_sha", "evidence_sha256",
+                 "classification",
+             }
              and record.get("classification") in CLASSIFICATIONS
              and hex_id(record.get("source_sha"), 40)
              and hex_id(record.get("mechanism_sha256"), 64)
@@ -103,6 +120,10 @@ def inspect_pr_advisory(body: object, *, lane: str,
              "HISTORY_SOURCE_INVALID")
         historical_sources.add(record["source_sha"])
         historical_mechanisms.add(record["mechanism_sha256"])
+    need(decision["history_sha256"] in {
+        history_digest(history),
+        *( [history_digest(history, nil=True)] if not history else [] ),
+    }, "HISTORY_PIN_DRIFT")
     need(decision["negative_count"] == sum(
         r["classification"] in ("NEGATIVE", "LIMITATION") for r in history)
          and decision["invalid_count"] == sum(
@@ -113,11 +134,14 @@ def inspect_pr_advisory(body: object, *, lane: str,
     selected = decision.get("selected")
     need(isinstance(selected, list) and 1 <= len(selected) <= 8,
          "SELECTED_INVALID")
-    candidate = [r for r in selected if isinstance(r, dict)
-                 and r.get("id") == doc["candidate_id"]]
+    need(isinstance(doc["candidate_id"], str)
+         and re.fullmatch("[A-Za-z0-9_-]{1,72}", doc["candidate_id"])
+         and all(isinstance(r, dict) and isinstance(r.get("id"), str)
+                 for r in selected), "CANDIDATE_ID_INVALID")
+    candidate = [r for r in selected if r["id"] == doc["candidate_id"]]
     need(len(candidate) == 1
-         and len({r.get("id") for r in selected if isinstance(r, dict)})
-         == len(selected), "CANDIDATE_NOT_UNIQUELY_SELECTED")
+         and len({r["id"] for r in selected}) == len(selected),
+         "CANDIDATE_NOT_UNIQUELY_SELECTED")
     ranked = candidate[0]
     need(ranked.get("source_sha") == head_commit
          and ranked.get("generator") in GENERATORS
