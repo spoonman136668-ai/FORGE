@@ -1,0 +1,38 @@
+name: Mass K4R independent MiniGrid interactive-source qualifier
+on:
+  push:
+    branches: [research/mass-lcrm01-k4r-independent-minigrid-20261024]
+permissions:
+  contents: read
+jobs:
+  original-public-minigrid-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      SDL_VIDEODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify new independent public MiniGrid source and original baseline agents
+        run: |
+          mkdir -p "$RUNNER_TEMP/k4r"
+          bash research/lcrm01/k4r_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4r-original-independent-interactive-world-evidence
+          path: |
+            ${{ runner.temp }}/k4r/process-a.json
+            ${{ runner.temp }}/k4r/process-b.json
+            ${{ runner.temp }}/k4r/comparison.json
+            ${{ runner.temp }}/k4r/process-a.log
+            ${{ runner.temp }}/k4r/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
