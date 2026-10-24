@@ -10,7 +10,7 @@ def stable(obj):
               "DEV_full_original_action_traces"):
   if name in result:
    result[name]=[{k:v for k,v in row.items() if k not in
-         ("decision_only_wall_seconds","elapsed_group_wall_seconds")}
+         ("decision_only_wall_seconds","elapsed_group_wall_seconds","whole_episode_wall_seconds")}
           for row in result[name]]
  if "scientific" in result:
   c=dict(result["scientific"]);items={}
