@@ -1,0 +1,64 @@
+name: F139 ITD-02 original-owner natural tick read-only diagnostic
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-itd02-natural-owner-tick-diagnostic-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner-diagnostic:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect only original owner task, ledger and whitelisted loop dispositions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_ITD02_NOT_ORIGINAL_OWNER'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ('F139_ITD02_TASK_STATE=' + [string]$t.State)
+          $arg=[string]$t.Actions[0].Arguments
+          $m=[regex]::Match($arg,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'F139_ITD02_OWNER_ARGUMENT_DRIFT'}
+          $db=[IO.Path]::GetFullPath($m.Groups[1].Value)
+          $expected=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          if($db -ine $expected){throw 'F139_ITD02_DB_IDENTITY_DRIFT'}
+          $python=(Get-Command python.exe -ErrorAction Stop).Source
+          $probe=@'
+          import pathlib,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          ro=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=25)
+          try:
+              source,seq,head=ro.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              assert source=="8eca700c39223e176dea55f488b6f3397ce4e27a" and seq>=195
+              counts=dict(ro.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              print("F139_ITD02_OWNER_SOURCE_PIN=PASS")
+              print("F139_ITD02_OWNER_EVENT_SEQ="+str(seq))
+              print("F139_ITD02_OWNER_STAGES="+str(counts))
+              rows=ro.execute("SELECT kind,payload FROM events WHERE seq>195 ORDER BY seq").fetchall()
+              for kind,payload in rows:
+                  if kind in ("NATIVE_DEVELOPMENT_ADMITTED","NATIVE_FAILED_PROVIDER_CUSTODY","PROVIDER_VERIFIED_TERMINAL","ATTEMPT_QUARANTINED"):
+                      import json
+                      data=json.loads(payload)
+                      print("F139_ITD02_POST_CUTOVER_EVENT="+kind+":"+
+                            str(data.get("ticket",""))[:120])
+          finally:ro.close()
+          '@
+          & $python -B -c $probe $db
+          if($LASTEXITCODE -ne 0){throw 'F139_ITD02_ORIGINAL_LEDGER_READ_FAILED'}
+          $log=Join-Path ([IO.Path]::GetDirectoryName($db)) 'logs\controller.log'
+          if(-not(Test-Path -LiteralPath $log)){throw 'F139_ITD02_ORIGINAL_LOG_MISSING'}
+          $rows=Get-Content -LiteralPath $log -Tail 400
+          $seen=0
+          foreach($line in $rows){
+              $s=$line.IndexOf('{')
+              if($s -lt 0){continue}
+              try{$j=($line.Substring($s)|ConvertFrom-Json -ErrorAction Stop)}catch{continue}
+              $d=if($j.disposition){[string]$j.disposition}elseif($j.blocked){[string]$j.blocked}else{''}
+              if($d -cmatch '^[A-Z0-9_]{3,120}$'){
+                  Write-Output ('F139_ITD02_TICK=' + [string]$j.at + ':' + $d)
+                  $seen++
+              }
+          }
+          Write-Output ('F139_ITD02_CAPTURED_TICK_COUNT='+$seen)
+          Write-Output 'F139_ITD02_READ_ONLY=TRUE'
