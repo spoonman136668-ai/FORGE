@@ -26,7 +26,7 @@ jobs:
           function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
           Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/ckb-installed-source-snapshot-20261024') 'BRANCH'
           Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
-          $parent='893700b2f42d723b9beb7206f1814d9e2fcb7c27'
+          $parent='832de53e512ed455f4c39184169dd770a77c5961'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-qualify-rescued-ckb-composite-20261024.yml') 'SCOPE'
@@ -43,6 +43,13 @@ jobs:
           Need ((Sha $manifestPath) -ceq '8e0a58912b7dac47a5600d508f8e86d44a7ace1f28383fd446e5b67167af81cd') 'RESCUE_MANIFEST_HASH'
           $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
           Need (@($manifest).Count -eq 205) 'RESCUE_FILE_COUNT'
+          $assetManifestPath=Join-Path $rescueRoot 'RESCUE-EMBED-ASSET-MANIFEST.json'
+          Need (Test-Path -LiteralPath $assetManifestPath -PathType Leaf) 'ASSET_MANIFEST'
+          Need ((Sha $assetManifestPath) -ceq '09b4c02abf877c280048c5eb8d66881126db99e4777f1035eff38288d581f4d9') 'ASSET_MANIFEST_HASH'
+          $assetManifest=Get-Content -LiteralPath $assetManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          Need (@($assetManifest).Count -eq 5) 'ASSET_FILE_COUNT'
+          $overlay=@($manifest)+@($assetManifest)
+          Need ($overlay.Count -eq 210) 'OVERLAY_COUNT'
 
           $live='C:\Users\camar\GolandProjects\ckb-plane'
           $liveConfig=Join-Path $live 'config\autonomy.yaml'
@@ -85,7 +92,7 @@ jobs:
             Need ($LASTEXITCODE -eq 0 -and ((& git.exe -C $clone rev-parse HEAD).Trim() -ceq $base)) 'BASE_CHECKOUT'
             $source=Join-Path $clone 'snapshot\source'
 
-            foreach($row in @($manifest)){
+            foreach($row in @($overlay)){
               $rel=([string]$row.path).Replace('/','\')
               $src=Join-Path $rescueRoot $rel
               $dst=Join-Path $source $rel
@@ -95,7 +102,7 @@ jobs:
               Copy-Item -LiteralPath $src -Destination $dst -Force
               Need ((Sha $dst) -ceq [string]$row.sha256) ('OVERLAY_HASH_'+$rel)
             }
-            Write-Host 'MP_COMPOSITE_OVERLAY_205=PASS'
+            Write-Host 'MP_COMPOSITE_OVERLAY_210=PASS'
 
             $testPath=Join-Path $source 'internal\plane\mp_recovery_live_compat_test.go'
             $go=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('cGFja2FnZSBwbGFuZQppbXBvcnQgKCJvcyI7InRlc3RpbmciKQpmdW5jIFRlc3RNUFJlY292ZXJ5TGl2ZUNvbXBhdGliaWxpdHkodCAqdGVzdGluZy5UKXsKIGNmZzo9b3MuR2V0ZW52KCJNUF9MSVZFX0NPTkZJR19DT1BZIik7IHJvb3Q6PW9zLkdldGVudigiTVBfTElWRV9ST09UIik7IHNuYXA6PW9zLkdldGVudigiTVBfTElWRV9EQl9TTkFQU0hPVCIpCiBpZiBjZmc9PSIifHxyb290PT0iInx8c25hcD09IiJ7dC5GYXRhbCgibWlzc2luZyBjb21wYXRpYmlsaXR5IGVudmlyb25tZW50Iil9CiBjLGVycjo9TG9hZENvbmZpZyhjZmcpOyBpZiBlcnIhPW5pbHt0LkZhdGFsZigiTElWRV9DT05GSUdfUEFSU0VfRkFJTEVEOiAldiIsZXJyKX0KIGMuU3RhdGUuU1FMaXRlUGF0aD1zbmFwCiBwLGVycjo9TmV3RW5naW5lKGMscm9vdCk7IGlmIGVyciE9bmlse3QuRmF0YWxmKCJMSVZFX0VOR0lORV9JTklUX0ZBSUxFRDogJXYiLGVycil9CiBkZWZlciBwLlN0b3JlLkRCLkNsb3NlKCkKIGlmIHAuU3RvcmU9PW5pbHx8cC5TdG9yZS5EQj09bmlse3QuRmF0YWwoIkxJVkVfRU5HSU5FX0lOSVRfU1RPUkVfTUlTU0lORyIpfQp9Cg=='))
