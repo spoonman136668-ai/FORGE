@@ -86,9 +86,16 @@ def run_world(kind,seed,method,r2trained,r3trained,control):
    if method.startswith("ygg_R3"):a=agent.choose(current)
    elif method=="ygg_R2_static":a=r2trained.choose(current)
    elif method=="conventional_online_optimistic":a=planner.choose(current)
+   elif method=="uniform_random":
+    # K4R's deterministic original random-control formula, extended to the
+    # two ORIGINAL crossing task names. Its old FAMILIES.index() only knows
+    # Empty and FourRooms and cannot be called for unseen Crossing.
+    import random
+    family_index=list(dict(TASKS)).index(kind)
+    a=random.Random(912000+seed*100+i+family_index*17000).randrange(3)
    else:
     baseline={"conventional_fit_model_bfs":"learned_model_bfs",
-      "public_bfs_upper":"public_bfs_expert","uniform_random":"uniform_random"}[method]
+      "public_bfs_upper":"public_bfs_expert"}[method]
     a=act(kind,state,baseline,control,seed,i)
    inference+=time.perf_counter()-t
    if type(a)is not int or a not in (0,1,2):raise ValueError("K5A_ILLEGAL_ORIGINAL_NATIVE_ACTION")
