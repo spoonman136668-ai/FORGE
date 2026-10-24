@@ -1,0 +1,35 @@
+name: Mass K5G budgeted observation causal exploration
+on:
+  push:
+    branches: [research/mass-lcrm01-k5g-budgeted-active-sensing-20261024]
+permissions:
+  contents: read
+jobs:
+  true-original-physical-budgeted-sensing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen real MiniGrid limited-front observations, independent conventional and R3
+        run: bash research/lcrm01/k5g_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k5g-original-limited-observation-evidence
+          path: |
+            ${{ runner.temp }}/k5g/process-a.json
+            ${{ runner.temp }}/k5g/process-b.json
+            ${{ runner.temp }}/k5g/comparison.json
+            ${{ runner.temp }}/k5g/process-a.log
+            ${{ runner.temp }}/k5g/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
