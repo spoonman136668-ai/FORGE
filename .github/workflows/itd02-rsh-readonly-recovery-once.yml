@@ -76,8 +76,18 @@ jobs:
             route="repos/"+c["source_repo"]+"/contents/"+c["source_path"]+"?ref="+c["source_commit"]
             p=subprocess.run(["gh","api",route],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=35)
             if p.returncode!=0:
-              print("ITD02_UNRESOLVED_SOURCE="+c["lane"],file=sys.stderr)
-              raise SystemExit("SOURCE_READBACK_ACCESS_OR_IDENTITY_DENIED")
+              # The FORGE Actions token has no read right to private Mind-Palace.
+              # Keep this as an unauthenticated source pointer, never assert
+              # scientific custody or substitute a copy from a chat summary.
+              assert c["lane"]=="BIO" and c["source_repo"]=="spoonman136668-ai/Mind-Palace"
+              output.append({"lane":c["lane"],"research_id":c["research_id"],
+                "source_repo":c["source_repo"],"source_commit":c["source_commit"],
+                "source_path":c["source_path"],"readback_status":"NOT_AUTHENTICATED_GITHUB_ACTIONS_ACCESS",
+                "evidence_state":"SOURCE_POINTER_ONLY",
+                "scientific_original_custody_authenticated":False,
+                "scientific_accepted":False})
+              print("ITD02_PRIVATE_BIO_SOURCE_READBACK=ACCESS_UNAVAILABLE")
+              continue
             metadata=json.loads(p.stdout)
             assert metadata["type"]=="file" and metadata["encoding"]=="base64"
             payload=base64.b64decode(metadata["content"].replace("\n",""),validate=True)
@@ -94,7 +104,10 @@ jobs:
           root=pathlib.Path(os.environ["RUNNER_TEMP"])/"itd02-source-recovery"
           (root/"source-readbacks.json").write_text(json.dumps({"schema":"forge.itd02.rsh-source-readbacks.v1","entries":output,
             "original_evidence_authenticated":False,"scientific_first_use":False,"execute_requested":False},indent=2)+"\n")
-          print("ITD02_RSH_GIT_SOURCE_PATHS_AND_BLOBS_VERIFIED="+str(len(output)))
+          verified=sum("git_blob_sha1" in e for e in output)
+          assert len(output)==6 and verified==5
+          print("ITD02_RSH_GIT_SOURCE_PATHS_AND_BLOBS_VERIFIED="+str(verified))
+          print("ITD02_RSH_PRIVATE_SOURCE_POINTERS_UNVERIFIED=1")
           print("ITD02_ORIGINAL_EVIDENCE_SCIENTIFICALLY_AUTHENTICATED=FALSE")
           PY
       - name: Retain nonauthorizing manifest without protected repository writes
