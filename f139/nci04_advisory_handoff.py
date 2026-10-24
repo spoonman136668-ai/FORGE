@@ -69,7 +69,12 @@ def inspect_pr_advisory(body: object, *, lane: str,
     except (ValueError, UnicodeError):
         need(SCHEMA not in body, "DECLARED_PAYLOAD_NOT_JSON")
         return None
-    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
+    if not isinstance(doc, dict):
+        return None
+    if doc.get("schema") != SCHEMA:
+        need(not (isinstance(doc.get("schema"), str) and
+                  doc["schema"].startswith("forge.f139.advisory-pr-handoff")),
+             "UNKNOWN_HANDOFF_VERSION")
         return None
     need(len(body.encode("utf-8")) <= 16384, "BODY_TOO_LARGE")
     need(set(doc) == {
@@ -104,7 +109,7 @@ def inspect_pr_advisory(body: object, *, lane: str,
          and type(decision.get("invalid_count")) is int
          and type(decision.get("indeterminate_count")) is int,
          "HISTORY_INVALID")
-    historical_sources, historical_mechanisms = set(), set()
+    historical_sources, historical_mechanisms, historical_evidence = set(), set(), set()
     for record in history:
         need(isinstance(record, dict)
              and set(record) == {
@@ -116,10 +121,12 @@ def inspect_pr_advisory(body: object, *, lane: str,
              and hex_id(record.get("mechanism_sha256"), 64)
              and hex_id(record.get("evidence_sha256"), 64)
              and record["source_sha"] not in historical_sources
-             and record["mechanism_sha256"] not in historical_mechanisms,
+             and record["mechanism_sha256"] not in historical_mechanisms
+             and record["evidence_sha256"] not in historical_evidence,
              "HISTORY_SOURCE_INVALID")
         historical_sources.add(record["source_sha"])
         historical_mechanisms.add(record["mechanism_sha256"])
+        historical_evidence.add(record["evidence_sha256"])
     need(decision["history_sha256"] in {
         history_digest(history),
         *( [history_digest(history, nil=True)] if not history else [] ),
