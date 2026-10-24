@@ -1,0 +1,41 @@
+name: Mass K4Y prospective native learned affordance
+on:
+  push:
+    branches: [research/mass-lcrm01-k4y-native-affordance-20261024]
+permissions:
+  contents: read
+jobs:
+  native-r1-r2-original-public-minigrid:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Run source-first true R1 versus R2 experience matching, cold restore and new DEV physics
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash research/lcrm01/k4y_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4y-original-native-affordance-comparative-traces
+          path: |
+            ${{ runner.temp }}/k4y/process-a.json
+            ${{ runner.temp }}/k4y/process-b.json
+            ${{ runner.temp }}/k4y/comparison.json
+            ${{ runner.temp }}/k4y/process-a.log
+            ${{ runner.temp }}/k4y/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
