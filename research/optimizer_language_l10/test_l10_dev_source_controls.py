@@ -46,7 +46,7 @@ class CustodyAndControls(unittest.TestCase):
         self.assertEqual(control.canonical_facts(hidden.input),None)
         self.assertEqual(control.rule_paraphrase(hidden.input),None)
     def test_source_id_and_mapping_changes_fail_closed(self):
-        f=source.make_dev_fixture("dev-negation","DEV_FIT",1,"KNOWN_MAPPING")
+        f=source.make_dev_fixture("dev-polarity","DEV_FIT",1,"KNOWN_MAPPING")
         for change in (
             {"fixture_sha256":"f"*64},
             {"role":source.PROSPECTIVE_ROLE},
