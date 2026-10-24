@@ -1,0 +1,70 @@
+name: MP bounded installed capability delta inventory
+on:
+  push:
+    branches: [diagnostics/mp-postmerge-live-config-precheck-20261023]
+    paths: [.github/workflows/mp-installed-capability-delta-inventory-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-installed-capability-delta-inventory-20261023
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Inventory exact installed capability delta against merged CKB source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_DELTA_'+$code)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $live -PathType Container) 'LIVE_ROOT'
+          $pre=@{}
+          foreach($rel in @('config\autonomy.yaml','bin\ckb-plane.exe')){
+            $p=Join-Path $live $rel; Need(Test-Path -LiteralPath $p -PathType Leaf)('PRE_'+$rel); $pre[$rel]=Sha $p
+          }
+
+          $capPattern='^(internal\\plane\\(model|engine|wingless_stage1_[^\\]+|opencode_[^\\]+|mind_palace_webui_context[^\\]*)\.go|cmd\\ckb-plane\\main(_advisory_test)?\.go)$'
+          $installedFiles=@(Get-ChildItem -LiteralPath (Join-Path $live 'internal\plane') -File -Filter '*.go' |
+             Where-Object {$_.Name -match '^(model|engine|wingless_stage1_|opencode_|mind_palace_webui_context)'})
+          $cmdFiles=@(Get-ChildItem -LiteralPath (Join-Path $live 'cmd\ckb-plane') -File -Filter '*.go' |
+             Where-Object {$_.Name -in @('main.go','main_advisory_test.go')})
+          $all=@($installedFiles+$cmdFiles)
+          Need ($all.Count -gt 0 -and $all.Count -le 80) 'FILE_COUNT_BOUND'
+
+          foreach($f in $all){
+            $rel=$f.FullName.Substring($live.Length).TrimStart('\')
+            Need ($rel -match $capPattern) ('PATH_SCOPE_'+$rel)
+            $sha=Sha $f.FullName
+            $size=[long]$f.Length
+            Need ($size -le 1048576) ('FILE_SIZE_'+$rel)
+            Write-Host ('MP_DELTA_INSTALLED path='+$rel+' sha256='+$sha+' bytes='+$size)
+          }
+
+          # Identify which scoped live files are absent from current merged source name set.
+          $mergedNames=@(
+            'internal\plane\model.go',
+            'internal\plane\engine.go',
+            'internal\plane\mind_palace_webui_context.go',
+            'internal\plane\mind_palace_webui_context_test.go',
+            'cmd\ckb-plane\main.go'
+          )
+          foreach($f in $all){
+            $rel=$f.FullName.Substring($live.Length).TrimStart('\')
+            $class= if($mergedNames -contains $rel){'MODIFIED_EXISTING'}else{'ABSENT_ON_MERGED_MAIN'}
+            Write-Host ('MP_DELTA_CLASS path='+$rel+' class='+$class)
+          }
+
+          foreach($rel in $pre.Keys){Need((Sha (Join-Path $live $rel)) -ceq $pre[$rel])('POST_'+$rel)}
+          Write-Host ('MP_DELTA_SCOPED_FILE_COUNT='+$all.Count)
+          Write-Host 'MP_DELTA_CONTENT_LOGGED=FALSE'
+          Write-Host 'MP_DELTA_LIVE_WRITES=0'
+          Write-Host 'MP_DELTA_INVENTORY=PASS'
