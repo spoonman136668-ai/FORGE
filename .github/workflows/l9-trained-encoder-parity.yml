@@ -1,0 +1,124 @@
+name: L9 actual frozen TRAIN Transformer checkpoint encoder-parity
+on:
+  pull_request:
+    branches:
+      - research/l9-frozen-transformer-cached-encoder-parity-20261023
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-original-trained-encoder-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  pinned-actual-train-weights:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        include: []
+        seed: [1701, 1702]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Verify frozen source, lineage and exact three-path development delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=de1265c74b4ca01fea7e53b4c05f14a5b7584227
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_neural_select_only.py)" = 91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/l9_trained_encoder_parity.py","research/optimizer_language_l9/test_l9_trained_encoder_parity.py",".github/workflows/l9-trained-encoder-parity.yml"}; assert a==b,(a,b)'
+      - name: Use original frozen CPU PyTorch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch; assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split('+')[0]=='2.5.1'
+          assert not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print('L9_ORIGINAL_TRAIN_PARITY_CPU_TORCH='+torch.__version__)
+          PY
+      - name: Fetch existing immutable TRAIN checkpoint archive (never original SELECT/AUDIT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - ${{ matrix.seed }} "$RUNNER_TEMP" <<'PY'
+          import hashlib,json,os,pathlib,sys,urllib.request,zipfile
+          sys.path.insert(0,str(pathlib.Path('research/optimizer_language_l9').resolve()))
+          import l9_trained_encoder_parity as p
+          seed=int(sys.argv[1]);root=pathlib.Path(sys.argv[2])
+          row=p.ARTIFACTS[seed]
+          url=f"https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/{row['id']}/zip"
+          req=urllib.request.Request(url,headers={
+              "Authorization":"Bearer "+os.environ['GH_TOKEN'],
+              "Accept":"application/vnd.github+json",
+              "X-GitHub-Api-Version":"2022-11-28",
+              "User-Agent":"L9-Frozen-TRAIN-Identity-Only"})
+          zip_data=urllib.request.urlopen(req,timeout=120).read()
+          assert hashlib.sha256(zip_data).hexdigest()==row['zip_sha256'],"TRAIN_ARCHIVE_SHA_DRIFT"
+          ckpt=root/'frozen-train';ckpt.mkdir(exist_ok=False)
+          expected={"receipt.json"}|{f"SMALL_TRANSFORMER-seed{seed}-epoch{e}-inference.pt" for e in p.EPOCHS}
+          import io
+          with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
+              actual=set(z.namelist())
+              assert actual==expected,("TRAIN_ARCHIVE_PATHS_DRIFT",sorted(actual))
+              for name in sorted(actual):
+                  assert '/' not in name and '\\' not in name
+                  (ckpt/name).write_bytes(z.read(name))
+          p.checkpoint_custody(ckpt,seed)
+          print('L9_ORIGINAL_TRAIN_ARCHIVE_SHA256='+row['zip_sha256'])
+          print('L9_ORIGINAL_TRAIN_CHECKPOINTS_FROZEN=PASS')
+          PY
+      - name: Compare all three trained epochs against original greedy (synthetic only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_trained_encoder_parity.py -v
+          python -B research/optimizer_language_l9/l9_trained_encoder_parity.py \
+            --artifact-dir "$RUNNER_TEMP/frozen-train" --seed ${{ matrix.seed }} \
+            --out "$RUNNER_TEMP/l9-original-train-encoder-parity-${{ matrix.seed }}.json"
+          python - "$RUNNER_TEMP/l9-original-train-encoder-parity-${{ matrix.seed }}.json" ${{ matrix.seed }} <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding='utf8'));seed=int(sys.argv[2])
+          assert x['seed']==seed and x['all_frozen_epochs']==[4,8,12]
+          assert len(x['results'])==3
+          assert all(len(row['synthetic_results'])==3 for row in x['results'])
+          assert all(z['exact_tokens'] and z['cached_encoder_calls']==1 for row in x['results'] for z in row['synthetic_results'])
+          assert x['original_train_weights_loaded'] and not x['fit_reperformed']
+          assert not x['original_select_scored'] and not x['audit_dev_scored'] and not x['official_test_scored']
+          assert not x['scientific_go'] and not x['resource_pareto_qualified']
+          print('L9_TRAINED_CHECKPOINT_SYNTHETIC_GREEDY_PARITY=PASS')
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+          sha256sum "$RUNNER_TEMP/l9-original-train-encoder-parity-${{ matrix.seed }}.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l9-trained-synthetic-parity-${{ matrix.os }}-${{ matrix.seed }}
+          path: ${{ runner.temp }}/l9-original-train-encoder-parity-${{ matrix.seed }}.json
+          if-no-files-found: ignore
