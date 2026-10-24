@@ -1,0 +1,39 @@
+name: Optimizer K5C-S0 source-only memory feasibility
+
+on:
+  pull_request:
+    paths:
+      - "research/optimizer_k5c_s0/**"
+      - ".github/workflows/optimizer-k5c-sourceonly.yml"
+  push:
+    branches:
+      - "research/optimizer-k5c-source-feasibility-20261024"
+    paths:
+      - "research/optimizer_k5c_s0/**"
+      - ".github/workflows/optimizer-k5c-sourceonly.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: sourceonly-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout pinned source-only candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Execute seven handwritten source-only checks
+        run: python -B -m unittest discover -s research/optimizer_k5c_s0 -p "k5c_source_feasibility.py" -v
+      - name: Reproduce public-observation necessity witness
+        run: python -B research/optimizer_k5c_s0/k5c_source_feasibility.py
