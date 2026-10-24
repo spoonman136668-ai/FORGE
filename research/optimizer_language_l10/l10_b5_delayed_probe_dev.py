@@ -118,6 +118,9 @@ def snapshot_public_state(memory:b4.LocalMemory,pending:list[Ticket],seen:set[st
        pending=[_ticket_body(t) for t in pending],
        delivered_ticket_sha256=sorted(seen),
        next_tick=next_tick)
+    # Bind the entire public pending/action/clock state to a deterministic
+    # digest; no hidden mapping or protected source fields are serialized.
+    body["state_integrity_sha256"]=_sha(body)
     return src.canonical_bytes(body)
 
 def restore_public_state(raw:bytes):
@@ -125,7 +128,11 @@ def restore_public_state(raw:bytes):
     body=json.loads(raw)
     require(type(body) is dict and set(body)=={
        "schema","memory_sha256","memory_snapshot","pending",
-       "delivered_ticket_sha256","next_tick"},"corrupt restart fields")
+       "delivered_ticket_sha256","next_tick","state_integrity_sha256"},"corrupt restart fields")
+    claimed_digest=body["state_integrity_sha256"]
+    unsigned={k:v for k,v in body.items() if k!="state_integrity_sha256"}
+    require(type(claimed_digest) is str and claimed_digest==_sha(unsigned),
+            "restart snapshot integrity drift")
     require(body["schema"]=="forge.optimizer.language.l10.b5-restart-state-v1","state version")
     mem=b4.LocalMemory.restore(src.canonical_bytes(body["memory_snapshot"]))
     require(mem.digest()==body["memory_sha256"],"memory hash drift")
