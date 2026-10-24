@@ -116,7 +116,8 @@ def inspect_pr_advisory(body: object, *, lane: str,
                  "mechanism_sha256", "source_sha", "evidence_sha256",
                  "classification",
              }
-             and record.get("classification") in CLASSIFICATIONS
+             and isinstance(record.get("classification"), str)
+             and record["classification"] in CLASSIFICATIONS
              and hex_id(record.get("source_sha"), 40)
              and hex_id(record.get("mechanism_sha256"), 64)
              and hex_id(record.get("evidence_sha256"), 64)
@@ -151,7 +152,8 @@ def inspect_pr_advisory(body: object, *, lane: str,
          "CANDIDATE_NOT_UNIQUELY_SELECTED")
     ranked = candidate[0]
     need(ranked.get("source_sha") == head_commit
-         and ranked.get("generator") in GENERATORS
+         and isinstance(ranked.get("generator"), str)
+         and ranked["generator"] in GENERATORS
          and hex_id(ranked.get("mechanism_sha256"), 64)
          and ranked["mechanism_sha256"] not in historical_mechanisms
          and head_commit not in historical_sources
