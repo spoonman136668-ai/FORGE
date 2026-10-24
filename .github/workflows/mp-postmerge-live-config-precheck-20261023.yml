@@ -31,7 +31,7 @@ jobs:
           Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-postmerge-live-config-precheck-20261023') 'BRANCH'
           Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
           Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
-          $parent='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          $parent='d6cc4a5ebd84724705f81869db784579a9940e64'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-postmerge-live-config-precheck-20261023.yml') 'SCOPE'
@@ -83,24 +83,24 @@ jobs:
 
             $testPath=Join-Path $src 'internal\plane\mp_postmerge_live_config_precheck_test.go'
             $test=@'
-package plane
-
-import (
-    "os"
-    "testing"
-)
-
-func TestMPPostmergeLiveConfigCompat(t *testing.T) {
-    path := os.Getenv("MP_LIVE_CONFIG")
-    if path == "" {
-        t.Fatal("MP_LIVE_CONFIG_MISSING")
-    }
-    if _, err := LoadConfig(path); err != nil {
-        t.Fatalf("MP_LIVE_CONFIG_PARSE_FAILED: %v", err)
-    }
-    t.Log("MP_LIVE_CONFIG_PARSE_WITH_MERGED_SOURCE=PASS")
-}
-'@
+          package plane
+          
+          import (
+              "os"
+              "testing"
+          )
+          
+          func TestMPPostmergeLiveConfigCompat(t *testing.T) {
+              path := os.Getenv("MP_LIVE_CONFIG")
+              if path == "" {
+                  t.Fatal("MP_LIVE_CONFIG_MISSING")
+              }
+              if _, err := LoadConfig(path); err != nil {
+                  t.Fatalf("MP_LIVE_CONFIG_PARSE_FAILED: %v", err)
+              }
+              t.Log("MP_LIVE_CONFIG_PARSE_WITH_MERGED_SOURCE=PASS")
+          }
+          '@
             Set-Content -LiteralPath $testPath -Value $test -Encoding UTF8
             $env:MP_LIVE_CONFIG=$config
             Push-Location $src
