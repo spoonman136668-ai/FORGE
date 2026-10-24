@@ -26,7 +26,7 @@ jobs:
           function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
           Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/ckb-installed-source-snapshot-20261024') 'BRANCH'
           Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
-          $parent='61ee14c2d97b3bdc64cfe81b9fa6529ee98032ac'
+          $parent='6e69ae83d000589d949d9f15f9d7acd426dae602'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-qualify-rescued-ckb-composite-20261024.yml') 'SCOPE'
@@ -109,6 +109,12 @@ jobs:
             & go.exe fmt (Join-Path $source 'internal\plane\model.go')
             Need ($LASTEXITCODE -eq 0) 'MODEL_GO_FMT'
             Write-Host 'MP_COMPOSITE_PR614_MODEL_MERGE=PASS'
+            $serverMerge=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aW1wb3J0IGhhc2hsaWIscGF0aGxpYixzeXMKcD1wYXRobGliLlBhdGgoc3lzLmFyZ3ZbMV0pCmI9cC5yZWFkX2J5dGVzKCkKcHJlPWhhc2hsaWIuc2hhMjU2KGIpLmhleGRpZ2VzdCgpCmlmIHByZSE9ImJjZjkxZWZjY2JiYTg5OGNiN2E4Y2MxNzYyZGYxZjUyZDdhYzBjM2IxOTUzYzJhNWFhNzMyMDhmYjRlZTFkZDEiOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiTVBfU0VSVkVSX01FUkdFX1BSRUlNQUdFX0RSSUZUOiIrcHJlKQpzPWIuZGVjb2RlKCJ1dGYtOCIpCm9sZD0ncmVzdWx0LCBlcnIgPSBwLlN0b3JlLkxpc3QoKScKaWYgcy5jb3VudChvbGQpIT0xOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiTVBfU0VSVkVSX01FUkdFX1dPUktPUkRFUlNfQU5DSE9SOiIrc3RyKHMuY291bnQob2xkKSkpCnM9cy5yZXBsYWNlKG9sZCwncmVzdWx0LCBlcnIgPSBwLlN0b3JlLkxpc3RPYnNlcnZhYmxlKCknLDEpCm9sZD0nam9icywgZSA6PSBwLlN0b3JlLkxpc3QoKScKaWYgcy5jb3VudChvbGQpIT0zOgogICAgcmFpc2UgU3lzdGVtRXhpdCgiTVBfU0VSVkVSX01FUkdFX0xJU1RfQU5DSE9SX0NPVU5UOiIrc3RyKHMuY291bnQob2xkKSkpCiMgRmlyc3Qgb2NjdXJyZW5jZSBpcyAvYXBpL3N0YXRlLCBuZXh0IHR3byBhcmUgUGFyc2VDaGF0IGNhbmNlbCBhbmQgYWxpYXMgbG9va3VwLgpzPXMucmVwbGFjZShvbGQsJ2pvYnMsIGUgOj0gcC5TdG9yZS5MaXN0T2JzZXJ2YWJsZSgpJywxKQpzPXMucmVwbGFjZShvbGQsJ2pvYnMsIGUgOj0gcC5TdG9yZS5MaXN0U3RhdHVzTWV0YWRhdGEoKScsMSkKcz1zLnJlcGxhY2Uob2xkLCdqb2JzLCBlIDo9IHAuU3RvcmUuTGlzdFN0YXR1c01ldGFkYXRhKCknLDEpCnAud3JpdGVfdGV4dChzLGVuY29kaW5nPSJ1dGYtOCIsbmV3bGluZT0iXG4iKQpwcmludCgiTVBfU0VSVkVSX01FUkdFX1BSRUlNQUdFX1NIQTI1Nj0iK3ByZSkKcHJpbnQoIk1QX1NFUlZFUl9NRVJHRV9QT1NUSU1BR0VfU0hBMjU2PSIraGFzaGxpYi5zaGEyNTYocC5yZWFkX2J5dGVzKCkpLmhleGRpZ2VzdCgpKQo='))
+            & python.exe -B -c $serverMerge (Join-Path $source 'internal\plane\server.go')
+            Need ($LASTEXITCODE -eq 0) 'SERVER_R220_MERGE'
+            & go.exe fmt (Join-Path $source 'internal\plane\server.go')
+            Need ($LASTEXITCODE -eq 0) 'SERVER_GO_FMT'
+            Write-Host 'MP_COMPOSITE_R220_SERVER_MERGE=PASS'
 
             $testPath=Join-Path $source 'internal\plane\mp_recovery_live_compat_test.go'
             $go=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('cGFja2FnZSBwbGFuZQppbXBvcnQgKCJvcyI7InRlc3RpbmciKQpmdW5jIFRlc3RNUFJlY292ZXJ5TGl2ZUNvbXBhdGliaWxpdHkodCAqdGVzdGluZy5UKXsKIGNmZzo9b3MuR2V0ZW52KCJNUF9MSVZFX0NPTkZJR19DT1BZIik7IHJvb3Q6PW9zLkdldGVudigiTVBfTElWRV9ST09UIik7IHNuYXA6PW9zLkdldGVudigiTVBfTElWRV9EQl9TTkFQU0hPVCIpCiBpZiBjZmc9PSIifHxyb290PT0iInx8c25hcD09IiJ7dC5GYXRhbCgibWlzc2luZyBjb21wYXRpYmlsaXR5IGVudmlyb25tZW50Iil9CiBjLGVycjo9TG9hZENvbmZpZyhjZmcpOyBpZiBlcnIhPW5pbHt0LkZhdGFsZigiTElWRV9DT05GSUdfUEFSU0VfRkFJTEVEOiAldiIsZXJyKX0KIGMuU3RhdGUuU1FMaXRlUGF0aD1zbmFwCiBwLGVycjo9TmV3RW5naW5lKGMscm9vdCk7IGlmIGVyciE9bmlse3QuRmF0YWxmKCJMSVZFX0VOR0lORV9JTklUX0ZBSUxFRDogJXYiLGVycil9CiBkZWZlciBwLlN0b3JlLkRCLkNsb3NlKCkKIGlmIHAuU3RvcmU9PW5pbHx8cC5TdG9yZS5EQj09bmlse3QuRmF0YWwoIkxJVkVfRU5HSU5FX0lOSVRfU1RPUkVfTUlTU0lORyIpfQp9Cg=='))
