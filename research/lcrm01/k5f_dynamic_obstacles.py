@@ -71,7 +71,7 @@ def real_episode(kind,n,seed,method,r3trained,fitmodel):
   start_hash=sha(np.asarray(obs["image"]).tobytes())
   st,sense=sensor(obs)
   for step in range(192):
-   sensor_native=PublicGrid(**sense)
+   sensor_native=k4z.into(sense,PublicGrid)
    selection_t=time.perf_counter()
    if method.startswith("native_R3"):
     candidate=native.choose(sensor_native)
@@ -100,10 +100,10 @@ def real_episode(kind,n,seed,method,r3trained,fitmodel):
    if not math.isfinite(float(reward)):raise ValueError("K5F_SOURCE_REWARD_INVALID")
    start=time.perf_counter()
    if method.startswith("native_R3"):
-    native.observe(sensor_native,action,PublicGrid(**nsense),
+    native.observe(sensor_native,action,k4z.into(nsense,PublicGrid),
            float(reward),bool(term or trunc),False)
    elif method=="conventional_online_optimistic_sensor_veto":
-    online.observe(sensor_native,action,PublicGrid(**nsense))
+    online.observe(sensor_native,action,k4z.into(nsense,PublicGrid))
    adapt_cost+=time.perf_counter()-start
    trace.append({"step":step,"action":action,"observed_previous_pose_front":before,
        "observed_next_pose_front":after,"real_reward":float(reward),
