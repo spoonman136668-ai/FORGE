@@ -1,0 +1,145 @@
+name: MP postmerge live config compatibility precheck
+on:
+  push:
+    branches: [diagnostics/mp-postmerge-live-config-precheck-20261023]
+    paths: [.github/workflows/mp-postmerge-live-config-precheck-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-postmerge-live-config-precheck-20261023
+  cancel-in-progress: false
+
+jobs:
+  precheck:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Parse current live config with exact merged Mind-Palace source without touching live controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_POSTMERGE_'+$code)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_EVENT_NAME -ceq 'push') 'EVENT'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-postmerge-live-config-precheck-20261023') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-postmerge-live-config-precheck-20261023.yml') 'SCOPE'
+          Need ((@(& git.exe status --porcelain)).Count -eq 0) 'WORKFLOW_DIRTY'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $merge='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $expectedTree='ff1be00173249c7a0fc5df49b839943199763f30'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $installedBin=Join-Path $root 'bin\ckb-plane.exe'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT'
+          Need (Test-Path -LiteralPath $config -PathType Leaf) 'CONFIG'
+          Need (Test-Path -LiteralPath $installedBin -PathType Leaf) 'INSTALLED_BIN'
+          Need (((Get-Item -LiteralPath $root).Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) 'ROOT_REPARSE'
+
+          $procBefore=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procBefore.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPidBefore=[int]$procBefore[0].ProcessId
+          $runningPath=[string]$procBefore[0].ExecutablePath
+          Need (-not [string]::IsNullOrWhiteSpace($runningPath)) 'RUNNING_PATH'
+          Need (Test-Path -LiteralPath $runningPath -PathType Leaf) 'RUNNING_IMAGE'
+          $runningHashBefore=Hash $runningPath
+          $configHashBefore=Hash $config
+          $installedHashBefore=Hash $installedBin
+          Write-Host ('MP_POSTMERGE_LIVE_RUNNING_SHA256='+$runningHashBefore)
+          Write-Host ('MP_POSTMERGE_LIVE_CONFIG_SHA256='+$configHashBefore)
+          Write-Host ('MP_POSTMERGE_INSTALLED_BIN_SHA256='+$installedHashBefore)
+          Write-Host 'MP_POSTMERGE_CONTROLLER_SINGLETON_PREIMAGE=PASS'
+
+          # Exact merged source must already exist in the local CKB Git object store.
+          & git.exe -C $root cat-file -e ($merge+'^{commit}')
+          Need ($LASTEXITCODE -eq 0) 'MERGED_COMMIT_NOT_LOCAL'
+          $tree=(& git.exe -C $root rev-parse ($merge+'^{tree}')).Trim()
+          Need ($LASTEXITCODE -eq 0 -and $tree -ceq $expectedTree) 'MERGED_TREE'
+          Write-Host ('MP_POSTMERGE_SOURCE_COMMIT='+$merge)
+          Write-Host ('MP_POSTMERGE_SOURCE_TREE='+$tree)
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-postmerge-config-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          try {
+            $zip=Join-Path $scratch 'source.zip'
+            & git.exe -C $root archive --format=zip --output=$zip $merge snapshot/source
+            Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $zip -PathType Leaf)) 'ARCHIVE'
+            Expand-Archive -LiteralPath $zip -DestinationPath $scratch -Force
+            $src=Join-Path $scratch 'snapshot\source'
+            Need (Test-Path -LiteralPath (Join-Path $src 'go.mod') -PathType Leaf) 'SOURCE_LAYOUT'
+
+            $testPath=Join-Path $src 'internal\plane\mp_postmerge_live_config_precheck_test.go'
+            $test=@'
+package plane
+
+import (
+    "os"
+    "testing"
+)
+
+func TestMPPostmergeLiveConfigCompat(t *testing.T) {
+    path := os.Getenv("MP_LIVE_CONFIG")
+    if path == "" {
+        t.Fatal("MP_LIVE_CONFIG_MISSING")
+    }
+    if _, err := LoadConfig(path); err != nil {
+        t.Fatalf("MP_LIVE_CONFIG_PARSE_FAILED: %v", err)
+    }
+    t.Log("MP_LIVE_CONFIG_PARSE_WITH_MERGED_SOURCE=PASS")
+}
+'@
+            Set-Content -LiteralPath $testPath -Value $test -Encoding UTF8
+            $env:MP_LIVE_CONFIG=$config
+            Push-Location $src
+            try {
+              & go.exe test ./internal/plane -run '^TestMPPostmergeLiveConfigCompat$' -count=1 -v
+              Need ($LASTEXITCODE -eq 0) 'LIVE_CONFIG_PARSE'
+            } finally {
+              Pop-Location
+              Remove-Item Env:MP_LIVE_CONFIG -ErrorAction SilentlyContinue
+            }
+            Write-Host 'MP_POSTMERGE_EXACT_MERGED_SOURCE_LIVE_CONFIG_PARSE=PASS'
+            Write-Host 'MP_POSTMERGE_OLD_UNKNOWN_FIELD_BLOCKER_AT_PARSE_BOUNDARY=CLOSED'
+
+            # Build a stopped exact-source binary only; do not execute it.
+            $candidate=Join-Path $scratch 'ckb-plane-postmerge.exe'
+            Push-Location $src
+            try {
+              & go.exe build -trimpath -o $candidate ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0) 'STOPPED_BUILD'
+            } finally { Pop-Location }
+            Need (Test-Path -LiteralPath $candidate -PathType Leaf) 'STOPPED_BINARY'
+            Write-Host ('MP_POSTMERGE_STOPPED_BINARY_SHA256='+(Hash $candidate))
+            Write-Host 'MP_POSTMERGE_STOPPED_BUILD=PASS'
+
+            $procAfter=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($procAfter.Count -eq 1 -and [int]$procAfter[0].ProcessId -eq $controllerPidBefore) 'CONTROLLER_POSTIMAGE'
+            $runningPathAfter=[string]$procAfter[0].ExecutablePath
+            Need ($runningPathAfter -ceq $runningPath) 'RUNNING_PATH_CHANGED'
+            Need ((Hash $runningPathAfter) -ceq $runningHashBefore) 'RUNNING_IMAGE_CHANGED'
+            Need ((Hash $config) -ceq $configHashBefore) 'CONFIG_CHANGED'
+            Need ((Hash $installedBin) -ceq $installedHashBefore) 'INSTALLED_BIN_CHANGED'
+            Write-Host 'MP_POSTMERGE_CONTROLLER_AND_LIVE_FILES_UNCHANGED=PASS'
+            Write-Host 'MP_POSTMERGE_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_POSTMERGE_DB_WRITES=0'
+            Write-Host 'MP_POSTMERGE_QUEUE_MUTATIONS=0'
+            Write-Host 'MP_POSTMERGE_INSTALL_ACTIONS=0'
+            Write-Host 'MP_POSTMERGE_RESTART_ACTIONS=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_POSTMERGE_SCRATCH_CLEAN=PASS'
+          }
