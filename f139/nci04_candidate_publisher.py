@@ -61,8 +61,18 @@ def _verified_original(get: Callable[[str], object], *,
     branch = get(f"repos/{FORGE_REPO}/branches/main")
     need(isinstance(branch, dict) and branch.get("protected") is True
          and isinstance(branch.get("commit"), dict)
-         and branch["commit"].get("sha") == source_sha,
+         and SHA40.fullmatch(str(branch["commit"].get("sha"))) is not None,
          "PROTECTED_CONTROLLER_SOURCE_DRIFT")
+    protected=branch["commit"]["sha"]
+    if protected != source_sha:
+        from f139.nci04_source_continuity import (
+            SourceContinuityDenied, prove_protected_research_only_advance)
+        try:
+            prove_protected_research_only_advance(
+                get, deployed_source=source_sha,
+                protected_source=protected)
+        except SourceContinuityDenied as exc:
+            raise PublisherDenied("F139_G2_PROTECTED_RUNTIME_SOURCE_DRIFT") from exc
 
 
 def publisher_preflight(get: Callable[[str], object], *,
