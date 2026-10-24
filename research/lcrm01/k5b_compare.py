@@ -27,7 +27,7 @@ def compare(a,b):
     or p.get("scientific_accepted") is not False):
    raise ValueError("K5B_FROZEN_FIRST_USE_SOURCE_DRIFT_"+label)
   if p["result"]=="COMPLETE_ORIGINAL_DELAYED_CUE_MEMORY_EXPERIMENT":
-   if (p.get("CHECK_real_episodes"),p.get("DEV_real_episodes"))!=(80,160) or
+   if ((p.get("CHECK_real_episodes"),p.get("DEV_real_episodes"))!=(80,160) or
        len(p.get("CHECK_full_actual_action_traces",[]))!=80 or
        len(p.get("DEV_full_actual_action_traces",[]))!=160 or
        p.get("native_original_cold_OS_restore") is not True or
