@@ -5,7 +5,7 @@ cd "$GITHUB_WORKSPACE"
 test "$(git rev-parse 'dd64fbe8b84b5671e048571ac810947a27107801^')" = '07cd3e040013d890d1f00e7de883bb9418053e23'
 git merge-base --is-ancestor dd64fbe8b84b5671e048571ac810947a27107801 HEAD
 test "$(git hash-object research/lcrm01/k4i_frozen_information_sufficiency.json)" = 'ed7017e274952553512c118b0d36e88892791466'
-test "$(git hash-object research/lcrm01/k4i_frozen_varied_worlds.json)" = 'ebed383f858984f34dbb6c14d658f1d0acec86a6'
+test "$(git hash-object research/lcrm01/k4h_frozen_varied_worlds.json)" = 'ebed383f858984f34dbb6c14d658f1d0acec86a6'
 test "$(git hash-object research/lcrm01/k4g_frozen_action_identifiability.json)" = 'a0b610d21b9dd81894f4aeded282a8a110077fb4'
 test "$(git hash-object research/lcrm01/k4f_frozen_interactive_learning.json)" = '275bd301abe88c3d33aef2679bc3775445657603'
 echo 'a6e97b95fcfa3fc74e9b9fa28ffc22640d99c8fc0f4da31a10336c0f6906e270  research/lcrm01/k4a_control_replay.py' | sha256sum -c -
