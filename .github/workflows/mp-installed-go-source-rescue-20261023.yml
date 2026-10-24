@@ -56,7 +56,14 @@ jobs:
             Need (Test-Path -LiteralPath $root -PathType Container) ('ROOT_'+$rootRel)
             $files += @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.go')
           }
-          foreach($rel in @('go.mod','go.sum')){
+          foreach($rel in @(
+            'go.mod','go.sum',
+            'internal\plane\roadmap_successors.json',
+            'internal\plane\harness\browser.cjs',
+            'internal\plane\web\index.html',
+            'internal\plane\web\app.js',
+            'internal\plane\web\app.css'
+          )){
             $p=Join-Path $live $rel
             if(Test-Path -LiteralPath $p -PathType Leaf){$files += Get-Item -LiteralPath $p}
           }
@@ -69,7 +76,35 @@ jobs:
             $total += [long]$f.Length
             Need ($total -le 67108864) 'TOTAL_SIZE_BOUND'
             $rel=$f.FullName.Substring($live.Length).TrimStart('\')
-            Need ($rel -match '^(internal\\plane\\.*\.go|cmd\\ckb-plane\\.*\.go|go\.(mod|sum))$') ('PATH_SCOPE_'+$rel)
+            Need ($rel -match '^(internal\\plane\\.*\.go|cmd\\ckb-plane\\.*\.go|go\.(mod|sum)|internal\\plane\\roadmap_successors\.json|internal\\plane\\harness\\browser\.cjs|internal\\plane\\web\\(index\.html|app\.js|app\.css))
+            $dest=Join-Path $stage $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
+            $manifest += [ordered]@{path=$rel.Replace('\','/');sha256=(Sha $f.FullName);bytes=[long]$f.Length}
+          }
+          $manifestPath=Join-Path $stage 'RESCUE-MANIFEST.json'
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+          Write-Host ('MP_RESCUE_FILE_COUNT='+$files.Count)
+          Write-Host ('MP_RESCUE_TOTAL_BYTES='+$total)
+          Write-Host ('MP_RESCUE_MANIFEST_SHA256='+(Sha $manifestPath))
+          Write-Host 'MP_RESCUE_CONFIG_INCLUDED=FALSE'
+          Write-Host 'MP_RESCUE_STATE_INCLUDED=FALSE'
+          Write-Host 'MP_RESCUE_SECRETS_INCLUDED=FALSE'
+
+          foreach($rel in $protected){Need ((Sha (Join-Path $live $rel)) -ceq $pre[$rel]) ('POST_'+$rel)}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+          Write-Host 'MP_RESCUE_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+          Write-Host 'MP_RESCUE_LIVE_WRITES=0'
+          "MP_RESCUE_STAGE=$stage" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Upload private source rescue artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mp-installed-go-source-rescue
+          path: ${{ env.MP_RESCUE_STAGE }}
+          if-no-files-found: error
+          retention-days: 7
+) ('PATH_SCOPE_'+$rel)
             $dest=Join-Path $stage $rel
             New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
             Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
