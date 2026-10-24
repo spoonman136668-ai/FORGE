@@ -23,13 +23,16 @@ class DelayedProbeTests(unittest.TestCase):
         self.assertEqual(t.release_tick,3)
         with self.assertRaisesRegex(ValueError,"future consequence"):
             w.release(t,0)
+        w.advance()
         with self.assertRaisesRegex(ValueError,"future consequence"):
             w.release(t,1)
+        w.advance()
         with self.assertRaisesRegex(ValueError,"future consequence"):
             w.release(t,2)
+        w.advance()
         self.assertEqual(w.release(t,3).code,"P0")
         with self.assertRaisesRegex(ValueError,"duplicate consequence"):
-            w.release(t,4)
+            w.release(t,3)
 
     def test_three_probe_complete_budget_and_delayed_delivery_on_same_world(self):
         fit,check=data()
@@ -99,9 +102,10 @@ class DelayedProbeTests(unittest.TestCase):
                         replace(a,ticket_sha256="f"*64),replace(a,action_tick=9)):
             with self.subTest(corrupt=corrupt),self.assertRaises(ValueError):
                 world.release(corrupt,10)
-        self.assertIsNotNone(world.release(a,10))
+        for _ in range(3):world.advance()
+        self.assertIsNotNone(world.release(a,3))
         with self.assertRaises(ValueError):
-            world.release(a,10)
+            world.release(a,3)
         with self.assertRaises(ValueError):
             world.request("P0",0)
 
@@ -110,7 +114,7 @@ class DelayedProbeTests(unittest.TestCase):
         ticket=probe.Ticket("a"*64,"P0",1,4)
         raw=probe.snapshot_public_state(mem,[ticket],{"b"*64},3)
         for corrupted in (raw+b" ",raw.replace(b'"next_tick":3',b'"next_tick":2'),
-                          raw.replace(b'"release_tick"',b'"changed"'),
+                          raw.replace(b',1,4]',b',1,3]'),
                           raw.replace(b'"P0"',b'"P9"')):
             with self.subTest(corrupted=corrupted[:65]),self.assertRaises((ValueError,TypeError)):
                 probe.restore_public_state(corrupted)
