@@ -292,16 +292,16 @@ def main():
         result={"schema":SCHEMA,"gate":"LCRM01-K4N","result":"INFRASTRUCTURE_OR_SOURCE_NOT_QUALIFIED",
             "error_type":type(e).__name__,"error":str(e),
             "traceback_tail":traceback.format_exc().splitlines()[-12:],
-            "original_K4K_negative_preserved":True,
+            "original_K4L_negative_preserved":True,
             "scientific_first_use":False,"scientific_accepted":False}
     x.output.write_text(json.dumps(result,indent=2,sort_keys=True,allow_nan=False)+"\n")
     print("K4N_RUN="+result["result"])
     if "quality_cost_decision" in result:
         q=result["quality_cost_decision"]
         print("K4N_SCIENTIFIC_DISPOSITION="+q["result"])
-        print("K4N_REQUIREMENTS="+canonical(q["tests"]))
+        print("K4N_REQUIREMENTS="+canonical(q["requirements"]))
         print("K4N_FAMILY_EVIDENCE="+canonical(q["per_family"]))
-        print("K4N_SAVING="+canonical({"model_ratio":q["checkpoint_byte_ratio"],
+        print("K4N_SAVING="+canonical({"model_ratio":q["checkpoint_ratio"],
                "CPU_ratio":q["inference_cpu_ratio"]}))
     if "FIT_information_support" in result:
         print("K4N_FIT_WINNERS="+canonical({k:v["best_arm_ids"]
