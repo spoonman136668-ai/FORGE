@@ -19,7 +19,11 @@ class AuditFirstUsePrefitTests(unittest.TestCase):
         rows=[]
         for (arm,seed),chk in gate.EXPECTED_SELECTED.items():
             rows.append({
-                "arm":arm,"seed":seed,"checkpoint_sha256":chk,"selected_epoch":12,
+                "arm":arm,"seed":seed,"selected_epoch":12,
+                "all_epoch_checkpoint_sha256":{"12":chk},
+                **({"checkpoint_sha256":chk} if arm=="GRU_SEQ2SEQ"
+                   else {"selected_checkpoint_sha256":chk,
+                         "original_v1_select_outcome":"CANCELLED_90M_NO_RECEIPT"}),
                 "receipt_type":("ORIGINAL_FROZEN_V1" if arm=="GRU_SEQ2SEQ"
                     else "SEPARATELY_QUALIFIED_RECOVERY_V2_NOT_V1")})
         return {
