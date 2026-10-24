@@ -86,8 +86,10 @@ jobs:
               con.execute('PRAGMA query_only=ON')
               m=dict(con.execute(
                   'SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1').fetchone())
-              status={str(x["stage"]):x["n"] for x in con.execute(
+              counts={str(x["stage"]):x["n"] for x in con.execute(
                   'SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage')}
+              status={k:int(counts.get(k,0)) for k in
+                      ("QUARANTINED","WAIT_PROVIDER","START_RISK","READY")}
               print(json.dumps({'meta':m,'stages':status},sort_keys=True))
           finally:con.close()
           '@
