@@ -1,0 +1,115 @@
+name: F139 R2 original owner second-cycle negative and chain audit
+on:
+  push:
+    branches: [audit/f139-r2-original-negative-20261024]
+    paths: [.github/workflows/f139-r2-original-negative-readonly-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  read-original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Verify original negative as one-time terminal without replay or mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {throw 'F139_R2_NOT_ORIGINAL_OWNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if ([string]$task.State -cnotin @('Ready','Running') -or
+              @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
+              throw 'F139_R2_OWNER_NOT_ACTIVE_OR_SHAPE_DRIFT'
+          }
+          $taskArguments=[string]$task.Actions[0].Arguments
+          function ReadArg([string]$key) {
+              $m=[regex]::Match($taskArguments,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+              if (-not $m.Success) {throw 'F139_R2_ORIGINAL_TASK_ARGS_INVALID'}
+              return $m.Groups[1].Value
+          }
+          $root=ReadArg 'RepositoryRoot'
+          $db=ReadArg 'Database'
+          $python=ReadArg 'PythonExe'
+          $expected=(Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')
+          $checkout=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($checkout -cne '8eca700c39223e176dea55f488b6f3397ce4e27a' -or
+             [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expected)) {
+              throw 'F139_R2_ORIGINAL_SOURCE_OR_DB_DRIFT'
+          }
+          $audit=@'
+          import json, pathlib, sqlite3, sys, time
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import canonical, hash_bytes, ZERO, Database
+          ticket="f139-nci04-i880-8eca700c3922-c91d1601"
+          runid=40102067918
+          def connect():
+              conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=25)
+              conn.row_factory=sqlite3.Row
+              conn.execute("PRAGMA query_only=ON")
+              return conn
+          for i in range(12):
+              c=connect()
+              row=c.execute("SELECT * FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+              if row is not None and row["stage"] in ("QUARANTINED","VERIFIED"):
+                  break
+              c.close()
+              time.sleep(10)
+          else:
+              raise AssertionError("F139_R2_ORIGINAL_TERMINAL_NOT_YET_OBSERVED")
+          try:
+              assert row["stage"]=="QUARANTINED", "F139_R2_EXPECTED_WORKER_NEGATIVE"
+              assert row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY"
+              assert row["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              entries=[(r["kind"],json.loads(r["payload"]),r["seq"],r["sha"])
+                       for r in c.execute("SELECT kind,payload,seq,sha FROM events ORDER BY seq")]
+              def hits(kind):
+                  return [x for x in entries if x[0]==kind and x[1].get("ticket")==ticket]
+              admission=hits("NATIVE_DEVELOPMENT_ADMITTED")
+              intent=hits("BEFORE_DISPATCH_INTENT")
+              sent=hits("DISPATCH_POST_RETURNED")
+              failed=hits("NATIVE_FAILED_PROVIDER_CUSTODY")
+              quarantine=hits("ATTEMPT_QUARANTINED")
+              assert len(admission)==len(intent)==len(sent)==len(failed)==len(quarantine)==1
+              assert admission[0][1]["issue_number"]==880
+              assert failed[0][1]["run_id"]==runid
+              assert failed[0][1]["scientific_first_use"] is False
+              assert quarantine[0][1]=={"ticket":ticket,"reason":"FAILED_OR_CANCELLED_NO_REPLAY"}
+              assert admission[0][2]>200
+              assert admission[0][2]<intent[0][2]<sent[0][2]<failed[0][2]<quarantine[0][2]
+              assert not hits("PROVIDER_VERIFIED_TERMINAL")
+              # Verification reconstructs every event at the original path:
+              prior=ZERO
+              for index,r in enumerate(c.execute(
+                  "SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"),1):
+                  assert r["seq"]==index and r["prior_sha"]==prior
+                  payload=json.loads(r["payload"])
+                  assert canonical(payload).decode("ascii")==r["payload"]
+                  assert hash_bytes(canonical({
+                      "seq":index,"prior_sha":prior,"kind":r["kind"],
+                      "payload":payload}))==r["sha"]
+                  prior=r["sha"]
+              meta=dict(c.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              assert meta["head_seq"]==len(entries) and meta["head_hash"]==prior
+              assert meta["source_sha"]==row["source_sha"]
+              assert c.execute("SELECT sha FROM events WHERE seq=195").fetchone()["sha"]==(
+                  "ffac6f9e7aae42016272a10cd74c317e83c046f90efb28ff90f20f53c7640f94")
+              counts=dict(c.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              assert counts.get("VERIFIED",0)>=19
+              assert counts.get("QUARANTINED",0)>=12
+              assert len(entries)>=205
+              print("F139_R2_SECOND_UNATTENDED_ADMISSION=PASS")
+              print("F139_R2_SECOND_UNATTENDED_DISPATCH=PASS")
+              print("F139_R2_DUAL_OS_NEGATIVE_RETAINED=PASS")
+              print("F139_R2_PROVIDER_FAILURE_ORIGINAL_CUSTODY=PASS")
+              print("F139_R2_QUARANTINE_ONCE_NO_REPLAY=PASS")
+              print("F139_R2_FULL_ORIGINAL_HASH_CHAIN=PASS")
+              print("F139_R2_ORIGINAL_EVENT_HEAD="+str(len(entries)))
+              print("F139_R2_ORIGINAL_STAGE_COUNTS="+json.dumps(counts,sort_keys=True))
+              print("F139_R2_SCIENTIFIC_FIRST_USE=FALSE")
+              print("F139_R2_PROTECTED_MAIN_MUTATED=FALSE")
+          finally:
+              c.close()
+          '@
+          & $python -B -c $audit $root $db
+          if($LASTEXITCODE -ne 0) {throw 'F139_R2_ORIGINAL_OWNER_NEGATIVE_AUDIT_FAILED'}
