@@ -105,6 +105,21 @@ jobs:
               $checks[$p]=(Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
             }
             $hashed=$true
+            $fstdout=Join-Path $scratch 'uq51-focused.stdout'
+            $fstderr=Join-Path $scratch 'uq51-focused.stderr'
+            $ftest=Join-Path $root 'tests/Test-RepoSourceTransaction.ps1'
+            $fp=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$ftest+'"')
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $fstdout -RedirectStandardError $fstderr
+            $foutput=[IO.File]::ReadAllText($fstdout)+[IO.File]::ReadAllText($fstderr)
+            if($fp.ExitCode -ne 0){
+              $codes=@([regex]::Matches($foutput,'UQ[0-9]+_[A-Z0-9_]+')|ForEach-Object{$_.Value}|Select-Object -Unique)
+              if($codes.Count -gt 0){ Write-Host ('MPAI0405_UQ51_FAILURE_CODES='+($codes -join ',')) }
+              $kind=@([regex]::Matches($foutput,'(ParserError|CommandNotFoundException|NativeCommandError|UQ51_[A-Z0-9_]+|GitError)')|ForEach-Object{$_.Value}|Select-Object -Unique)
+              Write-Host ('MPAI0405_UQ51_FAILURE_CLASSES='+($kind -join ','))
+              throw 'MPAI0405_UQ51_FOCUSED_FAILURE'
+            }
+            Write-Host 'MPAI0405_UQ51_FOCUSED=PASS'
             $tests=Join-Path $root 'tests'
             foreach($suite in $suites){
               & python.exe -B -m unittest discover -s $tests -p $suite -v
