@@ -1,0 +1,127 @@
+name: F139 continuity existing owner single-start recovery
+on:
+  push:
+    branches: [operations/f139-source-continuity-owner-cutover-20261024]
+    paths: [.github/workflows/f139-continuity-original-owner-one-start.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-continuity-existing-owner-one-start
+  cancel-in-progress: false
+jobs:
+  one-original-owner-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Recover exact existing owner after feeder-policy retarget; no second task
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $expected='db9b45955d2b1f2c5ec419f2dd5296828396663c'
+          $event185='21d5cf33217505a1ce22a3e3998d1c77ef5ddd3ad810708b6fcdd797a9478d6c'
+          $name='FORGE-F139-UnifiedController'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_REF -cne 'refs/heads/operations/f139-source-continuity-owner-cutover-20261024' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_CONT_RECOVERY_RUNNER_OR_REPLAY_UNQUALIFIED'
+          }
+          $main=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          $policy=((& gh api "repos/$repo/issues/807" --jq '.body')|Out-String).Trim()|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $main -cne $expected -or
+             $policy.enabled -ne $true -or $policy.source_sha -cne $expected -or
+             $policy.scientific_first_use -ne $false -or
+             $policy.new_controller -ne $false -or
+             $policy.max_issue_creations_per_cycle -ne 2){
+            throw 'F139_CONT_POLICY_OR_PROTECTED_SOURCE_NOT_RETARGETED'
+          }
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+             [string]$t.Settings.MultipleInstances -cne 'IgnoreNew'){
+            throw 'F139_CONT_EXISTING_TASK_TOPOLOGY_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$t.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $who.User.Value){throw 'F139_CONT_OWNER_SID_NOT_SAME'}
+          $options=[string]$t.Actions[0].Arguments
+          function Arg([string]$key){
+            $m=[regex]::Match($options,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_CONT_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $python=Arg 'PythonExe'
+          $db=Arg 'Database'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             [IO.Path]::GetFileName((Arg 'File')) -cne 'Run-FORGE-F139.ps1'){
+            throw 'F139_CONT_EXACT_OWNER_INSTALL_DRIFT'
+          }
+          if(((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $expected -or
+             ((& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()).Length -ne 0){
+            throw 'F139_CONT_ORIGINAL_CHECKOUT_CHANGED'
+          }
+          $inspect=@'
+          import sqlite3,pathlib,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          conn=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          m=dict(conn.execute("SELECT source_sha,head_seq,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert m["source_sha"]==sys.argv[2] and m["head_seq"]>=185
+          assert m["enabled"]==1 and m["legacy_suspended"]==1
+          anchor=conn.execute("SELECT kind FROM events WHERE seq=185").fetchone()
+          assert anchor and anchor["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
+          counts={r["stage"]:r["n"] for r in conn.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+          assert counts.get("QUARANTINED",0)>=10 and counts.get("VERIFIED",0)>=18
+          assert not counts.get("START_RISK",0) and not counts.get("WAIT_PROVIDER",0) and not counts.get("READY",0)
+          conn.close()
+          print("F139_CONT_RECOVERY_IMMUTABLE_EVENT185_AND_NEGATIVE_CUSTODY=PASS")
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $inspect $db $expected
+            if($LASTEXITCODE -ne 0){throw 'F139_CONT_OWNER_LEDGER_NOT_READY_FOR_START'}
+          }finally{Pop-Location}
+          function OwnerProcesses {
+            @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+              Where-Object {$_.CommandLine -and
+                $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db)})
+          }
+          $current=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $alive=@(OwnerProcesses)
+          if([string]$current.State -ceq 'Ready' -and $alive.Count -eq 0){
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop
+            Write-Output 'F139_CONT_EXISTING_OWNER_SINGLE_START_REQUESTED=TRUE'
+          }elseif([string]$current.State -ceq 'Running' -and $alive.Count -eq 1){
+            Write-Output 'F139_CONT_EXISTING_OWNER_ALREADY_RUNNING_NO_DUPLICATE=TRUE'
+          }else{
+            throw 'F139_CONT_UNEXPECTED_TASK_OR_PROCESS_COUNT_NO_START'
+          }
+          $until=(Get-Date).AddSeconds(40)
+          do{
+            Start-Sleep -Milliseconds 700
+            $current=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+            $alive=@(OwnerProcesses)
+            $good=([string]$current.State -ceq 'Running' -and $alive.Count -eq 1)
+          }while(-not $good -and (Get-Date) -lt $until)
+          if(-not $good){throw 'F139_CONT_EXISTING_OWNER_DID_NOT_REMAIN_RUNNING'}
+          Start-Sleep -Seconds 4
+          $stable=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$stable.State -cne 'Running' -or @(OwnerProcesses).Count -ne 1){
+            throw 'F139_CONT_ORIGINAL_OWNER_EXITED_AFTER_RESTART'
+          }
+          Write-Output 'F139_CONT_SAME_ORIGINAL_OWNER_PROCESS_RUNNING=PASS'
+          Write-Output 'F139_CONT_SAME_SCHEDULED_TASK_RUNNING=PASS'
+          Write-Output 'F139_CONT_SOURCE_AND_FEEDER_PINNED=PASS'
+          Write-Output 'F139_CONT_SCIENTIFIC_FIRST_USE=FALSE'
