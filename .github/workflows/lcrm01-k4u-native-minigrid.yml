@@ -1,0 +1,41 @@
+name: Mass K4U original native first-use on fresh MiniGrid worlds
+on:
+  push:
+    branches: [research/mass-lcrm01-k4u-native-minigrid-firstuse-20261024]
+permissions:
+  contents: read
+jobs:
+  authentic-native-public-minigrid-comparison:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Qualify original two independently authored native policies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash research/lcrm01/k4u_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4u-original-native-minigrid-first-use
+          path: |
+            ${{ runner.temp }}/k4u/process-a.json
+            ${{ runner.temp }}/k4u/process-b.json
+            ${{ runner.temp }}/k4u/comparison.json
+            ${{ runner.temp }}/k4u/process-a.log
+            ${{ runner.temp }}/k4u/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
