@@ -30,7 +30,7 @@ METHODS=("native_R5_slot_memory","native_R5_single_slot_ablation","original_R4_o
 SIZES=(11,13)
 CAPACITIES=(4,8)
 COHORTS={"CHECK":tuple(range(31000,31016)),"DEV":tuple(range(32000,32064))}
-R5_SOURCE_BLOB="R5_NATIVE_BLOB_AT_PRESCIENCE_PIN"
+R5_SOURCE_BLOB="4182889a47e31391a95ea3a2f5d8a4b87bcd6359"
 
 def canon(obj):
  return json.dumps(obj,sort_keys=True,separators=(",",":"),allow_nan=False)
