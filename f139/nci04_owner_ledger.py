@@ -286,7 +286,14 @@ def verify_native_activation(db):
     rows = list(db.conn.execute(
         "SELECT seq,payload,prior_sha FROM events WHERE kind=? ORDER BY seq",
         (ACTIVATION_KIND,)))
-    require(len(rows) <= 10, "ACTIVATION_COUNT_LIMIT")
+    # Lifetime authority is measured by unique authenticated source
+    # transitions, not an arbitrary ten-migration limit. The SHA chain and
+    # historical source-at-activation checks below still bind every record.
+    transition_count = db.conn.execute(
+        "SELECT COUNT(*) FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+    ).fetchone()[0]
+    require(len(rows) <= transition_count + 1,
+            "ACTIVATION_EXCEEDS_SOURCE_TRANSITION_COUNT")
     seen = set()
     last_source = None
     for row in rows:
@@ -354,7 +361,12 @@ def activate_native(db, approval: dict) -> bool:
             json.loads(row["payload"]) for row in db.conn.execute(
                 "SELECT payload FROM events WHERE kind=? ORDER BY seq",
                 (ACTIVATION_KIND,))]
-        require(len(activations) < 10
+        # Each additional activation requires an already validated, distinct
+        # source-transition event. Permit no source replay or free activation.
+        transition_count = db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"
+        ).fetchone()[0]
+        require(len(activations) <= transition_count
                 and all(a["source_sha"] != meta["source_sha"]
                         for a in activations),
                 "NATIVE_ALREADY_ACTIVATED")
