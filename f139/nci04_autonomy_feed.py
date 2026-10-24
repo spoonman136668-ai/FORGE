@@ -21,6 +21,7 @@ from typing import Callable
 
 from f139.nci04_native_contract import REPOS, canonical, digest
 from f139.nci04_proposal_compiler import prepare_proposal
+from f139.nci04_advisory_handoff import (AdvisoryHandoffDenied, inspect_pr_advisory)
 
 OWNER = "spoonman136668-ai"
 FORGE_REPO = "spoonman136668-ai/FORGE"
@@ -239,6 +240,17 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
         controller_source_sha=source_sha, lane=lane,
         target_commit=target_commit, target_tree_sha=target_tree,
         path=path, before=before, after=after, **semantics)
+    # Advisory lineage cannot grant authority. Original Git-tree and before/
+    # after-byte authentication above always runs first. Malformed declared
+    # advisory provenance rejects the PR; missing provenance preserves the
+    # existing separately qualified owner-only intake.
+    try:
+        advisory = inspect_pr_advisory(
+            pr.get("body"), lane=lane, controller_source_sha=source_sha,
+            head_commit=head_sha, target_commit=target_commit, path=path,
+            after_sha256=digest(after))
+    except AdvisoryHandoffDenied as exc:
+        raise NativeFeedDenied("F139_NATIVE_FEED_ADVISORY_HANDOFF_INVALID") from exc
     evidence = {
         "schema": "forge.f139.native-autonomy-feed-source.v1",
         "lane": lane, "repository": repo, "pr_number": pr["number"],
@@ -251,8 +263,11 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
         "qualification_key": proposal["qualification_key"],
         "scientific_first_use": False,
     }
+    if advisory is not None:
+        evidence["advisory_handoff"] = advisory
     return {
         "lane": lane, "pr_number": pr["number"], "head_commit": head_sha,
+        "advisory_handoff": advisory,
         "issue_title": ("F139 auto-feed " + lane + " PR#" +
                         str(pr["number"]) + ": " +
                         pr["title"][len(TITLE_PREFIX):].strip())[:180],
