@@ -1,0 +1,81 @@
+name: MP local CKB git provenance read only
+on:
+  push:
+    branches: [diagnostics/mp-local-git-provenance-20261024]
+    paths: [.github/workflows/mp-local-git-provenance-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Inspect local CKB Git custody without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_LOCALGIT_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath (Join-Path $root '.git') -PathType Container) 'GITDIR'
+          $protected=@('config\autonomy.yaml','bin\ckb-plane.exe')
+          $pre=@{}
+          foreach($rel in $protected){$p=Join-Path $root $rel;Need(Test-Path -LiteralPath $p -PathType Leaf)('PRE_'+$rel);$pre[$rel]=Sha $p}
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $pid0=[int]$proc[0].ProcessId
+
+          $head=(& git.exe -C $root rev-parse HEAD).Trim()
+          $branch=(& git.exe -C $root branch --show-current).Trim()
+          $tree=(& git.exe -C $root rev-parse 'HEAD^{tree}').Trim()
+          $origin=(& git.exe -C $root remote get-url origin).Trim()
+          Write-Host ('MP_LOCALGIT_HEAD='+$head)
+          Write-Host ('MP_LOCALGIT_TREE='+$tree)
+          Write-Host ('MP_LOCALGIT_BRANCH='+$branch)
+          Write-Host ('MP_LOCALGIT_ORIGIN_SHA256=' + ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($origin))).ToLowerInvariant()))
+          $status=@(& git.exe -C $root status --porcelain=v1 --untracked-files=all)
+          Write-Host ('MP_LOCALGIT_STATUS_COUNT='+$status.Count)
+          foreach($line in $status | Select-Object -First 250){
+            if($line.Length -ge 4){
+              $code=$line.Substring(0,2)
+              $path=$line.Substring(3)
+              Write-Host ('MP_LOCALGIT_STATUS code='+$code+' path='+$path)
+            }
+          }
+          $branches=@(& git.exe -C $root for-each-ref '--format=%(refname:short) %(objectname)' refs/heads)
+          Write-Host ('MP_LOCALGIT_BRANCH_COUNT='+$branches.Count)
+          foreach($x in $branches | Select-Object -First 100){Write-Host ('MP_LOCALGIT_LOCAL_BRANCH '+$x)}
+          $ahead=@(& git.exe -C $root rev-list --left-right --count 'origin/main...HEAD')
+          Write-Host ('MP_LOCALGIT_ORIGIN_MAIN_VS_HEAD='+($ahead -join ' '))
+          $logs=@(& git.exe -C $root log --oneline --decorate -n 30)
+          foreach($x in $logs){Write-Host ('MP_LOCALGIT_LOG '+$x)}
+
+          $candidateFiles=@(
+            'internal\plane\autonomy.go',
+            'internal\plane\model.go',
+            'internal\plane\engine.go',
+            'internal\plane\mind_palace_auto_discovery.go',
+            'internal\plane\objective.go',
+            'internal\plane\pine_successor.go',
+            'internal\plane\wingless_stage1_registered.go'
+          )
+          foreach($rel in $candidateFiles){
+            $p=Join-Path $root $rel
+            if(Test-Path -LiteralPath $p -PathType Leaf){
+              $oid=(& git.exe -C $root hash-object --no-filters -- $p).Trim()
+              & git.exe -C $root cat-file -e ($oid+'^{blob}') 2>$null
+              $present=($LASTEXITCODE -eq 0)
+              Write-Host ('MP_LOCALGIT_FILE path='+$rel+' sha256='+(Sha $p)+' git_blob='+$oid+' local_object_present='+$present.ToString().ToLowerInvariant())
+            }
+          }
+
+          foreach($rel in $protected){Need ((Sha (Join-Path $root $rel)) -ceq $pre[$rel]) ('POST_'+$rel)}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $pid0) 'CONTROLLER_POSTIMAGE'
+          Write-Host 'MP_LOCALGIT_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+          Write-Host 'MP_LOCALGIT_WRITES=0'
