@@ -104,6 +104,11 @@ def parse_time(value: str) -> dt.datetime:
 
 class SingleOwner:
     """Kernel-released process lock, held during each reconciliation tick."""
+    _held_paths = set()
+
+    @classmethod
+    def held(cls, path: Path) -> bool:
+        return str(Path(path).resolve()) in cls._held_paths
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -129,9 +134,11 @@ class SingleOwner:
             self.fd.close()
             self.fd = None
             raise F139Error("F139_CONTROLLER_ALREADY_RUNNING") from exc
+        self._held_paths.add(str(self.path.resolve()))
         return self
 
     def __exit__(self, *_):
+        self._held_paths.discard(str(self.path.resolve()))
         if self.fd:
             if os.name == "nt":
                 import msvcrt
@@ -1258,6 +1265,62 @@ class GitHub:
                 "NATIVE_FEED_CREATED_ISSUE_UNVERIFIED")
         return issue
 
+    def owner_g3_write(self, method: str, route: str, payload: dict):
+        """Three exact Yggdrasil draft-only write endpoints; no generic writer.
+
+        Used ONLY by the original lock-held Windows owner. No automatic retry
+        after an ambiguous remote write; the SQLite attempt event precedes it.
+        """
+        repo = "repos/spoonman136668-ai/Yggdrasil"
+        branch = re.compile(r"f139/auto-g2-ygg-[a-f0-9]{12}-[a-f0-9]{12}\\Z")
+        if method == "POST" and route == repo + "/git/refs":
+            require(isinstance(payload, dict) and set(payload) == {"ref", "sha"}
+                    and isinstance(payload["ref"], str)
+                    and payload["ref"].startswith("refs/heads/")
+                    and branch.fullmatch(payload["ref"][11:]) is not None
+                    and isinstance(payload["sha"], str)
+                    and SHA.fullmatch(payload["sha"]) is not None,
+                    "G3_REF_WRITE_NOT_BOUNDED")
+        elif method == "PUT" and route == repo + "/contents/yggdrasil/public_causal_cells.py":
+            require(isinstance(payload, dict) and set(payload) ==
+                    {"message", "content", "sha", "branch"}
+                    and isinstance(payload["branch"], str)
+                    and branch.fullmatch(payload["branch"]) is not None
+                    and isinstance(payload["sha"], str)
+                    and SHA.fullmatch(payload["sha"]) is not None
+                    and isinstance(payload["content"], str)
+                    and 0 < len(payload["content"]) <= 50000
+                    and payload["message"] in {
+                        "F139 G2 DEV: bounded source-only public causal mechanism"},
+                    "G3_CONTENT_WRITE_NOT_BOUNDED")
+        elif method == "POST" and route == repo + "/pulls":
+            require(isinstance(payload, dict) and set(payload) ==
+                    {"title", "head", "base", "draft", "body"}
+                    and payload["draft"] is True and payload["base"] == "main"
+                    and payload["title"] ==
+                    "F139 autonomy DEV: local evidence confidence gating"
+                    and isinstance(payload["head"], str)
+                    and branch.fullmatch(payload["head"]) is not None
+                    and isinstance(payload["body"], str)
+                    and 0 < len(payload["body"]) < 4000,
+                    "G3_DRAFT_WRITE_NOT_BOUNDED")
+        else:
+            raise F139Error("F139_G3_WRITE_ENDPOINT_FORBIDDEN")
+        require(shutil.which("gh") is not None, "GITHUB_CLI_NOT_INSTALLED")
+        try:
+            p = subprocess.run(
+                ["gh", "api", "--method", method, route, "--input", "-"],
+                input=canonical(payload), stdin=None, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=40, check=False)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise F139Error("F139_G3_WRITE_AMBIGUOUS_NO_RETRY") from exc
+        require(p.returncode == 0 and 0 < len(p.stdout) < 100000,
+                "G3_WRITE_AMBIGUOUS_NO_RETRY")
+        try:
+            return json.loads(p.stdout)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise F139Error("F139_G3_WRITE_RESPONSE_AMBIGUOUS_NO_RETRY") from exc
+
     def protected_main(self):
         branch=self.get("repos/"+REPO+"/branches/main")
         sha=branch.get("commit",{}).get("sha")
@@ -1620,6 +1683,68 @@ class GitHub:
         return zipbytes
 
 
+def native_original_running_publisher_profile(db_path: Path) -> bool:
+    """Read-only verification of the ORIGINAL running task and Python child.
+
+    This is intentionally NOT the disabled-task source-transition witness.
+    It grants no source transition or science, and never exposes secrets.
+    """
+    require(os.name == "nt", "G3_ORIGINAL_OWNER_REQUIRES_WINDOWS")
+    expected = Path(os.environ.get("LOCALAPPDATA", "")) / "FORGE-F139" / "state.sqlite"
+    require(bool(os.environ.get("LOCALAPPDATA")) and
+            Path(db_path).resolve() == expected.resolve(),
+            "G3_ORIGINAL_DATABASE_PATH_DRIFT")
+    require(SingleOwner.held(Path(db_path).with_suffix(".lock")),
+            "G3_ORIGINAL_OWNER_MUTEX_NOT_HELD")
+    exe = shutil.which("powershell.exe")
+    require(exe is not None, "G3_WINDOWS_POWERSHELL_UNAVAILABLE")
+    script = (
+        "$ErrorActionPreference='Stop';"
+        "$t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop;"
+        "if([string]$t.State -cne 'Running'){exit 41};"
+        "$who=[Security.Principal.WindowsIdentity]::GetCurrent();"
+        "$principal=[string]$t.Principal.UserId;"
+        "$sid='';"
+        "try{$sid=(New-Object Security.Principal.NTAccount($principal)).Translate("
+        "[Security.Principal.SecurityIdentifier]).Value}catch{};"
+        "if($principal -ine $who.Name -and $sid -cne $who.User.Value){exit 42};"
+        "if(@($t.Actions).Count -ne 1){exit 43};"
+        "$a=$t.Actions[0];"
+        "if([IO.Path]::GetFileName([string]$a.Execute) -ine 'powershell.exe'){exit 44};"
+        "$opts=[string]$a.Arguments;"
+        "$root=[regex]::Match($opts,'(?i)(?:^|\\s)-RepositoryRoot\\s+\"([^\"]+)\"');"
+        "$db=[regex]::Match($opts,'(?i)(?:^|\\s)-Database\\s+\"([^\"]+)\"');"
+        "$wrapper=[regex]::Match($opts,'(?i)(?:^|\\s)-File\\s+\"([^\"]+)\"');"
+        "if(-not($root.Success -and $db.Success -and $wrapper.Success)){exit 45};"
+        "if([IO.Path]::GetFileName($wrapper.Groups[1].Value) -cne 'Run-FORGE-F139.ps1'){exit 46};"
+        "if([IO.Path]::GetFullPath($root.Groups[1].Value) -ine "
+        "[IO.Path]::GetFullPath($env:F139_EXPECTED_TASK_SOURCE_ROOT)){exit 47};"
+        "if([IO.Path]::GetFullPath($db.Groups[1].Value) -ine "
+        "[IO.Path]::GetFullPath($env:F139_EXPECTED_TASK_DATABASE)){exit 48};"
+        "$self=Get-CimInstance Win32_Process -Filter "
+        "\"ProcessId=$env:F139_EXPECTED_NATIVE_CLI_PID\" -ErrorAction Stop;"
+        "if(-not $self -or $self.Name -ine 'python.exe' -or "
+        "-not $self.CommandLine.Contains('f139.local_controller')){exit 49};"
+        "$parent=Get-CimInstance Win32_Process -Filter "
+        "\"ProcessId=$($self.ParentProcessId)\" -ErrorAction Stop;"
+        "if(-not $parent -or $parent.Name -ine 'powershell.exe' -or "
+        "-not $parent.CommandLine.Contains('Run-FORGE-F139.ps1')){exit 50};"
+        "Write-Output 'F139_G3_ORIGINAL_RUNNING_OWNER=PASS'"
+    )
+    env = {**os.environ,
+           "F139_EXPECTED_TASK_SOURCE_ROOT": str(Path(__file__).resolve().parent.parent),
+           "F139_EXPECTED_TASK_DATABASE": str(Path(db_path).resolve()),
+           "F139_EXPECTED_NATIVE_CLI_PID": str(os.getpid())}
+    result = subprocess.run(
+        [exe, "-NoProfile", "-NonInteractive", "-Command", script],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL,
+        env=env, timeout=20, check=False)
+    require(result.returncode == 0 and
+            result.stdout.strip() == b"F139_G3_ORIGINAL_RUNNING_OWNER=PASS",
+            "G3_ORIGINAL_RUNNING_TASK_OR_PROCESS_DRIFT")
+    return True
+
+
 def native_original_owner_profile(db_path: Path) -> bool:
     """Read-only SID, DB and *scheduled source root* custody check.
 
@@ -1944,6 +2069,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             if db.admit_d2k_issue(item):
                 ready=db.ready()
             break
+    publication_slot_empty = False
     if ready is None and native_enabled:
         # Same single-owner lock, SQLite ledger and once-only budget as D2K.
         # A source-pinned owner policy may replenish this EXISTING issue intake
@@ -1990,6 +2116,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                     title=candidate["issue_title"],
                     body=candidate["issue_body"])
                 created_numbers.append(created["number"])
+            if not feed["candidates"]:
+                publication_slot_empty = True
             if created_numbers:
                 # Reuse the unchanged owner-issue authentication and ledger
                 # admission path. Never dispatch directly from a PR.
@@ -2001,6 +2129,18 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                     if admit_native_issue(db, native_issue, timestamp):
                         ready = db.ready()
                     break
+    if (ready is None and publication_slot_empty and not db.actives()
+            and type(api) is GitHub):
+        # Only the live original owner, under the existing SingleOwner mutex.
+        # G3 is draft-only: the NEXT ordinary tick must discover/rehash the PR,
+        # admit its issue and separately dispatch. Never dispatch from here.
+        from f139.nci04_owner_publication import publish_once
+        publication = publish_once(
+            db, api.native_repo_get, api.owner_g3_write,
+            meta["source_sha"],
+            owner_witness=lambda: native_original_running_publisher_profile(db_path))
+        if publication["disposition"] == "G3_DRAFT_PUBLISHED":
+            return publication
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
