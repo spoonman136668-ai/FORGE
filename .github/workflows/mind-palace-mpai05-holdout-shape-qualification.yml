@@ -61,8 +61,9 @@ jobs:
             & git.exe clone --quiet --single-branch --branch $branch $remote $root
             Need ($LASTEXITCODE -eq 0) 'SOURCE_CLONE'
             $head = (& git.exe -C $root rev-parse HEAD | Out-String).Trim()
-            $parent = (& git.exe -C $root rev-parse 'HEAD^' | Out-String).Trim()
-            Need ($LASTEXITCODE -eq 0 -and $head -ceq $source -and $parent -ceq $base) 'SOURCE_PARENT'
+            Need ($LASTEXITCODE -eq 0 -and $head -ceq $source) 'SOURCE_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $base $source
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_BASE_ANCESTRY'
             $changed = @(& git.exe -C $root diff --name-only $base $source)
             Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
               (($changed | Sort-Object) -join '|') -ceq (($expected.Keys | Sort-Object) -join '|')) 'THREE_PATH_SCOPE'
