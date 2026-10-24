@@ -1,0 +1,130 @@
+name: L9 frozen protected-audit first-use source-only preflight
+on:
+  pull_request:
+    branches: [research/l9-mixed-v1-v2-numerical-seal-20261024]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-protected-audit-source-only-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  prefirstuse-frozen-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Fail on frozen method/source/role changes and unrelated implementation delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=3516fbc99a8a5efd9397545f54b0245ac392df70
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/L9_FROZEN_PROTOCOL.json)" = 1602946d8c03e15324d36cd730691caccd12652f
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/L9_PROTOCOL_AMENDMENT_1.json)" = 3d3b0cf2f4c74f36f9cd5feea69d93cd79b8933c
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/L9_SPLIT_RECEIPT.json)" = ca3e41e2835713bc922c56542656489f202c55cf
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/L9_MODEL_CONTRACT.json)" = 4eab05a2b9011ebbaa34d01778e7f185807704c2
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_neural_select_only.py)" = 91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_seal_select.py)" = af06d6671954b9e8c5cf23c720e5efa89d919528
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/L9_AUDIT_FIRSTUSE_CONTRACT.json","research/optimizer_language_l9/l9_audit_firstuse_prefit.py","research/optimizer_language_l9/test_l9_audit_firstuse_prefit.py",".github/workflows/l9-audit-firstuse-source-prefit.yml"}; assert a==b,(a,b)'
+      - name: Run source-only synthetic/custody and negative-control qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_audit_firstuse_prefit.py -v
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_mixed_v1_v2_seal.py -v
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - name: Fetch ONLY frozen prior numerical-seal artifact (never WebNLG DEV)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/l9-authenticated-mixed-select.json" <<'PY'
+          import hashlib,io,os,pathlib,sys,urllib.parse,urllib.request,zipfile
+          ARTIFACT_ID=12552219934
+          ARCHIVE_SHA='ed062a28258a8e60a33f7253f3cff845e0e743ed65988c1cfb849c05e11fedbb'
+          RECEIPT_SHA='667f3e93d80a218284a68188dd8169f8b602ff37f63439282456e9e638478d66'
+          MEMBER='l9-mixed-v1-v2-dev-seal.json'
+          class StripCrossOriginAuthorization(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,old,fp,code,msg,hdrs,newurl):
+                  new=super().redirect_request(old,fp,code,msg,hdrs,newurl)
+                  assert new is not None
+                  before=urllib.parse.urlsplit(old.full_url)
+                  after=urllib.parse.urlsplit(newurl)
+                  assert after.scheme=='https','INSECURE_GITHUB_ARCHIVE_REDIRECT'
+                  if (before.scheme,before.netloc)!=(after.scheme,after.netloc):
+                      new.remove_header('Authorization')
+                  return new
+          request=urllib.request.Request(
+              'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/'+str(ARTIFACT_ID)+'/zip',
+              headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                  'Accept':'application/vnd.github+json',
+                  'X-GitHub-Api-Version':'2022-11-28',
+                  'User-Agent':'L9-PROTECTED-AUDIT-NO-FIRSTUSE-READONLY'})
+          data=urllib.request.build_opener(StripCrossOriginAuthorization()).open(request,timeout=120).read()
+          assert hashlib.sha256(data).hexdigest()==ARCHIVE_SHA,'ORIGINAL_SEAL_ARCHIVE_SHA_DRIFT'
+          with zipfile.ZipFile(io.BytesIO(data)) as z:
+              assert z.namelist()==[MEMBER],('SEAL_MEMBER_IDENTITY',z.namelist())
+              raw=z.read(MEMBER)
+          assert hashlib.sha256(raw).hexdigest()==RECEIPT_SHA,'ORIGINAL_NUMERICAL_SEAL_SHA_DRIFT'
+          out=pathlib.Path(sys.argv[1])
+          assert not out.exists()
+          out.write_bytes(raw)
+          print('L9_FROZEN_MIXED_SELECT_INPUT_AUTHENTICATED=TRUE')
+          print('L9_NO_PROTECTED_AUDIT_READ=TRUE')
+          PY
+      - name: Write deterministic protected-audit pre-firstuse SOURCE ONLY receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l9/l9_audit_firstuse_prefit.py \
+            --mixed-seal "$RUNNER_TEMP/l9-authenticated-mixed-select.json" \
+            --out "$RUNNER_TEMP/l9-audit-prefirstuse-source-only.json"
+          python - "$RUNNER_TEMP/l9-audit-prefirstuse-source-only.json" <<'PY'
+          import hashlib,json,sys
+          raw=open(sys.argv[1],'rb').read()
+          r=json.loads(raw)
+          assert r['contract']['audit_count']==319
+          assert r['contract']['heldout_categories']==3
+          assert r['contract']['train_audit_graph_overlap']==0
+          assert r['contract']['method_count']==7
+          assert r['sealed_selection']['selected_models']==4
+          assert r['sealed_selection']['separate_v2_transformer_seeds']==2
+          assert not r['first_use_authorized']
+          assert not r['first_use_lease_or_witness_issued']
+          assert r['protected_audit_reference_bytes_read']==0
+          assert r['protected_audit_cases_scored']==0
+          assert r['official_test_bytes_read']==0
+          assert not r['model_checkpoint_loaded'] and not r['fit_or_scientific_metric_executed']
+          assert not r['scientific_go'] and not r['independent_semantic_transfer_proven']
+          assert all(v==0 for v in r['synthetic_all_abstain_category_macro'].values())
+          print('L9_AUDIT_SOURCE_PREFIT_CONSISTENCY=PASS')
+          print('L9_AUDIT_CONTRACT_SOURCE_ONLY_SHA256='+hashlib.sha256(raw).hexdigest())
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l9-audit-source-prefit-${{ matrix.os }}
+          path: ${{ runner.temp }}/l9-audit-prefirstuse-source-only.json
+          if-no-files-found: ignore
