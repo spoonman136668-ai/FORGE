@@ -1,0 +1,120 @@
+name: F139 R3 reproduce failing owner read route (no dispatch)
+on:
+  push:
+    branches: [audit/f139-r3-original-owner-continuity-20261024]
+    paths:
+      - '.github/workflows/f139-r3-original-owner-readroute-reproduction-20261024.yml'
+permissions:
+  contents: read
+jobs:
+  owner-readroute:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Reproduce bounded read-only F139 intake with original owner source and credential
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_R3_NOT_ORIGINAL_RUNNER'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cnotin @('Running','Ready')){throw 'F139_R3_OWNER_NOT_ACTIVE'}
+          $principal=[string]$t.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){throw 'F139_R3_OWNER_SID_MISMATCH'}
+          $argsText=[string]$t.Actions[0].Arguments
+          function ReadArg([string]$name){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_R3_OWNER_ARGS_INVALID'}
+            return $m.Groups[1].Value
+          }
+          $root=ReadArg 'RepositoryRoot'
+          $db=ReadArg 'Database'
+          $py=ReadArg 'PythonExe'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){throw 'F139_R3_DB_DRIFT'}
+          $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          if($head -cne '8eca700c39223e176dea55f488b6f3397ce4e27a'){throw 'F139_R3_OWNER_SOURCE_DRIFT'}
+          $probe=@'
+          import json,os,pathlib,sqlite3,subprocess,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          path=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import GitHub,MAX_ZIP_BYTES
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64
+          import shutil
+          exe=shutil.which("gh")
+          assert exe
+          env=dict(os.environ)
+          env.pop("GH_TOKEN",None)
+          env.pop("GITHUB_TOKEN",None)
+          count=[0]
+          def read_only(args):
+              assert len(args)==1 and args[0].startswith("repos/") and ".." not in args[0]
+              count[0]+=1
+              if count[0]>95: raise RuntimeError("F139_R3_READ_BUDGET_EXCEEDED")
+              route=args[0]
+              p=subprocess.run([exe,"api",route],env=env,stdin=subprocess.DEVNULL,
+                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=38,check=False)
+              size=len(p.stdout)
+              if size>=MAX_ZIP_BYTES+100000 or p.returncode:
+                  err=p.stderr.lower()
+                  typ=("RATE_LIMIT" if b"rate limit" in err else
+                       "BAD_CREDENTIALS" if b"bad credentials" in err else
+                       "FORBIDDEN" if b"403" in err else
+                       "NOT_FOUND" if b"404" in err else
+                       "TRANSPORT" if b"resolve host" in err else
+                       "OTHER_NONZERO" if p.returncode else "OUTPUT_OVER_LIMIT")
+                  print("F139_R3_FIRST_FAILED_ROUTE="+route.split("?")[0][:185],flush=True)
+                  print("F139_R3_FIRST_FAILED_CLASS="+typ,flush=True)
+                  print("F139_R3_FIRST_FAILED_STDOUT_BYTES="+str(size),flush=True)
+                  print("F139_R3_FIRST_FAILED_EXIT="+str(p.returncode),flush=True)
+                  raise RuntimeError("F139_R3_READ_ROUTE_DENIED")
+              if "/pulls?" in route:
+                  print("F139_R3_PR_INDEX_BYTES="+route.split("/")[1]+":"+str(size),flush=True)
+              return p.stdout
+          api=GitHub(runner=read_only)
+          conn=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          try:
+              meta=conn.execute("SELECT source_sha,head_seq FROM meta WHERE id=1").fetchone()
+              assert meta["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              admitted=[json.loads(x["payload"]) for x in conn.execute(
+                  "SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED' ORDER BY seq")]
+          finally:conn.close()
+          history={d["issue_number"]:(d["issue_id"],d["source_sha"],d["issue_body_sha256"],d["ticket"]) for d in admitted}
+          print("F139_R3_HISTORICAL_ADMISSIONS="+str(len(history)),flush=True)
+          stages=[
+           ("protected_main",lambda:api.protected_main()),
+           ("d2k_issue_catalog",lambda:api.d2k_eligible_issues(meta["source_sha"])),
+           ("native_issue_catalog",lambda:api.native_eligible_issues(meta["source_sha"],historical_issues=history)),
+          ]
+          for label,fn in stages:
+              try:
+                  value=fn()
+                  print("F139_R3_STAGE_"+label.upper()+"=PASS",flush=True)
+                  if label=="native_issue_catalog":
+                      print("F139_R3_NATIVE_ELIGIBLE="+str(len(value)),flush=True)
+              except Exception as exc:
+                  print("F139_R3_STAGE_"+label.upper()+"="+type(exc).__name__,flush=True)
+                  print("F139_R3_ERROR_CODE="+str(exc)[:135],flush=True)
+                  break
+          else:
+              try:
+                  ids={candidate_identity_from_intent_base64(d["native_intent_base64"])
+                       for d in admitted if isinstance(d.get("native_intent_base64"),str)}
+                  feed=api.prepare_native_feed(meta["source_sha"],set(ids))
+                  print("F139_R3_FEED_CANDIDATE_COUNT="+str(len(feed["candidates"])),flush=True)
+                  print("F139_R3_FEED_REJECT_COUNT="+str(len(feed["rejected"])),flush=True)
+                  print("F139_R3_STAGE_FEED=PASS",flush=True)
+              except Exception as exc:
+                  print("F139_R3_STAGE_FEED="+type(exc).__name__,flush=True)
+                  print("F139_R3_ERROR_CODE="+str(exc)[:135],flush=True)
+          print("F139_R3_READ_CALLS="+str(count[0]),flush=True)
+          print("F139_R3_READONLY_NO_OWNER_MUTATION=TRUE",flush=True)
+          '@
+          & $py -B -c $probe $root $db
+          if($LASTEXITCODE -ne 0){throw 'F139_R3_READROUTE_SCRIPT_FAILED'}
+          Write-Output 'F139_R3_NO_DISPATCH_OR_REPLAY=TRUE'
