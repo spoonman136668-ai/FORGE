@@ -1,0 +1,89 @@
+name: Mass K4X frozen source-only synthetic delayed credit screen
+on:
+  push:
+    branches: [research/mass-lcrm01-k4x-synthetic-delayed-credit-20261024]
+    paths:
+      - research/lcrm01/k4x_*
+      - research/lcrm01/test_k4x_sourceonly.py
+      - .github/workflows/lcrm01-k4x-synthetic-credit.yml
+permissions:
+  contents: read
+concurrency:
+  group: mass-k4x-sourceonly-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  synthetic-delayed-credit-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 12
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify preregistration source and freeze ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF_NAME" = research/mass-lcrm01-k4x-synthetic-delayed-credit-20261024
+          test "$GITHUB_REPOSITORY" = spoonman136668-ai/FORGE
+          test "$(git rev-parse d8c75da014fb661e3417f7d6171c0100d7ebba03^)" = 0bb78beaa07a25a021513548976f765824e6ca22
+          git merge-base --is-ancestor d8c75da014fb661e3417f7d6171c0100d7ebba03 HEAD
+          test "$(git hash-object research/lcrm01/k4x_frozen_synthetic_credit.json)" = a5fe33720a1900071938d7211ac6c790b11050b3
+          python - <<'PY'
+          import ast,pathlib
+          p=pathlib.Path('research/lcrm01/k4x_synthetic_credit.py')
+          ast.parse(p.read_text())
+          root=ast.parse(p.read_text())
+          assert not any(alias.name.startswith('minigrid') for n in ast.walk(root) if isinstance(n,ast.Import) for alias in n.names)
+          assert not any(n.module and n.module.startswith('minigrid') for n in ast.walk(root) if isinstance(n,ast.ImportFrom))
+          print('K4X_FROZEN_BEFORE_IMPLEMENTATION_NO_SIMULATOR=PASS')
+          PY
+      - name: Frozen source-free focused tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p test_k4x_sourceonly.py -v
+      - name: Two genuinely independent Python processes, identical synthetic source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4x"
+          python -B research/lcrm01/k4x_synthetic_credit.py --output "$RUNNER_TEMP/k4x/a.json"
+          python -B research/lcrm01/k4x_synthetic_credit.py --output "$RUNNER_TEMP/k4x/b.json"
+          python - <<'PY'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path(os.environ["RUNNER_TEMP"])/"k4x"
+          a=json.loads((root/"a.json").read_text())
+          b=json.loads((root/"b.json").read_text())
+          volatile={"original_cpu_seconds","other_training_cpu_seconds","observed_host_wall_seconds","host_peak_rss_bytes"}
+          for d in (a,b):
+              for k in volatile:d.pop(k,None)
+          assert a==b, "K4X_COLD_PROCESS_RESULT_DRIFT"
+          assert a["physical_minigrid_episodes"]==0 and a["K4U_original_native_transfer_NO_GO_preserved"]
+          assert a["FIT_synthetic_episodes"]==576 and a["TEST_unseen_synthetic_episodes"]==128
+          assert len(a["methods"])==4
+          assert a["classification"] in ("K4X_SYNTHETIC_MECHANISM_PROBE_PASS","K4X_SYNTHETIC_MECHANISM_PROBE_NO_GO")
+          print("K4X_TWO_INDEPENDENT_PROCESSES_CONCORDANT=PASS")
+          print("K4X_FROZEN_VERDICT="+a["classification"])
+          print("K4X_OUTCOME_DETAIL="+json.dumps(a["methods"],sort_keys=True))
+          PY
+          git diff --exit-code
+          git diff --cached --exit-code
+      - name: Preserve source-only derived receipts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4x-synthetic-credit-source-only
+          path: ${{ runner.temp }}/k4x/*.json
+          if-no-files-found: warn
+          retention-days: 90
