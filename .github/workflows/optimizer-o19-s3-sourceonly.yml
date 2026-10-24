@@ -1,0 +1,41 @@
+name: Optimizer O19-S3 changing occupancy source-only checks
+on:
+  push:
+    branches: [research/optimizer-o19-s3-public-change-memory-20261024]
+    paths:
+      - "research/optimizer_o19_s3/**"
+      - ".github/workflows/optimizer-o19-s3-sourceonly.yml"
+  pull_request:
+    paths:
+      - "research/optimizer_o19_s3/**"
+      - ".github/workflows/optimizer-o19-s3-sourceonly.yml"
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: sourceonly-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run all public-input integrity and negative controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_o19_s3 -p "test_*.py" -v
+      - name: Reproduce exact source-only negative receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o19_s3/benchmark.py > o19-s3-actual.json
+          python -B -c 'import json; a=json.load(open("o19-s3-actual.json")); b=json.load(open("research/optimizer_o19_s3/RESULT.json")); assert a==b, ("O19_S3_FROZEN_NEGATIVE_RECEIPT_DRIFT", a, b)'
