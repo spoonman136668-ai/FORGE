@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -103,13 +104,24 @@ def lookup(root, expected_sha, query, limit=5, source_read=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mind-palace-root", required=True, type=Path)
-    parser.add_argument("--commit", required=True)
+    parser.add_argument("--mind-palace-root", type=Path)
+    parser.add_argument("--commit")
+    parser.add_argument("--private-github", action="store_true")
     parser.add_argument("--query", required=True)
     parser.add_argument("--limit", type=int, default=5)
     args = parser.parse_args()
-    print(json.dumps(lookup(args.mind_palace_root, args.commit, args.query, args.limit),
-                     sort_keys=True, indent=2))
+    if args.private_github:
+        if args.mind_palace_root or args.commit:
+            fail("MIXED_SOURCE_MODE")
+        from private_github import GitHubBIO
+        source = GitHubBIO(os.environ.get("FORGE_MIND_PALACE_READ_TOKEN", ""))
+        pin = source.resolve_main()
+        result = lookup(None, pin, args.query, args.limit, source_read=source.read_at)
+    else:
+        if not args.mind_palace_root or not args.commit:
+            fail("LOCAL_SOURCE_REQUIRED")
+        result = lookup(args.mind_palace_root, args.commit, args.query, args.limit)
+    print(json.dumps(result, sort_keys=True, indent=2))
 
 
 if __name__ == "__main__":
