@@ -63,6 +63,16 @@ class AuditAdmissionTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 gate.preflight(p/"no-contract",p/"no-seal",out)
             self.assertFalse(out.exists())
+    def test_exact_contract_crlf_and_lf_equal_but_field_drift_fails(self):
+        raw=(Path(__file__).resolve().parent/"L9_AUDIT_ADMISSION_CONTRACT.json").read_bytes()
+        normalized=raw.replace(b"\r\n",b"\n")
+        original=gate.validate_contract_bytes(normalized)
+        converted=gate.validate_contract_bytes(normalized.replace(b"\n",b"\r\n"))
+        self.assertEqual(original,converted)
+        tampered=normalized.replace(b'"total_audit_dev": 319',b'"total_audit_dev": 318')
+        self.assertNotEqual(tampered,normalized)
+        with self.assertRaises(ValueError):gate.validate_contract_bytes(tampered)
+
     def test_all_methods_and_heldout_counts_frozen(self):
         self.assertEqual(len(gate.METHODS),7)
         self.assertEqual(set(gate.EXPECTED),{
