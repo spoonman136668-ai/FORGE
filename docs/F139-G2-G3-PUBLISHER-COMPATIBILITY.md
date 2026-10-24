@@ -21,3 +21,15 @@ not G1 cross-context outcome pooling.
 - This PR changes no Yggdrasil source and performs no G2 publish/worker dispatch.
 - The source-only G3 hypothesis may be a **negative** and is not independently
   scientific-first-use qualified. No acceptance/promotion is permitted.
+
+## Bounded complete GitHub PR history
+
+G2 previously rejected a full first page as incomplete. Its read-only
+preflight now enumerates all open and closed PRs in descending PR-number
+order in up to twelve 100-result pages. Every entry requires a numeric
+PR number and a nonempty source-branch ref. Any duplicate/out-of-order
+number, missing/malformed page, historical matching source branch,
+exhausted scan budget, or changed first page at final reread fails
+closed before any owner-signed write. The original owner's immutable
+history and candidate/mechanism identity checks remain independent and
+mandatory. This is one-shot owner publisher preflight, not a new queue.

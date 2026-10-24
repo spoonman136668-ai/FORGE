@@ -147,14 +147,47 @@ def publisher_preflight(get: Callable[[str], object], *,
     refs = get(f"repos/{repo}/git/matching-refs/heads/{branch_name}")
     need(isinstance(refs, list) and len(refs) == 0,
          "SOURCE_BRANCH_EXISTS_OR_UNVERIFIED")
-    prs = get(f"repos/{repo}/pulls?state=all&per_page=100&page=1")
-    need(isinstance(prs, list) and len(prs) < 100,
-         "PR_HISTORY_INCOMPLETE")
-    for pr in prs:
-        need(not (isinstance(pr, dict) and
-                  isinstance(pr.get("head"), dict)
-                  and pr["head"].get("ref") == branch_name),
-             "PR_ALREADY_PUBLISHED")
+    # Exhaust the bounded public PR catalog: a 100-row first page is not
+    # a complete uniqueness witness. Re-read page one against drift.
+    seen: set[int] = set()
+    first_page: list[tuple[int, str]] | None = None
+    last_number: int | None = None
+    for page in range(1, 13):
+        route = f"repos/{repo}/pulls?state=all&per_page=100&page={page}"
+        prs = get(route)
+        need(isinstance(prs, list) and len(prs) <= 100,
+             "PR_HISTORY_PAGE_INVALID")
+        identities: list[tuple[int, str]] = []
+        for pr in prs:
+            need(isinstance(pr, dict) and
+                 type(pr.get("number")) is int and pr["number"] > 0 and
+                 isinstance(pr.get("head"), dict) and
+                 isinstance(pr["head"].get("ref"), str) and
+                 bool(pr["head"]["ref"]),
+                 "PR_HISTORY_ENTRY_UNVERIFIED")
+            number, ref = pr["number"], pr["head"]["ref"]
+            need(number not in seen and
+                 (last_number is None or number < last_number),
+                 "PR_HISTORY_CHANGED_DURING_SCAN")
+            seen.add(number)
+            last_number = number
+            identities.append((number, ref))
+            need(ref != branch_name, "PR_ALREADY_PUBLISHED")
+        if page == 1:
+            first_page = identities
+        if len(prs) < 100:
+            fresh = get(f"repos/{repo}/pulls?state=all&per_page=100&page=1")
+            need(isinstance(fresh, list) and
+                 len(fresh) == len(first_page) and
+                 all(isinstance(item, dict) and
+                     type(item.get("number")) is int and
+                     isinstance(item.get("head"), dict) and
+                     (item["number"], item["head"].get("ref")) == identity
+                     for item, identity in zip(fresh, first_page)),
+                 "PR_HISTORY_CHANGED_DURING_SCAN")
+            break
+    else:
+        need(False, "PR_HISTORY_EXCEEDS_BOUNDED_SCAN")
     return {
         "schema": SCHEMA,
         "recipe": recipe,

@@ -38,6 +38,51 @@ def publish(owner, plan, *, mechanisms=None, candidates=None, witness=True):
     )
 
 
+
+class PagedOwner(FakeOriginalOwner):
+    """Synthetic full history; never executes network writes."""
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+        self.duplicate_branch = None
+        self.repeat = False
+        self.drift = False
+        self.invalid_page = None
+        self.malformed = False
+        self.full_cap = False
+
+    def get(self, route):
+        prefix = f"repos/{self.repo}/pulls?state=all&per_page=100&page="
+        if route.startswith(prefix):
+            page = int(route[len(prefix):])
+            self.calls.append(page)
+            if self.invalid_page == page:
+                return None
+            if self.full_cap:
+                start = 2400 - (page - 1) * 100
+                numbers = range(start, start - 100, -1)
+            elif page == 1:
+                numbers = range(500, 400, -1)
+            elif page == 2:
+                numbers = range(400, 300, -1)
+            elif page == 3:
+                numbers = range(300, 294, -1)
+            else:
+                numbers = ()
+            rows = [{"number": number, "head": {"ref": f"historical/{number}"}}
+                    for number in numbers]
+            if self.duplicate_branch and page == 2:
+                rows[-1]["head"]["ref"] = self.duplicate_branch
+            if self.repeat and page == 2:
+                rows[0]["number"] = 500
+            if self.malformed and page == 2:
+                rows[0].pop("head")
+            if self.drift and page == 1 and self.calls.count(1) == 2:
+                rows[0]["head"]["ref"] = "concurrent/changed"
+            return rows
+        return super().get(route)
+
+
 class G3PublisherTests(unittest.TestCase):
     def test_g3_preflight_distinct_from_g1_and_never_authorizes_writes(self):
         owner = FakeOriginalOwner()
@@ -118,6 +163,48 @@ class G3PublisherTests(unittest.TestCase):
         self.assertEqual(len(owner.write_calls), 2)
         with self.assertRaisesRegex(PublisherDenied, "SOURCE_BRANCH_EXISTS"):
             preflight(owner)
+
+
+    def test_pagination_reads_full_history_and_rechecks_page_one(self):
+        owner = PagedOwner()
+        plan = preflight(owner)
+        self.assertEqual(plan["recipe"], RECIPE_G3)
+        self.assertEqual(owner.calls, [1, 2, 3, 1])
+        self.assertEqual(owner.write_calls, [])
+
+    def test_second_page_duplicate_draft_branch_fails_closed(self):
+        owner = PagedOwner()
+        first = preflight(owner)
+        owner.duplicate_branch = first["branch"]
+        with self.assertRaisesRegex(PublisherDenied, "PR_ALREADY_PUBLISHED"):
+            preflight(owner)
+        self.assertFalse(owner.write_calls)
+
+    def test_repeated_or_changed_page_fails_closed(self):
+        owner = PagedOwner()
+        owner.repeat = True
+        with self.assertRaisesRegex(PublisherDenied, "PR_HISTORY_CHANGED"):
+            preflight(owner)
+        owner = PagedOwner()
+        owner.drift = True
+        with self.assertRaisesRegex(PublisherDenied, "PR_HISTORY_CHANGED"):
+            preflight(owner)
+        self.assertFalse(owner.write_calls)
+
+    def test_missing_malformed_or_unbounded_page_fails_closed(self):
+        owner = PagedOwner()
+        owner.invalid_page = 2
+        with self.assertRaisesRegex(PublisherDenied, "PR_HISTORY_PAGE_INVALID"):
+            preflight(owner)
+        owner = PagedOwner()
+        owner.malformed = True
+        with self.assertRaisesRegex(PublisherDenied, "PR_HISTORY_ENTRY_UNVERIFIED"):
+            preflight(owner)
+        owner = PagedOwner()
+        owner.full_cap = True
+        with self.assertRaisesRegex(PublisherDenied, "PR_HISTORY_EXCEEDS_BOUNDED_SCAN"):
+            preflight(owner)
+        self.assertFalse(owner.write_calls)
 
     def test_g1_default_contract_remains_unchanged(self):
         owner = FakeOriginalOwner()
