@@ -1,0 +1,73 @@
+name: Mass K4M read-only original K4L mechanism audit
+on:
+  push:
+    branches: [research/mass-lcrm01-k4m-frozen-mechanism-audit-20261024]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  original-evidence-hindsight-diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 12
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify protocol-first historical custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 'f6482313f1ed13b4b30b397afbfac70af5753382^')" = '51d35db659721f3a75add7f8f0f2bd06773ca12b'
+          git merge-base --is-ancestor f6482313f1ed13b4b30b397afbfac70af5753382 HEAD
+          test "$(git hash-object research/lcrm01/k4m_frozen_mechanism_audit.json)" = '05c20db23e563e028bb4f7f7b22fd00a05f0b32f'
+          test "$(git hash-object research/lcrm01/k4l_frozen_multicontext.json)" = 'c69aec62a50417947f3ad6e9615a2afc55625033'
+          echo 'K4M_ORIGINAL_SOURCE_IDENTITY=PASS'
+      - name: Qualify frozen read-only hindsight diagnostic
+        run: PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p 'test_k4m_sourceonly.py' -v
+      - name: Retrieve pinned original K4L artifact with read-only GitHub permissions
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4m"
+          curl --fail --location --silent --show-error --retry 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12557353693/zip' \
+            -o "$RUNNER_TEMP/k4m/original-k4l.zip"
+          echo 'cba30546d96b3fc2b0c5c07f8dc291f55c99660cbf764505266ab19e15df3c15  '$RUNNER_TEMP'/k4m/original-k4l.zip' | sha256sum -c -
+          echo 'K4M_K4L_ORIGINAL_PIN=PASS'
+      - name: Recompute K4L original decisions and deterministic omitted-memory ablation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/k4m_mechanism_audit.py \
+            --artifact-zip "$RUNNER_TEMP/k4m/original-k4l.zip" \
+            --output "$RUNNER_TEMP/k4m/diagnostic.json" | tee "$RUNNER_TEMP/k4m/diagnostic.log"
+          python -B - <<'PY'
+          import json,os,pathlib
+          r=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"k4m/diagnostic.json").read_text())
+          assert r["classification"]=="DETERMINISTIC_FIT_EXEMPLAR_SELECTION_LOSS"
+          assert r["verified_original_DEV_choices_per_process"]==16
+          assert r["fresh_Python_OS_processes_reconciled"]==2
+          assert r["unmodified_K4L_scientific_NO_GO"] is True
+          assert r["new_scientific_positive"] is False
+          assert r["scientific_first_use"] is False
+          assert r["scientific_accepted"] is False
+          print("K4M_RETROSPECTIVE_ONLY_NO_SCIENCE_PROMOTION=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4m-original-read-only-mechanism-audit
+          path: |
+            ${{ runner.temp }}/k4m/diagnostic.json
+            ${{ runner.temp }}/k4m/diagnostic.log
+          if-no-files-found: warn
+          retention-days: 90
