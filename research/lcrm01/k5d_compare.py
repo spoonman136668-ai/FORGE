@@ -21,7 +21,7 @@ def compare(a,b):
   if (r.get("schema")!=SCHEMA or r.get("gate")!="LCRM01-K5D"
    or r.get("result")!="COMPLETE_CONSTRUCTED_PUBLIC_CAUSAL_EXPERIMENT"
    or r.get("frozen_protocol_sha256")!=h
-   or r.get("native_R6_original_git_blob")!="R6_PINNED_GIT_BLOB"
+   or r.get("native_R6_original_git_blob")!="236386eab51461343d3c2103851ad1de110769a4"
    or r.get("calibration_source_events")!=210
    or r.get("source_native_cold_OS_restore") is not True
    or r.get("native_original_source_FIT_observations")!=210
