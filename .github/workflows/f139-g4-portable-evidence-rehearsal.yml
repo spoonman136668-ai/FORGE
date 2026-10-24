@@ -145,6 +145,28 @@ jobs:
               assert transition["scientific_first_use"] is False
               assert transition["custodied_negative_tasks"]>=11
               db.verify()
+              # Owner-native activation is source-bound and must be exercised
+              # only on this original-custody-directory disposable SQLite.
+              from f139.nci04_owner_ledger import (
+                  activate_native, verify_native_activation)
+              approval={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":candidate,
+                  "expected_event_head_sha256":new_meta["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,
+                  "create_controller":False,
+                  "paid_api_calls":0,
+              }
+              assert activate_native(db,approval),"F139_G4_SCRATCH_ACTIVATION_DENIED"
+              db.verify()
+              assert verify_native_activation(db)
+              assert db.meta()["head_seq"]==old_meta["head_seq"]+2
+              assert [tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM tasks ORDER BY ticket")]==old_tasks
+              assert db.active() is None and db.ready() is None
+              print("F139_G4_SCRATCH_NATIVE_ACTIVATION=PASS")
+              print("F139_G4_SCRATCH_FIRST_USE=FALSE")
               print("F139_G4_SCRATCH_SOURCE_TRANSITION=PASS")
               print("F139_G4_SCRATCH_TRANSITION_SCHEMA="+transition["schema"])
               print("F139_G4_SCRATCH_HISTORY_AND_TASKS=UNCHANGED")
