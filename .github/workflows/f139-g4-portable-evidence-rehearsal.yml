@@ -84,7 +84,7 @@ jobs:
           output=pathlib.Path(sys.argv[3])
           root=pathlib.Path(sys.argv[4]).resolve(strict=True)
           package_file=pathlib.Path(sys.argv[5]).resolve(strict=True)
-          ticket=sys.argv[6];pin=sys.argv[7]
+          ticket=sys.argv[6];pin=sys.argv[7];candidate=sys.argv[8]
           sys.path.insert(0,str(root))
           from f139.local_controller import Database
           con=sqlite3.connect(origin.as_uri()+"?mode=ro",uri=True,timeout=30)
@@ -109,6 +109,46 @@ jobs:
               print("F139_G4_ORIGINAL_OWNER_SEQ="+str(db.meta()["head_seq"]))
               print("F139_G4_PORTABLE_BYTES="+str(len(raw)))
               print("F139_G4_SCIENTIFIC_FIRST_USE=FALSE")
+              # Only the same-root disposable SQLite backup is mutated here.
+              # Every historic event and task is checked before and after.
+              old_meta=dict(db.meta())
+              old_tasks=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM tasks ORDER BY ticket")]
+              old_events=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM events ORDER BY seq")]
+              assert candidate != pin and len(candidate)==40
+              db.transition_source(candidate,allow_certified_negative=True)
+              new_meta=dict(db.meta())
+              new_tasks=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM tasks ORDER BY ticket")]
+              new_events=[tuple(r) for r in db.conn.execute(
+                  "SELECT * FROM events ORDER BY seq")]
+              assert old_tasks==new_tasks,"F139_G4_SCRATCH_TASKS_DRIFT"
+              assert new_events[:-1]==old_events,"F139_G4_HISTORY_CHANGED"
+              assert new_meta["head_seq"]==old_meta["head_seq"]+1
+              assert new_meta["source_sha"]==candidate
+              assert new_meta["head_hash"]!=old_meta["head_hash"]
+              assert new_meta["enabled"]==old_meta["enabled"]
+              assert new_meta["legacy_suspended"]==old_meta["legacy_suspended"]
+              terminal=db.conn.execute(
+                  "SELECT kind,payload,prior_sha FROM events ORDER BY seq DESC LIMIT 1"
+              ).fetchone()
+              transition=json.loads(terminal["payload"])
+              assert terminal["kind"]=="SOURCE_TRANSITION_ADMITTED"
+              assert terminal["prior_sha"]==old_meta["head_hash"]
+              assert transition["schema"] in (
+                  "forge.f139.source-transition.v4",
+                  "forge.f139.source-transition.v5")
+              assert transition["from_source_sha"]==pin
+              assert transition["to_source_sha"]==candidate
+              assert transition["new_dispatches"]==0
+              assert transition["scientific_first_use"] is False
+              assert transition["custodied_negative_tasks"]>=11
+              db.verify()
+              print("F139_G4_SCRATCH_SOURCE_TRANSITION=PASS")
+              print("F139_G4_SCRATCH_TRANSITION_SCHEMA="+transition["schema"])
+              print("F139_G4_SCRATCH_HISTORY_AND_TASKS=UNCHANGED")
+              print("F139_G4_ORIGINAL_OWNER_MIGRATION=NOT_ATTEMPTED")
           finally:db.close()
           after=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
           assert after==before,"F139_G4_ORIGINAL_DB_CHANGED"
@@ -116,7 +156,7 @@ jobs:
           print("F139_G4_ORIGINAL_SQLITE_READONLY=TRUE")
           '@
           try {
-            & $python -B -c $code $db $scratch $output $root (Join-Path $env:GITHUB_WORKSPACE 'f139/portable_evidence.py') $ticket $source
+            & $python -B -c $code $db $scratch $output $root (Join-Path $env:GITHUB_WORKSPACE 'f139/portable_evidence.py') $ticket $source $env:GITHUB_SHA
             if($LASTEXITCODE -ne 0){throw 'F139_G4_ORIGINAL_EXPORT_FAILED'}
           } finally {
             foreach($suffix in @('','-wal','-shm')){
