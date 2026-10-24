@@ -1,0 +1,73 @@
+name: Mass K4O pinned original source-only mechanism identification
+on:
+  push:
+    branches: [research/mass-lcrm01-k4o-mechanism-discrimination-20261024]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  read-only-original-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 12
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify protocol-first frozen source and ancestor science
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse '3d1989809418e6c0b42073d134ffe7823bbd45a6^')" = '4057fd2edd18f91bc79f5a908c1859384eec6db7'
+          git merge-base --is-ancestor 3d1989809418e6c0b42073d134ffe7823bbd45a6 HEAD
+          test "$(git hash-object research/lcrm01/k4o_frozen_mechanism_audit.json)" = '93b996c20d2c58547ba19b2576b395605dd785b3'
+          test "$(git hash-object research/lcrm01/k4n_frozen_decision_coreset.json)" = '6c5265daf4dcf3db11fda4051f20f8ec780b9b54'
+          echo 'K4O_ORIGINAL_FROZEN_SOURCE=PASS'
+      - name: Adversarial pure-original predictor tests
+        shell: bash
+        run: PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p 'test_k4o_sourceonly.py' -v
+      - name: Read-only original K4N artifact retrieval and byte custody
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4o"
+          curl --fail --location --silent --show-error --retry 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12558480759/zip' \
+            -o "$RUNNER_TEMP/k4o/original-k4n.zip"
+          echo 'd7b1c086ad05247ea95b9876243063a264c9bcf855fb90bd2ad8b0ff5adba13f  '$RUNNER_TEMP'/k4o/original-k4n.zip' | sha256sum -c -
+      - name: Reconstruct all source decisions and boundary counterfactuals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/k4o_mechanism_audit.py \
+            --artifact-zip "$RUNNER_TEMP/k4o/original-k4n.zip" \
+            --output "$RUNNER_TEMP/k4o/retrospective-audit.json" | tee "$RUNNER_TEMP/k4o/retrospective-audit.log"
+          python -B - <<'PY'
+          import json,os,pathlib
+          x=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"k4o/retrospective-audit.json").read_text())
+          assert x["result"]=="READ_ONLY_MECHANISM_BOUNDARIES_IDENTIFIED"
+          assert x["original_reaching_pushing_DEV_choices_reconstructed_per_process"]==16
+          assert x["two_original_process_diagnostics_agree"] is True
+          assert len(x["source_context_checks"])==2
+          assert x["original_no_go_preserved"] is True
+          assert x["new_scientific_positive"] is False
+          assert x["scientific_first_use"] is False and x["scientific_accepted"] is False
+          print("K4O_SCIENTIFIC_ADVANCEMENT=NO_NEW_CLAIM")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4o-original-information-capacity-diagnostic
+          path: |
+            ${{ runner.temp }}/k4o/retrospective-audit.json
+            ${{ runner.temp }}/k4o/retrospective-audit.log
+          if-no-files-found: warn
+          retention-days: 90
