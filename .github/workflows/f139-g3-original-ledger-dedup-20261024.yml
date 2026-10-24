@@ -1,0 +1,94 @@
+name: F139 G3 original ledger dedup read only
+on:
+  push:
+    branches: [audit/f139-g3-original-native-dedup-20261024]
+    paths: [.github/workflows/f139-g3-original-ledger-dedup-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-ledger:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Check G3 against original read-only F139 admission history
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_OWNER_RUNNER_DRIFT'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+             [string]$t.State -cnotin @('Ready','Running')){throw 'F139_OWNER_TASK_DRIFT'}
+          $options=[string]$t.Actions[0].Arguments
+          function ReadOption([string]$name) {
+            $match=[regex]::Match($options,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $match.Success){throw 'F139_OWNER_ARGUMENT_DRIFT'}
+            return $match.Groups[1].Value
+          }
+          $db=ReadOption 'Database'
+          $root=ReadOption 'RepositoryRoot'
+          $py=ReadOption 'PythonExe'
+          $expected=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expected)){throw 'F139_OWNER_DB_DRIFT'}
+          $source=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($source -cne '8eca700c39223e176dea55f488b6f3397ce4e27a'){throw 'F139_OWNER_SOURCE_DRIFT'}
+          $audit=@'
+          import hashlib,json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          path=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.nci04_autonomy_feed import candidate_identity
+          def canonical(v):
+              return (json.dumps(v,sort_keys=True,separators=(",",":"),ensure_ascii=True)+"\n").encode()
+          conn=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=25)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          try:
+              m=conn.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert m is not None and m["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              assert m["enabled"]==1 and m["legacy_suspended"]==1 and m["head_seq"]>=206
+              prev="0"*64
+              admitted=[]
+              count=0
+              for row in conn.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  count+=1
+                  assert row["seq"]==count and row["prior_sha"]==prev
+                  payload=json.loads(row["payload"])
+                  assert canonical(payload).decode("ascii")==row["payload"]
+                  calculated=hashlib.sha256(canonical({"seq":count,"kind":row["kind"],
+                      "payload":payload,"prior_sha":prev})).hexdigest()
+                  assert calculated==row["sha"]
+                  prev=row["sha"]
+                  if row["kind"]=="NATIVE_DEVELOPMENT_ADMITTED":
+                      admitted.append(payload)
+              assert count==m["head_seq"] and prev==m["head_hash"]
+              after="0c5cf02b350a693868bdcb0ee3ce71ef00180729d955ff5a98eb4b6a81196508"
+              parent="992ef142aaa551156749a1de484a971b9a0c092f"
+              path_name="yggdrasil/public_causal_cells.py"
+              target=candidate_identity("Yggdrasil",parent,path_name,after)
+              exact=[]
+              source_matches=[]
+              seen=set()
+              for event in admitted:
+                  current=candidate_identity(event["lane"],
+                      event["native_target_commit"],event["native_path"],event["after_sha256"])
+                  assert current not in seen
+                  seen.add(current)
+                  if current==target:exact.append(event["issue_number"])
+                  if event["after_sha256"]==after:source_matches.append(event["issue_number"])
+              issue_numbers=sorted(e["issue_number"] for e in admitted)
+              print("F139_G3_ORIGINAL_SOURCE_PIN=PASS")
+              print("F139_G3_ORIGINAL_EVENT_CHAIN=PASS")
+              print("F139_G3_ORIGINAL_EVENT_HEAD="+str(count))
+              print("F139_G3_ORIGINAL_NATIVE_ADMISSIONS="+str(len(admitted)))
+              print("F139_G3_ORIGINAL_ADMITTED_ISSUE_NUMBERS="+",".join(map(str,issue_numbers)))
+              print("F139_G3_EXACT_CANDIDATE_COLLISIONS="+str(len(exact)))
+              print("F139_G3_GENERATED_SOURCE_COLLISIONS="+str(len(source_matches)))
+              assert not exact and not source_matches
+              print("F139_G3_ORIGINAL_NATIVE_DEDUP=PASS")
+              print("F139_G3_NO_MUTATION_OR_DISPATCH=TRUE")
+              print("F139_G3_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              conn.close()
+          '@
+          & $py -B -c $audit $root $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G3_ORIGINAL_DEDUP_FAILED'}
