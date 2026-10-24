@@ -14,10 +14,10 @@ for f in ("k5b_memory_trial.py","k5b_compare.py"):
 print("K5B_SOURCE_AST=PASS")
 PY
 export PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01"
-python -B -m unittest discover -s research/lcrm01 -p 'test_k5b_sourceonly.py' -v
 mkdir -p "$RUNNER_TEMP/k5b"
 python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
 python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+python -B -m unittest discover -s research/lcrm01 -p 'test_k5b_sourceonly.py' -v
 git init -q "$RUNNER_TEMP/k5b/minigrid"
 git -C "$RUNNER_TEMP/k5b/minigrid" remote add origin https://github.com/Farama-Foundation/Minigrid.git
 git -C "$RUNNER_TEMP/k5b/minigrid" fetch --no-tags --depth 1 origin 7f5853792ea7f04f75614661006d87fcf949f26d
