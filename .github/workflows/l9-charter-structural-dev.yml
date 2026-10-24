@@ -1,0 +1,86 @@
+name: Research Charter L9 equal-information synthetic structural control
+on:
+  pull_request:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: charter-l9-structural-dev-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  structural-falsification-dev:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Freeze prior complete original L9 candidate and forbid unrelated mutations
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=af7a27096fa1c6177755d69188994d1345fee259
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_train_select_candidate.py)" = 0d2b10cbf9879dd168be1dfc954dfca2928e841e
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/L9_FROZEN_PROTOCOL.json)" = 1602946d8c03e15324d36cd730691caccd12652f
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/L9_MODEL_CONTRACT.json)" = 4eab05a2b9011ebbaa34d01778e7f185807704c2
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/l9_charter_structural_dev.py","research/optimizer_language_l9/test_l9_charter_structural_dev.py",".github/workflows/l9-charter-structural-dev.yml"}; assert a==b,(a,b)'
+          echo "RC_L9S_ORIGINAL_FROZEN_L9_SOURCE_UNCHANGED=TRUE"
+      - name: Focused adversarial structural controls and previous frozen source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_charter_structural_dev.py -v
+          (cd research/optimizer_language_l9 && python -B -m unittest -v test_l9_model_suite test_l9_train_select_candidate)
+      - name: Execute only fabricated train and unfamiliar structural combinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l9/l9_charter_structural_dev.py --out "$RUNNER_TEMP/l9-charter-structural-control.json"
+          python - "$RUNNER_TEMP/l9-charter-structural-control.json" <<'PY'
+          import json,sys,hashlib
+          data=open(sys.argv[1],"rb").read()
+          r=json.loads(data)
+          assert r["status"]=="BOUNDED_SYNTHETIC_DEVELOPMENT_CONTROL_NEGATIVE_NO_SEMANTIC_GO"
+          assert r["training_records"]==32 and r["development_records"]==144
+          assert r["equal_train_facts_and_references"]
+          assert r["identical_graph_input_privileges"]
+          assert r["adversarial"]["candidate_derived_global_proxy_swapped_hits"]==2
+          assert r["adversarial"]["triple_local_binding_rejects_swapped"]
+          assert not r["l9_audit_dev_consumed"] and not r["official_webnlg_test_consumed"]
+          assert not r["scientific_go"] and not r["full_resource_pareto_proven"]
+          for key in ("COMPOSITIONAL_PATTERN","SLOT_GRAMMAR_CONTROL"):
+              q=r["methods"][key]["quality"]
+              assert q["known_graph_correct"]==q["known_graph_denominator"]==128
+              assert q["unknown_abstentions"]==16
+              assert r["methods"][key]["inference_benchmark"]["repeats"]==17
+          quality={k:v["quality"] for k,v in r["methods"].items()}
+          qraw=(json.dumps(quality,sort_keys=True,separators=(",",":"))+"\n").encode()
+          print("RC_L9S_EXACT_ARTIFICIAL_BINDING_KNOWN_128_OF_128_BOTH=PASS")
+          print("RC_L9S_UNKNOWN_ABSTENTIONS_16_OF_16_BOTH=PASS")
+          print("RC_L9S_SYNTHETIC_QUALITY_SHA256="+hashlib.sha256(qraw).hexdigest())
+          print("RC_L9S_SCIENTIFIC_GO=FALSE")
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: charter-l9-structural-synthetic-${{ matrix.os }}
+          path: ${{ runner.temp }}/l9-charter-structural-control.json
+          if-no-files-found: error
