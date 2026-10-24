@@ -24,7 +24,7 @@ def reject(condition: bool, reason: str) -> None:
 
 
 def git_blob(raw: bytes) -> str:
-    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
 
 
 def find_unique(nodes, name: str, kind) -> ast.AST:
@@ -141,7 +141,7 @@ def main() -> None:
                    (root / "l9_neural_select_only.py").read_bytes())
     reject(not args.out.exists(), "REFUSE_OVERWRITE")
     args.out.write_bytes((json.dumps(report, sort_keys=True,
-                                    separators=(",", ":")) + "\\n").encode("utf-8"))
+                                    separators=(",", ":")) + "\n").encode("utf-8"))
     print("L9_FROZEN_COMPUTE_PARITY_STATIC=PASS")
     print("L9_PARETO_EFFICIENCY_CERTIFIED=FALSE")
 
