@@ -71,6 +71,22 @@ class IndependentVerificationTests(unittest.TestCase):
         self.assertFalse(d["scientific_go"])
         self.assertTrue(d["no_new_audit_read"])
         self.assertEqual(d["category_example_counts"],[31,153,135])
+    def test_authentic_frozen_source_label_order_valid_but_cross_arm_reordering_fails(self):
+        # Source rows are label-sorted; hashed identifiers are not hash-sorted.
+        # This test reproduces the independently authenticated source order,
+        # without touching actual references or first-use models.
+        order=["ccc9ff052aee8da1c7d607bee2283e981bd0bdce2de409fe3789ada64e20e080",
+               "70b1e8e06785cae451496104850781f33faf6cc8e0777ecd3a9ccaaefb154b2d",
+               "6c58160fe1935610171c4ef8e12c2fcb96cbb168db852a927e968b8dda7b0e11"]
+        d=fake()
+        for arm in d["arms"]:
+            by_hash={r["category_sha256"]:r for r in arm["categories"]}
+            arm["categories"]=[by_hash[k] for k in order]
+        self.assertEqual(self.check(d)["heldout_examples"],319)
+        d["arms"][-1]["categories"].reverse()
+        with self.assertRaisesRegex(ValueError,"cross-arm category order drift"):
+            self.check(d)
+
     def test_unrecognized_raw_source_fields_rejected(self):
         for target in ("top","arm","category"):
             d=fake()
