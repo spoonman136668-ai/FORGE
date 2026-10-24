@@ -1,0 +1,151 @@
+name: MP PR614 source admission read only preflight
+on:
+  push:
+    branches: [diagnostics/mp-pr614-source-admission-preflight-20261023]
+    paths: [.github/workflows/mp-pr614-source-admission-preflight-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-pr614-source-admission-preflight-20261023
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify exact source and live custody without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_PR614_PREFLIGHT_'+$c)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-pr614-source-admission-preflight-20261023') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Need ((& git.exe rev-parse HEAD).Trim() -ceq $env:GITHUB_SHA) 'HEAD'
+          $parent='58dc4cc483349249c98f1620b51b843b9e927468'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-pr614-source-admission-preflight-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $repo='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $base='7b7d01f26cfe4d051956f82c7c45f6df507ecd0a'
+          $head='89da48e542ab03eff1f483a53fdd7b4ab3334e0c'
+          $branch='proposal/mp-preservation-r220-versioned-20261023'
+          $main=@(& git.exe ls-remote --exit-code $repo 'refs/heads/main')
+          Need ($LASTEXITCODE -eq 0 -and $main.Count -eq 1 -and ([string]($main[0]-split '\s+')[0]) -ceq $base) 'CKB_MAIN_DRIFT'
+          $candidate=@(& git.exe ls-remote --exit-code $repo ('refs/heads/'+$branch))
+          Need ($LASTEXITCODE -eq 0 -and $candidate.Count -eq 1 -and ([string]($candidate[0]-split '\s+')[0]) -ceq $head) 'PR614_HEAD_DRIFT'
+          Write-Host 'MP_PR614_PREFLIGHT_SOURCE_PINS=PASS'
+
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $root -PathType Container) 'ROOT'
+          $protected=@('config\autonomy.yaml','bin\ckb-plane.exe')
+          foreach($optional in @('internal\plane\model.go','internal\plane\status_projection.go','scripts\Start-CKBPlane.ps1')){
+            if(Test-Path -LiteralPath (Join-Path $root $optional) -PathType Leaf){$protected += $optional}
+          }
+          $before=@{}
+          foreach($rel in $protected){
+            $p=Join-Path $root $rel
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ('FILE_MISSING_'+$rel)
+            $before[$rel]=Hash $p
+          }
+
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procs.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $pid=[int]$procs[0].ProcessId
+          $exe=[string]$procs[0].ExecutablePath
+          Need ($exe -and (Test-Path -LiteralPath $exe -PathType Leaf)) 'CONTROLLER_IMAGE'
+          $liveExeHash=Hash $exe
+          Write-Host ('MP_PR614_PREFLIGHT_LIVE_EXE_SHA256='+$liveExeHash)
+          Write-Host 'MP_PR614_PREFLIGHT_SINGLE_CONTROLLER=PASS'
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-pr614-preflight-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+          $py=@'
+          import json, pathlib, re, sqlite3, sys, urllib.parse
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          snap=pathlib.Path(sys.argv[3]).resolve()
+          def need(v,c):
+              if not v: raise RuntimeError("MP_PR614_PREFLIGHT_"+c)
+          text=cfg.read_text(encoding="utf-8-sig")
+          state_indent=None; db_name=None
+          for line in text.splitlines():
+              indent=len(line)-len(line.lstrip(" "))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+                  state_indent=indent; continue
+              if state_indent is None: continue
+              if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
+                  state_indent=None; continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+              if m:
+                  db_name=m.group(1).strip().strip("\"'"); break
+          need(db_name is not None,"DB_LOCATOR")
+          live=(pathlib.Path(db_name) if pathlib.Path(db_name).is_absolute() else root/pathlib.Path(db_name)).resolve()
+          need(live.is_relative_to(root) and live.is_file(),"DB_SCOPE")
+          uri="file:"+urllib.parse.quote(str(live).replace("\\","/"),safe="/:")+"?mode=ro"
+          with sqlite3.connect(uri,uri=True,timeout=5.0) as src:
+              src.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(str(snap)) as dst:
+                  src.backup(dst)
+          with sqlite3.connect(str(snap)) as db:
+              need(db.execute("PRAGMA integrity_check").fetchone()[0]=="ok","SNAPSHOT_INTEGRITY")
+              def exists(name):
+                  return db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone() is not None
+              def cols(name):
+                  return {r[1] for r in db.execute("PRAGMA table_info("+name+")")} if exists(name) else set()
+              work_total=db.execute("SELECT count(*) FROM work_orders").fetchone()[0] if exists("work_orders") else -1
+              active_states=("AUTHORIZED","READY","ENGINEERING","CANDIDATE","ACCEPTING","REJECTED_RETRYABLE")
+              active_work=0
+              if exists("work_orders") and "state" in cols("work_orders"):
+                  active_work=db.execute("SELECT count(*) FROM work_orders WHERE state IN (?,?,?,?,?,?)",active_states).fetchone()[0]
+              leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0] if exists("worker_leases") else -1
+              active_queue=0
+              if exists("queue_items") and "state" in cols("queue_items"):
+                  qs=("QUEUED","RUNNING","RETRY_WAIT","FINALIZING","WAITING_FOR_EXTERNAL_ORCHESTRATOR")
+                  active_queue=db.execute("SELECT count(*) FROM queue_items WHERE state IN (?,?,?,?,?)",qs).fetchone()[0]
+              settings={}
+              if exists("settings"):
+                  c=cols("settings")
+                  if {"key","value"}.issubset(c):
+                      for k in ("paused","autonomy_authority","autonomy_generation"):
+                          r=db.execute("SELECT value FROM settings WHERE key=?",(k,)).fetchone()
+                          settings[k]=r[0] if r else None
+              out={
+                "work_orders":work_total,
+                "active_work_orders":active_work,
+                "worker_leases":leases,
+                "active_queue_items":active_queue,
+                "paused":settings.get("paused"),
+                "authority":settings.get("autonomy_authority"),
+                "generation":settings.get("autonomy_generation"),
+              }
+              print("MP_PR614_PREFLIGHT_DB_JSON="+json.dumps(out,sort_keys=True,separators=(",",":")))
+              print("MP_PR614_PREFLIGHT_SQLITE_INTEGRITY=PASS")
+              print("MP_PR614_PREFLIGHT_LIVE_SQLITE_WRITES=0")
+          '@
+          try {
+            & python.exe -B -c $py $root (Join-Path $root 'config\autonomy.yaml') (Join-Path $scratch 'snapshot.db')
+            Need ($LASTEXITCODE -eq 0) 'DB_AUDIT'
+            $afterProcs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($afterProcs.Count -eq 1 -and [int]$afterProcs[0].ProcessId -eq $pid) 'CONTROLLER_POSTIMAGE'
+            foreach($rel in $protected){
+              Need ((Hash (Join-Path $root $rel)) -ceq $before[$rel]) ('FILE_POSTIMAGE_'+$rel)
+            }
+            Write-Host 'MP_PR614_PREFLIGHT_CONTROLLER_AND_FILES_UNCHANGED=PASS'
+            Write-Host 'MP_PR614_PREFLIGHT_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_PR614_PREFLIGHT_QUEUE_MUTATIONS=0'
+            Write-Host 'MP_PR614_PREFLIGHT_PRODUCTION_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_PR614_PREFLIGHT_SCRATCH_CLEAN=PASS'
+          }
