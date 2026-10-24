@@ -1,0 +1,149 @@
+name: Optimizer L7 E2E real structured meaning to language
+
+on:
+  push:
+    branches: [research/optimizer-language-l7-e2e-meaning-text-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l7-e2e.yml'
+      - 'research/optimizer_language_l7/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-language-l7-e2e
+  cancel-in-progress: false
+
+jobs:
+  hosted-native-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      L7_RAW_CORPUS_DIRECTORY: ${{ github.workspace }}/../l7-external-e2e
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Enforce original protected main and prereg protocol-first additive source-only file roster
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'L7_PROTECTED_NATIVE_RESEARCH_MAIN_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-language-l7-e2e.yml',
+            'research/optimizer_language_l7/L7_FROZEN_PROTOCOL.json',
+            'research/optimizer_language_l7/source.py',
+            'research/optimizer_language_l7/models.py',
+            'research/optimizer_language_l7/runner.py',
+            'research/optimizer_language_l7/test_realization.py',
+            'research/optimizer_language_l7/compare.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'L7_NOT_STRICT_SEVEN_FILE_ADDITIVE_EXPLORATORY_SCOPE'
+          }
+          $p='research/optimizer_language_l7/L7_FROZEN_PROTOCOL.json'
+          $expected='78f105fe7431a0f4f66933c064e9aa2e7983a92e'
+          $gitBlob=(& git rev-parse ('HEAD:'+$p)).Trim()
+          $disk=(& git hash-object --no-filters -- $p).Trim()
+          if ($LASTEXITCODE -ne 0 -or $gitBlob -cne $expected -or
+              $disk -cne $expected) {
+            throw 'L7_PROSPECTIVE_EXTERNAL_MEANING_LANGUAGE_PROTOCOL_DRIFT'
+          }
+          Write-Host 'L7_PROTECTED_OLD_NATIVE_RESEARCH_AND_FROZEN_PROTOCOL=PASS'
+      - name: Fetch original E2E TRAIN and DEV by immutable Git commit and verify raw Git objects
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -c "import sys;sys.path.insert(0,'research/optimizer_language_l7');from source import acquire;print('L7_BYTE_PINNED_E2E_TRAIN_DEV_SHA256='+str(acquire(sys.argv[1])))" $env:L7_RAW_CORPUS_DIRECTORY
+          if ($LASTEXITCODE -ne 0) { throw 'L7_ORIGINAL_E2E_GIT_SOURCE_OR_SIZE_CUSTODY_DRIFT' }
+      - name: Twelve guarded human-authored structured source and fitted pattern tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s research/optimizer_language_l7 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'L7_ACTUAL_MEANING_TO_NATURAL_TEXT_FOCUSED_FAIL' }
+          Write-Host 'L7_FOCUSED_NATURAL_LANGUAGE_FIDELITY_TESTS=PASS'
+      - name: Fit frozen train real-English realizers and evaluate unseen public MRs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'l7-public-meaning-english-receipt.json'
+          python -B research/optimizer_language_l7/runner.py $env:L7_RAW_CORPUS_DIRECTORY | Tee-Object -FilePath $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'L7_FROZEN_PUBLIC_E2E_LANGUAGE_REALIZATION_FAIL' }
+          Write-Host 'L7_REAL_PUBLIC_E2E_FOUR_ARMS_THREE_ROLES=EMITTED'
+          Write-Host 'L7_ORIGINAL_OFFICIAL_TEST_AND_PROTECTED_FSA=UNTOUCHED'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l7-real-e2e-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/l7-public-meaning-english-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Final one Linux full FORGE Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo L7_FINAL_GO_TEST_VET_BUILD=PASS
+      - name: Ensure E2E raw training text and existing research were never committed
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'L7_SOURCE_OR_RESEARCH_CUSTODY_WORKTREE_CHANGED' }
+          Write-Host 'L7_NATIVE_Q21_ITD_BIO_FORGE_CONTROLLER_OWNERSHIP_UNCHANGED=PASS'
+
+  independent-native-meaning-audit:
+    needs: hosted-native-e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l7-real-e2e-native-ubuntu-24.04
+          path: e2e-native/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l7-real-e2e-native-windows-2022
+          path: e2e-native/windows
+      - name: Compare exact original E2E source, 3 source roles, all 12 native generated English outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l7/compare.py \
+            e2e-native/linux/l7-public-meaning-english-receipt.json \
+            e2e-native/windows/l7-public-meaning-english-receipt.json \
+            e2e-native/l7-independent-meaning-fidelity-receipt.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l7-structured-real-english-cross-native-receipt
+          path: e2e-native/l7-independent-meaning-fidelity-receipt.json
+          if-no-files-found: error
+          retention-days: 30
