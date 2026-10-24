@@ -403,8 +403,13 @@ def activate_native(db, approval: dict) -> bool:
             # Do not discard the two sealed original negatives. Only a
             # source-bound v4 transition with independently custodied real
             # failed-provider jobs can extend native development authority.
-            v4=[t for t in transitions
-                if t["schema"]=="forge.f139.source-transition.v4"]
+            # Retain every sealed v4 event. A bounded v5 successor carries
+            # the same negative-provider custody plus its terminal-v4 SHA,
+            # independently verified by Database.verify before activation.
+            negative_successors=[t for t in transitions
+                if t["schema"] in (
+                    "forge.f139.source-transition.v4",
+                    "forge.f139.source-transition.v5")]
             provider_failures=db.verified_native_provider_failures()
             all_certified={NEGATIVE_TICKET,SECOND_TICKET}|set(provider_failures)
             four_certified=(
@@ -414,9 +419,10 @@ def activate_native(db, approval: dict) -> bool:
                 and all(row["stage"]=="QUARANTINED" for row in failures)
                 and verify_original_negative_custody(db)
                 and verify_second_negative_custody(db)
-                and v4 and v4[-1]["to_source_sha"]==meta["source_sha"]
-                and v4[-1]["custodied_negative_tasks"]==len(all_certified)
-                and v4[-1]["custodied_negative_tickets"]==sorted(all_certified))
+                and negative_successors
+                and negative_successors[-1]["to_source_sha"]==meta["source_sha"]
+                and negative_successors[-1]["custodied_negative_tasks"]==len(all_certified)
+                and negative_successors[-1]["custodied_negative_tickets"]==sorted(all_certified))
             require(one_certified or two_certified or four_certified,
                     "UNVERIFIED_HISTORICAL_TASK")
         prior=meta["head_hash"]
