@@ -90,6 +90,41 @@ class SourceContinuityTests(unittest.TestCase):
         ]
         self.assertEqual(self.prove(src)["file_count"], 4)
 
+    def test_append_only_rsh04_original_receipt_is_data_only(self):
+        src = ProtectedResearchSource()
+        src.compare["files"] = [
+            file("docs/RSH-04-ORIGINAL-BYTES-INTEGRITY.md", changes=33),
+            file("researchfeed/original_integrity.go", changes=144),
+            file("researchfeed/original_integrity_test.go", changes=192),
+            file("reference/research-originals/20261024-rsh04-raw-integrity-receipt.json",
+                 changes=57),
+        ]
+        proof = self.prove(src)
+        self.assertEqual(proof["file_count"], 4)
+        self.assertFalse(proof["scientific_first_use"])
+        self.assertFalse(proof["source_transition_granted"])
+
+    def test_original_evidence_cannot_be_rewritten(self):
+        self.deny(lambda s: s.compare["files"].append(
+            file("reference/research-originals/20261024-rsh04-raw-integrity-receipt.json",
+                 status="modified")), "ORIGINAL_EVIDENCE_REWRITTEN")
+        self.deny(lambda s: s.compare["files"].append(
+            file("reference/research-originals/20261024-rsh04-raw-integrity-receipt.json",
+                 status="removed")), "RUNTIME_OR_UNTRUSTED_FILE_CHANGED")
+
+    def test_receipt_pattern_does_not_admit_arbitrary_data(self):
+        for path in (
+            "reference/research-originals/private-key.json",
+            "reference/research-originals/20261024-rsh04-credentials.json",
+            "reference/research-originals/20261024-rsh04-raw-integrity-receipt.py",
+            "reference/research-originals/20261024-rsh04-raw-integrity-receipt.json/evil",
+            "reference/research-originals/../f139/local_controller.py",
+            "reference/research-originals/20261024-RSH04-raw-integrity-receipt.json",
+        ):
+            with self.subTest(path=path):
+                self.deny(lambda s, p=path: s.compare["files"].append(file(p)),
+                          "RUNTIME_OR_UNTRUSTED_FILE_CHANGED")
+
     def test_all_operational_paths_fail_closed(self):
         disallowed = (
             "f139/local_controller.py",
