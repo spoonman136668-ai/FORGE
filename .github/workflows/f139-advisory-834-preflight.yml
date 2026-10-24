@@ -99,7 +99,7 @@ jobs:
           print("F139_ADVISORY_834_ORIGINAL_SQLITE_UNMODIFIED=TRUE")
           source.close()
           '@
-          $scratch=Join-Path $env:RUNNER_TEMP 'f139-advisory834-disposable.sqlite'
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-advisory834-disposable-'+$env:GITHUB_RUN_ID+'.sqlite')
           if(Test-Path -LiteralPath $scratch){throw 'F139_SCRATCH_ALREADY_EXISTS'}
           try {
             Push-Location -LiteralPath $root
@@ -108,5 +108,7 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'F139_ADVISORY834_REHEARSAL_FAILED'}
             } finally {Pop-Location}
           } finally {
-            Remove-Item -LiteralPath $scratch -Force -ErrorAction SilentlyContinue
+            foreach($suffix in @('','-wal','-shm')) {
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
           }
