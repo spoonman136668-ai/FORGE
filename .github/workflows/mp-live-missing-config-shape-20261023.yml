@@ -1,0 +1,75 @@
+name: MP live missing config block shape inventory
+on:
+  push:
+    branches: [diagnostics/mp-postmerge-live-config-precheck-20261023]
+    paths: [.github/workflows/mp-live-missing-config-shape-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-live-missing-config-shape-20261023
+  cancel-in-progress: true
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Inventory key paths and scalar classes only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$code){if(-not $v){throw ('MP_SHAPE_'+$code)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          Need (Test-Path -LiteralPath $config -PathType Leaf) 'CONFIG'
+          $before=Hash $config
+          $targets=@('wingless_stage1','advisory')
+          $stack=@{}
+          $currentTop=''
+          $count=0
+          foreach($raw in [IO.File]::ReadAllLines($config)){
+            if([string]::IsNullOrWhiteSpace($raw)){continue}
+            $trim=$raw.TrimStart()
+            if($trim.StartsWith('#')){continue}
+            $indent=$raw.Length-$trim.Length
+            if($trim -notmatch '^([A-Za-z0-9_.-]+):(.*)$'){
+              if($currentTop -and $trim.StartsWith('- ')){
+                Write-Host ('MP_SHAPE_LIST_ITEM_PRESENT='+$currentTop)
+              }
+              continue
+            }
+            $key=$Matches[1]
+            $rest=$Matches[2].Trim()
+            if($indent -eq 0){
+              $currentTop= if($targets -contains $key){$key}else{''}
+              $stack=@{}
+              if($currentTop){
+                Write-Host ('MP_SHAPE_SECTION='+$currentTop)
+              }
+              continue
+            }
+            if(-not $currentTop){continue}
+            foreach($k in @($stack.Keys)){if([int]$k -ge $indent){$stack.Remove($k)}}
+            $parents=@($stack.Keys | Sort-Object {[int]$_} | ForEach-Object {$stack[$_]})
+            $path=(@($currentTop)+$parents+@($key)) -join '.'
+            $kind='string_or_scalar'
+            if($rest -eq ''){$kind='container'}
+            elseif($rest -match '^(true|false)$'){$kind='bool'}
+            elseif($rest -match '^-?[0-9]+$'){$kind='int'}
+            elseif($rest.StartsWith('[')){$kind='inline_sequence'}
+            elseif($rest.StartsWith('{')){$kind='inline_mapping'}
+            elseif(($rest.StartsWith('"') -and $rest.EndsWith('"')) -or ($rest.StartsWith("'") -and $rest.EndsWith("'"))){$kind='quoted_string'}
+            Write-Host ('MP_SHAPE_PATH='+$path+' TYPE='+$kind)
+            $count++
+            if($rest -eq ''){$stack[$indent]=$key}
+          }
+          Need ($count -gt 0) 'NO_TARGET_KEYS'
+          Need ((Hash $config) -ceq $before) 'CONFIG_CHANGED'
+          Write-Host ('MP_SHAPE_TOTAL_KEY_PATHS='+$count)
+          Write-Host 'MP_SHAPE_VALUES_LOGGED=FALSE'
+          Write-Host 'MP_SHAPE_LIVE_WRITES=0'
+          Write-Host 'MP_SHAPE_INVENTORY=PASS'
