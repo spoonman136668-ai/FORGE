@@ -1,9 +1,24 @@
-# BIO evidence retrieval boundary
+# Shared research evidence preflight (BIO historical first)
 
-Research agents should retrieve the private Mind-Palace BIO evidence catalog directly via read-only GitHub access, pinned to one immutable commit. The catalog is advisory, not an execution or science authority.
+**Goal:** reuse research knowledge across BIO, Optimizer, Mass Research, Research Charter, Wingless and Yggdrasil while preserving each architecture's independent training and scientific evaluation. This implements an isolated source-verified lookup, **not** live automatic ingestion into model weights or a new agent controller.
 
-Each proposal must identify relevant positive and negative findings, check source hashes and conventional controls, and record which finding motivated its hypotheses. No experiment may be admitted or model integration performed solely from this source. The existing FORGE controller, scheduler, original first-use custody, Wingless/Yggdrasil code, and protected references are unchanged.
+## Canonical shared source
 
-The historical catalog is at `docs/RESEARCH_EVIDENCE_CATALOG.json` and its indexed findings at `archive/research/bio/2026-10-23/findings.json`. Newer BIO reports require separate pinned review until added to a qualified machine-readable index. Do not treat a positive subtest as scientific acceptance.
+The private Mind-Palace repository remains the shared research evidence source. Follow `docs/AGENTIC_IMPROVEMENT_NORTH_STAR.md` and `docs/AUTONOMOUS-RESEARCH-MEMORY-20261023.md`. Its catalog `docs/RESEARCH_EVIDENCE_CATALOG.json` currently indexes historical BIO-01–61 findings. Later BIO-62–67 documents exist but require individually pinned source verification until their index is updated. Other project evidence cannot be claimed available in this catalog until an authorized writer publishes its source-verified entries.
 
-This branch is development-only and does not enable automatic background retrieval or unattended scientific execution.
+## Verified, private preflight
+
+From a private, already-authorized and clean read-only checkout of Mind-Palace, obtain the exact 40-character HEAD SHA. In the FORGE checkout run:
+
+```powershell
+py -3 -B -m unittest discover -s research/bio_evidence -p 'test_*.py' -v
+py -3 -B research/bio_evidence/shared_evidence_preflight.py --mind-palace-root 'C:\\path\\to\\private\\Mind-Palace' --commit <40-character-SHA> --query 'memory retention replay' --limit 5
+```
+
+The CLI checks the Git HEAD, clean tracked worktree, advisory catalog/index contracts, and SHA-256 of each selected original report. It returns source-pinned evidence including negative findings, controls and limitations. Source paths requiring ZIP reconstruction fail closed rather than being silently admitted. The CLI does not clone repositories, fetch secrets, submit private records to public CI, execute source material or mutate scientific authority. All automated public tests use synthetic Git repositories, not private data.
+
+## Shared read and feedback rule
+
+Before proposing a mechanism, each research agent should consult the current authorized evidence snapshot and link exact source hashes in its proposal. After research, the original evidence, comparison to fitted controls, negative or positive disposition and costs should be submitted through **the existing authorized Mind-Palace classification/checkpoint route**, never directly copied to other model weights or silently promoted. A research agent's cached snapshot is advisory; refresh and check supersessions at the next planning boundary.
+
+**This is development-only and manual/private preflight at this stage.** Automatic lookup in active FORGE/other agent planning cycles, autonomous ingestion by the memory writer and cross-model consumer verification remain separate operational qualification tasks. Do not create another queue, controller, CKB-plane dependency or paid API. No new model integration, protected first-use, promotion or production action is authorized.
