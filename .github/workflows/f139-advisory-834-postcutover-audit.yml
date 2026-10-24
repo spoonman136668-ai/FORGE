@@ -1,0 +1,121 @@
+name: F139 PR834 original-owner postcutover immutable audit
+on:
+  push:
+    branches: [operations/f139-advisory-834-safe-cutover-20261023]
+    paths: [.github/workflows/f139-advisory-834-postcutover-audit.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-advisory834-postcutover-owner-audit
+  cancel-in-progress: false
+jobs:
+  original-owner-readonly-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Prove the same original Windows task, event171, all negative custody, and retargeted feeder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $source='6d55a33589396f826b166b73d413de4dcb719a1c'
+          $finalHash='27c64c3b474a8d6892f19d2a7b246e2296d423292e32582a94ab64f7ba506677'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_ADVISORY834_AUDIT_RUNNER_IDENTITY_DRIFT'
+          }
+          $main=(& gh api "repos/$repo/branches/main" --jq '.commit.sha' |Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $main -cne $source){throw 'F139_MAIN_SOURCE_DRIFT'}
+          $policy=(& gh api "repos/$repo/issues/807" --jq '.body' |Out-String).Trim() |ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $policy.enabled -ne $true -or
+             $policy.source_sha -cne $source -or $policy.scientific_first_use -ne $false -or
+             $policy.max_issue_creations_per_cycle -ne 2){
+            throw 'F139_ADVISORY834_FEED_NOT_BOUND_AND_ENABLED'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1) {
+            throw 'F139_ADVISORY834_ORIGINAL_OWNER_NOT_RUNNING'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$t.Principal.UserId
+          $taskSid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($taskSid -cne $who.User.Value){throw 'F139_ORIGINAL_OWNER_IDENTITY_DRIFT'}
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$name) {
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_MISSING_TASK_OPTION_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          $root=Arg 'RepositoryRoot'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_OWNER_DATABASE_PATH_DRIFT'
+          }
+          if(((& git.exe -C $root rev-parse HEAD |Out-String).Trim()) -cne $source -or
+             ((& git.exe -C $root status --porcelain --untracked-files=all |Out-String).Trim()).Length -ne 0){
+            throw 'F139_ADVISORY834_ORIGINAL_SOURCE_CHECKOUT_DRIFT'
+          }
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-advisory834-audit-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_AUDIT_SCRATCH_EXISTS'}
+          $script=@'
+          import pathlib,sqlite3,sys,json
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          original=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          source_pin=sys.argv[3]
+          hash_pin=sys.argv[4]
+          con=sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,timeout=30)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          state=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert state=={"source_sha":source_pin,"head_seq":171,"head_hash":hash_pin,"enabled":1,"legacy_suspended":1},state
+          assert not scratch.exists()
+          copy=sqlite3.connect(scratch)
+          con.backup(copy)
+          copy.close()
+          db=Database(scratch)
+          try:
+              db.verify()
+              assert verify_native_activation(db)
+              assert db.meta()["source_sha"]==source_pin
+              assert db.active() is None and db.ready() is None
+              counts={r["stage"]:r["n"] for r in db.conn.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              assert counts.get("QUARANTINED")==9 and counts.get("VERIFIED")==18 and sum(counts.values())==27,counts
+              assert len(db.verified_native_provider_failures())==7
+              tail=[(r["seq"],r["kind"]) for r in db.conn.execute("SELECT seq,kind FROM events WHERE seq>=170 ORDER BY seq")]
+              assert tail==[(170,"SOURCE_TRANSITION_ADMITTED"),(171,"NATIVE_DEVELOPMENT_ACTIVATED")],tail
+              print("F139_ADVISORY834_ORIGINAL_OWNER_EVENT171=PASS")
+              print("F139_ADVISORY834_ORIGINAL_OWNER_CHAIN_AND_BYTES=PASS")
+              print("F139_ADVISORY834_ORIGINAL_QUARANTINES=9")
+              print("F139_ADVISORY834_ORIGINAL_VERIFIED=18")
+              print("F139_ADVISORY834_SOURCE="+source_pin)
+          finally:db.close()
+          after=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert after==state,"F139_ORIGINAL_SQLITE_CHANGED_DURING_AUDIT"
+          con.close()
+          print("F139_ADVISORY834_ORIGINAL_SQLITE_UNMODIFIED=TRUE")
+          '@
+          try {
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -c $script $db $scratch $source $finalHash
+              if($LASTEXITCODE -ne 0){throw 'F139_ADVISORY834_ORIGINAL_AUDIT_FAILED'}
+            } finally {Pop-Location}
+          } finally {
+            foreach($suffix in @('','-wal','-shm')) {
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Output 'F139_ADVISORY834_EXISTING_CONTROLLER_RUNNING=PASS'
+          Write-Output 'F139_ADVISORY834_FEEDER_ENABLED_SOURCE_PINNED=PASS'
+          Write-Output 'F139_ADVISORY834_SCIENTIFIC_FIRST_USE=FALSE'
