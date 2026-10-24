@@ -1,0 +1,35 @@
+name: Mass K5A unfamiliar SimpleCrossing topology native transfer
+on:
+  push:
+    branches: [research/mass-lcrm01-k5a-crossing-zero-shot-20261024]
+permissions:
+  contents: read
+jobs:
+  authentic-original-topology-transfer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 16
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Two original MiniGrid transfer processes and native ablation tests
+        run: bash research/lcrm01/k5a_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k5a-original-crossing-ablation-evidence
+          path: |
+            ${{ runner.temp }}/k5a/process-a.json
+            ${{ runner.temp }}/k5a/process-b.json
+            ${{ runner.temp }}/k5a/comparison.json
+            ${{ runner.temp }}/k5a/process-a.log
+            ${{ runner.temp }}/k5a/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
