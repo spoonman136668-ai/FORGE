@@ -26,7 +26,7 @@ jobs:
           function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
           Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/ckb-installed-source-snapshot-20261024') 'BRANCH'
           Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
-          $parent='0ea3189a22f3965fd0355eeb540359ea0b6c25fb'
+          $parent='893700b2f42d723b9beb7206f1814d9e2fcb7c27'
           Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
           $changed=@(& git.exe diff --name-only $parent HEAD)
           Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-qualify-rescued-ckb-composite-20261024.yml') 'SCOPE'
@@ -74,39 +74,7 @@ jobs:
           $liveConfigHash=Sha $liveConfig
           Write-Host ('MP_COMPOSITE_LIVE_CONFIG_SHA256='+$liveConfigHash)
 
-          $py=@'
-import pathlib,re,sqlite3,sys,urllib.parse
-root=pathlib.Path(sys.argv[1]).resolve()
-cfg=pathlib.Path(sys.argv[2]).resolve()
-out=pathlib.Path(sys.argv[3]).resolve()
-text=cfg.read_text(encoding="utf-8-sig")
-state_indent=None; db_name=None
-for line in text.splitlines():
-    indent=len(line)-len(line.lstrip(" "))
-    if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
-        state_indent=indent; continue
-    if state_indent is None: continue
-    if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
-        state_indent=None; continue
-    m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
-    if m:
-        db_name=m.group(1).strip().strip("\"'"); break
-if db_name is None: raise RuntimeError("MP_COMPOSITE_DB_LOCATOR")
-p=pathlib.Path(db_name)
-live=(p if p.is_absolute() else root/p).resolve()
-if not live.is_relative_to(root) or not live.is_file(): raise RuntimeError("MP_COMPOSITE_DB_SCOPE")
-uri="file:"+urllib.parse.quote(str(live).replace("\\","/"),safe="/:")+"?mode=ro"
-with sqlite3.connect(uri,uri=True,timeout=5.0) as src:
-    src.execute("PRAGMA query_only=ON")
-    with sqlite3.connect(str(out)) as dst: src.backup(dst)
-with sqlite3.connect(str(out)) as db:
-    if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok": raise RuntimeError("MP_COMPOSITE_SNAPSHOT_INTEGRITY")
-    q=db.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0]
-    leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
-    print("MP_COMPOSITE_ACTIVE_QUEUE="+str(q))
-    print("MP_COMPOSITE_LEASES="+str(leases))
-print("MP_COMPOSITE_SNAPSHOT_INTEGRITY=PASS")
-'@
+          $py=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aW1wb3J0IHBhdGhsaWIscmUsc3FsaXRlMyxzeXMsdXJsbGliLnBhcnNlCnJvb3Q9cGF0aGxpYi5QYXRoKHN5cy5hcmd2WzFdKS5yZXNvbHZlKCkKY2ZnPXBhdGhsaWIuUGF0aChzeXMuYXJndlsyXSkucmVzb2x2ZSgpCm91dD1wYXRobGliLlBhdGgoc3lzLmFyZ3ZbM10pLnJlc29sdmUoKQp0ZXh0PWNmZy5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04LXNpZyIpCnN0YXRlX2luZGVudD1Ob25lCmRiX25hbWU9Tm9uZQpmb3IgbGluZSBpbiB0ZXh0LnNwbGl0bGluZXMoKToKICAgIGluZGVudD1sZW4obGluZSktbGVuKGxpbmUubHN0cmlwKCIgIikpCiAgICBpZiByZS5mdWxsbWF0Y2gociJccypzdGF0ZTpccyooPzojLiopPyIsbGluZSk6CiAgICAgICAgc3RhdGVfaW5kZW50PWluZGVudAogICAgICAgIGNvbnRpbnVlCiAgICBpZiBzdGF0ZV9pbmRlbnQgaXMgTm9uZToKICAgICAgICBjb250aW51ZQogICAgaWYgbGluZS5zdHJpcCgpIGFuZCBub3QgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCIjIikgYW5kIGluZGVudDw9c3RhdGVfaW5kZW50OgogICAgICAgIHN0YXRlX2luZGVudD1Ob25lCiAgICAgICAgY29udGludWUKICAgIG09cmUuZnVsbG1hdGNoKHIiXHMqc3FsaXRlX3BhdGg6XHMqKC4rPylccyooPzojLiopPyIsbGluZSkKICAgIGlmIG06CiAgICAgICAgZGJfbmFtZT1tLmdyb3VwKDEpLnN0cmlwKCkuc3RyaXAoIlwiJyIpCiAgICAgICAgYnJlYWsKaWYgZGJfbmFtZSBpcyBOb25lOgogICAgcmFpc2UgUnVudGltZUVycm9yKCJNUF9DT01QT1NJVEVfREJfTE9DQVRPUiIpCnA9cGF0aGxpYi5QYXRoKGRiX25hbWUpCmxpdmU9KHAgaWYgcC5pc19hYnNvbHV0ZSgpIGVsc2Ugcm9vdC9wKS5yZXNvbHZlKCkKaWYgbm90IGxpdmUuaXNfcmVsYXRpdmVfdG8ocm9vdCkgb3Igbm90IGxpdmUuaXNfZmlsZSgpOgogICAgcmFpc2UgUnVudGltZUVycm9yKCJNUF9DT01QT1NJVEVfREJfU0NPUEUiKQp1cmk9ImZpbGU6Iit1cmxsaWIucGFyc2UucXVvdGUoc3RyKGxpdmUpLnJlcGxhY2UoIlxcIiwiLyIpLHNhZmU9Ii86IikrIj9tb2RlPXJvIgp3aXRoIHNxbGl0ZTMuY29ubmVjdCh1cmksdXJpPVRydWUsdGltZW91dD01LjApIGFzIHNyYzoKICAgIHNyYy5leGVjdXRlKCJQUkFHTUEgcXVlcnlfb25seT1PTiIpCiAgICB3aXRoIHNxbGl0ZTMuY29ubmVjdChzdHIob3V0KSkgYXMgZHN0OgogICAgICAgIHNyYy5iYWNrdXAoZHN0KQp3aXRoIHNxbGl0ZTMuY29ubmVjdChzdHIob3V0KSkgYXMgZGI6CiAgICBpZiBkYi5leGVjdXRlKCJQUkFHTUEgaW50ZWdyaXR5X2NoZWNrIikuZmV0Y2hvbmUoKVswXSE9Im9rIjoKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoIk1QX0NPTVBPU0lURV9TTkFQU0hPVF9JTlRFR1JJVFkiKQogICAgcT1kYi5leGVjdXRlKCJTRUxFQ1QgY291bnQoKikgRlJPTSBxdWV1ZV9pdGVtcyBXSEVSRSBzdGF0ZSBJTiAoJ1FVRVVFRCcsJ1JVTk5JTkcnLCdSRVRSWV9XQUlUJywnRklOQUxJWklORycsJ1dBSVRJTkdfRk9SX0VYVEVSTkFMX09SQ0hFU1RSQVRPUicpIikuZmV0Y2hvbmUoKVswXQogICAgbGVhc2VzPWRiLmV4ZWN1dGUoIlNFTEVDVCBjb3VudCgqKSBGUk9NIHdvcmtlcl9sZWFzZXMiKS5mZXRjaG9uZSgpWzBdCiAgICBwcmludCgiTVBfQ09NUE9TSVRFX0FDVElWRV9RVUVVRT0iK3N0cihxKSkKICAgIHByaW50KCJNUF9DT01QT1NJVEVfTEVBU0VTPSIrc3RyKGxlYXNlcykpCnByaW50KCJNUF9DT01QT1NJVEVfU05BUFNIT1RfSU5URUdSSVRZPVBBU1MiKQo='))
           try {
             & python.exe -B -c $py $live $liveConfig $snapshot
             Need ($LASTEXITCODE -eq 0) 'SNAPSHOT'
@@ -130,19 +98,7 @@ print("MP_COMPOSITE_SNAPSHOT_INTEGRITY=PASS")
             Write-Host 'MP_COMPOSITE_OVERLAY_205=PASS'
 
             $testPath=Join-Path $source 'internal\plane\mp_recovery_live_compat_test.go'
-            $go=@'
-package plane
-import ("os";"testing")
-func TestMPRecoveryLiveCompatibility(t *testing.T){
- cfg:=os.Getenv("MP_LIVE_CONFIG_COPY"); root:=os.Getenv("MP_LIVE_ROOT"); snap:=os.Getenv("MP_LIVE_DB_SNAPSHOT")
- if cfg==""||root==""||snap==""{t.Fatal("missing compatibility environment")}
- c,err:=LoadConfig(cfg); if err!=nil{t.Fatalf("LIVE_CONFIG_PARSE_FAILED: %v",err)}
- c.State.SQLitePath=snap
- p,err:=NewEngine(c,root); if err!=nil{t.Fatalf("LIVE_ENGINE_INIT_FAILED: %v",err)}
- defer p.Store.DB.Close()
- if p.Store==nil||p.Store.DB==nil{t.Fatal("LIVE_ENGINE_INIT_STORE_MISSING")}
-}
-'@
+            $go=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('cGFja2FnZSBwbGFuZQppbXBvcnQgKCJvcyI7InRlc3RpbmciKQpmdW5jIFRlc3RNUFJlY292ZXJ5TGl2ZUNvbXBhdGliaWxpdHkodCAqdGVzdGluZy5UKXsKIGNmZzo9b3MuR2V0ZW52KCJNUF9MSVZFX0NPTkZJR19DT1BZIik7IHJvb3Q6PW9zLkdldGVudigiTVBfTElWRV9ST09UIik7IHNuYXA6PW9zLkdldGVudigiTVBfTElWRV9EQl9TTkFQU0hPVCIpCiBpZiBjZmc9PSIifHxyb290PT0iInx8c25hcD09IiJ7dC5GYXRhbCgibWlzc2luZyBjb21wYXRpYmlsaXR5IGVudmlyb25tZW50Iil9CiBjLGVycjo9TG9hZENvbmZpZyhjZmcpOyBpZiBlcnIhPW5pbHt0LkZhdGFsZigiTElWRV9DT05GSUdfUEFSU0VfRkFJTEVEOiAldiIsZXJyKX0KIGMuU3RhdGUuU1FMaXRlUGF0aD1zbmFwCiBwLGVycjo9TmV3RW5naW5lKGMscm9vdCk7IGlmIGVyciE9bmlse3QuRmF0YWxmKCJMSVZFX0VOR0lORV9JTklUX0ZBSUxFRDogJXYiLGVycil9CiBkZWZlciBwLlN0b3JlLkRCLkNsb3NlKCkKIGlmIHAuU3RvcmU9PW5pbHx8cC5TdG9yZS5EQj09bmlse3QuRmF0YWwoIkxJVkVfRU5HSU5FX0lOSVRfU1RPUkVfTUlTU0lORyIpfQp9Cg=='))
             [IO.File]::WriteAllText($testPath,$go,[Text.UTF8Encoding]::new($false))
 
             Push-Location $source
