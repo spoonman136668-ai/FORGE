@@ -59,7 +59,7 @@ class FirstUseSourceTests(unittest.TestCase):
         outputs=p.prediction_only_pass(rows,callbacks,{"a"*64},3,3)
         self.assertEqual(len(seen),21)
         def read_graph(row):
-            self.assertEqual(len(seen),21,"reference exposed before all model predictions")
+            self.assertEqual(sum(kind=="prediction" for kind,_ in seen),21,"reference exposed before all model predictions")
             seen.append(("reference",row.graph_sha256))
             return (SENTINEL,"Other human text")
         cases=p.attach_refs_after_prediction(rows,outputs,read_graph,{"a"*64},3,3)
