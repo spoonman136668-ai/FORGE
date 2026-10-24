@@ -1,0 +1,74 @@
+name: F139 continuity original task failure read-only diagnosis
+on:
+  push:
+    branches: [operations/f139-source-continuity-owner-cutover-20261024]
+    paths: [.github/workflows/f139-continuity-task-diagnosis.yml]
+permissions:
+  contents: read
+jobs:
+  original-task-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Inspect task state, original source and only safe controller errors
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_CONT_TASK_DIAGNOSTIC_RUNNER_IDENTITY'
+          }
+          $name='FORGE-F139-UnifiedController'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $status=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+          Write-Output ('F139_CONT_TASK_STATE='+[string]$task.State)
+          Write-Output ('F139_CONT_LAST_TASK_RESULT='+[string]$status.LastTaskResult)
+          Write-Output ('F139_CONT_LAST_RUN_UTC='+$status.LastRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ('F139_CONT_NEXT_RUN_UTC='+$status.NextRunTime.ToUniversalTime().ToString('o'))
+          Write-Output ('F139_CONT_ACTIONS='+@($task.Actions).Count)
+          Write-Output ('F139_CONT_TRIGGERS='+@($task.Triggers).Count)
+          $opt=[string]$task.Actions[0].Arguments
+          function Arg([string]$name) {
+            $m=[regex]::Match($opt,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_CONT_ORIGINAL_TASK_ARGS_UNVERIFIED'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database';$root=Arg 'RepositoryRoot';$python=Arg 'PythonExe'
+          $sha=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          Write-Output ('F139_CONT_SOURCE_SHA='+$sha)
+          if($sha -cne 'db9b45955d2b1f2c5ec419f2dd5296828396663c'){
+            throw 'F139_CONT_INSTALLED_RUNTIME_DRIFT'
+          }
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+             Where-Object {$_.CommandLine -and
+               $_.CommandLine.Contains('f139.local_controller') -and
+               $_.CommandLine.Contains($db)})
+          Write-Output ('F139_CONT_OWNER_PROCESS_COUNT='+$proc.Count)
+          $read=@'
+          import pathlib,sqlite3,sys,json
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          con=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          m=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          counts={r["stage"]:r["n"] for r in con.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+          print("F139_CONT_OWNER_STATE="+json.dumps(m,sort_keys=True))
+          print("F139_CONT_OWNER_STAGE_COUNTS="+json.dumps(counts,sort_keys=True))
+          con.close()
+          '@
+          & $python -B -c $read $db
+          if($LASTEXITCODE -ne 0){throw 'F139_CONT_LEDGER_DIAGNOSTIC_FAILED'}
+          $log=Join-Path ([IO.Path]::GetDirectoryName($db)) 'logs/controller.log'
+          if(!(Test-Path -LiteralPath $log -PathType Leaf)){
+            Write-Output 'F139_CONT_CONTROLLER_LOG=MISSING'
+          }else{
+            foreach($raw in @(Get-Content -LiteralPath $log -Tail 120 -ErrorAction Stop)){
+              $line=[string]$raw
+              if($line.Length -lt 650 -and
+                 $line -match 'Traceback|Exception|F139_|RuntimeError|TypeError|ValueError|AssertionError|Error|Denied' -and
+                 $line -notmatch 'Authorization|ghp_|github_pat_|secret|token|HMAC'){
+                Write-Output ('F139_CONT_SAFE_LOG='+($line -replace '[\r\n]+',' '))
+              }
+            }
+          }
