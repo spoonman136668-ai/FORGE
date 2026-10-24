@@ -1,0 +1,193 @@
+name: L9 single protected unfamiliar-category first-use numerical audit
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-protected-firstuse-once.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-firstuse-once-319-audit-locked-20261024
+  cancel-in-progress: false
+jobs:
+  first-and-only-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 335
+    env:
+      GH_TOKEN: '${{ github.token }}'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Prove unique first attempt, qualified custody, and unchanged scientific sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
+          test "$GITHUB_EVENT_NAME" = push
+          test "$(git rev-parse HEAD^)" = '910766db24e1389a561527a17343c1ec2d20f71b'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-protected-firstuse-once.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          test "$(git rev-parse HEAD:$p/L9_BLOB_MANIFEST.json)" = '7b76033f39fa002e2b69adccedcfca3ae826fa41'
+          test "$(git rev-parse HEAD:$p/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_split_builder.py)" = '79aa0384fe3fb220e83efdaf0f87d468a076b735'
+          test "$(git rev-parse HEAD:$p/l9_train_select_candidate.py)" = '0d2b10cbf9879dd168be1dfc954dfca2928e841e'
+          test "$(git rev-parse HEAD:$p/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$p/l9_transformer_select_reuse_v2.py)" = 'e934b48ea1ab8df3c1f65554b02d240b0c57f811'
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/l9_first_use_source_pipeline.py)" = 'b26ea752197d027a43822dd499896054eb10413a'
+          test "$(git rev-parse HEAD:$p/l9_first_use_one_shot.py)" = '4df23fd86435bba094909dd90a17bda8575d8ba8'
+          test "$(git rev-parse HEAD:$p/l9_audit_pre_admission.py)" = 'cb69fafb9f1d7db51c49f0dcf6ca228630b78893'
+          python - <<'PY'
+          import json,os,urllib.request
+          repo="spoonman136668-ai/FORGE"
+          header={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"}
+          def get(p):
+              with urllib.request.urlopen(urllib.request.Request("https://api.github.com/repos/"+repo+p,headers=header),timeout=35) as f:
+                  return json.load(f)
+          name="optimizer-language-l9-protected-firstuse-once.yml"
+          own=get("/actions/workflows/"+name+"/runs?per_page=30")
+          assert own.get("total_count")==1,"FIRST_USE_WORKFLOW_ALREADY_EXISTS_OR_DUPLICATED"
+          assert len(own.get("workflow_runs",[]))==1,"FIRST_USE_LIST_AMBIGUOUS"
+          me=own["workflow_runs"][0]
+          assert str(me.get("id"))==os.environ["GITHUB_RUN_ID"] and me.get("run_attempt")==1
+          checks={
+              40080492317:"910766db24e1389a561527a17343c1ec2d20f71b",
+              40080495166:"910766db24e1389a561527a17343c1ec2d20f71b",
+              40078085931:"60489f8c1fd20df509fc190eb92f914d8c7675ea",
+              40077837648:"93512bc249786399aea2335e0b6d84591176209c",
+              40077313515:"8f67c354c1b61d51c1c48ca8a5f80de0e274acd2",
+              40076824750:"f8b4b3bc351d229b1cc8afc2be6d41f9500f9213",
+              40075868171:"b959ab76c07c538fbde95aaeb64c5bb44926f5e0",
+              40075146727:"e67a6a8e32460fd4b09c8c48144e084e2a511e7c"}
+          for run,sha in checks.items():
+              a=get("/actions/runs/"+str(run))
+              assert a["id"]==run and a["head_sha"]==sha,"PREQUALIFIED_RUN_IDENTITY_DRIFT"
+              assert a["status"]=="completed" and a["conclusion"]=="success","PREQUALIFICATION_NOT_PASSED"
+          print("L9_ONLY_ONE_ACTIVE_AUDIT_RUN=PASS")
+          print("L9_CUSTODY_AND_ALL_QUALIFICATIONS=PASS")
+          print("L9_AUDIT_REFS_NOT_YET_OPENED=TRUE")
+          PY
+      - name: Verify pinned CPU inference environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch; assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split("+")[0]=="2.5.1" and not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print("L9_ORIGINAL_TORCH_CPU_INFERENCE=PASS")
+          PY
+      - name: Verify all original training archives and read-only candidate/selection/admission receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import hashlib,json,os,pathlib,subprocess,sys,zipfile
+          tmp=pathlib.Path(sys.argv[1]);root=tmp/"l9-real-firstuse"
+          root.mkdir(exist_ok=False)
+          items=[
+              ("candidate",12539318731,"262cec449479b429fb04e93b304237a131209294f405813796b3477bd89b80ec","l9-train-select-candidate.json","01f08870677067ca0f0dcfdff004d1ef04cea8465da0d025f904634e2bcd5d47"),
+              ("seal",12552807764,"c4d4d2cdbd81da7eb090efe8fb3b75575101f7d92869c16e8d796cd9092e573f","complete-seal.json","bbee9d6a6a92c3fbec536dbf8364ecae6b05ae46d86fbdef667f23d3179abc09"),
+              ("admission",12552779087,"131184995fc6de59c75c2459197b4e28ec71732023676346f5153802a1b0326b","l9-audit-pre-admission.json","910a5bc252b43818a8af7d4783dd4f25208c590e9b48f019bafd85faead7428f"),
+              ("GRU_SEQ2SEQ-1701",12540940051,"ac2fcd4fc3e6732927392b14d275a8e33939e2621ed72ef712efffb8ba970ffe",None,None),
+              ("GRU_SEQ2SEQ-1702",12540872825,"e7309530577d7b59bbff919171f45ef6a8437ec65e849450d7a6cc9fceba7b39",None,None),
+              ("SMALL_TRANSFORMER-1701",12540689608,"17a90a22f1659a572f6987b73ff7e36bdf92d9f14b87a839f5d50a0cadc3adbc",None,None),
+              ("SMALL_TRANSFORMER-1702",12540798385,"24bb0277b30fc90d69372ab25542379897a4c543a8b0010a2c9d8230972b733d",None,None)
+          ]
+          token=os.environ["GH_TOKEN"]
+          for label,artifact,expected_zip,inner,expected_raw in items:
+              dest=root/label;dest.mkdir()
+              zp=root/(str(artifact)+".zip")
+              cmd=["curl","-fLsS","--retry","3","-H","Authorization: Bearer "+token,
+                   "-H","Accept: application/vnd.github+json",
+                   "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/"+str(artifact)+"/zip","-o",str(zp)]
+              subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL)
+              assert hashlib.sha256(zp.read_bytes()).hexdigest()==expected_zip,"ORIGINAL_GITHUB_ARTIFACT_ZIP_DRIFT"
+              with zipfile.ZipFile(zp) as archive:
+                  names=archive.namelist()
+                  if inner:
+                      assert names==[inner],"NUMERICAL_RECEIPT_MEMBER_ID_DRIFT"
+                  else:
+                      arm,seed=label.rsplit("-",1)
+                      assert set(names)=={"receipt.json"}|{arm+"-seed"+seed+"-epoch"+str(ep)+"-inference.pt" for ep in (4,8,12)}, "TRAINED_MODEL_MEMBER_DRIFT"
+                  for name in names:
+                      assert "/" not in name and "\\" not in name,"UNSAFE_ARTIFACT_MEMBER"
+                      raw=archive.read(name)
+                      if inner:assert hashlib.sha256(raw).hexdigest()==expected_raw,"NUMERICAL_RECEIPT_SHA_DRIFT"
+                      (dest/name).write_bytes(raw)
+          import sys
+          sys.path.insert(0,str(pathlib.Path.cwd()/"research/optimizer_language_l9"))
+          import l9_first_use_one_shot as one
+          one.attest_pre_admission(pathlib.Path.cwd()/"research/optimizer_language_l9/L9_AUDIT_ADMISSION_CONTRACT.json",
+                root/"seal"/"complete-seal.json",root/"admission"/"l9-audit-pre-admission.json",
+                root/"candidate"/"l9-train-select-candidate.json")
+          print("L9_SEVEN_EXACT_ARTIFACTS_AND_FROZEN_DECISIONS=PASS")
+          print("L9_NO_AUDIT_REFERENCE_READS=TRUE")
+          PY
+      - name: Clone original WebNLG source release with train/dev custody only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="$RUNNER_TEMP/l9-verified-original-webnlg"
+          git clone --quiet --filter=blob:none --no-checkout https://gitlab.com/shimorina/webnlg-dataset.git "$ext"
+          test "$(git -C "$ext" rev-parse 'a7ea49b5ffa5011edf81e8530c59b3552a965023^{commit}')" = 'a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          echo L9_SOURCE_RELEASE_PIN=PASS
+      - name: One original protected first use, all seven predictions BEFORE human references
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l9
+          root="$RUNNER_TEMP/l9-real-firstuse"
+          python -u "$p/l9_first_use_one_shot.py" \
+              --source-repo "$RUNNER_TEMP/l9-verified-original-webnlg" \
+              --checkpoint-root "$root" \
+              --contract "$p/L9_AUDIT_ADMISSION_CONTRACT.json" \
+              --sealed-select "$root/seal/complete-seal.json" \
+              --pre-admission "$root/admission/l9-audit-pre-admission.json" \
+              --candidate-receipt "$root/candidate/l9-train-select-candidate.json" \
+              --out "$RUNNER_TEMP/l9-first-and-only-unfamiliar-numeric.json" \
+              --enable-one-shot-after-qualification
+          python - "$RUNNER_TEMP/l9-first-and-only-unfamiliar-numeric.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          f=pathlib.Path(sys.argv[1])
+          raw=f.read_bytes()
+          d=json.loads(raw)
+          assert d["one_shot_schema"]=="forge.optimizer.language.l9.unfamiliar-category-one-shot-numeric-v1"
+          assert d["status"]=="UNFAMILIAR_AUDIT_NUMERIC_FIRST_USE_NOT_SEMANTIC_GO"
+          assert d["arm_count"]==7 and d["heldout_categories"]==3 and d["heldout_examples"]==319
+          assert len(d["arms"])==7
+          for a in d["arms"]:
+              assert a["role"]=="L9_AUDIT_DEV" and a["records"]==319
+              assert len(a["categories"])==3 and sum(c["examples"] for c in a["categories"])==319
+              assert a["model_reference_input_count"]==0 and a["raw_outputs_saved"] is False
+              assert a["reference_contents_saved"] is False
+          assert d["all_seven_methods_completed_before_any_reference_access"] is True
+          assert d["audit_reference_read_count"]==319
+          assert d["scientific_go"] is False and d["independent_semantic_adjudication_complete"] is False
+          assert d["official_test_consumed"] is False and d["source_reference_leakage_to_model"] is False
+          print("L9_SEVEN_ARM_NUMERIC_ONLY_FIRST_USE=PASS")
+          print("L9_FINAL_NUMERIC_RECEIPT_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("L9_SCIENTIFIC_GO=FALSE")
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+      - name: Preserve protected numerical receipt only (no raw graphs, targets or model outputs)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l9-protected-firstuse-numeric-sealed-once
+          path: '${{ runner.temp }}/l9-first-and-only-unfamiliar-numeric.json'
+          if-no-files-found: error
+          retention-days: 90

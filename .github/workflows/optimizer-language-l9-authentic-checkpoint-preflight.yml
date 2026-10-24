@@ -1,0 +1,162 @@
+name: L9 authentic four-checkpoint audit admission preflight NO DEV references
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-authentic-checkpoint-preflight.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-firstuse-checkpoint-preflight-cleanup-v2-20261024
+  cancel-in-progress: false
+jobs:
+  authentic-frozen-checkpoints:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 32
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Pin original model code and prospective pre-admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '4dd0444a4e32081f8886e14ba151e1eadc417632'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-authentic-checkpoint-preflight.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_first_use_one_shot.py)" = '4df23fd86435bba094909dd90a17bda8575d8ba8'
+          test "$(git rev-parse HEAD:$p/l9_first_use_source_pipeline.py)" = 'b26ea752197d027a43822dd499896054eb10413a'
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/l9_audit_pre_admission.py)" = 'cb69fafb9f1d7db51c49f0dcf6ca228630b78893'
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$p/l9_transformer_select_reuse_v2.py)" = 'e934b48ea1ab8df3c1f65554b02d240b0c57f811'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          echo L9_EXACT_FIRST_USE_IMPLEMENTATIONS_PINNED=PASS
+      - name: Exact original PyTorch CPU inference environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch;assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir \
+              --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split("+")[0]=="2.5.1" and not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print("L9_TORCH_PINNED_CPU="+torch.__version__)
+          PY
+      - name: Download and verify exact GitHub artifacts, seal and candidate, no DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import hashlib, pathlib, sys, subprocess, zipfile
+          root=pathlib.Path(sys.argv[1])/"l9-firstuse-authentic"
+          root.mkdir(exist_ok=False)
+          records=[
+            (12539318731,"262cec449479b429fb04e93b304237a131209294f405813796b3477bd89b80ec","candidate",["l9-train-select-candidate.json"]),
+            (12552807764,"c4d4d2cdbd81da7eb090efe8fb3b75575101f7d92869c16e8d796cd9092e573f","seal",["complete-seal.json"]),
+            (12552779087,"131184995fc6de59c75c2459197b4e28ec71732023676346f5153802a1b0326b","admission",["l9-audit-pre-admission.json"]),
+            (12540940051,"ac2fcd4fc3e6732927392b14d275a8e33939e2621ed72ef712efffb8ba970ffe","GRU_SEQ2SEQ-1701",None),
+            (12540872825,"e7309530577d7b59bbff919171f45ef6a8437ec65e849450d7a6cc9fceba7b39","GRU_SEQ2SEQ-1702",None),
+            (12540689608,"17a90a22f1659a572f6987b73ff7e36bdf92d9f14b87a839f5d50a0cadc3adbc","SMALL_TRANSFORMER-1701",None),
+            (12540798385,"24bb0277b30fc90d69372ab25542379897a4c543a8b0010a2c9d8230972b733d","SMALL_TRANSFORMER-1702",None)
+          ]
+          token=__import__("os").environ["GH_TOKEN"]
+          for artifact_id,expected,folder,members in records:
+              archive=root/(str(artifact_id)+".zip")
+              cmd=["curl","-fLsS","--retry","3",
+                   "-H","Authorization: Bearer "+token,
+                   "-H","Accept: application/vnd.github+json",
+                   "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/"+str(artifact_id)+"/zip",
+                   "-o",str(archive)]
+              subprocess.run(cmd,check=True,stdout=subprocess.DEVNULL)
+              data=archive.read_bytes()
+              assert hashlib.sha256(data).hexdigest()==expected,"ORIGINAL_ZIP_SHA_DRIFT"
+              target=root/folder;target.mkdir()
+              with zipfile.ZipFile(archive) as z:
+                  names=z.namelist()
+                  if members:
+                      assert names==members,"NUMERIC_RECEIPT_MEMBER_DRIFT"
+                  else:
+                      assert len(names)==4 and "receipt.json" in names
+                      assert set(names)=={"receipt.json"}|{
+                          folder.split("-")[0].replace("GRU_SEQ2SEQ","GRU_SEQ2SEQ")+"-seed"+
+                          folder.rsplit("-",1)[1]+"-epoch"+str(ep)+"-inference.pt" for ep in (4,8,12)
+                      } if folder.startswith("GRU_") else set(names)=={"receipt.json"}|{
+                          "SMALL_TRANSFORMER-seed"+folder.rsplit("-",1)[1]+"-epoch"+str(ep)+"-inference.pt" for ep in (4,8,12)
+                      }
+                  for name in names:
+                      (target/name).write_bytes(z.read(name))
+              print("L9_AUTHENTIC_PINNED_ARCHIVE="+str(artifact_id))
+          print("L9_ALL_SEVEN_ORIGINAL_ARTIFACT_ZIPS=PASS")
+          PY
+      - name: Validate sealed sources and load all four actual frozen networks on invented input only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/l9-firstuse-authentic" <<'PY'
+          import hashlib, json, pathlib, sys, time
+          import torch
+          p=pathlib.Path.cwd()/"research/optimizer_language_l9"
+          sys.path.insert(0,str(p))
+          import l9_first_use_one_shot as one
+          import l9_first_use_source_pipeline as adapter
+          import l9_model_suite as model
+          import l9_neural_select_only as neural
+          import l9_transformer_select_reuse_v2 as recovered
+          root=pathlib.Path(sys.argv[1])
+          contract=p/"L9_AUDIT_ADMISSION_CONTRACT.json"
+          one.attest_pre_admission(contract,root/"seal"/"complete-seal.json",
+                  root/"admission"/"l9-audit-pre-admission.json",
+                  root/"candidate"/"l9-train-select-candidate.json")
+          torch.set_num_threads(2)
+          loaded=adapter.load_exact_neural_checkpoints(root)
+          assert len(loaded)==4 and set(loaded)==set(adapter.EXPECTED_NEURAL)
+          triples=(model.Triple("InventedAgentZero","inventedRelation","InventedPlaceZero"),)
+          cases=[]
+          with torch.inference_mode():
+              for label,n in loaded.items():
+                  out=(neural.inference_one(n,"GRU_SEQ2SEQ",triples) if label.startswith("GRU_")
+                       else recovered.reuse_inference_one(n,triples))
+                  assert out is None or type(out) is str
+                  cases.append(dict(arm=label,selected_epoch=12,
+                      checkpoint_sha256=adapter.EXPECTED_NEURAL[label][3],
+                      synthetic_output_length=len(out) if out else 0,
+                      no_heldout_source_used=True))
+                  print("L9_ACTUAL_FROZEN_CHECKPOINT_SYNTHETIC_PASS="+label)
+          assert len(cases)==4
+          evidence={"schema":"forge.optimizer.language.l9.authentic-checkpoint-synthetic-prefit-v1",
+                    "status":"AUTHENTIC_FROZEN_WEIGHTS_ONLY_NO_AUDIT",
+                    "cases":cases,"source_role_sha256":adapter.ROLE_SHA,
+                    "official_test_consumed":False,"heldout_reference_reads":0,
+                    "audit_first_use_allowed":False,"scientific_go":False}
+          dest=root/"authentic-checkpoint-prefit.json"
+          raw=model.canonical_json_bytes(evidence)
+          dest.write_bytes(raw)
+          print("L9_AUTHENTIC_CHECKPOINT_PREFIT_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+      - name: Preserve numerical synthetic prefit only; never checkpoint model weights
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l9-authentic-firstuse-preflight-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l9-firstuse-authentic/authentic-checkpoint-prefit.json'
+          if-no-files-found: error
+          retention-days: 30

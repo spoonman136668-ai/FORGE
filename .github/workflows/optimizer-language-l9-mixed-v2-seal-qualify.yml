@@ -1,0 +1,45 @@
+name: L9 mixed recovered SELECT numerical seal validator qualification
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-mixed-v2-seal-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-mixed-v2-seal-qualification-frozen-20261024
+  cancel-in-progress: false
+jobs:
+  fail-closed-mixed-seal:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 3
+          persist-credentials: false
+      - name: Verify source and negative/adversarial tests, no WebNLG data
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '2a3c7b5cdb877d5500c2b1e5f147b846fc392ef2'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-mixed-v2-seal-qualify.yml'
+          base='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$base/l9_seal_recovered_v2.py)" = '79ec9d4a86df77afebecd115140cfe60eb10dbac'
+          test "$(git rev-parse HEAD:$base/test_l9_seal_recovered_v2.py)" = '6430509bc8f3084616936e2adebf6e317b67d7c5'
+          test "$(git rev-parse HEAD:$base/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$base/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$base/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$base/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          python -m py_compile "$base/l9_seal_recovered_v2.py" "$base/test_l9_seal_recovered_v2.py"
+          (cd "$base" && python -m unittest -v test_l9_seal_recovered_v2.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_MIXED_SELECT_SEAL_NEGATIVE_TESTS=PASS
+          echo L9_NO_FROZEN_V1_RECEIPT_REBRANDING=TRUE
+          echo L9_NO_AUDIT_OR_TEST_CONSUMPTION=TRUE
+          echo L9_SCIENTIFIC_GO=FALSE

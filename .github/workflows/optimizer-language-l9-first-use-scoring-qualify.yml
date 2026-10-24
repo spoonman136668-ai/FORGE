@@ -1,0 +1,40 @@
+name: L9 scorer synthetic controls
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-first-use-scoring-qualify.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-scoring:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Frozen source identities and invented-input adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 'c88e6a6312ce799a950928d37bd52ac9a329111d'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-first-use-scoring-qualify.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/test_l9_first_use_scoring_core.py)" = 'ee2665a0200b108c33300fe51c17f145d9a0e0ae'
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_split_builder.py)" = '79aa0384fe3fb220e83efdaf0f87d468a076b735'
+          test "$(git rev-parse HEAD:$p/l9_train_select_candidate.py)" = '0d2b10cbf9879dd168be1dfc954dfca2928e841e'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          python -m py_compile "$p/l9_first_use_scoring_core.py" "$p/test_l9_first_use_scoring_core.py"
+          (cd "$p" && python -m unittest -v test_l9_first_use_scoring_core.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_SYNTHETIC_FIRST_USE_SCORING=PASS
