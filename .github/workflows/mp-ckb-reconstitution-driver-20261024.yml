@@ -65,14 +65,20 @@ jobs:
             $canon += ($rel+'|'+(Sha $f.FullName)+'|'+[string][long]$f.Length)
           }
           Need ($total -eq 1303482) 'SOURCE_TOTAL_BYTES'
-          $lf=[string][char]10
-          $canonText=(@($canon | Sort-Object) -join $lf)+$lf
-          $shaObj=[Security.Cryptography.SHA256]::Create()
-          try{$digest=[Convert]::ToHexString($shaObj.ComputeHash([Text.Encoding]::UTF8.GetBytes($canonText))).ToLowerInvariant()}finally{$shaObj.Dispose()}
+          $xor=New-Object byte[] 32
+          foreach($entry in $canon){
+            $parts=$entry.Split('|')
+            Need ($parts.Count -eq 3) 'SOURCE_CANON_ENTRY'
+            $entryText=$parts[0]+[char]0+$parts[1]+[char]0+$parts[2]
+            $shaObj=[Security.Cryptography.SHA256]::Create()
+            try{$d=$shaObj.ComputeHash([Text.Encoding]::UTF8.GetBytes($entryText))}finally{$shaObj.Dispose()}
+            for($i=0;$i -lt 32;$i++){$xor[$i]=$xor[$i] -bxor $d[$i]}
+          }
+          $digest=[Convert]::ToHexString($xor).ToLowerInvariant()
           Write-Host ('MP_RECON_SOURCE_FILE_COUNT='+$srcFiles.Count)
           Write-Host ('MP_RECON_SOURCE_TOTAL_BYTES='+$total)
-          Write-Host ('MP_RECON_SOURCE_SURFACE_OBSERVED_SHA256='+$digest)
-          Need ($digest -ceq '5dd424fcec1b22f985af39a43609c03bbc683ab040c1ec81dbe98552a3a958a2') 'SOURCE_SURFACE_DRIFT'
+          Write-Host ('MP_RECON_SOURCE_SURFACE_XOR_SHA256='+$digest)
+          Need ($digest -ceq '9d7a546997c6eab608e711897c66be2ea721132e922435f68bc10762d1a63529') 'SOURCE_SURFACE_DRIFT'
           Write-Host ('MP_RECON_RESCUED_SOURCE_SURFACE_SHA256='+$digest)
 
           $scratch=Join-Path $env:RUNNER_TEMP ('mp-ckb-recon-'+$env:GITHUB_RUN_ID)
