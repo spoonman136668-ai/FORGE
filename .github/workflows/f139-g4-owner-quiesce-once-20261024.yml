@@ -51,7 +51,10 @@ jobs:
             throw 'F139_G4_QUIESCE_PROTECTED_PR_OR_POLICY_DRIFT'
           }
           $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-          if($task.State -cne 'Ready' -or
+          Write-Output ('F139_G4_QUIESCE_OBSERVED_TASK_STATE=' + [string]$task.State)
+          Write-Output ('F139_G4_QUIESCE_OBSERVED_ACTION_COUNT=' + @($task.Actions).Count)
+          Write-Output ('F139_G4_QUIESCE_OBSERVED_TRIGGER_COUNT=' + @($task.Triggers).Count)
+          if([string]$task.State -cne 'Ready' -or
              @($task.Actions).Count -ne 1 -or
              @($task.Triggers).Count -ne 3){
             throw 'F139_G4_QUIESCE_OWNER_NOT_IDLE'
@@ -66,7 +69,7 @@ jobs:
           }
           $arg=[string]$task.Actions[0].Arguments
           function Extract([string]$key){
-            $m=[regex]::Match($arg,'(?i)(?:^|\\s)-'+$key+'\\s+"([^"]+)"')
+            $m=[regex]::Match($arg,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
             if(-not $m.Success){throw 'F139_G4_QUIESCE_OWNER_ARGUMENTS'}
             return $m.Groups[1].Value
           }
