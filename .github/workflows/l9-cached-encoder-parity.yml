@@ -1,0 +1,86 @@
+name: L9 conventional cached-encoder exact-source synthetic parity
+on:
+  pull_request:
+    branches:
+      - research/l9-transformer-parity-source-audit-20261023
+permissions:
+  contents: read
+concurrency:
+  group: l9-cached-encoder-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  synthetic-source-parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.11'
+      - name: Assert exact original frozen source and only 3 new engineering paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=b20072552f1d3407add657fe08bc448957e0c7dc
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_model_suite.py)" = 710ce648a30ffc55647f689c5f4aa3ac13b07066
+          test "$(git rev-parse HEAD:research/optimizer_language_l9/l9_neural_select_only.py)" = 91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e
+          git diff --name-only "$parent" HEAD | python -B -c 'import sys; a=set(sys.stdin.read().splitlines()); b={"research/optimizer_language_l9/l9_cached_encoder_parity.py","research/optimizer_language_l9/test_l9_cached_encoder_parity.py",".github/workflows/l9-cached-encoder-parity.yml"}; assert a==b,(a,b)'
+      - name: Preserve exact frozen training torch runtime 2.5.1 CPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch; assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split('+')[0]=='2.5.1'
+          assert not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print('L9_PARITY_CPU_TORCH='+torch.__version__)
+          PY
+      - name: Synthetic model equivalence, reproducible source identities, no corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s research/optimizer_language_l9 -p test_l9_cached_encoder_parity.py -v
+          python -B research/optimizer_language_l9/l9_cached_encoder_parity.py --out "$RUNNER_TEMP/l9_cached_encoder_parity.json"
+          python - "$RUNNER_TEMP/l9_cached_encoder_parity.json" <<'PY'
+          import json,sys
+          x=json.load(open(sys.argv[1],encoding='utf8'))
+          assert len(x['test_cases'])==3
+          assert all(row['exact_token_equivalence'] and row['cached_encoder_invocations']==1 and row['old_encoder_invocations']==row['generated_tokens'] for row in x['test_cases'])
+          assert x['frozen_model_git_blob']=='710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          assert x['synthetic_only'] and not x['checkpoint_weights_loaded'] and not x['train_select_audit_test_loaded']
+          assert not x['scientific_cost_pareto_qualified']
+          print('L9_CACHED_SYNTHETIC_ORIGINAL_SOURCE_PARITY=PASS')
+          print('L9_REAL_CHECKPOINT_PARITY_NOT_TESTED=TRUE')
+          PY
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+          sha256sum "$RUNNER_TEMP/l9_cached_encoder_parity.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: l9-synthetic-cached-encoder-${{ matrix.os }}
+          path: ${{ runner.temp }}/l9_cached_encoder_parity.json
+          if-no-files-found: ignore
