@@ -49,3 +49,44 @@ class EvidenceTest(unittest.TestCase):
         git(self.root,"add",".")
         git(self.root,"commit","-qm","synthetic source")
         self.sha=git(self.root,"rev-parse","HEAD")
+
+    def test_positive_and_negative_are_advisory(self):
+        out=lookup(self.root,self.sha,"memory replay")
+        self.assertEqual(2,len(out["retrieved"]))
+        self.assertEqual({"BOUNDED_PASS","SCIENTIFIC_FAIL"},
+                         {v["verdict"] for v in out["retrieved"]})
+        self.assertFalse(out["scientific_acceptance"])
+        self.assertFalse(out["model_integration_authorized"])
+
+    def test_commit_drift_rejected(self):
+        with self.assertRaisesRegex(ValueError,"SOURCE_PIN_DRIFT"):
+            lookup(self.root,"a"*40,"memory replay")
+
+    def test_dirty_tracked_source_rejected(self):
+        self.write(self.source,"Tampered")
+        with self.assertRaisesRegex(ValueError,"DIRTY_SOURCE"):
+            lookup(self.root,self.sha,"memory")
+
+    def test_source_hash_mismatch_rejected(self):
+        self.index["findings"][1]["source_sha256"]="0"*64
+        self.commit()
+        with self.assertRaisesRegex(ValueError,"SOURCE_HASH_DRIFT"):
+            lookup(self.root,self.sha,"memory replay")
+
+    def test_unsupported_source_not_silently_accepted(self):
+        self.index["findings"][0]["source_repo_path"]="archive/research/bio/2026-10-23/resumed_evidence_packages/test.zip"
+        self.commit()
+        with self.assertRaisesRegex(ValueError,"SOURCE_NOT_DIRECTLY_VERIFIABLE"):
+            lookup(self.root,self.sha,"memory replay")
+
+    def test_forged_integration_rejected(self):
+        self.index["findings"][0]["wingless_yggdrasil_integration"]="AUTHORIZED"
+        self.commit()
+        with self.assertRaisesRegex(ValueError,"ACCEPTANCE_DRIFT"):
+            lookup(self.root,self.sha,"memory")
+
+    def test_unknown_topic_returns_no_match(self):
+        self.assertEqual([],lookup(self.root,self.sha,"electromagnetism")["retrieved"])
+
+if __name__ == "__main__":
+    unittest.main()
