@@ -31,7 +31,7 @@ def frozen():
   or p["world"]["scan_budgets_per_episode"]!=list(BUDGETS)
   or p["world"]["DEV_seeds"]!=[48200,48207]
   or p["world"]["CHECK_seeds"]!=[47200,47203]
-  or p["source_candidates"]!=list(METHODS) if False else False):
+  or p["source_candidates"]!=list(METHODS)):
   raise ValueError("K5G_FROZEN_PROTOCOL_DRIFT")
  # Separate guard avoids a conditional-precedence ambiguity.
  if p["upstream"]["original_Ygg_R3_blob"]!=NATIVE_BLOB or p["upstream"]["dynamic_blob"]!="68436cecc35116c23c2f196c22fa3a19c6410b95" or p["source_candidates"]!=list(METHODS):
