@@ -162,7 +162,14 @@ def check_mixed_seal(raw: bytes) -> dict:
         require(key in EXPECTED_SELECTED and key not in seen,"CHOICE_IDENTITY")
         seen.add(key)
         require(x.get("selected_epoch")==12,"CHOICE_EPOCH")
-        require(x.get("checkpoint_sha256")==EXPECTED_SELECTED[key],"CHECKPOINT_SHA")
+        checkpoint_field=("checkpoint_sha256" if key[0]=="GRU_SEQ2SEQ" else
+                          "selected_checkpoint_sha256")
+        require(x.get(checkpoint_field)==EXPECTED_SELECTED[key],"CHECKPOINT_SHA")
+        require(x.get("all_epoch_checkpoint_sha256",{}).get("12")==EXPECTED_SELECTED[key],
+                "SELECTED_EPOCH12_CHAIN")
+        if key[0]=="SMALL_TRANSFORMER":
+            require(x.get("original_v1_select_outcome")=="CANCELLED_90M_NO_RECEIPT",
+                    "PRESERVE_V1_TIMEOUT_NEGATIVE")
         version=("ORIGINAL_FROZEN_V1" if key[0]=="GRU_SEQ2SEQ" else
                  "SEPARATELY_QUALIFIED_RECOVERY_V2_NOT_V1")
         require(x.get("receipt_type")==version,"SOURCE_VERSION_DRIFT")
