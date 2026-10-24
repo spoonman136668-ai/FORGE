@@ -1,0 +1,191 @@
+name: MP CKB installed source reconstitution driver
+on:
+  push:
+    branches: [recovery/mp-ckb-reconstitution-driver-20261024]
+    paths: [.github/workflows/mp-ckb-reconstitution-driver-20261024.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-ckb-reconstitution-driver-20261024
+  cancel-in-progress: false
+jobs:
+  reconstitute:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+          persist-credentials: false
+      - name: Reconstitute and qualify CKB candidate without live mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_RECON_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/mp-ckb-reconstitution-driver-20261024') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $liveConfig=Join-Path $live 'config\autonomy.yaml'
+          $liveExe=Join-Path $live 'bin\ckb-plane.exe'
+          Need (Test-Path -LiteralPath $liveConfig -PathType Leaf) 'LIVE_CONFIG'
+          Need (Test-Path -LiteralPath $liveExe -PathType Leaf) 'LIVE_EXE'
+          $protected=@($liveConfig,$liveExe)
+          foreach($p in @((Join-Path $live 'config\local-operations.json'),(Join-Path $live 'scripts\Start-CKBPlane.ps1'))){
+            if(Test-Path -LiteralPath $p -PathType Leaf){$protected += $p}
+          }
+          $pre=@{}
+          foreach($p in $protected){$pre[$p]=Sha $p}
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPid=[int]$proc[0].ProcessId
+
+          $srcFiles=@()
+          foreach($rootRel in @('internal\plane','cmd\ckb-plane')){
+            $root=Join-Path $live $rootRel
+            Need (Test-Path -LiteralPath $root -PathType Container) ('SOURCE_ROOT_'+$rootRel)
+            $srcFiles += @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.go')
+          }
+          foreach($rel in @('go.mod','go.sum')){
+            $p=Join-Path $live $rel
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ('SOURCE_'+$rel)
+            $srcFiles += Get-Item -LiteralPath $p
+          }
+          $srcFiles=@($srcFiles | Sort-Object FullName -Unique)
+          Need ($srcFiles.Count -eq 205) 'SOURCE_FILE_COUNT'
+          $total=[long]0
+          $canon=@()
+          foreach($f in $srcFiles){
+            $total += [long]$f.Length
+            $rel=$f.FullName.Substring($live.Length).TrimStart('\').Replace('\','/')
+            $canon += ($rel+'|'+(Sha $f.FullName)+'|'+[string][long]$f.Length)
+          }
+          Need ($total -eq 1303482) 'SOURCE_TOTAL_BYTES'
+          $lf=[string][char]10
+          $canonText=(@($canon | Sort-Object) -join $lf)+$lf
+          $shaObj=[Security.Cryptography.SHA256]::Create()
+          try{$digest=[Convert]::ToHexString($shaObj.ComputeHash([Text.Encoding]::UTF8.GetBytes($canonText))).ToLowerInvariant()}finally{$shaObj.Dispose()}
+          Need ($digest -ceq '5dd424fcec1b22f985af39a43609c03bbc683ab040c1ec81dbe98552a3a958a2') 'SOURCE_SURFACE_DRIFT'
+          Write-Host ('MP_RECON_RESCUED_SOURCE_SURFACE_SHA256='+$digest)
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-ckb-recon-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $clone=Join-Path $scratch 'ckb'
+          & git.exe clone --quiet --branch recovery/mp-installed-source-reconstitution-20261024 --single-branch https://github.com/spoonman136668-ai/ckb-plane.git $clone
+          Need ($LASTEXITCODE -eq 0) 'CLONE'
+          $base='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          Need ((& git.exe -C $clone rev-parse HEAD).Trim() -ceq $base) 'CANDIDATE_BRANCH_DRIFT'
+          $dst=Join-Path $clone 'snapshot\source'
+          Need (Test-Path -LiteralPath $dst -PathType Container) 'DEST_SOURCE'
+
+          foreach($f in $srcFiles){
+            $rel=$f.FullName.Substring($live.Length).TrimStart('\')
+            $target=Join-Path $dst $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+            Copy-Item -LiteralPath $f.FullName -Destination $target -Force
+          }
+          Need ((Sha (Join-Path $dst 'internal\plane\model.go')) -ceq '7fbce6ae1e10a1310a02f2e1b185c47df103146578b9eb8e7908c9c996142382') 'MODEL_PREPATCH_ID'
+
+          $patch=Join-Path $env:GITHUB_WORKSPACE 'recovery\mp-ckb-reconstitution-driver-20261024\model-preservation-reapply.patch'
+          Need (Test-Path -LiteralPath $patch -PathType Leaf) 'PATCH_FILE'
+          & git.exe -C $clone apply --check $patch
+          Need ($LASTEXITCODE -eq 0) 'PATCH_CHECK'
+          & git.exe -C $clone apply $patch
+          Need ($LASTEXITCODE -eq 0) 'PATCH_APPLY'
+          & gofmt.exe -w (Join-Path $dst 'internal\plane\model.go')
+          Need ($LASTEXITCODE -eq 0) 'GOFMT_MODEL'
+
+          $cfg=[IO.File]::ReadAllText($liveConfig)
+          $stateIndent=$null
+          $dbName=$null
+          foreach($line in [regex]::Split($cfg,'\r?\n')){
+            $indent=$line.Length-$line.TrimStart(' ').Length
+            if($line -match '^\s*state:\s*(?:#.*)?$'){$stateIndent=$indent;continue}
+            if($null -eq $stateIndent){continue}
+            if($line.Trim().Length -gt 0 -and -not $line.TrimStart().StartsWith('#') -and $indent -le $stateIndent){$stateIndent=$null;continue}
+            if($line -match '^\s*sqlite_path:\s*(.+?)\s*(?:#.*)?$'){$dbName=$Matches[1].Trim().Trim('"').Trim("'");break}
+          }
+          Need (-not [string]::IsNullOrWhiteSpace($dbName)) 'DB_LOCATOR'
+          $liveDb=if([IO.Path]::IsPathRooted($dbName)){$dbName}else{Join-Path $live $dbName}
+          Need (Test-Path -LiteralPath $liveDb -PathType Leaf) 'LIVE_DB'
+          $snap=Join-Path $scratch 'live-snapshot.db'
+          $py="import sqlite3,sys; u='file:'+sys.argv[1].replace(chr(92),'/')+'?mode=ro'; s=sqlite3.connect(u,uri=True,timeout=5); s.execute('PRAGMA query_only=ON'); d=sqlite3.connect(sys.argv[2]); s.backup(d); assert d.execute('PRAGMA integrity_check').fetchone()[0]=='ok'; d.close(); s.close()"
+          & python.exe -B -c $py $liveDb $snap
+          Need ($LASTEXITCODE -eq 0) 'SNAPSHOT'
+
+          $probeSource=Join-Path $env:GITHUB_WORKSPACE 'recovery\mp-ckb-reconstitution-driver-20261024\live_compat_test.go'
+          $probe=Join-Path $dst 'internal\plane\zz_mp_reconstitution_live_compat_test.go'
+          Copy-Item -LiteralPath $probeSource -Destination $probe -Force
+
+          Push-Location $dst
+          try{
+            $env:MP_RECON_LIVE_CONFIG=$liveConfig
+            $env:MP_RECON_LIVE_ROOT=$live
+            $env:MP_RECON_DB_SNAPSHOT=$snap
+            & go.exe test ./internal/plane -run 'Preservation|MPReconstitutionLiveCompatibility' -count=1
+            Need ($LASTEXITCODE -eq 0) 'FOCUSED_TESTS'
+            Write-Host 'MP_RECON_FOCUSED_AND_LIVE_CONFIG=PASS'
+            & go.exe test ./... -count=1
+            Need ($LASTEXITCODE -eq 0) 'FULL_REGRESSION'
+            Write-Host 'MP_RECON_FULL_REGRESSION=PASS'
+            $built=Join-Path $scratch 'ckb-plane-reconstituted.exe'
+            & go.exe build -trimpath -o $built ./cmd/ckb-plane
+            Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $built -PathType Leaf)) 'BUILD'
+            $buildHash=Sha $built
+            Write-Host ('MP_RECON_STOPPED_BUILD_SHA256='+$buildHash)
+          } finally {
+            Remove-Item Env:MP_RECON_LIVE_CONFIG,Env:MP_RECON_LIVE_ROOT,Env:MP_RECON_DB_SNAPSHOT -ErrorAction SilentlyContinue
+            Pop-Location
+          }
+          Remove-Item -LiteralPath $probe -Force
+          Need (-not (Test-Path -LiteralPath $probe)) 'TEMP_TEST_CLEAN'
+
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+          foreach($p in $protected){Need ((Sha $p) -ceq $pre[$p]) ('PROTECTED_POSTIMAGE_'+[IO.Path]::GetFileName($p))}
+          Write-Host 'MP_RECON_LIVE_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+          Write-Host 'MP_RECON_LIVE_SQLITE_WRITES=0'
+          Write-Host 'MP_RECON_CONTROLLER_COMMANDS=0'
+          Write-Host 'MP_RECON_SECOND_CONTROLLER_STARTS=0'
+
+          $receiptDir=Join-Path $clone 'docs\recovery'
+          New-Item -ItemType Directory -Path $receiptDir -Force | Out-Null
+          $receiptPath=Join-Path $receiptDir 'MP_INSTALLED_SOURCE_RECONSTITUTION_20261024.json'
+          $receipt=[ordered]@{
+            schema='ckb-plane.mp-installed-source-reconstitution.v1'
+            base_commit=$base
+            rescued_source_surface_sha256=$digest
+            rescued_file_count=205
+            rescued_total_bytes=1303482
+            preservation_contract_reapplied=$true
+            focused_and_live_config='PASS'
+            full_regression='PASS'
+            stopped_build_sha256=$buildHash
+            live_controller_changed=$false
+            live_sqlite_writes=0
+            second_controller_starts=0
+          }
+          [IO.File]::WriteAllText($receiptPath,($receipt|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+          & git.exe -C $clone add -- 'snapshot/source' 'docs/recovery/MP_INSTALLED_SOURCE_RECONSTITUTION_20261024.json'
+          Need ($LASTEXITCODE -eq 0) 'GIT_ADD'
+          & git.exe -C $clone diff --cached --check
+          Need ($LASTEXITCODE -eq 0) 'DIFF_CHECK'
+          $staged=@(& git.exe -C $clone diff --cached --name-only)
+          Need ($staged.Count -gt 100 -and $staged.Count -lt 260) 'STAGED_SCOPE_COUNT'
+          Need (-not (@($staged | Where-Object {$_ -notlike 'snapshot/source/*' -and $_ -cne 'docs/recovery/MP_INSTALLED_SOURCE_RECONSTITUTION_20261024.json'}))) 'STAGED_SCOPE_PATH'
+          & git.exe -C $clone config user.name 'ckb-source-recovery'
+          & git.exe -C $clone config user.email 'actions@users.noreply.github.com'
+          & git.exe -C $clone commit -m 'recovery(mp): reconstitute installed CKB source with versioned preservation'
+          Need ($LASTEXITCODE -eq 0) 'COMMIT'
+          $candidate=(& git.exe -C $clone rev-parse HEAD).Trim()
+          & git.exe -C $clone push origin 'HEAD:recovery/mp-installed-source-reconstitution-20261024'
+          Need ($LASTEXITCODE -eq 0) 'PUSH'
+          Write-Host ('MP_RECON_CANDIDATE_COMMIT='+$candidate)
+          Write-Host 'MP_RECON_CANDIDATE_PUSHED=PASS'
+          Remove-Item -LiteralPath $scratch -Recurse -Force
+          Write-Host 'MP_RECON_SCRATCH_CLEAN=PASS'
