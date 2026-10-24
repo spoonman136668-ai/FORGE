@@ -66,7 +66,8 @@ def synthetic_sources():
     )
     for triples in cases:
         ids = frozen.encode_source(triples)
-        require(ids is not None and all(0 <= i < 256 for i in ids),
+        require(ids is not None and len(ids) > 1 and ids[-1] == frozen.EOS and
+                all(0 <= i < 256 for i in ids[:-1]),
                 "INVALID_SYNTHETIC_SOURCE")
         yield ids
 
