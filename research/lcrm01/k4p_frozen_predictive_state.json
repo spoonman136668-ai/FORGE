@@ -1,0 +1,226 @@
+{
+  "schema": "mass.lcrm01.k4p.frozen-compact-predictive-state-v1",
+  "gate": "LCRM01-K4P",
+  "parents": {
+    "K4O_head": "bb692c4897cc646858728c3cbc349d533b482b1d",
+    "K4O_pr": 870,
+    "K4O_run": 40089737900,
+    "K4N_negative_run": 40088780384,
+    "K4O_diagnosis": "Full raw 1NN also misses genuinely useful action on unfamiliar contexts; FIT coreset decision optimization not transferable."
+  },
+  "novel_hypothesis": "A compact learned latent state of action-conditioned public observation transitions provides additional reusable decision information over direct reward-only fitting and episodic 1NN, using the same FIT episodes and heldout public reset observations.",
+  "source": {
+    "CausalWorld_commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "environment_blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e",
+    "original_runtime": "Existing source-pinned CausalWorld and K4B in-memory deterministic physics repair only",
+    "task_constructor": "Original CausalWorld public generate_task keyword-only task parameter; reaching goal xyz offsets, pushing object positions, novel picking tool_block_position offset."
+  },
+  "cohort": {
+    "variants": [
+      {
+        "id": 0,
+        "goal_dx": -0.087,
+        "goal_dy": -0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 1,
+        "goal_dx": -0.087,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 2,
+        "goal_dx": -0.087,
+        "goal_dy": 0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 3,
+        "goal_dx": -0.037,
+        "goal_dy": -0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 4,
+        "goal_dx": -0.037,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 5,
+        "goal_dx": -0.037,
+        "goal_dy": 0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 6,
+        "goal_dx": 0.037,
+        "goal_dy": -0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 7,
+        "goal_dx": 0.037,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 8,
+        "goal_dx": 0.037,
+        "goal_dy": 0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 9,
+        "goal_dx": 0.087,
+        "goal_dy": -0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 10,
+        "goal_dx": 0.087,
+        "goal_dy": 0,
+        "phase": "FIT"
+      },
+      {
+        "id": 11,
+        "goal_dx": 0.087,
+        "goal_dy": 0.058,
+        "phase": "FIT"
+      },
+      {
+        "id": 12,
+        "goal_dx": 0,
+        "goal_dy": -0.062,
+        "phase": "CHECK"
+      },
+      {
+        "id": 13,
+        "goal_dx": 0,
+        "goal_dy": 0.062,
+        "phase": "CHECK"
+      },
+      {
+        "id": 14,
+        "goal_dx": -0.079,
+        "goal_dy": -0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 15,
+        "goal_dx": -0.079,
+        "goal_dy": 0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 16,
+        "goal_dx": -0.011,
+        "goal_dy": -0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 17,
+        "goal_dx": -0.011,
+        "goal_dy": 0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 18,
+        "goal_dx": 0.011,
+        "goal_dy": -0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 19,
+        "goal_dx": 0.011,
+        "goal_dy": 0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 20,
+        "goal_dx": 0.079,
+        "goal_dy": -0.048,
+        "phase": "DEV"
+      },
+      {
+        "id": 21,
+        "goal_dx": 0.079,
+        "goal_dy": 0.048,
+        "phase": "DEV"
+      }
+    ],
+    "sim_seed": 929,
+    "train_families": [
+      "reaching",
+      "pushing"
+    ],
+    "unfamiliar_family": "picking",
+    "actions": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "action_rule": "K4H low, center, high, mixed even20% odd80% 9 joint positions",
+    "steps": 8,
+    "skip_frame": 10,
+    "max_episode_length": 32,
+    "structured_reset_and_final_observation": true,
+    "FIT_episodes": 96,
+    "CHECK_episodes": 24,
+    "DEV_episodes": 96
+  },
+  "fit_prerequisites": [
+    "12 distinct public FIT resets per training family",
+    "two distinct best realized action IDs on reaching FIT",
+    "all four arms per variant share the same reset observation",
+    "all public FIT final observations and step reward sums finite",
+    "all 3 task family source constructors accept frozen goal/object offsets"
+  ],
+  "learning": {
+    "shared_public_state": "128 real-valued tanh(observation/0.5) dimensions, zero padded. No variant IDs, simulator hidden task state, oracle labels or FIT/DEV reward leak to policy.",
+    "algorithm": "Per trained family, compute mean FIT reset state and SVD top six right singular vectors from 12 FIT reset states. Compute mean FIT final-minus-reset transition and SVD top four right singular vectors across 48 FIT transition examples. For each action fit ridge(lambda=1) to learn latent transition from [1, six reset state coordinates]. Then leave-one-FIT-variant-out transition fits to construct strictly out-of-fold predicted transitions for all FIT records. Fit per-action ridge(lambda=1) predicting real reward from [1, six reset coordinates, four OUT-OF-FOLD predicted transition coordinates]. At inference use only public reset, latent transition predictor, and reward head to select action. This is a compact learned predictive-state experiment, not a non-neural theoretical optimal state proof.",
+    "leave_one_variant_out": "Transition model trained on other 11 FIT variants per arm. Feature bases may be computed from all FIT, never CHECK/DEV. Out-of-fold reward regressor sees same FIT reward records but not its own transition target fitted in transition predictor.",
+    "reward_baseline": "Direct per-arm ridge(lambda=1) on six public reset SVD coordinates; stronger raw-128 ridge(lambda=1), full FIT raw 1-NN, FIT mean per-arm, full raw public RBF kernel ridge(kernel bandwidth fixed=0.25 and lambda=1), and fixed arm0.",
+    "transition_ablation": "FIT-only permute terminal transition labels across each arm using deterministic circular +1 FIT-variant shift, re-fit otherwise identical transition models; reward head fixed trained as above. This ablation is a diagnostic of reliance on learned dynamics, not a retrained end-to-end matched control.",
+    "state_persistence": "Serialize fitted mean, SVD bases, transition weights, reward head, direct and baseline weights to canonical JSON; reload in fresh same process before any CHECK/DEV action decisions and verify FIT predictions exactly identical.",
+    "rank_initial": 6,
+    "rank_delta": 4,
+    "lambda": 1,
+    "kernel_sigma": 0.25,
+    "truncate_public_to": 128,
+    "shared_zero_shot": "For unfamiliar picking family, use equal-weight mean of reaching+pushing trained action predicted rewards normalized with each family's own FIT reward mean/std per action across all training outcomes. All conventional controls use same normalization, and no picking FIT data. Picking is distinct task family and may fail meaningful action diversity; never count picking as positive without source discrimination."
+  },
+  "evaluation": {
+    "no_tuning": "Train once on FIT; CHECK veto/diagnostic only; do not retrain or alter thresholds on CHECK or DEV. Freeze all policy actions from public reset-only observations prior to first HELDOUT reward rollout.",
+    "per_source": "Full raw public initial and terminal features, physical public reward action consequences, origin SHA, recorded actual chosen action per method and actual reward, task family source identities.",
+    "methods": [
+      "predictive_state",
+      "predictive_state_terminal_shift",
+      "ridge_latent",
+      "ridge_raw",
+      "rbf_kernel_ridge",
+      "raw_1nn",
+      "fit_mean",
+      "fixed_low"
+    ],
+    "primary": "On fresh reaching DEV, predictive_state improves actual reward over strongest of all fitted reward-only conventional controls by >=0.01, yields >=3/8 strict gains vs strongest comparator's chosen rewards and selects >=2 actions; in pushing must not lose >0.1 reward relative to best conventional. For independent genuinely unfamiliar picking: must outperform best conventional by >=0.01 mean reward with >=2 of 8 strict improvements, have >=2 observable distinct hindsight best actions, and select >=2 actions. All conditions required.",
+    "predictive_dynamics": "On reaching and pushing CHECK, action-conditioned predicted 4D latent transition squared error must be at least 5% lower than fixed FIT armwise mean latent delta; diagnostic alone cannot advance science.",
+    "resource": "Predictive-state checkpoint <=50% raw 1NN source records size, measured inference CPU <=200% raw 1NN inference CPU over 200 passes x 14 public contexts (all 3 families CHECK+DEV =30 contexts; 6000 requests/model). Measure shared fitting process CPU/wall, whole-run CPU/wall/RSS and full source episodes. No hidden energy claims.",
+    "two_processes": "Two fresh Python OS process results must exactly match source, learned state digests, actions, outcomes, science dispositions; timing excluded. Single GitHub host is not external replication.",
+    "stop": "If initial source reset identity or FIT reaching action diversity fails, stop without using any CHECK or DEV reward and preserve original negative; no second protocol/ad hoc correction to scientific cohorts."
+  },
+  "governance": {
+    "scientific_first_use": false,
+    "scientific_accepted": false,
+    "no_FSA_writer": true,
+    "no_F139_mutation": true,
+    "no_CKB_plane_dependency": true,
+    "no_protected_main_merge": true,
+    "paid_api": false,
+    "preserve_K4N_original_NO_GO": true,
+    "preserve_all_existing_frozen_findings": true,
+    "no_native_Wingless_Yggdrasil_claim": true
+  }
+}
