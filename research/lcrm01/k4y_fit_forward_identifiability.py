@@ -56,7 +56,16 @@ def read_original(archive,protocol):
             "ORIGINAL_K4X_NEGATIVE_OR_ORIGIN")
     a=extract_fit_only(raw["process-a.json"])
     b=extract_fit_only(raw["process-b.json"])
-    require(canon(a)==canon(b),"ORIGINAL_FIT_TWO_PROCESS_DRIFT")
+    # Original FIT includes measured wall/CPU and native IPC training times;
+    # these vary between genuine independent processes. Require every frozen
+    # scientific source byte/content to agree, but do NOT compare wall timing.
+    stable=("fit_stream","FIT_source_gate","conventional_state_sha256",
+            "original_public_fit_episodes","source_balance")
+    for role in protocol["roles"]["curricula"]:
+        require(set(a[role])==set(b[role]),"ORIGINAL_FIT_SCHEMA_DRIFT")
+        for key in stable:
+            require(canon(a[role][key])==canon(b[role][key]),
+                    "ORIGINAL_FIT_SOURCE_SCIENCE_DRIFT_"+role+"_"+key)
     require(set(a)==set(protocol["roles"]["curricula"]),"SOURCE_CURRICULUM_SET")
     return a,sha(canon(a))
 
