@@ -38,8 +38,12 @@ def canonical(data):
     return (json.dumps(data,sort_keys=True,separators=(",",":"),ensure_ascii=False)+"\n").encode()
 
 def validate_contract_bytes(raw:bytes):
-    must(blob(raw)==CONTRACT_GIT_BLOB,"frozen audit contract Git blob drift")
-    c=json.loads(raw)
+    # Windows Git checkout may render a Git's canonical LF blob as CRLF.
+    # Normalize line endings only; this never alters JSON field values.
+    canonical_raw=raw.replace(b"\r\n",b"\n")
+    must(b"\r" not in canonical_raw,"unexpected newline encoding")
+    must(blob(canonical_raw)==CONTRACT_GIT_BLOB,"frozen audit contract Git blob drift")
+    c=json.loads(canonical_raw)
     must(c.get("schema")==CONTRACT_SCHEMA,"contract schema")
     must(c.get("status")=="FROZEN_BEFORE_ANY_AUDIT_REFERENCE_SCORE_OR_MODEL_AUDIT_OUTPUT","contract not pre-frozen")
     must(c.get("scientific_go") is False,"premature scientific success")
