@@ -1,0 +1,91 @@
+name: F139 G4 original-owner authentic feeder eligibility read-only audit
+on:
+  push:
+    branches: [cutover/f139-g4-single-owner-20261024]
+    paths: [.github/workflows/f139-g4-existing-feed-original-readonly-20261024.yml]
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+jobs:
+  owner-feeder-eligibility:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Authenticate existing owner and inspect immutable candidate identities
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $source='8eca700c39223e176dea55f488b6f3397ce4e27a'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+             throw 'F139_FEED_AUDIT_ORIGINAL_OWNER_IDENTITY'
+          }
+          $protected=(& gh api repos/spoonman136668-ai/FORGE/branches/main --jq '.commit.sha'|Out-String).Trim()
+          $policy=((& gh api repos/spoonman136668-ai/FORGE/issues/807 --jq '.body'|Out-String).Trim()|ConvertFrom-Json)
+          if($protected -cne $source -or $policy.source_sha -cne $source -or
+             $policy.enabled -ne $true -or $policy.scientific_first_use -ne $false){
+             throw 'F139_FEED_AUDIT_POLICY_OR_MAIN_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName FORGE-F139-UnifiedController -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1 -or
+             @($task.Triggers).Count -ne 3){throw 'F139_FEED_AUDIT_ORIGINAL_NOT_RUNNING'}
+          $opts=[string]$task.Actions[0].Arguments
+          function PathArg([string]$key){
+             $match=[regex]::Match($opts,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+             if(-not $match.Success){throw 'F139_FEED_AUDIT_ARGUMENTS'}
+             return $match.Groups[1].Value
+          }
+          $db=PathArg 'Database';$root=PathArg 'RepositoryRoot';$python=PathArg 'PythonExe'
+          $git=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          if($git -cne $source -or [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+             throw 'F139_FEED_AUDIT_SOURCE_OR_DB_IDENTITY'
+          }
+          $script=@'
+          import json,pathlib,sqlite3,sys,re
+          sys.path.insert(0,str(pathlib.Path(sys.argv[1]).resolve(strict=True)))
+          from f139.local_controller import GitHub
+          from f139.nci04_autonomy_feed import (
+              prepare_feed,candidate_identity_from_intent_base64)
+          db=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          source=sys.argv[3]
+          conn=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=30)
+          try:
+              conn.row_factory=sqlite3.Row
+              conn.execute("PRAGMA query_only=ON")
+              meta=dict(conn.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              assert meta["source_sha"]==source and meta["head_seq"]>=195
+              stages={row["stage"]:row["n"] for row in conn.execute(
+                  "SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage")}
+              events=[json.loads(r["payload"]) for r in conn.execute(
+                  "SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED' ORDER BY seq")]
+              existing={candidate_identity_from_intent_base64(e["native_intent_base64"])
+                  for e in events}
+              print("F139_FEED_AUDIT_ORIGINAL_HEAD="+str(meta["head_seq"]))
+              print("F139_FEED_AUDIT_TASK_STAGES="+json.dumps(stages,sort_keys=True))
+              print("F139_FEED_AUDIT_HISTORICAL_NATIVE_IDENTITIES="+str(len(existing)))
+          finally:conn.close()
+          api=GitHub()
+          feed=prepare_feed(api.native_repo_get,source_sha=source,
+              existing_candidate_identities=set(existing))
+          print("F139_FEED_AUDIT_ENABLED="+str(feed["enabled"]).upper())
+          print("F139_FEED_AUDIT_ELIGIBLE_COUNT="+str(len(feed["candidates"])))
+          for candidate in feed["candidates"]:
+              print("F139_FEED_AUDIT_ELIGIBLE="+candidate["lane"]+
+                    ":PR"+str(candidate["pr_number"])+":"+
+                    candidate["candidate_identity"][:16])
+          print("F139_FEED_AUDIT_REJECTED_COUNT="+str(len(feed["rejected"])))
+          for item in feed["rejected"]:
+              reason=str(item["reason"])
+              assert re.fullmatch(r"F139_NATIVE_FEED_[A-Z0-9_]{3,100}",reason)
+              print("F139_FEED_AUDIT_REJECTED="+item["lane"]+
+                    ":PR"+str(item["pr_number"])+":"+reason)
+          print("F139_FEED_AUDIT_READ_ONLY=TRUE")
+          '@
+          & $python -B -c $script $root $db $source
+          if($LASTEXITCODE -ne 0){throw 'F139_ORIGINAL_FEED_ELIGIBILITY_AUDIT_FAILED'}
