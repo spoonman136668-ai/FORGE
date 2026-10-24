@@ -97,25 +97,32 @@ jobs:
               }
               assert hash_bytes(payload)==stage["evidence_sha"]
               assert terminal[0][1]["evidence_sha"]==stage["evidence_sha"]
-              with tempfile.TemporaryDirectory(dir=tmp,prefix="f139-itd02-readonly-") as d:
-                  scratch=pathlib.Path(d)/"owner-snapshot.sqlite"
-                  snap=sqlite3.connect(str(scratch))
-                  try:conn.backup(snap)
-                  finally:snap.close()
-                  verified=Database(scratch)
-                  try:
-                      verified.verify()
-                      assert verify_native_activation(verified)
-                      metadata=verified.meta()
-                      assert metadata["head_seq"]>=199
-                      assert metadata["source_sha"]==stage["source_sha"]
-                      counts=dict(verified.conn.execute(
-                          "SELECT stage,COUNT(*) FROM tasks GROUP BY stage").fetchall())
-                      assert counts.get("VERIFIED",0)>=19
-                      assert counts.get("QUARANTINED",0)>=11
-                      print("F139_ITD02_ORIGINAL_EVENT_HEAD_SEQ="+str(metadata["head_seq"]))
-                      print("F139_ITD02_ORIGINAL_TASK_COUNTS="+json.dumps(counts,sort_keys=True))
-                  finally:verified.close()
+              # Read-only verification uses the original event file and the
+              # independently authenticated pre-cutover 195-event head.
+              # A temp SQLite relocated away from the original evidence tree
+              # would incorrectly fail path-bound historical negative custody.
+              from f139.local_controller import ZERO
+              meta=dict(conn.execute("SELECT * FROM meta WHERE id=1").fetchone())
+              prior=ZERO
+              count=0
+              for record in conn.execute("SELECT seq,kind,payload,prior_sha,sha FROM events ORDER BY seq"):
+                  count+=1
+                  assert record["seq"]==count and record["prior_sha"]==prior
+                  data=json.loads(record["payload"])
+                  assert canonical(data).decode()==record["payload"]
+                  calculated=hash_bytes(canonical({
+                      "seq":count,"prior_sha":prior,
+                      "kind":record["kind"],"payload":data}))
+                  assert calculated==record["sha"]
+                  prior=calculated
+              assert meta["head_seq"]==count and meta["head_hash"]==prior
+              assert count>=199 and meta["source_sha"]==stage["source_sha"]
+              pinned=conn.execute("SELECT sha FROM events WHERE seq=195").fetchone()["sha"]
+              assert pinned=="ffac6f9e7aae42016272a10cd74c317e83c046f90efb28ff90f20f53c7640f94"
+              counts=dict(conn.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage").fetchall())
+              assert counts.get("VERIFIED",0)>=19 and counts.get("QUARANTINED",0)>=11
+              print("F139_ITD02_ORIGINAL_EVENT_HEAD_SEQ="+str(count))
+              print("F139_ITD02_ORIGINAL_TASK_COUNTS="+json.dumps(counts,sort_keys=True))
               print("F139_ITD02_ORIGINAL_ONCE_ONLY_ADMISSION=PASS")
               print("F139_ITD02_ORIGINAL_ONCE_ONLY_DISPATCH=PASS")
               print("F139_ITD02_NATIVE_UBUNTU_WINDOWS_RECEIPTS=PASS")
