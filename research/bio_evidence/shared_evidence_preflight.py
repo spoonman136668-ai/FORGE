@@ -73,3 +73,39 @@ def lookup(root, expected_sha, query, limit=5):
             candidates.append((len(found), seq, finding))
     candidates.sort(key=lambda item: (-item[0], item[1]))
     results = []
+
+    for _, _, finding in candidates[:limit]:
+        source = finding.get("source_repo_path", "")
+        declared = finding.get("source_sha256", "")
+        if not REPORT_PATH.fullmatch(source) or not re.fullmatch(r"[0-9a-f]{64}", declared):
+            fail("SOURCE_NOT_DIRECTLY_VERIFIABLE")
+        original = read(root, source, 250000)
+        actual = hashlib.sha256(original).hexdigest()
+        if actual != declared:
+            fail("SOURCE_HASH_DRIFT")
+        results.append({"finding_id": finding["finding_id"], "experiment": finding["experiment_id"],
+                        "verdict": finding["gate_verdict"], "claim": finding["claim"],
+                        "control": finding["control_comparison"], "limitations": finding["limitations"],
+                        "source_path": source, "source_sha256": actual, "advisory_only": True})
+    return {"schema": "forge.shared-research-evidence-preflight.v1",
+            "pinned_commit": expected_sha,
+            "catalog_sha256": hashlib.sha256(catalog_raw).hexdigest(),
+            "index_sha256": hashlib.sha256(idx_raw).hexdigest(),
+            "query": query, "retrieved": results,
+            "scientific_acceptance": False, "model_integration_authorized": False,
+            "scope": "BIO historical 01-61; newer BIO and other programs not yet indexed"}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--mind-palace-root", required=True, type=Path)
+    parser.add_argument("--commit", required=True)
+    parser.add_argument("--query", required=True)
+    parser.add_argument("--limit", type=int, default=5)
+    args = parser.parse_args()
+    print(json.dumps(lookup(args.mind_palace_root, args.commit, args.query, args.limit),
+                     sort_keys=True, indent=2))
+
+
+if __name__ == "__main__":
+    main()
