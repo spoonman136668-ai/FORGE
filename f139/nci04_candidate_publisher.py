@@ -143,6 +143,7 @@ def publish_single_draft(
     get: Callable[[str], object],
     write: Callable[[str, str, dict], object], plan: dict, *,
     owner_witness: Callable[[], bool],
+    consumed_mechanisms: set[str],
     existing_candidate_identities: set[str],
 ) -> dict:
     """One deliberate source commit + owner draft PR; no retries on uncertainty.
@@ -164,11 +165,10 @@ def publish_single_draft(
         get, source_sha=plan["source_sha"],
         parent_commit=plan["parent_commit"],
         historical_sha256=plan["history_sha256"],
-        consumed_mechanisms={},
+        consumed_mechanisms=consumed_mechanisms,
         existing_candidate_identities=existing_candidate_identities)
-    # This is only permitted for a prospectively authenticated unconsumed
-    # mechanism; caller must enforce full consumed-mechanism ledger set.
-    # Preflight equality is required after a separate original-owner lock.
+    # Verify the *same* historical consumed set under the owner lock again.
+    # A negative from #840 must never be republished by clearing history.
     need(all(fresh[k] == plan[k] for k in fresh),
          "PLAN_MOVED_BETWEEN_PREFLIGHT_AND_WRITE")
     repo = plan["repository"]
