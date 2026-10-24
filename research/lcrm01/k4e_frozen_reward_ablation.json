@@ -1,0 +1,74 @@
+{
+  "schema": "mass.lcrm01.k4e.frozen-pushing-reward-memory-causal-ablation.v1",
+  "gate": "LCRM01-K4E",
+  "scope": "PUBLIC_DEVELOPMENT_ONLY_NOT_ORIGINAL_FIRST_USE",
+  "ancestry": {
+    "parent_k4d_head": "4f0325c5d8f74ac1b54122dc8a7142952f4ad11d",
+    "prior_development_run": 40080871991,
+    "negative_artifact_id": 12554953560,
+    "negative_zip_sha256": "410a789cd13125daf5cb1bfd9e8315440d916358f523162ca55e3d22445c7dcc",
+    "k4d_scientific_verdict": "NEGATIVE_RETAINED",
+    "k4c_positive_run": 39504183582,
+    "k4a_original_negative_run": 39497271163
+  },
+  "source": {
+    "repo": "rr-learning/CausalWorld",
+    "commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "env_blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e",
+    "pushing_file": "causal_world/task_generators/pushing.py",
+    "baseline_overlay": "K4B original unmodified in-memory source-repair overlay"
+  },
+  "hypothesis": "Pushing CONTROL_A_B reward drift follows from absent checkpoint restoration of the three pushing-specific previous_* reward inputs (end effector positions, object position and object orientation), despite restored physics and RNG.",
+  "preregistered_design": {
+    "task": "pushing",
+    "fresh_seeds": [
+      67,
+      79
+    ],
+    "interventions": [
+      {
+        "joint_index": 0,
+        "delta_radians": 0.04
+      },
+      {
+        "joint_index": 2,
+        "delta_radians": -0.03
+      }
+    ],
+    "action": "fixed action_space.low copied before checkpoint",
+    "prefix_steps": 5,
+    "continuation_steps": 6,
+    "max_episode_length": 40,
+    "skip_frame": 10,
+    "action_mode": "joint_positions",
+    "observation_mode": "structured",
+    "normalize_actions": false,
+    "normalize_observations": false,
+    "arms": [
+      "A_BASELINE_K4B_UNMODIFIED",
+      "B_K4B_PLUS_PUSHING_REWARD_MEMORY_ONLY"
+    ],
+    "pushing_memory_fields": [
+      "previous_end_effector_positions",
+      "previous_object_position",
+      "previous_object_orientation"
+    ],
+    "restore_rule": "Only arm B: snapshot the three previous_* task attributes using deepcopy at checkpoint; restore them after the exact unchanged K4B env.set_state call before each continuation. Never alter physics, RNG, other model or sensor fields.",
+    "order": "For each seed × joint, instantiate a fresh pushing environment per arm, same public actions and seeds; full CONTROL_A→restore→CONTROL_B; arm B additionally treated A and B intervention then control C. All 4 cases × 2 arms in each of 2 fresh processes.",
+    "expected_baseline": "All four arm-A cases reproduce K4D's initial-step reward-only mismatch; if any do not, report HYPOTHESIS_NOT_IDENTIFIED, without selecting another seed.",
+    "expected_repair": "All arm-B cases have exact A/B control replay, exact treated A/B and post-intervention control C, observed physical consequence, and no unrelated state drift, with independent-process digests identical.",
+    "ablations": "The sole changed variable is snapshot/restore of three pushing task history fields; a nonmatching checkpoint or unexpected task state blocks evaluation.",
+    "comprehensive_fail_policy": "Do not stop other cases on one negative; preserve first failing step/fields for both arms; retain every original negative and distinguish infrastructure failure from mechanism falsification."
+  },
+  "authority": {
+    "scientific_first_use": false,
+    "accepted_science": false,
+    "learned_cognition": false,
+    "unfamiliar_transfer": false,
+    "protected_main_promotion": false,
+    "external_sci_witness": false,
+    "new_controller": false,
+    "paid_model_api": false,
+    "no_CKB_plane_dependency": true
+  }
+}
