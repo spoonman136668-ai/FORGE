@@ -1,0 +1,35 @@
+name: Mass Research K4J independent-process reaching replication
+on:
+  push:
+    branches: [research/mass-lcrm01-k4j-replication-20261024]
+permissions:
+  contents: read
+jobs:
+  frozen-replication:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Run original K4J freeze, source-only falsification and two OS-process experiments
+        run: bash research/lcrm01/k4j_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4j-original-two-process-replication-evidence
+          path: |
+            ${{ runner.temp }}/k4j/process-a.json
+            ${{ runner.temp }}/k4j/process-b.json
+            ${{ runner.temp }}/k4j/comparison.json
+            ${{ runner.temp }}/k4j/process-a.log
+            ${{ runner.temp }}/k4j/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
