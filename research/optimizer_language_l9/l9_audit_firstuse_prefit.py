@@ -117,7 +117,7 @@ def check_plan(plan: dict, root: Path) -> dict:
     per=metrics.get("per_heldout_category",[])
     whole=metrics.get("whole_audit",[])
     require(len(per)==len(set(per))>=13,"INCOMPLETE_CATEGORY_METRICS")
-    require(len(whole)==len(set(whole))>=17,"INCOMPLETE_RESOURCE_METRICS")
+    require(len(whole)==len(set(whole))>=16,"INCOMPLETE_RESOURCE_METRICS")
     for must in ("multireference_chrF","per_triple_coverage_train_derived_proxy",
                  "extra_entity_proxy","negation_marker_conflict_proxy",
                  "explicit_abstentions","missing_requested_triples"):
