@@ -1,0 +1,137 @@
+name: F139 v5 independent original-owner immutable audit
+on:
+  push:
+    branches: [operations/f139-v5-sealed-owner-cutover-20261024]
+    paths: [.github/workflows/f139-v5-original-owner-audit.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner-readonly-audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify unchanged original SQLite, v5 custody, source and original task
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $pin='52e007e83be08b851283fc4a6e213ea506469f43'
+          $hash='f72e50f04658056a58880cdd4a66a7fa7be04596bc073cb80e1fdcc1492e42d0'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_V5_INDEPENDENT_RUNNER_UNQUALIFIED'
+          }
+          $main=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          $policy=(& gh api "repos/$repo/issues/807" --jq '.body'|Out-String).Trim()|ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $main -cne $pin -or
+             $policy.enabled -ne $true -or $policy.source_sha -cne $pin -or
+             $policy.scientific_first_use -ne $false -or
+             $policy.new_controller -ne $false -or
+             $policy.max_issue_creations_per_cycle -ne 2){
+            throw 'F139_V5_ORIGINAL_POLICY_OR_PROTECTED_SOURCE_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Output ('F139_V5_ORIGINAL_TASK_STATE='+[string]$t.State)
+          Write-Output ('F139_V5_ORIGINAL_LAST_RESULT='+[string]$info.LastTaskResult)
+          Write-Output ('F139_V5_ORIGINAL_NEXT_RUN_UTC='+$info.NextRunTime.ToUniversalTime().ToString('o'))
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3 -or
+             [string]$t.State -cnotin @('Ready','Running')){
+            throw 'F139_V5_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $principal=[string]$t.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne [Security.Principal.WindowsIdentity]::GetCurrent().User.Value){
+            throw 'F139_V5_ORIGINAL_TASK_SID_DRIFT'
+          }
+          $args=[string]$t.Actions[0].Arguments
+          function Arg([string]$name){
+            $m=[regex]::Match($args,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_V5_ORIGINAL_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database';$root=Arg 'RepositoryRoot';$python=Arg 'PythonExe'
+          if([IO.Path]::GetFileName((Arg 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             [IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             ((& git.exe -C $root rev-parse HEAD|Out-String).Trim()) -cne $pin){
+            throw 'F139_V5_ORIGINAL_CHECKOUT_OR_DATABASE_DRIFT'
+          }
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-v5-independent-audit-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_V5_SCRATCH_ALREADY_EXISTS'}
+          $code=@'
+          import pathlib,sqlite3,sys,json
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          pin=sys.argv[3];expected=sys.argv[4]
+          con=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True,timeout=30)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          original=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert original["source_sha"]==pin and original["head_seq"]>=187
+          assert original["enabled"]==1 and original["legacy_suspended"]==1
+          assert not scratch.exists()
+          dest=sqlite3.connect(scratch)
+          con.backup(dest)
+          dest.close()
+          d=Database(scratch)
+          try:
+              d.verify()
+              assert verify_native_activation(d)
+              events={r["seq"]:r for r in d.conn.execute(
+                  "SELECT seq,kind,payload FROM events WHERE seq IN(186,187)")}
+              assert events[186]["kind"]=="SOURCE_TRANSITION_ADMITTED"
+              assert events[187]["kind"]=="NATIVE_DEVELOPMENT_ACTIVATED"
+              v5=json.loads(events[186]["payload"])
+              assert v5["schema"]=="forge.f139.source-transition.v5"
+              assert v5["custodied_negative_tasks"]==10
+              assert v5["scientific_first_use"] is False
+              assert len(d.verified_native_provider_failures())==8
+              transitions=[dict(r) for r in d.conn.execute(
+                  "SELECT seq,sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
+              v4=[r for r in transitions if json.loads(r["payload"])["schema"]=="forge.f139.source-transition.v4"]
+              assert len(v4)==10
+              assert v5["v4_terminal_event_sha256"]==v4[-1]["sha"]
+              counts={r["stage"]:r["n"] for r in d.conn.execute(
+                  "SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              assert counts=={"QUARANTINED":10,"VERIFIED":18},counts
+              retained=d.conn.execute(
+                  "SELECT stage FROM tasks WHERE ticket LIKE 'f139-nci04-i840-%'").fetchone()
+              assert retained and retained["stage"]=="QUARANTINED"
+              print("F139_V5_ORIGINAL_LEDGER_AT_LEAST_EVENT187=PASS")
+              print("F139_V5_ORIGINAL_V4_SEAL_AND_V5_VALIDATED=PASS")
+              print("F139_V5_ORIGINAL_NEGATIVES=10")
+              print("F139_V5_ORIGINAL_VERIFIED_TASKS=18")
+              print("F139_V5_OWNER_CURRENT_HEAD="+str(d.meta()["head_seq"]))
+              print("F139_V5_OWNER_CURRENT_HASH="+d.meta()["head_hash"])
+              print("F139_V5_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:d.close()
+          after=dict(con.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert original==after,"F139_V5_ORIGINAL_DATABASE_CHANGED"
+          con.close()
+          print("F139_V5_ORIGINAL_SQLITE_READONLY=PASS")
+          '@
+          try{
+            Push-Location -LiteralPath $root
+            try{
+              & $python -B -c $code $db $scratch $pin $hash
+              if($LASTEXITCODE -ne 0){throw 'F139_V5_READONLY_AUDIT_FAILED'}
+            }finally{Pop-Location}
+          }finally{
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          $alive=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and $_.CommandLine.Contains($db)})
+          Write-Output ('F139_V5_ORIGINAL_CONTROLLER_PROCESS_COUNT='+$alive.Count)
+          Write-Output 'F139_V5_POLICY_PINNED_ENABLED=PASS'
