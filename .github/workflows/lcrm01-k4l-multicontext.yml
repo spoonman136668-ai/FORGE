@@ -1,0 +1,35 @@
+name: Mass Research K4L multicontext compressed memory
+on:
+  push:
+    branches: [research/mass-lcrm01-k4l-multi-context-20261024]
+permissions:
+  contents: read
+jobs:
+  frozen-public-multicontext:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: K4L original frozen world evaluation and source checks
+        run: bash research/lcrm01/k4l_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4l-original-multicontext-compression
+          path: |
+            ${{ runner.temp }}/k4l/process-a.json
+            ${{ runner.temp }}/k4l/process-b.json
+            ${{ runner.temp }}/k4l/comparison.json
+            ${{ runner.temp }}/k4l/process-a.log
+            ${{ runner.temp }}/k4l/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
