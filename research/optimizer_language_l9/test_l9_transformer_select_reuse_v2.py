@@ -60,6 +60,35 @@ class RecoveryV2Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             v2.assert_admission(42,*self.records())
 
+
+    def test_cancelled_original_requires_90min_time_and_exact_log(self):
+        for seed in (1701,1702):
+            job,run,prefit=self.records(seed)
+            job.update({"conclusion":"cancelled","started_at":"2026-10-24T00:35:22Z",
+                        "completed_at":"2026-10-24T02:05:41Z",
+                        "steps":[{"name":"Full frozen L9_SELECT only (no audit model exposure)",
+                                  "conclusion":"cancelled"}]})
+            run["conclusion"]="cancelled"
+            proof="2026-10-24T02:05:41Z ##[error]The operation was canceled."
+            self.assertTrue(v2.assert_admission(seed,job,run,prefit,proof))
+            for mutate in ("early","too_late","missing_step","missing_log","run_mismatch"):
+                a,b,c=copy.deepcopy((job,run,prefit))
+                msg=proof
+                if mutate=="early":a["completed_at"]="2026-10-24T01:05:41Z"
+                if mutate=="too_late":a["completed_at"]="2026-10-24T03:05:41Z"
+                if mutate=="missing_step":a["steps"][0]["conclusion"]="success"
+                if mutate=="missing_log":msg="cancelled"
+                if mutate=="run_mismatch":b["conclusion"]="success"
+                with self.subTest(seed=seed,mutate=mutate),self.assertRaises(ValueError):
+                    v2.assert_admission(seed,a,b,c,msg)
+
+    def test_generic_cancellation_never_admitted(self):
+        job,run,prefit=self.records()
+        job["conclusion"]="cancelled"
+        run["conclusion"]="cancelled"
+        with self.assertRaises(ValueError):
+            v2.assert_admission(1701,job,run,prefit)
+
     def test_recovery_receipt_is_distinct(self):
         self.assertNotEqual(v2.SCHEMA,"forge.optimizer.language.l9.neural-select-development-v1")
         self.assertEqual(set(v2.ORIGINAL_JOBS),{1701,1702})
@@ -73,7 +102,7 @@ class RecoveryV2Tests(unittest.TestCase):
             output=root/"result.json"
             with self.assertRaises(FileNotFoundError):
                 v2.run(root,root,1701,output,root/"none-job.json",
-                       root/"none-run.json",root/"none-prefit.json")
+                       root/"none-run.json",root/"none-prefit.json",root/"none-log.txt")
             self.assertFalse(output.exists())
 
 if __name__=="__main__":
