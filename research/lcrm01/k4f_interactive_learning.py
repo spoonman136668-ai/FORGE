@@ -113,7 +113,7 @@ def kernel_pred(memory,x,arm,temp):
 def fit_models(np,samples,p):
     if len(samples)!=32 or set(r["choice"] for r in samples)!={0,1,2,3}:
         raise ValueError("MATCHED_FIT_EXPERIENCES_MISSING")
-    controls=p["models"]
+    controls=p["fixed_selection"]
     limit=controls["episodic_memory_capacity"]
     threshold=controls["novelty_threshold"]
     fast=[]
@@ -162,11 +162,11 @@ def predict(np,state,x,arm,p,method):
         rows=[(sum((a-b)**2 for a,b in zip(x,r["x"])),i,r)
               for i,r in enumerate(state["samples"]) if r["choice"]==arm]
         rows.sort(key=lambda y:(y[0],y[1]))
-        k=p["models"]["knn_neighbors"]
+        k=p["fixed_selection"]["knn_neighbors"]
         if not rows:
             raise ValueError("NO_TRAINED_KNN_ACTION")
         return float(sum(r["total_return"] for _,_,r in rows[:k])/min(k,len(rows)))
-    local=kernel_pred(state["fast"],x,arm,p["models"]["kernel_temperature"])
+    local=kernel_pred(state["fast"],x,arm,p["fixed_selection"]["kernel_temperature"])
     return float(state["means"][arm] if local is None else
                  0.5*state["means"][arm]+0.5*local)
 
