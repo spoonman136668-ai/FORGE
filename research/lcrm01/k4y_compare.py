@@ -37,7 +37,7 @@ def compare(a,b):
     or r.get("scientific_accepted") is not False):
    raise ValueError("K4Y_SOURCE_OR_NEGATIVE_IDENTITY_"+label)
   if r["result"]=="COMPLETE_PROSPECTIVE_NATIVE_AFFORDANCE_EVALUATION":
-   if (r.get("CHECK_episodes"),r.get("DEV_episodes"))!=(72,144) or
+   if ((r.get("CHECK_episodes"),r.get("DEV_episodes"))!=(72,144) or
       len(r.get("CHECK_original_public_traces",[]))!=72 or
       len(r.get("DEV_original_public_traces",[]))!=144 or
       r.get("native_FIT_custody",{}).get("true_native_cold_restart") is not True
