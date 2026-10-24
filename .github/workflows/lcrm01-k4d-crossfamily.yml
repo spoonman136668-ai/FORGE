@@ -1,0 +1,111 @@
+name: Mass Research K4D frozen cross-family DEV replay
+on:
+  push:
+    branches: [research/mass-lcrm01-k4d-crossfamily-dev-20261024]
+permissions:
+  contents: read
+concurrency:
+  group: mass-k4d-crossfamily-development
+  cancel-in-progress: false
+jobs:
+  frozen-physics-development:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CW_SHA: 1045277101a92c506db42704da28f6e7227d401b
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 24
+          clean: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      - name: Verify protocol-first custody and original negative history
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 49d0d636dd04197e4c5ff93e1cf6ac06db270926 "$GITHUB_SHA"
+          test "$(git rev-parse '49d0d636dd04197e4c5ff93e1cf6ac06db270926^')" = 52e007e83be08b851283fc4a6e213ea506469f43
+          test "$(git hash-object research/lcrm01/k4d_frozen_crossfamily.json)" = 7e195f10eac161eaf9553f4b5e1a839b222386a2
+          echo 'a6e97b95fcfa3fc74e9b9fa28ffc22640d99c8fc0f4da31a10336c0f6906e270  research/lcrm01/k4a_control_replay.py' | sha256sum -c -
+          echo '1a6169bba4f77bb28519766184636c89bfcdc5b5ab23485475e64de474ea09bb  research/lcrm01/k4b_replay_state_repair.py' | sha256sum -c -
+          echo '015f21b589f69f36730567e646fc93fd89636babb3fa356b6d77fed08712cb79  research/lcrm01/k4a_overlay/sitecustomize.py' | sha256sum -c -
+          test "$(git hash-object research/lcrm01/k4c_frozen_intervention_pair.json)" = 1539feb0afacf762b46beb6eb532c86ec5da45c3
+          test "$(git hash-object research/lcrm01/k4c_intervention_pair.py)" = 13c2d834edb39b04736ed6a0bba0bf0521b857b3
+          python -B - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("research/lcrm01/k4d_frozen_crossfamily.json").read_text())
+          assert p["schema"]=="mass.lcrm01.k4d.frozen-multitask-cross-process-interventions.v1"
+          assert p["baseline"]["prior_negative_run"]==39497271163
+          assert p["baseline"]["k4c_evidence_run"]==39504183582
+          assert p["restrictions"]["scientific_first_use"] is False
+          assert p["restrictions"]["protected_main_promotion"] is False
+          print("K4D_FROZEN_SOURCE_IDENTITY=PASS")
+          PY
+      - name: Install exact qualified public CausalWorld Python dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
+          mkdir -p "$RUNNER_TEMP/k4d/wheels"
+          python -m pip download --only-binary=:all: --no-deps --dest "$RUNNER_TEMP/k4d/wheels" 'pybullet==3.2.5'
+          file=$(find "$RUNNER_TEMP/k4d/wheels" -maxdepth 1 -type f -name 'pybullet-3.2.5-cp39-cp39-manylinux*.whl' -print -quit)
+          test -n "$file"
+          printf '9adcaa00de674a02549949f6f8d51b485bd7a23fbc87a1defb2067e1364f8202  %s\n' "$file" | sha256sum -c -
+          python -m pip install --no-deps "$file"
+          python -m pip install 'numpy==1.23.5' 'scipy==1.10.1' 'gym==0.17.2' 'catkin_pkg==0.5.2' 'matplotlib==3.7.5' 'psutil==5.9.8'
+      - name: Qualify public source-only adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01" python -B -m unittest discover -s research/lcrm01 -p 'test_k4d_sourceonly.py' -v
+          echo "K4D_SOURCEONLY_TESTS=PASS"
+      - name: Verify original pinned CausalWorld checkout without modification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q "$RUNNER_TEMP/k4d/CausalWorld"
+          git -C "$RUNNER_TEMP/k4d/CausalWorld" remote add origin https://github.com/rr-learning/CausalWorld.git
+          git -C "$RUNNER_TEMP/k4d/CausalWorld" fetch --no-tags --depth 1 origin "$CW_SHA"
+          git -C "$RUNNER_TEMP/k4d/CausalWorld" checkout --detach --quiet "$CW_SHA"
+          test "$(git -C "$RUNNER_TEMP/k4d/CausalWorld" rev-parse HEAD)" = "$CW_SHA"
+          test -z "$(git -C "$RUNNER_TEMP/k4d/CausalWorld" status --porcelain --untracked-files=no)"
+          test "$(git -C "$RUNNER_TEMP/k4d/CausalWorld" hash-object causal_world/envs/causalworld.py)" = 6169fcd629e5721e889fbcada52c06e9c2a37b0e
+      - name: Execute two genuine independent OS-process intervention batches
+        shell: bash
+        run: |
+          set -uo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01/k4a_overlay:$GITHUB_WORKSPACE/research/lcrm01"
+          python -B research/lcrm01/k4d_crossfamily.py --causalworld-repo "$RUNNER_TEMP/k4d/CausalWorld" --output "$RUNNER_TEMP/k4d/process-a.json" > "$RUNNER_TEMP/k4d/process-a.log" 2>&1
+          a=$?
+          python -B research/lcrm01/k4d_crossfamily.py --causalworld-repo "$RUNNER_TEMP/k4d/CausalWorld" --output "$RUNNER_TEMP/k4d/process-b.json" > "$RUNNER_TEMP/k4d/process-b.log" 2>&1
+          b=$?
+          echo "K4D_PROCESS_A_EXIT=$a K4D_PROCESS_B_EXIT=$b"
+          cat "$RUNNER_TEMP/k4d/process-a.log" "$RUNNER_TEMP/k4d/process-b.log"
+          if [ ! -s "$RUNNER_TEMP/k4d/process-a.json" ] || [ ! -s "$RUNNER_TEMP/k4d/process-b.json" ]; then
+            echo "K4D_ORIGINAL_REPORT_MISSING"
+            exit 1
+          fi
+          python -B research/lcrm01/k4d_compare_processes.py --first "$RUNNER_TEMP/k4d/process-a.json" --second "$RUNNER_TEMP/k4d/process-b.json" --output "$RUNNER_TEMP/k4d/cross-process.json"
+          status=$?
+          git -C "$RUNNER_TEMP/k4d/CausalWorld" diff --exit-code
+          test -z "$(git -C "$RUNNER_TEMP/k4d/CausalWorld" status --porcelain --untracked-files=no)"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4d-frozen-independent-process-results
+          path: |
+            ${{ runner.temp }}/k4d/process-a.json
+            ${{ runner.temp }}/k4d/process-b.json
+            ${{ runner.temp }}/k4d/cross-process.json
+            ${{ runner.temp }}/k4d/process-a.log
+            ${{ runner.temp }}/k4d/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
