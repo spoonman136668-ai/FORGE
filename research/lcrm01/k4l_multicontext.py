@@ -39,7 +39,7 @@ def protocol():
         p["cohort"]["families"]!=["reaching","pushing"] or
         (p["cohort"]["FIT_episodes"],p["cohort"]["CHECK_episodes"],
          p["cohort"]["DEV_episodes"])!=(96,16,64) or
-        p["cohort"]["methods"]!=list(METHODS)):
+        p["methods"]!=list(METHODS)):
         raise ValueError("K4L_FROZEN_COHORT_OR_METHOD_DRIFT")
     # Do not reuse ANY prior FIT/CHECK/DEV source goal pair (even for new seeds).
     from k4j_replicate import frozen as k4j_frozen
