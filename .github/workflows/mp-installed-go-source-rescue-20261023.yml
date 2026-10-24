@@ -1,0 +1,99 @@
+name: MP installed Go source rescue
+on:
+  push:
+    branches: [diagnostics/mp-installed-go-source-rescue-20261023]
+    paths: [.github/workflows/mp-installed-go-source-rescue-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-installed-go-source-rescue-20261023
+  cancel-in-progress: false
+jobs:
+  rescue:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Package bounded installed Go source read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_RESCUE_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-installed-go-source-rescue-20261023') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $parent='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-installed-go-source-rescue-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          Need (Test-Path -LiteralPath $live -PathType Container) 'LIVE_ROOT'
+          $protected=@('config\autonomy.yaml','bin\ckb-plane.exe')
+          $pre=@{}
+          foreach($rel in $protected){
+            $p=Join-Path $live $rel
+            Need (Test-Path -LiteralPath $p -PathType Leaf) ('PRE_'+$rel)
+            $pre[$rel]=Sha $p
+          }
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($proc.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPid=[int]$proc[0].ProcessId
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-go-source-rescue-'+$env:GITHUB_RUN_ID)
+          $stage=Join-Path $scratch 'source'
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          $files=@()
+          foreach($rootRel in @('internal\plane','cmd\ckb-plane')){
+            $root=Join-Path $live $rootRel
+            Need (Test-Path -LiteralPath $root -PathType Container) ('ROOT_'+$rootRel)
+            $files += @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter '*.go')
+          }
+          foreach($rel in @('go.mod','go.sum')){
+            $p=Join-Path $live $rel
+            if(Test-Path -LiteralPath $p -PathType Leaf){$files += Get-Item -LiteralPath $p}
+          }
+          $files=@($files | Sort-Object FullName -Unique)
+          Need ($files.Count -ge 20 -and $files.Count -le 400) 'FILE_COUNT_BOUND'
+          $manifest=@()
+          $total=[long]0
+          foreach($f in $files){
+            Need ($f.Length -le 2097152) ('FILE_TOO_LARGE_'+$f.Name)
+            $total += [long]$f.Length
+            Need ($total -le 67108864) 'TOTAL_SIZE_BOUND'
+            $rel=$f.FullName.Substring($live.Length).TrimStart('\')
+            Need ($rel -match '^(internal\\plane\\.*\.go|cmd\\ckb-plane\\.*\.go|go\.(mod|sum))$') ('PATH_SCOPE_'+$rel)
+            $dest=Join-Path $stage $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
+            Copy-Item -LiteralPath $f.FullName -Destination $dest -Force
+            $manifest += [ordered]@{path=$rel.Replace('\','/');sha256=(Sha $f.FullName);bytes=[long]$f.Length}
+          }
+          $manifestPath=Join-Path $stage 'RESCUE-MANIFEST.json'
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+          Write-Host ('MP_RESCUE_FILE_COUNT='+$files.Count)
+          Write-Host ('MP_RESCUE_TOTAL_BYTES='+$total)
+          Write-Host ('MP_RESCUE_MANIFEST_SHA256='+(Sha $manifestPath))
+          Write-Host 'MP_RESCUE_CONFIG_INCLUDED=FALSE'
+          Write-Host 'MP_RESCUE_STATE_INCLUDED=FALSE'
+          Write-Host 'MP_RESCUE_SECRETS_INCLUDED=FALSE'
+
+          foreach($rel in $protected){Need ((Sha (Join-Path $live $rel)) -ceq $pre[$rel]) ('POST_'+$rel)}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+          Write-Host 'MP_RESCUE_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+          Write-Host 'MP_RESCUE_LIVE_WRITES=0'
+          "MP_RESCUE_STAGE=$stage" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Upload private source rescue artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mp-installed-go-source-rescue
+          path: ${{ env.MP_RESCUE_STAGE }}
+          if-no-files-found: error
+          retention-days: 7
