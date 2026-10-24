@@ -1,0 +1,160 @@
+name: MP qualify reconstituted CKB source
+on:
+  push:
+    branches: [diagnostics/mp-source-reconstitution-qualify-20261024]
+    paths: [.github/workflows/mp-source-reconstitution-qualify-20261024.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: mp-source-reconstitution-qualify-20261024
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Download sealed installed-source rescue
+        uses: actions/download-artifact@v4
+        with:
+          name: mp-installed-go-source-rescue
+          run-id: 40050860442
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mp-rescue
+      - name: Compose and qualify exact recovery candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_RECON_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-source-reconstitution-qualify-20261024') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $merged='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $repo='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $main=@(& git.exe ls-remote --exit-code $repo 'refs/heads/main')
+          Need ($LASTEXITCODE -eq 0 -and $main.Count -eq 1 -and ([string]($main[0]-split '\s+')[0]) -ceq $merged) 'MAIN_DRIFT'
+
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $liveConfig=Join-Path $live 'config\autonomy.yaml'
+          $liveExe=Join-Path $live 'bin\ckb-plane.exe'
+          Need (Test-Path -LiteralPath $liveConfig -PathType Leaf) 'LIVE_CONFIG'
+          Need (Test-Path -LiteralPath $liveExe -PathType Leaf) 'LIVE_EXE'
+          $preConfig=Sha $liveConfig
+          $preExe=Sha $liveExe
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procs.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $pid0=[int]$procs[0].ProcessId
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-recon-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $clone=Join-Path $scratch 'ckb'
+          $rescue=Join-Path $env:RUNNER_TEMP 'mp-rescue'
+          $manifestPath=Join-Path $rescue 'RESCUE-MANIFEST.json'
+          $snap=Join-Path $scratch 'live-snapshot.db'
+          $configCopy=Join-Path $scratch 'autonomy.yaml'
+          try {
+            Need (Test-Path -LiteralPath $manifestPath -PathType Leaf) 'RESCUE_MANIFEST'
+            Need ((Sha $manifestPath) -ceq '8e0a58912b7dac47a5600d508f8e86d44a7ace1f28383fd446e5b67167af81cd') 'RESCUE_MANIFEST_HASH'
+            & git.exe clone --quiet --filter=blob:none --no-checkout $repo $clone
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            & git.exe -C $clone checkout --quiet --detach $merged
+            Need ($LASTEXITCODE -eq 0 -and ((& git.exe -C $clone rev-parse HEAD).Trim() -ceq $merged)) 'CHECKOUT'
+
+            $source=Join-Path $clone 'snapshot\source'
+            $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            Need (@($manifest).Count -eq 205) 'RESCUE_FILE_COUNT'
+            foreach($row in @($manifest)){
+              $rel=([string]$row.path).Replace('/','\')
+              $src=Join-Path $rescue $rel
+              $dst=Join-Path $source $rel
+              Need (Test-Path -LiteralPath $src -PathType Leaf) ('RESCUE_FILE_'+$rel)
+              Need ((Sha $src) -ceq [string]$row.sha256) ('RESCUE_HASH_'+$rel)
+              New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+              Copy-Item -LiteralPath $src -Destination $dst -Force
+            }
+            Write-Host 'MP_RECON_OVERLAY_205=PASS'
+
+            Push-Location $source
+            try {
+              & python.exe -B (Join-Path $env:GITHUB_WORKSPACE 'tools\mp_reconstitute_model.py') 'internal\plane\model.go'
+              Need ($LASTEXITCODE -eq 0) 'PRESERVATION_PATCH'
+              & gofmt.exe -w internal/plane/model.go
+              Need ($LASTEXITCODE -eq 0) 'GOFMT'
+              $statusDiff=@(& git.exe -C $clone diff --name-only $merged -- snapshot/source/internal/plane/status_projection.go)
+              Need ($statusDiff.Count -eq 0) 'STATUS_PROJECTION_DRIFT'
+              Need (Test-Path -LiteralPath 'internal\plane\mp_preservation_r220_versioned_test.go' -PathType Leaf) 'PR614_TEST_MISSING'
+              & go.exe test ./internal/plane -run '^(TestVersionedPreservationR220FreshIngressAndRoundTrip|TestVersionedPreservationR220HistoricalShapeCannotBecomeActionable|TestVersionedPreservationR220StrictNegatives|TestVersionedPreservationR220LegacyDiagnosticRetainsContext)$' -count=1
+              Need ($LASTEXITCODE -eq 0) 'PRESERVATION_FOCUSED'
+              Write-Host 'MP_RECON_PR614_PRESERVATION_FOCUSED=PASS'
+
+              Copy-Item -LiteralPath $liveConfig -Destination $configCopy -Force
+              $py=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aW1wb3J0IHBhdGhsaWIscmUsc3FsaXRlMyxzeXMsdXJsbGliLnBhcnNlCnJvb3Q9cGF0aGxpYi5QYXRoKHN5cy5hcmd2WzFdKS5yZXNvbHZlKCkKY2ZnPXBhdGhsaWIuUGF0aChzeXMuYXJndlsyXSkucmVzb2x2ZSgpCm91dD1wYXRobGliLlBhdGgoc3lzLmFyZ3ZbM10pLnJlc29sdmUoKQp0ZXh0PWNmZy5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04LXNpZyIpCnN0YXRlX2luZGVudD1Ob25lCmRiX25hbWU9Tm9uZQpmb3IgbGluZSBpbiB0ZXh0LnNwbGl0bGluZXMoKToKICAgIGluZGVudD1sZW4obGluZSktbGVuKGxpbmUubHN0cmlwKCIgIikpCiAgICBpZiByZS5mdWxsbWF0Y2gociJccypzdGF0ZTpccyooPzojLiopPyIsbGluZSk6CiAgICAgICAgc3RhdGVfaW5kZW50PWluZGVudAogICAgICAgIGNvbnRpbnVlCiAgICBpZiBzdGF0ZV9pbmRlbnQgaXMgTm9uZToKICAgICAgICBjb250aW51ZQogICAgaWYgbGluZS5zdHJpcCgpIGFuZCBub3QgbGluZS5sc3RyaXAoKS5zdGFydHN3aXRoKCIjIikgYW5kIGluZGVudDw9c3RhdGVfaW5kZW50OgogICAgICAgIHN0YXRlX2luZGVudD1Ob25lCiAgICAgICAgY29udGludWUKICAgIG09cmUuZnVsbG1hdGNoKHIiXHMqc3FsaXRlX3BhdGg6XHMqKC4rPylccyooPzojLiopPyIsbGluZSkKICAgIGlmIG06CiAgICAgICAgZGJfbmFtZT1tLmdyb3VwKDEpLnN0cmlwKCkuc3RyaXAoIlwiJyIpCiAgICAgICAgYnJlYWsKaWYgZGJfbmFtZSBpcyBOb25lOgogICAgcmFpc2UgUnVudGltZUVycm9yKCJNUF9SRUNPTl9EQl9MT0NBVE9SIikKcD1wYXRobGliLlBhdGgoZGJfbmFtZSkKbGl2ZT0ocCBpZiBwLmlzX2Fic29sdXRlKCkgZWxzZSByb290L3ApLnJlc29sdmUoKQppZiBub3QgbGl2ZS5pc19yZWxhdGl2ZV90byhyb290KSBvciBub3QgbGl2ZS5pc19maWxlKCk6CiAgICByYWlzZSBSdW50aW1lRXJyb3IoIk1QX1JFQ09OX0RCX1NDT1BFIikKdXJpPSJmaWxlOiIrdXJsbGliLnBhcnNlLnF1b3RlKHN0cihsaXZlKS5yZXBsYWNlKCJcXCIsIi8iKSxzYWZlPSIvOiIpKyI/bW9kZT1ybyIKd2l0aCBzcWxpdGUzLmNvbm5lY3QodXJpLHVyaT1UcnVlLHRpbWVvdXQ9NS4wKSBhcyBzcmM6CiAgICBzcmMuZXhlY3V0ZSgiUFJBR01BIHF1ZXJ5X29ubHk9T04iKQogICAgd2l0aCBzcWxpdGUzLmNvbm5lY3Qoc3RyKG91dCkpIGFzIGRzdDoKICAgICAgICBzcmMuYmFja3VwKGRzdCkKd2l0aCBzcWxpdGUzLmNvbm5lY3Qoc3RyKG91dCkpIGFzIGRiOgogICAgaWYgZGIuZXhlY3V0ZSgiUFJBR01BIGludGVncml0eV9jaGVjayIpLmZldGNob25lKClbMF0hPSJvayI6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCJNUF9SRUNPTl9TTkFQU0hPVF9JTlRFR1JJVFkiKQpwcmludCgiTVBfUkVDT05fU05BUFNIT1RfSU5URUdSSVRZPVBBU1MiKQo='))
+              & python.exe -B -c $py $live $liveConfig $snap
+              Need ($LASTEXITCODE -eq 0) 'SNAPSHOT'
+              $compatPath='internal\plane\mp_reconstituted_live_compat_test.go'
+              Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'tools\mp_reconstituted_live_compat_test.go') -Destination $compatPath -Force
+              $env:MP_LIVE_CONFIG_COPY=$configCopy
+              $env:MP_LIVE_ROOT=$live
+              $env:MP_LIVE_DB_SNAPSHOT=$snap
+              & go.exe test ./internal/plane -run '^TestMPReconstitutedLiveCompatibility$' -count=1
+              $compatExit=$LASTEXITCODE
+              Remove-Item Env:MP_LIVE_CONFIG_COPY,Env:MP_LIVE_ROOT,Env:MP_LIVE_DB_SNAPSHOT -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $compatPath -Force
+              Need ($compatExit -eq 0) 'LIVE_COMPAT'
+              Write-Host 'MP_RECON_LIVE_CONFIG_PARSE_AND_ENGINE_INIT=PASS'
+
+              & go.exe test ./... -count=1
+              Need ($LASTEXITCODE -eq 0) 'FULL_REGRESSION'
+              Write-Host 'MP_RECON_FULL_REGRESSION=PASS'
+
+              $built=Join-Path $scratch 'ckb-plane-reconstituted.exe'
+              & go.exe build -trimpath -o $built ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $built -PathType Leaf)) 'STOPPED_BUILD'
+              Write-Host ('MP_RECON_STOPPED_BUILD_SHA256='+(Sha $built))
+            } finally {
+              Pop-Location
+            }
+
+            & git.exe -C $clone add -- snapshot/source
+            Need ($LASTEXITCODE -eq 0) 'GIT_ADD'
+            $staged=@(& git.exe -C $clone diff --cached --name-only)
+            Need ($staged.Count -gt 100 -and $staged.Count -le 220) 'STAGED_SCOPE_COUNT'
+            foreach($p in $staged){Need ($p -like 'snapshot/source/*') ('STAGED_OUT_OF_SCOPE_'+$p)}
+            Write-Host ('MP_RECON_STAGED_FILE_COUNT='+$staged.Count)
+
+            & git.exe -C $clone -c user.name='ckb-source-recovery' -c user.email='actions@users.noreply.github.com' commit -m 'recovery(ckb): reconstitute installed source on merged Mind-Palace main'
+            Need ($LASTEXITCODE -eq 0) 'COMMIT'
+            $candidate=(& git.exe -C $clone rev-parse HEAD).Trim()
+            $tree=(& git.exe -C $clone rev-parse 'HEAD^{tree}').Trim()
+            Write-Host ('MP_RECON_CANDIDATE_COMMIT='+$candidate)
+            Write-Host ('MP_RECON_CANDIDATE_TREE='+$tree)
+
+            $bundle=Join-Path $scratch 'mp-reconstituted-candidate.bundle'
+            & git.exe -C $clone bundle create $bundle $candidate
+            Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $bundle -PathType Leaf)) 'BUNDLE'
+            Write-Host ('MP_RECON_BUNDLE_SHA256='+(Sha $bundle))
+            "MP_RECON_BUNDLE=$bundle" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host 'MP_RECON_LIVE_WRITES=0'
+          } finally {
+            $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $pid0) 'CONTROLLER_POSTIMAGE'
+            Need ((Sha $liveConfig) -ceq $preConfig) 'LIVE_CONFIG_POSTIMAGE'
+            Need ((Sha $liveExe) -ceq $preExe) 'LIVE_EXE_POSTIMAGE'
+            Write-Host 'MP_RECON_CONTROLLER_CONFIG_EXE_UNCHANGED=PASS'
+          }
+      - name: Upload exact qualified candidate bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mp-reconstituted-ckb-candidate-bundle
+          path: ${{ env.MP_RECON_BUNDLE }}
+          if-no-files-found: ignore
+          retention-days: 7
