@@ -23,11 +23,13 @@ def compare(a,b):
             or p.get("K4P_original_NO_GO_preserved") is not True):
             raise ValueError("ORIGINAL_K4Q_CUSTODY_OR_AUTHORITY_DRIFT_"+tag)
         if p["result"]=="PUBLIC_SOURCE_QUALIFICATION_COMPLETE":
-            if (p.get("CHECK_exposures"),p.get("DEV_exposures"))!=(24,48) or (
-                len(p.get("CHECK_rows",[])),len(p.get("DEV_rows",[])))!=(24,48) or
-                len(p.get("CHECK_scored",[]))!=24 or len(p.get("DEV_scored",[]))!=48 or
-                not p.get("fit_model_sha256") or
-                p.get("source_qualification",{}).get("science_accepted") is not False):
+            if (p.get("CHECK_exposures")!=24 or p.get("DEV_exposures")!=48
+                or len(p.get("CHECK_rows",[]))!=24
+                or len(p.get("DEV_rows",[]))!=48
+                or len(p.get("CHECK_scored",[]))!=24
+                or len(p.get("DEV_scored",[]))!=48
+                or not p.get("fit_model_sha256")
+                or p.get("source_qualification",{}).get("science_accepted") is not False):
                 raise ValueError("ORIGINAL_K4Q_HELDOUT_INCOMPLETE_"+tag)
         elif (p.get("CHECK_exposures")!=0 or p.get("DEV_exposures")!=0
              or "DEV_rows" in p):
