@@ -204,8 +204,8 @@ def experiment(bin_r1,bin_r2):
  start_wall=time.perf_counter();start_cpu=time.process_time()
  train_stream,starts,audit,source_wall,control=fit()
  base={"schema":SCHEMA,"gate":"LCRM01-K4Y",
-    "FIT_episodes":len(starts),"FIT_public_experience_count":len(fit),
-    "FIT_original_public_experiences":fit,"FIT_source_balance":audit,
+    "FIT_episodes":len(starts),"FIT_public_experience_count":len(train_stream),
+    "FIT_original_public_experiences":train_stream,"FIT_source_balance":audit,
     "shared_FIT_source_wall_seconds":source_wall,
     "FIT_conventional_source_eligible":control is not None,
     "CHECK_episodes":0,"DEV_episodes":0,
