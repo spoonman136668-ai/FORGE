@@ -1,0 +1,122 @@
+{
+  "schema": "mass.lcrm01.k4f.frozen-actual-online-learning-and-unfamiliar-transfer.v1",
+  "gate": "LCRM01-K4F",
+  "scope": "PUBLIC_INTERACTIVE_DEVELOPMENT_ONLY",
+  "ancestry": {
+    "k4e_head": "45e39e9a49f190114f266391576b2c316c8153cb",
+    "k4e_success_run": 40081704760,
+    "k4e_original_artifact": 12555124198,
+    "k4d_negative_run": 40080871991,
+    "k4d_negative_artifact": 12554953560
+  },
+  "world": {
+    "repository": "rr-learning/CausalWorld",
+    "commit": "1045277101a92c506db42704da28f6e7227d401b",
+    "env_blob": "6169fcd629e5721e889fbcada52c06e9c2a37b0e",
+    "task_fit": [
+      "reaching",
+      "pushing"
+    ],
+    "task_unfamiliar": [
+      "picking"
+    ],
+    "observation_mode": "structured",
+    "action_mode": "joint_positions",
+    "skip_frame": 10,
+    "max_episode_length": 30,
+    "normalize_actions": false,
+    "normalize_observations": false,
+    "action_menu": [
+      {
+        "id": 0,
+        "delta_joint0": 0,
+        "delta_joint2": 0
+      },
+      {
+        "id": 1,
+        "delta_joint0": 0.04,
+        "delta_joint2": 0
+      },
+      {
+        "id": 2,
+        "delta_joint0": 0,
+        "delta_joint2": 0.03
+      },
+      {
+        "id": 3,
+        "delta_joint0": 0.04,
+        "delta_joint2": 0.03
+      }
+    ],
+    "episode_steps": 3,
+    "action_base": "exact action_space.low; proposed action must satisfy full bounds; each rollout starts from a fresh environment initialized before any action",
+    "public_features": "only flattened env.reset() structured observation, first 12 entries tanh clipped plus length/mean/std; task label, hidden simulator state, future reward and oracle unavailable to learners",
+    "reward": "sum of actual env.step public rewards across at most 3 steps; no imagined oracle or reward substitution"
+  },
+  "cohorts": {
+    "fit_seeds": [
+      101,
+      103,
+      107,
+      109
+    ],
+    "check_seeds": [
+      201,
+      203
+    ],
+    "unfamiliar_dev_seeds": [
+      301,
+      307,
+      311,
+      313
+    ],
+    "same_family_dev_seeds": [
+      401,
+      407
+    ],
+    "source_order": "FIT collected first; checkpoint model then evaluate CHECK veto only; DEV used once and never for tuning; no seed replacement",
+    "fit_trials": "2 families x 4 seeds x 4 arms = 32 public interaction rollouts; every method receives precisely the same raw train dataset",
+    "check_trials": "2 families x 2 seeds x 5 fitted/fixed policies = 20 real rollouts",
+    "dev_trials": "picking 4 seeds x 5 policies = 20 real rollouts; reaching/pushing 2 seeds x 5 policies = 20 real rollouts"
+  },
+  "models": {
+    "candidate": "fast/slow selective episodic kernel reward memory updated only from FIT action-return observations; prediction error determines retained high-surprise exemplars (capacity 16) combined with slower all-FIT action averages",
+    "controls": [
+      "regularized action-conditioned linear ridge regression",
+      "three-nearest per-action full episodic memory",
+      "fully fitted mean return per action",
+      "untrained fixed action zero"
+    ],
+    "common_budget": "identical FIT action/observation/reward experiences to every trainable policy; the exact same public observation vector and action menu for decision",
+    "model_evaluation": "save learned states to JSON, reload before CHECK and DEV; prove predictions match bitwise pre/post reload; no reward feedback during validation/development"
+  },
+  "fixed_selection": {
+    "ridge_lambda": 1,
+    "knn_neighbors": 3,
+    "episodic_memory_capacity": 16,
+    "novelty_threshold": 0.02,
+    "kernel_temperature": 0.35,
+    "score_bias": 0,
+    "metric": "per-seed total observed public reward, larger is better",
+    "decision": "claim only a bounded DEVELOPMENT transfer improvement if candidate's mean unfamiliar picking reward exceeds the strongest fully fitted conventional comparator by at least 0.01, candidate not worse than best fitted control by more than 0.1 on CHECK or familiar DEV, no experiment failures, and full retention reproducibility; otherwise retain NO_GO",
+    "resource": "wall seconds, process CPU seconds, peak process RSS for complete FIT+CHECK+DEV, checkpoint bytes, trial counts",
+    "scientific_claims_not_allowed": [
+      "native Wingless/Yggdrasil cognition",
+      "first use accepted by FORGE FSA",
+      "causal mechanism discovery",
+      "general unseen environment transfer",
+      "positive novelty from CHECK-only data",
+      "cost parity without measured components"
+    ]
+  },
+  "safety": {
+    "scientific_first_use": false,
+    "protected_main_mutation": false,
+    "new_controller": false,
+    "new_queue": false,
+    "paid_api": false,
+    "ckb_plane_dependency": false,
+    "unfamiliar_development_scored_once": true,
+    "all_negative_results_retained": true
+  }
+}
