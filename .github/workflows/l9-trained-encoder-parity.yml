@@ -107,7 +107,7 @@ jobs:
           print('L9_ORIGINAL_TRAIN_ARCHIVE_SHA256='+row['zip_sha256'])
           print('L9_ORIGINAL_TRAIN_CHECKPOINTS_FROZEN=PASS')
           PY
-      - name: Compare all three trained epochs against original greedy (synthetic only)
+      - name: Compare frozen trained epochs and original 513-cap greedy (synthetic only)
         shell: bash
         run: |
           set -euo pipefail
@@ -122,6 +122,15 @@ jobs:
           assert len(x['results'])==3
           assert all(len(row['synthetic_results'])==3 for row in x['results'])
           assert all(z['exact_tokens'] and z['cached_encoder_calls']==1 for row in x['results'] for z in row['synthetic_results'])
+          assert x['schema']=='forge.optimizer.language.l9.trained-encoder-synthetic-parity-v2'
+          assert x['long_decode_requested_cap']==513 and x['long_decode_eos_can_terminate_early']
+          assert not x['full_l9_select_equivalence_tested']
+          assert all(row['full_cap_epoch_12_synthetic_equivalence'] is None for row in x['results'][:2])
+          full=x['results'][2]['full_cap_epoch_12_synthetic_equivalence']
+          assert full['requested_max_steps']==513 and 1<=full['generated_tokens']<=513
+          assert full['exact_tokens'] and full['cached_encoder_calls']==1
+          assert full['original_encoder_calls']==full['generated_tokens']
+          print('L9_FROZEN_TRAIN_LONG_DECODE_CAP_513_EQUIVALENCE=PASS')
           assert x['original_train_weights_loaded'] and not x['fit_reperformed']
           assert not x['original_select_scored'] and not x['audit_dev_scored'] and not x['official_test_scored']
           assert not x['scientific_go'] and not x['resource_pareto_qualified']
