@@ -179,18 +179,32 @@ def choose(np,state,family,features,method):
         raise ValueError("NONFINITE_PREDICTIONS")
     return max(range(4),key=lambda a:(preds[a],-a))
 
-def make_frozen_plan(np,state,observed_rows,p):
-    # Read PUBLIC initial observations, never held-out rewards.
+def observe_public_context(np,CausalWorld,generate_task,p,family,variant):
+    """Only reset() PUBLIC observation, before any CHECK/DEV reward is scored."""
+    w=p["world"]
+    env=CausalWorld(task=source_task(np,generate_task,p,family,variant),
+        enable_visualization=False,seed=w["seed"],skip_frame=w["skip_frame"],
+        action_mode=w["action_mode"],observation_mode=w["observation_mode"],
+        normalize_actions=w["normalize_actions"],normalize_observations=w["normalize_observations"],
+        max_episode_length=w["max_episode_length"])
+    try:
+        initial=np.asarray(env.reset(),dtype=np.float64).ravel()
+        return {"family":family,"variant":variant["id"],
+                "features":public_features(np,initial),
+                "initial_observation_sha256":hashlib.sha256(initial.tobytes()).hexdigest()}
+    finally:
+        env.close()
+
+def make_frozen_plan(np,state,public_contexts,p):
+    # Context-only probe, no evaluation rewards exist when the decisions freeze.
     out=[]
-    variants=sorted({(r["family"],r["variant"]) for r in observed_rows})
-    for family,variant in variants:
-        source=[r for r in observed_rows if r["family"]==family and r["variant"]==variant]
-        if len(source)!=4 or len({r["initial_observation_sha256"] for r in source})!=1:
-            raise ValueError("UNMATCHED_PUBLIC_RESET")
-        x=source[0]["features"]
+    for row in public_contexts:
+        family,variant=row["family"],row["variant"]
         out.append({"family":family,"variant":variant,
-          "public_observation_sha256":source[0]["initial_observation_sha256"],
-          "choices":{m:choose(np,state,family,x,m) for m in METHODS}})
+          "public_observation_sha256":row["initial_observation_sha256"],
+          "choices":{m:choose(np,state,family,row["features"],m) for m in METHODS}})
+    if len({(r["family"],r["variant"]) for r in out})!=len(out):
+        raise ValueError("DUPLICATE_PUBLIC_CONTEXT")
     return out
 
 def evaluate_plan(rows,plan):
@@ -200,6 +214,8 @@ def evaluate_plan(rows,plan):
         relevant=[r for r in rows if r["family"]==family and r["variant"]==variant]
         if len(relevant)!=4:
             raise ValueError("DEV_OR_CHECK_INCOMPLETE")
+        if any(r["initial_observation_sha256"]!=entry["public_observation_sha256"] for r in relevant):
+            raise ValueError("PUBLIC_PLAN_CONTEXT_DRIFT")
         rewards={r["arm"]:r["reward"] for r in relevant}
         scored.append({"family":family,"variant":variant,
             "reward_spread":max(rewards.values())-min(rewards.values()),
@@ -208,13 +224,13 @@ def evaluate_plan(rows,plan):
                         for m,arm in entry["choices"].items()}})
     return scored
 
-def verdict(fit,dev,paired,p):
+def verdict(fit,dev,dev_raw,paired,p):
     quality={}
     for family in p["world"]["families"]:
         ft=[r for r in fit if r["family"]==family and r["arm"]==0]
         dv=[r for r in dev if r["family"]==family]
         unique_fit=len({r["initial_observation_sha256"] for r in ft})
-        dev_hashes={r["initial_observation_sha256"] for r in p["_dev_raw"] if r["family"]==family}
+        dev_hashes={r["initial_observation_sha256"] for r in dev_raw if r["family"]==family}
         unique_dev=len(dev_hashes)
         disjoint=not (dev_hashes & {r["initial_observation_sha256"] for r in ft})
         reward_profiles=len({tuple(r["per_action_returns"][str(a)] for a in range(4)) for r in dv})
@@ -268,19 +284,21 @@ def experiment(repo,p):
            for r in fit for fam in (r["family"],) for method in METHODS):
         raise ValueError("CHECKPOINT_RELOAD_PREDICTION_DRIFT")
     # No training or policy selection from CHECK/DEV rewards.
+    check_contexts=[observe_public_context(np,CausalWorld,generate_task,p,fam,v)
+        for fam in p["world"]["families"] for v in check_variants]
+    check_plan=make_frozen_plan(np,reloaded,check_contexts,p)
     check=collect(np,CausalWorld,generate_task,p,check_variants)
     check_errors=paired_violations(check,check_variants,p)
-    check_plan=make_frozen_plan(np,reloaded,check,p)
     # CHECK: veto/diagnostic only; code does not refit.
     check_scores=evaluate_plan(check,check_plan)
+    dev_contexts=[observe_public_context(np,CausalWorld,generate_task,p,fam,v)
+        for fam in p["world"]["families"] for v in dev_variants]
+    dev_plan=make_frozen_plan(np,reloaded,dev_contexts,p)
     dev=collect(np,CausalWorld,generate_task,p,dev_variants)
     dev_errors=paired_violations(dev,dev_variants,p)
-    dev_plan=make_frozen_plan(np,reloaded,dev,p)
     dev_scores=evaluate_plan(dev,dev_plan)
     verify_source(root)
-    p["_dev_raw"]=dev
-    v=verdict(fit,dev_scores,fit_errors+check_errors+dev_errors,p)
-    del p["_dev_raw"]
+    v=verdict(fit,dev_scores,dev,fit_errors+check_errors+dev_errors,p)
     return {"schema":SCHEMA,"gate":"LCRM01-K4H",
       "result":"PUBLIC_DEVELOPMENT_COMPLETED","protocol_sha256":hashlib.sha256(FROZEN.read_bytes()).hexdigest(),
       "source_commit":p["source"]["commit"],"FIT_exposures":len(fit),
