@@ -8,7 +8,6 @@ import (
  "bytes"
  "context"
  "crypto/ed25519"
- "encoding/hex"
  "errors"
 
  "github.com/spoonman136668-ai/forge/fsahead"
@@ -96,4 +95,3 @@ func ObserveFSA(ctx context.Context,raw []byte,reader ReadonlyFSA,pin TrustedPin
   AnchorSequence:before.Sequence,AnchorHeadSHA256:before.HeadSHA256,
   AdvisoryOnly:true,ArchiveBindingObserved:true},nil
 }
-var _=hex.EncodeToString
