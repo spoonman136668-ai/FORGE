@@ -1210,6 +1210,24 @@ class GitHub:
                 "MAIN_IDENTITY_OR_PROTECTION_NOT_VERIFIED")
         return sha
 
+    def research_only_main_advance(self, deployed_source: str,
+                                   protected_source: str) -> bool:
+        """Do not release whole-repository SHA pin for arbitrary merges.
+
+        Permit only independently authenticated forward changes to isolated
+        RSH research evidence files; runtime, workflows, secrets and workers
+        remain pinned at the original immutable controller source.
+        """
+        from f139.nci04_source_continuity import (
+            SourceContinuityDenied, prove_protected_research_only_advance)
+        try:
+            proof=prove_protected_research_only_advance(
+                self.native_repo_get, deployed_source=deployed_source,
+                protected_source=protected_source)
+            return proof["runtime_source_unchanged"] is True
+        except SourceContinuityDenied:
+            return False
+
     def legacy_dispatchers_disabled(self):
         """Read authoritative GitHub workflow states; no administrative mutation."""
         for name in ("forge-development-succession.yml", "forge-integrated-synthetic-cycle.yml"):
@@ -1778,6 +1796,12 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     # New issue intake and dispatch still fail closed until exact owner cutover.
     protected_now=api.protected_main()
     source_matches=(protected_now==meta["source_sha"])
+    if not source_matches:
+        # Bounded research-only additions cannot silently rewrite the F139
+        # runtime. Any other source drift retains the original dispatch block.
+        verifier=getattr(api,"research_only_main_advance",None)
+        if callable(verifier):
+            source_matches=verifier(meta["source_sha"],protected_now) is True
     legacy_pending={}
     for active_record in db.actives():
         active=dict(active_record)
