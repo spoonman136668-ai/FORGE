@@ -40,17 +40,59 @@ anchor = """func clonePreservationContractsV2(in PreservationContractsV2) Preser
 """
 if bs.count(anchor) != 1:
     raise SystemExit("MP_R1A_BRIDGE_CLONE_ANCHOR")
-insert = r'''func preservationContractToV2(in *PreservationContract) (PreservationContractsV2, error) {
+insert = r'''func preservationAnyStrings(v any, code string) ([]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, errors.New(code)
+	}
+	var out []string
+	if err = json.Unmarshal(raw, &out); err != nil {
+		return nil, errors.New(code)
+	}
+	return out, nil
+}
+
+func preservationAnyMarkers(v any) (map[string][]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, errors.New("ROADMAP_V2_PARENT_UI_MARKERS_INCOMPATIBLE")
+	}
+	var out map[string][]string
+	if err = json.Unmarshal(raw, &out); err != nil {
+		return nil, errors.New("ROADMAP_V2_PARENT_UI_MARKERS_INCOMPATIBLE")
+	}
+	return out, nil
+}
+
+func preservationContractToV2(in *PreservationContract) (PreservationContractsV2, error) {
 	if in == nil {
 		return PreservationContractsV2{}, nil
 	}
-	raw, err := json.Marshal(in)
-	if err != nil {
-		return PreservationContractsV2{}, errors.New("ROADMAP_V2_PARENT_PRESERVATION_ENCODE_FAILED")
-	}
 	var out PreservationContractsV2
-	if err = json.Unmarshal(raw, &out); err != nil {
-		return PreservationContractsV2{}, errors.New("ROADMAP_V2_PARENT_PRESERVATION_INCOMPATIBLE")
+	var err error
+	if out.UIMarkers, err = preservationAnyMarkers(in.UIMarkers); err != nil {
+		return PreservationContractsV2{}, err
+	}
+	if out.BehaviorContracts, err = preservationAnyStrings(in.BehaviorContracts, "ROADMAP_V2_PARENT_BEHAVIOR_CONTRACT_INCOMPATIBLE"); err != nil {
+		return PreservationContractsV2{}, err
+	}
+	if out.SourceContracts, err = preservationAnyStrings(in.SourceContracts, "ROADMAP_V2_PARENT_SOURCE_CONTRACT_INCOMPATIBLE"); err != nil {
+		return PreservationContractsV2{}, err
+	}
+	if out.InterfaceContracts, err = preservationAnyStrings(in.InterfaceContracts, "ROADMAP_V2_PARENT_INTERFACE_CONTRACT_INCOMPATIBLE"); err != nil {
+		return PreservationContractsV2{}, err
+	}
+	if out.EvidenceContracts, err = preservationAnyStrings(in.EvidenceContracts, "ROADMAP_V2_PARENT_EVIDENCE_CONTRACT_INCOMPATIBLE"); err != nil {
+		return PreservationContractsV2{}, err
+	}
+	if out.AcceptedInterfaces, err = preservationAnyStrings(in.AcceptedInterfaces, "ROADMAP_V2_PARENT_ACCEPTED_INTERFACE_INCOMPATIBLE"); err != nil {
+		return PreservationContractsV2{}, err
 	}
 	if err = out.Validate(); err != nil {
 		return PreservationContractsV2{}, err
@@ -67,6 +109,32 @@ func preservationContractsV2Empty(in PreservationContractsV2) bool {
 		len(in.AcceptedInterfaces) == 0
 }
 
+func preservationStringsAsAny(in []string) any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]any, len(in))
+	for i, value := range in {
+		out[i] = value
+	}
+	return out
+}
+
+func preservationMarkersAsAny(in map[string][]string) any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for key, values := range in {
+		items := make([]any, len(values))
+		for i, value := range values {
+			items[i] = value
+		}
+		out[key] = items
+	}
+	return out
+}
+
 func preservationContractFromV2(in PreservationContractsV2) (*PreservationContract, error) {
 	if preservationContractsV2Empty(in) {
 		return nil, nil
@@ -74,18 +142,18 @@ func preservationContractFromV2(in PreservationContractsV2) (*PreservationContra
 	if err := in.Validate(); err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(in)
-	if err != nil {
-		return nil, errors.New("ROADMAP_V2_PRESERVATION_ENCODE_FAILED")
+	out := &PreservationContract{
+		UIMarkers:          preservationMarkersAsAny(in.UIMarkers),
+		BehaviorContracts:  preservationStringsAsAny(in.BehaviorContracts),
+		SourceContracts:    preservationStringsAsAny(in.SourceContracts),
+		InterfaceContracts: preservationStringsAsAny(in.InterfaceContracts),
+		EvidenceContracts:  preservationStringsAsAny(in.EvidenceContracts),
+		AcceptedInterfaces: preservationStringsAsAny(in.AcceptedInterfaces),
 	}
-	var out PreservationContract
-	if err = json.Unmarshal(raw, &out); err != nil {
-		return nil, errors.New("ROADMAP_V2_PRESERVATION_CONVERSION_FAILED")
-	}
-	if err = out.Validate(); err != nil {
+	if err := out.Validate(); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return out, nil
 }
 
 '''
