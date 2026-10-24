@@ -1,4 +1,4 @@
-name: F139 R4 single-owner pre-cutover readiness (read only)
+name: F139 R5 transition capacity and original owner readiness (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -74,6 +74,52 @@ jobs:
               print("F139_R4_OWNER_MIGRATION_PERFORMED=FALSE")
               assert not active, "F139_R4_WORK_PRESENT_NO_CUTOVER"
               print("F139_R4_NO_ACTIVE_WORK=PASS")
+              # R5: certify negative-history and source-transition capacity
+              # using original installed source against the SAME ro connection.
+              import types
+              from f139.local_controller import Database
+              from f139.nci04_owner_ledger import verify_native_activation
+              from f139.nci04_negative_owner_store import (
+                  verify_original_negative_custody, TICKET as first_negative)
+              from f139.nci04_split_negative_owner_store import (
+                  verify_second_negative_custody, TICKET as second_negative)
+              view=types.SimpleNamespace(conn=conn,filename=dbpath)
+              view.meta=lambda:Database.meta(view)
+              view.verified_native_provider_failures=lambda **kw:(
+                  Database.verified_native_provider_failures(view,**kw))
+              assert verify_original_negative_custody(view)
+              assert verify_second_negative_custody(view)
+              provider=view.verified_native_provider_failures()
+              assert provider
+              negative={r["ticket"] for r in conn.execute(
+                  "SELECT ticket FROM tasks WHERE stage='QUARANTINED'")}
+              assert negative==({first_negative,second_negative}|set(provider))
+              assert verify_native_activation(view)
+              transitions=[json.loads(r["payload"]) for r in conn.execute(
+                  "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
+              assert transitions and transitions[-1]["to_source_sha"]==m["source_sha"]
+              last=transitions[-1]
+              v4=[t for t in transitions if t["schema"]=="forge.f139.source-transition.v4"]
+              v5=[t for t in transitions if t["schema"]=="forge.f139.source-transition.v5"]
+              assert last["schema"] in (
+                  "forge.f139.source-transition.v4","forge.f139.source-transition.v5")
+              if len(v4)==10:
+                  assert len(v5)<4
+                  next_schema="forge.f139.source-transition.v5"
+              else:
+                  assert len(v4)<10 and not v5
+                  next_schema="forge.f139.source-transition.v4"
+              print("F139_R5_ORIGINAL_NEGATIVE_ZIP_CUSTODY=PASS")
+              print("F139_R5_SECOND_NEGATIVE_ZIP_CUSTODY=PASS")
+              print("F139_R5_VERIFIED_PROVIDER_FAILURES="+str(len(provider)))
+              print("F139_R5_QUARANTINED_TASKS="+str(len(negative)))
+              print("F139_R5_NEGATIVE_SET_EXACT=PASS")
+              print("F139_R5_NATIVE_CURRENT_SOURCE_ACTIVATED=PASS")
+              print("F139_R5_V4_TRANSITIONS="+str(len(v4)))
+              print("F139_R5_V5_TRANSITIONS="+str(len(v5)))
+              print("F139_R5_NEXT_TRANSITION_SCHEMA="+next_schema)
+              print("F139_R5_TRANSITION_CAPACITY=PASS")
+              print("F139_R5_OWNER_MUTATION=FALSE")
           finally:
               conn.close()
           '@
