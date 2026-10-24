@@ -129,7 +129,7 @@ def check_plan(plan: dict, root: Path) -> dict:
         require(must in whole,"REQUIRED_RESOURCE_"+must)
     advancement=plan.get("advancement",{})
     require(advancement.get("automated_scientific_go_from_this_contract") is False,"SCIENCE_GO_FALSE")
-    require("retrieval" in advancement.get("candidate_vs_train_reference_retrieval","").lower(),"RETRIEVAL_CONTROL")
+    require("candidate_vs_train_reference_retrieval" in advancement and\n            "semantic coverage" in advancement["candidate_vs_train_reference_retrieval"],"RETRIEVAL_CONTROL")
     first=plan.get("first_use",{})
     required={"protected_audit_role":"L9_AUDIT_DEV",
       "prospective_contract_only":True,"authorization_and_independent_witness_required":True,
