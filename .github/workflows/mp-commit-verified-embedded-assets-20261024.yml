@@ -1,0 +1,63 @@
+name: MP commit verified embedded assets
+on:
+  push:
+    branches: [recovery/ckb-installed-source-snapshot-20261024]
+    paths: [.github/workflows/mp-commit-verified-embedded-assets-20261024.yml]
+permissions:
+  contents: write
+concurrency:
+  group: mp-commit-verified-embedded-assets-20261024
+  cancel-in-progress: false
+jobs:
+  commit-assets:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Copy hash-pinned embedded assets from installed source and commit recovery custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_ASSET_COMMIT_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REF -ceq 'refs/heads/recovery/ckb-installed-source-snapshot-20261024') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $dest=Join-Path $env:GITHUB_WORKSPACE 'recovery\ckb-installed-source-snapshot-20261024\source'
+          $pins=[ordered]@{
+            'internal\plane\harness\browser.cjs'='e3de3ab6233514b04ef05cf01315de24f35754dc13a1c68a448db1fba3d7490c'
+            'internal\plane\roadmap_successors.json'='865db65ebc6b78be481671d625b08c850cc18c60f6477a1406d3bc36728bcb9e'
+            'internal\plane\web\app.css'='497abb9c547fd7b08734791b238e01a5cdf972fa0dddd0a8c2955c16502495e8'
+            'internal\plane\web\app.js'='ddda484d07950cf2764ce4bdf490e62962641037aa966d9a695e440139fb3a59'
+            'internal\plane\web\index.html'='85e4df50fbb9f295710fe41bc8ca2b074e8cf4d3f5dd9647053b3491c6106b55'
+          }
+          $manifest=@()
+          foreach($rel in $pins.Keys){
+            $src=Join-Path $live $rel
+            Need (Test-Path -LiteralPath $src -PathType Leaf) ('SOURCE_'+$rel)
+            Need ((Sha $src) -ceq $pins[$rel]) ('PIN_'+$rel)
+            $dst=Join-Path $dest $rel
+            New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
+            Copy-Item -LiteralPath $src -Destination $dst -Force
+            Need ((Sha $dst) -ceq $pins[$rel]) ('COPY_'+$rel)
+            $manifest += [ordered]@{path=$rel.Replace('\','/');sha256=$pins[$rel];bytes=[long](Get-Item -LiteralPath $src).Length}
+          }
+          $manifestPath=Join-Path $dest 'RESCUE-EMBED-ASSET-MANIFEST.json'
+          [IO.File]::WriteAllText($manifestPath,($manifest|ConvertTo-Json -Depth 4),[Text.UTF8Encoding]::new($false))
+          Need ((Sha $manifestPath) -ceq '09b4c02abf877c280048c5eb8d66881126db99e4777f1035eff38288d581f4d9') 'MANIFEST_HASH'
+
+          & git.exe config user.name 'ckb-source-recovery'
+          & git.exe config user.email 'actions@users.noreply.github.com'
+          & git.exe add -- 'recovery/ckb-installed-source-snapshot-20261024/source'
+          & git.exe diff --cached --quiet
+          Need ($LASTEXITCODE -ne 0) 'NO_DELTA'
+          & git.exe commit -m 'recovery(ckb): preserve verified embedded static dependencies'
+          Need ($LASTEXITCODE -eq 0) 'COMMIT'
+          & git.exe push origin HEAD:recovery/ckb-installed-source-snapshot-20261024
+          Need ($LASTEXITCODE -eq 0) 'PUSH'
+          Write-Host ('MP_ASSET_COMMIT_SHA='+(& git.exe rev-parse HEAD).Trim())
+          Write-Host 'MP_ASSET_COMMIT_COUNT=5'
+          Write-Host 'MP_ASSET_COMMIT_LIVE_WRITES=0'
