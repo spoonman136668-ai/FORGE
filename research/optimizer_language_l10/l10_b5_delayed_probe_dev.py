@@ -80,7 +80,7 @@ class World:
     def request(self,code,tick):
         require(code in src.PREDICATE_CODES and type(tick) is int and tick>=0
                 and tick not in self.issued,"duplicate/invalid action dispatch")
-        ticket=Ticket(self._ticket_id(code,tick),code,tick,tick+DELAY_TICKS)
+        ticket=Ticket(self._ticket_id(code,tick),code,tick,tick+DELAY_TICKS+1)
         self.issued[tick]=ticket
         # NOT a consequence. Merely an opaque delayed-action receipt.
         return ticket
@@ -102,7 +102,7 @@ def snapshot_public_state(memory:b4.LocalMemory,pending:list[Ticket],seen:set[st
             and type(seen) is set and type(next_tick) is int and next_tick>=0,
             "restart contract mismatch")
     require(all(type(t) is Ticket and t.action_tick<next_tick
-                and t.release_tick==t.action_tick+DELAY_TICKS
+                and t.release_tick==t.action_tick+DELAY_TICKS+1
                 for t in pending),"pending receipt drift")
     require(len({t.ticket_sha256 for t in pending})==len(pending)
             and not any(t.ticket_sha256 in seen for t in pending),"pending duplicates")
@@ -200,7 +200,7 @@ def execute(fit,check,regime,policy):
         for t in pending:
             if t.release_tick<=tick:
                 result=world.release(t,tick)
-                require(result.release_tick>=t.action_tick+DELAY_TICKS,
+                require(result.release_tick>=t.action_tick+DELAY_TICKS+1,
                         "premature feedback")
                 require(result.ticket_sha256==t.ticket_sha256,"feedback binding")
                 learner.update(b4.Observation(result.code,result.effect_channel))
@@ -228,7 +228,7 @@ def execute(fit,check,regime,policy):
                 release_ticks.append((t.action_tick,result.release_tick))
                 delivered.append(t)
         pending=[t for t in pending if t not in delivered]
-        require(tick<=BUDGET+DELAY_TICKS,"unbounded delayed queue")
+        require(tick<=BUDGET+DELAY_TICKS+1,"unbounded delayed queue")
     require(len(seen)==limit==len(world.claimed),"unaccounted action/consequence")
     if limit:
         require(first_restart_sha is not None,"never recovered persisted state")
@@ -293,7 +293,7 @@ def benchmark(fit,check):
                 "inconsistent matched-world source")
         require(all(x["actual_probes"]==3 for x in in_reg[:-1])
                 and in_reg[-1]["actual_probes"]==0,"unmatched query budget")
-        require(all(all(delay>=DELAY_TICKS for delay in x["actual_delays"])
+        require(all(all(delay>=DELAY_TICKS+1 for delay in x["actual_delays"])
                 for x in in_reg),"hidden future reference")
         if reg=="DELAYED_NO_FEEDBACK":
             require(all(x["micro_exact"]==0 and x["micro_abstention"]==1
