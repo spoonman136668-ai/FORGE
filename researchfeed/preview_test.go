@@ -33,7 +33,7 @@ func TestDeterministicSortedOutput(t *testing.T){
 func TestFirstUseClaimBlocked(t *testing.T){c:=sixLanes();c[0].FirstUseCleared=true;expectBlocked(t,c)}
 func TestScientificAcceptanceClaimBlocked(t *testing.T){c:=sixLanes();c[0].ScientificAccepted=true;expectBlocked(t,c)}
 func TestExecutionClaimBlocked(t *testing.T){c:=sixLanes();c[0].ExecuteRequested=true;expectBlocked(t,c)}
-func TestCKBSourceForbidden(t *testing.T){c:=sixLanes();c[0].SourceRepo="spoonman136668-ai/ckb-plane";expectBlocked(t,c)}
+func TestUnapprovedSourceForbidden(t *testing.T){c:=sixLanes();c[0].SourceRepo="spoonman136668-ai/not-an-approved-research-source";expectBlocked(t,c)}
 func TestWrongLaneRepositoryForbidden(t *testing.T){c:=sixLanes();c[2].SourceRepo="spoonman136668-ai/Wingless";expectBlocked(t,c)}
 func TestPathTraversalForbidden(t *testing.T){c:=sixLanes();c[2].SourcePath="archive/research/../../secrets";expectBlocked(t,c)}
 func TestForbiddenPrivatePath(t *testing.T){c:=sixLanes();c[2].SourcePath=".ice/records.json";expectBlocked(t,c)}
