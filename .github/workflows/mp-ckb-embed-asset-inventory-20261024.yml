@@ -1,0 +1,30 @@
+name: MP CKB missing embed asset inventory
+on:
+  push:
+    branches: [recovery/mp-ckb-reconstitution-driver-20261024]
+    paths: [.github/workflows/mp-ckb-embed-asset-inventory-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Seal missing roadmap embed asset identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_EMBED_'+$c)}}
+          $p='C:\Users\camar\GolandProjects\ckb-plane\internal\plane\roadmap_successors.json'
+          Need (Test-Path -LiteralPath $p -PathType Leaf) 'ROADMAP_MISSING'
+          $item=Get-Item -LiteralPath $p
+          Need ($item.Length -gt 0 -and $item.Length -le 262144) 'ROADMAP_SIZE'
+          $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host ('MP_EMBED_ROADMAP_SHA256='+$sha)
+          Write-Host ('MP_EMBED_ROADMAP_BYTES='+[string][long]$item.Length)
+          Write-Host 'MP_EMBED_LIVE_WRITES=0'
