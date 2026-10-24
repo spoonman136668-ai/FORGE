@@ -1,0 +1,148 @@
+name: Optimizer O13 learned predictive state full temporal credit
+
+on:
+  push:
+    branches: [research/optimizer-o13-predictive-state-credit-20261023]
+    paths:
+      - '.github/workflows/optimizer-o13-public.yml'
+      - 'research/optimizer_o13/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-o13-public
+  cancel-in-progress: false
+
+jobs:
+  native-development:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify exact frozen protocol ancestral source and O4 original baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parent='fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5'
+          $ancestor=(& git merge-base $parent HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $parent) {
+            throw 'O13_MAIN_ANCESTRY_DRIFT'
+          }
+          $expected=@(
+            '.github/workflows/optimizer-o13-public.yml',
+            'research/optimizer_o13/O13_FROZEN_PROTOCOL.json',
+            'research/optimizer_o13/o4_frozen_controls.py',
+            'research/optimizer_o13/public_source.py',
+            'research/optimizer_o13/learned_belief.py',
+            'research/optimizer_o13/runner.py',
+            'research/optimizer_o13/test_credit.py',
+            'research/optimizer_o13/compare.py'
+          )
+          $actual=@(& git diff --name-only $parent HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) {
+            throw 'O13_BOUNDED_NEW_SOURCE_DELTA_DRIFT'
+          }
+          $pins=@{
+            'research/optimizer_o13/O13_FROZEN_PROTOCOL.json'='7655a181c13d1781949548a1bb7974584d906d22'
+            'research/optimizer_o13/o4_frozen_controls.py'='3ab09e0b9b27a3404ddaf81fdc3c26cc87ba7a4c'
+          }
+          foreach ($path in $pins.Keys) {
+            $gitBlob=(& git rev-parse ('HEAD:'+$path)).Trim()
+            $diskBlob=(& git hash-object --no-filters -- $path).Trim()
+            if ($LASTEXITCODE -ne 0 -or $gitBlob -cne $pins[$path] -or
+                $diskBlob -cne $pins[$path]) {
+              throw ('O13_FROZEN_SOURCE_DRIFT_'+$path)
+            }
+          }
+          Write-Host 'O13_FROZEN_PROTOCOL_AND_ORIGINAL_CONTROLS=PASS'
+      - name: Ten adversarial fresh public source and temporal credit regression tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s research/optimizer_o13 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O13_FOCUSED_CREDIT_TEST_FAILURE' }
+          Write-Host 'O13_FOCUSED_TESTS=PASS'
+      - name: Fresh public TRAIN SELECT DEV all original fitted controls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $receipt=Join-Path $env:RUNNER_TEMP 'o13-public-receipt.json'
+          python -B research/optimizer_o13/runner.py | Tee-Object -FilePath $receipt
+          if ($LASTEXITCODE -ne 0) { throw 'O13_PUBLIC_DEV_FIT_EVAL_FAILURE' }
+          Write-Host 'O13_PUBLIC_DEV_ALL_28_NLL=REPORTED'
+          Write-Host 'O13_PROTECTED_FIRST_USE=ZERO'
+          Write-Host 'O13_NATIVE_PROMOTION=NONE'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o13-public-native-${{ matrix.os }}
+          path: ${{ runner.temp }}/o13-public-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: One full FORGE Go test vet build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O13_GO_FULL_REGRESSION=PASS
+      - name: Verify no unexpected worktree mutation
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'O13_WORKTREE_SOURCE_DRIFT' }
+          Write-Host 'O13_NO_FORGE_CONTROLLER_OR_NATIVE_WINGLESS_YGGDRASIL_MUTATION=PASS'
+
+  reconcile-native-public-dev:
+    needs: native-development
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o13-public-native-ubuntu-24.04
+          path: native-receipts/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: o13-public-native-windows-2022
+          path: native-receipts/windows
+      - name: Enforce frozen 12 source and 28 public DEV numeric cross-platform limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_o13/compare.py \
+            native-receipts/linux/o13-public-receipt.json \
+            native-receipts/windows/o13-public-receipt.json \
+            native-receipts/o13-independent-reconciliation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: o13-independent-native-public-acceptance
+          path: native-receipts/o13-independent-reconciliation.json
+          if-no-files-found: error
+          retention-days: 30
