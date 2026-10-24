@@ -75,11 +75,16 @@ class World:
         self.world_source_sha=world_source_sha
         self.issued={}
         self.claimed=set()
+        self.clock=0
+    def advance(self):
+        self.clock+=1
+        require(self.clock<=BUDGET+DELAY_TICKS+1,"world clock exhaustion")
+        return self.clock
     def _ticket_id(self,code,tick):
         return _sha([SCHEMA,self.world_source_sha,self.regime,code,tick])
     def request(self,code,tick):
         require(code in src.PREDICATE_CODES and type(tick) is int and tick>=0
-                and tick not in self.issued,"duplicate/invalid action dispatch")
+                and tick==self.clock and tick not in self.issued,"duplicate/invalid action dispatch")
         ticket=Ticket(self._ticket_id(code,tick),code,tick,tick+DELAY_TICKS+1)
         self.issued[tick]=ticket
         # NOT a consequence. Merely an opaque delayed-action receipt.
@@ -89,7 +94,7 @@ class World:
         stored=self.issued.get(ticket.action_tick)
         require(stored==ticket and stored.ticket_sha256==self._ticket_id(ticket.code,ticket.action_tick),
                 "substituted action ticket")
-        require(now>=ticket.release_tick,"future consequence read blocked")
+        require(now==self.clock and now>=ticket.release_tick,"future consequence read blocked")
         require(ticket.ticket_sha256 not in self.claimed,"duplicate consequence delivery")
         self.claimed.add(ticket.ticket_sha256)
         return Consequence(ticket.ticket_sha256,ticket.code,self.hidden[ticket.code],now)
@@ -103,6 +108,7 @@ def snapshot_public_state(memory:b4.LocalMemory,pending:list[Ticket],seen:set[st
             "restart contract mismatch")
     require(all(type(t) is Ticket and t.action_tick<next_tick
                 and t.release_tick==t.action_tick+DELAY_TICKS+1
+                and t.code in src.PREDICATE_CODES and len(t.ticket_sha256)==64
                 for t in pending),"pending receipt drift")
     require(len({t.ticket_sha256 for t in pending})==len(pending)
             and not any(t.ticket_sha256 in seen for t in pending),"pending duplicates")
@@ -160,7 +166,7 @@ def _choose(policy:str,code_counts:dict,counts:Counter,pending:list[Ticket],tick
     if policy=="bayesian-information-gain":
         # Symmetric Dirichlet(1/2) posterior; the expected information
         # proxy is preference for unobserved and non-pending relation codes.
-        return max(options,key=lambda c:(code_counts[c]/(1+observed(c)+considered[c]),
+        return max(options,key=lambda c:(code_counts[c] if not (observed(c)+considered[c]) else 0,
                                          -options.index(c)))
     raise ValueError("unknown policy")
 
@@ -195,7 +201,7 @@ def execute(fit,check,regime,policy):
         pending.append(receipt)
         queried.append(choice)
         action_count+=1
-        tick+=1
+        tick=world.advance()
         delivered=[]
         for t in pending:
             if t.release_tick<=tick:
@@ -217,7 +223,7 @@ def execute(fit,check,regime,policy):
             learner,pending,seen,tick=restore_public_state(state)
     # Allow outstanding already-purchased consequences to mature.
     while pending:
-        tick+=1
+        tick=world.advance()
         delivered=[]
         for t in pending:
             if t.release_tick<=tick:
