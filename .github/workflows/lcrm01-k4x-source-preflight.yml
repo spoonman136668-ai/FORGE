@@ -1,0 +1,40 @@
+name: Mass K4X source-only preflight — no physics
+on:
+  push:
+    branches: [research/mass-lcrm01-k4x-experience-curriculum-20261024]
+permissions:
+  contents: read
+jobs:
+  frozen-source-syntax-and-science-veto:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate frozen protocol before original first use
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse '996202c0f2348b8a4dce894daa5d88d2c816c1c1^')" = '0bb78beaa07a25a021513548976f765824e6ca22'
+          git merge-base --is-ancestor 996202c0f2348b8a4dce894daa5d88d2c816c1c1 HEAD
+          test "$(git hash-object research/lcrm01/k4x_frozen_curriculum_intervention.json)" = '664f0c92070ed5bedc70ba934edce9adaf9cdb4f'
+          test "$(git hash-object research/lcrm01/k4w_frozen_failure_attribution.json)" = '9a37039e2a9db8bf269b78fcc9cf1642e3c6978c'
+          echo 'K4X_FROZEN_BEFORE_CODE=PASS'
+      - name: Compile source and test fail-closed scientific outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B - <<'PY'
+          import ast,pathlib
+          for name in ['k4x_curriculum_intervention.py','k4x_compare.py']:
+              ast.parse((pathlib.Path('research/lcrm01')/name).read_text())
+          print('K4X_PYTHON_SOURCE_AST=PASS')
+          PY
+          PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p 'test_k4x_sourceonly.py' -v
+          echo 'K4X_SOURCE_ONLY_QUALIFICATION=PASS'
+          echo 'K4X_MINIGRID_EPISODES=0'
