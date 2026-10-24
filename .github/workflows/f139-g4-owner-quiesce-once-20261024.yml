@@ -138,46 +138,55 @@ jobs:
                   assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0]==meta["head_seq"]
                   return (meta["head_seq"],meta["head_hash"],tuple(tasks))
               finally:con.close()
-          with SingleOwner(path.with_suffix(".lock")):
-              before=state()
-              ps=r"""
-          $ErrorActionPreference='Stop'
-          $name='FORGE-F139-UnifiedController'
-          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-          if([string]$t.State -cnotin @('Ready','Running')){throw 'OWNER_STATE_CHANGED_UNDER_LOCK'}
-          Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
-          try{Stop-ScheduledTask -TaskName $name -ErrorAction Stop}catch{
-              # A disabled task that has already exited need not be stopped.
-              $active=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop|
-                  Where-Object{$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
-                    $_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE)})
-              if($active.Count -gt 0){throw 'OWNER_PYTHON_STILL_ACTIVE'}
-          }
-          for($i=0;$i -lt 20;$i++){
-              $state=Get-ScheduledTask -TaskName $name -ErrorAction Stop
-              $active=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop|
-                  Where-Object{$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
-                    $_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE)})
-              if([string]$state.State -ceq 'Disabled' -and $active.Count -eq 0){break}
-              Start-Sleep -Milliseconds 350
-          }
-          if([string]$state.State -cne 'Disabled' -or $active.Count -gt 0){
-              throw 'ORIGINAL_OWNER_DID_NOT_STOP'
-          }
-          Write-Output 'F139_G4_ORIGINAL_TASK_STOPPED_UNDER_LOCK=PASS'
-          """
-              env=dict(__import__("os").environ)
-              env["F139_EXPECTED_TASK_DATABASE"]=str(path)
-              result=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],
-                  env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=50,text=True)
-              if result.returncode!=0:
-                  print("F139_G4_QUIESCE_STOP_BLOCKED",file=sys.stderr)
-                  raise SystemExit(1)
-              assert "F139_G4_ORIGINAL_TASK_STOPPED_UNDER_LOCK=PASS" in result.stdout
-              assert state()==before,"ORIGINAL_LEDGER_CHANGED_DURING_QUIESCE"
-              print("F139_G4_ORIGINAL_TASK_STOPPED_UNDER_LOCK=PASS")
-              print("F139_G4_ORIGINAL_EVENT_HEAD_PRESERVED="+before[1])
-              print("F139_G4_ORIGINAL_SQLITE_WRITES=ZERO")
+          import time
+          from f139.local_controller import F139Error
+          for attempt in range(12):
+              try:
+                  with SingleOwner(path.with_suffix(".lock")):
+                  before=state()
+                  ps=r"""
+              $ErrorActionPreference='Stop'
+              $name='FORGE-F139-UnifiedController'
+              $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+              if([string]$t.State -cnotin @('Ready','Running')){throw 'OWNER_STATE_CHANGED_UNDER_LOCK'}
+              Disable-ScheduledTask -TaskName $name -ErrorAction Stop|Out-Null
+              try{Stop-ScheduledTask -TaskName $name -ErrorAction Stop}catch{
+                  # A disabled task that has already exited need not be stopped.
+                  $active=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop|
+                      Where-Object{$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                        $_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE)})
+                  if($active.Count -gt 0){throw 'OWNER_PYTHON_STILL_ACTIVE'}
+              }
+              for($i=0;$i -lt 20;$i++){
+                  $state=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+                  $active=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop|
+                      Where-Object{$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+                        $_.CommandLine.Contains($env:F139_EXPECTED_TASK_DATABASE)})
+                  if([string]$state.State -ceq 'Disabled' -and $active.Count -eq 0){break}
+                  Start-Sleep -Milliseconds 350
+              }
+              if([string]$state.State -cne 'Disabled' -or $active.Count -gt 0){
+                  throw 'ORIGINAL_OWNER_DID_NOT_STOP'
+              }
+              Write-Output 'F139_G4_ORIGINAL_TASK_STOPPED_UNDER_LOCK=PASS'
+              """
+                  env=dict(__import__("os").environ)
+                  env["F139_EXPECTED_TASK_DATABASE"]=str(path)
+                  result=subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-Command",ps],
+                      env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=50,text=True)
+                  if result.returncode!=0:
+                      print("F139_G4_QUIESCE_STOP_BLOCKED",file=sys.stderr)
+                      raise SystemExit(1)
+                  assert "F139_G4_ORIGINAL_TASK_STOPPED_UNDER_LOCK=PASS" in result.stdout
+                  assert state()==before,"ORIGINAL_LEDGER_CHANGED_DURING_QUIESCE"
+                  print("F139_G4_ORIGINAL_TASK_STOPPED_UNDER_LOCK=PASS")
+                  print("F139_G4_ORIGINAL_EVENT_HEAD_PRESERVED="+before[1])
+                  print("F139_G4_ORIGINAL_SQLITE_WRITES=ZERO")
+                  break
+              except F139Error as exc:
+                  if str(exc)!="F139_CONTROLLER_ALREADY_RUNNING" or attempt==11:
+                      raise
+                  time.sleep(3)
           '@
           & $python -B -c $quiesce $root $db $main
           if($LASTEXITCODE -ne 0){throw 'F139_G4_QUIESCE_LOCKED_STOP_FAILED'}
