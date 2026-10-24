@@ -106,8 +106,12 @@ def export_owner_receipt(db, ticket):
             # Withhold it; disclose only its already sealed SHA commitment.
             entry["payload"] = payload
         entries.append(entry)
-    need([entry["kind"] for entry in entries] == list(TARGET_KINDS),
+    # Valid original-owner failures use either v1 provider-before-quarantine
+    # or v2 late custody after quarantine. Never discard or replay either.
+    need(len(entries) == len(TARGET_KINDS) and
+         {entry["kind"] for entry in entries} == set(TARGET_KINDS),
          "TARGET_ADMISSION_AND_TERMINAL_NOT_EXACTLY_ONCE")
+    entries.sort(key=lambda entry: TARGET_KINDS.index(entry["kind"]))
     provider = entries[2]["payload"]["provider"]
     need(provider["provider_terminal"] == "FAILURE_NO_REPLAY"
          and provider["scientific_first_use"] is False
@@ -201,8 +205,31 @@ def verify_portable_receipt(raw, *, expected_ticket=None, expected_source=None):
             rec = {"seq": i, "prior_sha": entry["prior_sha"],
                    "kind": kind, "payload": entry["payload"]}
             need(sha(rec) == entry["sha"], "TARGET_EVENT_PAYLOAD_TAMPERED")
-    need(entries[0]["seq"] < entries[1]["seq"] < entries[2]["seq"],
-         "TARGET_EVENT_ORDER")
+    admission, quarantine, failure = entries
+    negative = failure["payload"]
+    version = negative.get("schema")
+    base_fields = {
+        "schema", "ticket", "run_id", "source_sha",
+        "provider_sha256", "provider", "scientific_first_use",
+    }
+    if version == "forge.f139.owner-native-provider-negative.v1":
+        need(set(negative) == base_fields and
+             admission["seq"] < failure["seq"] and
+             failure["seq"] + 1 == quarantine["seq"],
+             "TARGET_EVENT_ORDER")
+    elif version == "forge.f139.owner-native-provider-negative.v2":
+        need(set(negative) == base_fields | {
+                 "quarantine_event_seq", "quarantine_event_sha256"} and
+             admission["seq"] < quarantine["seq"] < failure["seq"] and
+             negative["quarantine_event_seq"] == quarantine["seq"] and
+             negative["quarantine_event_sha256"] == quarantine["sha"],
+             "TARGET_EVENT_ORDER")
+    else:
+        need(False, "PROVIDER_TERMINAL_SCHEMA")
+    need(negative["source_sha"] == body["target_source_sha"] and
+         negative["provider_sha256"] == sha(negative["provider"]) and
+         negative["provider"].get("source_sha") == body["target_source_sha"],
+         "PROVIDER_SOURCE_OR_DIGEST_DRIFT")
     _exact(entries[1]["payload"], {"ticket", "reason"},
            "QUARANTINE_FIELDS")
     need(entries[1]["payload"] == {

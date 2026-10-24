@@ -3,6 +3,9 @@ import copy
 import json
 import unittest
 
+V1 = "forge.f139.owner-native-provider-negative.v1"
+V2 = "forge.f139.owner-native-provider-negative.v2"
+
 from f139.portable_evidence import (
     SCHEMA, ZERO, PortableEvidenceDenied,
     canonical, seal_body, sha, verify_portable_receipt,
@@ -25,18 +28,22 @@ def fixture():
                        "reason": "FAILED_OR_CANCELLED_NO_REPLAY"}
         elif seq == 190:
             kind = "NATIVE_FAILED_PROVIDER_CUSTODY"
-            payload = {
+            report = {
                 "ticket": TICKET, "run_id": 40081353365,
+                "source_sha": SOURCE,
+                "provider_terminal": "FAILURE_NO_REPLAY",
                 "scientific_first_use": False,
-                "provider": {
-                    "ticket": TICKET, "run_id": 40081353365,
-                    "provider_terminal": "FAILURE_NO_REPLAY",
-                    "scientific_first_use": False,
-                    "jobs": {
-                        "windows-latest": {"job_id": 120835487661, "conclusion": "failure"},
-                        "ubuntu-latest": {"job_id": 120835487668, "conclusion": "failure"}},
-                    "artifact_ids": [12555024083, 12555357162],
-                },
+                "jobs": {
+                    "windows-latest": {"job_id": 120835487661, "conclusion": "failure"},
+                    "ubuntu-latest": {"job_id": 120835487668, "conclusion": "failure"}},
+                "artifact_ids": [12555024083, 12555357162],
+            }
+            payload = {
+                "schema": V2, "ticket": TICKET, "run_id": 40081353365,
+                "source_sha": SOURCE, "provider_sha256": sha(report),
+                "scientific_first_use": False, "provider": report,
+                "quarantine_event_seq": quarantine["seq"],
+                "quarantine_event_sha256": quarantine["sha"],
             }
         else:
             kind = "HISTORIC_EVENT"
@@ -70,6 +77,29 @@ def fixture():
     }
 
 
+def fixture_v1():
+    """Original v1 negative: provider event immediately before quarantine."""
+    body = fixture()
+    admission, quarantine, failure = body["target_events"]
+    payload = copy.deepcopy(failure["payload"])
+    payload["schema"] = V1
+    del payload["quarantine_event_seq"]
+    del payload["quarantine_event_sha256"]
+    prior = body["event_headers"][187]["sha"]
+    for seq, kind, doc in ((189, "NATIVE_FAILED_PROVIDER_CUSTODY", payload),
+                           (190, "ATTEMPT_QUARANTINED", quarantine["payload"])):
+        h = sha({"seq": seq, "prior_sha": prior, "kind": kind, "payload": doc})
+        entry = {"seq": seq, "prior_sha": prior, "sha": h}
+        body["event_headers"][seq - 1] = entry
+        target = failure if kind == "NATIVE_FAILED_PROVIDER_CUSTODY" else quarantine
+        target.update(entry)
+        if kind == "NATIVE_FAILED_PROVIDER_CUSTODY":
+            target["payload"] = payload
+        prior = h
+    body["owner_head_sha"] = prior
+    return body
+
+
 class PortableEvidenceTests(unittest.TestCase):
     def read(self, body):
         return verify_portable_receipt(
@@ -83,6 +113,23 @@ class PortableEvidenceTests(unittest.TestCase):
         self.assertFalse(r["scientific_first_use"])
         self.assertEqual(r["original_custody_trust"],
                          "REQUIRES_INDEPENDENT_GITHUB_ATTESTATION")
+
+    def test_valid_original_v1_provider_before_quarantine(self):
+        verified = self.read(fixture_v1())
+        self.assertEqual(verified["provider_run_id"], 40081353365)
+        self.assertEqual(verified["head_seq"], 190)
+
+    def test_v1_nonadjacent_provider_quarantine_denied(self):
+        body = fixture_v1()
+        body["target_events"][1]["seq"] = 188
+        with self.assertRaises(PortableEvidenceDenied):
+            self.read(body)
+
+    def test_v2_quarantine_binding_denied(self):
+        body = fixture()
+        body["target_events"][2]["payload"]["quarantine_event_sha256"] = "a"*64
+        with self.assertRaises(PortableEvidenceDenied):
+            self.read(body)
 
     def denied(self, change, label):
         body = fixture()
