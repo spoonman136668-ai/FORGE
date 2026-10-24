@@ -31,9 +31,9 @@ class TrainedParityTests(unittest.TestCase):
     def test_synthetic_inputs_have_no_external_data(self):
         sources = list(p.synthetic_sources())
         self.assertEqual(len(sources), 3)
-        self.assertTrue(all(0 < len(x) <= 2048 and
-                            all(0 <= v <= 255 for v in x) for x in sources))
-        self.assertEqual(len({hashlib.sha256(bytes(x)).hexdigest()
+        self.assertTrue(all(1 < len(x) <= 2049 and x[-1] == p.frozen.EOS and
+                            all(0 <= v <= 255 for v in x[:-1]) for x in sources))
+        self.assertEqual(len({hashlib.sha256(json.dumps(x).encode()).hexdigest()
                               for x in sources}), 3)
 
     def test_reject_missing_artifact_before_model_execution(self):
