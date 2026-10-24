@@ -80,6 +80,7 @@ class DelayedProbeTests(unittest.TestCase):
         fit,_=data()
         world=probe.World(fit,"DELAYED_CLEAN")
         a=world.request("P0",0)
+        world.advance()
         b=world.request("P1",1)
         mem=b4.LocalMemory().update(b4.Observation("P0","E0"))
         pending=[b]
