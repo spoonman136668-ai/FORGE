@@ -1,0 +1,151 @@
+name: F139 continuity original-owner independent final audit
+on:
+  push:
+    branches: [operations/f139-source-continuity-owner-cutover-20261024]
+    paths: [.github/workflows/f139-continuity-owner-audit.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-continuity-independent-final-audit
+  cancel-in-progress: false
+jobs:
+  original-windows-owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Read protected policy, single original task and immutable event185 proof
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $repo='spoonman136668-ai/FORGE'
+          $source='db9b45955d2b1f2c5ec419f2dd5296828396663c'
+          if($env:GITHUB_REPOSITORY -cne $repo -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+            throw 'F139_CONT_READONLY_OWNER_RUNNER_IDENTITY_DRIFT'
+          }
+          $main=(& gh api "repos/$repo/branches/main" --jq '.commit.sha'|Out-String).Trim()
+          $pol=(& gh api "repos/$repo/issues/807" --jq '.body'|Out-String).Trim() | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0 -or $main -cne $source -or
+             $pol.enabled -ne $true -or $pol.source_sha -cne $source -or
+             $pol.scientific_first_use -ne $false -or
+             $pol.max_issue_creations_per_cycle -ne 2){
+            throw 'F139_CONT_FINAL_SOURCE_OR_POLICY_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1 -or
+             @($t.Triggers).Count -ne 3){
+            throw 'F139_CONT_FINAL_ORIGINAL_TASK_NOT_RUNNING'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$t.Principal.UserId
+          $taskSid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($taskSid -cne $who.User.Value){throw 'F139_CONT_FINAL_ORIGINAL_SID_DRIFT'}
+          $opts=[string]$t.Actions[0].Arguments
+          function Arg([string]$name){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_CONT_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          $root=Arg 'RepositoryRoot'
+          if([IO.Path]::GetFullPath($db) -ine
+             [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite')) -or
+             [IO.Path]::GetFileName((Arg 'File')) -cne 'Run-FORGE-F139.ps1'){
+            throw 'F139_CONT_DB_OR_WRAPPER_DRIFT'
+          }
+          $sourceHead=(& git.exe -C $root rev-parse HEAD |Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()
+          if($sourceHead -cne $source -or $dirty.Length -ne 0){
+            throw 'F139_CONT_OWNER_CHECKOUT_DRIFT'
+          }
+          $scratch=Join-Path (Split-Path -Parent $db) ('f139-cont-final-audit-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $scratch){throw 'F139_CONT_SCRATCH_EXISTS'}
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_owner_ledger import verify_native_activation
+          from f139.nci04_source_continuity import (
+              prove_protected_research_only_advance,
+              SourceContinuityDenied)
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          pin=sys.argv[3]
+          con=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True,timeout=30)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          original=dict(con.execute(
+              "SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert original["source_sha"]==pin and original["head_seq"]>=185
+          assert original["enabled"]==1 and original["legacy_suspended"]==1
+          assert not scratch.exists()
+          dst=sqlite3.connect(scratch)
+          con.backup(dst)
+          dst.close()
+          d=Database(scratch)
+          try:
+              d.verify()
+              assert verify_native_activation(d)
+              assert d.meta()["source_sha"]==pin
+              source_tail=[
+                  (r["seq"],r["kind"]) for r in d.conn.execute(
+                      "SELECT seq,kind FROM events WHERE seq IN (184,185) ORDER BY seq")]
+              assert source_tail==[
+                  (184,"SOURCE_TRANSITION_ADMITTED"),
+                  (185,"NATIVE_DEVELOPMENT_ACTIVATED")],source_tail
+              counts={
+                  r["stage"]:r["n"] for r in d.conn.execute(
+                      "SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              assert counts.get("QUARANTINED",0)>=10,counts
+              assert counts.get("VERIFIED",0)>=18,counts
+              assert len(d.verified_native_provider_failures())>=8
+              issue=d.conn.execute(
+                  "SELECT stage FROM tasks WHERE ticket LIKE 'f139-nci04-i840-%'").fetchone()
+              assert issue and issue["stage"]=="QUARANTINED"
+              print("F139_CONT_EVENT185_SOURCE_ACTIVATION=PASS")
+              print("F139_CONT_IMMUTABLE_CHAIN_VERIFY=PASS")
+              print("F139_CONT_QUARANTINED="+str(counts.get("QUARANTINED",0)))
+              print("F139_CONT_VERIFIED="+str(counts.get("VERIFIED",0)))
+              print("F139_CONT_OWNER_HEAD_SEQ="+str(d.meta()["head_seq"]))
+              print("F139_CONT_OWNER_HEAD_HASH="+str(d.meta()["head_hash"]))
+              # A *real* current protected compare containing F139 changes
+              # must be refused by the new limited continuity rule.
+              get=GitHub().native_repo_get
+              try:
+                  prove_protected_research_only_advance(
+                      get,
+                      deployed_source="d24bd22ea79fed9bb14a00b281d70ffd329601c0",
+                      protected_source=pin)
+              except SourceContinuityDenied:
+                  print("F139_CONT_REAL_RUNTIME_CHANGE_REJECTED=PASS")
+              else:
+                  raise AssertionError("F139_CONT_RUNTIME_CHANGE_WRONGLY_ACCEPTED")
+          finally:
+              d.close()
+          after=dict(con.execute(
+              "SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert after==original,"F139_CONT_ORIGINAL_SQLITE_CHANGED"
+          con.close()
+          print("F139_CONT_ORIGINAL_SQLITE_UNMODIFIED=TRUE")
+          '@
+          try{
+            Push-Location -LiteralPath $root
+            try{
+              & $python -B -c $code $db $scratch $source
+              if($LASTEXITCODE -ne 0){throw 'F139_CONT_INDEPENDENT_AUDIT_FAILED'}
+            }finally{Pop-Location}
+          }finally{
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          Write-Output 'F139_CONT_ONE_ORIGINAL_TASK_RUNNING=PASS'
+          Write-Output 'F139_CONT_POLICY_REENABLED_AND_SOURCE_BOUND=PASS'
+          Write-Output 'F139_CONT_SCIENTIFIC_FIRST_USE=FALSE'
