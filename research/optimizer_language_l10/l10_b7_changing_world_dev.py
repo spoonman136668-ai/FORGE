@@ -318,8 +318,6 @@ def benchmark():
                 "post_switch_correct":sum(x["post_switch_correct"] for x in rows),
                 "family_scores":[[x["family_sha256"],x["correct"],x["abstentions"],
                                    x["fitted_state_sha256"]] for x in rows]})
-    if all(x["regime"]=="WITHHELD" for x in ()):
-        raise AssertionError("unreachable")
     require(all(x["correct"]==0 and x["abstentions"]==36
                 for x in out if x["regime"]=="WITHHELD"),"no-effect false successes")
     return dict(schema=SCHEMA,status="DEV_ONLY_STATE_DEPENDENT_DELAYED_FEEDBACK_NO_TRANSFER_GO",
