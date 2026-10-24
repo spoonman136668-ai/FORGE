@@ -33,7 +33,7 @@ def frozen():
  return p
 
 def into(st,cls):
- v=public_grid(st)
+ v=st if set(st)=={"X","Y","GoalX","GoalY","Direction","FrontBlocked"} else public_grid(st)
  return cls(v["X"],v["Y"],v["GoalX"],v["GoalY"],v["Direction"],v["FrontBlocked"])
 
 def fit_source():
