@@ -1,0 +1,137 @@
+name: MP-RB01 bounded budget fill exact-source Windows qualification
+on:
+  push:
+    branches: [qualification/mp-rb01-windows-bounded-20261024]
+    paths: ['.github/workflows/mp-rb01-budget-fill-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-rb01-one-final-windows-qualify
+  cancel-in-progress: false
+jobs:
+  bounded:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    steps:
+      - name: Focused actual Python RED-GREEN and one full source-only Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code){if(-not $ok){throw ('MP_RB01_'+$code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-rb01-windows-bounded-20261024' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $env:GIT_CONFIG_COUNT='1'
+          $env:GIT_CONFIG_KEY_0='core.longpaths'
+          $env:GIT_CONFIG_VALUE_0='true'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='qualification/mp-rb01-on-mpai0405-20261024'
+          $target='abe4ae16fb5a619eb05acac87a6741763e8a7e11'
+          $parent='250208e94d998cf0452923a4d02bb99e0eb208b9'
+          $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-rb01-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $allow=@('tools/mindpalace_readonly.py','tests/test_mpn1_budget_fill.py')
+          $guard=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $pins=@{
+            'tools/mindpalace_readonly.py'='a36b2a748f776d4dc8eedeb932acc056b1dd2a20'
+            'tests/test_mpn1_budget_fill.py'='c459cc4a23ffab2be804ebf432f2756f00b1e343'
+            'tests/test_mpn1_mcp.py'='6085709d9fed1bfee4b8755e22b923dd251769d4'
+          }
+          $suites=@('test_mpn1_budget_fill.py','test_mpn1_mcp.py','test_mpn2a_git_blob_identity.py',
+            'test_mpai01_reflect.py','test_mpai01_probe.py','test_mpai01_mcp_adapter.py',
+            'test_mpai02_probe_mcp.py','test_mpai03_git_custody.py','test_mpai04_admitted_memory.py',
+            'test_mpai05_runtime_claims.py')
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REF_DRIFT_'+$ref)
+          }
+          $checks=@{}
+          $hashed=$false
+          try {
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $head -ceq $target) 'SOURCE_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $parent HEAD
+            Need ($LASTEXITCODE -eq 0) 'QUALIFIED_PARENT'
+            & git.exe -C $root merge-base --is-ancestor $accepted HEAD
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
+            $changed=@(& git.exe -C $root diff --name-only $parent HEAD)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 2 -and
+              (($changed|Sort-Object) -join '|') -ceq (($allow|Sort-Object) -join '|')) 'EXACT_TWO_FILE_SCOPE'
+            foreach($name in $pins.Keys){
+              $blob=(& git.exe -C $root rev-parse ('HEAD:'+$name) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $blob -ceq $pins[$name]) ('SOURCE_BLOB_'+$name)
+            }
+            Write-Host 'MP_RB01_QUALIFIED_PARENT_AND_TWO_FILE_SCOPE=PASS'
+            foreach($name in $guard){
+              $before=(& git.exe -C $root rev-parse ($accepted+':'+$name) | Out-String).Trim()
+              $now=(& git.exe -C $root rev-parse ('HEAD:'+$name) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $before -ceq $now) ('PROTECTED_SOURCE_'+$name)
+              $checks[$name]=(Get-FileHash -LiteralPath (Join-Path $root $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed=$true
+            Write-Host 'MP_RB01_NINE_PROTECTED_BLOBS=PASS'
+            & python.exe -B -c "import pathlib; root=pathlib.Path(r'$root'); [compile((root/p).read_bytes(),str(root/p),'exec') for p in ('tools/mindpalace_readonly.py','tests/test_mpn1_budget_fill.py')]"
+            Need ($LASTEXITCODE -eq 0) 'SOURCE_COMPILE'
+            Write-Host 'MP_RB01_STOPPED_PYTHON_SOURCE_BUILD=PASS'
+            $tests=Join-Path $root 'tests'
+            $focusedCount=0
+            foreach($suite in $suites){
+              & python.exe -B -m unittest discover -s $tests -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FOCUSED_'+$suite)
+              Write-Host ('MP_RB01_FOCUSED_PASS='+$suite)
+              $focusedCount++
+            }
+            Need ($focusedCount -eq 10) 'SUITES_COUNT'
+            Write-Host 'MP_RB01_FOCUSED_ALL_TEN_SUITES=PASS'
+            foreach($name in $guard){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $name) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $checks[$name]) ('POST_FOCUSED_GUARD_'+$name)
+            }
+            $stdout=Join-Path $scratch 'full.stdout'
+            $stderr=Join-Path $scratch 'full.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $log=[IO.File]::ReadAllText($stdout)
+            if($p.ExitCode -ne 0){
+              $last=@([regex]::Matches($log,'RUN Test-[A-Za-z0-9_-]+[.]ps1')|ForEach-Object{$_.Value})
+              if($last.Count){Write-Host ('MP_RB01_LAST_REGRESSION_TEST='+[string]$last[-1])}
+              throw 'MP_RB01_FULL_WINDOWS_REGRESSION_FAILED'
+            }
+            Need ($log.Contains('Mind-Palace regression suite passed')) 'FULL_SUITE_MARKER'
+            Write-Host 'MP_RB01_ONE_FULL_WINDOWS_REGRESSION=PASS'
+            $changedWorktree=(& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and -not $changedWorktree) 'SOURCE_MODIFIED_BY_QUALIFIER'
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            Write-Host 'MP_RB01_SOURCE_PIN_AND_PARENT_STILL_VALID=PASS'
+            Write-Host 'MP_RB01_REAL_MODEL_IMPROVEMENT=NOT_TESTED'
+            Write-Host 'MP_RB01_NATIVE_CKB_ADMISSION=NOT_PERFORMED'
+            Write-Host 'MP_RB01_PAID_MODEL_CALLS=0'
+            Write-Host 'MP_RB01_PRODUCTION_WRITES=0'
+          } finally {
+            if($hashed){
+              foreach($name in $guard){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $name) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $checks[$name]) ('PROTECTED_DRIFT_'+$name)
+              }
+              Write-Host 'MP_RB01_PROTECTED_FILES_UNCHANGED=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MP_RB01_ISOLATED_SCRATCH_CLEAN=PASS'
+          }
