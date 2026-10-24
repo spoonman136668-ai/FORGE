@@ -2,6 +2,7 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 import unittest
 from dataclasses import replace
 from credit_preflight import (PublicGrid,Event,LinearTD,features,public_from,
@@ -84,7 +85,7 @@ class CreditPreflight(unittest.TestCase):
         self.assertEqual(LinearTD.restore(raw).snapshot(),raw)
         script='from credit_preflight import LinearTD,handwritten_matched_pair; import sys; m=LinearTD.restore(sys.stdin.buffer.read()); print(m.choose(handwritten_matched_pair()[1][0].before))'
         p=subprocess.run([sys.executable,'-B','-c',script],input=raw,capture_output=True,
-                         check=True,timeout=10)
+                         check=True,timeout=10,cwd=str(Path(__file__).resolve().parent))
         self.assertEqual(p.stdout.strip(),b'1')
         wire=json.loads(raw);wire['payload']['weights'][0]+=1
         with self.assertRaisesRegex(ValueError,'TAMPERED'):
