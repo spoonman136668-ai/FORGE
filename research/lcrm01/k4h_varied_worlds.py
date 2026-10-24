@@ -65,9 +65,9 @@ def action(np,space,index):
             np.ones(9) if index==2 else
             np.array([0.2 if j%2==0 else 0.8 for j in range(9)]))
     v=lo+(hi-lo)*ratios
-    if np.any(v<lo) or np.any(v>hi):
+    if np.any(v<lo-1.e-12) or np.any(v>hi+1.e-12):
         raise ValueError("ILLEGAL_ACTION")
-    return v
+    return np.minimum(np.maximum(v,lo),hi)
 
 def public_features(np,observation):
     v=np.asarray(observation,dtype=np.float64).ravel()
