@@ -1,0 +1,122 @@
+name: F139 original post995 intake evidence-only next gate
+on:
+  push:
+    branches: [diagnostics/f139-post995-original-intake-20261023]
+permissions:
+  contents: read
+concurrency:
+  group: f139-post995-readonly-diagnostic
+  cancel-in-progress: false
+jobs:
+  inspect-original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify original owner, ledger, candidate exhaustion and PR rejections without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY) {
+            throw 'F139_DIAGNOSTIC_RUNNER_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1) {
+            throw 'F139_DIAGNOSTIC_ORIGINAL_OWNER_NOT_RUNNING'
+          }
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=if($principal -match '^S-1-'){$principal}else{
+            (New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          }
+          if($sid -cne $owner.User.Value) {throw 'F139_DIAGNOSTIC_OWNER_SID_DRIFT'}
+          $cmd=[string]$task.Actions[0].Arguments
+          function Opt([string]$name) {
+            $m=[regex]::Match($cmd,'(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw ('F139_DIAGNOSTIC_TASK_ROUTE_'+$name)}
+            return $m.Groups[1].Value
+          }
+          $root=Opt 'RepositoryRoot';$db=Opt 'Database';$python=Opt 'PythonExe'
+          if([IO.Path]::GetFileName((Opt 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             [IO.Path]::GetFullPath($db) -ine
+               [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_DIAGNOSTIC_ORIGINAL_DB_DRIFT'
+          }
+          $source='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          $head=(& git.exe -C $root rev-parse HEAD|Out-String).Trim()
+          $dirty=(& git.exe -C $root status --porcelain --untracked-files=all|Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $source -or $dirty.Length -ne 0){
+            throw 'F139_DIAGNOSTIC_ORIGINAL_CHECKOUT_DRIFT'
+          }
+          $scratch=Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($db))) ('f139-post995-readonly-'+$env:GITHUB_RUN_ID+'.sqlite')
+          foreach($suffix in @('','-wal','-shm')){
+            if(Test-Path -LiteralPath ($scratch+$suffix)){throw 'F139_DIAGNOSTIC_SCRATCH_ALREADY_PRESENT'}
+          }
+          $code=@'
+          import collections,json,pathlib,sqlite3,sys
+          from f139.local_controller import Database,GitHub,require
+          from f139.nci04_owner_ledger import native_events,verify_native_activation
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64
+          source=sys.argv[3]
+          original=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          readonly=sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,timeout=20)
+          readonly.execute("PRAGMA query_only=ON")
+          try:
+              copied=sqlite3.connect(str(scratch))
+              try:readonly.backup(copied)
+              finally:copied.close()
+          finally:readonly.close()
+          db=Database(scratch)
+          try:
+              db.verify()
+              meta=db.meta()
+              require(meta["source_sha"]==source and meta["head_seq"]>=158
+                      and meta["enabled"]==1 and meta["legacy_suspended"]==1
+                      and verify_native_activation(db),
+                      "POST995_NATIVE_LEDGER_INVALID")
+              statuses={r["stage"]:r["n"] for r in db.conn.execute(
+                  "SELECT stage,COUNT(*) AS n FROM tasks GROUP BY stage")}
+              native=native_events(db)
+              old={candidate_identity_from_intent_base64(event["native_intent_base64"])
+                   for event in native
+                   if isinstance(event.get("native_intent_base64"),str)}
+              api=GitHub()
+              require(api.protected_main()==source,
+                      "POST995_PROTECTED_MAIN_DRIFT")
+              eligible=api.native_eligible_issues(source,historical_issues={
+                  event["issue_number"]:(
+                      event["issue_id"],event["source_sha"],
+                      event["issue_body_sha256"],event["ticket"]) for event in native})
+              feed=api.prepare_native_feed(source,old)
+              print("F139_POST995_OWNER_META="+json.dumps({
+                  "source":meta["source_sha"],"head_seq":meta["head_seq"],
+                  "head_hash":meta["head_hash"],"statuses":statuses,
+                  "native_history":len(native),
+                  "historical_candidate_identities":len(old)},sort_keys=True),flush=True)
+              print("F139_POST995_AUTHENTIC_NEW_ISSUES="+str(len(eligible)),flush=True)
+              print("F139_POST995_FEED_ENABLED="+str(feed["enabled"]).upper(),flush=True)
+              print("F139_POST995_ELIGIBLE_NEW_PR_COUNT="+str(len(feed["candidates"])),flush=True)
+              for row in feed["candidates"]:
+                  print("F139_POST995_ELIGIBLE_PR="+row["lane"]+"#"+str(row["pr_number"]),flush=True)
+              for row in feed["rejected"]:
+                  print("F139_POST995_REJECTED_PR="+row["lane"]+"#"+
+                        str(row["pr_number"])+" "+row["reason"],flush=True)
+              print("F139_POST995_ORIGINAL_LEDGER_IMMUTABLE=TRUE",flush=True)
+          finally:db.close()
+          '@
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $code $db $scratch $source
+            if($LASTEXITCODE -ne 0){throw 'F139_POST995_INTAKE_DIAGNOSTIC_FAILED'}
+          }finally{
+            Pop-Location
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
