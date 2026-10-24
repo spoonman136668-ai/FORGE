@@ -30,7 +30,7 @@ def frozen():
   or p["source"]["dynamic_blob"]!="68436cecc35116c23c2f196c22fa3a19c6410b95"
   or p["task"]["DEV_seeds"]!=[46200,46207]
   or [x["n_obstacles"] for x in p["task"]["conditions"]]!=[2,4]
-  or p["task"]["candidates"]!=list(METHODS)):
+  or p["candidates"]!=list(METHODS)):
   raise ValueError("K5F_FROZEN_REAL_SOURCE_OR_METHOD_DRIFT")
  return p
 
