@@ -1,0 +1,119 @@
+name: F139 i856 original negative ledger read-only proof
+on:
+  push:
+    branches: [diagnostics/f139-g2-real-owner-no-replay-20261024]
+    paths: [.github/workflows/f139-i856-original-quarantine-audit.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-i856-read-only-owner-proof
+  cancel-in-progress: false
+jobs:
+  original-windows-sqlite-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify exact #856 once-only original terminal custody from immutable snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $pin='52e007e83be08b851283fc4a6e213ea506469f43'
+          $ticket='f139-nci04-i856-52e007e83be0-51b67e31'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:OPENAI_API_KEY){
+             throw 'F139_I856_ORIGINAL_OWNER_IDENTITY_UNQUALIFIED'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'F139_I856_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $argsText=[string]$t.Actions[0].Arguments
+          function Arg([string]$key){
+            $m=[regex]::Match($argsText,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_I856_ORIGINAL_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database'; $root=Arg 'RepositoryRoot'; $python=Arg 'PythonExe'
+          $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($actual -cne $pin -or
+             [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'F139_I856_ORIGINAL_SOURCE_OR_DB_DRIFT'
+          }
+          Write-Output ('F139_I856_ORIGINAL_TASK_STATE='+[string]$t.State)
+          $tmp=Join-Path $env:RUNNER_TEMP ('f139-i856-original-readonly-'+$env:GITHUB_RUN_ID+'.sqlite')
+          if(Test-Path -LiteralPath $tmp){throw 'F139_I856_SCRATCH_PREEXISTS'}
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          dbpath=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          ticket=sys.argv[3];pin=sys.argv[4]
+          orig=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=30)
+          orig.row_factory=sqlite3.Row
+          orig.execute("PRAGMA query_only=ON")
+          initial=dict(orig.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert initial["source_sha"]==pin and initial["head_seq"]>=187, "ORIGINAL_SOURCE_OR_HISTORY_DRIFT"
+          assert initial["enabled"]==1 and initial["legacy_suspended"]==1, "ORIGINAL_OWNER_NOT_ENABLED"
+          assert not scratch.exists(), "SCRATCH_COLLISION"
+          copied=sqlite3.connect(scratch)
+          orig.backup(copied)
+          copied.close()
+          d=Database(scratch)
+          try:
+              d.verify()
+              assert verify_native_activation(d), "ORIGINAL_NATIVE_ACTIVATION_INVALID"
+              meta=d.meta()
+              rows=list(d.conn.execute("SELECT ticket,stage,source_sha,run_id,quarantine_reason FROM tasks WHERE ticket=?",(ticket,)))
+              assert len(rows)==1 and rows[0]["stage"]=="QUARANTINED", "I856_NOT_QUARANTINED_EXACTLY_ONCE"
+              assert rows[0]["source_sha"]==pin and rows[0]["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY", "I856_QUARANTINE_CUSTODY_MISMATCH"
+              matches=[]
+              for r in d.conn.execute("SELECT seq,sha,kind,payload FROM events ORDER BY seq"):
+                  doc=json.loads(r["payload"])
+                  if doc.get("ticket")==ticket:
+                      matches.append((r["seq"],r["sha"],r["kind"],doc))
+              counts={k:sum(1 for a in matches if a[2]==k) for k in ("NATIVE_DEVELOPMENT_ADMITTED","ATTEMPT_QUARANTINED","NATIVE_FAILED_PROVIDER_CUSTODY")}
+              assert counts=={"NATIVE_DEVELOPMENT_ADMITTED":1,"ATTEMPT_QUARANTINED":1,"NATIVE_FAILED_PROVIDER_CUSTODY":1},("I856_EVENT_COUNTS_NOT_EXACT",counts)
+              quarant=[a for a in matches if a[2]=="ATTEMPT_QUARANTINED"][0]
+              failure=[a for a in matches if a[2]=="NATIVE_FAILED_PROVIDER_CUSTODY"][0]
+              assert quarant[3]=={"ticket":ticket,"reason":"FAILED_OR_CANCELLED_NO_REPLAY"}
+              provider=failure[3]["provider"]
+              assert failure[3]["run_id"]==40081353365 and provider["run_id"]==40081353365, "I856_PROVIDER_RUN_DRIFT"
+              assert provider["jobs"]["windows-latest"]=={"job_id":120835487661,"conclusion":"failure"}, "I856_WINDOWS_PROVIDER_RECEIPT_DRIFT"
+              assert provider["jobs"]["ubuntu-latest"]=={"job_id":120835487668,"conclusion":"failure"}, "I856_UBUNTU_PROVIDER_RECEIPT_DRIFT"
+              assert provider["artifact_ids"]==[12555024083,12555357162], "I856_ARTIFACT_CUSTODY_DRIFT"
+              assert ticket in d.verified_native_provider_failures(), "I856_NATIVE_NEGATIVE_UNVERIFIED"
+              task_counts={r["stage"]:r["n"] for r in d.conn.execute("SELECT stage,COUNT(*) n FROM tasks GROUP BY stage")}
+              assert task_counts.get("QUARANTINED",0)>=11,("I856_QUARANTINE_TOTAL_MISSING",task_counts)
+              assert task_counts.get("VERIFIED",0)>=18, "HISTORICAL_VERIFIED_LOST"
+              print("F139_I856_IMMUTABLE_CHAIN=PASS")
+              print("F139_I856_EXACTLY_ONE_ADMISSION=PASS")
+              print("F139_I856_EXACTLY_ONE_QUARANTINE=PASS")
+              print("F139_I856_EXACTLY_ONE_PROVIDER_NEGATIVE=PASS")
+              print("F139_I856_PROVIDER_WINDOWS_AND_UBUNTU_ARTIFACTS=PASS")
+              print("F139_I856_ORIGINAL_NEGATIVES="+str(task_counts.get("QUARANTINED",0)))
+              print("F139_I856_ORIGINAL_VERIFIED="+str(task_counts.get("VERIFIED",0)))
+              print("F139_I856_ORIGINAL_LEDGER_HEAD_SEQ="+str(meta["head_seq"]))
+              print("F139_I856_ORIGINAL_LEDGER_HEAD_SHA="+str(meta["head_hash"]))
+              print("F139_I856_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              d.close()
+          final=dict(orig.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone())
+          assert initial==final, "ORIGINAL_META_CHANGED_DURING_AUDIT"
+          orig.close()
+          print("F139_I856_ORIGINAL_DATABASE_READONLY=TRUE")
+          '@
+          try {
+            Push-Location -LiteralPath $root
+            try {
+              & $python -B -c $code $db $tmp $ticket $pin
+              if($LASTEXITCODE -ne 0){throw 'F139_I856_ORIGINAL_TERMINAL_RECEIPT_NOT_VERIFIED'}
+            }finally {Pop-Location}
+          }finally{
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($tmp+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
