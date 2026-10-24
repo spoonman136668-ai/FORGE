@@ -24,7 +24,7 @@ SCHEMA="mass.lcrm01.k5d.true-public-causal-composition-v1"
 METHODS=("ygg_R6_native_composition","ygg_R6_no_composition","ygg_R6_no_world_memory",
  "conventional_GF2_solver","conventional_single_step_1NN","fixed_identity")
 PHASE_WORLDS={"FIT":(401,402,403,404),"CHECK":(801,802),"DEV":(901,902,903,904)}
-NATIVE_BLOB="K5D_R6_NATIVE_BLOB_PENDING"
+NATIVE_BLOB="236386eab51461343d3c2103851ad1de110769a4"
 
 def canonical(a):
  return json.dumps(a,sort_keys=True,separators=(",",":"),allow_nan=False)
