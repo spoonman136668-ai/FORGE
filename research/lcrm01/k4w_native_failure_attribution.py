@@ -74,7 +74,7 @@ def archive(path):
     return pin,payload
 
 
-def fit_factors(rows):
+def fit_factors(rows,expected_count=6114):
     report={}
     for family in FAMILIES:
         rs=[r for r in rows if r["family"]==family]
@@ -140,7 +140,7 @@ def fit_factors(rows):
           or positive!=terminal_positive or terminal!=24
           or toward+away+unchanged!=len(rs)):
             raise ValueError("K4W_ORIGINAL_EXPERIENCE_PARITY_DRIFT:"+family)
-    if sum(v["FIT_actual_steps"] for v in report.values())!=6114:
+    if sum(v["FIT_actual_steps"] for v in report.values())!=expected_count:
         raise ValueError("K4W_FIT_SOURCE_SIZE_CHANGED")
     return report
 
