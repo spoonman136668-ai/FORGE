@@ -111,7 +111,7 @@ def main():
     torch.set_num_threads(2)
     fixtures=[]
     for f in FIXTURES:
-        encoded=frozen.encode_source(f)
+        encoded=frozen.encode_source(tuple(frozen.Triple(*fields) for fields in f))
         require(encoded is not None and len(encoded)<=frozen.MAX_SOURCE_BYTES+2,"invalid synthetic fixture")
         fixtures.append(torch.tensor([encoded],dtype=torch.long))
     results=[]; long_case=None
