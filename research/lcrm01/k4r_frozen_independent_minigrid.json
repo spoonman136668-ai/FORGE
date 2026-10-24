@@ -1,0 +1,86 @@
+{
+  "schema": "mass.lcrm01.k4r.frozen-independent-interactive-benchmark-source-v1",
+  "gate": "LCRM01-K4R",
+  "scope": "PUBLIC_DEVELOPMENT_SOURCE_QUALIFICATION_ONLY_NOT_NATIVE_LEARNING_ADVANCEMENT",
+  "antecedent": {
+    "K4Q_original_PR": 872,
+    "K4Q_readonly_verification_PR": 873,
+    "K4Q_original_scientific_result": "NO_QUALIFIED_CAUSAL_OBSERVABILITY_SOURCE",
+    "K4Q_decision_diversity_failure": "Only reaching had differing DEV best actions; pushing and picking remained constant in K4Q."
+  },
+  "independent_source": {
+    "repo": "Farama-Foundation/Minigrid",
+    "commit": "7f5853792ea7f04f75614661006d87fcf949f26d",
+    "family": "public open-source MiniGrid interactive navigation benchmarks",
+    "pins": {
+      "minigrid/envs/empty.py": "8810bb0fa156d18475022edd8859b135ef745a5f",
+      "minigrid/envs/fourrooms.py": "d79f007e00f95f48284da66d760872483c02fab2",
+      "minigrid/wrappers.py": "1eb2da8fb612653c97f443ff6c7492ed3f1aaa80",
+      "minigrid/minigrid_env.py": "eb29e9a902de0715ab77ec981a2113576d7664fa"
+    },
+    "runtime": {
+      "python": "3.11",
+      "gymnasium": "1.1.1",
+      "numpy": "1.26.4",
+      "pygame_ce": "2.5.3"
+    },
+    "note": "No CausalWorld simulator or original K4I–K4Q contexts are used."
+  },
+  "worlds": {
+    "families": [
+      {
+        "name": "empty",
+        "constructor": "minigrid.envs.empty.EmptyEnv(size=8,agent_start_pos=None,max_steps=96)"
+      },
+      {
+        "name": "fourrooms",
+        "constructor": "minigrid.envs.fourrooms.FourRoomsEnv(agent_pos=None,goal_pos=None,max_steps=192)"
+      }
+    ],
+    "observation": "Original minigrid.wrappers.FullyObsWrapper with complete PUBLIC grid['image'] only; parse agent coordinate+direction, goal position, wall cells; no env.unwrapped.agent_pos, grid or hidden layout reads by any controller.",
+    "legal_actions": [
+      0,
+      1,
+      2
+    ],
+    "meanings": "0 left,1 right,2 forward. Other public MiniGrid action IDs unused.",
+    "source_seeds": {
+      "FIT": "1100..1123 inclusive (24 episodes per family)",
+      "CHECK": "2100..2103 inclusive (4 episodes per family)",
+      "DEV": "3100..3107 inclusive (8 episodes per family)"
+    },
+    "FIT_experiences": "24 real exploration episodes/family, max episode horizon as constructor. Exploration controller chooses actions through seeded uniform random actions 0..2, seed 810000 + 1000*family_index + world_seed. Actual observations, transitions and rewards stored.",
+    "FIT_scope": "Learn a single shared robot motion model across both families; train public-feature tabular Q using the exact same source transitions. No task seed encoded in model inputs.",
+    "FIT_model": "Empirically fit the modal observed orientation change per action 0 and1, and forward positional displacement per orientation for action2 whenever the PUBLIC cell ahead is walkable; source also records blocked-forward no-op. No hard-coded displacement in learned model.",
+    "conventional_controls": [
+      "learned forward-dynamics + breadth-first shortest public-grid planner",
+      "perfect source-semantic public-grid shortest-path planner (conventional oracle upper reference, no secret env state)",
+      "tabular Q-learning from same FIT experiences",
+      "seeded random-action policy",
+      "fixed forward-action policy"
+    ],
+    "Q_model": "Tabular Q with gamma0.95, alpha0.25, seed-invariant public-state abstract key (family, sign(dx_goal),sign(dy_goal),distance bucket0..3,orientation,public front-blocked). One step online TD(0) update over each recorded FIT transition, no heldout fitting or tuned hyperparameters. Episode success reward original sparse MiniGrid, all updates using FIT only.",
+    "planner": "Breadth-first path planning over (x,y,orientation) using full PUBLIC grid walls and goal. Learned planner generates transitions only from FIT learned modal action dynamics; expert planner uses published MiniGrid direction constants as an upper-bound, not a fitted policy. Replan at every step from current public grid.",
+    "fit_gate": "Both families at least 16 distinct public reset observations; FIT observes all three action IDs, each agent orientation 0..3 for unblocked forward and at least one blocked forward; modal empirical turns are one left and right, modal forward displacement matches public documented convention; else stop WITHOUT consuming CHECK or DEV. FIT model/ Q state digests fixed and JSON roundtrip verified.",
+    "protocol_custody": "No source seed, model parameters, run horizon, threshold or model selection changed after first FIT or DEV output. No reruns on consumed DEV; if engineering bug before physics first-use, fix and preserve commit trail."
+  },
+  "evaluation": {
+    "policy_budget": "Each method independently gets a fresh seeded environment and at most the same constructor max_steps for each FIT-heldout world seed. Same observation permissions and FIT source for every fitted policy.",
+    "CHECK_first": "4 fresh CHECK worlds/family and 8 DEV worlds/family are fully executed only after FIT gate passes. Do not alter models after CHECK. CHK and DEV scores isolated.",
+    "metrics": "Per policy/family/seed: actual success from terminated+positive reward, cumulative real reward, steps, public-reset/goal SHA, first action, source episode initial wall-map SHA; per-step full original public reward/transition trace hash; full runner CPU, wall, peak RSS; per method evaluation CPU and checkpoint bytes. 2 Python processes science-match exactly excluding timings.",
+    "positive": "Both distinct families must have >=2 different expert-optimal first actions on DEV (public planner action-choice diversity), and learned dynamics+BFS policy must succeed on >=6 of 8 DEV episodes per family, achieve success rate >= seeded random +0.40 for each family, and earn >=0.75 times public expert mean reward for each family. Learned model must never use heldout transitions in fitting. Tabular Q, random and fixed outcomes preserved even if negative.",
+    "independent_replication": "2 fresh Python OS processes on ONE GitHub-hosted Linux runner source-compare; this is not independent host or scientific first-use.",
+    "stop_rules": "If source identity or FIT action transition support fails, or first source episodes fail, report a bounded negative and do not consume holdout; if heldout randomized starts provide no diverse expert-optimal action, NO_GO despite model-based success; no favorable-seed filtering or resampling.",
+    "advance": "Qualifying K4R means the *source benchmark* has genuine public action transitions and conventionally learnable context-dependent control in two families. It DOES NOT establish unfamiliar-family transfer of a novel native learner; that requires independently preregistered subsequent science.",
+    "governance": {
+      "no_F139_owner_change": true,
+      "no_CKB_plane_change": true,
+      "no_FSA_writer_or_first_use": true,
+      "no_merge_to_protected_main": true,
+      "no_paid_API": true,
+      "preserve_all_prior_evidence": true,
+      "scientific_accepted": false,
+      "production_use": false
+    }
+  }
+}
