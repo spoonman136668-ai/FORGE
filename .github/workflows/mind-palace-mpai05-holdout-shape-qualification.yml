@@ -1,0 +1,125 @@
+name: Mind-Palace MP-AI05 holdout freeze source qualification
+on:
+  push:
+    branches: [qualification/mpai05-holdout-shape-20261024]
+    paths: ['.github/workflows/mind-palace-mpai05-holdout-shape-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-holdout-shape-qualification
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify exact source; 20 tests and one native Windows regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$reason){if(-not $ok){throw ('MPAI05_FREEZE_'+$reason)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai05-holdout-shape-20261024' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $env:GIT_CONFIG_COUNT = '1'
+          $env:GIT_CONFIG_KEY_0 = 'core.longpaths'
+          $env:GIT_CONFIG_VALUE_0 = 'true'
+          $remote = 'https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch = 'research/mpai05-prospective-trial-20261024'
+          $source = 'a54303d42e6944afcb9eeda248c688164d48c248'
+          $base = '7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $expected = @{
+            'agentic/mpai05_freeze_claims.py' = '1a01dba6c4c5432b28e140ee86da46730c3e9363'
+            'tests/test_mpai05_freeze_claims.py' = '8dfaf31d0d5d6741cbd0aa8838f80138dc2de0a4'
+            'docs/MP-AI05-PROSPECTIVE-TRIAL.md' = 'a1db348745528f9876df9d60b638838e692a0f00'
+          }
+          $protected = @(
+            '.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json',
+            '.ice/remote-index.ndjson','.ice/chat-delta-state.json',
+            '.ice/project-state-capsules.json','.ice/project-dependency-graph.json'
+          )
+          $scratch = Join-Path $env:RUNNER_TEMP ('m5h-'+$env:GITHUB_RUN_ID)
+          $root = Join-Path $scratch 'repo'
+          $hashes = @{}
+          $hashed = $false
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          try {
+            $refs = @(& git.exe ls-remote --exit-code $remote ('refs/heads/'+$branch))
+            Need ($LASTEXITCODE -eq 0 -and $refs.Count -eq 1 -and
+              (([string]$refs[0] -split '\\s+')[0]) -ceq $source) 'SOURCE_BRANCH_DRIFT'
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'SOURCE_CLONE'
+            $head = (& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $parent = (& git.exe -C $root rev-parse 'HEAD^' | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $head -ceq $source -and $parent -ceq $base) 'SOURCE_PARENT'
+            $changed = @(& git.exe -C $root diff --name-only $base $source)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed | Sort-Object) -join '|') -ceq (($expected.Keys | Sort-Object) -join '|')) 'THREE_PATH_SCOPE'
+            foreach($p in $expected.Keys){
+              $blob = (& git.exe -C $root rev-parse ('HEAD:'+$p) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $blob -ceq $expected[$p]) ('FILE_BLOB_'+$p)
+            }
+            Write-Host 'MPAI05_FREEZE_THREE_SOURCE_BLOBS=PASS'
+            foreach($p in $protected){
+              $old = (& git.exe -C $root rev-parse ($base+':'+$p) | Out-String).Trim()
+              $now = (& git.exe -C $root rev-parse ('HEAD:'+$p) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $old -ceq $now) ('PROTECTED_BLOB_'+$p)
+              $hashes[$p] = (Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $hashed = $true
+            Write-Host 'MPAI05_FREEZE_NINE_PROTECTED_GIT_BLOBS=PASS'
+            Push-Location $root
+            try {
+              $countScript = 'import unittest; print(unittest.defaultTestLoader.discover("tests",pattern="test_mpai05_freeze_claims.py").countTestCases())'
+              $count = (& python.exe -B -c $countScript | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $count -ceq '20') '20_TEST_DISCOVERY'
+              & python.exe -B -m unittest discover -s tests -p test_mpai05_freeze_claims.py -v
+              Need ($LASTEXITCODE -eq 0) 'FOCUSED_TEST_FAILURE'
+              Write-Host 'MPAI05_FREEZE_FOCUSED_20_TESTS=PASS'
+            } finally { Pop-Location }
+            foreach($p in $protected){
+              Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('FOCUSED_HASH_'+$p)
+            }
+            $stdout = Join-Path $scratch 'full.stdout'
+            $stderr = Join-Path $scratch 'full.stderr'
+            $test = Join-Path $root 'tests/Test-All.ps1'
+            $proc = Start-Process -FilePath 'pwsh.exe' -ArgumentList @(
+              '-NoProfile','-NonInteractive','-File',('"'+$test+'"')
+            ) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $output = [IO.File]::ReadAllText($stdout)
+            if($proc.ExitCode -ne 0){
+              $completed = @([regex]::Matches($output,'RUN Test-[A-Za-z0-9_-]+[.]ps1') | ForEach-Object {$_.Value})
+              if($completed.Count -gt 0){ Write-Host ('MPAI05_FREEZE_LAST_FULL_TEST='+[string]$completed[-1]) }
+              throw 'MPAI05_FREEZE_FULL_WINDOWS_REGRESSION_FAILURE'
+            }
+            Need ($output.Contains('Mind-Palace regression suite passed')) 'FULL_WINDOWS_MARKER'
+            Write-Host 'MPAI05_FREEZE_ONE_FULL_WINDOWS_REGRESSION=PASS'
+            Need (-not (& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim()) 'SOURCE_MUTATED'
+            Write-Host 'MPAI05_FREEZE_SOURCE_GIT_CLEAN=PASS'
+            Write-Host 'MPAI05_FREEZE_ACTUAL_HOLDOUT_CUSTODY=NOT_ESTABLISHED'
+            Write-Host 'MPAI05_FREEZE_REAL_SECOND_AGENT=NOT_ESTABLISHED'
+            Write-Host 'MPAI05_FREEZE_SCIENTIFIC_RESULT=NOT_ESTABLISHED'
+            Write-Host 'MPAI05_FREEZE_PAID_API_CALLS=0'
+            Write-Host 'MPAI05_FREEZE_PRODUCTION_WRITES=0'
+          } finally {
+            if($hashed){
+              foreach($p in $protected){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $p) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$p]) ('FINAL_HASH_'+$p)
+              }
+              Write-Host 'MPAI05_FREEZE_NINE_PROTECTED_FILE_HASHES=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){ Remove-Item -LiteralPath $scratch -Force -Recurse }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_NOT_CLEAN'
+            Write-Host 'MPAI05_FREEZE_SCRATCH_CLEAN=PASS'
+          }
