@@ -1,0 +1,80 @@
+{
+  "schema": "forge.optimizer.language.l4.realtext-span-development.v1",
+  "stage": "FROZEN_PROTOCOL_ONLY_COMMIT_BEFORE_RETRIEVAL_CODE_OR_DATA_FIRST_USE",
+  "parent_main": "fe54d7b8f819f04d3c4a2e771e1dc0f0b6f9ddc5",
+  "governance": {
+    "scope": "ADDITIVE_PUBLIC_REALTEXT_DEVELOPMENT_ONLY",
+    "unchanged": [
+      "NCI-04",
+      "ITD-01",
+      "BIO",
+      "Mass Research",
+      "Optimizer native",
+      "Q21 successor",
+      "FORGE controller and scientific custody"
+    ],
+    "prohibited": [
+      "FSA/Q21/HELD scientific first-use",
+      "Native Wingless/Yggdrasil changes",
+      "Any original research source edits",
+      "New controller or queue",
+      "Paid APIs and broker actions",
+      "Scientific GO without strong resource-matched controls"
+    ]
+  },
+  "external_corpus": {
+    "source_repo": "karpathy/char-rnn",
+    "source_commit": "6f9487a6fe5b420b7ca9afb0d7c078e37c1d1b4e",
+    "path": "data/tinyshakespeare/input.txt",
+    "source_git_blob_sha1": "7dcb3a2d4cc3b48b6283dd46870bfeb78f88aac9",
+    "bytes": 1115394,
+    "url": "https://raw.githubusercontent.com/karpathy/char-rnn/6f9487a6fe5b420b7ca9afb0d7c078e37c1d1b4e/data/tinyshakespeare/input.txt",
+    "verification": "Before using any text, require exactly 1115394 raw bytes AND git blob SHA1 of b'blob '+ascii(len(raw))+b'\\0'+raw = 7dcb...; abort on fetch/hash drift. Input is preexisting PUBLIC heavily studied English Shakespeare, NOT independent blinded first-use; no API payment.",
+    "copyright": "Only model outputs/aggregate numeric evidence and tiny snippets if essential; do not commit source text or large verbatim excerpts."
+  },
+  "task": {
+    "type": "two-word gap reconstruction in continuous authentic text",
+    "tokenizer": "lowercase ASCII regex [a-z]+(?:'[a-z]+)? applied independently per original physical line, no cross-line context",
+    "source_rows": "Take lines with 9-40 regex tokens. Choose exactly one interior gap per eligible line: gap index 3+ (int.from_bytes(SHA256(UTF8(namespace+':'+ascii physical line index))[:8],'big')%(len(tokens)-6)), produce 3 preceding word tokens, 2 gold missing tokens, 3 following. Source identity is line index only, not speaker label.",
+    "split": "Assign candidate physical lines chronologically by physical-line ordinal, not random episode-by-episode: first 70% physical lines TRAIN, next 15% SELECT, final 15% DEV. Then select earliest valid candidates per slice: 1200 TRAIN, 300 SELECT, 300 DEV. If insufficient eligible rows, fail closed; do not retune quotas after inspection. No text from DEV is used to train/select or build vocabulary.",
+    "roles": [
+      "L4_REAL_TRAIN",
+      "L4_REAL_SELECT",
+      "L4_REAL_DEV"
+    ],
+    "counts": {
+      "L4_REAL_TRAIN": 1200,
+      "L4_REAL_SELECT": 300,
+      "L4_REAL_DEV": 300
+    },
+    "new_role_identity": "Each role SHA256 canonical JSON of public prefix-left, suffix-right, exact 2-word gold, physical line ordinal for custody only; line index is NEVER predictor input.",
+    "output": "Predict exactly two missing word tokens given same three left and three right words; evaluate DEV per word accuracy, 2-word exact match, OOV coverage and real text context failure. No autonomous semantic reasoning or coding competency tested."
+  },
+  "models": {
+    "P_SLOT_INDEPENDENT": "Two independently trained smoothed categorical heads per position conditioned on left last word and right first word; frozen hierarchical backoff and same 1200 FIT rows.",
+    "SEQ_CONDITIONAL": "Autoregressive smoothed two-word conditional model trained on same 1200 rows with second slot conditioned on first generated, plus left and right context. Fit counts; greedy sequential decoding. Learned conventional word n-gram baseline, not a neural LM.",
+    "JOINT_SPAN_COUNT": "Fit joint two-word span as one learned categorical object conditional on full left/right boundary tokens, with deterministic backoff.",
+    "P_WITH_SELECT_REPAIR": "Reuse trained P_SLOT_INDEPENDENT and SEQ_CONDITIONAL, repair second predicted word only if sequential log-score margin > frozen selected threshold. Threshold chosen solely SELECT among [0,0.5,1.0] nats. Include both model checkpoints and fit+selection cost.",
+    "FIT_PRIOR": "Fitted global top word per position, zero context, chance-frequency control."
+  },
+  "train": {
+    "smoothing": 0.5,
+    "feature_hierarchy": "First lookup (left[-1],right[0]); if unseen use left[-1]; else right[0]; else global frequency; no DEV threshold tuning.",
+    "select_repair_margin": [
+      0,
+      0.5,
+      1
+    ],
+    "selection": "Only SELECT may choose repair margin; all other model/backoff decisions fixed beforehand; no DEV model selection or fits.",
+    "cpu_no_paid_api": true,
+    "model_storage": "Count all vocab/context tables serialized in deterministic canonical JSON; checkpoint bytes are compressed? NO use raw canonical only."
+  },
+  "evaluation": {
+    "primary": "Exact two-word gap match on frozen chronologically held DEV; both token positions individually; OOV counts; per-example output hashes; no examples emitted verbatim.",
+    "cost": "Full fit/SELECT CPU and inference CPU+wall per example, peak RSS/tracemalloc, checkpoint bytes, training/selection source bytes, candidate evaluation lookup count proxy, conceptual sequential dependency stages, known no actual parallel hardware. FLOPs and energy NOT_MEASURED.",
+    "cross_os": "All three role SHA256 exact and all five model DEV aggregate metrics and output SHA256 text-exact, after native hosted Win/Linux runs, with independent fail-closed reconciliation.",
+    "no_claims": "This is a PUBLIC real corpus with familiar Shakespeare, not independently sourced blind assessment. No learned recurrent/state-space/transformer capacity-matched neural controls this gate; interpret comparisons as diagnostic only. No scientific/Pareto GO.",
+    "negative_control": "Preserve unknown-vocab, zero exact score and unsuccessful repair outcomes."
+  },
+  "source_only_files": "All L4 research files + one hosted workflow additive on protected main; no changes to active work or queue; leave PR draft/unmerged."
+}
