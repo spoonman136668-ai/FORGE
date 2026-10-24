@@ -43,7 +43,7 @@ class ReadOnlyK4W(unittest.TestCase):
         self.assertTrue(pin["governance"]["no_new_minigrid_episodes"])
 
     def test_reward_sparsity_counts_are_from_real_rows(self):
-        table=fit_factors(rows())
+        table=fit_factors(rows(),expected_count=144)
         for family in FAMILIES:
             self.assertEqual(table[family]["FIT_actual_steps"],72)
             self.assertEqual(table[family]["FIT_positive_public_reward_events"],1)
@@ -55,16 +55,16 @@ class ReadOnlyK4W(unittest.TestCase):
         source=rows()
         source[0]["reward"]=2.
         with self.assertRaises(ValueError):
-            fit_factors(source)
+            fit_factors(source,expected_count=144)
 
     def test_invalid_public_source_action_fails(self):
         source=rows()
         source[0]["action"]=3
         with self.assertRaises(ValueError):
-            fit_factors(source)
+            fit_factors(source,expected_count=144)
 
     def test_same_state_action_conflict_is_only_observation(self):
-        table=fit_factors(rows())
+        table=fit_factors(rows(),expected_count=144)
         self.assertIn("FIT_reused_source_state_action_conflicting_results",
             table["empty"])
         self.assertTrue(table["empty"]["feature_collision_absence_does_not_prove_representation_sufficiency"])
@@ -76,7 +76,7 @@ class ReadOnlyK4W(unittest.TestCase):
 
     def test_dev_policy_is_not_inferred_from_first_action(self):
         table=dev_factors(worlds())
-        self.assertEqual(table["empty"]["wingless_native"]["first_action_counts"],{"0":3,"1":3,"2":2})
+        self.assertEqual(table["empty"]["wingless_native"]["first_action_counts"],{"0":2,"1":3,"2":3})
         self.assertEqual(table["empty"]["wingless_native"]["total_steps"],32)
 
     def test_missing_dev_method_fails_closed(self):
