@@ -1,0 +1,39 @@
+name: F139 G2 original controller log read-only diagnosis
+on:
+  push:
+    branches: [operations/f139-g2-original-owner-cutover-20261024]
+    paths: [.github/workflows/f139-g2-controller-log-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  log-custody:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Inspect original controller log tail and task result without executing controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_G2_ORIGINAL_LOG_RUNNER_DRIFT'
+          }
+          $name='FORGE-F139-UnifiedController'
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+          Write-Output ('F139_G2_CURRENT_TASK_STATE='+[string]$t.State)
+          Write-Output ('F139_G2_CURRENT_LAST_RESULT='+[string]$info.LastTaskResult)
+          $m=[regex]::Match([string]$t.Actions[0].Arguments,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'F139_G2_DB_PATH_NOT_FOUND'}
+          $log=Join-Path ([IO.Path]::GetDirectoryName($m.Groups[1].Value)) 'logs/controller.log'
+          if(!(Test-Path -LiteralPath $log -PathType Leaf)){throw 'F139_G2_CONTROLLER_LOG_NOT_FOUND'}
+          $rows=@(Get-Content -LiteralPath $log -Tail 150 -ErrorAction Stop)
+          foreach($line in $rows) {
+            $raw=[string]$line
+            if($raw -match 'F139_|Traceback|Exception|Error|Denied|RuntimeError|ValueError|AssertionError|File "' -and $raw.Length -lt 3000){
+              # Exclude any secrets, tokens, HTTP arguments, large payloads.
+              if($raw -match 'HMAC_KEY|Authorization:|token=|secret=|ghp_|github_pat_' -and
+                 $raw -notmatch 'F139_SECRET_TOO_SHORT'){continue}
+              $clean=($raw -replace '[\r\n]+',' ')
+              Write-Output ('F139_G2_CONTROLLER_LOG='+$clean.Substring(0,[Math]::Min(450,$clean.Length)))
+            }
+          }
