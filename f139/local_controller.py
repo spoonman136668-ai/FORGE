@@ -805,7 +805,7 @@ class Database:
                             "forge.f139.source-transition.v4",
                             "forge.f139.source-transition.v5")
                         and (verify_native_activation(self)
-                             or (events[-1]["schema"]==
+                             or (events[-1]["schema"] in
                                      ("forge.f139.source-transition.v4",
                                       "forge.f139.source-transition.v5")
                                  and self.conn.execute(
