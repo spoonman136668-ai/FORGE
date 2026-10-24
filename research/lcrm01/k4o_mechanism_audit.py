@@ -71,10 +71,10 @@ def model_pools(record,family):
 
 def trace(record):
     findings=[]
+    checks=[]
     for family in ("reaching","pushing"):
         pools=model_pools(record,family)
         dev=record["DEV_rows"]
-        checks=[]
         fit=record["FIT_rows"]
         for variant in range(14,22):
             source=[r for r in dev if r["family"]==family and r["variant"]==variant]
