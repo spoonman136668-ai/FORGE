@@ -3,7 +3,7 @@
 
 No corpus, model execution or scientific first use. The legacy V1-only
 l9_seal_select.py is not changed or called to relabel V2 as V1.
-Seed-1701 V2 receipt hash is intentionally NOT YET AUTHORIZED.
+Both V2 receipt hashes are now pinned from independently validated original artifacts.
 """
 from __future__ import annotations
 import argparse
@@ -25,7 +25,7 @@ GRU_RECEIPTS = {
     1702: "511ad147152fd7e45eab915da2bdd74d2872a50cc6b4a20fe4ab9c5b677bc1e6",
 }
 V2_RECEIPTS = {
-    1701: None,  # MUST pin original immutable artifact/receipt after completion
+    1701: "d17ffdf04aa8c38a77d23baab2d68219183a599ace8e920aab0cf0f89e83d539",  # authenticated archive 12552199545
     1702: "e7da6758df045fbbfdff4b4b024fafcc886bd5a6c309f9d4b35a85cf163f9c3f",
 }
 EXPECTED_FIT = {
