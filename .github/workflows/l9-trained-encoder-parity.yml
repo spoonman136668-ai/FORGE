@@ -78,7 +78,21 @@ jobs:
               "Accept":"application/vnd.github+json",
               "X-GitHub-Api-Version":"2022-11-28",
               "User-Agent":"L9-Frozen-TRAIN-Identity-Only"})
-          zip_data=urllib.request.urlopen(req,timeout=120).read()
+          # The GitHub artifact endpoint redirects to separately signed blob storage.
+          # Do NOT carry the GitHub bearer credential across origin on redirect.
+          class StripCrossOriginAuth(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, old, fp, code, msg, hdrs, newurl):
+                  import urllib.parse
+                  redirect=super().redirect_request(old,fp,code,msg,hdrs,newurl)
+                  assert redirect is not None
+                  before=urllib.parse.urlsplit(old.full_url)
+                  after=urllib.parse.urlsplit(newurl)
+                  assert after.scheme=='https', 'INSECURE_ARTIFACT_REDIRECT'
+                  if (before.scheme,before.netloc)!=(after.scheme,after.netloc):
+                      redirect.remove_header('Authorization')
+                  return redirect
+          opener=urllib.request.build_opener(StripCrossOriginAuth())
+          zip_data=opener.open(req,timeout=120).read()
           assert hashlib.sha256(zip_data).hexdigest()==row['zip_sha256'],"TRAIN_ARCHIVE_SHA_DRIFT"
           ckpt=root/'frozen-train';ckpt.mkdir(exist_ok=False)
           expected={"receipt.json"}|{f"SMALL_TRANSFORMER-seed{seed}-epoch{e}-inference.pt" for e in p.EPOCHS}
