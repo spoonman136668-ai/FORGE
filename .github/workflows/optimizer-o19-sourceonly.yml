@@ -1,0 +1,35 @@
+name: Optimizer O19-S0 timestamp capacity source-only
+
+on:
+  pull_request:
+    paths:
+      - "research/optimizer_o19_s0/**"
+      - ".github/workflows/optimizer-o19-sourceonly.yml"
+  push:
+    branches: ["research/optimizer-o19-capacity-20261024"]
+    paths:
+      - "research/optimizer_o19_s0/**"
+      - ".github/workflows/optimizer-o19-sourceonly.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  original-free-capacity:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Seven deterministic capacity proofs, no POPGym source
+        run: python -B -m unittest discover -s research/optimizer_o19_s0 -p "test_*.py" -v
+      - name: Reproduce O19 source-only analytic receipt
+        run: python -B research/optimizer_o19_s0/o19_capacity.py
