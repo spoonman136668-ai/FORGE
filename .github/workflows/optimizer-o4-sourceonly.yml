@@ -1,0 +1,98 @@
+name: Optimizer O4 public latent-vs-optimization qualification
+
+on:
+  push:
+    branches: [research/optimizer-o4-training-vs-latent-20261023]
+    paths:
+      - '.github/workflows/optimizer-o4-sourceonly.yml'
+      - 'research/optimizer_o4/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optimizer-o4-sourceonly
+  cancel-in-progress: false
+
+jobs:
+  public-native-qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Exact immutable parent and six-path bounded O4 source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'fd8474235d2197533189f35b002f5602268a497b'
+          $ancestor = (& git merge-base $base HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ancestor -cne $base) {
+            throw 'O4_PARENT_IDENTITY_DRIFT'
+          }
+          $expected = @(
+            '.github/workflows/optimizer-o4-sourceonly.yml',
+            'research/optimizer_o4/O4_FROZEN_PROTOCOL.json',
+            'research/optimizer_o4/public_source.py',
+            'research/optimizer_o4/models.py',
+            'research/optimizer_o4/runner.py',
+            'research/optimizer_o4/test_models.py'
+          )
+          $actual = @(& git diff --name-only $base HEAD)
+          if ($LASTEXITCODE -ne 0 -or $actual.Count -ne $expected.Count -or
+              (Compare-Object $actual $expected)) { throw 'O4_SOURCE_SCOPE_DRIFT' }
+          $path = 'research/optimizer_o4/O4_FROZEN_PROTOCOL.json'
+          $expectedBlob = 'd24390a8549f65c92c6b3aa5a35a2068013368c4'
+          $repoBlob = (& git rev-parse ('HEAD:' + $path)).Trim()
+          $diskBlob = (& git hash-object --no-filters -- $path).Trim()
+          if ($repoBlob -cne $expectedBlob -or $diskBlob -cne $expectedBlob) {
+            throw 'O4_PREREG_IDENTITY_DRIFT'
+          }
+          Write-Host 'O4_FROZEN_PARENT_AND_PREREG=PASS'
+      - name: Public-only fitted native learning and source guard tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B -m unittest discover -s research/optimizer_o4 -p 'test_*.py' -v
+          if ($LASTEXITCODE -ne 0) { throw 'O4_SOURCE_TEST_FAILURE' }
+          Write-Host 'O4_PUBLIC_FOCUSED_TESTS=PASS'
+      - name: Execute public development source only, preserve all negatives
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B research/optimizer_o4/runner.py
+          if ($LASTEXITCODE -ne 0) { throw 'O4_PUBLIC_DEV_FAILURE' }
+          Write-Host 'O4_FIT_SELECT_DEV_REPORT=COMPLETE'
+          Write-Host 'O4_PROTECTED_FIRST_USE=NONE'
+          Write-Host 'O4_SCIENTIFIC_GO=NOT_EVALUATED'
+      - name: One final Go regression vet and build
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -count=1 ./...
+          go vet ./...
+          go build ./...
+          echo O4_COMPLETE_GO_REGRESSION=PASS
+      - name: Worktree clean and no orchestration side effects
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dirty = @(& git status --porcelain --untracked-files=all)
+          if ($dirty.Count -ne 0) { throw 'O4_DIRTY_WORKTREE' }
+          Write-Host 'O4_NO_RUNTIME_DISPATCH=PASS'
