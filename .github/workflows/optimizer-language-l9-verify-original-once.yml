@@ -1,0 +1,109 @@
+name: L9 independently verify original protected numeric receipt (NO repeat audit)
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-verify-original-once.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-numeric-artifact-verification-only-20261024
+  cancel-in-progress: false
+jobs:
+  independent-frozen-evidence-only:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify this is independent evidence-only code, not an audit rerun
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '8efa472c986d0e71592af853a54bda3262d2abdd'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-verify-original-once.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/l9_independent_numeric_evidence.py)" = 'ff1abba6f2aee60e04a1af5f61365855145c7139'
+          test "$(git rev-parse HEAD:$p/test_l9_independent_numeric_evidence.py)" = '4bebb187facf073f3eec7830b451634ac7ffbc48'
+          test "$(git rev-parse HEAD:$p/l9_first_use_one_shot.py)" = '4df23fd86435bba094909dd90a17bda8575d8ba8'
+          test "$(git rev-parse HEAD:$p/l9_first_use_scoring_core.py)" = '484172758201699fe3ef5481cda03b9ea8e6d0ab'
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          python -m py_compile "$p/l9_independent_numeric_evidence.py" "$p/test_l9_independent_numeric_evidence.py"
+          (cd "$p" && python -m unittest -v test_l9_independent_numeric_evidence.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_INDEPENDENT_VERIFIER_ADVERSARIAL_QUALIFICATION=PASS
+      - name: Authenticate unique existing successful first-use run and exact original ZIP SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" <<'PY'
+          import hashlib,io,json,os,pathlib,urllib.request,sys,zipfile
+          repo="spoonman136668-ai/FORGE"
+          headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
+                   "Accept":"application/vnd.github+json"}
+          def get(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=60) as res:
+                  return res.read()
+          rawrun=get("https://api.github.com/repos/"+repo+"/actions/runs/40080833666")
+          run=json.loads(rawrun)
+          assert run["id"]==40080833666
+          assert run["head_sha"]=="d15ce497843244894642735ee218a185bb87c1e4"
+          assert run["status"]=="completed" and run["conclusion"]=="success"
+          assert run["run_attempt"]==1
+          listed=json.loads(get("https://api.github.com/repos/"+repo+"/actions/runs/40080833666/artifacts"))
+          assert listed["total_count"]==1 and len(listed["artifacts"])==1
+          artifact=listed["artifacts"][0]
+          assert artifact["id"]==12555842242
+          assert artifact["name"]=="l9-protected-firstuse-numeric-sealed-once"
+          assert not artifact["expired"]
+          rawzip=get("https://api.github.com/repos/"+repo+"/actions/artifacts/12555842242/zip")
+          assert hashlib.sha256(rawzip).hexdigest()=="ab1e912d9af2b94bfff6df846df9f91bb8bc88103c2346fb592ed099de610c4a","original artifact ZIP SHA drift"
+          with zipfile.ZipFile(io.BytesIO(rawzip)) as z:
+              assert z.namelist()==["l9-first-and-only-unfamiliar-numeric.json"]
+              raw=z.read("l9-first-and-only-unfamiliar-numeric.json")
+          assert hashlib.sha256(raw).hexdigest()=="027ad434e7f760fab0538dfd95c85cbf3f0b609e915e3d1546066eec538b86fd","original numeric receipt SHA drift"
+          dst=pathlib.Path(sys.argv[1])/"l9-original-audit-numeric.json"
+          dst.write_bytes(raw)
+          print("L9_SINGLE_FIRST_USE_PROVENANCE_AND_RECEIPT_SHA256=PASS")
+          print("L9_ORIGINAL_NUMERIC_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+      - name: Independently verify original numerical evidence only, no WebNLG, no models
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/optimizer_language_l9/l9_independent_numeric_evidence.py \
+            --original-numeric-receipt "$RUNNER_TEMP/l9-original-audit-numeric.json" \
+            --output "$RUNNER_TEMP/l9-independent-numeric-evidence.json"
+          python - "$RUNNER_TEMP/l9-independent-numeric-evidence.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          raw=pathlib.Path(sys.argv[1]).read_bytes()
+          d=json.loads(raw)
+          assert d["schema"]=="forge.optimizer.language.l9.independent-numeric-evidence-verification-v1"
+          assert d["status"]=="VERIFIED_NUMERIC_RECEIPT_NOT_INDEPENDENT_SEMANTIC_VALIDATION"
+          assert d["arm_count"]==7 and d["heldout_examples"]==319 and d["heldout_categories"]==3
+          assert d["category_example_counts"]==[31,153,135]
+          assert d["input_original_numeric_sha256"]=="027ad434e7f760fab0538dfd95c85cbf3f0b609e915e3d1546066eec538b86fd"
+          assert d["scientific_go"] is False and d["no_new_audit_read"] is True
+          assert d["candidate_vs_retrieval_macro_proxy_direction"]=="CANDIDATE_PROXY_GREATER"
+          print("L9_ORIGINAL_NUMERIC_INDEPENDENTLY_VALIDATED=PASS")
+          print("L9_INDEPENDENT_NUMERIC_SHA256="+hashlib.sha256(raw).hexdigest())
+          PY
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+      - name: Archive numerical verification only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l9-original-audit-independent-numeric-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l9-independent-numeric-evidence.json'
+          if-no-files-found: error
+          retention-days: 90
