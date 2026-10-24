@@ -138,6 +138,14 @@ class AdvisoryHandoffTests(unittest.TestCase):
         self.deny(lambda a: a["decision"]["selected"][0].update(
             expected_information_microbits=0))
 
+    def test_array_classification_rejects_only_bad_pr(self):
+        self.deny(lambda a: a["decision"]["history_preserved"][0].update(
+            classification=["NEGATIVE"]))
+
+    def test_object_generator_rejects_only_bad_pr(self):
+        self.deny(lambda a: a["decision"]["selected"][0].update(
+            generator={"type": "dream_rsi"}))
+
     def test_generator_must_be_supported(self):
         self.deny(lambda a: a["decision"]["selected"][0].update(
             generator="paid-api-model"))
