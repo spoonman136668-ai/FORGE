@@ -1,0 +1,73 @@
+name: F139 G3 authentic original-source preflight (read-only)
+on:
+  push:
+    branches: [audit/f139-g3-authentic-original-20261024]
+    paths: [.github/workflows/f139-g3-authentic-original-readonly-20261024.yml]
+permissions:
+  contents: read
+jobs:
+  original-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate exact original Git tree and source bytes before G3
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B - <<'PY'
+          import ast,base64,hashlib,json,subprocess
+          from f139.nci04_candidate_producer import candidate_mechanism_identity
+          from f139.nci04_candidate_producer_g3 import produce_g3, mechanism_identity
+          repo="spoonman136668-ai/Yggdrasil"
+          parent="992ef142aaa551156749a1de484a971b9a0c092f"
+          path="yggdrasil/public_causal_cells.py"
+          def api(route):
+              p=subprocess.run(["gh","api",route],capture_output=True,check=True,timeout=25)
+              return json.loads(p.stdout)
+          commit=api("repos/"+repo+"/git/commits/"+parent)
+          assert commit["sha"]==parent and len(commit["tree"]["sha"])==40
+          original=api("repos/"+repo+"/contents/"+path+"?ref="+parent)
+          assert original["type"]=="file" and original["encoding"]=="base64"
+          source=base64.b64decode(original["content"].replace("\n",""),validate=True)
+          assert original["size"]==len(source) and 100<=len(source)<=32768
+          def blob(raw):
+              return hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\0"+raw).hexdigest()
+          assert blob(source)==original["sha"]
+          tree=api("repos/"+repo+"/git/trees/"+commit["tree"]["sha"]+"?recursive=1")
+          assert tree["truncated"] is False
+          paths=[x for x in tree["tree"] if x["path"]==path]
+          assert len(paths)==1 and paths[0]["sha"]==original["sha"]
+          ast.parse(source.decode("utf-8"))
+          # G1 is a known attempted negative and must remain consumed.
+          consumed={candidate_mechanism_identity()}
+          mechanism=mechanism_identity()
+          assert mechanism not in consumed
+          evidence=hashlib.sha256((parent+":"+original["sha"]).encode()).hexdigest()
+          result=produce_g3(
+              lane="Yggdrasil", path=path, parent_commit=parent,
+              original=source, original_sha256=hashlib.sha256(source).hexdigest(),
+              history_sha256=evidence, consumed_mechanisms=consumed,
+              consumed_candidates=set(), scientific_first_use=False)
+          after=result["source"]
+          assert blob(after)!=blob(source) and result["record"]["mechanism_sha256"]==mechanism
+          assert result["record"]["scientific_first_use"] is False
+          assert result["record"]["publish_authorized"] is False
+          assert result["record"]["dispatch_authorized"] is False
+          assert source.count(b"        if not trials0 or not trials1:\n")==1
+          assert b"        if trials0 < 3 or trials1 < 3:\n" in after
+          print("F139_G3_AUTHENTIC_PARENT="+parent)
+          print("F139_G3_AUTHENTIC_TREE="+commit["tree"]["sha"])
+          print("F139_G3_AUTHENTIC_BEFORE_BLOB="+original["sha"])
+          print("F139_G3_GENERATED_AFTER_BLOB="+blob(after))
+          print("F139_G3_GENERATED_AFTER_SHA256="+hashlib.sha256(after).hexdigest())
+          print("F139_G3_G1_NEGATIVE_IDENTITY_DISTINCT=PASS")
+          print("F139_G3_ORIGINAL_SOURCE_GENERATION=PASS")
+          print("F139_G3_ORIGINAL_OWNER_HISTORICAL_DEDUP=NOT_YET_VERIFIED")
+          print("F139_G3_G2_PUBLISHING=DENIED")
+          print("F139_G3_SCIENTIFIC_FIRST_USE=FALSE")
+          PY
