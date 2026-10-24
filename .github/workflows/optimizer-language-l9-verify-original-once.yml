@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = '8efa472c986d0e71592af853a54bda3262d2abdd'
+          test "$(git rev-parse HEAD^)" = '7ecc7b68fd89b34c6173641204236e0b0c5e2d1c'
           test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-verify-original-once.yml'
           p=research/optimizer_language_l9
           test "$(git rev-parse HEAD:$p/l9_independent_numeric_evidence.py)" = 'ff1abba6f2aee60e04a1af5f61365855145c7139'
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           python - "$RUNNER_TEMP" <<'PY'
-          import hashlib,io,json,os,pathlib,urllib.request,sys,zipfile
+          import hashlib,io,json,os,pathlib,subprocess,urllib.request,sys,zipfile
           repo="spoonman136668-ai/FORGE"
           headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],
                    "Accept":"application/vnd.github+json"}
@@ -66,7 +66,15 @@ jobs:
           assert artifact["id"]==12555842242
           assert artifact["name"]=="l9-protected-firstuse-numeric-sealed-once"
           assert not artifact["expired"]
-          rawzip=get("https://api.github.com/repos/"+repo+"/actions/artifacts/12555842242/zip")
+          # Redirected artifact archives require curl's authenticated redirect
+          # handling; urllib on GitHub-hosted runners returns Azure 401.
+          zipfile_path=pathlib.Path(sys.argv[1])/"l9-verified-original.zip"
+          subprocess.run(["curl","-fLsS","--retry","3",
+                  "-H","Authorization: Bearer "+os.environ["GH_TOKEN"],
+                  "-H","Accept: application/vnd.github+json",
+                  "https://api.github.com/repos/"+repo+"/actions/artifacts/12555842242/zip",
+                  "-o",str(zipfile_path)],check=True,stdout=subprocess.DEVNULL)
+          rawzip=zipfile_path.read_bytes()
           assert hashlib.sha256(rawzip).hexdigest()=="ab1e912d9af2b94bfff6df846df9f91bb8bc88103c2346fb592ed099de610c4a","original artifact ZIP SHA drift"
           with zipfile.ZipFile(io.BytesIO(rawzip)) as z:
               assert z.namelist()==["l9-first-and-only-unfamiliar-numeric.json"]
