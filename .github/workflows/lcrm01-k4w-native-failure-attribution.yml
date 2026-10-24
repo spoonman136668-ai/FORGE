@@ -1,0 +1,77 @@
+name: Mass K4W read-only K4U native failure attribution
+on:
+  push:
+    branches: [research/mass-lcrm01-k4w-native-failure-attribution-20261024]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  exact-original-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate frozen preregistration and original parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse '0cc145b9048bfe26170a22dd358db89111ef7275^')" = '51b3a936e74a3132c40252f97af1c1b084d62703'
+          git merge-base --is-ancestor 0cc145b9048bfe26170a22dd358db89111ef7275 HEAD
+          test "$(git hash-object research/lcrm01/k4w_frozen_failure_attribution.json)" = '9a37039e2a9db8bf269b78fcc9cf1642e3c6978c'
+          test "$(git hash-object research/lcrm01/k4u_frozen_native_minigrid.json)" = 'dd3b6a746e0ed5e5804832288b8310647f9c5f62'
+          echo 'K4W_PINNED_ORIGINAL_PROTOCOL=PASS'
+      - name: Adversarial source-only limits and missing-trace test
+        shell: bash
+        run: PYTHONPATH=research/lcrm01 python -B -m unittest discover -s research/lcrm01 -p 'test_k4w_sourceonly.py' -v
+      - name: Retrieve existing original K4U artifact with read-only credentials
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4w"
+          curl --fail --location --silent --show-error --retry 2 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            'https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12563001215/zip' \
+            -o "$RUNNER_TEMP/k4w/original-k4u.zip"
+          printf 'c3ab85da20f559a1fa6cd43fa9151f2c1f921a03096d5112ace090a6f976e65f  %s\n' "$RUNNER_TEMP/k4w/original-k4u.zip" | sha256sum -c -
+      - name: Derive original FIT/DEV facts, never simulate or retrain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/lcrm01/k4w_native_failure_attribution.py \
+            --artifact-zip "$RUNNER_TEMP/k4w/original-k4u.zip" \
+            --output "$RUNNER_TEMP/k4w/source-only-diagnosis.json" | tee "$RUNNER_TEMP/k4w/source-only-diagnosis.log"
+          python -B - <<'PY'
+          import json,os
+          from pathlib import Path
+          obj=json.loads((Path(os.environ["RUNNER_TEMP"])/"k4w/source-only-diagnosis.json").read_text())
+          assert obj["result"]=="RETROSPECTIVE_FAILURE_FACTORS_IDENTIFIED_WITH_CAUSAL_LIMITS"
+          assert obj["FIT_real_experiences"]==6114
+          assert obj["FIT_positive_environment_reward_events"]==11
+          assert obj["two_original_processes_agree"] is True
+          assert obj["K4U_scientific_NO_GO_preserved"] is True
+          assert obj["native_cognition_breakthrough"] is False
+          assert obj["new_MINIGRID_episodes"]==0
+          assert obj["scientific_first_use"] is False
+          assert obj["scientific_accepted"] is False
+          assert all(v is None for v in obj["not_causally_identified"].values())
+          print("K4W_SCIENTIFIC_NO_GO_UNCHANGED=PASS")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mass-k4w-retrospective-K4U-source-failure-factors
+          path: |
+            ${{ runner.temp }}/k4w/source-only-diagnosis.json
+            ${{ runner.temp }}/k4w/source-only-diagnosis.log
+          if-no-files-found: warn
+          retention-days: 90
