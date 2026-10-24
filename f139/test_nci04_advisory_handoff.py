@@ -102,7 +102,7 @@ class AdvisoryHandoffTests(unittest.TestCase):
 
     def test_history_digest_uses_exact_go_domain_bytes(self):
         self.assertEqual(history_digest([]), hashlib.sha256(
-            b"FORGE-INFOGAIN-HISTORY-V1\\n[]").hexdigest())
+            b"FORGE-INFOGAIN-HISTORY-V1\n[]").hexdigest())
 
     def test_unknown_advisory_schema_fails_closed(self):
         self.deny(lambda a: a.update(schema="forge.f139.advisory-pr-handoff.v2"))
