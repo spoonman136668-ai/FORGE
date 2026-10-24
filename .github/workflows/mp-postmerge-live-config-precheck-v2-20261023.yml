@@ -1,0 +1,164 @@
+name: MP postmerge live config compatibility precheck
+on:
+  push:
+    branches: [diagnostics/mp-postmerge-live-config-precheck-v2-20261023]
+    paths: [.github/workflows/mp-postmerge-live-config-precheck-v2-20261023.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-postmerge-live-config-precheck-v2-20261023
+  cancel-in-progress: false
+jobs:
+  precheck:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Build merged source and initialize against live config plus snapshot DB only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_POSTMERGE_COMPAT_'+$c)}}
+          function Hash([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE') 'REPO'
+          Need ($env:GITHUB_REF -ceq 'refs/heads/diagnostics/mp-postmerge-live-config-precheck-v2-20261023') 'BRANCH'
+          Need ($env:RUNNER_OS -ceq 'Windows' -and $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          $parent='995cd823f302ed079c90c602f44d5f4ed104c7da'
+          Need ((& git.exe rev-parse 'HEAD^').Trim() -ceq $parent) 'PARENT'
+          $changed=@(& git.exe diff --name-only $parent HEAD)
+          Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 1 -and $changed[0] -ceq '.github/workflows/mp-postmerge-live-config-precheck-v2-20261023.yml') 'SCOPE'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $ckbRepo='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $merged='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $remote=@(& git.exe ls-remote --exit-code $ckbRepo 'refs/heads/main')
+          Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and ([string]($remote[0]-split '\s+')[0]) -ceq $merged) 'MAIN_DRIFT'
+          Write-Host ('MP_POSTMERGE_COMPAT_MAIN='+$merged)
+
+          $liveRoot='C:\Users\camar\GolandProjects\ckb-plane'
+          $liveConfig=Join-Path $liveRoot 'config\autonomy.yaml'
+          $liveExe=Join-Path $liveRoot 'bin\ckb-plane.exe'
+          Need (Test-Path -LiteralPath $liveConfig -PathType Leaf) 'LIVE_CONFIG'
+          Need (Test-Path -LiteralPath $liveExe -PathType Leaf) 'LIVE_EXE'
+          $protected=@($liveConfig,$liveExe)
+          foreach($p in @(
+            (Join-Path $liveRoot 'config\local-operations.json'),
+            (Join-Path $liveRoot 'internal\plane\model.go'),
+            (Join-Path $liveRoot 'internal\plane\status_projection.go'),
+            (Join-Path $liveRoot 'scripts\Start-CKBPlane.ps1')
+          )){if(Test-Path -LiteralPath $p -PathType Leaf){$protected += $p}}
+          $before=@{}
+          foreach($p in $protected){$before[$p]=Hash $p}
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Need ($procs.Count -eq 1) 'CONTROLLER_SINGLETON'
+          $controllerPid=[int]$procs[0].ProcessId
+
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-postmerge-compat-'+$env:GITHUB_RUN_ID)
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $clone=Join-Path $scratch 'ckb'
+          $snap=Join-Path $scratch 'live-snapshot.db'
+          $configCopy=Join-Path $scratch 'autonomy.yaml'
+          Copy-Item -LiteralPath $liveConfig -Destination $configCopy -Force
+          $liveConfigHash=Hash $liveConfig
+          Write-Host ('MP_POSTMERGE_COMPAT_LIVE_CONFIG_SHA256='+$liveConfigHash)
+          $py=@'
+          import pathlib,re,sqlite3,sys,urllib.parse
+          root=pathlib.Path(sys.argv[1]).resolve()
+          cfg=pathlib.Path(sys.argv[2]).resolve()
+          out=pathlib.Path(sys.argv[3]).resolve()
+          text=cfg.read_text(encoding="utf-8-sig")
+          state_indent=None; db_name=None
+          for line in text.splitlines():
+              indent=len(line)-len(line.lstrip(" "))
+              if re.fullmatch(r"\s*state:\s*(?:#.*)?",line):
+                  state_indent=indent; continue
+              if state_indent is None: continue
+              if line.strip() and not line.lstrip().startswith("#") and indent<=state_indent:
+                  state_indent=None; continue
+              m=re.fullmatch(r"\s*sqlite_path:\s*(.+?)\s*(?:#.*)?",line)
+              if m:
+                  db_name=m.group(1).strip().strip("\"'"); break
+          if db_name is None: raise RuntimeError("MP_POSTMERGE_COMPAT_DB_LOCATOR")
+          p=pathlib.Path(db_name)
+          live=(p if p.is_absolute() else root/p).resolve()
+          if not live.is_relative_to(root) or not live.is_file(): raise RuntimeError("MP_POSTMERGE_COMPAT_DB_SCOPE")
+          uri="file:"+urllib.parse.quote(str(live).replace("\\","/"),safe="/:")+"?mode=ro"
+          with sqlite3.connect(uri,uri=True,timeout=5.0) as src:
+              src.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(str(out)) as dst: src.backup(dst)
+          with sqlite3.connect(str(out)) as db:
+              if db.execute("PRAGMA integrity_check").fetchone()[0]!="ok":
+                  raise RuntimeError("MP_POSTMERGE_COMPAT_SNAPSHOT_INTEGRITY")
+          print("MP_POSTMERGE_COMPAT_SNAPSHOT_INTEGRITY=PASS")
+          '@
+          try {
+            & python.exe -B -c $py $liveRoot $liveConfig $snap
+            Need ($LASTEXITCODE -eq 0) 'SNAPSHOT'
+            & git.exe clone --quiet --filter=blob:none --no-checkout $ckbRepo $clone
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            & git.exe -C $clone checkout --quiet --detach $merged
+            Need ($LASTEXITCODE -eq 0 -and ((& git.exe -C $clone rev-parse HEAD).Trim() -ceq $merged)) 'CHECKOUT'
+            $source=Join-Path $clone 'snapshot\source'
+            Need (Test-Path -LiteralPath (Join-Path $source 'go.mod') -PathType Leaf) 'GOMOD'
+
+            $testPath=Join-Path $source 'internal\plane\mp_postmerge_live_compat_test.go'
+            @'
+package plane
+
+import (
+  "os"
+  "testing"
+)
+
+func TestMPPostmergeLiveCompatibility(t *testing.T) {
+  cfgPath := os.Getenv("MP_LIVE_CONFIG_COPY")
+  liveRoot := os.Getenv("MP_LIVE_ROOT")
+  snap := os.Getenv("MP_LIVE_DB_SNAPSHOT")
+  if cfgPath == "" || liveRoot == "" || snap == "" { t.Fatal("missing compatibility environment") }
+  c, err := LoadConfig(cfgPath)
+  if err != nil { t.Fatalf("LIVE_CONFIG_PARSE_FAILED: %v", err) }
+  c.State.SQLitePath = snap
+  p, err := NewEngine(c, liveRoot)
+  if err != nil { t.Fatalf("LIVE_ENGINE_INIT_FAILED: %v", err) }
+  defer p.Store.DB.Close()
+  if p.Store == nil || p.Store.DB == nil { t.Fatal("LIVE_ENGINE_INIT_STORE_MISSING") }
+}
+'@ | Set-Content -LiteralPath $testPath -Encoding utf8
+
+            Push-Location $source
+            try {
+              $env:MP_LIVE_CONFIG_COPY=$configCopy
+              $env:MP_LIVE_ROOT=$liveRoot
+              $env:MP_LIVE_DB_SNAPSHOT=$snap
+              & go.exe test ./internal/plane -run '^TestMPPostmergeLiveCompatibility$' -count=1
+              Need ($LASTEXITCODE -eq 0) 'LIVE_INIT_TEST'
+              Write-Host 'MP_POSTMERGE_COMPAT_LIVE_CONFIG_PARSE=PASS'
+              Write-Host 'MP_POSTMERGE_COMPAT_ENGINE_INIT_ON_SNAPSHOT=PASS'
+              $built=Join-Path $scratch 'ckb-plane-merged-precheck.exe'
+              & go.exe build -trimpath -o $built ./cmd/ckb-plane
+              Need ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $built -PathType Leaf)) 'STOPPED_BUILD'
+              Write-Host ('MP_POSTMERGE_COMPAT_STOPPED_BUILD_SHA256='+(Hash $built))
+              Write-Host 'MP_POSTMERGE_COMPAT_SECOND_CONTROLLER_STARTS=0'
+            } finally {
+              Remove-Item Env:MP_LIVE_CONFIG_COPY,Env:MP_LIVE_ROOT,Env:MP_LIVE_DB_SNAPSHOT -ErrorAction SilentlyContinue
+              Pop-Location
+            }
+
+            $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            Need ($after.Count -eq 1 -and [int]$after[0].ProcessId -eq $controllerPid) 'CONTROLLER_POSTIMAGE'
+            foreach($p in $protected){Need ((Hash $p) -ceq $before[$p]) ('PROTECTED_POSTIMAGE_'+[IO.Path]::GetFileName($p))}
+            Write-Host 'MP_POSTMERGE_COMPAT_CONTROLLER_AND_PROTECTED_FILES_UNCHANGED=PASS'
+            Write-Host 'MP_POSTMERGE_COMPAT_LIVE_SQLITE_WRITES=0'
+            Write-Host 'MP_POSTMERGE_COMPAT_QUEUE_MUTATIONS=0'
+            Write-Host 'MP_POSTMERGE_COMPAT_CONTROLLER_COMMANDS=0'
+            Write-Host 'MP_POSTMERGE_COMPAT_PRODUCTION_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MP_POSTMERGE_COMPAT_SCRATCH_CLEAN=PASS'
+          }
