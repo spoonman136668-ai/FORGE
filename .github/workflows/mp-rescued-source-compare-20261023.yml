@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   compare:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -26,69 +26,79 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/rescue
       - name: Compare rescued installed source to merged CKB main
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          merged='ceee64384ebfd6b9e00108ae22488505a68c53d1'
-          root="$RUNNER_TEMP/ckb"
-          git clone --quiet --filter=blob:none --no-checkout https://github.com/spoonman136668-ai/ckb-plane.git "$root"
-          git -C "$root" checkout --quiet --detach "$merged"
-          test "$(git -C "$root" rev-parse HEAD)" = "$merged"
-          rescue="$RUNNER_TEMP/rescue"
-          source="$root/snapshot/source"
-          test -f "$rescue/RESCUE-MANIFEST.json"
-          python - "$rescue" "$source" "$RUNNER_TEMP/mp-source-diff.json" <<'PY'
-          import hashlib,json,pathlib,sys
-          rescue=pathlib.Path(sys.argv[1]); source=pathlib.Path(sys.argv[2]); out=pathlib.Path(sys.argv[3])
-          manifest=json.loads((rescue/"RESCUE-MANIFEST.json").read_text(encoding="utf-8-sig"))
-          def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
-          rows=[]
-          rescued=set()
-          counts={"IDENTICAL":0,"MODIFIED":0,"ADDED":0}
-          for row in manifest:
-              rel=row["path"].replace("\\","/")
-              rescued.add(rel)
-              rp=rescue/pathlib.PurePosixPath(rel)
-              sp=source/pathlib.PurePosixPath(rel)
-              assert rp.is_file()
-              rsha=sha(rp)
-              assert rsha==row["sha256"]
-              if not sp.is_file():
-                  status="ADDED"; msha=None
-              else:
-                  msha=sha(sp); status="IDENTICAL" if msha==rsha else "MODIFIED"
-              counts[status]+=1
-              rows.append({"path":rel,"status":status,"installed_sha256":rsha,"merged_sha256":msha,"bytes":rp.stat().st_size})
-          merged_scoped=[]
-          for base in (source/"internal"/"plane", source/"cmd"/"ckb-plane"):
-              if base.exists():
-                  merged_scoped.extend(p for p in base.rglob("*.go") if p.is_file())
-          for p in (source/"go.mod",source/"go.sum"):
-              if p.is_file(): merged_scoped.append(p)
-          missing=[]
-          for p in sorted(set(merged_scoped)):
-              rel=p.relative_to(source).as_posix()
-              if rel not in rescued:
-                  missing.append({"path":rel,"merged_sha256":sha(p),"bytes":p.stat().st_size})
-          result={
-              "schema":"mp.installed-go-source-vs-merged-main.v1",
-              "merged_commit":"ceee64384ebfd6b9e00108ae22488505a68c53d1",
-              "rescue_manifest_sha256":hashlib.sha256((rescue/"RESCUE-MANIFEST.json").read_bytes()).hexdigest(),
-              "counts":{**counts,"MISSING_FROM_INSTALLED_RESCUE":len(missing),"RESCUED_TOTAL":len(rows)},
-              "rows":sorted(rows,key=lambda x:x["path"]),
-              "missing_from_installed_rescue":missing,
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$c){if(-not $v){throw ('MP_COMPARE_'+$c)}}
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()}
+          $merged='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $root=Join-Path $env:RUNNER_TEMP 'ckb-compare'
+          if(Test-Path -LiteralPath $root){Remove-Item -LiteralPath $root -Recurse -Force}
+          & git.exe clone --quiet --filter=blob:none --no-checkout https://github.com/spoonman136668-ai/ckb-plane.git $root
+          Need ($LASTEXITCODE -eq 0) 'CLONE'
+          & git.exe -C $root checkout --quiet --detach $merged
+          Need ($LASTEXITCODE -eq 0 -and ((& git.exe -C $root rev-parse HEAD).Trim() -ceq $merged)) 'CHECKOUT'
+          $rescue=Join-Path $env:RUNNER_TEMP 'rescue'
+          $source=Join-Path $root 'snapshot\source'
+          $manifestPath=Join-Path $rescue 'RESCUE-MANIFEST.json'
+          Need (Test-Path -LiteralPath $manifestPath -PathType Leaf) 'MANIFEST'
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $rows=@()
+          $rescued=@{}
+          $identical=0;$modified=0;$added=0
+          foreach($row in @($manifest)){
+            $rel=([string]$row.path).Replace('/','\')
+            $rescued[$rel]=$true
+            $rp=Join-Path $rescue $rel
+            $sp=Join-Path $source $rel
+            Need (Test-Path -LiteralPath $rp -PathType Leaf) ('RESCUE_FILE_'+$rel)
+            $rsha=Sha $rp
+            Need ($rsha -ceq [string]$row.sha256) ('RESCUE_HASH_'+$rel)
+            if(-not (Test-Path -LiteralPath $sp -PathType Leaf)){
+              $status='ADDED';$msha=$null;$added++
+            } else {
+              $msha=Sha $sp
+              if($msha -ceq $rsha){$status='IDENTICAL';$identical++}else{$status='MODIFIED';$modified++}
+            }
+            $rows += [ordered]@{path=$rel.Replace('\','/');status=$status;installed_sha256=$rsha;merged_sha256=$msha;bytes=[long](Get-Item -LiteralPath $rp).Length}
           }
-          out.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-          print("MP_COMPARE_RESCUED_TOTAL="+str(len(rows)))
-          for k in ("IDENTICAL","MODIFIED","ADDED"):
-              print("MP_COMPARE_"+k+"="+str(counts[k]))
-          print("MP_COMPARE_MISSING_FROM_RESCUE="+str(len(missing)))
-          for x in rows:
-              if x["status"]!="IDENTICAL":
-                  print("MP_COMPARE_DELTA path="+x["path"]+" status="+x["status"]+" installed_sha256="+x["installed_sha256"]+" merged_sha256="+str(x["merged_sha256"]))
-          print("MP_COMPARE_MANIFEST_SHA256="+hashlib.sha256(out.read_bytes()).hexdigest())
-          PY
-          echo "MP_COMPARE_CONTENT_LOGGED=FALSE"
+          $mergedScoped=@()
+          foreach($base in @((Join-Path $source 'internal\plane'),(Join-Path $source 'cmd\ckb-plane'))){
+            if(Test-Path -LiteralPath $base -PathType Container){$mergedScoped += @(Get-ChildItem -LiteralPath $base -Recurse -File -Filter '*.go')}
+          }
+          foreach($rel in @('go.mod','go.sum')){
+            $p=Join-Path $source $rel
+            if(Test-Path -LiteralPath $p -PathType Leaf){$mergedScoped += Get-Item -LiteralPath $p}
+          }
+          $missing=@()
+          foreach($p in @($mergedScoped | Sort-Object FullName -Unique)){
+            $rel=$p.FullName.Substring($source.Length).TrimStart('\')
+            if(-not $rescued.ContainsKey($rel)){
+              $missing += [ordered]@{path=$rel.Replace('\','/');merged_sha256=(Sha $p.FullName);bytes=[long]$p.Length}
+            }
+          }
+          $result=[ordered]@{
+            schema='mp.installed-go-source-vs-merged-main.v1'
+            merged_commit=$merged
+            rescue_manifest_sha256=(Sha $manifestPath)
+            counts=[ordered]@{IDENTICAL=$identical;MODIFIED=$modified;ADDED=$added;MISSING_FROM_INSTALLED_RESCUE=$missing.Count;RESCUED_TOTAL=$rows.Count}
+            rows=@($rows | Sort-Object path)
+            missing_from_installed_rescue=@($missing)
+          }
+          $out=Join-Path $env:RUNNER_TEMP 'mp-source-diff.json'
+          [IO.File]::WriteAllText($out,($result|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
+          Write-Host ('MP_COMPARE_RESCUED_TOTAL='+$rows.Count)
+          Write-Host ('MP_COMPARE_IDENTICAL='+$identical)
+          Write-Host ('MP_COMPARE_MODIFIED='+$modified)
+          Write-Host ('MP_COMPARE_ADDED='+$added)
+          Write-Host ('MP_COMPARE_MISSING_FROM_RESCUE='+$missing.Count)
+          foreach($x in @($rows | Where-Object {$_.status -ne 'IDENTICAL'})){
+            Write-Host ('MP_COMPARE_DELTA path='+$x.path+' status='+$x.status+' installed_sha256='+$x.installed_sha256+' merged_sha256='+[string]$x.merged_sha256)
+          }
+          Write-Host ('MP_COMPARE_MANIFEST_SHA256='+(Sha $out))
+          Write-Host 'MP_COMPARE_CONTENT_LOGGED=FALSE'
+          Remove-Item -LiteralPath $root -Recurse -Force
       - name: Upload exact comparison manifest
         uses: actions/upload-artifact@v4
         with:
