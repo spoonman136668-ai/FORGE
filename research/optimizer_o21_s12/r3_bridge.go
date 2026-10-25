@@ -1,3 +1,5 @@
+//go:build ignore
+
 // O21-S12 source-only IPC bridge to UNMODIFIED original Wingless native R3.
 // No simulator, source action, learning algorithm, hidden goal, or evaluation here.
 package main
