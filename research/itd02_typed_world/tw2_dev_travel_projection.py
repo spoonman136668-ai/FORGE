@@ -6,6 +6,22 @@ Authenticated source runtime and independent permission remain mandatory.
 """
 from __future__ import annotations
 
+import re
+
+_MAX_SAFE_ID = 9007199254740991
+_CANONICAL_INDEX = re.compile(r"(?:0|[1-9][0-9]*)\Z")
+
+
+def original_typed_id(value, kind):
+    """Original upstream ID syntax, not entity existence or actor authority."""
+    if type(value) is not str or type(kind) is not str:
+        return False
+    prefix = kind + ":"
+    if not value.startswith(prefix):
+        return False
+    suffix = value[len(prefix):]
+    return 0 < len(suffix) <= 16 and _CANONICAL_INDEX.fullmatch(suffix) is not None and int(suffix) <= _MAX_SAFE_ID
+
 ROLE = "TW2_OPEN_HANDCRAFTED_DEV_ONLY"
 ALLOWED = {"travel.departed", "travel.arrived", "travel.blocked"}
 REASONS = {
@@ -30,7 +46,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
     copying arbitrary data, future route, cost, arrival time or cause chain.
     Cursor is (tick, event_id) for the last accepted event.
     """
-    refuse(type(scoped_actor) is str and bool(scoped_actor),
+    refuse(original_typed_id(scoped_actor, "npc"),
            "SCOPED_ACTOR_REQUIRED")
     refuse(type(cursor) is tuple and len(cursor) == 2 and
            all(type(v) is int and v >= 0 for v in cursor),
@@ -44,7 +60,8 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
            type(raw.get("tick")) is int and raw["tick"] >= 0,
            "ORIGINAL_EVENT_ID_OR_TICK")
     tick, number = raw["tick"], raw["id"]
-    refuse(tick > cursor[0] or (tick == cursor[0] and number > cursor[1]),
+    # Original SimEventId is strictly increasing across this source world.
+    refuse(tick >= cursor[0] and number > cursor[1],
            "NONMONOTONIC_EVENT")
     refuse(type(raw.get("actors")) is list and
            raw["actors"] == [scoped_actor], "CROSS_ACTOR_EVENT")
@@ -58,7 +75,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
         "status": STATUS[typ],
     }
     if typ == "travel.arrived":
-        refuse(type(data.get("at")) is str and bool(data["at"]),
+        refuse(original_typed_id(data.get("at"), "location"),
                "ARRIVAL_LOCATION")
         out["at"] = data["at"]
     elif typ == "travel.blocked":
