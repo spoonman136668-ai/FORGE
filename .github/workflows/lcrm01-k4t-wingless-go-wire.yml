@@ -150,41 +150,20 @@ jobs:
           if($LASTEXITCODE-ne0){throw 'K4T_FSAD1_FAIL'}
           & python -B -m unittest discover -s f139 -p 'test_*.py'
           if($LASTEXITCODE-ne0){throw 'K4T_F139_REGRESSION_FAIL'}
-          # Standalone K4U/K4Y Go IPC bridges are built from their exact
-          # original native module in the prior job. They are not valid
-          # FORGE root-module packages. Exempt ONLY that known directory.
+          # Existing standalone IPC bridges are compiled separately in the prior
+          # original-source job. The root FORGE module cannot import them.
           $module=(& go list -m).Trim()
           if($LASTEXITCODE-ne0 -or $module-ne'github.com/spoonman136668-ai/forge'){
             throw 'K4T_GO_ROOT_MODULE_IDENTITY_DRIFT'
           }
           $records=@(& go list -e -f '{{.ImportPath}}|{{if .Incomplete}}INCOMPLETE{{else}}OK{{end}}' ./...)
           if($LASTEXITCODE-ne0){throw 'K4T_GO_PACKAGE_DISCOVERY_FAILED'}
-          $incomplete=@($records | Where-Object {$_ -match '\|INCOMPLETE
-      - name: Verify clean checkout and no scientific execution
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $dirty=@(& git status --porcelain --untracked-files=all)
-          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'K4T_SOURCE_TREE_DIRTY'}
-          Write-Host 'K4T_SOURCE_TREE_CLEAN=PASS'
-          Write-Host 'K4T_CONSUMED_MINIGRID_COHORTS=NOT_EXECUTED'
-          Write-Host 'K4T_SCIENTIFIC_FIRST_USE=NOT_AUTHORIZED'
-})
+          $incomplete=@($records | Where-Object {$_ -match '\|INCOMPLETE$'})
           $expected="$module/research/lcrm01|INCOMPLETE"
           if($incomplete.Count-ne1 -or $incomplete[0]-cne$expected){
             throw ('K4T_UNEXPECTED_INCOMPLETE_GO_PACKAGES_'+($incomplete -join ','))
           }
-          $packages=@($records | Where-Object {$_ -match '\|OK
-      - name: Verify clean checkout and no scientific execution
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $dirty=@(& git status --porcelain --untracked-files=all)
-          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'K4T_SOURCE_TREE_DIRTY'}
-          Write-Host 'K4T_SOURCE_TREE_CLEAN=PASS'
-          Write-Host 'K4T_CONSUMED_MINIGRID_COHORTS=NOT_EXECUTED'
-          Write-Host 'K4T_SCIENTIFIC_FIRST_USE=NOT_AUTHORIZED'
-} | ForEach-Object { ($_ -split '\|')[0] })
+          $packages=@($records | Where-Object {$_ -match '\|OK$'} | ForEach-Object { ($_ -split '\|')[0] })
           if($packages.Count -lt 30){throw 'K4T_GO_PACKAGE_COVERAGE_BELOW_FLOOR'}
           Write-Host ('K4T_COMPLETE_FORGE_GO_PACKAGES='+$packages.Count)
           & go test -count=1 $packages
