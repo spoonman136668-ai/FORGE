@@ -146,7 +146,7 @@ class G35ProviderOriginTests(unittest.TestCase):
     def test_duplicate_or_absent_provider_job_fails_closed(self):
         self.jobs.append(dict(self.jobs[-1]))
         with self.assertRaisesRegex(G35ProviderDenied,
-                                    "INVENTORY_INCOMPLETE_OR_EXTRA"):
+                                    "UNEXPECTED_OR_LIVE_V1_JOB_ON_V2_RUN"):
             self.read()
         self.jobs.pop()
         self.jobs.pop()
