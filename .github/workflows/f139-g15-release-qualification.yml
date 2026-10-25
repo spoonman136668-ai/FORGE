@@ -1,7 +1,7 @@
 name: F139 G15 explicit V6 owner CLI release rehearsal and regression (DEV ONLY)
 on:
   push:
-    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025, qualify/f139-g19-one-shot-manual-release-20261025]
+    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025, qualify/f139-g19-one-shot-manual-release-20261025, qualify/f139-g21-live-python-source-query-compile-20261025]
     paths:
       - f139/local_controller.py
       - f139/nci04_v6_owner_release.py
@@ -92,6 +92,20 @@ jobs:
           Write-Host 'F139_G18_CONSOLIDATED_G17_MERGE_SOURCE_FENCE=PASS'
           Write-Host 'F139_G18_PREWRITE_FAILCLOSED_MUTATION_FENCE=PASS'
           Write-Host 'F139_G15_PRODUCTION_CUTOVER_DISARMED=PASS'
+      - name: Compile every embedded original-owner release Python block
+        shell: pwsh
+        run: |
+          @'
+          import pathlib,re,textwrap
+          path=pathlib.Path(".github/workflows/f139-g15-original-owner-release-guarded.yml")
+          raw=path.read_text(encoding="utf-8")
+          blocks=re.findall(r"(?ms)^[ \t]*\$([A-Za-z_][A-Za-z0-9_]*)=@'\r?\n(.*?)^[ \t]*'@", raw)
+          assert sorted(name for name,_ in blocks)==["headCode","snapshot","sourceQuery"]
+          for name,source in blocks:
+              compile(textwrap.dedent(source),name,"exec")
+              print("F139_G21_RELEASE_EMBEDDED_PYTHON_"+name.upper()+"_COMPILE=PASS")
+          '@ | python -B -
+          if($LASTEXITCODE -ne 0){throw 'F139_G21_RELEASE_READONLY_SOURCE_SYNTAX_FAIL'}
       - name: One complete unchanged F139 public regression
         shell: pwsh
         run: |
