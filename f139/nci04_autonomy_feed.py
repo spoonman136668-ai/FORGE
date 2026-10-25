@@ -300,6 +300,7 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
     if not policy["enabled"]:
         return {"enabled": False, "candidates": [], "rejected": []}
     steering = None
+    steering_unavailable = False
     if steering_get is not None:
         from f139.nci04_research_steering import (
             SteeringDenied, read_approved_steering, rank_eligible,
@@ -307,10 +308,18 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
         try:
             steering = read_approved_steering(steering_get)
         except SteeringDenied as exc:
-            # No new issue is published on untrusted steering bytes; existing
-            # ledger, active workers and original development issues survive.
+            # Identity/scope drift is not an advisory outage: never act on it.
             raise NativeFeedDenied(
                 "F139_NATIVE_FEED_STEERING_SOURCE_UNQUALIFIED") from exc
+        except RuntimeError as exc:
+            # An independent read-only advisory fetch may be temporarily
+            # unavailable. Keep original eligible issue ordering; explicitly
+            # report the fallback. No worker/ledger/authority mutation.
+            if not str(exc).startswith((
+                    "F139_GITHUB_API_TIMEOUT", "F139_GITHUB_API_FAILED",
+                    "F139_GITHUB_API_INVALID_JSON")):
+                raise
+            steering_unavailable = True
     candidates, rejected = [], []
     for lane in policy["lanes"]:
         repo = REPOS[lane][0]
@@ -337,11 +346,22 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
             existing_candidate_identities.add(candidate["candidate_identity"])
             if (steering is None and
                     len(candidates) >= policy["max_issue_creations_per_cycle"]):
-                return {"enabled": True, "candidates": candidates,
-                        "rejected": rejected}
+                report = {"enabled": True, "candidates": candidates,
+                          "rejected": rejected}
+                if steering_unavailable:
+                    report["steering"] = {
+                        "status": "UNAVAILABLE_LEGACY_ORDER",
+                        "advisory_only": True,
+                    }
+                return report
     if steering is not None:
         selected = rank_eligible(
             candidates, maximum=policy["max_issue_creations_per_cycle"])
         return {"enabled": True, "candidates": selected,
                 "rejected": rejected, "steering": steering}
-    return {"enabled": True, "candidates": candidates, "rejected": rejected}
+    report = {"enabled": True, "candidates": candidates, "rejected": rejected}
+    if steering_unavailable:
+        report["steering"] = {
+            "status": "UNAVAILABLE_LEGACY_ORDER", "advisory_only": True,
+        }
+    return report
