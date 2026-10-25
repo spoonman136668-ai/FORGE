@@ -1,0 +1,45 @@
+name: L9 Transformer timeout-cancellation recovery admission qualification
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-timeout-admission-qualify.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l9-timeout-admission-qualify-20261024
+  cancel-in-progress: false
+jobs:
+  fail-closed-90m:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 16
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Qualified original-timeout negative and frozen evaluator identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '5755381c4d97afc1644459e3f2bf79ec7f14f14f'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-timeout-admission-qualify.yml'
+          base=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$base/l9_transformer_select_reuse_v2.py)" = 'e934b48ea1ab8df3c1f65554b02d240b0c57f811'
+          test "$(git rev-parse HEAD:$base/test_l9_transformer_select_reuse_v2.py)" = '2bcc0d6b66826df95243abb71e00f90d1e8a3e8f'
+          test "$(git rev-parse HEAD:$base/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$base/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$base/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$base/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          python -m py_compile "$base/l9_transformer_select_reuse_v2.py" "$base/test_l9_transformer_select_reuse_v2.py"
+          (cd "$base" && python -m unittest -v test_l9_transformer_select_reuse_v2.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_90MIN_TIMEOUT_ADMISSION_QUALIFIED=PASS
+          echo L9_GENERIC_CANCELLATION_REJECTED=TRUE
+          echo L9_RECOVERY_NOT_YET_EXECUTED=TRUE
+          echo L9_AUDIT_DEV_UNCONSUMED=TRUE

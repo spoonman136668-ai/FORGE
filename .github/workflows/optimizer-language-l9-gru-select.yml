@@ -1,0 +1,147 @@
+name: L9 frozen GRU two-seed SELECT evaluation
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-gru-select.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-gru-select-frozen-20261024
+  cancel-in-progress: false
+jobs:
+  gru-select:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seed: 1701
+            artifact_id: 12540940051
+            zip_sha256: ac2fcd4fc3e6732927392b14d275a8e33939e2621ed72ef712efffb8ba970ffe
+          - seed: 1702
+            artifact_id: 12540872825
+            zip_sha256: e7309530577d7b59bbff919171f45ef6a8437ec65e849450d7a6cc9fceba7b39
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      L9_SEED: '${{ matrix.seed }}'
+      L9_ARTIFACT_ID: '${{ matrix.artifact_id }}'
+      L9_ZIP_SHA256: '${{ matrix.zip_sha256 }}'
+      GH_TOKEN: '${{ github.token }}'
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+      CUDA_VISIBLE_DEVICES: ''
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Verify SELECT source, frozen contract and successful prefit identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '3e385f8e3336c3d973efa6901d35d443380cb384'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-gru-select.yml'
+          base='research/optimizer_language_l9'
+          test "$(git rev-parse HEAD:$base/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$base/l9_neural_select_only.py)" = '91f8108af5e6f3a25e2a8ca07dc3674bd2358f4e'
+          test "$(git rev-parse HEAD:$base/test_l9_neural_select_only.py)" = '482c3d2f63aa392a9ed6b9ead4a38c038fb05da4'
+          test "$(git rev-parse HEAD:$base/L9_MODEL_CONTRACT.json)" = '4eab05a2b9011ebbaa34d01778e7f185807704c2'
+          test "$(git rev-parse HEAD:$base/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          # External prefit acceptance is checked independently against a prior run ID.
+          curl -fsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/40045380822 > "$RUNNER_TEMP/prefit-run.json"
+          python - "$RUNNER_TEMP/prefit-run.json" <<'PY'
+          import json,sys
+          r=json.load(open(sys.argv[1],encoding='utf8'))
+          assert r['status']=='completed' and r['conclusion']=='success', 'L9_SELECT_PREFIT_NOT_ACCEPTED'
+          assert r['head_sha']=='3e385f8e3336c3d973efa6901d35d443380cb384'
+          print('L9_GRU_SELECT_PREFIT_IDENTITY=PASS')
+          PY
+          (cd "$base" && python -m unittest -q test_l9_neural_select_only.py test_l9_neural_train_only.py test_l9_train_select_candidate.py test_l9_model_suite.py test_l9_split_builder.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(p) for p in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+      - name: Use same pinned CPU PyTorch as frozen training
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! python -c 'import torch;assert torch.__version__.split("+")[0]=="2.5.1"' >/dev/null 2>&1; then
+            python -m pip install --disable-pip-version-check --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 'torch==2.5.1'
+          fi
+          python - <<'PY'
+          import torch
+          assert torch.__version__.split('+')[0]=='2.5.1'
+          assert not torch.cuda.is_available()
+          torch.set_num_threads(2)
+          print('L9_SELECT_TORCH='+torch.__version__)
+          PY
+      - name: Fetch approved seed checkpoint artifact; verify archived ZIP and receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ckpt"
+          curl -fLSs --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/$L9_ARTIFACT_ID/zip" \
+            -o "$RUNNER_TEMP/gru-checkpoints.zip"
+          echo "$L9_ZIP_SHA256  $RUNNER_TEMP/gru-checkpoints.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/gru-checkpoints.zip" -d "$RUNNER_TEMP/ckpt"
+          python - "$RUNNER_TEMP/ckpt" "$L9_SEED" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]);seed=int(sys.argv[2]);r=json.loads((p/'receipt.json').read_text())
+          assert r['schema']=='forge.optimizer.language.l9.neural-train-only-development-v1'
+          assert r['status']=='NEURAL_TRAIN_COMPLETE_SELECT_NOT_RUN_DEVELOPMENT_ONLY'
+          assert r['seed']==seed and r['arm']=='GRU_SEQ2SEQ'
+          assert r['model_suite_git_blob']=='710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          assert r['role_identity_sha256']=='b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726'
+          assert r['train_examples']==8480 and r['select_fidelity_scored'] is False
+          assert r['audit_dev_reference_consumed'] is False and r['official_test_consumed'] is False
+          assert set(r['checkpoints'])=={'4','8','12'}
+          assert sorted(x.name for x in p.iterdir())==sorted(['receipt.json']+[r['checkpoints'][e]['inference_file'] for e in ('4','8','12')])
+          for epoch,ckpt in r['checkpoints'].items():
+              raw=(p/ckpt['inference_file']).read_bytes()
+              assert hashlib.sha256(raw).hexdigest()==ckpt['inference_sha256']
+              assert len(raw)==ckpt['inference_bytes']<=3145728
+          print('L9_FROZEN_GRU_CHECKPOINT_CUSTODY=PASS')
+          PY
+      - name: Full frozen L9_SELECT only (no audit model exposure)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext="$RUNNER_TEMP/webnlg-l9"
+          git clone --quiet --filter=blob:none --no-checkout https://gitlab.com/shimorina/webnlg-dataset.git "$ext"
+          test "$(git -C "$ext" rev-parse 'a7ea49b5ffa5011edf81e8530c59b3552a965023^{commit}')" = 'a7ea49b5ffa5011edf81e8530c59b3552a965023'
+          out="$RUNNER_TEMP/l9-gru-select-$L9_SEED.json"
+          python research/optimizer_language_l9/l9_neural_select_only.py \
+            --webnlg-repo "$ext" --checkpoint-artifact "$RUNNER_TEMP/ckpt" \
+            --arm GRU_SEQ2SEQ --seed "$L9_SEED" --out "$out"
+          python - "$out" "$L9_SEED" <<'PY'
+          import hashlib,json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); seed=int(sys.argv[2]);r=json.loads(p.read_text())
+          assert r['schema']=='forge.optimizer.language.l9.neural-select-development-v1'
+          assert r['status']=='SELECT_ONLY_DEVELOPMENT_CHECKPOINT_CHOICE'
+          assert r['arm']=='GRU_SEQ2SEQ' and r['seed']==seed
+          assert r['source_role_sha256']=='b9995c1846f5e1d99bf8bc4083dde0ebb41140906284bcf050a7ed6fe0efe726'
+          assert r['model_suite_git_blob']=='710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          assert r['train_count']==8480 and r['select_count']==2154
+          assert [x['epoch'] for x in r['all_epoch_metrics']]==[4,8,12]
+          assert all(x['role']=='L9_SELECT' and x['records']==2154 for x in r['all_epoch_metrics'])
+          assert r['audit_dev_reference_consumed'] is False and r['official_test_consumed'] is False
+          assert r['scientific_go'] is False
+          assert r['selected_epoch'] in (4,8,12)
+          print('L9_GRU_SELECT_RECEIPT_SHA256='+hashlib.sha256(p.read_bytes()).hexdigest())
+          print('L9_GRU_SELECTED_EPOCH='+str(r['selected_epoch']))
+          print('L9_GRU_SELECTED_PROXY='+str(next(x['requested_content_proxy_coverage'] for x in r['all_epoch_metrics'] if x['epoch']==r['selected_epoch'])))
+          print('L9_AUDIT_REFERENCE_CONSUMED=FALSE')
+          print('L9_OFFICIAL_TEST_CONSUMED=FALSE')
+          PY
+          rm -rf "$ext"
+      - name: Preserve numerical SELECT receipt only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l9-gru-select-${{ matrix.seed }}
+          path: '${{ runner.temp }}/l9-gru-select-${{ matrix.seed }}.json'
+          if-no-files-found: error
+          retention-days: 30

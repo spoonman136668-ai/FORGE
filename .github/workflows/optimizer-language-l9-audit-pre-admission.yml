@@ -1,0 +1,99 @@
+name: L9 prospective unfamiliar-category audit pre-admission metadata (NO AUDIT DATA)
+on:
+  push:
+    branches: [research/optimizer-language-l9-webnlg-transfer-20261023]
+    paths:
+      - '.github/workflows/optimizer-language-l9-audit-pre-admission.yml'
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: l9-audit-pre-admission-newline-verified-20261024
+  cancel-in-progress: false
+jobs:
+  synthetic-and-original-seal:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Frozen audit contract, provenance and adversarial test qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = '4d2fbf80675a1939ff0ed51845127719be3519e4'
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/optimizer-language-l9-audit-pre-admission.yml'
+          p=research/optimizer_language_l9
+          test "$(git rev-parse HEAD:$p/L9_AUDIT_ADMISSION_CONTRACT.json)" = 'b5b51c1cc954830374cbf1d667c57fb5e31a8827'
+          test "$(git rev-parse HEAD:$p/l9_audit_pre_admission.py)" = 'cb69fafb9f1d7db51c49f0dcf6ca228630b78893'
+          test "$(git rev-parse HEAD:$p/test_l9_audit_pre_admission.py)" = 'dc9e79b3429cabd4d1c98b4973cca0e851be0713'
+          test "$(git rev-parse HEAD:$p/l9_model_suite.py)" = '710ce648a30ffc55647f689c5f4aa3ac13b07066'
+          test "$(git rev-parse HEAD:$p/l9_seal_recovered_v2.py)" = '79ec9d4a86df77afebecd115140cfe60eb10dbac'
+          test "$(git rev-parse HEAD:$p/L9_SPLIT_RECEIPT.json)" = 'ca3e41e2835713bc922c56542656489f202c55cf'
+          python -m py_compile "$p/l9_audit_pre_admission.py" "$p/test_l9_audit_pre_admission.py"
+          (cd "$p" && python -m unittest -v test_l9_audit_pre_admission.py)
+          python -c 'import pathlib,shutil; [shutil.rmtree(x) for x in pathlib.Path("research/optimizer_language_l9").rglob("__pycache__")]'
+          test -z "$(git status --porcelain)"
+          echo L9_AUDIT_METADATA_SYNTHETIC_NEGATIVES=PASS
+      - name: Verify original SELECT seal authentic GitHub artifact without reading DEV
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/runs/40075146727" \
+            -o "$RUNNER_TEMP/l9-seal-run.json"
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12552807764/zip" \
+            -o "$RUNNER_TEMP/l9-full-seal.zip"
+          python - "$RUNNER_TEMP/l9-seal-run.json" "$RUNNER_TEMP/l9-full-seal.zip" "$RUNNER_TEMP/l9-select-seal.json" <<'PY'
+          import hashlib,json,pathlib,sys,zipfile
+          r=json.loads(pathlib.Path(sys.argv[1]).read_bytes())
+          assert r['id']==40075146727 and r['status']=='completed' and r['conclusion']=='success'
+          assert r['head_sha']=='e67a6a8e32460fd4b09c8c48144e084e2a511e7c'
+          zipraw=pathlib.Path(sys.argv[2]).read_bytes()
+          assert hashlib.sha256(zipraw).hexdigest()=='c4d4d2cdbd81da7eb090efe8fb3b75575101f7d92869c16e8d796cd9092e573f'
+          with zipfile.ZipFile(sys.argv[2]) as z:
+              assert z.namelist()==['complete-seal.json']
+              raw=z.read('complete-seal.json')
+          assert hashlib.sha256(raw).hexdigest()=='bbee9d6a6a92c3fbec536dbf8364ecae6b05ae46d86fbdef667f23d3179abc09'
+          pathlib.Path(sys.argv[3]).write_bytes(raw)
+          print('L9_FROZEN_SELECT_SEAL_AUTHENTICATED=PASS')
+          PY
+      - name: Produce explicit audit-not-open pre-admission receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/optimizer_language_l9/l9_audit_pre_admission.py \
+            --contract research/optimizer_language_l9/L9_AUDIT_ADMISSION_CONTRACT.json \
+            --sealed-select "$RUNNER_TEMP/l9-select-seal.json" \
+            --out "$RUNNER_TEMP/l9-audit-pre-admission.json"
+          python - "$RUNNER_TEMP/l9-audit-pre-admission.json" <<'PY'
+          import hashlib,json,pathlib,sys
+          raw=pathlib.Path(sys.argv[1]).read_bytes()
+          d=json.loads(raw)
+          assert d['schema']=='forge.optimizer.language.l9.audit-prospective-pre-admission-v1'
+          assert d['audit_first_use_allowed'] is False and d['audit_reference_read_count']==0
+          assert d['method_count']==7 and d['neural_control_count']==4
+          assert d['held_out_reference_example_count_expected']==319
+          assert d['held_out_category_count_expected']==3
+          assert d['official_test_consumed'] is False and d['scientific_go'] is False
+          print('L9_AUDIT_PRE_ADMISSION_IDENTICAL_NUMERIC_SHA='+hashlib.sha256(raw).hexdigest())
+          print('L9_NO_FIRST_USE_OPENED=TRUE')
+          PY
+      - name: Archive no-audit-data admission evidence only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: 'l9-audit-pre-admission-${{ matrix.os }}'
+          path: '${{ runner.temp }}/l9-audit-pre-admission.json'
+          if-no-files-found: error
+          retention-days: 30
