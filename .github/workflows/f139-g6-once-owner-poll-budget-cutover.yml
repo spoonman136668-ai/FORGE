@@ -1,0 +1,186 @@
+name: F139 G6 single-original-owner API budget repair
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g6-once-owner-poll-budget-cutover.yml]
+permissions:
+  contents: read
+  issues: read
+concurrency:
+  group: f139-g6-original-owner-poll-budget
+  cancel-in-progress: false
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Reconfigure original task to 300-second bounded wrapper poll and restart
+        shell: pwsh
+        env:
+          F139_G6_READ_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $taskName='FORGE-F139-UnifiedController'
+          $source='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'G6_OWNER_RUNNER_INVALID'
+          }
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($me).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'G6_ESCALATION_REQUIRED'
+          }
+          # Scoped Actions identity is used solely for READ preflight; it must
+          # never be installed in the controller, task, DPAPI store or log.
+          $env:GH_TOKEN=$env:F139_G6_READ_TOKEN
+          try{
+            $m=(& gh api 'repos/spoonman136668-ai/FORGE/branches/main' | ConvertFrom-Json)
+            $issue=(& gh api 'repos/spoonman136668-ai/FORGE/issues/807' | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $m.protected -ne $true -or
+               [string]$m.commit.sha -cne $source){throw 'G6_MAIN_PIN_DRIFT'}
+            $policy=[string]$issue.body | ConvertFrom-Json
+            if($policy.source_sha -cne $source -or $policy.enabled -ne $true -or
+               $policy.scientific_first_use -ne $false -or
+               $policy.new_controller -ne $false -or $policy.new_scheduler -ne $false){
+              throw 'G6_POLICY_DRIFT'
+            }
+          }finally{
+            Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
+            Remove-Item Env:F139_G6_READ_TOKEN -ErrorAction SilentlyContinue
+          }
+          $t=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1 -or
+             @($t.Triggers).Count -ne 3){throw 'G6_TASK_TOPOLOGY_DRIFT'}
+          $owner=[string]$t.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $me.Name -and $sid -cne $me.User.Value){
+            throw 'G6_OWNER_IDENTITY_DRIFT'
+          }
+          $oldAction=$t.Actions[0]
+          if([IO.Path]::GetFileName([string]$oldAction.Execute) -ine 'powershell.exe'){
+            throw 'G6_TASK_EXE_DRIFT'
+          }
+          $oldArgs=[string]$oldAction.Arguments
+          function RequiredArgument([string]$key){
+            $m=[regex]::Match($oldArgs,'(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'G6_TASK_ARGUMENT_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=RequiredArgument 'RepositoryRoot'
+          $db=RequiredArgument 'Database'
+          $python=RequiredArgument 'PythonExe'
+          if([IO.Path]::GetFileName((RequiredArgument 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             -not (Test-Path -LiteralPath (RequiredArgument 'EncryptedKeyFile') -PathType Leaf)){
+            throw 'G6_WRAPPER_OR_KEY_IDENTITY_DRIFT'
+          }
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $source -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'G6_INSTALLED_SOURCE_DRIFT'
+          }
+          $oldPoll=[regex]::Match($oldArgs,'(?i)(?:^|\s)-PollSeconds\s+(\d+)')
+          if($oldPoll.Success){
+            if([int]$oldPoll.Groups[1].Value -ne 45){throw 'G6_OLD_POLL_DRIFT'}
+            $newArgs=[regex]::Replace($oldArgs,'(?i)(-PollSeconds\s+)45\b',('$1'+'300'))
+          }else{$newArgs=$oldArgs+' -PollSeconds 300'}
+          $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop') })
+          if($child.Count -ne 1 -or
+             [string]$child[0].CommandLine -notmatch '--seconds\s+45(?:\s|$)'){
+            throw 'G6_ORIGINAL_45_SECOND_CHILD_NOT_CONFIRMED'
+          }
+          $checkSource=@'
+          import pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]);path=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          conn=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=15)
+          conn.row_factory=sqlite3.Row;conn.execute("PRAGMA query_only=ON")
+          o=object.__new__(Database);o.conn=conn;o.filename=path
+          try:
+              o.verify();meta=o.meta()
+              assert meta["source_sha"]==sys.argv[3] and meta["head_seq"]>=208
+              assert verify_native_activation(o) and not o.actives() and o.ready() is None
+              print(meta["head_hash"])
+          finally:conn.close()
+          '@
+          $before=(& $python -B -c $checkSource $root $db $source | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $before -cnotmatch '^[a-f0-9]{64}$'){
+            throw 'G6_OWNER_LEDGER_INVALID'
+          }
+          Write-Host 'F139_G6_ORIGINAL_POLICY_SOURCE_AND_LEDGER=PASS'
+          $disabled=$false;$edited=$false
+          try{
+            Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            $disabled=$true
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            for($i=0;$i -lt 25;$i++){
+              $still=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                Where-Object { $_.CommandLine -and
+                  $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($db) })
+              if($still.Count -eq 0){break}
+              Start-Sleep -Seconds 1
+            }
+            if($still.Count -ne 0 -or [string](Get-ScheduledTask -TaskName $taskName).State -cne 'Disabled'){
+              throw 'G6_OWNER_QUIESCE_FAILED'
+            }
+            $second=(& $python -B -c $checkSource $root $db $source | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $second -cne $before){throw 'G6_LEDGER_CHANGED_WHILE_STOPPED'}
+            $newAction=New-ScheduledTaskAction -Execute ([string]$oldAction.Execute) -Argument $newArgs
+            $edited=$true
+            Set-ScheduledTask -TaskName $taskName -Action $newAction -ErrorAction Stop | Out-Null
+            $actual=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            if([string]$actual.Actions[0].Arguments -cne $newArgs -or
+               @($actual.Triggers).Count -ne 3 -or
+               [string]$actual.Principal.UserId -cne $owner){throw 'G6_UNRELATED_TASK_CHANGE'}
+            Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+            if([string](Get-ScheduledTask -TaskName $taskName).State -cne 'Running'){
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            }
+            $pass=$false
+            for($j=0;$j -lt 30;$j++){
+              Start-Sleep -Seconds 1
+              $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                Where-Object { $_.CommandLine -and
+                  $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop') })
+              if($child.Count -eq 1 -and
+                 [string]$child[0].CommandLine -match '--seconds\s+300(?:\s|$)'){
+                $pass=$true;break
+              }
+            }
+            if(-not $pass -or [string](Get-ScheduledTask -TaskName $taskName).State -cne 'Running'){
+              throw 'G6_NEW_TASK_NOT_RUNNING'
+            }
+            $after=(& $python -B -c $checkSource $root $db $source | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $after -cne $before){throw 'G6_LEDGER_CHANGED'}
+            Write-Host 'F139_G6_SINGLE_OWNER_INTERVAL_SECONDS=300'
+            Write-Host 'F139_G6_ORIGINAL_TASK_RESTARTED=PASS'
+            Write-Host 'F139_G6_SOURCE_POLICY_SQLITE_AND_KEY_UNCHANGED=PASS'
+            Write-Host 'F139_G6_NO_NEW_CONTROLLER_OR_SCIENTIFIC_FIRST_USE=TRUE'
+          }catch{
+            if($disabled){
+              try{
+                Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+                if($edited){
+                  $restore=New-ScheduledTaskAction -Execute ([string]$oldAction.Execute) -Argument $oldArgs
+                  Set-ScheduledTask -TaskName $taskName -Action $restore -ErrorAction Stop | Out-Null
+                }
+                Enable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null
+                $live=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                  Where-Object { $_.CommandLine -and
+                    $_.CommandLine.Contains('f139.local_controller') -and
+                    $_.CommandLine.Contains($db) })
+                if($live.Count -eq 0){Start-ScheduledTask -TaskName $taskName -ErrorAction Stop}
+                elseif($live.Count -ne 1){throw 'G6_ROLLBACK_MULTIPLE_CHILDREN'}
+                Write-Host 'F139_G6_ORIGINAL_TASK_ROLLBACK=PASS'
+              }catch{Write-Host 'F139_G6_ROLLBACK_REQUIRES_OWNER_INSPECTION'}
+            }
+            throw
+          }
