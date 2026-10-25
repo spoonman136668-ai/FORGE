@@ -169,9 +169,18 @@ jobs:
                [string](Get-ScheduledTask -TaskName $name).State -cne 'Disabled'){
               throw 'F139_G39_OWNER_NOT_QUIESCED'
             }
-            # Exact same owner event identity after quiescence, before backup.
-            $originalSource | & $python -B - $db $target $approval
-            if($LASTEXITCODE -ne 0){throw 'F139_G39_QUIESCED_LEDGER_CHANGED'}
+            # Preserve the approval snapshot from BEFORE quiescence, and
+            # compare byte-for-byte with an independently reread snapshot.
+            $recheck=Join-Path $env:RUNNER_TEMP (
+              'f139-v7-recheck-'+$env:GITHUB_RUN_ID+'.json')
+            $originalSource | & $python -B - $db $target $recheck
+            if($LASTEXITCODE -ne 0 -or
+               -not(Test-Path -LiteralPath $recheck) -or
+               -not [Linq.Enumerable]::SequenceEqual(
+                   [byte[]][IO.File]::ReadAllBytes($approval),
+                   [byte[]][IO.File]::ReadAllBytes($recheck))){
+              throw 'F139_G39_QUIESCED_LEDGER_CHANGED'
+            }
             $backup=Join-Path (Split-Path $db -Parent) (
               'f139-v7-original-'+$env:GITHUB_RUN_ID+'.sqlite')
             if(Test-Path -LiteralPath $backup){throw 'F139_G39_BACKUP_COLLISION'}
