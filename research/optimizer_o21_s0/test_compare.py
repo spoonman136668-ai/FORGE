@@ -8,7 +8,7 @@ from pathlib import Path
 
 from compare import (
     ACTIONS, CHAINS, DIAG_WORLDS, ORIGINAL_BLOB, ORIGINAL_TEST_BLOB,
-    ConventionalExhaustiveTriple, git_blob, audit, load_original,
+    ConventionalExhaustiveTriple, canonical_checkout_git_blob, audit, load_original,
     SOURCE_LEARNER, SOURCE_TEST
 )
 
@@ -22,8 +22,8 @@ class OriginalEquivalence(unittest.TestCase):
         cls.result=audit(cls.original_root)
 
     def test_original_source_and_test_blobs_exact(self):
-        self.assertEqual(git_blob((self.original_root/SOURCE_LEARNER).read_bytes()),ORIGINAL_BLOB)
-        self.assertEqual(git_blob((self.original_root/SOURCE_TEST).read_bytes()),ORIGINAL_TEST_BLOB)
+        self.assertEqual(canonical_checkout_git_blob((self.original_root/SOURCE_LEARNER).read_bytes()),ORIGINAL_BLOB)
+        self.assertEqual(canonical_checkout_git_blob((self.original_root/SOURCE_TEST).read_bytes()),ORIGINAL_TEST_BLOB)
         load_original(self.original_root)
 
     def test_training_source_and_role_separation(self):
