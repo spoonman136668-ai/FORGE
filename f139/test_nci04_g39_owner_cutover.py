@@ -33,7 +33,7 @@ class G39OwnerCutoverTests(unittest.TestCase):
         verify=inspect.getsource(Database.verify)
         self.assertIn("SOURCE_TRANSITION_V7_ORIGINAL_SEAL_DRIFT",verify)
         self.assertIn("v6_terminal_event_sha256",verify)
-        self.assertIn('"v2_receipt_authorized" is False',verify)
+        self.assertIn('doc["v2_receipt_authorized"] is False',verify)
 
     def test_owner_signer_cannot_accept_ambient_env_only(self):
         from f139.local_controller import v2_owner_terminal_release_guard
