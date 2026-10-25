@@ -30,9 +30,13 @@ jobs:
               $env:GITHUB_RUN_ATTEMPT -cne '1') {
             throw 'G46_WRONG_REPOSITORY_BRANCH_RUNNER_OR_ATTEMPT'
           }
-          $parent = (& git rev-parse 'HEAD^' | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or $parent -cne $expected) {
-            throw 'G46_BOUNDED_AUDIT_PARENT_NOT_EXACT'
+          $fork = (& git merge-base HEAD $expected | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $fork -cne $expected) {
+            throw 'G46_BOUNDED_AUDIT_BASE_NOT_EXACT'
+          }
+          $changes = (& git diff --name-only $expected HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $changes -cne '.github/workflows/f139-g46-original-owner-readonly.yml') {
+            throw 'G46_UNEXPECTED_DIAGNOSTIC_SCOPE'
           }
           $main = (& gh api repos/spoonman136668-ai/FORGE/git/ref/heads/main --jq '.object.sha' | Out-String).Trim()
           if ($LASTEXITCODE -ne 0 -or $main -cne $expected) {
@@ -82,63 +86,68 @@ jobs:
           Write-Host ('G46_TASK_NEXT_RUN=' + $info.NextRunTime.ToString('o'))
           Write-Host 'G46_ORIGINAL_RUNNER_SID_SOURCE_AND_TASK=PASS'
           $audit = @'
-          import json, pathlib, re, sqlite3, sys, tempfile
+          import json, pathlib, re, sqlite3, sys
           from collections import Counter
           root = pathlib.Path(sys.argv[1]).resolve()
           origin = pathlib.Path(sys.argv[2]).resolve(strict=True)
           sys.path.insert(0, str(root))
-          with tempfile.TemporaryDirectory(prefix="forge-f139-g46-readonly-") as folder:
-              snapshot = pathlib.Path(folder) / "snapshot.sqlite"
-              with sqlite3.connect(origin.as_uri() + "?mode=ro", uri=True, timeout=15) as src:
-                  with sqlite3.connect(str(snapshot), timeout=15) as dst:
-                      src.backup(dst)
-              from f139.local_controller import Database, v2_owner_terminal_release_guard
-              from f139.nci04_owner_ledger import verify_native_activation
-              d = Database(snapshot)
-              try:
-                  d.verify()
-                  meta = d.meta()
-                  all_tasks = d.status()["tasks"]
-                  wanted = [x for x in all_tasks if x["ticket"].startswith("f139-nci04-i970-")]
-                  ready = d.ready()
-                  actives = d.actives()
-                  recent = []
-                  for row in d.conn.execute("SELECT seq, kind, payload FROM events ORDER BY seq DESC LIMIT 24"):
-                      payload = json.loads(row["payload"])
-                      recent.append({"seq": row["seq"], "kind": row["kind"],
-                                     "ticket": payload.get("ticket"),
-                                     "issue_number": payload.get("issue_number")})
-                  logpath = origin.parent / "logs" / "controller.log"
-                  recent_dispositions = []
-                  recent_error_codes = []
-                  if logpath.is_file():
-                      tail = logpath.read_text(encoding="utf-8-sig", errors="replace")[-120000:]
-                      recent_dispositions = re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]+)"', tail)[-12:]
-                      recent_error_codes = re.findall(r'\bF139_[A-Z0-9_]{5,80}\b', tail)[-8:]
-                  report = {
-                      "schema": "forge.f139.g46.readonly-original-v7-diagnostic.v1",
-                      "source_sha": meta["source_sha"],
-                      "head_seq": meta["head_seq"],
-                      "head_hash": meta["head_hash"],
-                      "enabled": meta["enabled"],
-                      "legacy_suspended": meta["legacy_suspended"],
-                      "native_activated": bool(verify_native_activation(d)),
-                      "v2_original_guard": bool(v2_owner_terminal_release_guard(meta["source_sha"],d)),
-                      "native_970": [
-                          {key: x.get(key) for key in ("ticket","stage","run_id","quarantine_reason","source_sha")}
-                          for x in wanted
-                      ],
-                      "ready": ({"ticket": ready["ticket"], "stage": ready["stage"]} if ready else None),
-                      "active": [{"ticket": x["ticket"], "stage": x["stage"]} for x in actives],
-                      "task_stage_counts": dict(Counter(x["stage"] for x in all_tasks)),
-                      "recent_events": recent,
-                      "recent_tick_dispositions": recent_dispositions,
-                      "recent_error_codes": recent_error_codes,
-                      "scientific_first_use": False,
-                  }
-                  print("G46_ORIGINAL_SNAPSHOT=" + json.dumps(report, sort_keys=True))
-              finally:
-                  d.close()
+          from f139.local_controller import Database, v2_owner_terminal_release_guard
+          from f139.nci04_owner_ledger import verify_native_activation
+          # Read the original, custody-bound database with a SQLite read-only
+          # connection. Relocated snapshots cannot pass verified evidence-path
+          # custody and are NOT equivalent to the original verified ledger.
+          conn = sqlite3.connect(origin.as_uri() + "?mode=ro", uri=True,
+                                 timeout=15, isolation_level=None)
+          conn.row_factory = sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          conn.execute("BEGIN")
+          d = Database.__new__(Database)
+          d.filename = origin
+          d.conn = conn
+          try:
+              d.verify()
+              meta = d.meta()
+              all_tasks = d.status()["tasks"]
+              wanted = [x for x in all_tasks if x["ticket"].startswith("f139-nci04-i970-")]
+              ready = d.ready()
+              actives = d.actives()
+              recent = []
+              for row in d.conn.execute("SELECT seq, kind, payload FROM events ORDER BY seq DESC LIMIT 24"):
+                  payload = json.loads(row["payload"])
+                  recent.append({"seq": row["seq"], "kind": row["kind"],
+                                 "ticket": payload.get("ticket"),
+                                 "issue_number": payload.get("issue_number")})
+              logpath = origin.parent / "logs" / "controller.log"
+              recent_dispositions = []
+              recent_error_codes = []
+              if logpath.is_file():
+                  tail = logpath.read_text(encoding="utf-8-sig", errors="replace")[-120000:]
+                  recent_dispositions = re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]+)"', tail)[-12:]
+                  recent_error_codes = re.findall(r'\bF139_[A-Z0-9_]{5,80}\b', tail)[-8:]
+              report = {
+                  "schema": "forge.f139.g46.readonly-original-v7-diagnostic.v1",
+                  "source_sha": meta["source_sha"],
+                  "head_seq": meta["head_seq"],
+                  "head_hash": meta["head_hash"],
+                  "enabled": meta["enabled"],
+                  "legacy_suspended": meta["legacy_suspended"],
+                  "native_activated": bool(verify_native_activation(d)),
+                  "v2_original_guard": bool(v2_owner_terminal_release_guard(meta["source_sha"],d)),
+                  "native_970": [
+                      {key: x.get(key) for key in ("ticket","stage","run_id","quarantine_reason","source_sha")}
+                      for x in wanted
+                  ],
+                  "ready": ({"ticket": ready["ticket"], "stage": ready["stage"]} if ready else None),
+                  "active": [{"ticket": x["ticket"], "stage": x["stage"]} for x in actives],
+                  "task_stage_counts": dict(Counter(x["stage"] for x in all_tasks)),
+                  "recent_events": recent,
+                  "recent_tick_dispositions": recent_dispositions,
+                  "recent_error_codes": recent_error_codes,
+                  "scientific_first_use": False,
+              }
+              print("G46_ORIGINAL_SNAPSHOT=" + json.dumps(report, sort_keys=True))
+          finally:
+              d.close()
           '@
           & $python -B -c $audit $root $db
           if ($LASTEXITCODE -ne 0) { throw 'G46_ORIGINAL_LEDGER_SNAPSHOT_DENIED' }
