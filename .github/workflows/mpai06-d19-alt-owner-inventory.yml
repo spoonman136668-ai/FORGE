@@ -1,0 +1,61 @@
+name: D19 alternative runner owner-file read-only custody probe
+on:
+  push:
+    branches: [qualification/mpai06-d19-alt-runner-owner-preimage-20261025]
+    paths: ['.github/workflows/mpai06-d19-alt-owner-inventory.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai06-d19-alt-owner-inventory-once-20261025
+  cancel-in-progress: false
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Verify whether separate isolated Windows runner can access original owner files read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$label){if(-not $yes){throw ('D19_'+$label)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+                $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXACT_NONCOMPETING_RUNNER'
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:CODEX_HOME -ErrorAction SilentlyContinue
+          $sameHost=($env:COMPUTERNAME -ieq 'LINKDEADKB')
+          Write-Host ('D19_ORIGINAL_WORKSTATION_HOST_MATCH='+$sameHost.ToString().ToUpperInvariant())
+          $ownerRoot='C:\Users\camar\GolandProjects\Mind-Palace'
+          $ownerExists=(Test-Path -LiteralPath $ownerRoot -PathType Container)
+          $planeRoot='C:\ProgramData\CKBR\plane'
+          $planeExists=(Test-Path -LiteralPath $planeRoot -PathType Container)
+          Write-Host ('D19_ORIGINAL_USER_OWNER_REPO_VISIBLE='+$ownerExists.ToString().ToUpperInvariant())
+          Write-Host ('D19_ORIGINAL_PLANE_INSTALL_ROOT_VISIBLE='+$planeExists.ToString().ToUpperInvariant())
+          $canAttest=$sameHost -and $ownerExists -and $planeExists
+          if($canAttest){
+            $git=(Get-Command git.exe -ErrorAction SilentlyContinue)
+            if($null -ne $git){
+              $sha=(& $git.Source -C $ownerRoot rev-parse HEAD | Out-String).Trim()
+              $valid=($LASTEXITCODE -eq 0 -and $sha -ceq '7ad7230a82e3c748aa5336b7288ad2b45d42630c')
+              Write-Host ('D19_ORIGINAL_OWNER_ACCEPTED_MAIN_MATCH='+$valid.ToString().ToUpperInvariant())
+            }
+            foreach($entry in @(
+              @{name='CONFIG'; rel='config/autonomy.yaml'},
+              @{name='REGISTRY'; rel='config/local-operations.json'},
+              @{name='BINARY'; rel='bin/ckb-plane.exe'},
+              @{name='CONTEXT_OPERATION'; rel='operations/Read-MindPalaceContext.ps1'}
+            )){
+              $path=Join-Path $planeRoot $entry.rel
+              $exists=Test-Path -LiteralPath $path -PathType Leaf
+              Write-Host ('D19_'+$entry.name+'_PRESENT='+$exists.ToString().ToUpperInvariant())
+              if($exists){
+                $item=Get-Item -LiteralPath $path -Force
+                Need (-not (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'PATH_REPARSE'
+                $digest=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+                Write-Host ('D19_'+$entry.name+'_PREIMAGE_SHA256='+$digest)
+              }
+            }
+          } else {
+            Write-Host 'D19_ALTERNATE_RUNNER_OWNER_PRIVILEGED_CUSTODY=NOT_ESTABLISHED'
+          }
+          Write-Host 'D19_NO_CONTROLLER_OR_MEMORY_WRITES=PASS'
+          Write-Host 'D19_CODEX_MODEL_CALLS=0'
