@@ -178,5 +178,33 @@ jobs:
             }
           }
           Write-Host 'D19_IDLE_STATE=NOT_PROVEN_BY_PROCESS_OR_TASK_METADATA'
+          # Validate the ORIGINAL native release-store pointer and running
+          # release preimages without editing either the active release or task.
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $releaseId='PLANE-R220-LIVECOMPAT-20261023'
+          $release=Join-Path $store ('releases\'+$releaseId)
+          $pointer=Join-Path $store 'state/active-release'
+          $ptrExists=Test-Path -LiteralPath $pointer -PathType Leaf
+          $relExists=Test-Path -LiteralPath $release -PathType Container
+          Write-Host ('D19_RELEASE_STORE_TARGET_EXISTS='+$relExists.ToString().ToUpperInvariant())
+          Write-Host ('D19_RELEASE_STORE_ACTIVE_POINTER_EXISTS='+$ptrExists.ToString().ToUpperInvariant())
+          if($ptrExists){
+            $ptr=([IO.File]::ReadAllText($pointer,[Text.Encoding]::UTF8)).Trim()
+            Write-Host ('D19_RELEASE_STORE_POINTER_MATCHES_PROCESS_RELEASE='+($ptr -ceq $releaseId).ToString().ToUpperInvariant())
+            Write-Host ('D19_RELEASE_STORE_POINTER_SHA256='+(Get-FileHash -LiteralPath $pointer -Algorithm SHA256).Hash.ToLowerInvariant())
+          }
+          if($relExists){
+            foreach($part in @('release-manifest.json','release-seal.json','bin/ckb-plane.exe')){
+              $candidate=Join-Path $release $part
+              $exists=Test-Path -LiteralPath $candidate -PathType Leaf
+              $name=($part -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+              Write-Host ('D19_RELEASE_'+$name+'_EXISTS='+$exists.ToString().ToUpperInvariant())
+              if($exists){
+                $item=Get-Item -LiteralPath $candidate -Force
+                Need (-not (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'RELEASE_REPARSE'
+                Write-Host ('D19_RELEASE_'+$name+'_SHA256='+(Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant())
+              }
+            }
+          }
           Write-Host 'D19_NO_CONTROLLER_OR_MEMORY_WRITES=PASS'
           Write-Host 'D19_CODEX_MODEL_CALLS=0'
