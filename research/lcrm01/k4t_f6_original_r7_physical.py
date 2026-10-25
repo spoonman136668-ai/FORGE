@@ -58,33 +58,32 @@ def outcome(base,dev):
  r={fam:dict(base["results"][fam]) for fam in FAMILIES}
  for fam in FAMILIES:
   for method in ("wingless_r4_frontier","wingless_r5_cost_frontier",
-                 "wingless_r6_observed_route","sixfield_fit_model_route"):
-   group=[x for x in dev if x["family"]==fam and x["method"]==method]
-   if len(group)!=8:raise ValueError("F5_ORIGINAL_WORLD_METHOD_MISSING")
-   r[fam][method]=f2.scores(group)
- p=contract()["predicates"]
+                 "wingless_r6_observed_route","wingless_r7_physical_frontier",
+                 "sixfield_fit_model_route"):
+   rows=[row for row in dev if row["family"]==fam and row["method"]==method]
+   if len(rows)!=8:raise ValueError("F6_MISSING_AUTHENTIC_DEV_METHOD")
+   r[fam][method]=f2.scores(rows)
+ gates=contract()["predicates"]
  criteria={}
  for fam in FAMILIES:
-  a=r[fam]["wingless_r6_observed_route"]
-  b=r[fam]["wingless_r5_cost_frontier"]
-  ctrl=r[fam]["fit_dynamics_bfs"]
-  criteria[fam+"_minimum_real_goals"]=a["successes"]>=(
-    p["min_empty_R6_goals"] if fam=="empty" else p["min_fourrooms_R6_goals"])
-  criteria[fam+"_strong_control_eligible"]=ctrl["successes"]>=6
-  criteria[fam+"_no_additional_blocked_forward"]=(
-    a["blocked_forward_per_100_steps"]<=b["blocked_forward_per_100_steps"])
+  x=r[fam]["wingless_r7_physical_frontier"]
+  y=r[fam]["wingless_r5_cost_frontier"]
+  upper=r[fam]["fit_dynamics_bfs"]
+  criteria[fam+"_R7_goal_minimum"]=x["successes"]>=(
+    gates["EmptyR7MinGoals"] if fam=="empty" else gates["FourRoomsR7MinGoals"])
+  criteria[fam+"_full_grid_control_eligible"]=upper["successes"]>=gates["FullMapPlannerMinGoalsEach"]
+  criteria[fam+"_blocked_forward_not_worse_than_R5"]=x["blocked_forward_per_100_steps"]<=y["blocked_forward_per_100_steps"]
   if fam=="fourrooms":
-   conventional=r[fam]["sixfield_fit_model_route"]
-   criteria["fourrooms_goals_vs_R5"]=a["successes"]>=b["successes"]+p["min_fourrooms_goals_vs_R5"]
-   criteria["fourrooms_goals_vs_sixfield"]=a["successes"]>=conventional["successes"]+p["min_fourrooms_goals_vs_sixfield"]
-   criteria["fourrooms_reward_plus_10pct_R5"]=a["mean_real_reward"]>=p["mean_fourrooms_reward_R6_at_least_R5_times"]*b["mean_real_reward"]
-   criteria["fourrooms_reward_at_least_sixfield"]=a["mean_real_reward"]>=p["mean_fourrooms_reward_R6_at_least_sixfield_times"]*conventional["mean_real_reward"]
-   criteria["fourrooms_reward_75pct_full_grid"]=a["mean_real_reward"]>=p["mean_fourrooms_reward_R6_at_least_full_grid_fitted_times"]*ctrl["mean_real_reward"]
-   criteria["fourrooms_steps_90pct_R5"]=a["actual_total_steps"]<=p["mean_fourrooms_steps_R6_at_most_R5_fraction"]*b["actual_total_steps"]
- return {"result":p["accept_label"] if all(criteria.values()) else p["fail_label"],
+   same=r[fam]["sixfield_fit_model_route"]
+   criteria["fourrooms_R7_goals_at_least_R5"]=x["successes"]>=y["successes"]+gates["FourRoomsR7NotWorseGoalsThanR5"]
+   criteria["fourrooms_R7_goals_at_least_sixfield"]=x["successes"]>=same["successes"]+gates["FourRoomsR7NotWorseGoalsThanSixfield"]
+   criteria["fourrooms_R7_reward_at_least_R5"]=x["mean_real_reward"]>=gates["FourRoomsR7MeanRewardAtLeastR5"]*y["mean_real_reward"]
+   criteria["fourrooms_R7_reward_at_least_sixfield"]=x["mean_real_reward"]>=gates["FourRoomsR7MeanRewardAtLeastSixfield"]*same["mean_real_reward"]
+   criteria["fourrooms_R7_reward_75pct_full_grid"]=x["mean_real_reward"]>=gates["FourRoomsR7RewardAtLeastFullMapPlanner"]*upper["mean_real_reward"]
+   criteria["fourrooms_R7_actions_at_most_R5"]=x["actual_total_steps"]<=gates["FourRoomsR7ActionsAtMostR5"]*y["actual_total_steps"]
+ return {"result":gates["accept"] if all(criteria.values()) else gates["fail"],
          "criteria":criteria,"results":r,"scientific_first_use":False,"scientific_accepted":False,
-         "same_six_public_fields_for_native_and_conventional":True,
-         "full_grid_strong_planner_has_more_information":True}
+         "matched_sixfield_independent_control":True,"full_map_fitted_BFS_is_more_informed":True}
 
 def experiment(r1,r2,r3,r4,r5,r6):
  frozen=contract()
