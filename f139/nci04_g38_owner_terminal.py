@@ -141,7 +141,7 @@ def settle_original_v2(db: Database, api: GitHub, db_path: Path, *,
     Provider failures/quarantine are terminal and cannot be redispatched.
     """
     need(type(db) is Database and isinstance(api, GitHub)
-         and type(db_path) is Path and type(owner_key) is str
+         and isinstance(db_path, Path) and type(owner_key) is str
          and len(owner_key) >= 32
          and isinstance(ticket, str) and ticket.startswith("f139-nci04-")
          and isinstance(started_at, str), "EXCLUSIVE_ORIGINAL_CONTEXT_REQUIRED")
