@@ -1,0 +1,159 @@
+name: MP-AI06-D12 cold-restart verified correction Windows qualification
+on:
+  push:
+    branches: [qualification/mp-ai06-d12-cold-restart-20261025]
+    paths: ['.github/workflows/mp-ai06-d12-cold-restart-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai06-d12-one-windows
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 65
+    steps:
+      - name: Pin original source, execute focused and one complete regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code) {
+            if(-not $ok) { throw ('MPAI06_D12_' + $code) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-ai06-d12-cold-restart-20261025' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXPECTED_ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $env:GIT_CONFIG_COUNT='1'
+          $env:GIT_CONFIG_KEY_0='core.longpaths'
+          $env:GIT_CONFIG_VALUE_0='true'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mp-ai06-d12-cold-restart-correction-20261025'
+          $target='251b85bb5affb620032a5bf23c238bd66eb256c5'
+          $parent='952e992747d35ebaa558c4be0aa8d775d93f543c'
+          $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d12-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $allowed=@('experiments/mpai06_d12_repeat_protocol.json','agentic/mpai06_d12_repeat_correction.py','tests/test_mpai06_d12_repeat_correction.py','docs/MP-AI06-D12-COLD-RESTART-CORRECTION.md')
+          $pins=@{
+            'experiments/mpai06_d12_repeat_protocol.json'='c1530341f93729f62a68243dda0ddb8f9f2d0235'
+            'agentic/mpai06_d12_repeat_correction.py'='76c6d3def9be1b56fdc973ede25f33ab7c58bbd9'
+            'tests/test_mpai06_d12_repeat_correction.py'='57dc67931b184dcc89b41abe59dc50c9f6270aa6'
+            'docs/MP-AI06-D12-COLD-RESTART-CORRECTION.md'='348cd47b50274a5cc7813d4bc59305391bbc1114'
+          }
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha) {
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REMOTE_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $hashes=@{}
+          $initialized=$false
+          try {
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target) 'PINNED_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $parent HEAD
+            Need ($LASTEXITCODE -eq 0) 'QUALIFIED_PARENT'
+            & git.exe -C $root merge-base --is-ancestor '6e4a542ecd25214f3cff1867b9c42a0dfe441b17' HEAD
+            Need ($LASTEXITCODE -eq 0) 'FROZEN_CASES_ANCESTRY'
+            & git.exe -C $root merge-base --is-ancestor 'daa6f68ef69c31f3c76bb46e8047524cec8fd0bb' HEAD
+            Need ($LASTEXITCODE -eq 0) 'D12_PROTOCOL_FROZEN_BEFORE_CODE'
+            & git.exe -C $root merge-base --is-ancestor $accepted HEAD
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
+            $changed=@(& git.exe -C $root diff --name-only $parent HEAD)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 4 -and
+              (($changed | Sort-Object) -join '|') -ceq (($allowed | Sort-Object) -join '|')) 'DELTA_SCOPE'
+            foreach($f in $pins.Keys) {
+              $actualBlob=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $actualBlob -ceq $pins[$f]) ('BLOB_PIN_'+$f)
+            }
+            Write-Host 'MPAI06_D12_SOURCE_PARENT_FOUR_FILE_SCOPE=PASS'
+            foreach($f in $protected) {
+              $a=(& git.exe -C $root rev-parse ($accepted+':'+$f) | Out-String).Trim()
+              $b=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $a -ceq $b) ('PROTECTED_BLOB_'+$f)
+              $hashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $initialized=$true
+            Write-Host 'MPAI06_D12_PROTECTED_BASELINE=PASS'
+            & python.exe -B -c "import pathlib; root=pathlib.Path(r'$root'); [compile((root/p).read_bytes(),str(root/p),'exec') for p in ('agentic/mpai06_d12_repeat_correction.py','tests/test_mpai06_d12_repeat_correction.py')]"
+            Need ($LASTEXITCODE -eq 0) 'SYNTAX'
+            Write-Host 'MPAI06_D12_STOPPED_PYTHON_SYNTAX=PASS'
+            $suites=@('test_mpai06_d12_repeat_correction.py','test_mpai06_d10_execution_witness.py','test_mpai06_d9_failure_reflection.py','test_mpai06_d8_transfer_eval.py','test_mpai06_d7_normalized_recall.py','test_mpai06_answerability.py','test_mpai06_d5_source_guard.py','test_mpai06_d6_mcp_evidence.py','test_mpn1_mcp.py','test_mpai01_mcp_adapter.py','test_mpai02_probe_mcp.py')
+            foreach($suite in $suites) {
+              & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FOCUSED_'+$suite)
+            }
+            Write-Host 'MPAI06_D12_FOCUSED_TESTS=PASS'
+            $correctionFile=Join-Path $scratch 'corrections.json'
+            $eval=Join-Path $root 'agentic/mpai06_d12_repeat_correction.py'
+            $learnRaw=(& python.exe -B $eval --stage learn --root $root --source $target --memory $correctionFile | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0) 'ACTUAL_FEEDBACK_LEARN'
+            $learn=$learnRaw | ConvertFrom-Json -AsHashtable
+            Need ($learn.baseline -eq 14 -and $learn.feedback_count -eq 3 -and
+              $learn.model_calls -eq 0 -and $learn.production_writes -eq 0) 'LEARNED_THREE_VERIFIED_FEEDBACK'
+            Write-Host 'MPAI06_D12_FROZEN_14_OF_17_AND_3_FEEDBACK=PASS'
+            # Separate Python.exe process: no evaluator, MemorySnapshot or process memory carries over.
+            $replayRaw=(& python.exe -B $eval --stage replay --root $root --source $target --memory $correctionFile | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0) 'ACTUAL_COLD_REPLAY'
+            $replay=$replayRaw | ConvertFrom-Json -AsHashtable
+            Need ($replay.original_case_count -eq 17 -and
+              $replay.no_feedback_correct -eq 14 -and
+              $replay.retained_feedback_correct -eq 17 -and
+              $replay.repeated_errors_avoided -eq 3 -and
+              $replay.real_agent_task_success_tested -eq $false -and
+              $replay.unfamiliar_transfer_tested -eq $false -and
+              $replay.model_calls -eq 0 -and $replay.production_writes -eq 0) 'COLD_RESTART_RESULT'
+            Write-Host 'MPAI06_D12_COLD_RESTART_REPEATED_MISSES_PREVENTED_3_OF_3=PASS'
+            Write-Host 'MPAI06_D12_UNFAMILIAR_TASK_GENERALIZATION=NOT_TESTED'
+            Remove-Item -LiteralPath $correctionFile -Force
+            Need (-not (Test-Path -LiteralPath $correctionFile)) 'TEMP_FEEDBACK_ERASED'
+            foreach($f in $protected) {
+              $now=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Need ($now -ceq $hashes[$f]) ('POST_FOCUSED_BLOB_'+$f)
+            }
+            $stdout=Join-Path $scratch 'regression.stdout'
+            $stderr=Join-Path $scratch 'regression.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $log=[IO.File]::ReadAllText($stdout)
+            if($p.ExitCode -ne 0) {
+              $last=@([regex]::Matches($log,'RUN Test-[A-Za-z0-9_-]+[.]ps1') | ForEach-Object {$_.Value})
+              if($last.Count) {Write-Host ('MPAI06_D12_LAST_REGRESSION_TEST='+[string]$last[-1])}
+              throw 'MPAI06_D12_FULL_REGRESSION_FAILED'
+            }
+            Need ($log.Contains('Mind-Palace regression suite passed')) 'REGRESSION_MARKER'
+            Write-Host 'MPAI06_D12_ONE_FULL_WINDOWS_REGRESSION=PASS'
+            Need (-not ((& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'SOURCE_WORKTREE_CHANGED'
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            Write-Host 'MPAI06_D12_SOURCE_STILL_PINNED=PASS'
+            Write-Host 'MPAI06_D12_INDEPENDENT_SCIENTIFIC_GAIN=NOT_TESTED'
+            Write-Host 'MPAI06_D12_CONTROLLER_ADMISSION=NOT_PERFORMED'
+            Write-Host 'MPAI06_D12_PAID_MODEL_CALLS=0'
+            Write-Host 'MPAI06_D12_PRODUCTION_WRITES=0'
+          } finally {
+            if($initialized) {
+              foreach($f in $protected) {
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$f]) ('PROTECTED_POSTIMAGE_'+$f)
+              }
+              Write-Host 'MPAI06_D12_PROTECTED_FINAL=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI06_D12_SCRATCH_CLEAN=PASS'
+          }
