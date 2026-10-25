@@ -212,6 +212,8 @@ def execute_v2_development(admission: NativeAdmission, native_root: Path,
             stream.write(canonical(obj))
             stream.flush()
             os.fsync(stream.fileno())
+    from f139.nci04_v2_artifact_package import package_v2_development_output
+    package_v2_development_output(output, admission)
     return receipt, bool(receipt["native_qualified"])
 
 
