@@ -1,0 +1,49 @@
+name: F139 G6 original owner API rate-limit custody audit (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g6-gh-rate-budget-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-runner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Read actual GitHub rate quota and original loop cadence without credentials or writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_G6_QUOTA_UNQUALIFIED_RUNNER'
+          }
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running'){throw 'F139_G6_QUOTA_ORIGINAL_TASK_DOWN'}
+          $m=[regex]::Match([string]$t.Actions[0].Arguments,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'F139_G6_QUOTA_TASK_DB_MISSING'}
+          $db=$m.Groups[1].Value
+          $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop') })
+          if($child.Count -ne 1){throw 'F139_G6_QUOTA_ORIGINAL_CHILD_NOT_SINGLE'}
+          $match=[regex]::Match([string]$child[0].CommandLine,'(?i)(?:^|\s)--seconds\s+(\d+)')
+          if(-not $match.Success){throw 'F139_G6_QUOTA_LOOP_SECONDS_UNKNOWN'}
+          $seconds=[int]$match.Groups[1].Value
+          if($seconds -lt 15 -or $seconds -gt 300){throw 'F139_G6_QUOTA_LOOP_SECONDS_UNSAFE'}
+          Write-Host ('F139_G6_OWNER_LOOP_SECONDS='+$seconds)
+          Write-Host ('F139_G6_OWNER_MAX_TICKS_PER_HOUR=' + [math]::Floor(3600/$seconds))
+          $quota=& gh api rate_limit 2>$null
+          if($LASTEXITCODE -ne 0){
+            Write-Host 'F139_G6_ORIGINAL_GH_RATE_READ=BLOCKED'
+          }else{
+            $data=($quota | Out-String) | ConvertFrom-Json
+            if($null -eq $data.resources.core -or $data.resources.core.limit -le 0){
+              throw 'F139_G6_GH_RATE_UNPARSEABLE'
+            }
+            Write-Host 'F139_G6_ORIGINAL_GH_RATE_READ=PASS'
+            Write-Host ('F139_G6_ORIGINAL_GH_CORE_LIMIT='+$data.resources.core.limit)
+            Write-Host ('F139_G6_ORIGINAL_GH_CORE_REMAINING='+$data.resources.core.remaining)
+            Write-Host ('F139_G6_ORIGINAL_GH_CORE_USED='+$data.resources.core.used)
+            Write-Host ('F139_G6_ORIGINAL_GH_CORE_RESET_UNIX='+$data.resources.core.reset)
+          }
+          Write-Host 'F139_G6_NO_CONTROLLER_TASK_DB_OR_CREDENTIAL_WRITE=TRUE'
