@@ -1,0 +1,117 @@
+name: R322 original CKB native launch-mode provenance read-only
+on:
+  push:
+    branches: [audit/mp-r322-native-launch-mode-readonly-20261025]
+    paths: [.github/workflows/mp-r322-ckb-native-mode-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r322-original-owner-native-process-readonly
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Classify authenticated running native CLI mode only; do not invoke controller CLI or inspect queued items
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r322-native-launch-mode-readonly-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R322_ORIGINAL_READONLY_RUNNER_OR_EVENT_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($identity)
+          if($identity.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R322_EXISTING_ELEVATED_OWNER_IDENTITY_REQUIRED'
+          }
+          function Sha([string]$file){
+            return (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          }
+          function TextHash([string]$value){
+            $s=[Security.Cryptography.SHA256]::Create()
+            try{
+              return [BitConverter]::ToString($s.ComputeHash([Text.Encoding]::UTF8.GetBytes($value))).Replace('-','').ToLowerInvariant()
+            }finally{$s.Dispose()}
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1){throw 'R322_SINGLE_RUNNING_CKB_NATIVE_PROCESS_NOT_VERIFIED'}
+          $p=$procs[0]
+          $originalPID=[int]$p.ProcessId
+          $originalBirth=([datetime]$p.CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$p.ExecutablePath
+          if([string]::IsNullOrWhiteSpace($exe) -or
+             (Sha $exe) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R322_R303_ORIGINAL_CURRENT_PROCESS_FILE_DRIFT'
+          }
+          $tcp=@(Get-NetTCPConnection -LocalPort 8791 -State Listen -ErrorAction Stop)
+          if($tcp.Count -lt 1 -or @($tcp|Where-Object {
+            [int]$_.OwningProcess -ne $originalPID -or
+            $_.LocalAddress -notin @('127.0.0.1','::1')
+          }).Count -ne 0){throw 'R322_LOCAL_NATIVE_LISTENER_OWNER_DRIFT'}
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R322_ORIGINAL_R18_REGISTERED_TASK_DRIFT'
+          }
+          $xml=Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if((TextHash $xml) -cne '84550e47cac80dfd84ec09baea7db6c533c3d88ea39bd88e3c5dd3e0e1406022'){
+            throw 'R322_R316_TASK_XML_PREIMAGE_MISMATCH'
+          }
+          $cfg='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if((Sha $cfg) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+            throw 'R322_RUNNING_EFFECTIVE_CONFIG_FILE_DRIFT'
+          }
+          # Classify only the first two CLI words after the executable. Never
+          # print the command line, parsed paths, tokens, arguments or raw task.
+          $cli=[string]$p.CommandLine
+          $mode='UNVERIFIED'
+          $imageBound=$false
+          if(![string]::IsNullOrWhiteSpace($cli)){
+            $m=[regex]::Match($cli,'^\s*(?:"(?<image>[^"]+)"|(?<image>\S+))(?:\s+(?<arg1>\S+))?(?:\s+(?<arg2>\S+))?')
+            if($m.Success -and [IO.Path]::IsPathRooted([string]$m.Groups['image'].Value)){
+              $captured=[IO.Path]::GetFullPath([string]$m.Groups['image'].Value)
+              $imageBound=[string]::Equals($captured,[IO.Path]::GetFullPath($exe),[StringComparison]::OrdinalIgnoreCase)
+              if($imageBound){
+                $family=[string]$m.Groups['arg1'].Value
+                $sub=[string]$m.Groups['arg2'].Value
+                if($family -ceq 'controller' -and $sub -ceq 'run'){
+                  $mode='CONTROLLER_RUN'
+                }elseif($family -ceq 'serve'){
+                  $mode='STATUS_ONLY_SERVE'
+                }else{
+                  $mode='OTHER_OR_UNVERIFIED'
+                }
+              }
+            }
+          }
+          Write-Output 'R322_AUTHENTICATED_EXISTING_ORIGINAL_ELEVATED_OWNER=PASS'
+          Write-Output 'R322_RUNNING_R303_IMAGE_AND_LOCAL_LOOPBACK_OWNER=PASS'
+          Write-Output 'R322_ORIGINAL_R18_TASK_AND_EFFECTIVE_CONFIG=PASS'
+          Write-Output ('R322_EXACT_COMMAND_IMAGE_BINDING='+([string]$imageBound).ToUpperInvariant())
+          Write-Output ('R322_RUNNING_NATIVE_START_MODE='+$mode)
+          Write-Output 'R322_RAW_CLI_AND_ORIGINAL_TASK_CONTENT_NOT_EXPORTED=TRUE'
+          # A command line can identify intended entrypoint, not confirm each
+          # worker iteration, queue owner lock, acceptance or successor.
+          Write-Output 'R322_SCHEDULER_SUCCESSOR_PROGRESS=NOT_ATTESTED'
+          $again=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($again.Count -ne 1 -or [int]$again[0].ProcessId -ne $originalPID -or
+             ([datetime]$again[0].CreationDate).ToUniversalTime().ToString('o') -cne $originalBirth -or
+             (Sha ([string]$again[0].ExecutablePath)) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+             (Sha $cfg) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc' -or
+             (TextHash (Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)) -cne '84550e47cac80dfd84ec09baea7db6c533c3d88ea39bd88e3c5dd3e0e1406022'){
+            throw 'R322_NATIVE_PROCESS_TASK_CONFIG_CHANGED_DURING_READ'
+          }
+          Write-Output 'R322_NATIVE_PROCESS_TASK_CONFIG_PREPOST=PASS'
+          Write-Output 'R322_PRODUCTION_BACKUP_NOT_CREATED_OR_AUTHORIZED=TRUE'
+          Write-Output 'R322_OLD_WORK_ORDERS_AND_OPERATOR_BLOCK_NOT_ACCESSED=TRUE'
+          Write-Output 'R322_NO_QUEUE_DISPATCH_NATIVE_CLI_EXECUTION_OR_TASK_MUTATIONS=TRUE'
