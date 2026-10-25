@@ -1,0 +1,93 @@
+name: F139 G20 original owner source admission - branch-only one-shot
+on:
+  push:
+    branches:
+      - qualify/f139-g20-original-owner-release-dispatch-once-20261025
+    paths:
+      - .github/workflows/f139-g20-original-owner-release-once.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-g20-original-owner-preflight-once
+  cancel-in-progress: false
+jobs:
+  original-owner-preflight:
+    if: github.ref == 'refs/heads/qualify/f139-g20-original-owner-release-dispatch-once-20261025' && github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    env:
+      F139_G20_EXPECTED_MAIN: 'bc3ce02f849ed07108b192daf860a54b51547d3c'
+      F139_G20_OLD_SOURCE: '6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+    steps:
+      - name: Authenticate original Windows owner without releasing or mutating any source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='spoonman136668-ai/FORGE'
+          $name='FORGE-F139-UnifiedController'
+          $target=[string]$env:F139_G20_EXPECTED_MAIN
+          $old=[string]$env:F139_G20_OLD_SOURCE
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'F139_G20_ORIGINAL_OWNER_RUNNER_DRIFT'
+          }
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($me).IsInRole(
+                [Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'F139_G20_ADMIN_OWNER_REQUIRED'
+          }
+          $who=(& gh api user --jq '.login' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $who -cne 'spoonman136668-ai'){
+            throw 'F139_G20_AUTHENTICATED_OWNER_DRIFT'
+          }
+          $main=(& gh api "repos/$repo/branches/main" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true -or
+             $main.commit.sha -cne $target){
+            throw 'F139_G20_PROTECTED_TARGET_DRIFT'
+          }
+          $p=(& gh api "repos/$repo/issues/807" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_G20_POLICY_UNAVAILABLE'}
+          $policy=[string]$p.body | ConvertFrom-Json
+          if($policy.enabled -ne $true -or
+             $policy.source_sha -cne $old -or
+             $policy.scientific_first_use -ne $false -or
+             $policy.new_controller -ne $false -or
+             $policy.new_scheduler -ne $false -or
+             $policy.new_queue -ne $false -or
+             $policy.paid_model_calls -ne 0){
+            throw 'F139_G20_ORIGINAL_OWNER_POLICY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_G20_ORIGINAL_TASK_DRIFT'
+          }
+          $id=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($id)).Translate(
+                 [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($id -ine $me.Name -and $sid -cne $me.User.Value){
+            throw 'F139_G20_OWNER_SID_DRIFT'
+          }
+          function TaskArg([string]$n) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G20_TASK_ARG_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          if([string]$task.Actions[0].Arguments -notmatch
+              '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'F139_G20_ORIGINAL_300S_CADENCE_DRIFT'
+          }
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0 -or
+             -not (Test-Path -LiteralPath $db)){
+            throw 'F139_G20_EXISTING_SOURCE_OR_LEDGER_DRIFT'
+          }
+          Write-Host 'F139_G20_OWNER_CREDENTIAL_AND_PROTECTED_SOURCE=PASS'
+          Write-Host 'F139_G20_ONE_ORIGINAL_TASK_AND_CADENCE=PASS'
+          Write-Host 'F139_G20_PREFLIGHT_READONLY_NO_DISPATCH=PASS'
