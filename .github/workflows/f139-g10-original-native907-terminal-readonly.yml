@@ -1,0 +1,119 @@
+name: F139 G10 original owner issue907 terminal custody audit (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g10-original-native907-terminal-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Verify original owner single-task authority, G3 issue admission and first worker negative
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $ticket='f139-nci04-i907-6e14fbe374aa-8c9753f0'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             [string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1 -or
+             @($task.Triggers).Count -ne 3){throw 'F139_G10_OWNER_TASK_DRIFT'}
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $rawOwner=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($rawOwner)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($rawOwner -ine $owner.Name -and $sid -cne $owner.User.Value){
+            throw 'F139_G10_OWNER_SID_DRIFT'
+          }
+          function Arg([string]$n){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G10_OWNER_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          if([IO.Path]::GetFileName((Arg 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'F139_G10_ORIGINAL_WRAPPER_DRIFT'
+          }
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $source -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G10_INSTALLED_SOURCE_DRIFT'
+          }
+          $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop') })
+          if($child.Count -ne 1 -or
+             [string]$child[0].CommandLine -notmatch '--seconds\s+300(?:\s|$)'){
+            throw 'F139_G10_SINGLE_ORIGINAL_CHILD_DRIFT'
+          }
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          source=sys.argv[3]
+          ticket=sys.argv[4]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import native_events,verify_native_activation
+          ro=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.row_factory=sqlite3.Row
+          ro.execute("PRAGMA query_only=ON")
+          db=object.__new__(Database);db.conn=ro;db.filename=dbpath
+          try:
+              db.verify()
+              meta=db.meta()
+              assert meta["source_sha"]==source and meta["head_seq"]>=212
+              assert verify_native_activation(db)
+              e=native_events(db)
+              candidates=[r for r in e if r["issue_number"]==907 and r["ticket"]==ticket]
+              assert len(candidates)==1 and candidates[0]["source_sha"]==source
+              stage=ro.execute("SELECT stage,source_sha,run_id,quarantine_reason,evidence_sha FROM tasks WHERE ticket=?",(ticket,)).fetchone()
+              assert stage is not None and stage["source_sha"]==source
+              events=list(ro.execute("SELECT seq,kind,payload FROM events ORDER BY seq"))
+              matching=[]
+              for row in events:
+                  if row["kind"] in ("NATIVE_DEVELOPMENT_ADMITTED","NATIVE_FAILED_PROVIDER_CUSTODY","ATTEMPT_QUARANTINED","WORKER_DISPATCH_OBSERVED"):
+                      try:
+                          doc=json.loads(row["payload"])
+                          if doc.get("ticket")==ticket:
+                              matching.append((row["seq"],row["kind"],doc))
+                      except ValueError:raise
+              provider=[x for x in matching if x[1]=="NATIVE_FAILED_PROVIDER_CUSTODY"]
+              if provider:
+                  assert len(provider)==1 and provider[0][2]["run_id"]==40153474857
+                  assert provider[0][2]["scientific_first_use"] is False
+                  report=provider[0][2]["provider"]
+                  assert report["provider_terminal"]=="FAILURE_NO_REPLAY"
+                  assert set(report["jobs"])=={"ubuntu-latest","windows-latest"}
+                  assert all(report["jobs"][name]["conclusion"]=="failure" for name in report["jobs"])
+                  assert len(report["artifact_ids"])==2
+                  print("F139_G10_BOTH_OS_FAILED_PROVIDER_CUSTODY=PASS")
+              else:
+                  print("F139_G10_BOTH_OS_FAILED_PROVIDER_CUSTODY=NOT_YET_RECORDED")
+              total=ro.execute("SELECT count(*) FROM tasks").fetchone()[0]
+              negatives=ro.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert total>=32 and negatives>=12
+              print("F139_G10_ORIGINAL_EVENT_HEAD="+str(meta["head_seq"]))
+              print("F139_G10_NATIVE_ADMISSIONS="+str(len(e)))
+              print("F139_G10_ISSUE907_STORED_STAGE="+str(stage["stage"]))
+              print("F139_G10_ISSUE907_STORED_RUN_ID="+str(stage["run_id"]))
+              print("F139_G10_ISSUE907_QUARANTINE_REASON="+str(stage["quarantine_reason"]))
+              print("F139_G10_CUSTODY_EVENT_KINDS="+",".join(r[1] for r in matching))
+              print("F139_G10_QUARANTINED_TOTAL="+str(negatives))
+              print("F139_G10_ACTIVE_NATIVE_COUNT="+str(len(db.actives())))
+              print("F139_G10_NONTERMINAL_COUNT="+str(ro.execute("SELECT count(*) FROM tasks WHERE stage NOT IN ('VERIFIED','QUARANTINED')").fetchone()[0]))
+              print("F139_G10_FULL_ORIGINAL_SQLITE_CHAIN=PASS")
+              print("F139_G10_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              ro.close()
+          '@
+          & $python -B -c $code $root $db $source $ticket
+          if($LASTEXITCODE -ne 0){throw 'F139_G10_LEDGER_AND_CUSTODY_FAIL_CLOSED'}
+          Write-Host 'F139_G10_NO_ORIGINAL_TASK_SOURCE_SQLITE_API_MUTATION=TRUE'
