@@ -12,16 +12,16 @@ def original(t="travel.departed"):
         "id": 7,
         "tick": 20,
         "type": t,
-        "actors": ["npc:ada"],
-        "location": "loc:home",
+        "actors": ["npc:0"],
+        "location": "location:0",
         "data": {
-            "traveller": "npc:ada",
-            "from": "loc:home",
+            "traveller": "npc:0",
+            "from": "location:0",
             "to": "loc:unknown-next-node",
             "destination": "loc:SECRET_FUTURE_DESTINATION",
             "cost": 99,
             "arrivesAt": 999,
-            "at": "loc:market",
+            "at": "location:1",
             "final": True,
             "travelled": 999,
             "reason": "forbidden",
@@ -35,7 +35,7 @@ def original(t="travel.departed"):
 
 
 class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
-    def project(self, e=None, actor="npc:ada", cursor=(0, 0)):
+    def project(self, e=None, actor="npc:0", cursor=(0, 0)):
         return project_event(original() if e is None else e, actor, cursor)
 
     def denied(self, message, fn):
@@ -46,7 +46,7 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
         item, cursor = self.project()
         self.assertEqual(item, {
             "kind": "travel.departed", "tick": 20,
-            "traveller": "npc:ada", "status": "departed"})
+            "traveller": "npc:0", "status": "departed"})
         self.assertEqual(cursor, (20, 7))
 
     def test_02_drop_generation_seed(self):
@@ -70,7 +70,7 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
 
     def test_07_arrived_location_positive(self):
         e, _ = self.project(original("travel.arrived"))
-        self.assertEqual(e["at"], "loc:market")
+        self.assertEqual(e["at"], "location:1")
         self.assertEqual(e["status"], "arrived")
 
     def test_08_arrival_filters_route_cost_time(self):
@@ -89,11 +89,11 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
         self.assertEqual(set(e), {"kind", "tick", "traveller", "status", "reason"})
 
     def test_11_strict_actor_mismatch(self):
-        self.denied("CROSS_ACTOR", lambda: self.project(actor="npc:ben"))
+        self.denied("CROSS_ACTOR", lambda: self.project(actor="npc:1"))
 
     def test_12_multi_actor_event_rejected(self):
         e = original()
-        e["actors"] = ["npc:ada", "npc:ben"]
+        e["actors"] = ["npc:0", "npc:1"]
         self.denied("CROSS_ACTOR", lambda: self.project(e))
 
     def test_13_missing_actor_rejected(self):
@@ -103,7 +103,7 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
 
     def test_14_data_traveller_mismatch(self):
         e = original()
-        e["data"]["traveller"] = "npc:ben"
+        e["data"]["traveller"] = "npc:1"
         self.denied("TRAVELLER_INCONSISTENT", lambda: self.project(e))
 
     def test_15_invalid_reason_rejected(self):
@@ -137,7 +137,7 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
         self.assertEqual(cursor, (20, 7))
 
     def test_22_new_tick_accepted(self):
-        _, cursor = self.project(cursor=(19, 200))
+        _, cursor = self.project(cursor=(19, 6))
         self.assertEqual(cursor, (20, 7))
 
     def test_23_no_secret_in_any_allowed_output(self):
@@ -171,6 +171,44 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
         self.assertEqual(e["status"], "blocked")
         self.assertNotIn("owner", str(e))
         self.assertNotIn("parent", str(e))
+
+    def test_29_reject_event_id_regression_across_later_tick(self):
+        self.denied("NONMONOTONIC_EVENT",
+                    lambda: self.project(cursor=(19, 200)))
+
+    def test_30_reject_same_event_id_across_later_tick(self):
+        self.denied("NONMONOTONIC_EVENT",
+                    lambda: self.project(cursor=(19, 7)))
+
+    def test_31_allow_later_tick_and_larger_event_id(self):
+        item, cursor = self.project(cursor=(19, 6))
+        self.assertEqual(item["kind"], "travel.departed")
+        self.assertEqual(cursor, (20, 7))
+
+    def test_32_reject_forged_arrival_place_namespace(self):
+        e = original("travel.arrived")
+        e["data"]["at"] = "loc:secret"
+        self.denied("ARRIVAL_LOCATION", lambda: self.project(e))
+
+    def test_33_reject_nonnumeric_actor(self):
+        self.denied("SCOPED_ACTOR_REQUIRED",
+                    lambda: self.project(actor="npc:ada"))
+
+    def test_34_reject_unsafe_integer_original_place(self):
+        e = original("travel.arrived")
+        e["data"]["at"] = "location:9007199254740992"
+        self.denied("ARRIVAL_LOCATION", lambda: self.project(e))
+
+    def test_35_reject_noncanonical_location_zero(self):
+        e = original("travel.arrived")
+        e["data"]["at"] = "location:00"
+        self.denied("ARRIVAL_LOCATION", lambda: self.project(e))
+
+    def test_36_reject_zero_event_id_even_with_later_tick(self):
+        e = original()
+        e["id"] = 0
+        self.denied("ORIGINAL_EVENT_ID_OR_TICK", lambda: self.project(e))
+
 
 
 if __name__ == "__main__":

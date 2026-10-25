@@ -8,13 +8,13 @@ from tw3_dev_movement_proposal import (
 
 
 def proposal():
-    return {"actor": "npc:ada", "destination": "loc:market"}
+    return {"actor": "npc:0", "destination": "location:1"}
 
 
 def allow(x=None, **opts):
     args = {
-        "scoped_actor": "npc:ada",
-        "public_destinations": frozenset(("loc:home", "loc:market")),
+        "scoped_actor": "npc:0",
+        "public_destinations": frozenset(("location:0", "location:1")),
         "action_budget_remaining": 3,
         "already_in_flight": False,
     }
@@ -61,15 +61,15 @@ class TW3FailClosedActions(unittest.TestCase):
 
     def test_09_reject_other_actor(self):
         self.reject("ACTOR_CUSTODY", lambda: allow(
-            {"actor": "npc:ben", "destination": "loc:market"}))
+            {"actor": "npc:1", "destination": "location:1"}))
 
     def test_10_reject_missing_actor(self):
         self.reject("EXACT_REQUEST_FIELDS", lambda: allow(
-            {"destination": "loc:market"}))
+            {"destination": "location:1"}))
 
     def test_11_reject_unknown_dest(self):
         self.reject("DESTINATION_NOT_PUBLIC", lambda: allow(
-            {"actor": "npc:ada", "destination": "loc:secret"}))
+            {"actor": "npc:0", "destination": "loc:secret"}))
 
     def test_12_reject_no_catalog(self):
         self.reject("PUBLIC_CATALOG_SHAPE", lambda: allow(
@@ -77,11 +77,11 @@ class TW3FailClosedActions(unittest.TestCase):
 
     def test_13_reject_mutable_catalog(self):
         self.reject("PUBLIC_CATALOG_SHAPE", lambda: allow(
-            public_destinations={"loc:market"}))
+            public_destinations={"location:1"}))
 
     def test_14_reject_catalog_with_private_marker(self):
         self.reject("PUBLIC_CATALOG_SHAPE", lambda: allow(
-            public_destinations=frozenset(("loc:market", "secret-target"))))
+            public_destinations=frozenset(("location:1", "secret-target"))))
 
     def test_15_reject_zero_remaining_actions(self):
         self.reject("FINITE_ACTION_BUDGET", lambda: allow(action_budget_remaining=0))
@@ -109,15 +109,15 @@ class TW3FailClosedActions(unittest.TestCase):
 
     def test_23_reject_malformed_destination(self):
         self.reject("DESTINATION_FORMAT", lambda: allow(
-            {"actor":"npc:ada","destination":"../../owner_secret"}))
+            {"actor":"npc:0","destination":"../../owner_secret"}))
 
     def test_24_reject_nested_destination(self):
         self.reject("DESTINATION_FORMAT", lambda: allow(
-            {"actor":"npc:ada","destination":{"id":"loc:market"}}))
+            {"actor":"npc:0","destination":{"id":"location:1"}}))
 
     def test_25_never_expose_journey_path_or_future_time(self):
         raw = {"started":True,"journey":{
-            "path":["loc:home","loc:private","loc:market"],
+            "path":["location:0","loc:private","location:1"],
             "leg":0,"startedAt":5,"legArrivesAt":17,
             "totalCost":10000,"arrival":599,
             "seed":"SECRET_SEED"
@@ -166,8 +166,37 @@ class TW3FailClosedActions(unittest.TestCase):
         self.reject("SCOPED_ACTOR",lambda:allow(scoped_actor="admin/root"))
 
     def test_33_valid_home_destination_under_same_development_budget(self):
-        r=allow({"actor":"npc:ada","destination":"loc:home"})
-        self.assertEqual(r["destination"],"loc:home")
+        r=allow({"actor":"npc:0","destination":"location:0"})
+        self.assertEqual(r["destination"],"location:0")
+
+    def test_34_reject_old_noncanonical_actor_nickname(self):
+        self.reject("SCOPED_ACTOR", lambda: allow(scoped_actor="npc:ada"))
+
+    def test_35_reject_old_loc_catalog(self):
+        self.reject("PUBLIC_CATALOG_SHAPE",
+                    lambda: allow(public_destinations=frozenset(("loc:market",))))
+
+    def test_36_reject_unsafe_original_location_index(self):
+        self.reject("PUBLIC_CATALOG_SHAPE", lambda: allow(
+            public_destinations=frozenset(("location:9007199254740992",))))
+
+    def test_37_reject_zero_padded_original_actor(self):
+        self.reject("SCOPED_ACTOR",lambda:allow(scoped_actor="npc:00"))
+
+    def test_38_reject_nonexistent_but_well_formed_source_destination(self):
+        self.reject("DESTINATION_NOT_PUBLIC", lambda: allow(
+            {"actor": "npc:0", "destination": "location:4"}))
+
+    def test_39_accept_canonical_zero_index_source_ids(self):
+        self.assertEqual(allow()["actor"], "npc:0")
+        self.assertEqual(allow()["destination"], "location:1")
+
+    def test_40_dev_precheck_does_not_consume_action_budget(self):
+        a = allow(action_budget_remaining=2)
+        b = allow(action_budget_remaining=2)
+        self.assertEqual(a, b)
+        self.assertFalse(a["source_executed"])
+
 
 
 if __name__ == "__main__":

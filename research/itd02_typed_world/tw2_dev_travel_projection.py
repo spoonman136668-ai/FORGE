@@ -5,8 +5,19 @@ Read-only, allowlist-only; no original game, subscription, action or scorer.
 Authenticated source runtime and independent permission remain mandatory.
 """
 from __future__ import annotations
+import re
 
 ROLE = "TW2_OPEN_HANDCRAFTED_DEV_ONLY"
+CANONICAL_NPC = re.compile(r"npc:(?:0|[1-9][0-9]*)\Z")
+CANONICAL_LOCATION = re.compile(r"location:(?:0|[1-9][0-9]*)\Z")
+MAX_SOURCE_INDEX = 9007199254740991
+
+
+def canonical_source_id(value, kind):
+    pattern = CANONICAL_NPC if kind == "npc" else CANONICAL_LOCATION
+    return (type(value) is str and pattern.fullmatch(value) is not None
+            and int(value.split(":", 1)[1]) <= MAX_SOURCE_INDEX)
+
 ALLOWED = {"travel.departed", "travel.arrived", "travel.blocked"}
 REASONS = {
     "not-placed", "already-travelling", "unknown-destination", "no-route",
@@ -28,9 +39,9 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
     Unlisted events, including world.generated with raw seed and parents,
     vanish. Allowed original travel events are reduced to explicit keys, never
     copying arbitrary data, future route, cost, arrival time or cause chain.
-    Cursor is (tick, event_id) for the last accepted event.
+    Cursor is (tick, event_id) for the last accepted event; IDs must strictly grow even when ticks advance.
     """
-    refuse(type(scoped_actor) is str and bool(scoped_actor),
+    refuse(canonical_source_id(scoped_actor, "npc"),
            "SCOPED_ACTOR_REQUIRED")
     refuse(type(cursor) is tuple and len(cursor) == 2 and
            all(type(v) is int and v >= 0 for v in cursor),
@@ -44,7 +55,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
            type(raw.get("tick")) is int and raw["tick"] >= 0,
            "ORIGINAL_EVENT_ID_OR_TICK")
     tick, number = raw["tick"], raw["id"]
-    refuse(tick > cursor[0] or (tick == cursor[0] and number > cursor[1]),
+    refuse(tick >= cursor[0] and number > cursor[1],
            "NONMONOTONIC_EVENT")
     refuse(type(raw.get("actors")) is list and
            raw["actors"] == [scoped_actor], "CROSS_ACTOR_EVENT")
@@ -58,7 +69,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
         "status": STATUS[typ],
     }
     if typ == "travel.arrived":
-        refuse(type(data.get("at")) is str and bool(data["at"]),
+        refuse(canonical_source_id(data.get("at"), "location"),
                "ARRIVAL_LOCATION")
         out["at"] = data["at"]
     elif typ == "travel.blocked":
