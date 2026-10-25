@@ -1,4 +1,4 @@
-name: F139 G6 compare original Python and PowerShell gh API (read only)
+name: F139 G6 classify original GitHub 403 without credentials (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -61,6 +61,13 @@ jobs:
                   print("F139_G6_PYTHON_ISSUE_807="+
                         ("PASS" if stdout=="807" and p.returncode==0 else "FAIL"))
               if http:print("F139_G6_PYTHON_HTTP="+",".join(http))
+              for label,regex in [
+                  ("RATE_LIMIT",r"(?i)rate limit|rate_limit|secondary rate"),
+                  ("BAD_CREDENTIALS",r"(?i)bad credentials|invalid token|token has expired"),
+                  ("AUTH_REQUIRED",r"(?i)authentication required|not logged in|you are not logged"),
+                  ("PERMISSION_DENIED",r"(?i)resource not accessible|permission denied"),
+                  ("ABUSE_DETECTION",r"(?i)abuse detection|abuse-rate-limits")]:
+                  print("F139_G6_PYTHON_"+label+"="+str(bool(re.search(regex,stderr))))
           print("F139_G6_PYTHON_HAS_GH_TOKEN="+str(bool(os.environ.get("GH_TOKEN"))))
           print("F139_G6_PYTHON_HAS_GITHUB_TOKEN="+str(bool(os.environ.get("GITHUB_TOKEN"))))
           print("F139_G6_PYTHON_HAS_GH_CONFIG_DIR="+str(bool(os.environ.get("GH_CONFIG_DIR"))))
