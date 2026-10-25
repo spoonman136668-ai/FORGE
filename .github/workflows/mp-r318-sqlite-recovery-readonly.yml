@@ -1,0 +1,130 @@
+name: R318 original CKB SQLite recovery preflight read-only
+on:
+  push:
+    branches: [audit/mp-r318-original-sqlite-recovery-readonly-20261025]
+    paths: [.github/workflows/mp-r318-sqlite-recovery-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r318-original-owner-sqlite-readonly
+  cancel-in-progress: false
+jobs:
+  read-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Verify existing original-owner WAL mode and database health without backups or state writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r318-original-sqlite-recovery-readonly-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R318_ORIGINAL_READONLY_RUNNER_IDENTITY_MISMATCH'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R318_EXISTING_ELEVATED_OWNER_REQUIRED'
+          }
+          function Hash([string]$p){
+            return (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($proc.Count -ne 1){throw 'R318_ORIGINAL_PROCESS_SINGLETON_MISSING'}
+          $pidBefore=[int]$proc[0].ProcessId
+          $born=([datetime]$proc[0].CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$proc[0].ExecutablePath
+          if([string]::IsNullOrWhiteSpace($exe) -or (Hash $exe) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R318_ORIGINAL_R303_RUNNING_IMAGE_DRIFT'
+          }
+          $cfgHash=Hash $config
+          if($cfgHash -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+            throw 'R318_ORIGINAL_CONFIG_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $taskXml=Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R318_REGISTERED_R18_OWNER_DRIFT'
+          }
+          $listeners=@(Get-NetTCPConnection -LocalPort 8791 -State Listen -ErrorAction Stop)
+          if($listeners.Count -lt 1 -or
+             @($listeners|Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1') -or [int]$_.OwningProcess -ne $pidBefore}).Count -gt 0){
+            throw 'R318_LOCAL_CONTROLLER_PID_BINDING_DRIFT'
+          }
+          Write-Output 'R318_ORIGINAL_ELEVATED_OWNER_AND_R303_PROCESS=PASS'
+          Write-Output 'R318_R18_TASK_CONFIG_AND_LOOPBACK_BINDING=PASS'
+          # Read-only mode=ro query_only. Do not call WAL checkpoint, PRAGMA journal_mode=
+          # setter, VACUUM INTO, online backup API, or a production write transaction.
+          $read=@'
+          import sqlite3,sys,time
+          from pathlib import Path
+          db=Path(sys.argv[1]).resolve(strict=True)
+          if not db.is_file():
+              raise RuntimeError("R318_ORIGINAL_SQLITE_NOT_REGULAR")
+          def inspect(label):
+              con=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=8)
+              try:
+                  con.execute("PRAGMA query_only=ON")
+                  con.execute("BEGIN")
+                  quick=con.execute("PRAGMA quick_check").fetchone()[0]
+                  if quick!="ok":
+                      raise RuntimeError("R318_SQLITE_INTEGRITY_FAILED_"+label)
+                  mode=str(con.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+                  if mode not in ("wal","delete","truncate","persist","memory","off"):
+                      raise RuntimeError("R318_UNKNOWN_SQLITE_JOURNAL_MODE_"+label)
+                  vals=dict(con.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation','paused')"))
+                  if vals.get("autonomy_authority")!="plane" or vals.get("autonomy_generation")!="6":
+                      raise RuntimeError("R318_SQLITE_ORIGINAL_AUTHORITY_DRIFT_"+label)
+                  work=int(con.execute("SELECT count(*) FROM work_orders").fetchone()[0])
+                  queue=int(con.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0])
+                  leases=int(con.execute("SELECT count(*) FROM worker_leases").fetchone()[0])
+                  if work<199:raise RuntimeError("R318_ORIGINAL_HISTORY_REGRESSED_"+label)
+                  print("R318_"+label+"_SQLITE_INTEGRITY=PASS")
+                  print("R318_"+label+"_JOURNAL_MODE="+mode.upper())
+                  print("R318_"+label+"_ORIGINAL_AUTHORITY=PASS")
+                  print("R318_"+label+"_HISTORY_ROWS="+str(work))
+                  print("R318_"+label+"_ACTIONABLE_QUEUE_COUNT="+str(queue))
+                  print("R318_"+label+"_WORKER_LEASE_COUNT="+str(leases))
+                  print("R318_"+label+"_PAUSED="+str(vals.get("paused","unknown")).upper())
+                  con.rollback()
+                  return mode,queue,leases
+              finally:
+                  con.close()
+          first=inspect("A")
+          time.sleep(2)
+          second=inspect("B")
+          if first[0]!=second[0]:
+              raise RuntimeError("R318_SQLITE_JOURNAL_MODE_CHANGED_DURING_READ")
+          for suffix in ("-wal","-shm"):
+              p=Path(str(db)+suffix)
+              print("R318_SQLITE_"+suffix[1:].upper()+"_SIDECAR_PRESENT="+str(p.is_file()).upper())
+          print("R318_DATABASE_OPENED_SQLITE_MODE_RO_QUERY_ONLY=PASS")
+          print("R318_LIVE_WAL_CONSISTENT_PERSISTENT_BACKUP=NOT_CREATED")
+          print("R318_LIVE_WAL_CONSISTENT_ISOLATED_RESTORE=NOT_TESTED")
+          '@
+          & python.exe -B -c $read $db
+          if($LASTEXITCODE -ne 0){throw 'R318_SQLITE_READONLY_PREFLIGHT_FAILED'}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($after.Count -ne 1 -or [int]$after[0].ProcessId -ne $pidBefore -or
+             ([datetime]$after[0].CreationDate).ToUniversalTime().ToString('o') -cne $born -or
+             (Hash ([string]$after[0].ExecutablePath)) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+             (Hash $config) -cne $cfgHash -or
+             (Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop) -cne $taskXml){
+            throw 'R318_ORIGINAL_CONTROLLER_IMAGE_CONFIG_OR_TASK_PREPOST_DRIFT'
+          }
+          Write-Output 'R318_ORIGINAL_TASK_PROCESS_CONFIG_PREPOST=PASS'
+          Write-Output 'R318_PERSISTENT_RECOVERY_ESCROW=NOT_ATTESTED'
+          Write-Output 'R318_RELEASE_CUTOVER=DENIED'
+          Write-Output 'R318_QUEUE_EXECUTION_AND_CONTROLLER_CONTROL_CALLS=ZERO'
+          Write-Output 'R318_PRODUCTION_DB_TRANSACTIONAL_WRITES_ISSUED=ZERO'
