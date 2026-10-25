@@ -89,7 +89,8 @@ def verify_g49_custody(db) -> bool:
     return True
 
 
-def settle_g49_original_prepost(db, api, *, owner_quiesced: bool) -> dict:
+def settle_g49_original_prepost(db, api, *, owner_quiesced: bool,
+                               approved_target_sha: str) -> dict:
     """One owner-approved exact-head negative, under existing SingleOwner.
 
     Caller must prove the ORIGINAL task disabled and all original controller
@@ -100,6 +101,7 @@ def settle_g49_original_prepost(db, api, *, owner_quiesced: bool) -> dict:
     from f139.local_controller import (
         Database, GitHub, SingleOwner, native_original_owner_profile,
     )
+    import subprocess
     need(type(db) is Database and type(api) is GitHub,
          "CANONICAL_OWNER_ONLY")
     need(owner_quiesced is True and
@@ -114,8 +116,27 @@ def settle_g49_original_prepost(db, api, *, owner_quiesced: bool) -> dict:
          and meta["head_hash"] == CLAIM_SHA
          and meta["enabled"] == 1 and meta["legacy_suspended"] == 1,
          "EXACT_V7_CLAIM_HEAD_REQUIRED")
-    need(api.protected_main() == SOURCE_V7,
-         "PROTECTED_MAIN_SOURCE_DRIFT")
+    # The guarded source cutover must already have placed the exact new
+    # approved, protected source in the SAME original task checkout; the DB
+    # remains on its immutable V7 identity until the following distinct V8
+    # source-transition event. Never run a branch checkout as live authority.
+    need(isinstance(approved_target_sha, str)
+         and re.fullmatch(r"[a-f0-9]{40}", approved_target_sha) is not None
+         and approved_target_sha != SOURCE_V7
+         and api.protected_main() == approved_target_sha,
+         "PROTECTED_MAIN_CUTOVER_IDENTITY_DRIFT")
+    installed = Path(__file__).resolve().parent.parent
+    head = subprocess.run(
+        ["git", "-C", str(installed), "rev-parse", "HEAD"],
+        check=False, capture_output=True, timeout=15)
+    dirty = subprocess.run(
+        ["git", "-C", str(installed), "status", "--porcelain",
+         "--untracked-files=all"],
+        check=False, capture_output=True, timeout=15)
+    need(head.returncode == dirty.returncode == 0
+         and head.stdout.decode().strip() == approved_target_sha
+         and not dirty.stdout.strip(),
+         "EXACT_CLEAN_INSTALLED_PROTECTED_SOURCE_REQUIRED")
     active = list(db.actives())
     need(len(active) == 1 and active[0]["ticket"] == TICKET
          and active[0]["stage"] == "START_RISK"
