@@ -1,0 +1,206 @@
+name: R308 elevated owner isolated rollback rehearsal
+on:
+  push:
+    branches: [audit/mp-r308-owner-scratch-rollback-20261025]
+    paths: [.github/workflows/mp-r308-owner-scratch-rollback.yml]
+permissions:
+  contents: read
+concurrency:
+  group: mp-r308-owner-private-scratch
+  cancel-in-progress: false
+jobs:
+  rehearsal:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Rehearse private file-level cutover and restore without live controller changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r308-owner-scratch-rollback-20261025' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){throw 'R308_ORIGINAL_OWNER_OR_EVENT_DRIFT'}
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $adm=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or !$adm.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R308_ELEVATED_OWNER_NOT_VERIFIED'
+          }
+          function Hash([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($proc.Count -ne 1){throw 'R308_SINGLETON_UNVERIFIED'}
+          $pidOriginal=[int]$proc[0].ProcessId
+          $born=([datetime]$proc[0].CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$proc[0].ExecutablePath
+          if([string]::IsNullOrWhiteSpace($exe)){throw 'R308_LIVE_EXE_PATH_MISSING'}
+          $exeHash=Hash $exe
+          if($exeHash -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R308_ORIGINAL_R303_IMAGE_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R308_ORIGINAL_TASK_DRIFT'
+          }
+          $taskXml=Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $cfgHash=Hash $cfg
+          $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([char]92)
+          $scratch=Join-Path $temp ('r308-'+$env:GITHUB_RUN_ID)
+          $winTmp=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'Temp')).TrimEnd([char]92)+[char]92
+          if(($scratch+[char]92).StartsWith($winTmp,[StringComparison]::OrdinalIgnoreCase) -or
+             (Test-Path -LiteralPath $scratch)){throw 'R308_UNSAFE_SCRATCH'}
+          $baseline=Join-Path $scratch 'backup'
+          $stage=Join-Path $scratch 'stage'
+          $candidate=Join-Path $scratch 'r307-candidate.exe'
+          $candidateReady=$false
+          $completed=$false
+          $cleanupPass=$true
+          try {
+            foreach($dir in @($baseline,$stage)){$null=New-Item -ItemType Directory -Path $dir -Force}
+            Copy-Item -LiteralPath $exe -Destination (Join-Path $baseline 'ckb-plane.exe') -Force
+            Copy-Item -LiteralPath $cfg -Destination (Join-Path $baseline 'autonomy.yaml') -Force
+            [IO.File]::WriteAllText((Join-Path $baseline 'task.xml'),$taskXml,[Text.UTF8Encoding]::new($false))
+            $snap=@'
+          import sqlite3,sys
+          from pathlib import Path
+          srcpath=Path(sys.argv[1]).resolve(strict=True)
+          target=Path(sys.argv[2]).resolve()
+          assert srcpath!=target and not target.exists()
+          with sqlite3.connect(srcpath.as_uri()+"?mode=ro",uri=True,timeout=8) as src:
+              src.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(str(target)) as dest:
+                  src.backup(dest,pages=64,sleep=0.05)
+                  assert dest.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+                  settings=dict(dest.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+                  total=dest.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+                  q=dest.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0]
+                  leases=dest.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+                  assert total>=199 and q==0 and leases==0
+                  assert settings.get("autonomy_authority")=="plane" and settings.get("autonomy_generation")=="6"
+                  print("R308_ORIGINAL_WORKORDERS="+str(total))
+                  print("R308_ORIGINAL_QUEUE_AND_LEASES_ZERO=PASS")
+                  print("R308_ORIGINAL_DB_TRANSACTIONAL_READONLY_SNAPSHOT=PASS")
+          '@
+            & python.exe -B -c $snap $db (Join-Path $baseline 'autonomy.db')
+            if($LASTEXITCODE -ne 0){throw 'R308_TRANSACTIONAL_SNAPSHOT_FAILED'}
+            $pinned=@{}
+            foreach($name in @('ckb-plane.exe','autonomy.yaml','task.xml','autonomy.db')){
+              $pinned[$name]=Hash (Join-Path $baseline $name)
+              Copy-Item -LiteralPath (Join-Path $baseline $name) -Destination (Join-Path $stage $name) -Force
+            }
+            if($pinned['ckb-plane.exe'] -cne $exeHash -or $pinned['autonomy.yaml'] -cne $cfgHash){
+              throw 'R308_CUSTODY_HASH_MISMATCH'
+            }
+            $parsed=[xml]([IO.File]::ReadAllText((Join-Path $baseline 'task.xml')))
+            if($parsed.DocumentElement.LocalName -cne 'Task'){throw 'R308_TASK_XML_INVALID'}
+            Write-Host 'R308_CURRENT_EXE_CONFIG_TASK_DB_BACKUP=PASS'
+            # Use already approved original-owner GitHub login ONLY if available.
+            # All source checkout/build activity is confined to scratch.
+            $gitSrc=Join-Path $scratch 'source'
+            $gh=Get-Command gh.exe -ErrorAction SilentlyContinue
+            $go=Get-Command go.exe -ErrorAction SilentlyContinue
+            if($null-ne$gh -and $null-ne$go){
+              $expectedCommit='e37bcaa94652b39f474df95608ccacd14f94abf8'
+              $env:GIT_TERMINAL_PROMPT='0'
+              $result=''
+              try{$result=(& gh.exe api ('repos/spoonman136668-ai/ckb-plane/commits/'+$expectedCommit) --jq '.sha' 2>$null | Out-String).Trim()}catch{$result=''}
+              if($LASTEXITCODE -eq 0 -and $result -ceq $expectedCommit){
+                & gh.exe repo clone spoonman136668-ai/ckb-plane $gitSrc -- --quiet --no-checkout 2>$null | Out-Null
+                if($LASTEXITCODE -eq 0){
+                  & git.exe -C $gitSrc checkout --quiet --detach $expectedCommit 2>$null | Out-Null
+                  if($LASTEXITCODE -ne 0 -or
+                     (& git.exe -C $gitSrc rev-parse HEAD).Trim() -cne $expectedCommit){
+                    throw 'R308_R307_SOURCE_IDENTITY_FAIL'
+                  }
+                  $env:GOPROXY='off';$env:GOSUMDB='off';$env:GOFLAGS='-mod=readonly -p=1'
+                  $env:GOMAXPROCS='1';$env:GOMEMLIMIT='1536MiB'
+                  Push-Location (Join-Path $gitSrc 'snapshot\source')
+                  try{
+                    & go.exe build -trimpath -o $candidate ./cmd/ckb-plane
+                    if($LASTEXITCODE -ne 0){throw 'R308_ISOLATED_CANDIDATE_BUILD_FAILED'}
+                  }finally{Pop-Location}
+                  if((Hash $candidate) -cne '107194890d6a4611cce167e09a06fdffd34a4634aa9ed14362a852a5ed21216b'){
+                    throw 'R308_R307_CANDIDATE_BINARY_HASH_DRIFT'
+                  }
+                  $candidateReady=$true
+                  Write-Host 'R308_EXACT_R307_CANDIDATE_REPRODUCED=PASS'
+                }
+              }
+            }
+            if(!$candidateReady){Write-Host 'R308_R307_PRIVATE_CANDIDATE_NOT_AVAILABLE=BLOCKED'}
+            if($candidateReady){
+              Copy-Item -LiteralPath $candidate -Destination (Join-Path $stage 'ckb-plane.exe') -Force
+              if((Hash (Join-Path $stage 'ckb-plane.exe')) -cne (Hash $candidate)){
+                throw 'R308_SCRATCH_CANDIDATE_NOT_INSTALLED'
+              }
+              Write-Host 'R308_ISOLATED_R307_BINARY_SWAP=PASS'
+            }
+            [IO.File]::AppendAllText((Join-Path $stage 'autonomy.yaml'),([Environment]::NewLine+'# isolated r308 scratch-only marker'+[Environment]::NewLine))
+            [IO.File]::AppendAllText((Join-Path $stage 'task.xml'),([Environment]::NewLine+'<!-- isolated r308 scratch-only marker -->'+[Environment]::NewLine))
+            $modify=@'
+          import sqlite3,sys
+          with sqlite3.connect(sys.argv[1]) as c:
+              c.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('r308_scratch_canary','yes')")
+              c.commit()
+              assert c.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+              print("R308_ISOLATED_DB_STAGE=PASS")
+          '@
+            & python.exe -B -c $modify (Join-Path $stage 'autonomy.db')
+            if($LASTEXITCODE -ne 0){throw 'R308_SCRATCH_DB_STAGE_FAILED'}
+            foreach($name in @('autonomy.yaml','task.xml','autonomy.db')){
+              if((Hash (Join-Path $stage $name)) -ceq $pinned[$name]){
+                throw 'R308_SCRATCH_MOCK_CHANGE_NOT_APPLIED'
+              }
+            }
+            Write-Host 'R308_ISOLATED_CONFIG_TASK_DB_SWAP=PASS'
+            foreach($name in @('ckb-plane.exe','autonomy.yaml','task.xml','autonomy.db')){
+              Copy-Item -LiteralPath (Join-Path $baseline $name) -Destination (Join-Path $stage $name) -Force
+              if((Hash (Join-Path $stage $name)) -cne $pinned[$name]){
+                throw 'R308_RESTORE_HASH_MISMATCH'
+              }
+            }
+            $verify=@'
+          import sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          with sqlite3.connect(p.as_uri()+"?mode=ro",uri=True) as db:
+              assert db.execute("PRAGMA quick_check").fetchone()[0]=="ok"
+              assert db.execute("SELECT count(*) FROM settings WHERE key='r308_scratch_canary'").fetchone()[0]==0
+              print("R308_RESTORED_DATABASE_INTEGRITY_AND_CANARY=PASS")
+          '@
+            & python.exe -B -c $verify (Join-Path $stage 'autonomy.db')
+            if($LASTEXITCODE -ne 0){throw 'R308_RESTORED_DB_FAILED'}
+            Write-Host 'R308_EXACT_RESTORATION_4_OF_4=PASS'
+            if($candidateReady){Write-Host 'R308_R307_BINARY_FILE_ROLLBACK=PASS'}
+            else{Write-Host 'R308_R307_BINARY_FILE_ROLLBACK=NOT_TESTED'}
+            $completed=$true
+          }finally{
+            if(Test-Path -LiteralPath $scratch){
+              try{Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+              catch{$cleanupPass=$false}
+            }
+            if(Test-Path -LiteralPath $scratch){$cleanupPass=$false}
+            $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if($after.Count -ne 1 -or [int]$after[0].ProcessId -ne $pidOriginal -or
+               ([datetime]$after[0].CreationDate).ToUniversalTime().ToString('o') -cne $born -or
+               (Hash ([string]$after[0].ExecutablePath)) -cne $exeHash){
+              throw 'R308_LIVE_CONTROLLER_IDENTITY_CHANGED'
+            }
+            if((Hash $cfg) -cne $cfgHash -or
+               [string](Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop).State -cne 'Running' -or
+               (Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop) -cne $taskXml){
+              throw 'R308_LIVE_CONFIG_OR_TASK_CHANGED'
+            }
+            Write-Host 'R308_LIVE_EXE_CONFIG_TASK_PREPOST=PASS'
+            Write-Host 'R308_ORIGINAL_DB_OPENED_READONLY=TRUE'
+            Write-Host 'R308_ORIGINAL_CONTROLLER_CALLS=0'
+            Write-Host 'R308_QUEUED_WORK_EXECUTED=FALSE'
+            Write-Host 'R308_INSTALL_CUTOVER_OR_MEMORY_WRITES=FALSE'
+            if(!$cleanupPass){throw 'R308_PRIVATE_BACKUP_CLEANUP_FAILED'}
+            Write-Host 'R308_SCRATCH_DATA_CLEANUP=PASS'
+          }
+          if(!$completed){throw 'R308_ROLLBACK_REHEARSAL_INCOMPLETE'}
