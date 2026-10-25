@@ -34,29 +34,42 @@ def need(ok: bool, reason: str):
 
 def validate_v7_original_owner(db, approval: dict) -> dict:
     from f139.local_controller import Database
-    need(type(db) is Database and type(approval) is dict
-         and set(approval) == FIELDS and approval.get("schema") == SCHEMA
-         and approval.get("from_source_sha") == OLD
-         and isinstance(approval.get("to_source_sha"),str)
+    # Exact same release conditions as G39, but report the failing FIELD
+    # NAME only so an original-owner cutover can be repaired without
+    # exposing credential material, accepted evidence or SQLite content.
+    need(type(db) is Database, "APPROVAL_FORM_DATABASE_TYPE")
+    need(type(approval) is dict, "APPROVAL_FORM_OBJECT_TYPE")
+    need(set(approval) == FIELDS, "APPROVAL_FORM_FIELD_INVENTORY")
+    need(approval.get("schema") == SCHEMA, "APPROVAL_FORM_SCHEMA")
+    need(approval.get("from_source_sha") == OLD,
+         "APPROVAL_FORM_ORIGINAL_SOURCE")
+    need(isinstance(approval.get("to_source_sha"),str)
          and SHA40.fullmatch(approval["to_source_sha"]) is not None
-         and approval["to_source_sha"] != OLD
-         and type(approval.get("owner_event_seq")) is int
-         and approval["owner_event_seq"] >= 220
-         and isinstance(approval.get("owner_event_sha256"),str)
-         and SHA64.fullmatch(approval["owner_event_sha256"]) is not None
-         and isinstance(approval.get("v6_terminal_event_sha256"),str)
-         and SHA64.fullmatch(approval["v6_terminal_event_sha256"]) is not None
-         and isinstance(approval.get("original_quarantined_tickets_sha256"),str)
-         and SHA64.fullmatch(approval["original_quarantined_tickets_sha256"]) is not None
-         and approval.get("development_only") is True
-         and approval.get("v2_production_dispatch_authorized") is False
-         and approval.get("scientific_first_use") is False
-         and approval.get("new_controller") is False
-         and approval.get("new_scheduler") is False
-         and approval.get("new_queue") is False
-         and type(approval.get("paid_api_calls")) is int
+         and approval["to_source_sha"] != OLD,
+         "APPROVAL_FORM_NEW_SOURCE")
+    need(type(approval.get("owner_event_seq")) is int
+         and approval["owner_event_seq"] >= 220,
+         "APPROVAL_FORM_EVENT_SEQUENCE")
+    for field in ("owner_event_sha256", "v6_terminal_event_sha256",
+                  "original_quarantined_tickets_sha256"):
+        need(isinstance(approval.get(field),str)
+             and SHA64.fullmatch(approval[field]) is not None,
+             "APPROVAL_FORM_"+field.upper())
+    for field, expected in (
+            ("development_only",True),
+            ("v2_production_dispatch_authorized",False),
+            ("scientific_first_use",False),
+            ("new_controller",False),
+            ("new_scheduler",False),
+            ("new_queue",False)):
+        need(approval.get(field) is expected, "APPROVAL_FORM_"+field.upper())
+    need(type(approval.get("paid_api_calls")) is int
          and approval["paid_api_calls"] == 0,
-         "APPROVAL_FORM_UNQUALIFIED")
+         "APPROVAL_FORM_PAID_API_CALLS")
+    # Check canonical file round-trip deterministically, preventing a
+    # mutating release from accepting mismatched typed input.
+    need(json.loads(canonical(approval)) == approval,
+         "APPROVAL_CANONICAL_ROUNDTRIP_DRIFT")
     db.verify()
     meta=db.meta()
     need(meta["source_sha"]==OLD

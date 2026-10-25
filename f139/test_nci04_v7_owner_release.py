@@ -25,10 +25,22 @@ class G39OriginalReleaseTests(unittest.TestCase):
         from pathlib import Path
         source=Path(__file__).resolve().parent/"nci04_v7_owner_release.py"
         raw=source.read_text()
-        self.assertIn('approval.get("v2_production_dispatch_authorized") is False',raw)
-        self.assertIn('approval.get("scientific_first_use") is False',raw)
-        self.assertIn('approval.get("new_controller") is False',raw)
+        for field in ("v2_production_dispatch_authorized",
+                      "scientific_first_use","new_controller",
+                      "new_scheduler","new_queue"):
+            self.assertIn('("'+field+'",False)',raw)
+        self.assertIn('approval.get(field) is expected',raw)
         self.assertIn('approval["paid_api_calls"] == 0',raw)
+
+    def test_module_entrypoint_validates_canonical_db_identity(self):
+        import inspect
+        from f139.local_controller import cli
+        source=inspect.getsource(cli)
+        self.assertIn('from f139.local_controller import Database as CanonicalOwnerDB',source)
+        self.assertIn('validator_db=CanonicalOwnerDB(args.db)',source)
+        self.assertIn('validate_v7_original_owner(validator_db,approval)',source)
+        self.assertIn('validator_db.close()',source)
+        self.assertIn('db.transition_source(approval["to_source_sha"]',source)
 
     def test_v7_requires_separate_manual_owner_cli(self):
         import inspect
