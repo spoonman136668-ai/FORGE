@@ -169,6 +169,16 @@ class OwnerV2AuthorizationTests(unittest.TestCase):
         with self.assertRaises(V2OwnerPermitDenied):
             self.verify(self.issue(), owner_key="bad")
 
+    def test_existing_v2_result_receipt_is_not_owner_execution_permission(self):
+        from f139.nci04_worker_v2 import receipt_v2
+        fixture = V2ContractTests()
+        fixture.setUp()
+        ordinary_dev_receipt = receipt_v2(self.a, fixture.report())
+        self.assertEqual(ordinary_dev_receipt["schema"], RECEIPT_SCHEMA)
+        with self.assertRaisesRegex(
+                V2OwnerPermitDenied, "VERSION_OR_NONCANONICAL_PERMIT"):
+            self.verify(canonical(ordinary_dev_receipt))
+
     def test_receipt_is_not_an_execution_capability(self):
         result = self.verify(self.issue())
         self.assertNotIn("authorizes_dispatch", result)
