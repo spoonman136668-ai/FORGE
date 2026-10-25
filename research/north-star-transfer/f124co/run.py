@@ -112,7 +112,7 @@ def run():
                                                   for x,y in dev),
             "trained_source_informed_fixed_wire":sum(fixed.predict(fixed_model,x)==(y&15)
                                                       for x,y in dev),
-            "trained_full_two_parent":sum(fixed.predict_two_parent(two_model,x)==(y&15)
+            "trained_full_two_parent":sum(fixed.predict_two(two_model,x)==(y&15)
                                           for x,y in dev),
             "trained_modal_constant":sum(simple==(y&15) for x,y in dev),
             "no_gate_ablation":sum(fixed.predict_ablation(ablation,x)==(y&15)
