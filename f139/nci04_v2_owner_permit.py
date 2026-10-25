@@ -171,6 +171,9 @@ def verify_v2_owner_permit(raw: bytes, admission: NativeAdmission, *,
             "PERMIT_BYTES_INVALID")
     try:
         value = json.loads(raw, object_pairs_hook=_unique)
+    except V2OwnerPermitDenied:
+        # Preserve the precise fail-closed duplicate-key diagnostic.
+        raise
     except (ValueError, UnicodeError) as exc:
         raise V2OwnerPermitDenied("F139_G31_PERMIT_JSON_INVALID") from exc
     require(isinstance(value, dict) and set(value) == OUTER_FIELDS
