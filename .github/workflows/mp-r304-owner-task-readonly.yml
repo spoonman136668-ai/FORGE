@@ -50,3 +50,13 @@ jobs:
           & python.exe -B -c $py
           if($LASTEXITCODE -ne 0){throw 'R304_READ_ONLY_SQLITE_FAILED'}
           Write-Output 'R304_SQLITE_LIVE_WRITES=0'
+
+      - name: Check original controller configuration identity read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=Join-Path $env:USERPROFILE 'GolandProjects'
+          $cfg=Join-Path $base 'ckb-plane/config/autonomy.yaml'
+          $digest=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R304_CONFIG_PIN_MATCH=' + ($digest -ceq '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'))
+          Write-Output 'R304_CONFIG_READONLY=PASS'
