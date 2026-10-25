@@ -1,0 +1,49 @@
+name: F139 G34 real GitHub-hosted V2 synthetic artifact transport
+# Not the live native worker, original owner controller, scheduler or science.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'f139/nci04_g34_provider_rehearsal.py'
+      - 'f139/test_nci04_g34_provider_rehearsal.py'
+      - '.github/workflows/f139-g34-v2-artifact-transport.yml'
+permissions:
+  contents: read
+jobs:
+  synthetic-v2-transport:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Construct isolated synthetic V2 inner ZIP without signing secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -B -m unittest discover -s f139 -p test_nci04_g34_provider_rehearsal.py -v
+          if($LASTEXITCODE -ne 0){throw 'G34_V2_TRANSPORT_TESTS_FAILED'}
+          $out = Join-Path $env:RUNNER_TEMP 'f139-g34-v2-transport'
+          New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null
+          python -B -m f139.nci04_g34_provider_rehearsal --output $out
+          if($LASTEXITCODE -ne 0){throw 'G34_V2_SYNTHETIC_PACKAGE_FAILED'}
+          if(@(Get-ChildItem -LiteralPath $out -File).Count -ne 3){
+            throw 'G34_UNEXPECTED_V2_ARTIFACT_FILES'
+          }
+          Write-Host 'F139_G34_SYNTHETIC_ONLY=PASS'
+          Write-Host 'F139_G34_ORIGINAL_OWNER_DISPATCH=NOT_PERFORMED'
+      - name: Upload real Actions artifact containing exact V2 inner ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: f139-g34-synthetic-v2-${{ matrix.os }}
+          path: ${{ runner.temp }}/f139-g34-v2-transport/f139-v2-development-provider.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
