@@ -1,4 +1,4 @@
-name: F139 G5 original running owner G3 witness diagnosis (read only)
+name: F139 G5 current original-owner G3 preflight investigation (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -223,3 +223,55 @@ jobs:
             & $python -B -c $script $db ([string]$children[0].ProcessId)
             if($LASTEXITCODE -ne 0){throw 'G3_WITNESS_DIAG_EXECUTION_FAILED'}
           }finally{Pop-Location}
+
+      - name: Qualify postcutover native history and G3 preflight under original credentials (read only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running'){throw 'F139_G5_CURRENT_PREFLIGHT_TASK_DOWN'}
+          $opts=[string]$task.Actions[0].Arguments
+          function TaskArg([string]$n){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G5_CURRENT_PREFLIGHT_TASK_ARG_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $script=@'
+          import pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_owner_publication import history_proof,G1_ORIGINAL_PARENT
+          from f139.nci04_candidate_publisher import publisher_preflight,RECIPE_G3
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          db=object.__new__(Database)
+          db.filename=dbpath
+          db.conn=conn
+          try:
+              db.verify()
+              m=db.meta()
+              assert m["source_sha"]=="72486da5ce96142424b189dd8e3dcf3c39dfc401"
+              mechanisms,candidates=history_proof(db)
+              print("F139_G5_G3_POSTCUTOVER_NEGATIVE_CUSTODY=PASS")
+              print("F139_G5_G3_POSTCUTOVER_HISTORICAL_CANDIDATES="+str(len(candidates)))
+              api=GitHub()
+              p=publisher_preflight(
+                api.native_repo_get,source_sha=m["source_sha"],
+                parent_commit=G1_ORIGINAL_PARENT,
+                historical_sha256=m["head_hash"],
+                consumed_mechanisms=mechanisms,
+                existing_candidate_identities=candidates,
+                recipe=RECIPE_G3)
+              assert p["writes_authorized"] is False
+              print("F139_G5_G3_POSTCUTOVER_ORIGINAL_GITHUB_PREFLIGHT=PASS")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $script $root $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G5_G3_POSTCUTOVER_PREFLIGHT_BLOCKED'}
