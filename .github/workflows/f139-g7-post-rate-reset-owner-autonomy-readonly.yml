@@ -1,0 +1,127 @@
+name: F139 G7 original post-quota autonomy progress (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g7-post-rate-reset-owner-autonomy-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify original 300s owner, quota and first real G3 issue progress without writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          $name='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_G7_OWNER_RUNNER_INVALID'}
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'F139_G7_ORIGINAL_TASK_DRIFT'
+          }
+          $user=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$t.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($principal -ine $user.Name -and $sid -cne $user.User.Value){
+            throw 'F139_G7_OWNER_SID_DRIFT'
+          }
+          $opts=[string]$t.Actions[0].Arguments
+          function TaskArg([string]$n){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G7_OWNER_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          if([IO.Path]::GetFileName((TaskArg 'File')) -cne 'Run-FORGE-F139.ps1'){
+            throw 'F139_G7_OWNER_WRAPPER_DRIFT'
+          }
+          if($opts -cnotmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'F139_G7_BOUND_300S_POLL_DRIFT'
+          }
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $source -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G7_INSTALLED_SOURCE_DRIFT'
+          }
+          $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop') })
+          if($child.Count -ne 1 -or
+             [string]$child[0].CommandLine -notmatch '--seconds\s+300(?:\s|$)'){
+            throw 'F139_G7_ONE_ORIGINAL_CHILD_AND_300S_INTERVAL_INVALID'
+          }
+          $report=@'
+          import datetime as dt,json,pathlib,re,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          expected=sys.argv[3]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          db=object.__new__(Database);db.filename=dbpath;db.conn=conn
+          try:
+              db.verify()
+              m=db.meta()
+              assert m["source_sha"]==expected and m["head_seq"]>=208
+              assert verify_native_activation(db)
+              transitions=[json.loads(r["payload"]) for r in conn.execute(
+                "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+              assert transitions[-1]["to_source_sha"]==expected
+              assert transitions[-1]["schema"]=="forge.f139.source-transition.v5"
+              attempts=list(conn.execute(
+                "SELECT seq,payload FROM events WHERE kind='G3_DRAFT_ATTEMPTED' ORDER BY seq"))
+              successes=list(conn.execute(
+                "SELECT seq,payload FROM events WHERE kind='G3_DRAFT_AUTHENTICATED' ORDER BY seq"))
+              print("F139_G7_EVENT_HEAD="+str(m["head_seq"]))
+              print("F139_G7_G3_ATTEMPTS="+str(len(attempts)))
+              print("F139_G7_G3_AUTHENTICATED="+str(len(successes)))
+              assert len(attempts)<=1 and len(successes)<=1
+              if successes:
+                  assert attempts and successes[0]["seq"]>attempts[0]["seq"]
+                  doc=json.loads(successes[0]["payload"])
+                  assert doc["scientific_first_use"] is False
+                  print("F139_G7_G3_AUTHENTICATED_PR="+str(doc["pr_number"]))
+              elif attempts:
+                  print("F139_G7_G3_ATTEMPT_AMBIGUOUS_HOLD_NO_RETRY=TRUE")
+              else:
+                  print("F139_G7_G3_ATTEMPT_NOT_YET_RECORDED=TRUE")
+              count=conn.execute("SELECT count(*) FROM tasks").fetchone()[0]
+              quarantine=conn.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              pending=conn.execute(
+                "SELECT count(*) FROM tasks WHERE stage NOT IN ('VERIFIED','QUARANTINED')").fetchone()[0]
+              assert count>=31 and quarantine>=12
+              print("F139_G7_TASK_TOTAL="+str(count))
+              print("F139_G7_QUARANTINED="+str(quarantine))
+              print("F139_G7_NONTERMINAL="+str(pending))
+              log=dbpath.parent/"logs"/"controller.log"
+              if log.is_file():
+                  lines=log.read_text(encoding="utf-8",errors="replace").splitlines()
+                  recent=[l for l in lines if "G3_PUBLISH" in l or "G3_DRAFT" in l]
+                  dispositions=re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]+)"','\n'.join(recent[-12:]))
+                  print("F139_G7_LAST_G3_DISPOSITIONS="+",".join(dispositions[-8:]))
+              print("F139_G7_ORIGINAL_CHAIN_AND_SOURCE=PASS")
+              print("F139_G7_NO_SQLITE_MUTATION=TRUE")
+          finally:conn.close()
+          '@
+          & $python -B -c $report $root $db $source
+          if($LASTEXITCODE -ne 0){throw 'F139_G7_OWNER_LEDGER_VERIFY_FAILED'}
+          $quota=& gh api rate_limit 2>$null
+          if($LASTEXITCODE -ne 0){
+            Write-Host 'F139_G7_GH_RATE_API_READ=BLOCKED'
+          }else{
+            $q=($quota | Out-String | ConvertFrom-Json).resources.core
+            Write-Host ('F139_G7_GH_CORE_LIMIT='+$q.limit)
+            Write-Host ('F139_G7_GH_CORE_USED='+$q.used)
+            Write-Host ('F139_G7_GH_CORE_REMAINING='+$q.remaining)
+            Write-Host ('F139_G7_GH_CORE_RESET_UNIX='+$q.reset)
+          }
+          Write-Host 'F139_G7_ORIGINAL_RUNNING_TASK_AND_300S_CHILD=PASS'
+          Write-Host 'F139_G7_TASK_SOURCE_SQLITE_AND_POLICY_NOT_MUTATED=TRUE'
