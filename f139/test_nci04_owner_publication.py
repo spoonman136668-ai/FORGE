@@ -46,7 +46,7 @@ class FakeDb:
         yield self.conn
 
     def event(self, kind, payload):
-        self.conn.execute("INSERT INTO events VALUES(?,?)",
+        self.conn.execute("INSERT INTO events(kind,payload) VALUES(?,?)",
                           (kind, json.dumps(payload)))
         if kind == ATTEMPT_KIND:
             self.head = "d" * 64
