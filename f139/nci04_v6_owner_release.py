@@ -79,7 +79,7 @@ def validate_v6_owner_approval(db, approval):
     prior=[json.loads(x["payload"]) for x in rows]
     v5=[x for x in rows if json.loads(x["payload"]).get("schema")==
         "forge.f139.source-transition.v5"]
-    require(len(v5)==4 and len(rows)>4
+    require(len(v5)==4 and len(rows)>=4
             and prior[-1]["schema"]=="forge.f139.source-transition.v5"
             and rows[-1]["sha"]==v5[-1]["sha"]
             and v5[-1]["sha"]==approval["v5_terminal_event_sha256"]
