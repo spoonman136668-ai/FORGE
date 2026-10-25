@@ -153,7 +153,7 @@ def evaluate():
   r["action_prior"]=choose(scores,"fully_trained_action_return")
   r["linear_ridge"]=choose(scores,"fully_trained_linear_ridge_value")
  summary={};criteria={};pooled=[0.,0.,0]
- acceptance=p["design"]["acceptance"]
+ acceptance=p["acceptance"]
  for family in FAMILIES:
   cohort=[r for r in evaluation if r["family"]==family]
   if not cohort:raise ValueError("F9_NO_PROSPECTIVE_SOURCE_FAMILY")
