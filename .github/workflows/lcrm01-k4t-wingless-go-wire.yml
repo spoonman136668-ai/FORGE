@@ -174,7 +174,17 @@ jobs:
           }
           & go vet $packages
           if($LASTEXITCODE-ne0){throw 'K4T_GO_VET_FAIL'}
-          & go build $packages
+          # Test-only packages must be tested/vetted, but cannot be built:
+          # these two packages have no production .go files by design.
+          $buildable=@(& go list -e -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... |
+            Where-Object { $_ -and $_ -ne "$module/research/lcrm01" })
+          if($LASTEXITCODE-ne0){throw 'K4T_GO_BUILD_DISCOVERY_FAILED'}
+          $testOnly=@($packages | Where-Object { $_ -notin $buildable })
+          $expectedTestOnly=@("$module/fsaloop","$module/iceindex")
+          if(Compare-Object $expectedTestOnly $testOnly){
+            throw ('K4T_UNEXPECTED_GO_TEST_ONLY_PACKAGES_'+($testOnly -join ','))
+          }
+          & go build $buildable
           if($LASTEXITCODE-ne0){throw 'K4T_GO_BUILD_FAIL'}
           Write-Host 'K4T_FINAL_FULL_APPLICABLE_REGRESSION=PASS'
       - name: Verify clean checkout and no scientific execution
