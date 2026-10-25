@@ -60,3 +60,17 @@ jobs:
           $digest=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R304_CONFIG_PIN_MATCH=' + ($digest -ceq '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'))
           Write-Output 'R304_CONFIG_READONLY=PASS'
+
+      - name: Inventory original rollback members without altering them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback'
+          $count=0
+          foreach($n in @('original-task.xml','original-autonomy.yaml','original-launcher.ps1','autonomy.db')){
+            $p=Join-Path $root $n
+            if(Test-Path -LiteralPath $p -PathType Leaf){$count++}
+          }
+          Write-Output ('R304_HISTORICAL_ROLLBACK_FILE_COUNT='+$count)
+          Write-Output 'R304_PROPOSED_R300_ROLLBACK_TEST=NOT_PERFORMED'
+          Write-Output 'R304_ROLLBACK_FILES_MODIFIED=FALSE'
