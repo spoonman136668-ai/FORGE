@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from tw3b_dev_action_slots import DevActionSlots, canonical, digest
 
 
@@ -107,7 +108,8 @@ class SourceFreeActionBudget(unittest.TestCase):
         outputs=[]
         for _ in range(2):
             child=subprocess.run([sys.executable,"-B","-c",cmd],
-                    input=x.checkpoint(),capture_output=True,check=True,timeout=20)
+                    input=x.checkpoint(),capture_output=True,check=True,timeout=20,
+                    cwd=str(Path(__file__).resolve().parent))
             outputs.append(json.loads(child.stdout))
         self.assertEqual(outputs[0],outputs[1])
         self.assertEqual(outputs[0]["pending"]["action_id"],first["action_id"])
