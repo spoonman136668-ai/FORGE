@@ -28,7 +28,7 @@ type Reply struct {
  OK bool `json:"ok"`
  Action *int `json:"action,omitempty"`
  State string `json:"state,omitempty"`
- Updates uint64 `json:"updates,omitempty"`
+ Updates uint64 `json:"updates"`
  Predicted *r1.PublicGrid `json:"predicted,omitempty"`
  Reliable *bool `json:"reliable,omitempty"`
  Error string `json:"error,omitempty"`
