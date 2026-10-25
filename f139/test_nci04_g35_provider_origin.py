@@ -140,7 +140,7 @@ class G35ProviderOriginTests(unittest.TestCase):
     def test_v1_authorizer_not_upcast_to_v2(self):
         self.jobs[0]["name"] = "native-authorize"
         with self.assertRaisesRegex(G35ProviderDenied,
-                                    "SEPARATE_V2_AUTHORIZER"):
+                                    "UNEXPECTED_OR_LIVE_V1_JOB_ON_V2_RUN"):
             self.read()
 
     def test_duplicate_or_absent_provider_job_fails_closed(self):
