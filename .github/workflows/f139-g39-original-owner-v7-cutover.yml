@@ -229,6 +229,36 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'F139_G39_NEW_SOURCE_APPROVAL_FAILED'}
             & $python -B -m f139.local_controller --db $db activate-native --approval $activated
             if($LASTEXITCODE -ne 0){throw 'F139_G39_ORIGINAL_NATIVE_REACTIVATION_FAILED'}
+            # Existing owner feeder is source-pinned to the OLD protected
+            # source. Change ONLY its source_sha after the original SQLite
+            # cutover, otherwise genuine new issues remain unadmittable.
+            $issue=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or -not $issue -or
+               [string]$issue.user.login -cne 'spoonman136668-ai'){
+              throw 'F139_G39_OWNER_POLICY_ORIGIN_DRIFT'
+            }
+            $policy=[string]$issue.body | ConvertFrom-Json -ErrorAction Stop
+            if($policy.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+               $policy.enabled -ne $true -or
+               $policy.source_sha -cne $old -or
+               $policy.scientific_first_use -ne $false -or
+               $policy.new_controller -ne $false -or
+               $policy.new_scheduler -ne $false -or
+               $policy.new_queue -ne $false -or
+               $policy.paid_model_calls -ne 0 -or
+               $policy.max_issue_creations_per_cycle -ne 2){
+              throw 'F139_G39_SOURCE_BOUND_OWNER_FEEDER_POLICY_DRIFT'
+            }
+            $policy.source_sha=$target
+            $newBody=$policy | ConvertTo-Json -Compress -Depth 12
+            & gh api -X PATCH repos/spoonman136668-ai/FORGE/issues/807 -f "body=$newBody" --silent
+            if($LASTEXITCODE -ne 0){throw 'F139_G39_OWNER_FEEDER_SOURCE_PROMOTION_FAILED'}
+            $confirmed=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+            $state=[string]$confirmed.body | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $state.source_sha -cne $target -or
+               $state.enabled -ne $true){
+              throw 'F139_G39_OWNER_FEEDER_PROMOTION_READBACK_DRIFT'
+            }
             Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             Write-Host 'F139_G39_ORIGINAL_SOURCE_TRANSITION_V7=PASS'
