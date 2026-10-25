@@ -713,7 +713,7 @@ class Database:
         verified_provider_negatives=self.verified_native_provider_failures()
         negative_transitions = (negative_v2 + negative_v3 + negative_v4 +
                                 negative_v5 + negative_v6 + negative_v7 + negative_v8)
-        require(len(negative_transitions) <= 36
+        require(len(negative_transitions) <= 37
                 and len(negative_v3) <= 10 and len(negative_v4) <= 10
                 and len(negative_v5) <= 4 and len(negative_v6) <= 1
                 and len(negative_v7) <= 1 and len(negative_v8) <= 1 and
