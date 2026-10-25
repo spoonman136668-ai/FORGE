@@ -1,0 +1,170 @@
+name: F139 G14 V6 source and V2 provider custody independent qualification
+on:
+  push:
+    branches: [qualify/f139-g14-v6-owner-v2-receipt-20261025]
+    paths:
+      - f139/local_controller.py
+      - f139/nci04_owner_ledger.py
+      - f139/nci04_provider_receipt_v2.py
+      - f139/test_nci04_provider_receipt_v2.py
+      - .github/workflows/f139-g14-v6-v2-qualification.yml
+permissions:
+  contents: read
+jobs:
+  tests:
+    name: G14 V2 custody and legacy F139 suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Strict V2 provider custody and unchanged V1 receipt semantics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p test_nci04_provider_receipt_v2.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_V2_PROVIDER_FAIL'}
+          & python -B -m unittest discover -s f139 -p test_nci04_provider_receipt.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_V1_PROVIDER_FAIL'}
+          & python -B -m unittest discover -s f139 -p test_nci04_activation_source_transition_capacity.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_NATIVE_SOURCE_ACTIVATION_FAIL'}
+          Write-Host 'F139_G14_V1_V2_PROVIDER_ISOLATION=PASS'
+      - name: One complete F139 original public regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p test_*.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_FULL_F139_REGRESSION_FAIL'}
+          Write-Host 'F139_G14_FULL_F139_PUBLIC_REGRESSION=PASS'
+  original-ledger:
+    name: G14 V6 on original Windows SQLite SCRATCH ONLY
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify original owner and rehearse bounded V6 without production writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $installedSHA='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             [string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'G14_ORIGINAL_TASK_INVALID'
+          }
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[string]$t.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $me.Name -and $sid -cne $me.User.Value){
+            throw 'G14_ORIGINAL_SID_INVALID'
+          }
+          function Arg([string]$n) {
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+                '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'G14_TASK_ARG_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $root=Arg 'RepositoryRoot'
+          $python=Arg 'PythonExe'
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $installedSHA -or
+             [IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath(
+                (Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))){
+            throw 'G14_INSTALLED_SOURCE_DB_DRIFT'
+          }
+          $candidate=(& git.exe -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+          if($candidate -cne $env:GITHUB_SHA -or $candidate -ceq $installedSHA){
+            throw 'G14_CANDIDATE_NOT_DISTINCT'
+          }
+          $temp=Join-Path (Split-Path $db -Parent) ('f139-g14-snapshot-'+$env:GITHUB_RUN_ID+'-'+
+                  [guid]::NewGuid().ToString('N')+'.sqlite')
+          $script=@'
+          import hashlib,json,pathlib,sqlite3,sys
+          old="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          live=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[3])
+          assert scratch.parent==live.parent and not scratch.exists()
+          read=sqlite3.connect(live.as_uri()+"?mode=ro",uri=True,timeout=20)
+          read.execute("PRAGMA query_only=ON")
+          try:
+              with sqlite3.connect(scratch) as copy:read.backup(copy)
+          finally:read.close()
+          sys.path.insert(0,str(source))
+          from f139.local_controller import Database,F139Error
+          from f139.nci04_owner_ledger import verify_native_activation,activate_native
+          from f139.nci04_owner_publication import history_proof
+          db=Database(scratch)
+          try:
+              db.verify()
+              meta=db.meta()
+              assert meta["source_sha"]==old and meta["head_seq"]>=218
+              assert verify_native_activation(db)
+              assert db.ready() is None and not db.actives()
+              original_count=db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+              negatives=db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert original_count>=32 and negatives>=13
+              _, identities=history_proof(db)
+              assert len(identities)>=23
+              rows=list(db.conn.execute("SELECT sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"))
+              v5=[r for r in rows if json.loads(r["payload"])["schema"]=="forge.f139.source-transition.v5"]
+              assert len(v5)==4
+              assert not any(json.loads(r["payload"])["schema"]=="forge.f139.source-transition.v6" for r in rows)
+              future=hashlib.sha1(b"f139-g14-only-on-scratch-protected-source").hexdigest()
+              db.transition_source(future,allow_certified_negative=True)
+              item=json.loads(db.conn.execute("SELECT payload FROM events ORDER BY seq DESC LIMIT 1").fetchone()["payload"])
+              assert item["schema"]=="forge.f139.source-transition.v6"
+              assert item["v5_terminal_event_sha256"]==v5[-1]["sha"]
+              assert item["v2_receipt_authorized"] is False
+              assert item["custodied_negative_tasks"]==negatives
+              assert db.meta()["head_seq"]==meta["head_seq"]+1
+              assert not verify_native_activation(db)
+              try:
+                  db.transition_source(hashlib.sha1(b"forbidden-second-v6").hexdigest(),
+                                       allow_certified_negative=True)
+                  raise AssertionError("SECOND_V6_UNEXPECTEDLY_ALLOWED")
+              except F139Error:pass
+              assert db.meta()["head_seq"]==meta["head_seq"]+1
+              approval={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":future,"expected_event_head_sha256":db.meta()["head_hash"],
+                  "native_development_approved":True,"scientific_first_use":False,
+                  "create_controller":False,"paid_api_calls":0}
+              assert activate_native(db,approval)
+              assert verify_native_activation(db)
+              db.verify()
+              assert db.meta()["head_seq"]==meta["head_seq"]+2
+              assert db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]==original_count
+              assert db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]==negatives
+              print("F139_G14_SEALED_V5_FOUR_OF_FOUR=PASS",flush=True)
+              print("F139_G14_EXACT_ONE_V6_SCRATCH=PASS",flush=True)
+              print("F139_G14_V2_ACTIVATION_NOT_IMPLICIT=PASS",flush=True)
+              print("F139_G14_ORIGINAL_V6_REACTIVATION=PASS",flush=True)
+              print("F139_G14_PRESERVED_NEGATIVES="+str(negatives),flush=True)
+              print("F139_G14_NO_SCIENTIFIC_FIRST_USE=TRUE",flush=True)
+          finally:db.close()
+          '@
+          try{
+            & $python -B -c $script $env:GITHUB_WORKSPACE $db $temp
+            if($LASTEXITCODE -ne 0){throw 'G14_ORIGINAL_SNAPSHOT_REGRESSION_FAILED'}
+          }finally{
+            foreach($suffix in @('','-shm','-wal')){
+              Remove-Item -LiteralPath ($temp+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if([string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController').State -cne 'Running'){
+            throw 'G14_ORIGINAL_TASK_CHANGED'
+          }
+          Write-Host 'F139_G14_LIVE_OWNER_AND_SQLITE_UNCHANGED=TRUE'
