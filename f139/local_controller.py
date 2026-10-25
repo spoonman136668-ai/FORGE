@@ -2393,6 +2393,8 @@ def cli(argv=None):
     transition.add_argument("--approval",type=Path,required=True)
     transition_v6=sub.add_parser("transition-qualified-native-v6")
     transition_v6.add_argument("--approval",type=Path,required=True)
+    transition_v7=sub.add_parser("transition-qualified-native-v7")
+    transition_v7.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -2716,6 +2718,45 @@ def cli(argv=None):
                     "source_sha":db.meta()["source_sha"],
                     "event_head":db.meta()["head_hash"],
                     "v2_receipt_authorized":False,
+                    "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v7":
+            # One new source successor after fully consumed V6; no dispatch.
+            from f139.nci04_v7_owner_release import validate_v7_original_owner
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V7_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict,"V7_APPROVAL_NOT_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v7(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"V7_GIT_COMMAND_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git_read_v7("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v7("status","--porcelain",
+                                    "--untracked-files=all")=="",
+                    "V7_INSTALLED_CLEAN_EXACT_SOURCE_REQUIRED")
+            github=GitHub()
+            require(github.protected_main()==approval.get("to_source_sha"),
+                    "V7_PROTECTED_MAIN_SHA_DRIFT")
+            github.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                old_head=db.meta()["head_seq"]
+                validate_v7_original_owner(db,approval)
+                db.transition_source(approval["to_source_sha"],
+                    allow_certified_negative=True,allow_v7=True)
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==approval["to_source_sha"]
+                        and meta["head_seq"]==old_head+1,
+                        "V7_SOURCE_TRANSITION_NOT_ATOMIC")
+                print(json.dumps({"native_v7_transition":"PASS",
+                    "source_sha":meta["source_sha"],
+                    "event_head":meta["head_hash"],"event_seq":meta["head_seq"],
+                    "v2_production_dispatch_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
         elif args.verb=="activate-native":
             # Owner-only, explicit admission. Does not create a second task or
