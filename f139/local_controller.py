@@ -2248,6 +2248,8 @@ def cli(argv=None):
     owner_native.add_argument("--approval",type=Path,required=True)
     transition=sub.add_parser("transition-qualified-native")
     transition.add_argument("--approval",type=Path,required=True)
+    transition_v6=sub.add_parser("transition-qualified-native-v6")
+    transition_v6.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -2531,6 +2533,46 @@ def cli(argv=None):
                 print(json.dumps({"native_source_transition":"PASS",
                     "source_sha":db.meta()["source_sha"],
                     "head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v6":
+            # DISTINCT operator action, never the legacy transition's approval.
+            # No worker V2 activation, no new scheduler and no automatic promotion.
+            from f139.nci04_v6_owner_release import validate_v6_owner_approval
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V6_SOURCE_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict, "V6_APPROVAL_MUST_BE_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v6(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"V6_SOURCE_CHECKOUT_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git_read_v6("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v6("status","--porcelain","--untracked-files=all")=="",
+                    "V6_EXACT_CLEAN_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V6_PROTECTED_SOURCE_IDENTITY_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                validate_v6_owner_approval(db,approval)
+                db.transition_source(
+                    approval["to_source_sha"],
+                    allow_certified_negative=True,
+                    allow_v6=True)
+                db.verify()
+                require(db.meta()["source_sha"]==approval["to_source_sha"]
+                        and db.meta()["head_seq"]==approval["expected_event_head_seq"]+1,
+                        "V6_TRANSACTION_RESULT_DRIFT")
+                print(json.dumps({"native_v6_transition":"PASS",
+                    "source_sha":db.meta()["source_sha"],
+                    "event_head":db.meta()["head_hash"],
+                    "v2_receipt_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
         elif args.verb=="activate-native":
             # Owner-only, explicit admission. Does not create a second task or
