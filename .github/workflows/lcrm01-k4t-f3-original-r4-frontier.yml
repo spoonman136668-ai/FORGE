@@ -1,0 +1,40 @@
+name: Mass K4T-F3 original MiniGrid R4 frontier versus R3 public DEV
+on:
+  push:
+    branches: [research/itd02-k4t-f3-r4-frontier-original-20261025]
+permissions:
+  contents: read
+jobs:
+  original-source-r4-frontier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 30
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Freeze F3 source and run independent genuine world experiments
+        run: bash research/lcrm01/k4t_f3_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f3-r4-frontier-public-world-raw-evidence
+          path: |
+            ${{ runner.temp }}/k4tf3/process-a.json
+            ${{ runner.temp }}/k4tf3/process-b.json
+            ${{ runner.temp }}/k4tf3/comparison.json
+            ${{ runner.temp }}/k4tf3/process-a.log
+            ${{ runner.temp }}/k4tf3/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
