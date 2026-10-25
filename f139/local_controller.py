@@ -2143,6 +2143,35 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
         return False
 
 
+
+def original_owner_v2_fields_canonical(db, db_path: Path, ticket: str,
+                                       *, owner_hmac_key: str):
+    """Resolve -m/__main__ class identity without relaxing the G36 type guard.
+
+    The original tick owns the SingleOwner lock and has ALREADY persisted its
+    unique BEFORE_DISPATCH_INTENT claim. G36 deliberately accepts only the
+    canonical imported Database type. Open a SECOND verified handle to the
+    SAME SQLite file solely to read that immutable claim and sign its fields.
+    This function does not post a workflow or mutate claim/ledger state.
+    """
+    from f139.local_controller import Database as CanonicalDatabase
+    from f139.nci04_g36_v2_dispatch import original_owner_v2_fields
+    actual = Path(db.filename).resolve(strict=True)
+    requested = Path(db_path).resolve(strict=True)
+    require(actual == requested, "G47_ORIGINAL_DATABASE_PATH_DRIFT")
+    expected = db.meta()
+    canonical_db = CanonicalDatabase(actual)
+    try:
+        observed = canonical_db.meta()
+        require(all(observed[key] == expected[key] for key in (
+                    "source_sha", "head_seq", "head_hash", "epoch")),
+                "G47_ORIGINAL_LEDGER_HEAD_DRIFT")
+        return original_owner_v2_fields(
+            canonical_db, ticket, owner_hmac_key=owner_hmac_key)
+    finally:
+        canonical_db.close()
+
+
 def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
@@ -2394,9 +2423,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         if v2_original:
             # Under this same ORIGINAL SingleOwner + START_RISK transaction
             # chain, produce a fresh V2 claim; never use a V1 fallback.
-            from f139.nci04_g36_v2_dispatch import original_owner_v2_fields
-            fields = original_owner_v2_fields(
-                db, task["ticket"], owner_hmac_key=hmac_key)
+            fields = original_owner_v2_fields_canonical(
+                db, db_path, task["ticket"], owner_hmac_key=hmac_key)
         else:
             fields = make_signed_dispatch_inputs(
                 issue, owner_hmac_key=hmac_key, epoch=meta["epoch"])
