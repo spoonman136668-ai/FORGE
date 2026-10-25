@@ -15,6 +15,13 @@ class G39OwnerCutoverTests(unittest.TestCase):
         self.assertIn("github.actor == 'spoonman136668-ai'",raw)
         self.assertIn("github.event.issue.number == 807",raw)
         self.assertIn("F139-V7-OWNER-CUTOVER ",raw)
+        # Authenticated original Windows runner exposed a real PowerShell
+        # failure when a string path was piped to Get-Content -Raw.
+        self.assertIn(
+            '$event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw',
+            raw)
+        self.assertNotIn(
+            '$env:GITHUB_EVENT_PATH | Get-Content -Raw',raw)
         self.assertIn("FORGE-CODEX-REMOTE",raw)
         self.assertIn("forge-codex-isolated",raw)
 
