@@ -1,0 +1,160 @@
+name: R309 original owner native release readiness - read only
+on:
+  push:
+    branches: [audit/mp-r309-native-owner-preflight-20261025]
+    paths: [.github/workflows/mp-r309-native-owner-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Verify existing original-owner admin and immutable release evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r309-native-owner-preflight-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'R309_ORIGINAL_RUNNER_OR_EVENT_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $role=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$role.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R309_EXISTING_ELEVATED_OWNER_REQUIRED'
+          }
+          if($null-eq(Get-Command gh.exe -ErrorAction SilentlyContinue)){
+            throw 'R309_EXISTING_GITHUB_READ_ACCESS_UNAVAILABLE'
+          }
+          $runs=@(
+            @('spoonman136668-ai/ckb-plane',40182526755,'e37bcaa94652b39f474df95608ccacd14f94abf8'),
+            @('spoonman136668-ai/ckb-plane',40182754845,'f64717a99a0d2df19f412105e61df3a220602fee'),
+            @('spoonman136668-ai/ckb-plane',40184118747,'c2d54544d5c4f570b62c3e6acf0b18718dc5911e'),
+            @('spoonman136668-ai/FORGE',40184261564,'175e867b9cac1625f2934b22dd869ebf78331eb5')
+          )
+          foreach($entry in $runs){
+            $url='repos/'+$entry[0]+'/actions/runs/'+$entry[1]
+            $v=(& gh.exe api $url | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or $v.status -cne 'completed' -or
+               $v.conclusion -cne 'success' -or
+               $v.head_sha -cne [string]$entry[2]){
+              throw ('R309_ORIGINAL_RUN_RECEIPT_DRIFT_'+$entry[1])
+            }
+          }
+          $p=(& gh.exe api 'repos/spoonman136668-ai/ckb-plane/pulls/684' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $p.head.sha -cne 'e37bcaa94652b39f474df95608ccacd14f94abf8' -or
+             $p.merged -or !$p.draft){throw 'R309_ORIGINAL_QUALIFIED_SOURCE_PR_DRIFT'}
+          $artifact=(& gh.exe api 'repos/spoonman136668-ai/ckb-plane/actions/artifacts/12595690980' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $artifact.expired -or
+             $artifact.name -cne 'r308-r307-reproducible-source-image' -or
+             $artifact.digest -cne 'sha256:b4afa52104c3780f92d36cc3a72b2961aaf41b5da4823f867e93f0101b46af8b'){
+            throw 'R309_NEW_STOPPED_IMAGE_ARTIFACT_IDENTITY_DRIFT'
+          }
+          Write-Output 'R309_QUALIFIED_R307_SOURCE_AND_199_HISTORY_RECEIPTS=PASS'
+          Write-Output 'R309_SOURCE_EQUIVALENT_REPRODUCIBLE_R308_IMAGE=PASS'
+          Write-Output 'R309_PRIOR_4_OF_4_ROLLBACK_REHEARSAL=PASS'
+          Write-Output 'R309_EXISTING_OWNER_ADMIN_READONLY_IDENTITY=PASS'
+          Write-Output 'R309_CANDIDATE_NOT_INSTALLED_AND_PR_UNMERGED=TRUE'
+      - name: Read twice the original task process image heartbeat authority queue and leases
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          function Hash([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $database=Join-Path $root 'state\autonomy.db'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R309_ORIGINAL_REGISTERED_TASK_OWNER_OR_STATUS_CHANGED'
+          }
+          $taskXml=Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $sourceConfigHash=Hash $config
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1){throw 'R309_ORIGINAL_CONTROLLER_PROCESS_NOT_SINGLETON'}
+          $pidBefore=[int]$procs[0].ProcessId
+          $bornBefore=([datetime]$procs[0].CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$procs[0].ExecutablePath
+          if([string]::IsNullOrWhiteSpace($exe) -or !(Test-Path -LiteralPath $exe -PathType Leaf)){
+            throw 'R309_ACTIVE_PROCESS_IMAGE_NOT_ACCESSIBLE'
+          }
+          $sha=Hash $exe
+          if($sha -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R309_ORIGINAL_INSTALLED_IMAGE_DRIFT'
+          }
+          $py=@'
+          from datetime import datetime,timezone
+          from pathlib import Path
+          import sqlite3,sys,time
+          db=Path(sys.argv[1]).resolve(strict=True)
+          def read():
+              con=sqlite3.connect(db.as_uri()+"?mode=ro",uri=True,timeout=5)
+              try:
+                  con.execute("PRAGMA query_only=ON")
+                  if con.execute("PRAGMA quick_check").fetchone()[0]!="ok":
+                      raise RuntimeError("R309_ORIGINAL_SQLITE_INTEGRITY_FAIL")
+                  keys=("autonomy_authority","autonomy_generation","paused","autonomy_heartbeat","autonomy_status")
+                  settings=dict(con.execute("SELECT key,value FROM settings WHERE key IN (?,?,?,?,?)",keys))
+                  queued=con.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0]
+                  leases=con.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+                  records=con.execute("SELECT count(*) FROM work_orders").fetchone()[0]
+                  return settings,int(queued),int(leases),int(records)
+              finally:con.close()
+          def verify(v,label):
+              settings,queued,leases,records=v
+              if settings.get("autonomy_authority")!="plane" or settings.get("autonomy_generation")!="6":
+                  raise RuntimeError("R309_OWNER_GENERATION_DRIFT_"+label)
+              if settings.get("paused")!="false":
+                  raise RuntimeError("R309_PAUSE_STATE_DRIFT_"+label)
+              if queued or leases:
+                  raise RuntimeError("R309_QUEUE_NOT_DRAINED_OR_ACTIVE_LEASE_"+label)
+              if records<199:raise RuntimeError("R309_HISTORY_REGRESSED_"+label)
+              heart=settings.get("autonomy_heartbeat","")
+              try:
+                  dt=datetime.fromisoformat(heart.replace("Z","+00:00"))
+                  if dt.tzinfo is None: raise ValueError("no zone")
+                  age=(datetime.now(timezone.utc)-dt.astimezone(timezone.utc)).total_seconds()
+              except (ValueError,TypeError,OverflowError):
+                  raise RuntimeError("R309_NO_VALID_ORIGINAL_HEARTBEAT_"+label)
+              if age< -30 or age>300:
+                  raise RuntimeError("R309_ORIGINAL_HEARTBEAT_OUTSIDE_FIVE_MINUTE_UPPER_BOUND_"+label)
+              print("R309_"+label+"_GENERATION_AND_OWNER=PASS")
+              print("R309_"+label+"_QUEUE_AND_LEASES_DRAINED=PASS")
+              print("R309_"+label+"_HEARTBEAT_WITHIN_FIVE_MINUTE_UPPER_BOUND=PASS")
+              print("R309_"+label+"_HISTORICAL_ROW_CENSUS_AT_LEAST_199=PASS")
+          a=read();verify(a,"SNAPSHOT_A")
+          time.sleep(3)
+          b=read();verify(b,"SNAPSHOT_B")
+          if a[0]["autonomy_authority"]!=b[0]["autonomy_authority"] or a[0]["autonomy_generation"]!=b[0]["autonomy_generation"]:
+              raise RuntimeError("R309_OWNER_GENERATION_CHANGED_BETWEEN_SNAPSHOTS")
+          print("R309_TWO_READONLY_NATIVE_AUTHORITY_SNAPSHOTS=PASS")
+          print("R309_ORIGINAL_SQLITE_WRITES_BY_THIS_WORKFLOW=0")
+          '@
+          & python.exe -B -c $py $database
+          if($LASTEXITCODE -ne 0){throw 'R309_NATIVE_LEDGER_READONLY_PREFLIGHT_FAILED'}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($after.Count -ne 1 -or [int]$after[0].ProcessId -ne $pidBefore -or
+             ([datetime]$after[0].CreationDate).ToUniversalTime().ToString('o') -cne $bornBefore -or
+             (Hash ([string]$after[0].ExecutablePath)) -cne $sha){
+            throw 'R309_ORIGINAL_CONTROLLER_PROCESS_IDENTITY_CHANGED'
+          }
+          $currentTask=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$currentTask.State -cne 'Running' -or
+             (Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop) -cne $taskXml -or
+             (Hash $config) -cne $sourceConfigHash){
+            throw 'R309_ORIGINAL_TASK_OR_CONFIG_CHANGED'
+          }
+          Write-Output 'R309_ORIGINAL_TASK_PROCESS_IMAGE_CONFIG_PREPOST=PASS'
+          Write-Output 'R309_CONTROLLER_NATIVE_CLI_CALLS=0'
+          Write-Output 'R309_QUEUE_DISPATCH=0'
+          Write-Output 'R309_INSTALLED_RELEASE_OR_TASK_CHANGES=0'
+          Write-Output 'R309_MINDPALACE_NATIVE_SOURCE_ADMISSION=NOT_AUTHORIZED'
+          Write-Output 'R309_LIVE_CUTOVER_NOT_AUTHORIZED=TRUE'
+          Write-Output 'R309_READONLY_PREFLIGHT_COMPLETE=PASS'
