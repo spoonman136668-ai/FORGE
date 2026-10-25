@@ -1,3 +1,5 @@
+//go:build ignore
+
 package main
 
 // L10-C13 source-free host-containment diagnostic (NOT arbitrary-code sandbox
