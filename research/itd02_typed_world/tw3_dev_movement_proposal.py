@@ -6,12 +6,10 @@ protected samples or genuine action submitted. A public destination catalog
 must come from a separately verified owner if/when a real adapter is admitted.
 """
 from __future__ import annotations
-import re
+from tw4_native_ids import source_entity_id
 
 ROLE = "TW3_HANDCRAFTED_DEV_POLICY_ONLY"
 PROPOSAL_KEYS = frozenset(("actor", "destination"))
-ACTOR_ID = re.compile(r"npc:[A-Za-z0-9_-]{1,50}\Z")
-DEST_ID = re.compile(r"loc:[A-Za-z0-9_-]{1,50}\Z")
 RESULT = "DEV_VALIDATED_NOT_DISPATCHED"
 RECEIPT = "DEV_REDACTED_NOT_DISPATCHED"
 
@@ -30,11 +28,11 @@ def validate_proposal(candidate, *, scoped_actor, public_destinations,
     """
     demand(type(candidate) is dict and set(candidate) == PROPOSAL_KEYS,
            "EXACT_REQUEST_FIELDS")
-    demand(type(scoped_actor) is str and ACTOR_ID.fullmatch(scoped_actor) is not None,
+    demand(source_entity_id(scoped_actor, "npc"),
            "SCOPED_ACTOR")
     demand(type(public_destinations) is frozenset and
            len(public_destinations) > 0 and
-           all(type(x) is str and DEST_ID.fullmatch(x) is not None
+           all(source_entity_id(x, "location")
                for x in public_destinations), "PUBLIC_CATALOG_SHAPE")
     demand(type(action_budget_remaining) is int and 0 < action_budget_remaining <= 100,
            "FINITE_ACTION_BUDGET")
@@ -42,7 +40,7 @@ def validate_proposal(candidate, *, scoped_actor, public_destinations,
            "IN_FLIGHT_OR_UNKNOWN")
     actor, dest = candidate["actor"], candidate["destination"]
     demand(type(actor) is str and actor == scoped_actor, "ACTOR_CUSTODY")
-    demand(type(dest) is str and DEST_ID.fullmatch(dest) is not None,
+    demand(source_entity_id(dest, "location"),
            "DESTINATION_FORMAT")
     demand(dest in public_destinations, "DESTINATION_NOT_PUBLIC")
     return {
