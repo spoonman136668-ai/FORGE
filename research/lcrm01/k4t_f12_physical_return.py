@@ -211,6 +211,9 @@ def graph_key(row,a):
  local=graph_features(row)
  return history_key(row,a)+tuple(round(v,3) for v in local)
 
+def extended_features(row,a):
+ return current_features(row,a)+limited_history_features(row)
+
 def map_features(row,a):
  return extended_features(row,a)+graph_features(row)
 
