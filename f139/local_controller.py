@@ -744,7 +744,8 @@ class Database:
             self.event("CUTOVER_ACTIVATED",{"source_sha":self.meta()["source_sha"]})
 
     def transition_source(self, new_source_sha: str, *,
-                          allow_certified_negative: bool = False):
+                          allow_certified_negative: bool = False,
+                          allow_v6: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -868,6 +869,8 @@ class Database:
                 prev_v6=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v6"]
                 if len(prev_v4)==10 and len(prev_v5)==4:
+                    require(allow_v6 is True,
+                            "SOURCE_TRANSITION_V5_BOUNDED_CAPACITY_EXHAUSTED")
                     require(not prev_v6
                             and events[-1]["schema"]==
                                 "forge.f139.source-transition.v5",
