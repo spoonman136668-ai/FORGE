@@ -308,7 +308,7 @@ class TW3CSlots(unittest.TestCase):
 
     def test_34_failed_event_match_does_not_release_slot(self):
         x = fresh()
-        token = x.reserve(intent())
+        token = x.reserve(intent())["token"]
         self.rejects("SOURCE_SHAPED_EVENT_MISMATCH",
                      lambda: x.settle(token, {"started": True},
                                       [recorded("travel.blocked")]))
