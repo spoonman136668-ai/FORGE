@@ -90,6 +90,22 @@ jobs:
           $beforeRefs=G $private @('for-each-ref','--format=%(refname) %(objectname)')
           $changed=G $work @('diff','--name-only','HEAD','--')
           $untracked=G $work @('ls-files','--others','--exclude-standard')
+          $preimages=[ordered]@{
+             HEAD_PINNED=($head.rc -eq 0 -and $head.out -ceq $baseline)
+             WORKER_BRANCH=($branch.rc -eq 0 -and $branch.out -ceq $expectedBranch)
+             ANCESTRY_REPAIRED=($ancestry.rc -eq 0)
+             SOURCE_PINNED=($sourceHead.rc -eq 0 -and $sourceHead.out -ceq $baseline)
+             SOURCE_SHALLOW=($sourceShallow.rc -eq 0 -and $sourceShallow.out -ceq 'true')
+             SOURCE_CLEAN=($sourceStatus.rc -eq 0 -and $sourceStatus.out -eq '')
+             CANDIDATE_STATUS_READABLE=($beforeStatus.rc -eq 0)
+             PRIVATE_REFS_READABLE=($beforeRefs.rc -eq 0)
+             CANDIDATE_CHANGED_PATHS_READABLE=($changed.rc -eq 0)
+             CANDIDATE_UNTRACKED_READABLE=($untracked.rc -eq 0)
+             CANDIDATE_UNTRACKED_EMPTY=($untracked.out -eq '')
+          }
+          foreach($key in $preimages.Keys){
+             Write-Output ('R336_PREIMAGE_'+$key+'='+[string]$preimages[$key])
+          }
           if($head.rc -ne 0 -or $head.out -cne $baseline -or
              $branch.rc -ne 0 -or $branch.out -cne $expectedBranch -or $ancestry.rc -ne 0 -or
              $sourceHead.rc -ne 0 -or $sourceHead.out -cne $baseline -or
