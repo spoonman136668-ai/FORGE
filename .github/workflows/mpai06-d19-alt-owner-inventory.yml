@@ -94,5 +94,57 @@ jobs:
           $administrator=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
           Write-Host ('D19_ALTERNATE_RUNNER_ADMIN_ROLE='+$administrator.ToString().ToUpperInvariant())
           Write-Host 'D19_ORIGINAL_RUNNING_CONTROLLER_IDLE=NOT_VERIFIED'
+          # Native owner inventory, deliberately read only. Do not invoke
+          # controller status (known to reject historical YAML), invoke local
+          # operations, adjust the registry, or open pending record contents.
+          $ckbRoot='C:\Users\camar\GolandProjects\ckb-plane'
+          $registryPath=Join-Path $ckbRoot 'config/local-operations.json'
+          $controllerPath=Join-Path $ckbRoot 'bin/ckb-plane.exe'
+          $mindRoot='C:\Users\camar\GolandProjects\Mind-Palace'
+          $pendingPath=Join-Path $mindRoot '.mind-runtime/pending.jsonl'
+          if(Test-Path -LiteralPath $registryPath -PathType Leaf){
+            $reg=Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json
+            $ids=@($reg.operations | ForEach-Object {[string]$_.id})
+            Write-Host ('D19_REGISTERED_LOCAL_OPERATION_COUNT='+$ids.Count)
+            foreach($id in @('mind-palace-context','plane-health','mind-palace-feedback-stage-d16')){
+              $matched=@($reg.operations | Where-Object {[string]$_.id -ceq $id})
+              Write-Host ('D19_REGISTRY_'+($id -replace '[^A-Za-z0-9]','_').ToUpperInvariant()+'_COUNT='+$matched.Count)
+              if($matched.Count -eq 1){
+                Write-Host ('D19_REGISTRY_'+($id -replace '[^A-Za-z0-9]','_').ToUpperInvariant()+'_EXPECTED_SHA256='+[string]$matched[0].script_sha256)
+              }
+            }
+          }
+          $pendingPresent=Test-Path -LiteralPath $pendingPath -PathType Leaf
+          Write-Host ('D19_ORIGINAL_MINDPALACE_PENDING_PRESENT='+$pendingPresent.ToString().ToUpperInvariant())
+          if($pendingPresent){
+            $pendingItem=Get-Item -LiteralPath $pendingPath -Force
+            Need (-not (($pendingItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'PENDING_REPARSE'
+            $pendingDigest=(Get-FileHash -LiteralPath $pendingPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $pendingCount=@(Get-Content -LiteralPath $pendingPath | Where-Object {-not [string]::IsNullOrWhiteSpace($_)}).Count
+            Write-Host ('D19_ORIGINAL_MINDPALACE_PENDING_COUNT='+$pendingCount)
+            Write-Host ('D19_ORIGINAL_MINDPALACE_PENDING_SHA256='+$pendingDigest)
+          }
+          $processReadable=$false
+          try {
+            $native=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            $processReadable=$true
+            Write-Host ('D19_NATIVE_CKBPLANE_PROCESS_COUNT='+$native.Count)
+            $exactPath=0
+            foreach($p in $native){
+              if(-not [string]::IsNullOrWhiteSpace($p.ExecutablePath) -and
+                [IO.Path]::GetFullPath([string]$p.ExecutablePath).Equals([IO.Path]::GetFullPath($controllerPath),[StringComparison]::OrdinalIgnoreCase)){
+                $exactPath++
+              }
+            }
+            Write-Host ('D19_PROCESS_MATCHES_INSTALLED_EXE='+$exactPath)
+          } catch {
+            Write-Host 'D19_NATIVE_PROCESS_QUERY=NOT_AUTHENTICATED'
+          }
+          if($processReadable){Write-Host 'D19_NATIVE_PROCESS_QUERY=PASS'}
+          try {
+            $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+            Write-Host ('D19_ORIGINAL_CONTROLLER_SCHEDULED_TASK_STATE='+[string]$task.State)
+          }catch{Write-Host 'D19_ORIGINAL_CONTROLLER_SCHEDULED_TASK_STATE=UNAVAILABLE'}
+          Write-Host 'D19_IDLE_STATE=NOT_PROVEN_BY_PROCESS_OR_TASK_METADATA'
           Write-Host 'D19_NO_CONTROLLER_OR_MEMORY_WRITES=PASS'
           Write-Host 'D19_CODEX_MODEL_CALLS=0'
