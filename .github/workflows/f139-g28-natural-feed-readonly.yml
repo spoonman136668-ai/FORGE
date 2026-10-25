@@ -1,0 +1,85 @@
+name: F139 G28 original natural-cycle and native feed eligibility observation
+on:
+  push:
+    branches: [qualify/f139-g28-natural-feed-readonly-20261025]
+    paths: [.github/workflows/f139-g28-natural-feed-readonly.yml]
+permissions: {}
+concurrency:
+  group: f139-g28-original-owner-readonly-once
+  cancel-in-progress: false
+jobs:
+  original-owner-observer:
+    if: github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe live original F139 owner ledger and authenticated candidate rejection without dispatch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_G28_RUNNER_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.State -cne 'Running'){
+            throw 'F139_G28_ORIGINAL_TASK_NOT_RUNNING'
+          }
+          function TaskArg([string]$n){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G28_TASK_ARGS_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $source='b2079282fed03df2203807de09b4f3e82bdfe05a'
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $source -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G28_ORIGINAL_INSTALLED_SOURCE_DRIFT'
+          }
+          $expected=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          if([IO.Path]::GetFullPath($db) -ine $expected){
+            throw 'F139_G28_OWNER_DB_PROFILE_DRIFT'
+          }
+          $probe=@'
+          import json,pathlib,sqlite3,sys
+          from f139.local_controller import GitHub
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64, prepare_feed
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          source=sys.argv[2]
+          conn=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.execute("PRAGMA query_only=ON")
+          try:
+              meta=conn.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert meta is not None and meta[0]==source and meta[3]==1 and meta[4]==1
+              stage=dict(conn.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              new=[{"seq":int(r[0]),"kind":r[1]} for r in conn.execute("SELECT seq,kind FROM events WHERE seq>220 ORDER BY seq")]
+              admitted=conn.execute("SELECT payload FROM events WHERE kind='NATIVE_DEVELOPMENT_ADMITTED' ORDER BY seq").fetchall()
+              seen={candidate_identity_from_intent_base64(json.loads(row[0])["native_intent_base64"]) for row in admitted}
+              observation={"source_sha":source,"head_seq":meta[1],"head_hash":meta[2],"stages":stage,
+                           "since_activation":new,"historical_candidate_count":len(seen),
+                           "scientific_first_use":False}
+          finally:
+              conn.close()
+          print("F139_G28_ORIGINAL_LEDGER="+json.dumps(observation,sort_keys=True),flush=True)
+          feed=prepare_feed(GitHub().native_repo_get,source_sha=source,existing_candidate_identities=set(seen))
+          safe={"enabled":feed["enabled"],"candidate_count":len(feed["candidates"]),
+                "candidates":[{"lane":x["lane"],"pr_number":x["pr_number"]} for x in feed["candidates"]],
+                "rejections":feed["rejected"],"historical_candidate_count":len(seen),
+                "scientific_first_use":False}
+          print("F139_G28_AUTHENTICATED_FEED_READONLY="+json.dumps(safe,sort_keys=True),flush=True)
+          '@
+          Push-Location -LiteralPath $root
+          try {
+            & $python -B -c $probe $db $source
+            $code=$LASTEXITCODE
+          } finally {
+            Pop-Location
+          }
+          if($code -ne 0){throw 'F139_G28_READONLY_FEED_DIAG_FAILED'}
+          Write-Host 'F139_G28_NO_TASK_OR_LEDGER_MUTATION=PASS'
+          Write-Host 'F139_G28_NO_MANUAL_TICK_OR_DISPATCH=PASS'
