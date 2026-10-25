@@ -17,7 +17,7 @@ class FakeDb:
     def __init__(self, event):
         self.conn = sqlite3.connect(":memory:")
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("CREATE TABLE events(kind TEXT,payload TEXT)")
+        self.conn.execute("CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT,payload TEXT)")
         self.conn.execute("CREATE TABLE tasks(ticket TEXT,stage TEXT,source_sha TEXT)")
         self.event("NATIVE_DEVELOPMENT_ADMITTED", event)
         self.conn.execute("INSERT INTO tasks VALUES(?,?,?)",

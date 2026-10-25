@@ -23,7 +23,7 @@ G1_ORIGINAL_PARENT = "992ef142aaa551156749a1de484a971b9a0c092f"
 SOURCE_PATH = "yggdrasil/public_causal_cells.py"
 ATTEMPT_KIND = "G3_DRAFT_ATTEMPTED"
 SUCCESS_KIND = "G3_DRAFT_AUTHENTICATED"
-SHA64 = re.compile(r"[a-f0-9]{64}\\Z")
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 
 
 class OwnerPublicationDenied(ValueError):

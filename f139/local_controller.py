@@ -1272,7 +1272,7 @@ class GitHub:
         after an ambiguous remote write; the SQLite attempt event precedes it.
         """
         repo = "repos/spoonman136668-ai/Yggdrasil"
-        branch = re.compile(r"f139/auto-g2-ygg-[a-f0-9]{12}-[a-f0-9]{12}\\Z")
+        branch = re.compile(r"f139/auto-g2-ygg-[a-f0-9]{12}-[a-f0-9]{12}\Z")
         if method == "POST" and route == repo + "/git/refs":
             require(isinstance(payload, dict) and set(payload) == {"ref", "sha"}
                     and isinstance(payload["ref"], str)
@@ -2135,10 +2135,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         # G3 is draft-only: the NEXT ordinary tick must discover/rehash the PR,
         # admit its issue and separately dispatch. Never dispatch from here.
         from f139.nci04_owner_publication import publish_once
-        publication = publish_once(
-            db, api.native_repo_get, api.owner_g3_write,
-            meta["source_sha"],
-            owner_witness=lambda: native_original_running_publisher_profile(db_path))
+        try:
+            publication = publish_once(
+                db, api.native_repo_get, api.owner_g3_write,
+                meta["source_sha"],
+                owner_witness=lambda: native_original_running_publisher_profile(db_path))
+        except (F139Error, ValueError):
+            # Optional G3 publication must not terminate the original F139
+            # reconciliation/dispatch loop on a failed owner or API preflight.
+            publication = {"disposition": "G3_PUBLISH_BLOCKED_FAIL_CLOSED"}
         if publication["disposition"] == "G3_DRAFT_PUBLISHED":
             return publication
     if ready is None:
