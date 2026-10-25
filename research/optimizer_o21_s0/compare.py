@@ -28,13 +28,20 @@ def git_blob(data):
     return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
 
+def canonical_checkout_git_blob(data):
+    """Check the exact original Git blob, allowing only Git Windows CRLF checkout."""
+    if b"\r" in data.replace(b"\r\n", b""):
+        raise ValueError("O21_ORIGINAL_SOURCE_NONCANONICAL_LINE_ENDING")
+    return git_blob(data.replace(b"\r\n", b"\n"))
+
+
 def load_original(root):
     root=Path(root)
     model_file=root / SOURCE_LEARNER
     tests_file=root / SOURCE_TEST
-    if git_blob(model_file.read_bytes()) != ORIGINAL_BLOB:
+    if canonical_checkout_git_blob(model_file.read_bytes()) != ORIGINAL_BLOB:
         raise ValueError("O21_NATIVE_ORIGINAL_LEARNER_IDENTITY_MISMATCH")
-    if git_blob(tests_file.read_bytes()) != ORIGINAL_TEST_BLOB:
+    if canonical_checkout_git_blob(tests_file.read_bytes()) != ORIGINAL_TEST_BLOB:
         raise ValueError("O21_NATIVE_ORIGINAL_TEST_IDENTITY_MISMATCH")
     spec=importlib.util.spec_from_file_location("o21_pinned_native_r7",model_file)
     mod=importlib.util.module_from_spec(spec)
