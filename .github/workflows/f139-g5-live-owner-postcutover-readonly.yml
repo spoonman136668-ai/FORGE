@@ -1,4 +1,4 @@
-name: F139 G5 original owner live postcutover audit (read only)
+name: F139 G5 native loop publication diagnosis (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -110,3 +110,64 @@ jobs:
           Write-Host 'F139_G5_POST_ORIGINAL_TASK_AND_CHILD=PASS'
           Write-Host 'F139_G5_POST_MAIN_AND_POLICY_PIN=PASS'
           Write-Host 'F139_G5_POST_AUDIT_READ_ONLY=TRUE'
+
+      - name: Diagnose native original loop decisions and empty-feeder state (read only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running'){throw 'F139_G5_OBSERVE_OWNER_DOWN'}
+          $arg=[string]$t.Actions[0].Arguments
+          function ReadArg([string]$n) {
+            $m=[regex]::Match($arg,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G5_OBSERVE_TASK_ROUTE_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=ReadArg 'RepositoryRoot'
+          $db=ReadArg 'Database'
+          $python=ReadArg 'PythonExe'
+          $script=@'
+          import json,pathlib,re,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_owner_ledger import native_events
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64
+          log=dbpath.parent/"logs"/"controller.log"
+          if log.is_file():
+              tail=log.read_text(encoding="utf-8",errors="replace")[-75000:]
+              dispositions=re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]{4,100})"',tail)
+              markers={
+                  "F139_GITHUB_API_FAILED","F139_GITHUB_API_INVALID_JSON",
+                  "F139_NCI04_A6","G3_PUBLISH_BLOCKED_FAIL_CLOSED"}
+              print("F139_G5_OBSERVE_LOOP_DISPOSITIONS="+",".join(dispositions[-15:]))
+              print("F139_G5_OBSERVE_FAILED_API_MARKERS="+str(sum(tail.count(s) for s in markers)))
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          db=object.__new__(Database)
+          db.filename=dbpath
+          db.conn=conn
+          try:
+              db.verify()
+              m=db.meta()
+              events=native_events(db)
+              assert m["source_sha"]=="72486da5ce96142424b189dd8e3dcf3c39dfc401"
+              historical={e["issue_number"]:(
+                e["issue_id"],e["source_sha"],e["issue_body_sha256"],e["ticket"]
+              ) for e in events}
+              candidates={candidate_identity_from_intent_base64(e["native_intent_base64"])
+                          for e in events}
+              api=GitHub()
+              eligible=api.native_eligible_issues(m["source_sha"],historical_issues=historical)
+              print("F139_G5_OBSERVE_ELIGIBLE_NATIVE_ISSUES="+str(len(eligible)))
+              if not eligible:
+                  feed=api.prepare_native_feed(m["source_sha"],candidates)
+                  print("F139_G5_OBSERVE_PREPARED_FEED_CANDIDATES="+str(len(feed["candidates"])))
+              print("F139_G5_OBSERVE_SQLITE_UNCHANGED=TRUE")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $script $root $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G5_NATIVE_LOOP_READ_DIAG_FAILED'}
