@@ -73,6 +73,15 @@ test "$(git -C "$RUNNER_TEMP/k4tf6/original-r6" hash-object research/native/itd0
 cp "$RUNNER_TEMP/k4tf6/original-r6/research/native/itd02/r6/observed_edges.go" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r6/observed_edges.go"
 cp "$RUNNER_TEMP/k4tf6/original-r6/research/native/itd02/r6/observed_edges_test.go" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r6/observed_edges_test.go"
 echo 'K4T_F6_ORIGINAL_R6_SOURCE_AUTHENTICATED=PASS'
+git init -q "$RUNNER_TEMP/k4tf6/original-r7"
+git -C "$RUNNER_TEMP/k4tf6/original-r7" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+git -C "$RUNNER_TEMP/k4tf6/original-r7" fetch --no-tags --depth 1 origin 7980717a7b751844c154cdd35e795c21d9679464
+git -C "$RUNNER_TEMP/k4tf6/original-r7" checkout --detach -q 7980717a7b751844c154cdd35e795c21d9679464
+test "$(git -C "$RUNNER_TEMP/k4tf6/original-r7" hash-object research/native/itd02/r7/physical_frontier.go)" = '4dcb8d83fe40be2f31faa90dac463ccf31485945'
+test "$(git -C "$RUNNER_TEMP/k4tf6/original-r7" hash-object research/native/itd02/r7/physical_frontier_test.go)" = '11c32981d71a0088e785d42e0ddd1a66a0cb8e12'
+cp "$RUNNER_TEMP/k4tf6/original-r7/research/native/itd02/r7/physical_frontier.go" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r7/physical_frontier.go"
+cp "$RUNNER_TEMP/k4tf6/original-r7/research/native/itd02/r7/physical_frontier_test.go" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r7/physical_frontier_test.go"
+echo 'K4T_F6_ORIGINAL_R7_SOURCE_AUTHENTICATED=PASS'
 printf 'module github.com/spoonman136668-ai/Wingless\n\ngo 1.25.0\n' > "$RUNNER_TEMP/k4tf6/go/go.mod"
 sed 's|"k4u/wingless"|"github.com/spoonman136668-ai/Wingless/research/native/itd02/r1"|' research/lcrm01/k4u_wingless_bridge.go > "$RUNNER_TEMP/k4tf6/go/bridge_r1.go"
 cp research/lcrm01/k4y_wingless_r2_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r2.go"
@@ -80,6 +89,7 @@ cp research/lcrm01/k4t_f2_wingless_r3_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r3
 cp research/lcrm01/k4t_f3_wingless_r4_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r4.go"
 cp research/lcrm01/k4t_f4_wingless_r5_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r5.go"
 cp research/lcrm01/k4t_f5_wingless_r6_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r6.go"
+cp research/lcrm01/k4t_f6_wingless_r7_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r7.go"
 (cd "$RUNNER_TEMP/k4tf6/go" && go build -trimpath -o "$RUNNER_TEMP/k4tf6/wingless-r1" bridge_r1.go)
 (cd "$RUNNER_TEMP/k4tf6/go" && go build -trimpath -o "$RUNNER_TEMP/k4tf6/wingless-r2" bridge_r2.go)
 (cd "$RUNNER_TEMP/k4tf6/go" && go test -count=1 ./research/native/itd02/r3)
