@@ -1,4 +1,4 @@
-name: F139 R7D original gh credential precedence probe (read only)
+name: F139 R8 real-ledger isolated V5 candidate transition (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -293,3 +293,96 @@ jobs:
           '@
           & $python -B -c $py $root $db $candidate
           if($LASTEXITCODE -ne 0){throw 'F139_R7_G3_REAL_PREFLIGHT_UNQUALIFIED'}
+
+      - name: R8 exact real-ledger snapshot V5 transition compatibility (NO production mutation)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_R8_WRONG_OWNER_RUNNER'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running'){throw 'F139_R8_OWNER_NOT_RUNNING'}
+          $sid=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $isAdmin=[Security.Principal.WindowsPrincipal]::new($sid).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host ('F139_R8_WIN_TASK_OWNER_PROCESS_ELEVATED=' + $isAdmin.ToString().ToUpperInvariant())
+          function TaskArg([string]$n){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_R8_TASK_ARG_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'f139-g4-readonly-source'
+          $sha=(& git.exe -C $candidate rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne '7844ae6b0e75ce5c1f83de8e47c13457a34e0e0e'){
+            throw 'F139_R8_G4_CANDIDATE_DRIFT'
+          }
+          $scratch=Join-Path (Split-Path $db -Parent) ('f139-r8-snapshot-'+$env:GITHUB_RUN_ID+'-'+[guid]::NewGuid().ToString('N')+'.sqlite')
+          $script=@'
+          import json,pathlib,sqlite3,sys
+          dbpath=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[2])
+          candidate=pathlib.Path(sys.argv[3]).resolve(strict=True)
+          expected="7844ae6b0e75ce5c1f83de8e47c13457a34e0e0e"
+          assert scratch.parent==dbpath.parent and not scratch.exists()
+          read=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          read.execute("PRAGMA query_only=ON")
+          try:
+              with sqlite3.connect(scratch) as copy:
+                  read.backup(copy)
+          finally:
+              read.close()
+          sys.path.insert(0,str(candidate))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          from f139.nci04_owner_publication import history_proof
+          proof=Database(scratch)
+          try:
+              before=dict(proof.meta())
+              assert before["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              assert before["head_seq"]>=206
+              assert not proof.actives() and proof.ready() is None
+              assert verify_native_activation(proof)
+              consumed,identities=history_proof(proof)
+              assert len(identities)==22 and consumed
+              originals=proof.conn.execute("SELECT count(*) FROM tasks").fetchone()[0]
+              quarantined=proof.conn.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert originals==31 and quarantined==12
+              proof.transition_source(expected,allow_certified_negative=True)
+              after=proof.meta()
+              assert after["source_sha"]==expected
+              assert after["head_seq"]==before["head_seq"]+1
+              last=proof.conn.execute("SELECT kind,payload FROM events ORDER BY seq DESC LIMIT 1").fetchone()
+              event=json.loads(last["payload"])
+              assert last["kind"]=="SOURCE_TRANSITION_ADMITTED"
+              assert event["schema"]=="forge.f139.source-transition.v5"
+              assert event["from_source_sha"]==before["source_sha"]
+              assert event["to_source_sha"]==expected
+              assert event["scientific_first_use"] is False
+              assert event["new_dispatches"]==0
+              assert proof.conn.execute("SELECT count(*) FROM tasks").fetchone()[0]==originals
+              assert proof.conn.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]==quarantined
+              assert verify_native_activation(proof)
+              proof.verify()
+              print("F139_R8_REAL_ORIGINAL_LEDGER_SNAPSHOT_QUALIFIED=PASS")
+              print("F139_R8_G4_V5_TRANSITION_SNAPSHOT=PASS")
+              print("F139_R8_ORIGINAL_22_ADMISSIONS_AND_12_NEGATIVES=PASS")
+              print("F139_R8_SNAPSHOT_TRANSITION_EVENT_HEAD="+str(after["head_seq"]))
+              print("F139_R8_LIVE_OWNER_SOURCE_TRANSITION=NOT_ATTEMPTED")
+              print("F139_R8_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              proof.close()
+          '@
+          try{
+            & $python -B -c $script $db $scratch $candidate
+            if($LASTEXITCODE -ne 0){throw 'F139_R8_ORIGINAL_LEDGER_SNAPSHOT_MIGRATION_FAILED'}
+          }finally{
+            foreach($suffix in @('','-shm','-wal')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if([string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController').State -cne 'Running'){
+            throw 'F139_R8_ORIGINAL_OWNER_TASK_CHANGED'
+          }
+          Write-Host 'F139_R8_TEMP_COPY_CLEANED=PASS'
+          Write-Host 'F139_R8_ORIGINAL_TASK_AND_SQLITE_UNCHANGED=TRUE'
