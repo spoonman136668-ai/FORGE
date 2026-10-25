@@ -1,0 +1,65 @@
+name: D18 isolated alternate Windows source qualification
+on:
+  push:
+    branches: [qualification/mpai06-d18-nonowner-static-20261025]
+    paths: ['.github/workflows/mpai06-d18-alternate-windows.yml']
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Check exact D16 candidate files without owner writes or model
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$tag){if(-not $ok){throw ('D18_'+$tag)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER'
+          Remove-Item Env:CODEX_HOME,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $url='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $base='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $targets=@(
+            @{sha='94c930b8014da3785777d12cc308f27669ef2259'; branch='proposal/mpai06-d16-registered-feedback-stage-20261025';files=@('implementations/mpai06-d16-owner-feedback-stage/Stage-ExactFeedback.ps1','implementations/mpai06-d16-owner-feedback-stage/Test-ExactFeedback-Isolated.ps1')},
+            @{sha='7052d982b01f2844454329b85e8558fac74318ec'; branch='repair/mpai06-d16-context-tool-drift-20261025';files=@('implementations/mpai06-d16-context-pin-repair/Read-MindPalaceContext.ps1','implementations/mpai06-d16-context-pin-repair/Test-ReadOnlyContext-Isolated.ps1')}
+          )
+          $scratch=Join-Path $env:RUNNER_TEMP ('d18-alt-'+$env:GITHUB_RUN_ID)
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_COLLISION'
+          [IO.Directory]::CreateDirectory($scratch) | Out-Null
+          try {
+            foreach($target in $targets){
+              $remote=@(& git.exe ls-remote --exit-code $url ('refs/heads/'+$target.branch))
+              Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and
+                (([string]$remote[0] -split '\s+')[0]) -ceq $target.sha) 'REMOTE_IDENTITY'
+              $p=Join-Path $scratch ($target.sha.Substring(0,8))
+              & git.exe clone --quiet --no-checkout --single-branch --branch $target.branch $url $p
+              Need ($LASTEXITCODE -eq 0) 'CLONE'
+              Need ((& git.exe -C $p rev-parse HEAD | Out-String).Trim() -ceq $target.sha) 'HEAD'
+              & git.exe -C $p merge-base --is-ancestor $base HEAD
+              Need ($LASTEXITCODE -eq 0) 'BASELINE'
+              & git.exe -C $p sparse-checkout init --cone
+              Need ($LASTEXITCODE -eq 0) 'SPARSE_INIT'
+              & git.exe -C $p sparse-checkout set implementations
+              Need ($LASTEXITCODE -eq 0) 'SPARSE_SET'
+              & git.exe -C $p checkout --force HEAD
+              Need ($LASTEXITCODE -eq 0) 'CHECKOUT'
+              foreach($f in $target.files){
+                $full=Join-Path $p $f
+                Need (Test-Path -LiteralPath $full -PathType Leaf) 'MISSING_FILE'
+                $tokens=$null; $errors=$null
+                [void][System.Management.Automation.Language.Parser]::ParseFile($full,[ref]$tokens,[ref]$errors)
+                Need (@($errors).Count -eq 0) 'SYNTAX'
+              }
+              Need (-not ((& git.exe -C $p status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'MUTATION'
+              Write-Host ('D18_EXACT_CANDIDATE_SOURCE_AND_SYNTAX_PASS='+$target.sha)
+            }
+            Write-Host 'D18_ALT_WINDOWS_SOURCE_QUALIFICATION=PASS'
+            Write-Host 'D18_CODEX_MODEL_CALLS=0'
+            Write-Host 'D18_OWNER_RUNTIME_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'D18_SCRATCH_CLEAN=PASS'
+          }
