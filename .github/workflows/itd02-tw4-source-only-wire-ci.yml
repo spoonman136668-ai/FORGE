@@ -1,0 +1,66 @@
+name: ITD02 TW4 source-only development wire custody qualification
+on:
+  push:
+    branches:
+      - research/itd02-tw4-dev-wire-custody-fix-20261025
+permissions:
+  contents: read
+concurrency:
+  group: itd02-tw4-wire-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  focused-original-shape-dev:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 14
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify frozen source-only protocol and affected TW2/TW3 tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor e18e2cb96777516500c18c37d94c3932538b5d99 "$GITHUB_SHA"
+          git merge-base --is-ancestor 1d88b61bef6198bc879e19baedd5ffffee3f64f9 "$GITHUB_SHA"
+          python -B -m unittest discover -s research/itd02_typed_world -p test_tw2_dev_travel_projection.py -v
+          python -B -m unittest discover -s research/itd02_typed_world -p test_tw3_dev_movement_proposal.py -v
+          git diff --exit-code
+          echo TW4_DEV_ONLY_ORIGINAL_ID_AND_MONOTONIC_EVENT_FOCUSED=PASS
+          echo TW4_ORIGINAL_RPG_WORLD_STEPS=0
+          echo TW4_PROTECTED_SCIENCE_FIRST_USE=DENIED
+  one-full-python-regression:
+    needs: focused-original-shape-dev
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: One original F139 full Python regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          git diff --exit-code
+          echo TW4_SINGLE_FULL_F139_REGRESSION=PASS
+          echo TW4_NATIVE_SCIENTIFIC_GO=FALSE
