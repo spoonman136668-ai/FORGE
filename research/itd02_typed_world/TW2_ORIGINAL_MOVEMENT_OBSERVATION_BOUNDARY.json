@@ -1,0 +1,146 @@
+{
+  "schema": "forge.itd02.tw2.original_source_movement_observation_preflight.v1",
+  "date": "2026-10-25",
+  "status": "FROZEN_BEFORE_BOUNDARY_IMPLEMENTATION_NOT_SOURCE_ADMITTED",
+  "parent": {
+    "tw1_head": "7b426dd391bb370143a4d182041932954e7c8812",
+    "tw1_pr": 951,
+    "source_prereg_blob": "e4ed4178b997d36de9eb78b1dcf67a2742a47881"
+  },
+  "original": {
+    "repository": "ccherosc/RPGWorldSim",
+    "commit": "0387a1322e8924625f4bdc6ddd6356d517901dfe",
+    "files": [
+      {
+        "path": "packages/world/src/travel.ts",
+        "blob": "795665f06053ecadcb7143a0cac35b294dad35c3",
+        "evidence": "TravelSystem.begin(traveller,destination,causes) implements original movement; emits travel.departed, travel.arrived, travel.blocked"
+      },
+      {
+        "path": "packages/world/src/map.ts",
+        "blob": "c17921cdee5535610c6fa0376014c1f6958b5eb3",
+        "evidence": "Map controls occupancy, access and future path/cost; traveler unplaced while walking"
+      },
+      {
+        "path": "packages/sim-core/src/events.ts",
+        "blob": "31b4533171210d8d74e790e2945c4ac1b8145892",
+        "evidence": "generic original SimEvent contains arbitrary data, causes, actor and location; unrestricted subscribe"
+      },
+      {
+        "path": "packages/sim-core/src/simulation.ts",
+        "blob": "b87032ce33d2d05ae7c4276d79825f15a3d4a6b4",
+        "evidence": "original sim.emit/subscribe/runUntil, no safe learner boundary established"
+      },
+      {
+        "path": "apps/simulator/src/village-world.ts",
+        "blob": "58ba5bbd7f888143a366095b9d15972fd736b3bc",
+        "evidence": "world.generated event explicitly includes secret generator seed"
+      },
+      {
+        "path": "apps/simulator/src/cli.ts",
+        "blob": "c52d3096d47741e07ac7eef9e05802895b3a047b",
+        "evidence": "CLI runs source simulation; no independent public learner action authorization proven"
+      },
+      {
+        "path": "packages/society/src/system.ts",
+        "blob": "1422b949189235833d97a4653b0647398ce1a1da",
+        "evidence": "founding/membership/parent events exist but are not authorized learner-controlled causal actions"
+      }
+    ]
+  },
+  "frozen_safety": {
+    "role": "TW2_OPEN_HANDCRAFTED_DEV_ONLY",
+    "allow_only": [
+      "travel.departed",
+      "travel.arrived",
+      "travel.blocked"
+    ],
+    "drop": [
+      "world.generated",
+      "society.parentage-recorded",
+      "sim.save",
+      "world.snapshot",
+      "sim.internal",
+      "all other event types"
+    ],
+    "future_sensitive": [
+      "world generator seed",
+      "complete path",
+      "arrival schedule",
+      "next waypoint and future planned destination",
+      "route cost",
+      "full event causes",
+      "all extra event.data fields",
+      "raw owner/kinship registry",
+      "capacity/permissions/entry details",
+      "all other actors"
+    ],
+    "allowed_public_projection": {
+      "travel.departed": [
+        "kind",
+        "tick",
+        "traveller",
+        "status"
+      ],
+      "travel.arrived": [
+        "kind",
+        "tick",
+        "traveller",
+        "at",
+        "status"
+      ],
+      "travel.blocked": [
+        "kind",
+        "tick",
+        "traveller",
+        "status",
+        "reason"
+      ]
+    },
+    "only_after_original_event": true,
+    "no_predecision_world_truth": true,
+    "no_direct_original_emitter_or_dispatcher_exposed": true,
+    "actor_bound": "event actors must refer to the one scoped actor; no cross-person event leakage",
+    "time_monotonicity": "nonnegative integer tick, original event ids strictly increasing at equal tick; reject out-of-order observed events",
+    "reason_allowlist": [
+      "not-placed",
+      "already-travelling",
+      "unknown-destination",
+      "no-route",
+      "unknown-location",
+      "full",
+      "forbidden",
+      "interrupted"
+    ],
+    "no_action_endpoint": "This is read-only output filtering, not source action authorization. The original TravelSystem.begin is an internal API, and may NOT be called until independent legal action interface/admission."
+  },
+  "predeclared_adversarial_cases": [
+    "drop world.generated including seed",
+    "do not expose arrival time",
+    "do not expose full route cost",
+    "do not expose next path node/destination",
+    "do not expose cause chain",
+    "do not expose opponent actors",
+    "drop parentage, ownership and all unrelated events",
+    "positive bounded arrival location",
+    "allow only enumerated blocked reasons",
+    "reject forged blocked reason",
+    "reject event with mismatching scoped actor",
+    "reject malformed tick/id and out-of-order timeline",
+    "reject hidden field leak even if nested in raw event",
+    "do not turn the static parentage source into a native causal action"
+  ],
+  "accepted_verdict": "DEV_EVENT_PROJECTION_STATIC_TEST_ONLY; original owner source execution, independently controlled learner action and public observations, protected family, scorer and scientific admission all remain blocked",
+  "governance": {
+    "new_source_generated": false,
+    "original_RPG_runtime_executed": false,
+    "protected_first_use": false,
+    "heldouts_seen": false,
+    "learner_training": false,
+    "owner_workflow_changed": false,
+    "main_modified": false,
+    "no_paid_API": true,
+    "no_new_controller": true,
+    "no_FSA_promotion": true
+  }
+}
