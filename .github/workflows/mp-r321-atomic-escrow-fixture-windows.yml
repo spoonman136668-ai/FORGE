@@ -1,0 +1,82 @@
+name: R321 original Windows atomic synthetic escrow publication fixture
+on:
+  push:
+    branches: [audit/mp-r321-atomic-escrow-fixture-windows-20261025]
+    paths: [.github/workflows/mp-r321-atomic-escrow-fixture-windows.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r321-existing-original-owner-synthetic-only
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 14
+    steps:
+      - name: Execute exact CKB source-only interrupted-publication fixture on existing owner Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r321-atomic-escrow-fixture-windows-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R321_EXACT_EXISTING_WINDOWS_OWNER_IDENTITY_MISMATCH'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $adm=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$adm.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R321_EXISTING_OWNER_IDENTITY_NOT_VERIFIED'
+          }
+          $py=Get-Command python.exe -ErrorAction Stop
+          $gh=Get-Command gh.exe -ErrorAction Stop
+          $git=Get-Command git.exe -ErrorAction Stop
+          if(!$env:RUNNER_TEMP -or !(Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)){
+            throw 'R321_PRIVATE_RUNNER_TEMP_NOT_AVAILABLE'
+          }
+          $sha='ac0089f5457d361245bca03af9526a6000c91e55'
+          $checked=(& $gh.Source api ('repos/spoonman136668-ai/ckb-plane/commits/'+$sha) --jq '.sha' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $checked -cne $sha){throw 'R321_CKB_SOURCE_COMMIT_IDENTITY_DRIFT'}
+          $pins=[ordered]@{
+            'New-R319-SyntheticWalEscrow.py'=@('snapshot/source/scripts/New-R319-SyntheticWalEscrow.py','fc4c943da75423ee008c4a77130a15d2a743e725')
+            'Test-R320-EscrowAdmissibility.py'=@('snapshot/source/scripts/Test-R320-EscrowAdmissibility.py','402c39b89dc27305f36252f70b3f08196ad3eab2')
+            'Publish-R321-SyntheticEscrow.py'=@('snapshot/source/scripts/Publish-R321-SyntheticEscrow.py','fb8225acb5485fdfc4c80506901de5489b25a483')
+            'Test-R321-AtomicPublication.py'=@('snapshot/source/scripts/Test-R321-AtomicPublication.py','d3e06190db2200ad83c557cb88a02512a436bab6')
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('r321-private-source-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'R321_PRIVATE_SCRATCH_ALREADY_EXISTS'}
+          $created=$false
+          try{
+            $null=New-Item -ItemType Directory -Path $scratch -ErrorAction Stop
+            $created=$true
+            foreach($name in $pins.Keys){
+              $p=$pins[$name]
+              $endpoint='repos/spoonman136668-ai/ckb-plane/contents/'+$p[0]+'?ref='+$sha
+              $b64=(& $gh.Source api $endpoint --jq '.content' | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($b64)){
+                throw 'R321_PINNED_PUBLIC_SOURCE_NOT_READABLE'
+              }
+              $dest=Join-Path $scratch $name
+              [IO.File]::WriteAllBytes($dest,[Convert]::FromBase64String(($b64-replace '\s','')))
+              $actual=(& $git.Source hash-object -- $dest | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $actual -cne [string]$p[1]){
+                throw 'R321_EXACT_GIT_SOURCE_BLOB_DRIFT'
+              }
+            }
+            Write-Output 'R321_AUTHENTIC_EXISTING_ELEVATED_WINDOWS_OWNER=PASS'
+            Write-Output 'R321_FOUR_IMMUTABLE_OFFLINE_SOURCE_BLOBS=PASS'
+            & $py.Source -B (Join-Path $scratch 'Test-R321-AtomicPublication.py')
+            if($LASTEXITCODE -ne 0){throw 'R321_PRIVATE_SYNTHETIC_FAULT_INJECTION_TEST_FAILED'}
+            Write-Output 'R321_WINDOWS_INTERRUPTED_ESCROW_PUBLICATION_AND_WAL_TESTS=PASS'
+            Write-Output 'R321_REAL_CONTROLLER_DATABASE_TASK_AND_QUEUE_NOT_OPENED=TRUE'
+            Write-Output 'R321_NO_DURABLE_ORIGINAL_HOST_ESCROW_CREATED=TRUE'
+            Write-Output 'R321_NO_FORGE_OR_CKB_CONTROLLER_AUTHORITY_TRANSFER=TRUE'
+          }finally{
+            if($created -and (Test-Path -LiteralPath $scratch)){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
