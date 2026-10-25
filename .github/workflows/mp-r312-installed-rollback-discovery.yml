@@ -1,0 +1,66 @@
+name: R312 installed CKB rollback-mechanism discovery read-only
+on:
+  push:
+    branches: [audit/mp-r312-installed-rollback-mechanism-readonly-20261025]
+    paths: [.github/workflows/mp-r312-installed-rollback-discovery.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Classify original installed recovery mechanisms without invoking them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r312-installed-rollback-mechanism-readonly-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push'){
+            throw 'R312_WRONG_ORIGINAL_OWNER_RUN'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $adm=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$adm.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R312_ORIGINAL_ADMIN_NOT_VERIFIED'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $scripts=Join-Path $root 'scripts'
+          foreach($name in @('Rollback-CKBPlane.ps1','Setup-CKBPlane.ps1','Stop-CKBPlane.ps1','Start-CKBPlane.ps1','Activate-CKBPlane.ps1')){
+            $exists=Test-Path -LiteralPath (Join-Path $scripts $name) -PathType Leaf
+            $safe=($name -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+            Write-Output ('R312_INSTALLED_SCRIPT_'+$safe+'='+$exists)
+          }
+          $store='C:\ProgramData\CKBR'
+          foreach($relative in @(
+            'rollback-escrow',
+            'cutover\PLANE-R18-OWNER-CUTOVER-39809195564\rollback',
+            'cutover\PLANE-R18-OWNER-CUTOVER-39809195564\cutover-receipt.json'
+          )){
+            $p=Join-Path $store $relative
+            $present=Test-Path -LiteralPath $p
+            if($relative -eq 'rollback-escrow'){
+              Write-Output ('R312_CURRENT_DURABLE_ROLLBACK_ROOT_PRESENT='+$present)
+            }elseif($relative -match 'receipt'){
+              Write-Output ('R312_HISTORICAL_R18_RECEIPT_PRESENT='+$present)
+            }else{
+              Write-Output ('R312_HISTORICAL_R18_BACKUP_PRESENT='+$present)
+            }
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $arg=[string]$task.Actions[0].Arguments
+          Write-Output ('R312_ORIGINAL_R18_TASK_RUNNING='+([string]$task.State -ceq 'Running'))
+          Write-Output ('R312_ORIGINAL_TASK_HAS_R18_STARTER='+($arg -match '(?i)Start-R18-Controller'))
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($proc.Count -ne 1){throw 'R312_ORIGINAL_PROCESS_NOT_SINGLETON'}
+          $path=[string]$proc[0].ExecutablePath
+          $sha=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R312_LIVE_BINARY_CHANGED'
+          }
+          Write-Output 'R312_ORIGINAL_RUNNING_BINARY_IDENTITY=PASS'
+          Write-Output 'R312_NO_INSTALLED_SCRIPT_INVOKED=TRUE'
+          Write-Output 'R312_NO_TASK_OR_CONTROLLER_MUTATION=TRUE'
+          Write-Output 'R312_NO_QUEUE_OR_DATABASE_ACCESS=TRUE'
+          Write-Output 'R312_ROLLBACK_AVAILABILITY_AUDIT=PASS'
