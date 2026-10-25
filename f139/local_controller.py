@@ -1601,8 +1601,10 @@ class GitHub:
                    "v2_owner_signature")
         v2 = signed_fields.get("native_protocol") == "v2"
         require(set(signed_fields) == set(("ticket","lane","source_sha",
-                      "epoch","signature",*base_keys,
+                      "epoch","signature","intent_sha256",*base_keys,
                       *(("native_protocol",*v2_keys) if v2 else ())))
+                and signed_fields["intent_sha256"] ==
+                    issue.candidate.intent_sha256
                 and (not v2 or (issue.lane == "Yggdrasil"
                        and issue.candidate.target_commit == V2_SOURCE_SHA
                        and issue.candidate.target_tree_sha == V2_SOURCE_TREE
