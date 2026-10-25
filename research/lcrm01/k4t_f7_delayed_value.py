@@ -126,7 +126,7 @@ def evaluate(stream):
   "pooled_gte_20pct_relative_MSE":sse1<=sse0*(1-p["overallMinRelativeMSEImprovementPct"]/100),
   "pooled_context_sufficient_support":covered/total>=p["minimumCoveredFractionContextCountEight"],
   "all_fold_train_validation_seed_disjoint":all(not(set(x["training_public_seed_ids"])&set(x["test_public_seed_ids"])) for x in folds),
-  "frozen_real_fit_event_count":len(stream)==p["actualFitEvents"]}
+  "frozen_real_fit_event_count":len(stream)==contract()["actualFitEvents"]}
  return {"schema":SCHEMA,"gate":"LCRM01-K4T-F7",
   "result":p["passResult"] if False else (p["acceptance"]["passResult"] if all(criteria.values()) else p["acceptance"]["failResult"]),
   "criteria":criteria,"folds":folds,"fit_label_audit":audit,
