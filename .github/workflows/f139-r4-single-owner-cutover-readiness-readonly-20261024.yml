@@ -1,4 +1,4 @@
-name: F139 R7C freshly authenticated original owner preflight (read only)
+name: F139 R7D original gh credential precedence probe (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -213,6 +213,39 @@ jobs:
           print("F139_R7_GH_ISSUE_READ="+("PASS" if rc==0 else "FAIL"))
           if rc!=0:
               print("F139_R7_GH_SAFE_HTTP_CODES="+",".join(http_codes or ["NONE"]))
+          # Check whether inherited credential environment obscures the
+          # user-installed gh login. Never print tokens, passwords, or hosts.yml.
+          print("F139_R7D_ENV_GH_TOKEN_PRESENT="+str(bool(os.environ.get("GH_TOKEN"))))
+          print("F139_R7D_ENV_GITHUB_TOKEN_PRESENT="+str(bool(os.environ.get("GITHUB_TOKEN"))))
+          print("F139_R7D_ENV_GH_CONFIG_DIR_PRESENT="+str(bool(os.environ.get("GH_CONFIG_DIR"))))
+          appdata=pathlib.Path(os.environ.get("APPDATA","")) if os.environ.get("APPDATA") else None
+          print("F139_R7D_DEFAULT_HOSTS_CONFIG_EXISTS="+str(
+              bool(appdata and (appdata/"GitHub CLI"/"hosts.yml").is_file())))
+          clean_env=os.environ.copy()
+          for var in ("GH_TOKEN","GITHUB_TOKEN","GH_ENTERPRISE_TOKEN"):
+              clean_env.pop(var,None)
+          def auth_check(cmd,env):
+              p=subprocess.run(["gh",*cmd],env=env,
+                stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,timeout=30,check=False)
+              err=(p.stdout+p.stderr).decode("utf-8","replace")
+              http=re.findall(r"(?<![0-9])(?:401|403|404|429)(?![0-9])",err)
+              return p.returncode,sorted(set(http)),p.stdout.decode("utf-8","replace").strip()
+          cr,_,_=auth_check(["auth","status","-h","github.com"],clean_env)
+          print("F139_R7D_CLEAN_ENV_GH_AUTH="+("PASS" if cr==0 else "FAIL"))
+          cr2,codes,userid=auth_check(["api","user","--jq",".login"],clean_env)
+          print("F139_R7D_CLEAN_ENV_IDENTITY="+(
+              "EXPECTED" if cr2==0 and userid=="spoonman136668-ai"
+              else "OTHER" if cr2==0 else "UNAVAILABLE"))
+          if cr2!=0: print("F139_R7D_CLEAN_ENV_HTTP_CODES="+",".join(codes or ["NONE"]))
+          if cr==0 and cr2==0 and userid=="spoonman136668-ai":
+              # Only process-local environment normalization.
+              for var in ("GH_TOKEN","GITHUB_TOKEN","GH_ENTERPRISE_TOKEN"):
+                  os.environ.pop(var,None)
+              status,rc=0,0
+              print("F139_R7D_ORIGINAL_GH_NORMALIZATION=PASS")
+          else:
+              print("F139_R7D_ORIGINAL_GH_NORMALIZATION=BLOCKED")
           owner_auth_qualified=(status==0 and rc==0)
           from f139.local_controller import Database,GitHub
           from f139.nci04_candidate_publisher import publisher_preflight,RECIPE_G3
