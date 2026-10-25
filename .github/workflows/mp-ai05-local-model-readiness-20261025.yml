@@ -1,0 +1,57 @@
+name: MP-AI05 isolated local inference readiness (read-only, no model invocation)
+on:
+  push:
+    branches: [qualification/mp-ai05-local-model-readiness-20261025]
+    paths: ['.github/workflows/mp-ai05-local-model-readiness-20261025.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai05-local-model-readiness-once
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Bounded no-inference runner local model readiness
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/mp-ai05-local-model-readiness-20261025' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_D11_RUNNER_OR_REF_DRIFT'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          Write-Host 'MPAI05_D11_SCOPE=EXISTING_FORGE_ISOLATED_RUNNER_ONLY'
+          Write-Host 'MPAI05_D11_PROBE=READ_ONLY_NO_INFERENCE_NO_HTTP_NO_DOWNLOADS'
+          foreach($name in @('llama-server.exe','ollama.exe')) {
+            $found=$null -ne (Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue)
+            $value=if($found){'FOUND_IN_PATH'}else{'NOT_FOUND_IN_PATH'}
+            Write-Host ('MPAI05_D11_'+$name.Replace('.exe','').Replace('-','_').ToUpperInvariant()+'_COMMAND='+$value)
+          }
+          foreach($port in @(8080,11434)) {
+            $kind='UNVERIFIED'
+            if(Get-Command -Name Get-NetTCPConnection -ErrorAction SilentlyContinue) {
+              try {
+                $conns=@(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop)
+                $local=@($conns | Where-Object { $_.LocalAddress -eq '127.0.0.1' -or $_.LocalAddress -eq '::1' })
+                $kind=if($local.Count -gt 0){'LOOPBACK_LISTENER_PRESENT_UNAUTHENTICATED'}else{'NO_EXPLICIT_LOOPBACK_LISTENER_OBSERVED'}
+              } catch {
+                # No connection/insufficient rights cannot be relabeled absent.
+                $kind='UNVERIFIED'
+              }
+            }
+            Write-Host ('MPAI05_D11_LOOPBACK_'+$port+'='+$kind)
+          }
+          Write-Host 'MPAI05_D11_CHATGPT_CLOUD_CONSUMER_AUTH=NOT_TESTED'
+          Write-Host 'MPAI05_D11_SECOND_MODEL_IDENTITY_AUTH=NOT_TESTED'
+          Write-Host 'MPAI05_D11_IDENTICAL_MEMORY_CONSUMPTION=NOT_TESTED'
+          Write-Host 'MPAI05_D11_FIRST_USE_TASK_TRIALS=NOT_RUN'
+          Write-Host 'MPAI05_D11_PAID_MODEL_CALLS=0'
+          Write-Host 'MPAI05_D11_PRODUCTION_MEMORY_WRITES=0'
+          Write-Host 'MPAI05_D11_NO_MODEL_LAUNCH_NO_NETWORK_IO=PASS'
