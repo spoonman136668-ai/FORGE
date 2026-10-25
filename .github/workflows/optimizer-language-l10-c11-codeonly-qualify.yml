@@ -1,0 +1,126 @@
+name: L10-C11 code-only separate-worker development preflight
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/optimizer-language-l10-c11-codeonly-qualify.yml'
+      - 'research/optimizer_language_l10/l10_c11_codeonly_worker.py'
+permissions:
+  contents: read
+concurrency:
+  group: l10-c11-codeonly-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  package-trusted-code:
+    if: github.event.pull_request.number == 862
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    outputs:
+      source_sha256: ${{ steps.package.outputs.source_sha256 }}
+      canary_path: ${{ steps.package.outputs.canary_path }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify unchanged scientific source and C11 worker identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l10
+          test "$(git rev-parse "HEAD:$p/l10_c11_codeonly_worker.py")" = '1aefa4660e60523902a3e14859a22635e558f0dc'
+          test "$(git rev-parse "HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json")" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse "HEAD:$p/l10_dev_source_custody.py")" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse "HEAD:$p/l10_dev_matched_controls.py")" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+      - id: package
+        name: Package exactly one code file and retain invented trusted canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,os,pathlib,shutil
+          p=pathlib.Path("research/optimizer_language_l10/l10_c11_codeonly_worker.py")
+          dest=pathlib.Path(os.environ["RUNNER_TEMP"])/"l10-c11-codeonly"
+          dest.mkdir()
+          shutil.copyfile(p,dest/p.name)
+          assert sorted(x.name for x in dest.iterdir())==[p.name]
+          raw=p.read_bytes()
+          assert (dest/p.name).read_bytes()==raw
+          trusted=pathlib.Path(os.environ["RUNNER_TEMP"])/"l10-c11-trusted-not-packaged"
+          trusted.mkdir()
+          canary=trusted/"private-synthetic-canary.txt"
+          canary.write_text("DEVELOPMENT_ONLY_PRIVATE_CANARY_NOT_A_SEMANTIC_MAP\n")
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as fd:
+              fd.write("source_sha256="+hashlib.sha256(raw).hexdigest()+"\n")
+              fd.write("canary_path="+str(canary)+"\n")
+          print("C11_TRUSTED_PRODUCER_PACKAGED_ONLY_CODE=TRUE")
+          print("C11_PROSPECTIVE_EXAMPLES_GENERATED=0")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: l10-c11-codeonly-worker
+          path: ${{ runner.temp }}/l10-c11-codeonly/l10_c11_codeonly_worker.py
+          retention-days: 7
+          if-no-files-found: error
+  fresh-codeonly-worker:
+    if: github.event.pull_request.number == 862
+    needs: package-trusted-code
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    timeout-minutes: 8
+    steps:
+      # Deliberately no checkout: only the published code file is downloaded.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: l10-c11-codeonly-worker
+          path: ${{ runner.temp }}/l10-c11-worker-artifact
+      - name: Verify source absence, code digest, and public-input IPC
+        shell: bash
+        env:
+          EXPECTED_CODE_SHA256: ${{ needs.package-trusted-code.outputs.source_sha256 }}
+          PRODUCER_CANARY_PATH: ${{ needs.package-trusted-code.outputs.canary_path }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,sys
+          work=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          art=pathlib.Path(os.environ["RUNNER_TEMP"])/"l10-c11-worker-artifact"
+          files=sorted(p.relative_to(art).as_posix() for p in art.rglob("*") if p.is_file())
+          assert files==["l10_c11_codeonly_worker.py"],files
+          worker=art/files[0]
+          assert hashlib.sha256(worker.read_bytes()).hexdigest()==os.environ["EXPECTED_CODE_SHA256"]
+          for rel in (".git","research",".github"):
+              assert not (work/rel).exists(),rel
+          canary=pathlib.Path(os.environ["PRODUCER_CANARY_PATH"])
+          assert not canary.exists(),"trusted producer canary exposed"
+          try:
+              canary.read_bytes()
+          except OSError:
+              pass
+          else:
+              raise AssertionError("trusted source canary readable")
+          clean={"PATH":os.environ.get("PATH",""),"PYTHONIOENCODING":"utf-8"}
+          assert not any(x in clean for x in ("GITHUB_TOKEN","GH_TOKEN","ACTIONS_RUNTIME_TOKEN"))
+          def invoke(regime,mapping):
+              data={"schema":"forge.l10.c11.public-artifact-request-v1",
+                    "information_regime":regime,
+                    "observed":[["Aster","P0","Boreal",1]],"public_lexicon":mapping}
+              child=subprocess.run([sys.executable,"-I","-S",str(worker)],
+                  input=json.dumps(data),capture_output=True,text=True,
+                  env=clean,cwd=art,timeout=5)
+              assert child.returncode==0,(child.returncode,child.stderr)
+              out=json.loads(child.stdout)
+              assert out["scientific_go"] is False
+              return out
+          assert invoke("WITHHELD_MAPPING",[])=={"scientific_go":False,"status":"ABSTAIN","text":None}
+          assert invoke("KNOWN_MAPPING",[["P0","located_in"]])["text"]=="Aster :: located_in :: Boreal :: +"
+          print("L10_C11_CODE_ONLY_ARTIFACT_VERIFIED=TRUE")
+          print("L10_C11_PRODUCER_SOURCE_FILE_NOT_VISIBLE=TRUE")
+          print("L10_C11_WITHHELD_INPUT_ABSTENTION=PASS")
+          print("L10_C11_KNOWN_PUBLIC_MAPPING=PASS")
+          print("L10_C11_FULL_SANDBOX_ISOLATION=NOT_QUALIFIED")
+          print("L10_C11_SCIENTIFIC_GO=FALSE")
+          PY

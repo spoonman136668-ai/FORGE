@@ -1,0 +1,62 @@
+name: L10-C10 source-free namespace isolation preflight
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'research/optimizer_language_l10/l10_c10_linux_namespace_probe.py'
+      - '.github/workflows/optimizer-language-l10-c10-sourcefree-isolation.yml'
+permissions:
+  contents: read
+concurrency:
+  group: l10-c10-sourcefree-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  linux-canary-denial:
+    if: github.event.pull_request.number == 862
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify immutable source identity and science custody
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l10
+          test "$(git rev-parse "HEAD:$p/l10_c10_linux_namespace_probe.py")" = '3d1ac1c3fabcf9e4348cbdfa355f0e4b494b439f'
+          test "$(git rev-parse "HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json")" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse "HEAD:$p/l10_dev_source_custody.py")" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse "HEAD:$p/l10_dev_matched_controls.py")" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+      - name: Qualify Linux source-free canary denial or fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B research/optimizer_language_l10/l10_c10_linux_namespace_probe.py
+          echo L10_C10_LOCAL_CANARY_DENIAL_ONLY_NOT_SCIENTIFIC_ISOLATION
+          echo L10_C10_PROSPECTIVE_SAMPLES=0
+  windows-fail-closed:
+    if: github.event.pull_request.number == 862
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify unsupported Windows is explicitly NOT qualified
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.util, pathlib
+          f=pathlib.Path("research/optimizer_language_l10/l10_c10_linux_namespace_probe.py")
+          spec=importlib.util.spec_from_file_location("l10_c10_linux_namespace_probe", f)
+          m=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(m)
+          result=m.check()
+          assert result["status"]=="BLOCKED_UNSUPPORTED_PLATFORM",result
+          assert result["scientific_go"] is False
+          print("WINDOWS_ISOLATION_NOT_QUALIFIED_FAIL_CLOSED")
+          PY

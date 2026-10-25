@@ -1,0 +1,92 @@
+name: L10-C13 root-mount and socket-denial qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/optimizer-language-l10-c13-boundary-qualify.yml'
+      - 'research/optimizer_language_l10/l10_c13_mount_socket_probe.go'
+permissions:
+  contents: read
+concurrency:
+  group: l10-c13-root-socket-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  linux-mount-and-socket-denial:
+    if: github.event.pull_request.number == 862
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Frozen input pins, local negative controls, and actual Docker mount flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l10
+          test "$(git rev-parse "HEAD:$p/l10_c13_mount_socket_probe.go")" = 'e0152dc54ee5194adc9b8aa0a0159e3bb3b0cf74'
+          test "$(git rev-parse "HEAD:$p/l10_c12_container_boundary.go")" = '2a3517a38491d358f785743c909e00e0310e6701'
+          test "$(git rev-parse "HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json")" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse "HEAD:$p/l10_dev_source_custody.py")" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse "HEAD:$p/l10_dev_matched_controls.py")" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          mkdir "$scratch/context" "$scratch/trusted"
+          printf 'INVENTED_C13_HOST_CANARY_NOT_A_MODEL_LABEL\n' > "$scratch/trusted/canary"
+          CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' \
+            -o "$scratch/context/probe" "./$p/l10_c13_mount_socket_probe.go"
+          "$scratch/context/probe" --self-test
+          chmod 0555 "$scratch/context/probe"
+          cat > "$scratch/context/Dockerfile" <<'DOCKER'
+          FROM scratch
+          COPY --chmod=0555 probe /probe
+          USER 65534:65534
+          ENTRYPOINT ["/probe"]
+          DOCKER
+          test "$(find "$scratch/context" -maxdepth 1 -type f | wc -l)" -eq 2
+          docker build --no-cache --pull=false --network=none -t l10-c13-sourcefree-probe "$scratch/context"
+          clean="$(docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 --memory=128m \
+            --cpus=1 --user 65534:65534 l10-c13-sourcefree-probe "$scratch/trusted/canary")"
+          echo "$clean"
+          C13_RESULT="$clean" python - <<'PY'
+          import json, os
+          r=json.loads(os.environ["C13_RESULT"])
+          assert r["schema"]=="forge.l10.c13.source-free-mount-socket-qualified-v1",r
+          assert r["status"]=="C13_SCOPED_SOURCE_FREE_BOUNDARY_PASS",r
+          for key in ("root_mount_flag_read_only","root_write_denied",
+                      "docker_socket_paths_absent","docker_socket_connect_denied",
+                      "invented_host_canary_read_denied","invented_proc_root_canary_read_denied",
+                      "network_tcp_probe_denied","selected_github_auth_env_absent"):
+              assert r[key] is True,(key,r)
+          assert r["prospective_samples_generated"]==0 and r["scientific_go"] is False
+          print("C13_LINUX_ROOT_MOUNT_RO_AND_SOCKET_DENIAL=PASS")
+          PY
+          set +e
+          writable="$(docker run --rm --network none --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 --memory=128m \
+            --cpus=1 --user 65534:65534 l10-c13-sourcefree-probe "$scratch/trusted/canary")"
+          exit_code=$?
+          set -e
+          C13_WRITABLE="$writable" C13_WRITABLE_EXIT="$exit_code" python - <<'PY'
+          import json,os
+          r=json.loads(os.environ["C13_WRITABLE"])
+          assert int(os.environ["C13_WRITABLE_EXIT"])==2
+          assert r["root_mount_flag_read_only"] is False
+          assert r["status"]=="C13_FAIL_CLOSED_BOUNDARY_NOT_QUALIFIED",r
+          print("C13_WRITABLE_ROOT_NEGATIVE_CONTROL=EXPECTED_FAILURE")
+          print("C13_HARDENED_ARBITRARY_CODE=NOT_QUALIFIED")
+          print("C13_SCIENTIFIC_GO=FALSE")
+          PY
+  windows-unimplemented:
+    if: github.event.pull_request.number == 862
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Windows Linux-mount qualification is NOT portable
+        shell: pwsh
+        run: |
+          Write-Output 'C13_WINDOWS_ROOT_MOUNT_TEST=NOT_APPLICABLE'
+          Write-Output 'C13_WINDOWS_CONTAINER_ISOLATION=NOT_QUALIFIED'
+          Write-Output 'C13_SCIENTIFIC_GO=FALSE'
