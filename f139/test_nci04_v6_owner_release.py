@@ -95,7 +95,7 @@ class G15ApprovalTests(unittest.TestCase):
             ("scientific_first_use",True),
             ("new_controller",True),("new_scheduler",True),
             ("paid_api_calls",1),
-            ("to_source_sha","1"*40),
+            ("to_source_sha",f"{1:040x}"),
         ]
         for key,value in changes:
             with self.subTest(key=key):
