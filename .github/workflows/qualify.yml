@@ -48,6 +48,43 @@ jobs:
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s research/bio_evidence -p 'test_*.py' -v
+      - name: BIO-73 official Gymnasium wheel exact-byte custody (public only)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 900
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/bio73-gymnasium-wheel"
+          mkdir -p "$target"
+          python3 -m pip download --disable-pip-version-check --no-deps --only-binary=:all: --index-url https://pypi.org/simple --dest "$target" 'gymnasium==1.4.0'
+          python3 - "$target" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+          import zipfile
+          root = pathlib.Path(sys.argv[1])
+          names = list(root.iterdir())
+          assert len(names) == 1 and names[0].name == 'gymnasium-1.4.0-py3-none-any.whl', 'BIO73_ORIGINAL_WHEEL_IDENTITY_DENIED'
+          b = names[0].read_bytes()
+          expected = '1cb947c59e7c72d8eabb2c2274c00cd20948e69f8452a9ef4092223be24fdf0e'
+          assert hashlib.sha256(b).hexdigest() == expected, 'BIO73_ORIGINAL_WHEEL_SHA256_DENIED'
+          with zipfile.ZipFile(names[0]) as z:
+              entries = set(z.namelist())
+              assert {'gymnasium/envs/toy_text/cliffwalking.py', 'gymnasium/envs/toy_text/frozen_lake.py',
+                      'gymnasium-1.4.0.dist-info/METADATA'} <= entries, 'BIO73_UPSTREAM_ENVIRONMENT_FILES_MISSING'
+              assert 'Version: 1.4.0' in z.read('gymnasium-1.4.0.dist-info/METADATA').decode('utf-8'), 'BIO73_UPSTREAM_METADATA_MISMATCH'
+          print('BIO73_OFFICIAL_WHEEL_SHA256=PASS')
+          print('BIO73_OFFICIAL_WHEEL_FILES=PASS')
+          print('BIO73_FROZEN_PRIVATE_PREFLIGHT=NOT_RUN')
+          print('BIO73_SCIENTIFIC_FIRST_USE=NOT_AUTHORIZED')
+          PY
+      - name: Retain exact official wheel for private source qualification
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 900
+        uses: actions/upload-artifact@v4
+        with:
+          name: bio73-official-gymnasium-1.4.0-wheel-public
+          path: ${{ runner.temp }}/bio73-gymnasium-wheel/gymnasium-1.4.0-py3-none-any.whl
+          retention-days: 2
+          if-no-files-found: error
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
