@@ -1,0 +1,58 @@
+name: TW5 synthetic public catalog seal — source-only qualify
+on:
+  push:
+    branches:
+      - research/itd02-tw5-owner-public-catalog-dev-20261025
+permissions:
+  contents: read
+jobs:
+  catalog-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONHASHSEED: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Verify prereg and run bounded synthetic catalog fuzz
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 31b2f7b6b25371b3d533e64602cf329fb90719d4 "$GITHUB_SHA"
+          python -B -m unittest discover -s research/itd02_typed_world -p 'test_tw5_synthetic_owner_catalog.py' -v
+          git diff --exit-code
+          echo TW5_SYNTHETIC_HMAC_AND_CATALOG_TESTS=PASS
+          echo TW5_ORIGINAL_OWNER_ATTESTATION=ABSENT
+          echo TW5_PROTECTED_SCIENCE_FIRST_USE=DENIED
+  single-full-regression:
+    needs: catalog-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: One original F139 full Python regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -B -m unittest discover -s f139 -p 'test_*.py'
+          git diff --exit-code
+          echo TW5_SINGLE_FULL_F139_REGRESSION=PASS
+          echo TW5_SCIENCE_GO=FALSE
