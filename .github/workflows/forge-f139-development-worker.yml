@@ -46,32 +46,6 @@ on:
         description: Typed source-pinned NCI04 code candidate; inert without both HMACs
         type: string
         required: false
-      native_protocol:
-        description: Explicit native worker protocol; original dispatch defaults to V1
-        type: choice
-        options: [v1, v2]
-        default: v1
-        required: false
-      v2_original_event_seq:
-        description: Authenticated fresh original owner admission event number
-        type: string
-        required: false
-      v2_original_event_sha256:
-        description: Original SQLite admission event hash; not provider proof alone
-        type: string
-        required: false
-      v2_claim_event_seq:
-        description: Original owner exclusive dispatch claim event number
-        type: string
-        required: false
-      v2_claim_event_sha256:
-        description: Original owner claim SHA
-        type: string
-        required: false
-      v2_owner_signature:
-        description: Distinct owner-issued G36 HMAC; cannot be V1 signature
-        type: string
-        required: false
 permissions:
   contents: read
 concurrency:
@@ -198,7 +172,7 @@ jobs:
 
   native-authorize:
     # Existing single F139 workflow endpoint. Secret never enters native code.
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.native_protocol == 'v1' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -287,7 +261,7 @@ jobs:
   native-execute:
     # Different ephemeral GitHub-hosted OS jobs; NO F139 signing key.
     needs: native-authorize
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.native_protocol == 'v1' && needs.native-authorize.result == 'success' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package != 'f139-nci04-v2' && needs.native-authorize.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -386,7 +360,7 @@ jobs:
 
   native-authorize-v2:
     # Existing single F139 workflow endpoint. Secret never enters native code.
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.native_protocol == 'v2' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package == 'f139-nci04-v2' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -403,11 +377,6 @@ jobs:
       F139_RUNNER_OS: ubuntu-latest
       F139_NATIVE_BUNDLE: ${{ inputs.native_bundle }}
       F139_NATIVE_PROTOCOL: v2
-      F139_V2_ORIGINAL_EVENT_SEQ: ${{ inputs.v2_original_event_seq }}
-      F139_V2_ORIGINAL_EVENT_SHA256: ${{ inputs.v2_original_event_sha256 }}
-      F139_V2_CLAIM_EVENT_SEQ: ${{ inputs.v2_claim_event_seq }}
-      F139_V2_CLAIM_EVENT_SHA256: ${{ inputs.v2_claim_event_sha256 }}
-      F139_V2_OWNER_SIGNATURE: ${{ inputs.v2_owner_signature }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -423,7 +392,7 @@ jobs:
           $json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:F139_NATIVE_BUNDLE))
           $doc = $json | ConvertFrom-Json -ErrorAction Stop
           $names = @($doc.PSObject.Properties.Name | Sort-Object)
-          $expected = @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64' | Sort-Object)
+          $expected = @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64','v2_original_event_seq','v2_original_event_sha256','v2_claim_event_seq','v2_claim_event_sha256','v2_owner_signature' | Sort-Object)
           if((Compare-Object $names $expected).Count -ne 0) { throw 'NCI04_UNTRUSTED_BUNDLE_FIELDS' }
           $limits = @{
             native_signature='^[a-f0-9]{64}$'
@@ -434,6 +403,11 @@ jobs:
             target_commit='^[a-f0-9]{40}$'
             target_tree_sha='^[a-f0-9]{40}$'
             intent_base64='^[A-Za-z0-9+/]+={0,2}$'
+            v2_original_event_seq='^[1-9][0-9]*$'
+            v2_original_event_sha256='^[a-f0-9]{64}$'
+            v2_claim_event_seq='^[1-9][0-9]*$'
+            v2_claim_event_sha256='^[a-f0-9]{64}$'
+            v2_owner_signature='^[a-f0-9]{64}$'
           }
           $toEnv = @{
             F139_NATIVE_SIGNATURE='native_signature'
@@ -444,6 +418,11 @@ jobs:
             F139_TARGET_COMMIT='target_commit'
             F139_TARGET_TREE_SHA='target_tree_sha'
             F139_INTENT_BASE64='intent_base64'
+            F139_V2_ORIGINAL_EVENT_SEQ='v2_original_event_seq'
+            F139_V2_ORIGINAL_EVENT_SHA256='v2_original_event_sha256'
+            F139_V2_CLAIM_EVENT_SEQ='v2_claim_event_seq'
+            F139_V2_CLAIM_EVENT_SHA256='v2_claim_event_sha256'
+            F139_V2_OWNER_SIGNATURE='v2_owner_signature'
           }
           foreach($entry in $toEnv.GetEnumerator()){
             $value = [string]$doc.($entry.Value)
@@ -487,7 +466,7 @@ jobs:
   native-execute-v2:
     # Different ephemeral GitHub-hosted OS jobs; NO F139 signing key.
     needs: native-authorize-v2
-    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.native_protocol == 'v2' && needs.native-authorize-v2.result == 'success' }}
+    if: ${{ startsWith(inputs.ticket, 'f139-nci04-') && inputs.target_package == 'f139-nci04-v2' && needs.native-authorize-v2.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -507,10 +486,6 @@ jobs:
       F139_NATIVE_AUTHORIZATION_SHA256: ${{ needs.native-authorize-v2.outputs.authorization }}
       F139_NATIVE_PROTOCOL: v2
       F139_EPOCH: ${{ inputs.epoch }}
-      F139_V2_ORIGINAL_EVENT_SEQ: ${{ inputs.v2_original_event_seq }}
-      F139_V2_ORIGINAL_EVENT_SHA256: ${{ inputs.v2_original_event_sha256 }}
-      F139_V2_CLAIM_EVENT_SEQ: ${{ inputs.v2_claim_event_seq }}
-      F139_V2_CLAIM_EVENT_SHA256: ${{ inputs.v2_claim_event_sha256 }}
       F139_V2_OWNER_CLAIM_SHA256: ${{ needs.native-authorize-v2.outputs.v2_claim }}
       F139_NATIVE_V2_AUTHORIZATION_PASSED: 'true'
     steps:
@@ -543,6 +518,21 @@ jobs:
           "F139_ISSUE_ID=$($doc.issue_id)" >> $env:GITHUB_ENV
           "F139_BODY_SHA256=$($doc.body_sha256)" >> $env:GITHUB_ENV
           "F139_INTENT_BASE64=$($doc.intent_base64)" >> $env:GITHUB_ENV
+          $required = @('native_signature','issue_number','issue_id','body_sha256','qualification_key','target_commit','target_tree_sha','intent_base64','v2_original_event_seq','v2_original_event_sha256','v2_claim_event_seq','v2_claim_event_sha256','v2_owner_signature')
+          if(@($doc.PSObject.Properties.Name).Count -ne $required.Count -or
+             @(Compare-Object @($doc.PSObject.Properties.Name | Sort-Object) @($required | Sort-Object)).Count -ne 0) {
+            throw 'NCI04_V2_SIGNED_BUNDLE_INVENTORY_DRIFT'
+          }
+          foreach($f in @('v2_original_event_seq','v2_claim_event_seq')){
+            if([string]$doc.$f -cnotmatch '^[1-9][0-9]*$'){throw 'NCI04_V2_ORIGINAL_EVENT_SEQUENCE_INVALID'}
+          }
+          foreach($f in @('v2_original_event_sha256','v2_claim_event_sha256','v2_owner_signature')){
+            if([string]$doc.$f -cnotmatch '^[a-f0-9]{64}$'){throw 'NCI04_V2_ORIGINAL_SIGNED_FIELD_INVALID'}
+          }
+          "F139_V2_ORIGINAL_EVENT_SEQ=$($doc.v2_original_event_seq)" >> $env:GITHUB_ENV
+          "F139_V2_ORIGINAL_EVENT_SHA256=$($doc.v2_original_event_sha256)" >> $env:GITHUB_ENV
+          "F139_V2_CLAIM_EVENT_SEQ=$($doc.v2_claim_event_seq)" >> $env:GITHUB_ENV
+          "F139_V2_CLAIM_EVENT_SHA256=$($doc.v2_claim_event_sha256)" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         if: ${{ inputs.lane == 'Wingless' }}
         with:
