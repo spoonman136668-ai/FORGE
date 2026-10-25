@@ -1,7 +1,7 @@
 name: F139 G15 explicit V6 owner CLI release rehearsal and regression (DEV ONLY)
 on:
   push:
-    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025, qualify/f139-g19-one-shot-manual-release-20261025, qualify/f139-g21-live-python-source-query-compile-20261025]
+    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025, qualify/f139-g19-one-shot-manual-release-20261025, qualify/f139-g21-live-python-source-query-compile-20261025, qualify/f139-g25-exact-native-module-root-20261025]
     paths:
       - f139/local_controller.py
       - f139/nci04_v6_owner_release.py
@@ -88,6 +88,18 @@ jobs:
              $tip -lt $approve -or $arm -lt $tip -or $mutate -lt $arm){
             throw 'F139_G19_APPROVAL_SEQUENCE_NOT_FAILCLOSED'
           }
+          $checkout=$body.IndexOf('git.exe -C $root checkout --detach $target')
+          $cd=$body.IndexOf('Set-Location -LiteralPath $root')
+          $module=$body.IndexOf('F139_G25_ORIGINAL_NATIVE_MODULE_ROOT_DRIFT')
+          $transition=$body.IndexOf('transition-qualified-native-v6 --approval $approval')
+          $activation=$body.IndexOf('--db $db activate-native --approval $approval')
+          if($checkout -lt 0 -or $cd -le $checkout -or
+             $module -le $cd -or $transition -le $module -or
+             $activation -le $transition -or
+             ([regex]::Matches($body,'Set-Location -LiteralPath \\$root')).Count -ne 1){
+            throw 'F139_G25_INSTALLED_MODULE_CUSTODY_SEQUENCE_DRIFT'
+          }
+          Write-Host 'F139_G25_INSTALLED_MODULE_ROOT_CUSTODY=PASS'
           Write-Host 'F139_G19_MANUAL_OWNER_ONE_SHOT_GUARD=PASS'
           Write-Host 'F139_G18_CONSOLIDATED_G17_MERGE_SOURCE_FENCE=PASS'
           Write-Host 'F139_G18_PREWRITE_FAILCLOSED_MUTATION_FENCE=PASS'
