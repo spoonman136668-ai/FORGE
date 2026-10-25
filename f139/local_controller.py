@@ -705,14 +705,21 @@ class Database:
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v6"]
         negative_v7 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v7"]
+        negative_v8 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v8"]
+        from f139.nci04_g49_prepost_negative import (
+            verify_g49_custody, TICKET as PREPOST, SOURCE_V7)
+        prepost_verified = verify_g49_custody(self)
         verified_provider_negatives=self.verified_native_provider_failures()
-        negative_transitions = negative_v2 + negative_v3 + negative_v4 + negative_v5 + negative_v6 + negative_v7
+        negative_transitions = (negative_v2 + negative_v3 + negative_v4 +
+                                negative_v5 + negative_v6 + negative_v7 + negative_v8)
         require(len(negative_transitions) <= 36
                 and len(negative_v3) <= 10 and len(negative_v4) <= 10
                 and len(negative_v5) <= 4 and len(negative_v6) <= 1
-                and len(negative_v7) <= 1 and
+                and len(negative_v7) <= 1 and len(negative_v8) <= 1 and
                 (not negative_v5 or len(negative_v4)==10) and
-                (not negative_v6 or len(negative_v5)==4),
+                (not negative_v6 or len(negative_v5)==4) and
+                (not negative_v8 or len(negative_v7)==1 and prepost_verified),
                 "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         require(not negative_v3 or certified_negative and certified_second,
                 "SECOND_NEGATIVE_CUSTODY_MISSING")
@@ -744,8 +751,15 @@ class Database:
                 and row["source_sha"] in historical_sources
                 and row["stage"]=="QUARANTINED" and row["run_id"] is None
                 and row["evidence_sha"] is None and not row["evidence_dir"])
+            prior_prepost_negative = (
+                bool(negative_v8) and prepost_verified
+                and row["ticket"] == PREPOST and row["source_sha"] == SOURCE_V7
+                and row["source_sha"] in historical_sources
+                and row["stage"] == "QUARANTINED" and row["run_id"] is None
+                and row["evidence_sha"] is None and not row["evidence_dir"])
             historical = (prior_verified or prior_certified_negative
-                          or prior_certified_second or prior_provider_failure)
+                          or prior_certified_second or prior_provider_failure
+                          or prior_prepost_negative)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
