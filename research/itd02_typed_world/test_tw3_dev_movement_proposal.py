@@ -69,7 +69,7 @@ class TW3FailClosedActions(unittest.TestCase):
 
     def test_11_reject_unknown_dest(self):
         self.reject("DESTINATION_NOT_PUBLIC", lambda: allow(
-            {"actor": "npc:0", "destination": "loc:secret"}))
+            {"actor": "npc:0", "destination": "location:4"}))
 
     def test_12_reject_no_catalog(self):
         self.reject("PUBLIC_CATALOG_SHAPE", lambda: allow(
