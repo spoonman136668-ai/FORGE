@@ -23,7 +23,7 @@ def intent(dest="location:1"):
 
 def recorded(kind="travel.departed"):
     return {"id": 17, "tick": 11, "type": kind, "actors": ["npc:0"],
-            "data": {"traveller": "npc:0", "at": "location:0",
+            "data": {"traveller": "npc:0", "destination": "location:1", "at": "location:0",
                      "arrivesAt": 900, "route": ["location:SECRET"]},
             "causes": [333], "location": "location:0"}
 
@@ -333,6 +333,25 @@ class TW3CSlots(unittest.TestCase):
                      [recorded("travel.blocked")])
         self.assertNotIn("SECRET_GENERATOR", str(r))
         self.assertEqual(r["revealed_private_fields"], 0)
+
+    def test_38_departure_event_wrong_destination_rejected(self):
+        x = fresh()
+        token = x.reserve(intent("location:1"))["token"]
+        event = recorded("travel.departed")
+        event["data"]["destination"] = "location:0"
+        self.rejects("SOURCE_SHAPED_EVENT_MISMATCH",
+                     lambda: x.settle(token, {"started": True}, [event]))
+        self.assertEqual(x.completed, [])
+        self.assertEqual(x.inflight["destination"], "location:1")
+
+    def test_39_blocked_event_wrong_destination_rejected(self):
+        x = fresh()
+        token = x.reserve(intent("location:1"))["token"]
+        event = recorded("travel.blocked")
+        event["data"]["destination"] = "location:0"
+        self.rejects("SOURCE_SHAPED_EVENT_MISMATCH",
+                     lambda: x.settle(token, {"started": False, "reason": "full"}, [event]))
+        self.assertEqual(x.completed, [])
 
 
 if __name__ == "__main__":
