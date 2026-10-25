@@ -1,0 +1,624 @@
+name: FORGE R8 five optimizer shadow bridge qualification
+on:
+  push:
+    branches: [research/optimizer-bridge-five-method-shadow-20261014-r1]
+  pull_request:
+    paths:
+      - 'optimizerbridge/**'
+      - 'cmd/forge-optimizer-shadow/**'
+      - 'd1retention/**'
+      - '.github/workflows/forge-optimizer-bridge-shadow.yml'
+permissions:
+  contents: read
+jobs:
+  dual-lane-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      GOMAXPROCS: '2'
+      GOFLAGS: '-p=2'
+      GOMEMLIMIT: '1536MiB'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Five-way signed-history synthetic qualification and negatives
+        run: |
+          set -euo pipefail
+          go test -count=1 ./optimizerbridge ./cmd/forge-optimizer-shadow ./dreamrsi ./evoportfolio ./promptlineage ./thetaadapt ./genenv
+      - name: Offline append-only D1 evidence schema and migration qualification
+        run: |
+          set -euo pipefail
+          sha256sum d1retention/schema.sql
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+      - name: One-shot D1 installation source negative acceptance
+        run: python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+      - name: R18B D1 compatibility profile and negative enforcement
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s d1retention -p 'test_*.py' -v
+          sha256sum d1retention/schema_d1_compat.sql
+      - name: One full FORGE repository regression
+        run: go test ./...
+      - name: No real originals, authorization or Cloudflare secrets
+        run: |
+          echo "OPTIMIZER_BRIDGE_SYNTHETIC_ONLY=TRUE"
+          echo "RESEARCH_ORIGINALS_EXECUTED=0"
+          echo "CLOUDFLARE_NOT_CONFIGURED_OR_PROBED_BY_THIS_WORKFLOW=TRUE"
+          echo "FSA_OR_CONTROLLER_NOT_CREATED=TRUE"
+
+      - name: Probe supplied Cloudflare Worker URL (GET only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          # The operator explicitly supplied this exact public workers.dev URL.
+          # No secrets/authorization headers, remote writes, or DO access.
+          import hashlib, json, urllib.request, urllib.error
+          url="https://curly-hat-6a9e.spoonman136668.workers.dev/"
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs): return None
+          opener=urllib.request.build_opener(NoRedirect)
+          req=urllib.request.Request(url,headers={"Accept":"application/json, text/plain, text/html"},
+                                     method="GET")
+          try:
+              with opener.open(req,timeout=8) as response:
+                  status=response.status
+                  ctype=response.headers.get("Content-Type","").split(";")[0].strip().lower()
+                  raw=response.read(4097)
+          except urllib.error.HTTPError as e:
+              status=e.code
+              ctype=""
+              raw=b""
+          except Exception:
+              status="UNREACHABLE"
+              ctype=""
+              raw=b""
+          # No raw body, tokens, internal object data, headers or names printed.
+          print("CF_SUPPLIED_WORKER_PROBE=ONE_GET_NO_CREDENTIALS")
+          print("CF_WORKER_HTTP_STATUS="+str(status))
+          print("CF_WORKER_CONTENT_TYPE="+(ctype if ctype in
+                ("text/plain","text/html","application/json") else "OTHER"))
+          if len(raw)>4096:
+              print("CF_WORKER_RESPONSE=OVER_LIMIT")
+          else:
+              print("CF_WORKER_RESPONSE_SHA256="+hashlib.sha256(raw).hexdigest())
+              try:
+                  obj=json.loads(raw)
+                  kind=("STRUCTURED_JSON" if isinstance(obj,(dict,list)) else "JSON_SCALAR")
+              except Exception:
+                  kind=("HELLO_WORLD_TEMPLATE" if b"hello world" in raw.lower()
+                        else "NON_JSON")
+              print("CF_WORKER_RESPONSE_CLASS="+kind)
+          print("CF_WORKER_EVIDENCE_QUALIFIED=FALSE")
+          print("CF_WORKER_SCIENCE_EXECUTIONS=0")
+          PY
+
+      - name: R18 read-only original D1 schema installer preflight
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          export CLOUDFLARE_API_TOKEN="${CF_TOKEN_PRIMARY:-${CF_TOKEN_ALT:-}}"
+          export CLOUDFLARE_ACCOUNT_ID="${CF_ACCOUNT_SECRET:-${CF_ACCOUNT_VAR:-${CF_ACCOUNT_ALT:-}}}"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          python3 d1retention/install_remote.py \
+            --expected-head "$GITHUB_SHA" \
+            --expected-sql-sha256 d5b3e4c1999afe1d5b61fe27a7be17c4ed446c4b85418c0859e4acf4482e765c
+          echo 'R18_LIVE_INSTALL=NOT_RUN'
+          echo 'R18_CLOUDFLARE_WRITE_TOKEN=NOT_REQUIRED'
+
+      - name: Check updated Cloudflare token D1 Write scope (no mutation)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALT: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,re,urllib.request,urllib.error
+          token=(os.environ.get("CF_TOKEN_PRIMARY") or
+                 os.environ.get("CF_TOKEN_ALT") or "").strip()
+          account=(os.environ.get("CF_ACCOUNT_SECRET") or
+                   os.environ.get("CF_ACCOUNT_VAR") or
+                   os.environ.get("CF_ACCOUNT_ALT") or "").strip()
+          print("R18_PERMISSION_PROBE=READ_ONLY_NO_SQL")
+          if not token or not re.fullmatch("[0-9a-fA-F]{32}",account):
+              print("R18_D1_WRITE_TOKEN=NOT_BOUND")
+              raise SystemExit(0)
+          def get(path):
+              req=urllib.request.Request(
+                  "https://api.cloudflare.com/client/v4/accounts/"+account+"/tokens/"+path,
+                  headers={"Authorization":"Bearer "+token,"Accept":"application/json"},
+                  method="GET")
+              try:
+                  with urllib.request.urlopen(req,timeout=12) as resp:
+                      b=resp.read(65537)
+                  if len(b)>65536:return "TOO_LARGE",None
+                  data=json.loads(b)
+                  if data.get("success") is not True:return "REJECTED",None
+                  return "OK",data.get("result")
+              except urllib.error.HTTPError as exc:
+                  return "HTTP_"+str(exc.code),None
+              except Exception:
+                  return "UNAVAILABLE",None
+          status,verify=get("verify")
+          if status!="OK" or not isinstance(verify,dict) or verify.get("status")!="active":
+              print("R18_D1_WRITE_TOKEN=NOT_VERIFIED")
+              raise SystemExit(0)
+          tokenid=verify.get("id","")
+          if not re.fullmatch("[a-fA-F0-9]{32}",str(tokenid)):
+              print("R18_D1_WRITE_TOKEN=INVALID_TOKEN_ID")
+              raise SystemExit(0)
+          status,info=get(tokenid)
+          if status!="OK" or not isinstance(info,dict):
+              print("R18_D1_WRITE_SCOPE=NOT_INSPECTABLE_"+status)
+              raise SystemExit(0)
+          policies=info.get("policies")
+          if not isinstance(policies,list):
+              print("R18_D1_WRITE_SCOPE=NO_POLICY_METADATA")
+              raise SystemExit(0)
+          allowed=False
+          denied=False
+          for policy in policies:
+              if not isinstance(policy,dict):continue
+              groups=policy.get("permission_groups")
+              names=[str(g.get("name","")).lower() for g in groups
+                     if isinstance(g,dict)] if isinstance(groups,list) else []
+              haswrite=any(x in ("d1 write","d1 edit") for x in names)
+              if haswrite and policy.get("effect")=="allow":allowed=True
+              if haswrite and policy.get("effect")=="deny":denied=True
+          print("R18_D1_WRITE_SCOPE="+(
+              "ALLOW_REPORTED_NOT_EXECUTED" if allowed and not denied else
+              "NOT_VERIFIED"))
+          print("R18_PRODUCTION_SQL_WRITES=0")
+          PY
+
+      - name: Existing Cloudflare Workers and Durable Objects read-only probe
+        if: github.event_name == 'push' && github.ref == 'refs/heads/research/optimizer-bridge-five-method-shadow-20261014-r1'
+        env:
+          CF_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_ALTERNATE: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_VAR: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCOUNT_ALT: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          # FORGE's operator-configured Cloudflare facility is Workers +
+          # SQLite-backed Durable Objects. READ-ONLY metadata only: no
+          # deployment, DO instance start, original experiment or evidence
+          # consumption. No token/account/names exposed in logs or artifacts.
+          import json,os,re,urllib.request,urllib.error
+          def pick(*names):
+              return next((os.environ[n].strip() for n in names
+                           if os.environ.get(n,"").strip()),"")
+          token=pick("CF_TOKEN_PRIMARY","CF_TOKEN_ALTERNATE")
+          account=pick("CF_ACCOUNT_SECRET","CF_ACCOUNT_VAR","CF_ACCOUNT_ALT")
+          good_account=bool(re.fullmatch("[a-fA-F0-9]{32}",account))
+          print("CF_PROBE_MODE=EXISTING_WORKERS_DO_READ_ONLY")
+          print("CF_ACCOUNT_ID_BOUND="+("TRUE" if good_account else "FALSE"))
+          if not token or not good_account:
+              print("CF_ACCOUNT_TOKEN=NOT_BOUND")
+              print("CF_WORKERS_READBACK=NOT_ATTEMPTED")
+              print("CF_DO_READBACK=NOT_ATTEMPTED")
+              print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
+              raise SystemExit(0)
+          def get(path):
+              req=urllib.request.Request("https://api.cloudflare.com/client/v4/"+path,
+                 headers={"Authorization":"Bearer "+token,"Accept":"application/json"},
+                 method="GET")
+              try:
+                  with urllib.request.urlopen(req,timeout=8) as response:
+                      b=response.read(32769)
+                  if len(b)>32768:return "BOUNDED_RESPONSE_EXCEEDED",None
+                  data=json.loads(b)
+                  return ("OK" if isinstance(data,dict) and data.get("success") is True
+                          else "REJECTED"),data
+              except urllib.error.HTTPError as e:return "HTTP_"+str(e.code),None
+              except Exception:return "TRANSPORT_UNAVAILABLE",None
+          state,info=get("accounts/"+account+"/tokens/verify")
+          active=bool(state=="OK" and isinstance(info,dict) and
+                      (info.get("result") or {}).get("status")=="active")
+          print("CF_ACCOUNT_TOKEN="+("ACTIVE" if active else state))
+          if not active:
+              print("CF_WORKERS_READBACK=NOT_ATTEMPTED")
+              print("CF_DO_READBACK=NOT_ATTEMPTED")
+              print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
+              raise SystemExit(0)
+          ws,wobj=get("accounts/"+account+"/workers/scripts")
+          if ws=="OK" and isinstance((wobj or {}).get("result"),list):
+              scripts=wobj["result"]
+              print("CF_WORKERS_READBACK=VERIFIED")
+              print("CF_WORKERS_COUNT="+str(len(scripts)))
+              print("CF_FORGE_NAMED_WORKERS="+str(sum(
+                  "forge" in str(r.get("id","")).lower()
+                  for r in scripts if isinstance(r,dict))))
+          else:print("CF_WORKERS_READBACK="+ws)
+          ds,dobj=get("accounts/"+account+"/workers/durable_objects/namespaces?page=1&per_page=20")
+          if ds=="OK" and isinstance((dobj or {}).get("result"),list):
+              namespaces=dobj["result"]
+              print("CF_DO_READBACK=VERIFIED")
+              print("CF_DO_NAMESPACES_FIRST_PAGE="+str(len(namespaces)))
+              print("CF_SQLITE_NAMESPACES_FIRST_PAGE="+str(sum(
+                  r.get("use_sqlite") is True
+                  for r in namespaces if isinstance(r,dict))))
+          else:print("CF_DO_READBACK="+ds)
+          # Operator-shown binding is D1 "forge", NOT Durable Objects.
+          # Query only existing metadata; never print raw API records, UUIDs,
+          # account IDs, binding secrets, source code or database contents.
+          script="curly-hat-6a9e"
+          bs,meta=get("accounts/"+account+"/workers/scripts/"+script+"/settings")
+          d1binding=None
+          if bs=="OK" and isinstance((meta or {}).get("result"),dict):
+              bindings=meta["result"].get("bindings")
+              if isinstance(bindings,list):
+                  d1s=[b for b in bindings if isinstance(b,dict) and
+                       b.get("name")=="forge" and b.get("type")=="d1"]
+                  if len(d1s)==1:
+                      d1binding=d1s[0]
+              print("CF_WORKER_SETTINGS_READBACK=VERIFIED")
+              print("CF_D1_FORGE_BINDING="+("PRESENT" if d1binding else "ABSENT"))
+          else:
+              print("CF_WORKER_SETTINGS_READBACK="+bs)
+              print("CF_D1_FORGE_BINDING=NOT_VERIFIED")
+          # Cloudflare's GET-only list D1 endpoint requires D1:Read or Write.
+          # This probe never queries, creates, alters, or exports a database.
+          db_state,db_doc=get("accounts/"+account+"/d1/database?page=1&per_page=10")
+          if db_state=="OK" and isinstance((db_doc or {}).get("result"),list):
+              dbs=db_doc["result"]
+              print("CF_D1_DATABASE_METADATA=VERIFIED")
+              print("CF_D1_DATABASES_ON_FIRST_PAGE="+str(len(dbs)))
+              bind_id=(d1binding or {}).get("id") or (d1binding or {}).get("database_id")
+              verified=bool(bind_id and any(
+                  isinstance(db,dict) and db.get("uuid")==bind_id for db in dbs))
+              print("CF_D1_FORGE_DATABASE_MATCH="+("VERIFIED" if verified else "NOT_VERIFIED"))
+          else:
+              print("CF_D1_DATABASE_METADATA="+db_state)
+              print("CF_D1_FORGE_DATABASE_MATCH=NOT_VERIFIED")
+          # Deployment traffic and screenshot-specific version provenance.
+          # GET-only Worker metadata; no version promotion or routing changes.
+          deploystate,deploydoc=get("accounts/"+account+
+                 "/workers/scripts/"+script+"/deployments")
+          if deploystate=="OK" and isinstance((deploydoc or {}).get("result"),dict):
+              deployments=deploydoc["result"].get("deployments")
+              if isinstance(deployments,list) and deployments:
+                  latest=deployments[0]
+                  versions=latest.get("versions") if isinstance(latest,dict) else None
+                  if isinstance(versions,list):
+                      for prefix in ("729ebded","4325bde9"):
+                          share=next((v.get("percentage") for v in versions if
+                            isinstance(v,dict) and
+                            str(v.get("version_id","")).lower().startswith(prefix)),0)
+                          if not isinstance(share,(int,float)):share="INVALID"
+                          print("CF_VERSION_"+prefix.upper()+"_TRAFFIC_PERCENT="+str(share))
+                      print("CF_DEPLOYMENT_TRAFFIC_METADATA=VERIFIED")
+                  else:print("CF_DEPLOYMENT_TRAFFIC_METADATA=MALFORMED")
+              else:print("CF_DEPLOYMENT_TRAFFIC_METADATA=EMPTY")
+          else:print("CF_DEPLOYMENT_TRAFFIC_METADATA="+deploystate)
+          # Fetch a *full* deployed version ID and inspect the documented
+          # script-version resources.bindings path (not just beta bindings).
+          active_version=""
+          if deploystate=="OK" and isinstance((deploydoc or {}).get("result"),dict):
+              recent=deploydoc["result"].get("deployments")
+              if isinstance(recent,list) and recent:
+                  versions=recent[0].get("versions",[])
+                  if isinstance(versions,list):
+                      active_version=next((v.get("version_id") for v in versions
+                          if isinstance(v,dict) and
+                          str(v.get("version_id","")).lower().startswith("729ebded")),"")
+          if active_version and re.fullmatch(r"[0-9a-fA-F-]{36}",active_version):
+              vs,version=get("accounts/"+account+
+                   "/workers/scripts/"+script+"/versions/"+active_version)
+              if vs=="OK" and isinstance((version or {}).get("result"),dict):
+                  resources=version["result"].get("resources")
+                  versionBindings=(resources or {}).get("bindings") if isinstance(resources,dict) else None
+                  found=isinstance(versionBindings,list) and any(
+                      isinstance(b,dict) and b.get("type")=="d1" and
+                      b.get("name")=="forge" for b in versionBindings)
+                  print("CF_VERSION_729EBDED_BINDING_READBACK="+("VERIFIED" if
+                      isinstance(versionBindings,list) else "NO_BINDINGS_ARRAY"))
+                  print("CF_VERSION_729EBDED_D1_FORGE="+("VERIFIED" if found else "ABSENT"))
+                  print("CF_VERSION_729EBDED_D1_BINDINGS_COUNT="+str(
+                      sum(isinstance(b,dict) and b.get("type")=="d1"
+                          for b in versionBindings) if isinstance(versionBindings,list) else 0))
+                  d1bindings=[b for b in versionBindings if
+                      isinstance(b,dict) and b.get("type")=="d1"] if isinstance(versionBindings,list) else []
+                  if len(d1bindings)==1:
+                      binding=d1bindings[0]
+                      # Binding variable names are code identifiers, not secrets.
+                      # Print a bounded case-preserving name only when the API
+                      # returns an ordinary JS identifier; never log DB IDs.
+                      envname=binding.get("name","")
+                      name_ok=isinstance(envname,str) and re.fullmatch(
+                          r"[A-Za-z_$][A-Za-z0-9_$]{0,63}",envname)
+                      print("CF_DEPLOYED_D1_ENV_NAME="+(envname if name_ok else "INVALID_OR_MISSING"))
+                      ident=binding.get("database_id") or binding.get("id")
+                      valid_id=isinstance(ident,str) and bool(re.fullmatch(
+                          r"[a-fA-F0-9-]{36}",ident))
+                      print("CF_DEPLOYED_D1_DATABASE_ID="+("STRUCTURALLY_PRESENT" if valid_id else "MISSING"))
+                      if valid_id and db_state=="OK" and isinstance((db_doc or {}).get("result"),list):
+                          matching=[d for d in db_doc["result"] if
+                              isinstance(d,dict) and d.get("uuid")==ident]
+                          print("CF_DEPLOYED_D1_SOURCE_CUSTODY="+(
+                              "DATABASE_ID_MATCHED" if len(matching)==1 else "UNMATCHED"))
+                      else:
+                          print("CF_DEPLOYED_D1_SOURCE_CUSTODY=NOT_QUALIFIED")
+                  else:
+                      print("CF_DEPLOYED_D1_ENV_NAME=NOT_QUALIFIED")
+                      print("CF_DEPLOYED_D1_SOURCE_CUSTODY=NOT_QUALIFIED")
+              else:print("CF_VERSION_729EBDED_D1_FORGE="+vs)
+          else:print("CF_VERSION_729EBDED_D1_FORGE=VERSION_ID_NOT_RESOLVED")
+          # Check the CURRENT real traffic-serving deployed version after the
+          # operator's correction. Never assume an old screenshot version is live.
+          # Ignore zero-traffic deployments and reject ambiguous rollout splits.
+          current=[]
+          if deploystate=="OK" and isinstance((deploydoc or {}).get("result"),dict):
+              deployments=deploydoc["result"].get("deployments")
+              if isinstance(deployments,list) and deployments:
+                  vslist=deployments[0].get("versions",[])
+                  if isinstance(vslist,list):
+                      current=[v for v in vslist if isinstance(v,dict) and
+                          isinstance(v.get("percentage"),(int,float)) and
+                          v["percentage"]>0]
+          if len(current)!=1 or current[0].get("percentage")!=100:
+              print("CF_CURRENT_TRAFFIC_VERSION=NOT_SINGLE_100_PERCENT")
+              print("CF_CURRENT_TRAFFIC_D1_FORGE=NOT_QUALIFIED")
+              print("CF_CURRENT_TRAFFIC_D1_MATCH=NOT_QUALIFIED")
+          else:
+              vid=current[0].get("version_id","")
+              if not isinstance(vid,str) or not re.fullmatch(r"[0-9a-fA-F-]{36}",vid):
+                  print("CF_CURRENT_TRAFFIC_VERSION=INVALID")
+                  print("CF_CURRENT_TRAFFIC_D1_FORGE=NOT_QUALIFIED")
+                  print("CF_CURRENT_TRAFFIC_D1_MATCH=NOT_QUALIFIED")
+              else:
+                  print("CF_CURRENT_TRAFFIC_VERSION=EXACT_PIN_RESOLVED")
+                  currstate,currdoc=get("accounts/"+account+"/workers/scripts/"+
+                      script+"/versions/"+vid)
+                  result=(currdoc or {}).get("result") if currstate=="OK" else None
+                  resources=result.get("resources") if isinstance(result,dict) else None
+                  binds=resources.get("bindings") if isinstance(resources,dict) else None
+                  if not isinstance(binds,list):
+                      print("CF_CURRENT_TRAFFIC_D1_FORGE="+currstate)
+                      print("CF_CURRENT_TRAFFIC_D1_MATCH=NOT_QUALIFIED")
+                  else:
+                      candidates=[b for b in binds if isinstance(b,dict) and
+                          b.get("type")=="d1" and b.get("name")=="forge"]
+                      print("CF_CURRENT_TRAFFIC_D1_FORGE="+("VERIFIED" if
+                          len(candidates)==1 else "NOT_FOUND"))
+                      currentid=(candidates[0].get("database_id") or
+                          candidates[0].get("id")) if len(candidates)==1 else None
+                      if db_state=="OK" and isinstance((db_doc or {}).get("result"),list):
+                          matched=[d for d in db_doc["result"] if isinstance(d,dict)
+                              and d.get("uuid")==currentid] if currentid else []
+                          print("CF_CURRENT_TRAFFIC_D1_MATCH="+(
+                              "VERIFIED" if len(matched)==1 else "NOT_VERIFIED"))
+                      else:
+                          print("CF_CURRENT_TRAFFIC_D1_MATCH=NO_D1_METADATA_ACCESS")
+          # One bounded, strictly SELECT-only D1 schema read. The official
+          # D1:Read API uses POST /query even for SELECT; no SQL mutations.
+          # Query only when the CURRENT 100%-traffic Worker binding matches
+          # the independently listed D1 database UUID.
+          verified_d1=bool(
+              len(current)==1 and current[0].get("percentage")==100 and
+              db_state=="OK" and isinstance((db_doc or {}).get("result"),list) and
+              'candidates' in locals() and len(candidates)==1 and
+              'currentid' in locals() and currentid and
+              len([d for d in db_doc["result"] if isinstance(d,dict) and
+                   d.get("uuid")==currentid])==1)
+          print("CF_D1_SCHEMACHECK_BOUND="+("TRUE" if verified_d1 else "FALSE"))
+          if verified_d1:
+              sql="SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT 24"
+              assert sql.upper().startswith("SELECT ") and ";" not in sql
+              url="https://api.cloudflare.com/client/v4/accounts/"+account+\
+                  "/d1/database/"+currentid+"/query"
+              payload=json.dumps({"sql":sql,"params":[]}).encode("utf-8")
+              req=urllib.request.Request(url,data=payload,
+                  headers={"Authorization":"Bearer "+token,
+                           "Accept":"application/json",
+                           "Content-Type":"application/json"},method="POST")
+              try:
+                  with urllib.request.urlopen(req,timeout=8) as response:
+                      data=response.read(16385)
+                  if len(data)>16384:
+                      print("CF_D1_SCHEMACHECK=OVERSIZE")
+                  else:
+                      obj=json.loads(data)
+                      parts=obj.get("result") if isinstance(obj,dict) else None
+                      records=parts[0] if isinstance(parts,list) and len(parts)==1 else None
+                      rows=records.get("results") if isinstance(records,dict) else None
+                      meta=records.get("meta") if isinstance(records,dict) else None
+                      if (obj.get("success") is True and isinstance(rows,list) and
+                          all(isinstance(r,dict) and isinstance(r.get("name"),str)
+                              for r in rows) and isinstance(meta,dict) and
+                          meta.get("changes",0)==0 and meta.get("changed_db") is not True):
+                          names=[r["name"].lower() for r in rows]
+                          print("CF_D1_SCHEMACHECK=READ_ONLY_VERIFIED")
+                          print("CF_D1_USER_TABLES_BOUNDED="+str(len(rows)))
+                          print("CF_D1_EVIDENCE_NAMED_TABLES="+str(sum(
+                              any(word in n for word in ("evidence","research",
+                               "custody","original","first_use")) for n in names)))
+                          print("CF_D1_RESPONSE_ROWS_WRITTEN=0")
+                          # Shape-only inspection: SQLite table-valued PRAGMA,
+                          # parameterized with exactly one discovered identifier.
+                          # No names, column values or complete DDL are logged.
+                          if len(rows)==1 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",rows[0]["name"]):
+                              # SQLite's sqlite_master is already allowed by the
+                              # qualified first query. Read ONLY the DDL for
+                              # this strictly validated identifier.
+                              shape_sql=("SELECT sql FROM sqlite_master WHERE type='table' "
+                                  "AND name='"+rows[0]["name"]+"' LIMIT 1")
+                              shape_payload=json.dumps({"sql":shape_sql,
+                                  "params":[]}).encode("utf-8")
+                              shape_req=urllib.request.Request(url,data=shape_payload,
+                                  headers={"Authorization":"Bearer "+token,
+                                           "Accept":"application/json",
+                                           "Content-Type":"application/json"},method="POST")
+                              try:
+                                  with urllib.request.urlopen(shape_req,timeout=8) as sh:
+                                      shape_raw=sh.read(16385)
+                                  if len(shape_raw)>16384:
+                                      print("CF_D1_TABLE_SHAPE=OVERSIZE")
+                                  else:
+                                      shape=json.loads(shape_raw)
+                                      shape_parts=shape.get("result") if isinstance(shape,dict) else None
+                                      one=shape_parts[0] if isinstance(shape_parts,list) and len(shape_parts)==1 else None
+                                      fields=one.get("results") if isinstance(one,dict) else None
+                                      smeta=one.get("meta") if isinstance(one,dict) else None
+                                      if (shape.get("success") is True and isinstance(fields,list)
+                                          and len(fields)==1 and isinstance(fields[0],dict)
+                                          and isinstance(fields[0].get("sql"),str) and
+                                          len(fields[0]["sql"])<=8192 and isinstance(smeta,dict) and
+                                          smeta.get("changes",0)==0 and
+                                          smeta.get("changed_db") is not True):
+                                          ddl=fields[0]["sql"].lower()
+                                          # Conservative shape screening, NOT proof of
+                                          # suitable storage or authorizing provenance.
+                                          terms=("sha256","digest","original_id","experiment_id",
+                                              "source_sha","lane","project","signature",
+                                              "first_use","receipt","payload","evidence")
+                                          matches=sum(t in ddl for t in terms)
+                                          print("CF_D1_TABLE_SHAPE=READ_ONLY_VERIFIED")
+                                          print("CF_D1_DDL_BOUNDED=TRUE")
+                                          print("CF_D1_EVIDENCE_DDL_INDICATORS="+str(matches))
+                                          print("CF_D1_TABLE_CUSTODY_SUITABLE=NOT_YET_QUALIFIED")
+                                          print("CF_D1_SHAPE_CHANGED_DB=FALSE")
+                                      else:print("CF_D1_TABLE_SHAPE=UNQUALIFIED_RESPONSE")
+                              except urllib.error.HTTPError as e:
+                                  print("CF_D1_TABLE_SHAPE=HTTP_"+str(e.code))
+                              except Exception:
+                                  print("CF_D1_TABLE_SHAPE=TRANSPORT_OR_SCHEMA_ERROR")
+                          else:
+                              print("CF_D1_TABLE_SHAPE=SKIPPED_UNKNOWN_IDENTIFIER")
+
+                      else:print("CF_D1_SCHEMACHECK=UNQUALIFIED_RESPONSE")
+              except urllib.error.HTTPError as e:
+                  print("CF_D1_SCHEMACHECK=HTTP_"+str(e.code))
+              except Exception:
+                  print("CF_D1_SCHEMACHECK=TRANSPORT_OR_SCHEMA_ERROR")
+          else:
+              print("CF_D1_SCHEMACHECK=BLOCKED_ON_TRUST_PIN")
+          # Bounded third SELECT (D1 HTTP POST/query) for reserved namespace.
+          # Only object count/status is logged; no user records or names.
+          if verified_d1:
+              sql_collision=("SELECT name,type FROM sqlite_master "
+                  "WHERE name GLOB 'forge_research_*' ORDER BY name LIMIT 33")
+              req_collision=urllib.request.Request(url,
+                  data=json.dumps({"sql":sql_collision,"params":[]}).encode(),
+                  headers={"Authorization":"Bearer "+token,"Accept":"application/json",
+                           "Content-Type":"application/json"},method="POST")
+              try:
+                  with urllib.request.urlopen(req_collision,timeout=8) as cr:
+                      raw_collision=cr.read(16385)
+                  result_collision=json.loads(raw_collision) if len(raw_collision)<=16384 else None
+                  batches=result_collision.get("result") if isinstance(result_collision,dict) else None
+                  record_collision=batches[0] if isinstance(batches,list) and len(batches)==1 else None
+                  rows_collision=record_collision.get("results") if isinstance(record_collision,dict) else None
+                  meta_collision=record_collision.get("meta") if isinstance(record_collision,dict) else None
+                  if (result_collision.get("success") is True and
+                      isinstance(rows_collision,list) and len(rows_collision)<33 and
+                      isinstance(meta_collision,dict) and
+                      meta_collision.get("changes",0)==0 and
+                      meta_collision.get("changed_db") is not True and
+                      all(isinstance(row,dict) and isinstance(row.get("name"),str)
+                          and isinstance(row.get("type"),str) for row in rows_collision)):
+                      print("CF_D1_RESERVED_NAMESPACE="+(
+                          "CLEAR" if not rows_collision else "COLLISION_OR_PARTIAL_INSTALL"))
+                      print("CF_D1_RESERVED_OBJECT_COUNT="+str(len(rows_collision)))
+                  else:
+                      print("CF_D1_RESERVED_NAMESPACE=UNQUALIFIED_RESPONSE")
+              except urllib.error.HTTPError as e:
+                  print("CF_D1_RESERVED_NAMESPACE=HTTP_"+str(e.code))
+              except Exception:
+                  print("CF_D1_RESERVED_NAMESPACE=TRANSPORT_OR_PARSE_ERROR")
+          else:
+              print("CF_D1_RESERVED_NAMESPACE=PIN_BLOCKED")
+          # Read-only D1 Time Travel checkpoint. Cloudflare's production
+          # backend supports it automatically; this performs exactly two GETs
+          # (database info + current bookmark), never a restore or export.
+          # Do NOT log the bookmark, UUID, token, database row, or source bytes.
+          if verified_d1 and "currentid" in locals() and currentid:
+              from d1retention.recovery import validate_recovery
+              info_state,info_doc=get("accounts/"+account+"/d1/database/"+currentid)
+              if info_state=="OK" and isinstance(info_doc,dict):
+                  if (info_doc.get("result") or {}).get("uuid")==currentid:
+                      print("CF_D1_TIME_TRAVEL_DB_IDENTITY=VERIFIED")
+                      if (info_doc.get("result") or {}).get("version")=="production":
+                          checkpoint_state,checkpoint_doc=get(
+                              "accounts/"+account+"/d1/database/"+currentid+
+                              "/time_travel/bookmark")
+                          result=validate_recovery(info_doc,checkpoint_doc)
+                          print("CF_D1_TIME_TRAVEL_BOOKMARK="+(
+                              "AVAILABLE_REDACTED" if result.bookmark_readback_qualified
+                              else checkpoint_state))
+                          print("CF_D1_TIME_TRAVEL_SUPPORT="+(
+                              "PRODUCTION_BACKEND" if result.supported_backend
+                              else "NOT_QUALIFIED"))
+                      else:
+                          print("CF_D1_TIME_TRAVEL_BOOKMARK=BACKEND_NOT_PRODUCTION")
+                  else:
+                      print("CF_D1_TIME_TRAVEL_DB_IDENTITY=DRIFT")
+                      print("CF_D1_TIME_TRAVEL_BOOKMARK=BLOCKED")
+              else:
+                  print("CF_D1_TIME_TRAVEL_DB_INFO="+info_state)
+                  print("CF_D1_TIME_TRAVEL_BOOKMARK=NOT_ATTEMPTED")
+          else:
+              print("CF_D1_TIME_TRAVEL_BOOKMARK=IDENTITY_NOT_QUALIFIED")
+          print("CF_D1_TIME_TRAVEL_RESTORE_PERFORMED=FALSE")
+          print("CF_D1_RECOVERY_TRUST_LEVEL=BOOKMARK_ONLY_NOT_RESTORE_PROOF")
+          # D1 R18B safe parser proof: only EXPLAIN CREATE TABLE,
+          # never actual DDL, and only if the authentic existing binding
+          # and a clear reserved namespace were independently verified.
+          if (verified_d1 and 'rows_collision' in locals()
+              and isinstance(rows_collision,list) and not rows_collision):
+              try:
+                  from d1retention.d1_compat import statements
+                  from pathlib import Path
+                  candidate=statements(Path("d1retention/schema_d1_compat.sql").read_bytes())
+                  accepted=0
+                  for stmt in candidate:
+                      explain_req=urllib.request.Request(url,
+                        data=json.dumps({"sql":"EXPLAIN "+stmt,"params":[]}).encode(),
+                        headers={"Authorization":"Bearer "+token,
+                                 "Accept":"application/json",
+                                 "Content-Type":"application/json"},method="POST")
+                      try:
+                          with urllib.request.urlopen(explain_req,timeout=8) as rs:
+                              raw=rs.read(16385)
+                          if len(raw)>16384:break
+                          result=json.loads(raw)
+                          if not isinstance(result,dict) or result.get("success") is not True:break
+                          parts=result.get("result")
+                          if not isinstance(parts,list) or len(parts)!=1 or parts[0].get("success") is not True:break
+                          accepted+=1
+                      except Exception:
+                          break
+                  print("CF_R18B_D1_EXPLAIN_TABLES="+str(accepted)+"/3")
+                  print("CF_R18B_SOURCE_ONLY_QUALIFIED="+("TRUE" if accepted==3 else "FALSE"))
+              except Exception:
+                  print("CF_R18B_SOURCE_ONLY_QUALIFIED=FALSE")
+          else:
+              print("CF_R18B_SOURCE_ONLY_QUALIFIED=BLOCKED_BY_IDENTITY_OR_COLLISION")
+          print("CF_R18B_REMOTE_WRITES=0")
+          print("CF_D1_REMOTE_SCHEMA_INSTALL=FALSE")
+          print("CF_D1_ORIGINALS_ACCEPTED=0")
+          print("CF_AUTHENTIC_ORIGINAL_EVIDENCE=NOT_YET_READ")
+          print("CF_D1_SQL_READONLY_SELECT_ATTEMPTS="+("2" if verified_d1 else "0"))
+          print("CF_D1_WRITES=0")
+          print("CF_SCIENTIFIC_EVIDENCE=NOT_QUALIFIED")
+          print("CF_ORIGINAL_EXECUTIONS=0")
+          PY
