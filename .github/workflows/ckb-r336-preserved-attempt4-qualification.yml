@@ -122,7 +122,15 @@ jobs:
              if($extra -cmatch '^internal/paperreconcile/[A-Za-z0-9_.-]{1,100}\.go$'){
                 Write-Output ('R336_ADDITIONAL_PAPERRECONCILE_GO='+$extra)
              }else{
-                if($extra -cmatch '^[A-Za-z0-9_.-][A-Za-z0-9_./-]{0,149}
+                $category='OTHER'
+                if($extra.StartsWith('internal/')){$category='INTERNAL'}
+                elseif($extra.StartsWith('docs/')){$category='DOCS'}
+                elseif($extra.StartsWith('.')){$category='DOTFILE'}
+                elseif($extra.StartsWith('logs/')){$category='LOGS'}
+                $extension=[IO.Path]::GetExtension($extra).ToLowerInvariant()
+                if($extension -notin @('.go','.md','.json','.txt','.log','.yaml','.yml')){$extension='OTHER'}
+                Write-Output ('R336_UNTRACKED_CLASS='+$category+';TYPE='+$extension)
+                Write-Output 'R336_UNTRACKED_OUTSIDE_PAPERRECONCILE_GO=TRUE'
              }
           }
           if($extras.Count -gt 8 -or @($extras|Where-Object {$_ -cnotmatch '^internal/paperreconcile/[A-Za-z0-9_.-]{1,100}\.go$'}).Count -gt 0){
