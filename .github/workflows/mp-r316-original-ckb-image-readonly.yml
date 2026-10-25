@@ -1,0 +1,112 @@
+name: R316 elevated original CKB controller identity read-only
+on:
+  push:
+    branches: [audit/mp-r316-current-ckb-owner-readonly-20261025]
+    paths: [.github/workflows/mp-r316-original-ckb-image-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r316-original-owner-readonly-identity
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Compare authenticated existing native CKB process, task, and installation, without writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r316-current-ckb-owner-readonly-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R316_EXISTING_AUTHORIZED_OWNER_RUNNER_OR_EVENT_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $role=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$role.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R316_ORIGINAL_ELEVATED_OWNER_REQUIRED'
+          }
+          Write-Output 'R316_EXISTING_ELEVATED_OWNER=PASS'
+          function Sha([string]$path){
+            return (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          }
+          function StringSha([string]$s){
+            $h=[Security.Cryptography.SHA256]::Create()
+            try {return ([BitConverter]::ToString($h.ComputeHash([Text.Encoding]::UTF8.GetBytes($s))).Replace('-','').ToLowerInvariant())}
+            finally {$h.Dispose()}
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $localExe=Join-Path $root 'bin\ckb-plane.exe'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          foreach($p in @($localExe,$cfg,$db)){
+            if(!(Test-Path -LiteralPath $p -PathType Leaf -ErrorAction Stop)){
+              throw 'R316_EXPECTED_INSTALLED_MEMBER_ABSENT'
+            }
+          }
+          $beforeDisk=Sha $localExe
+          $beforeCfg=Sha $cfg
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1){throw 'R316_SINGLE_CURRENT_NATIVE_PROCESS_NOT_PROVEN'}
+          $native=$procs[0]
+          $pidOriginal=[int]$native.ProcessId
+          $birth=([datetime]$native.CreationDate).ToUniversalTime().ToString('o')
+          $path=[string]$native.ExecutablePath
+          if([string]::IsNullOrWhiteSpace($path) -or ![IO.Path]::IsPathRooted($path)){
+            throw 'R316_ORIGINAL_OWNER_PROCESS_IMAGE_PATH_INACCESSIBLE'
+          }
+          $processFileHash=Sha $path
+          $exactPath=[string]::Equals([IO.Path]::GetFullPath($path),[IO.Path]::GetFullPath($localExe),[StringComparison]::OrdinalIgnoreCase)
+          $listeners=@(Get-NetTCPConnection -LocalPort 8791 -State Listen -ErrorAction Stop)
+          if($listeners.Count -eq 0 -or
+             @($listeners | Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1') -or [int]$_.OwningProcess -ne $pidOriginal}).Count -gt 0){
+            throw 'R316_LIVE_LOCAL_CONTROLLER_PID_NOT_CONFIRMED'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R316_ORIGINAL_R18_TASK_IDENTITY_DRIFT'
+          }
+          $taskXML=Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]::IsNullOrWhiteSpace($taskXML)){throw 'R316_TASK_XML_NOT_READABLE'}
+          $taskSha=StringSha $taskXML
+          Write-Output ('R316_INSTALLED_EXE_SHA256='+$beforeDisk)
+          Write-Output ('R316_RUNNING_PROCESS_PATH_FILE_SHA256='+$processFileHash)
+          Write-Output ('R316_INSTALLED_CONFIG_SHA256='+$beforeCfg)
+          Write-Output ('R316_REGISTERED_TASK_XML_SHA256='+$taskSha)
+          Write-Output ('R316_RUNNING_PROCESS_PATH_MATCHES_DOCUMENTED_INSTALL='+([string]$exactPath).ToUpperInvariant())
+          Write-Output 'R316_RUNNING_PROCESS_LOCALHOST_8791_PID_MATCH=PASS'
+          Write-Output 'R316_R18_SCHEDULED_TASK_OWNER_AND_WRAPPER=PASS'
+          if($beforeDisk -cne '70e815f8e0399aeabb3291fd140b250039b6993f9d2d60e1b7563c56971c19e6'){
+            Write-Output 'R316_R314_INSTALLED_DISK_PREIMAGE=CHANGED'
+          }else{
+            Write-Output 'R316_R314_INSTALLED_DISK_PREIMAGE=UNCHANGED'
+          }
+          if($processFileHash -cne $beforeDisk -or !$exactPath){
+            Write-Output 'R316_CURRENT_PROCESS_FILE_AND_DOCUMENTED_INSTALL=NOT_IDENTICAL'
+          }else{
+            Write-Output 'R316_CURRENT_PROCESS_FILE_AND_DOCUMENTED_INSTALL=FILE_IDENTITY_MATCH'
+          }
+          # Do not claim that hashing an on-disk image reads resident PE pages.
+          Write-Output 'R316_RESIDENT_PROCESS_MEMORY_SHA256=NOT_MEASURED'
+          Start-Sleep -Milliseconds 400
+          $again=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($again.Count -ne 1 -or [int]$again[0].ProcessId -ne $pidOriginal -or
+             ([datetime]$again[0].CreationDate).ToUniversalTime().ToString('o') -cne $birth -or
+             (Sha $localExe) -cne $beforeDisk -or
+             (Sha $cfg) -cne $beforeCfg -or
+             (Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop) -cne $taskXML){
+            throw 'R316_ORIGINAL_LIVE_PROCESS_TASK_OR_CONFIG_PREPOST_DRIFT'
+          }
+          Write-Output 'R316_OWNER_PROCESS_TASK_CONFIG_PREPOST=PASS'
+          Write-Output 'R316_RESTRICTED_SQLITE_SNAPSHOT_NOT_CREATED=TRUE'
+          Write-Output 'R316_PERSISTENT_ROLLBACK_ESCROW=NOT_ATTESTED'
+          Write-Output 'R316_NO_CONTROLLER_OR_QUEUE_MUTATIONS=TRUE'
+          Write-Output 'R316_NO_CUTOVER_OR_SCIENTIFIC_AUTHORITY=TRUE'
