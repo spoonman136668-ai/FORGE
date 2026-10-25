@@ -707,6 +707,11 @@ class Database:
         # chain, preventing cross-kind issue replay and fabricated task records.
         from f139.nci04_owner_ledger import audit_native_events
         audit_native_events(self)
+        # Every original cold read now rechecks G38 provider ZIP bytes,
+        # evidence manifests, and terminal/quarantine states. No ledger
+        # migration or controller fork is needed.
+        from f139.nci04_g38_owner_terminal import verify_g38_custody
+        verify_g38_custody(self)
         active_rows = self.actives()
         require(len(active_rows) <= (2 if self.dual_native_schema() else 1)
                 and (len(active_rows)<=1 or all(
@@ -2087,6 +2092,30 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                 if not active["ticket"].startswith("f139-nci04-"):
                     legacy_pending[active["ticket"]]="START_RISK_PENDING_NO_REDISPATCH"
                 continue  # Ambiguous provider startup remains sticky for this ticket.
+            # A fresh G13-native Yggdrasil V2 ticket is never interpreted
+            # by the old V1 receipt parser. The single original controller
+            # authenticates GitHub and commits both OS results as one SQLite
+            # transaction. Historical V1 and quarantined records unchanged.
+            if active["ticket"].startswith("f139-nci04-"):
+                from f139.nci04_owner_ledger import frozen_native_issue
+                from f139.nci04_worker_v2 import SOURCE_SHA as V2_SHA
+                from f139.nci04_worker_v2 import SOURCE_TREE as V2_TREE
+                original = frozen_native_issue(db, active["ticket"])
+                if (original.lane == "Yggdrasil"
+                        and original.candidate.target_commit == V2_SHA
+                        and original.candidate.target_tree_sha == V2_TREE
+                        and original.candidate.path ==
+                            "yggdrasil/public_causal_cells.py"):
+                    if run.get("status") in (
+                            "queued","requested","in_progress",
+                            "waiting","pending"):
+                        continue
+                    from f139.nci04_g38_owner_terminal import settle_original_v2
+                    settle_original_v2(
+                        db, api, db_path, ticket=active["ticket"],
+                        run_id=run["id"], started_at=active["started_at"],
+                        owner_key=hmac_key)
+                    continue
             result=api.run_proof(run,active["ticket"],active["source_sha"],active["started_at"])
             if result is None:
                 if not active["ticket"].startswith("f139-nci04-"):
