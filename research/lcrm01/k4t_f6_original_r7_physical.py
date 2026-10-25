@@ -120,7 +120,8 @@ def experiment(r1,r2,r3,r4,r5,r6,r7):
   if base5!=base6 or base5!=base7:raise ValueError("F6_R5_R6_R7_NOT_SAME_FIT_MODEL")
   i5={("R5"+k[2:] if k.startswith("R4") else k):v for k,v in i5.items()}
   i6={("R6"+k[2:] if k.startswith("R4") else k):v for k,v in i6.items()}
-  base["native_FIT_custody"]={**native,**i3,**i4,**i5,**i6}
+  i7={("R7"+k[2:] if k.startswith("R4") else k):v for k,v in i7.items()}
+  base["native_FIT_custody"]={**native,**i3,**i4,**i5,**i6,**i7}
   def phase(name):
    seeds=CHECK if name=="CHECK" else DEV
    original=k4y.evaluation(name,legacy,y1,y2,control)
@@ -128,25 +129,27 @@ def experiment(r1,r2,r3,r4,r5,r6,r7):
    return (original+r3rows+evaluation(name,"wingless_r4_frontier",w4)+
            evaluation(name,"wingless_r5_cost_frontier",w5)+
            evaluation(name,"wingless_r6_observed_route",w6)+
+           evaluation(name,"wingless_r7_physical_frontier",w7)+
            evaluation(name,"sixfield_fit_model_route",sixfield))
   check=phase("CHECK")
   dev=phase("DEV")
-  if len(check)!=120 or len(dev)!=240:
-   raise ValueError("F5_REAL_SOURCE_METHOD_PARITY_INCOMPLETE")
+  if len(check)!=128 or len(dev)!=256:
+   raise ValueError("F6_REAL_SOURCE_METHOD_PARITY_INCOMPLETE")
   if (w5.request("snapshot_base").get("state")!=base5 or
-      w6.request("snapshot_base").get("state")!=base6):
-   raise ValueError("F5_UNAUTHORIZED_NATIVE_FIT_UPDATE_IN_HELDOUT")
+      w6.request("snapshot_base").get("state")!=base6 or
+      w7.request("snapshot_base").get("state")!=base7):
+   raise ValueError("F6_UNAUTHORIZED_NATIVE_FIT_UPDATE_IN_HELDOUT")
   report=k4y.report([x for x in dev if x["method"] in OLD])
   r3part=f2.judgment(report,[x for x in dev if x["method"] in f2.R3_METHODS])["results"]
   for fam in FAMILIES:
    for method in f2.R3_METHODS:report["results"][fam][method]=r3part[fam][method]
-  base.update({"result":"COMPLETE_R6_GENUINE_PUBLIC_DEVELOPMENT",
+  base.update({"result":"COMPLETE_R7_GENUINE_PUBLIC_DEVELOPMENT",
        "CHECK_episodes":len(check),"DEV_episodes":len(dev),
        "CHECK_original_public_traces":check,"DEV_original_public_traces":dev,
-       "r6_preregistered_disposition":outcome(report,dev)})
+       "r7_preregistered_disposition":outcome(report,dev)})
   return base
  finally:
-  for w in (w3,w4,w5,w6):
+  for w in (w3,w4,w5,w6,w7):
    if w is not None:w.close()
   legacy["wingless_r1"].close()
   legacy["wingless_r2"].close()
@@ -179,8 +182,8 @@ def main():
     "max_child_RSS_is_not_total_process_peak":True,"energy_not_measured":True}
  a.output.write_text(json.dumps(q,sort_keys=True,indent=2,allow_nan=False)+"\n")
  print("K4T_F6_ORIGINAL_SOURCE_RESULT="+q["result"])
- if "r6_preregistered_disposition" in q:
-  d=q["r6_preregistered_disposition"]
+ if "r7_preregistered_disposition" in q:
+  d=q["r7_preregistered_disposition"]
   print("K4T_F6_R6_DECISION="+d["result"])
   print("K4T_F6_REAL_GOALS="+canon({f:{m:d["results"][f][m]["successes"]
        for m in ("wingless_r5_cost_frontier","wingless_r6_observed_route","sixfield_fit_model_route","fit_dynamics_bfs")}
