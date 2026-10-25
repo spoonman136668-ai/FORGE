@@ -10,8 +10,17 @@ import re
 
 ROLE = "TW3_HANDCRAFTED_DEV_POLICY_ONLY"
 PROPOSAL_KEYS = frozenset(("actor", "destination"))
-ACTOR_ID = re.compile(r"npc:[A-Za-z0-9_-]{1,50}\Z")
-DEST_ID = re.compile(r"loc:[A-Za-z0-9_-]{1,50}\Z")
+# Original upstream's isEntityId: canonical decimal suffix and safe integer.
+ACTOR_ID = re.compile(r"npc:(?:0|[1-9][0-9]*)\Z")
+DEST_ID = re.compile(r"location:(?:0|[1-9][0-9]*)\Z")
+MAX_ENTITY_INDEX = 9007199254740991
+
+
+def original_entity_id(value, pattern):
+    if type(value) is not str or pattern.fullmatch(value) is None:
+        return False
+    index = value.partition(":")[2]
+    return len(index) <= 16 and int(index) <= MAX_ENTITY_INDEX
 RESULT = "DEV_VALIDATED_NOT_DISPATCHED"
 RECEIPT = "DEV_REDACTED_NOT_DISPATCHED"
 
@@ -30,19 +39,18 @@ def validate_proposal(candidate, *, scoped_actor, public_destinations,
     """
     demand(type(candidate) is dict and set(candidate) == PROPOSAL_KEYS,
            "EXACT_REQUEST_FIELDS")
-    demand(type(scoped_actor) is str and ACTOR_ID.fullmatch(scoped_actor) is not None,
+    demand(original_entity_id(scoped_actor, ACTOR_ID),
            "SCOPED_ACTOR")
     demand(type(public_destinations) is frozenset and
            len(public_destinations) > 0 and
-           all(type(x) is str and DEST_ID.fullmatch(x) is not None
-               for x in public_destinations), "PUBLIC_CATALOG_SHAPE")
+           all(original_entity_id(x, DEST_ID) for x in public_destinations), "PUBLIC_CATALOG_SHAPE")
     demand(type(action_budget_remaining) is int and 0 < action_budget_remaining <= 100,
            "FINITE_ACTION_BUDGET")
     demand(type(already_in_flight) is bool and not already_in_flight,
            "IN_FLIGHT_OR_UNKNOWN")
     actor, dest = candidate["actor"], candidate["destination"]
     demand(type(actor) is str and actor == scoped_actor, "ACTOR_CUSTODY")
-    demand(type(dest) is str and DEST_ID.fullmatch(dest) is not None,
+    demand(original_entity_id(dest, DEST_ID),
            "DESTINATION_FORMAT")
     demand(dest in public_destinations, "DESTINATION_NOT_PUBLIC")
     return {

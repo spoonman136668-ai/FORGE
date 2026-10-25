@@ -136,9 +136,8 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
         _, cursor = self.project(cursor=(20, 6))
         self.assertEqual(cursor, (20, 7))
 
-    def test_22_new_tick_accepted(self):
-        _, cursor = self.project(cursor=(19, 200))
-        self.assertEqual(cursor, (20, 7))
+    def test_22_new_tick_with_replayed_lower_event_id_denied(self):
+        self.denied("NONMONOTONIC_EVENT", lambda:self.project(cursor=(19, 200)))
 
     def test_23_no_secret_in_any_allowed_output(self):
         for typ in ("travel.departed", "travel.arrived", "travel.blocked"):
@@ -171,6 +170,20 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
         self.assertEqual(e["status"], "blocked")
         self.assertNotIn("owner", str(e))
         self.assertNotIn("parent", str(e))
+
+    def test_29_new_tick_with_new_original_event_id_accepted(self):
+        _, cursor=self.project(cursor=(19, 6))
+        self.assertEqual(cursor,(20, 7))
+
+    def test_30_cursor_requires_explicit_new_world_reset(self):
+        self.denied("NONMONOTONIC_EVENT",lambda:self.project(cursor=(19, 900)))
+        _, cursor=self.project(cursor=(0, 0))
+        self.assertEqual(cursor,(20, 7))
+
+    def test_31_tick_regression_still_denied_when_event_id_grows(self):
+        e=original()
+        e["id"]=901
+        self.denied("NONMONOTONIC_EVENT",lambda:self.project(e,cursor=(21,900)))
 
 
 if __name__ == "__main__":

@@ -44,7 +44,8 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
            type(raw.get("tick")) is int and raw["tick"] >= 0,
            "ORIGINAL_EVENT_ID_OR_TICK")
     tick, number = raw["tick"], raw["id"]
-    refuse(tick > cursor[0] or (tick == cursor[0] and number > cursor[1]),
+    # Original SimEventId is strictly increasing across this source world.
+    refuse(tick >= cursor[0] and number > cursor[1],
            "NONMONOTONIC_EVENT")
     refuse(type(raw.get("actors")) is list and
            raw["actors"] == [scoped_actor], "CROSS_ACTOR_EVENT")
