@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   original-owner-preflight:
-    if: github.ref == 'refs/heads/qualify/f139-g22-original-owner-release-dispatch-once-20261025' && github.run_attempt == 1
+    if: github.ref == 'refs/heads/qualify/f139-g22-original-owner-release-dispatch-once-20261025' && github.run_attempt == 1 && github.event.head_commit.message == 'F139 G22 authorize single original-owner G19 dispatch after passing read-only preflight'
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 5
     env:
@@ -90,4 +90,25 @@ jobs:
           }
           Write-Host 'F139_G22_OWNER_CREDENTIAL_AND_PROTECTED_SOURCE=PASS'
           Write-Host 'F139_G22_ONE_ORIGINAL_TASK_AND_CADENCE=PASS'
-          Write-Host 'F139_G22_PREFLIGHT_READONLY_NO_DISPATCH=PASS'
+          Write-Host 'F139_G22_ORIGINAL_OWNER_PREFLIGHT=PASS'
+          # Only a single branch push with the exact audited commit message
+          # may dispatch the existing protected-main manual release as the
+          # already authenticated ORIGINAL GitHub owner. No new scheduler,
+          # controller, queue, or sidecar is installed.
+          $again=(& gh api "repos/$repo/branches/main" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $again.protected -ne $true -or
+             $again.commit.sha -cne $target){
+            throw 'F139_G22_PRE_DISPATCH_PROTECTED_MAIN_DRIFT'
+          }
+          $latest=(& gh api "repos/$repo/issues/807" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_G22_PRE_DISPATCH_POLICY_UNAVAILABLE'}
+          $still=[string]$latest.body | ConvertFrom-Json
+          if($still.source_sha -cne $old -or $still.enabled -ne $true -or
+             $still.scientific_first_use -ne $false){
+            throw 'F139_G22_PRE_DISPATCH_OWNER_POLICY_DRIFT'
+          }
+          $manual='f139-g15-original-owner-release-guarded.yml'
+          & gh workflow run $manual --repo $repo --ref main --raw-field "protected_sha=$target" --raw-field 'owner_approval=F139-V6-OWNER-APPROVE-ONE-SHOT'
+          if($LASTEXITCODE -ne 0){throw 'F139_G22_ORIGINAL_OWNER_RELEASE_DISPATCH_FAILED'}
+          Write-Host 'F139_G22_ORIGINAL_OWNER_G19_DISPATCH_SUBMITTED=PASS'
+          Write-Host 'F139_G22_PRODUCTION_CUTOVER_NOT_ASSUMED'
