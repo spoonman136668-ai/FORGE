@@ -228,6 +228,17 @@ jobs:
                @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
               throw 'F139_G15_NEW_SOURCE_NOT_CLEAN'
             }
+            # The original native CLI imports its Python module from CWD.
+            # The hosted Actions workspace is NOT the installed controller
+            # repository root. Enforce the exact original checkout before
+            # any native transition, including the subsequent activation.
+            Set-Location -LiteralPath $root
+            $importRoot=(& $python -B -c 'import pathlib,f139.local_controller as c;print(pathlib.Path(c.__file__).resolve().parent.parent)' | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or
+               [IO.Path]::GetFullPath($importRoot) -ine [IO.Path]::GetFullPath($root)){
+              throw 'F139_G25_ORIGINAL_NATIVE_MODULE_ROOT_DRIFT'
+            }
+            Write-Host 'F139_G25_ORIGINAL_NATIVE_MODULE_ROOT=PASS'
             $payload=@{
               schema='forge.f139.nci04.owner-source-transition-approval.v2'
               from_source_sha=$old
