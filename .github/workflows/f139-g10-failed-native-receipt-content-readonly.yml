@@ -1,4 +1,4 @@
-name: F139 G10 failed original native receipt exact result classification (read only)
+name: F139 G10 classify original failing full-regression cases (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -96,6 +96,14 @@ jobs:
                       if re.search(pattern,excerpt):labels.append(name)
                   print("F139_G10_"+oslabel+"_COMMAND_"+str(index)+"_FAILURE_CLASSES="+
                         (",".join(labels) if labels else "OTHER"))
+                  if index==1:
+                      safe_argv=" ".join(x for x in argv if re.fullmatch(r"[A-Za-z0-9_./*=-]{1,120}",x))
+                      print("F139_G10_"+oslabel+"_FAILED_FIXED_COMMAND="+safe_argv)
+                      for m in re.finditer(r"(?m)^\\s*(FAIL|ERROR):\\s+([A-Za-z0-9_./() -]{3,145})\\s*$",excerpt):
+                          print("F139_G10_"+oslabel+"_UNITTEST_CASE_"+m.group(1)+"="+m.group(2).strip())
+                      statuses=re.findall(r"(?m)^\\s*(?:Ran [0-9]+ tests?[^\\n]*|FAILED \\([^\\n]{1,160}\\)|OK)\\s*$",excerpt)
+                      for message in statuses[-3:]:
+                          print("F139_G10_"+oslabel+"_UNITTEST_SUMMARY="+message.strip()[:160])
           print("F139_G10_BOTH_ORIGINAL_PROVIDER_NEGATIVE_RECEIPTS_AUTHENTICATED=PASS")
           print("F139_G10_PROTECTED_SOURCE_ORIGINAL_LEDGER_AND_REFS_UNCHANGED=TRUE")
           '@
