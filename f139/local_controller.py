@@ -1591,12 +1591,37 @@ class GitHub:
             require(isinstance(value,str) and 0<len(value)<=128,
                     "NATIVE_DISPATCH_FIELD_INVALID")
             payload.extend(["-f","inputs["+key+"]="+value])
-        bundle = {
-            key:signed_fields[key]
-            for key in ("native_signature","issue_number","issue_id",
-                        "body_sha256","qualification_key",
-                        "target_commit","target_tree_sha")
-        }
+        base_keys = ("native_signature","issue_number","issue_id",
+                     "body_sha256","qualification_key",
+                     "target_commit","target_tree_sha")
+        v2_keys = ("v2_original_event_seq","v2_original_event_sha256",
+                   "v2_claim_event_seq","v2_claim_event_sha256",
+                   "v2_owner_signature")
+        v2 = signed_fields.get("native_protocol") == "v2"
+        require(set(signed_fields) == set(("ticket","lane","source_sha",
+                      "epoch","signature",*base_keys,
+                      *(("native_protocol",*v2_keys) if v2 else ())))
+                and (not v2 or (issue.lane == "Yggdrasil"
+                       and issue.candidate.target_commit ==
+                           __import__("f139.nci04_worker_v2",
+                                      fromlist=["SOURCE_SHA"]).SOURCE_SHA
+                       and issue.candidate.target_tree_sha ==
+                           __import__("f139.nci04_worker_v2",
+                                      fromlist=["SOURCE_TREE"]).SOURCE_TREE)),
+                "NATIVE_DISPATCH_VERSION_OR_IDENTITY_DRIFT")
+        bundle = {key:signed_fields[key] for key in base_keys}
+        if v2:
+            for key in v2_keys:
+                value=signed_fields[key]
+                require(isinstance(value,str)
+                        and re.fullmatch(
+                          r"[1-9][0-9]*" if key.endswith("_seq")
+                          else r"[a-f0-9]{64}",value) is not None,
+                        "NATIVE_V2_OWNER_CLAIM_FIELD_INVALID")
+                bundle[key]=value
+            # Reuse an existing D2K input key only on native tickets.
+            # GitHub allows at most TEN workflow_dispatch inputs.
+            payload.extend(["-f","inputs[target_package]=f139-nci04-v2"])
         bundle["intent_base64"] = base64.b64encode(issue.intent_raw).decode("ascii")
         encoded=base64.b64encode(canonical(bundle)).decode("ascii")
         require(0<len(encoded)<=60000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
@@ -2209,6 +2234,23 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)
+    # Never attempt V2 under legacy default routing: G35/G32 provider
+    # terminal custody must be separately deployed before dispatch.
+    v2_original=False
+    if task["ticket"].startswith("f139-nci04-"):
+        from f139.nci04_owner_ledger import frozen_native_issue
+        from f139.nci04_worker_v2 import SOURCE_SHA as V2_SHA, SOURCE_TREE as V2_TREE
+        proposed=frozen_native_issue(db,task["ticket"])
+        v2_original=(proposed.lane=="Yggdrasil" and
+                     proposed.candidate.target_commit==V2_SHA and
+                     proposed.candidate.target_tree_sha==V2_TREE and
+                     proposed.candidate.path=="yggdrasil/public_causal_cells.py")
+        if v2_original and not (os.environ.get("F139_V2_ORIGINAL_OWNER_RELEASE_SOURCE")==
+                                meta["source_sha"] and
+                                os.environ.get("F139_V2_PROVIDER_TERMINAL_WRITER_APPROVED")=="true"):
+            return {"disposition":"V2_TERMINAL_CUSTODY_NOT_AUTHORIZED",
+                    "ticket":task["ticket"],"claimed":False,
+                    "live_v2_dispatched":False,"science_authorized":False}
     db.claim(task["ticket"],timestamp)
     from f139.verify_ticket import signature as sign_worker_ticket
     d2k=db.d2k_fields(task["ticket"])
@@ -2218,8 +2260,15 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         from f139.nci04_owner_ledger import frozen_native_issue
         from f139.nci04_owner_issue import make_signed_dispatch_inputs
         issue = frozen_native_issue(db, task["ticket"])
-        fields = make_signed_dispatch_inputs(
-            issue, owner_hmac_key=hmac_key, epoch=meta["epoch"])
+        if v2_original:
+            # Under this same ORIGINAL SingleOwner + START_RISK transaction
+            # chain, produce a fresh V2 claim; never use a V1 fallback.
+            from f139.nci04_g36_v2_dispatch import original_owner_v2_fields
+            fields = original_owner_v2_fields(
+                db, task["ticket"], owner_hmac_key=hmac_key)
+        else:
+            fields = make_signed_dispatch_inputs(
+                issue, owner_hmac_key=hmac_key, epoch=meta["epoch"])
         api.dispatch_native(fields, issue)
     else:
         signature=sign_worker_ticket(hmac_key,task["ticket"],task["lane"],
