@@ -16,7 +16,7 @@ import k4t_f2_r3_original_public as f2
 from k4r_minigrid_source import canon,sha
 
 FROZEN=Path(__file__).with_name("k4t_f6_frozen_r7_physical.json")
-SCHEMA="mass.lcrm01.k4t-f5.original-r6-observed-public-dev.v1"
+SCHEMA="mass.lcrm01.k4t-f6.original-r7-physical-public-dev.v1"
 FIT=tuple(range(81400,81424))
 CHECK=tuple(range(82400,82404))
 DEV=tuple(range(83400,83408))
