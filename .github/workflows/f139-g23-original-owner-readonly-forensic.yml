@@ -83,3 +83,33 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'F139_G23_READONLY_LEDGER_HEAD_UNAVAILABLE'}
           Write-Host ('F139_G23_READONLY_LEDGER_SNAPSHOT='+$result)
           Write-Host 'F139_G23_NO_TASK_OR_DATABASE_MUTATION=PASS'
+          # Independently test Python module import custody from the default
+          # Actions directory and the one AUTHORIZED scheduled source root.
+          if([string]$t.State -cne 'Disabled' -or $children.Count -ne 0){
+            throw 'F139_G23_READONLY_PROFILE_PROBE_UNSAFE'
+          }
+          $test=@'
+          import pathlib,sys
+          target=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          try:
+              import f139.local_controller as ctl
+              imported=pathlib.Path(ctl.__file__).resolve().parent.parent
+              print("F139_G23_IMPORTED_MODULE_ROOT_MATCH="+str(imported==target),flush=True)
+              try:
+                  ctl.native_original_owner_profile(pathlib.Path(sys.argv[1]))
+                  print("F139_G23_NATIVE_PROFILE_READONLY=PASS",flush=True)
+              except Exception as exc:
+                  print("F139_G23_NATIVE_PROFILE_READONLY=FAIL:"+type(exc).__name__,flush=True)
+          except Exception as exc:
+              print("F139_G23_MODULE_IMPORT=FAIL:"+type(exc).__name__,flush=True)
+          '@
+          Write-Host 'F139_G23_PYTHON_IMPORT_DEFAULT_WORKDIR'
+          & $python -B -c $test $db $root
+          if($LASTEXITCODE -ne 0){throw 'F139_G23_DEFAULT_PROBE_FAILED'}
+          Write-Host 'F139_G23_PYTHON_IMPORT_ORIGINAL_OWNER_ROOT'
+          Push-Location -LiteralPath $root
+          try{
+            & $python -B -c $test $db $root
+            if($LASTEXITCODE -ne 0){throw 'F139_G23_OWNER_ROOT_PROBE_FAILED'}
+          }finally{Pop-Location}
+          Write-Host 'F139_G23_PROFILE_PROBES_READONLY_COMPLETE=PASS'
