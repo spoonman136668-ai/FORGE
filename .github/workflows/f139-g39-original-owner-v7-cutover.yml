@@ -176,9 +176,8 @@ jobs:
             $originalSource | & $python -B - $db $target $recheck
             if($LASTEXITCODE -ne 0 -or
                -not(Test-Path -LiteralPath $recheck) -or
-               -not [Linq.Enumerable]::SequenceEqual(
-                   [byte[]][IO.File]::ReadAllBytes($approval),
-                   [byte[]][IO.File]::ReadAllBytes($recheck))){
+               (Get-FileHash -LiteralPath $approval -Algorithm SHA256).Hash -cne
+               (Get-FileHash -LiteralPath $recheck -Algorithm SHA256).Hash){
               throw 'F139_G39_QUIESCED_LEDGER_CHANGED'
             }
             $backup=Join-Path (Split-Path $db -Parent) (
