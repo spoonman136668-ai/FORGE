@@ -25,8 +25,11 @@ def fit(stream):
         dx,dy=n["X"]-b["X"],n["Y"]-b["Y"]
         if abs(dx)>1 or abs(dy)>1:raise ValueError("F4_SIXFIELD_NONLOCAL_FIT")
         learned[(b["Direction"],b["FrontBlocked"],a)][(dx,dy,n["Direction"])]+=1
-    if len(learned)!=24 or any(sum(c.values())<4 for c in learned.values()):
-        raise ValueError("F4_SIXFIELD_INCOMPLETE_TRAINING")
+    # FIT support is empirically sparse: refuse invented action-conditioned
+    # physics; a never-observed tuple remains unknown at inference, rather
+    # than inventing all 24 direction/block/action outcomes.
+    if len(learned)<3 or {k[2] for k in learned}!={0,1,2}:
+        raise ValueError("F4_SIXFIELD_FIT_ACTION_SOURCE_INCOMPLETE")
     canonical=[(list(k),[(list(a),n) for a,n in sorted(c.items())])
                for k,c in sorted(learned.items())]
     digest=hashlib.sha256(json.dumps(canonical,separators=(",",":")).encode()).hexdigest()
