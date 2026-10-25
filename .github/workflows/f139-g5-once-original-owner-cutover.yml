@@ -131,8 +131,10 @@ jobs:
             }
             Write-Host 'F139_G5_BEFORE_STOP_LEDGER_AND_NEGATIVES=PASS'
             Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
-            Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             $stopped=$true
+            # Disable must precede stop to prevent a scheduled relaunch.
+            # A stop failure still enters the guarded owner recovery path.
+            Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             $count=0
             do{
               Start-Sleep -Seconds 1
@@ -236,7 +238,15 @@ jobs:
               try{
                 & git.exe -C $root checkout --detach $old | Out-Null
                 Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
-                Start-ScheduledTask -TaskName $name -ErrorAction Stop
+                $still=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                  Where-Object { $_.CommandLine -and
+                    $_.CommandLine.Contains('f139.local_controller') -and
+                    $_.CommandLine.Contains($db) })
+                if($still.Count -eq 0){
+                  Start-ScheduledTask -TaskName $name -ErrorAction Stop
+                }elseif($still.Count -ne 1){
+                  throw 'F139_G5_PRETRANSITION_OWNER_MULTIPLE_CHILDREN'
+                }
                 Write-Host 'F139_G5_PRETRANSITION_OWNER_RESTORED=PASS'
               }catch{
                 Write-Host 'F139_G5_PRETRANSITION_OWNER_RECOVERY_REQUIRES_INSPECTION'
