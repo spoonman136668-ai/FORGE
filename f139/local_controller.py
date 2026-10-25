@@ -1572,6 +1572,8 @@ class GitHub:
     def dispatch_native(self, signed_fields: dict, issue):
         """One original workflow endpoint, not another scheduler/controller."""
         from f139.nci04_owner_issue import NativeIssue
+        from f139.nci04_worker_v2 import SOURCE_SHA as V2_SOURCE_SHA
+        from f139.nci04_worker_v2 import SOURCE_TREE as V2_SOURCE_TREE
         import base64
         require(isinstance(issue,NativeIssue)
                 and signed_fields["ticket"]==issue.ticket
@@ -1602,12 +1604,10 @@ class GitHub:
                       "epoch","signature",*base_keys,
                       *(("native_protocol",*v2_keys) if v2 else ())))
                 and (not v2 or (issue.lane == "Yggdrasil"
-                       and issue.candidate.target_commit ==
-                           __import__("f139.nci04_worker_v2",
-                                      fromlist=["SOURCE_SHA"]).SOURCE_SHA
-                       and issue.candidate.target_tree_sha ==
-                           __import__("f139.nci04_worker_v2",
-                                      fromlist=["SOURCE_TREE"]).SOURCE_TREE)),
+                       and issue.candidate.target_commit == V2_SOURCE_SHA
+                       and issue.candidate.target_tree_sha == V2_SOURCE_TREE
+                       and issue.candidate.path ==
+                           "yggdrasil/public_causal_cells.py")),
                 "NATIVE_DISPATCH_VERSION_OR_IDENTITY_DRIFT")
         bundle = {key:signed_fields[key] for key in base_keys}
         if v2:
