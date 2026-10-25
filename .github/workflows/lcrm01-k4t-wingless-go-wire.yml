@@ -46,8 +46,8 @@ jobs:
                        "Authorization":"Bearer "+os.environ["GH_TOKEN"]}
               with urlopen(Request(url,headers=headers),timeout=45) as r:
                   result=json.load(r)
-              raw=base64.b64decode(result["content"].replace("\\n",""),validate=True)
-              git_blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\0"+raw).hexdigest()
+              raw=base64.b64decode(result["content"].replace(chr(10),""),validate=True)
+              git_blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+bytes([0])+raw).hexdigest()
               if result["sha"]!=git_blob or git_blob!=spec["blob"]:
                   raise RuntimeError("WINGLESS_ORIGINAL_NATIVE_SOURCE_IDENTITY_DRIFT")
               (root/rel).write_bytes(raw)
