@@ -58,7 +58,7 @@ echo 'K4T_F3_ORIGINAL_R4_SOURCE_BLOBS_AUTHENTICATED=PASS'
 printf 'module github.com/spoonman136668-ai/Wingless\n\ngo 1.25.0\n' > "$RUNNER_TEMP/k4tf3/go/go.mod"
 sed 's|"k4u/wingless"|"github.com/spoonman136668-ai/Wingless/research/native/itd02/r1"|' research/lcrm01/k4u_wingless_bridge.go > "$RUNNER_TEMP/k4tf3/go/bridge_r1.go"
 cp research/lcrm01/k4y_wingless_r2_bridge.go "$RUNNER_TEMP/k4tf3/go/bridge_r2.go"
-cp research/lcrm01/k4t_f3_wingless_r3_bridge.go "$RUNNER_TEMP/k4tf3/go/bridge_r3.go"
+cp research/lcrm01/k4t_f2_wingless_r3_bridge.go "$RUNNER_TEMP/k4tf3/go/bridge_r3.go"
 cp research/lcrm01/k4t_f3_wingless_r4_bridge.go "$RUNNER_TEMP/k4tf3/go/bridge_r4.go"
 (cd "$RUNNER_TEMP/k4tf3/go" && go build -trimpath -o "$RUNNER_TEMP/k4tf3/wingless-r1" bridge_r1.go)
 (cd "$RUNNER_TEMP/k4tf3/go" && go build -trimpath -o "$RUNNER_TEMP/k4tf3/wingless-r2" bridge_r2.go)
