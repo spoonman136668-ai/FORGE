@@ -1,0 +1,121 @@
+name: F139 G8 original-owner autonomous G3 first candidate acceptance (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g8-original-first-candidate-acceptance-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify original source, rate capacity, append-only G3 and native terminal receipts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_G8_RUNNER_NOT_ORIGINAL'}
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1 -or
+             @($task.Triggers).Count -ne 3){throw 'F139_G8_ORIGINAL_TASK_INVALID'}
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $userid=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($userid)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($userid -ine $who.Name -and $sid -cne $who.User.Value){
+            throw 'F139_G8_ORIGINAL_SID_INVALID'
+          }
+          function Opt([string]$n){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G8_ORIGINAL_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=Opt 'RepositoryRoot'
+          $db=Opt 'Database'
+          $python=Opt 'PythonExe'
+          if([IO.Path]::GetFileName((Opt 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'F139_G8_ORIGINAL_WRAPPER_CADENCE_INVALID'
+          }
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $expected -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G8_INSTALLED_SOURCE_INVALID'
+          }
+          $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object {$_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop')})
+          if($children.Count -ne 1 -or
+             [string]$children[0].CommandLine -notmatch '--seconds\s+300(?:\s|$)'){
+            throw 'F139_G8_SINGLE_ORIGINAL_CHILD_INVALID'
+          }
+          $script=@'
+          import json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          expected=sys.argv[3]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation,native_events
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          d=object.__new__(Database);d.conn=conn;d.filename=dbpath
+          try:
+              d.verify()
+              m=d.meta()
+              assert m["source_sha"]==expected and m["head_seq"]>=208
+              assert verify_native_activation(d)
+              at=list(conn.execute("SELECT seq,payload FROM events WHERE kind='G3_DRAFT_ATTEMPTED' ORDER BY seq"))
+              ok=list(conn.execute("SELECT seq,payload FROM events WHERE kind='G3_DRAFT_AUTHENTICATED' ORDER BY seq"))
+              assert len(at)<=1 and len(ok)<=1
+              admitted=native_events(d)
+              tasks=list(conn.execute("SELECT ticket,stage,run_id,evidence_sha FROM tasks"))
+              assert len(tasks)>=31 and sum(t["stage"]=="QUARANTINED" for t in tasks)>=12
+              print("F139_G8_ORIGINAL_EVENT_HEAD="+str(m["head_seq"]))
+              print("F139_G8_ORIGINAL_NATIVE_ADMISSIONS="+str(len(admitted)))
+              print("F139_G8_TASKS_NONTERMINAL="+str(sum(t["stage"] not in ("VERIFIED","QUARANTINED") for t in tasks)))
+              print("F139_G8_ORIGINAL_G3_ATTEMPTS="+str(len(at)))
+              print("F139_G8_ORIGINAL_G3_SUCCESS_EVENTS="+str(len(ok)))
+              if ok:
+                  assert at and ok[0]["seq"]>at[0]["seq"]
+                  plan=json.loads(at[0]["payload"])
+                  result=json.loads(ok[0]["payload"])
+                  assert plan["source_sha"]==expected and plan["retry_allowed"] is False
+                  assert result["candidate_identity"]==plan["candidate_identity"]
+                  assert result["scientific_first_use"] is False
+                  assert result["worker_dispatched"] is False
+                  print("F139_G8_OWNER_AUTHENTIC_G3_DRAFT=PASS")
+                  print("F139_G8_G3_PR_NUMBER="+str(result["pr_number"]))
+                  print("F139_G8_G3_HEAD_COMMIT="+result["head_commit"])
+                  successors=[e for e in admitted
+                    if e.get("native_target_commit")==result["head_commit"]
+                    and e.get("source_sha")==expected]
+                  print("F139_G8_G3_FEEDER_ADMISSIONS="+str(len(successors)))
+                  matching=[t for t in tasks if any(e["ticket"]==t["ticket"] for e in successors)]
+                  print("F139_G8_G3_VERIFIED_WORKER_RECEIPTS="+str(sum(
+                    t["stage"]=="VERIFIED" and type(t["run_id"]) is int
+                    and isinstance(t["evidence_sha"],str) and len(t["evidence_sha"])==64
+                    for t in matching)))
+              elif at:
+                  print("F139_G8_G3_FIRST_ATTEMPT_AMBIGUOUS_NO_RETRY=TRUE")
+              else:
+                  print("F139_G8_G3_FIRST_ATTEMPT=NOT_YET_CREATED")
+              print("F139_G8_ORIGINAL_FULL_SQLITE_CHAIN=PASS")
+              print("F139_G8_RESEARCH_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $script $root $db $expected
+          if($LASTEXITCODE -ne 0){throw 'F139_G8_ORIGINAL_LEDGER_FAILED'}
+          # One cheap quota endpoint is valid when requests are exhausted.
+          $raw=& gh api rate_limit 2>$null
+          if($LASTEXITCODE -ne 0){throw 'F139_G8_ORIGINAL_GITHUB_QUOTA_UNREADABLE'}
+          $core=($raw | Out-String | ConvertFrom-Json).resources.core
+          if($null -eq $core -or $core.limit -le 0){throw 'F139_G8_GITHUB_QUOTA_INVALID'}
+          Write-Host ('F139_G8_GH_CORE_LIMIT='+$core.limit)
+          Write-Host ('F139_G8_GH_CORE_REMAINING='+$core.remaining)
+          Write-Host ('F139_G8_GH_CORE_RESET_UNIX='+$core.reset)
+          Write-Host 'F139_G8_NO_TASK_DB_OR_SOURCE_MUTATIONS=TRUE'
