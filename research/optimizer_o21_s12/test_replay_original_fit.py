@@ -44,7 +44,8 @@ class FitOnlyRoleTests(unittest.TestCase):
                 z.writestr("process-a.json",raw)
             with (mock.patch.object(replay,"EXPECTED_PROVIDER_SHA",hashlib.sha256(p.read_bytes()).hexdigest()),
                   mock.patch.object(replay,"SOURCE_ROWS",1),
-                  mock.patch.object(replay,"EXPECTED_FAMILIES",{"empty":1})):
+                  mock.patch.object(replay,"EXPECTED_FAMILIES",{"empty":1}),
+                  mock.patch.object(replay,"EXPECTED_SEEDS",{31400})):
                 rows,sha=replay.only_original_fit(p)
                 self.assertEqual(len(rows),1)
                 self.assertEqual(len(sha),64)
