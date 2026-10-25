@@ -1,4 +1,4 @@
-name: F139 G12 original source-integrity plus complete supported candidate regression (development only)
+name: F139 G12 exact original-vs-G3 platform-supported regression and causal-ablation acceptance
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -147,6 +147,20 @@ jobs:
               assert total>=15,"F139_G12_BEHAVIOR_TEST_COUNT_TOO_LOW"
               print("F139_G12_TOTAL_BEHAVIORAL_TESTS="+str(total),flush=True)
               print("F139_G12_ALL_SUPPORTED_FROZEN_BEHAVIOR_TESTS=PASS",flush=True)
+              # Causal falsification: corrupt only the ephemeral G3 implementation
+              # AFTER the actual full suite passed. A real behavioral suite MUST
+              # reject it, proving the split did not hide missing/zero tests.
+              target=dest/candidate.path
+              pristine=target.read_bytes()
+              marker=b"return 0 if lhs > rhs else 1"
+              assert pristine.count(marker)==1,"F139_G12_ABLATION_SOURCE_DRIFT"
+              target.write_bytes(pristine.replace(marker,b"return None"))
+              assert digest(target.read_bytes())!=candidate.after_sha256
+              bad_rc,bad_count,_=test(dest,"test_native_cells.py")
+              assert bad_rc!=0 and bad_count==8,"F139_G12_FALSE_POSITIVE_UNDER_CORRUPTION"
+              target.write_bytes(pristine)
+              assert digest(target.read_bytes())==candidate.after_sha256
+              print("F139_G12_CORRUPTED_LEARNING_RULE_CAUSALLY_REJECTED=PASS",flush=True)
           assert git(original,"status","--porcelain","--untracked-files=all")==""
           print("F139_G12_SEPARATE_FULL_SOURCE_AND_BEHAVIOR_QUALIFIED=PASS",flush=True)
           print("F139_G12_G3_ORIGINAL_TICKET907_STILL_TERMINAL_NO_REPLAY=TRUE",flush=True)
