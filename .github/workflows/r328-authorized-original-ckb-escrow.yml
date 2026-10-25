@@ -1,0 +1,264 @@
+name: R328 authorized original CKB persistent WAL-consistent recovery escrow
+on:
+  push:
+    branches: [ops/r328-authorized-original-ckb-escrow-20261025]
+    paths: [.github/workflows/r328-authorized-original-ckb-escrow.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r328-one-authorized-original-ckb-owner-escrow
+  cancel-in-progress: false
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Create and independently restore one owner-protected R303 WAL escrow; no cutover
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'ops/r328-authorized-original-ckb-escrow-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R328_EXISTING_AUTHENTICATED_OWNER_REQUIRED'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $adm=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$adm.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R328_ELEVATED_ORIGINAL_OWNER_REQUIRED'
+          }
+          function Sha([string]$path){
+            return (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          }
+          function NoReparse([string]$path){
+            $current=[IO.Path]::GetFullPath($path)
+            while($true){
+              if(Test-Path -LiteralPath $current){
+                $item=Get-Item -LiteralPath $current -Force -ErrorAction Stop
+                if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                  throw 'R328_REPARSE_ANCESTOR_FORBIDDEN'
+                }
+              }
+              $parent=[IO.Path]::GetDirectoryName($current)
+              if([string]::IsNullOrWhiteSpace($parent) -or $parent -ceq $current){break}
+              $current=$parent
+            }
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $taskName='CKB-plane Controller'
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($process.Count -ne 1){throw 'R328_ORIGINAL_PROCESS_NOT_SINGLETON'}
+          $ownerPid=[int]$process[0].ProcessId
+          $created=([datetime]$process[0].CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$process[0].ExecutablePath
+          NoReparse $exe;NoReparse $config;NoReparse $db
+          if((Sha $exe) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+             (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+            throw 'R328_RUNNING_R303_IMAGE_OR_EFFECTIVE_CONFIG_PREIMAGE_DRIFT'
+          }
+          $listeners=@(Get-NetTCPConnection -LocalPort 8791 -State Listen -ErrorAction Stop)
+          if($listeners.Count -lt 1 -or @($listeners|Where-Object {
+            [int]$_.OwningProcess -ne $ownerPid -or $_.LocalAddress -notin @('127.0.0.1','::1')
+          }).Count -ne 0){throw 'R328_ORIGINAL_LOOPBACK_PROCESS_DRIFT'}
+          $task=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or
+             @($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R328_ORIGINAL_REGISTERED_R18_TASK_DRIFT'
+          }
+          $xml=Export-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          $bytes=[Text.Encoding]::UTF8.GetBytes($xml)
+          $sha=[Security.Cryptography.SHA256]::Create()
+          try{$xmlSha=[BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','').ToLowerInvariant()}
+          finally{$sha.Dispose()}
+          if($xmlSha -cne '84550e47cac80dfd84ec09baea7db6c533c3d88ea39bd88e3c5dd3e0e1406022'){
+            throw 'R328_ORIGINAL_R18_TASK_XML_DRIFT'
+          }
+          $private=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          if([string]::IsNullOrWhiteSpace($private) -or !(Test-Path -LiteralPath $private -PathType Container)){
+            throw 'R328_PRIVATE_ISOLATED_RESTORE_SCRATCH_REQUIRED'
+          }
+          $work=Join-Path $private ('r328-private-restore-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $work){throw 'R328_PRIVATE_SCRATCH_PREEXISTS'}
+          $null=New-Item -ItemType Directory -Path $work -ErrorAction Stop
+          try {
+            # Fetch exact R313 source, pinned by Git blob. No public host files
+            # or user data ever leave the owner machine.
+            $gh=Get-Command gh.exe -ErrorAction Stop
+            $git=Get-Command git.exe -ErrorAction Stop
+            $path='snapshot/source/scripts/Test-CKBPlane-RollbackEscrow.ps1'
+            $uri='repos/spoonman136668-ai/ckb-plane/contents/'+$path+'?ref=9753e06fd2455a978393850ad68b3d683e3789f2'
+            $b64=(& $gh.Source api $uri --jq '.content' | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or !$b64){throw 'R328_R313_VERIFIER_FETCH_FAILED'}
+            $verifier=Join-Path $work 'Test-CKBPlane-RollbackEscrow.ps1'
+            [IO.File]::WriteAllBytes($verifier,[Convert]::FromBase64String(($b64-replace '\s','')))
+            $blob=(& $git.Source hash-object -- $verifier | Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $blob -cne 'da8e45430a98de36c8adbbea4bcdfb7c4c57e641'){
+              throw 'R328_R313_VERIFIER_SOURCE_BLOB_DRIFT'
+            }
+            $protected='C:\ProgramData\CKBR'
+            $store=Join-Path $protected 'rollback-escrow'
+            NoReparse $protected
+            if(!(Test-Path -LiteralPath $protected -PathType Container)){
+              throw 'R328_EXISTING_PROGRAMDATA_CKBR_PARENT_MISSING'
+            }
+            NoReparse $store
+            if(!(Test-Path -LiteralPath $store)){
+              $null=New-Item -ItemType Directory -Path $store -ErrorAction Stop
+            }
+            # Enforce OWNER/Administrators/SYSTEM only, including future files.
+            & icacls.exe $store /inheritance:r | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'R328_REMOVE_INHERITED_ACL_FAILED'}
+            & icacls.exe $store /grant:r 'NT AUTHORITY\SYSTEM:(OI)(CI)(F)' 'BUILTIN\Administrators:(OI)(CI)(F)' 'LINKDEADKB\camar:(OI)(CI)(F)' | Out-Null
+            if($LASTEXITCODE -ne 0){throw 'R328_PROTECTED_OWNER_ACL_GRANT_FAILED'}
+            $acl=Get-Acl -LiteralPath $store -ErrorAction Stop
+            if(!$acl.AreAccessRulesProtected){throw 'R328_ACL_NOT_PROTECTED'}
+            foreach($ace in $acl.Access){
+              if($ace.IsInherited -or $ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+                 [string]$ace.IdentityReference -notin @('NT AUTHORITY\SYSTEM','BUILTIN\Administrators','LINKDEADKB\camar')){
+                throw 'R328_ESCROW_ACCESS_RULE_NOT_OWNER_RESTRICTED'
+              }
+            }
+            NoReparse $store
+            $final=Join-Path $store ('R328-original-'+$env:GITHUB_RUN_ID)
+            $stage=Join-Path $store ('.R328-staging-'+$env:GITHUB_RUN_ID)
+            if((Test-Path -LiteralPath $final) -or (Test-Path -LiteralPath $stage)){
+              throw 'R328_NEVER_OVERWRITE_EXISTING_OR_STAGED_ESCROW'
+            }
+            $null=New-Item -ItemType Directory -Path (Join-Path $stage 'original') -Force -ErrorAction Stop
+            $staged=$true
+            try{
+              Copy-Item -LiteralPath $exe -Destination (Join-Path $stage 'original\ckb-plane.exe') -ErrorAction Stop
+              Copy-Item -LiteralPath $config -Destination (Join-Path $stage 'original\autonomy.yaml') -ErrorAction Stop
+              [IO.File]::WriteAllText((Join-Path $stage 'original\task.xml'),$xml,[Text.UTF8Encoding]::new($false))
+              if((Sha (Join-Path $stage 'original\ckb-plane.exe')) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+                 (Sha (Join-Path $stage 'original\autonomy.yaml')) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc' -or
+                 (Sha (Join-Path $stage 'original\task.xml')) -cne $xmlSha){
+                throw 'R328_PREIMAGE_STAGING_SHA_MISMATCH'
+              }
+              $py=@'
+          import hashlib,json,sqlite3,sys,os
+          from pathlib import Path
+          src=Path(sys.argv[1]).resolve(strict=True)
+          stage=Path(sys.argv[2]).resolve(strict=True)
+          out=stage/'original'/'autonomy.db'
+          def sha(p):
+              h=hashlib.sha256()
+              with p.open('rb') as f:
+                  for b in iter(lambda:f.read(65536),b''):h.update(b)
+              return h.hexdigest()
+          source=sqlite3.connect(src.as_uri()+'?mode=ro',uri=True,timeout=12)
+          try:
+              source.execute('PRAGMA query_only=ON')
+              if source.execute('PRAGMA journal_mode').fetchone()[0].lower()!='wal':
+                  raise RuntimeError('R328_ORIGINAL_SQLITE_WAL_REQUIRED')
+              if source.execute('PRAGMA quick_check').fetchone()[0]!='ok':
+                  raise RuntimeError('R328_ORIGINAL_SQLITE_QUICK_CHECK_FAILED')
+              owner=dict(source.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation')"))
+              if owner.get('autonomy_authority')!='plane' or owner.get('autonomy_generation')!='6':
+                  raise RuntimeError('R328_OWNER_AUTHORITY_GENERATION_CHANGED')
+              dest=sqlite3.connect(str(out),timeout=12)
+              try:source.backup(dest,pages=64,sleep=0.1)
+              finally:dest.close()
+          finally:source.close()
+          restored=sqlite3.connect(str(out),timeout=12)
+          try:
+              if restored.execute('PRAGMA journal_mode=DELETE').fetchone()[0].lower()!='delete':
+                  raise RuntimeError('R328_STANDALONE_SQLITE_MODE_NOT_DELETE')
+              if restored.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
+                  raise RuntimeError('R328_STANDALONE_SQLITE_INTEGRITY_FAILURE')
+              owner=dict(restored.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation')"))
+              if owner.get('autonomy_authority')!='plane' or owner.get('autonomy_generation')!='6':
+                  raise RuntimeError('R328_COPIED_SQLITE_OWNER_DRIFT')
+              if restored.execute('SELECT COUNT(*) FROM work_orders').fetchone()[0]<199:
+                  raise RuntimeError('R328_HISTORICAL_WORK_ORDERS_MISSING')
+          finally:restored.close()
+          for suffix in ('-wal','-shm','-journal'):
+              if Path(str(out)+suffix).exists():
+                  raise RuntimeError('R328_DETACHED_BACKUP_SIDECAR_REMAINED')
+          members=('ckb-plane.exe','autonomy.yaml','task.xml','autonomy.db')
+          hashes={member:sha(stage/'original'/member) for member in members}
+          metadata={
+              'schema':'ckb.r311.current-original-durable-escrow.v1',
+              'original_authority':'plane','original_generation':6,
+              'original_image_sha256':hashes['ckb-plane.exe'],
+              'effective_config_sha256':hashes['autonomy.yaml'],
+              'rollback_member_sha256':hashes,
+              'live_install_authorized':False,'mind_palace_source_admitted':False,
+              'r328_evidence_type':'AUTHORIZED_LIVE_ORIGINAL_WAL_SNAPSHOT',
+              'r328_source_sqlite_journal':'WAL',
+              'r328_backup_method':'sqlite3.Connection.backup',
+          }
+          manifest=stage/'manifest.json'
+          manifest.write_text(json.dumps(metadata,sort_keys=True,indent=2)+'\n',encoding='utf-8')
+          digest=sha(manifest)
+          (stage/'seal.sha256').write_text(digest+'  manifest.json\n',encoding='utf-8')
+          for member in list(members)+['manifest.json','seal.sha256']:
+              with (stage/('original' if member in members else '')/member).open('rb') as f:
+                  os.fsync(f.fileno())
+          print('R328_SQLITE_WAL_ONLINE_SNAPSHOT=PASS')
+          print('R328_SNAPSHOT_STANDALONE_INTEGRITY=PASS')
+          print('R328_SOURCE_FOUR_MEMBER_PREIMAGE_PROVENANCE=PASS')
+          print('R328_INDEPENDENT_MANIFEST_SHA256='+digest)
+          '@
+              & python.exe -B -c $py $db $stage
+              if($LASTEXITCODE -ne 0){throw 'R328_WAL_ONLINE_BACKUP_OR_MANIFEST_GENERATION_FAILED'}
+              $digest=Sha (Join-Path $stage 'manifest.json')
+              & $verifier -Backup $stage -ExpectedManifestSha256 $digest
+              if($LASTEXITCODE -ne 0){throw 'R328_FOUR_MEMBER_R313_SEAL_FAILED'}
+              # Recheck live identity after online WAL-consistent capture.
+              $again=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+              if($again.Count -ne 1 -or [int]$again[0].ProcessId -ne $ownerPid -or
+                 ([datetime]$again[0].CreationDate).ToUniversalTime().ToString('o') -cne $created -or
+                 (Sha ([string]$again[0].ExecutablePath)) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+                 (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc' -or
+                 (Export-ScheduledTask -TaskName $taskName -ErrorAction Stop) -cne $xml){
+                throw 'R328_PROCESS_CONFIG_OR_TASK_CHANGED_DURING_BACKUP'
+              }
+              Move-Item -LiteralPath $stage -Destination $final -ErrorAction Stop
+              $staged=$false
+              NoReparse $final
+              if((Sha (Join-Path $final 'manifest.json')) -cne $digest){
+                throw 'R328_PERSISTENT_PUBLISHED_MANIFEST_DIGEST_MISMATCH'
+              }
+              $sandbox=Join-Path $work 'isolated-restore'
+              & $verifier -Backup $final -ExpectedManifestSha256 $digest -RestoreToSandbox -SandboxDirectory $sandbox
+              if($LASTEXITCODE -ne 0){throw 'R328_INDEPENDENT_ISOLATED_RESTORE_FAILED'}
+              $readback=@'
+          import sqlite3,sys
+          from pathlib import Path
+          db=Path(sys.argv[1])
+          conn=sqlite3.connect(db.as_uri()+'?mode=ro&immutable=1',uri=True)
+          try:
+              if conn.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
+                  raise RuntimeError('RESTORE_SQLITE_INTEGRITY')
+              vals=dict(conn.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation')"))
+              if vals.get('autonomy_authority')!='plane' or vals.get('autonomy_generation')!='6':
+                  raise RuntimeError('RESTORE_ORIGINAL_AUTHORITY')
+              if conn.execute('SELECT COUNT(*) FROM work_orders').fetchone()[0]<199:
+                  raise RuntimeError('RESTORE_HISTORY_INCOMPLETE')
+          finally:conn.close()
+          print('R328_ORIGINAL_HISTORY_STANDALONE_RESTORE=PASS')
+          '@
+              & python.exe -B -c $readback (Join-Path $sandbox 'autonomy.db')
+              if($LASTEXITCODE -ne 0){throw 'R328_DETACHED_ORIGINAL_RESTORE_VALIDATION_FAILED'}
+              Write-Output 'R328_OWNER_PROTECTED_DURABLE_ESCROW=PASS'
+              Write-Output 'R328_PUBLISHED_MANIFEST_SHA256='+$digest
+              Write-Output 'R328_EXACT_FOUR_MEMBER_R303_ESCROW_PERSISTENT=PASS'
+              Write-Output 'R328_LIVE_CONTROLLER_PROCESS_UNCHANGED=TRUE'
+              Write-Output 'R328_QUEUE_ACK_DISPATCH_OR_NATIVE_CONTROLLER_CUTOVER=FALSE'
+              Write-Output 'R328_EXTERNAL_INDEPENDENT_DIGEST_PUBLICATION=PENDING'
+            }finally{
+              if($staged -and (Test-Path -LiteralPath $stage)){
+                Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction Stop
+              }
+            }
+          }finally{
+            if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop}
+          }
