@@ -137,6 +137,7 @@ def inspect_v2_provider_run(api: GitHub, *, run_id: int, ticket: str,
             "SEPARATE_V2_AUTHORIZER_NOT_VERIFIED")
     parts = {}
     verified_jobs = {}
+    outer_archives = {}
     for label in OS_LABELS:
         matching = [j for j in jobs
                     if j.get("name") == RUN_JOB_V2 + label + ")"]
@@ -170,6 +171,9 @@ def inspect_v2_provider_run(api: GitHub, *, run_id: int, ticket: str,
                 and len(raw) == meta["size_in_bytes"],
                 "V2_GITHUB_ARTIFACT_SIZE_MISMATCH")
         inner = _extract_inner(raw, meta["digest"])
+        # Actual authenticated outer GitHub artifact bytes, retained by
+        # the existing original-owner crash-safe evidence store in G38.
+        outer_archives[label] = raw
         signed = admissions[label]
         g14_meta = {
             "digest": "sha256:" + digest(inner),
@@ -204,6 +208,7 @@ def inspect_v2_provider_run(api: GitHub, *, run_id: int, ticket: str,
         "authorize_job_id": authorizers[0]["id"],
         "platforms": verified_jobs,
         "provider_payloads": parts,
+        "outer_archives": outer_archives,
         "both_platforms_development_qualified": qualified,
         "disposition": ("V2_PROVIDER_POSITIVE_NOT_TERMINAL" if qualified
                         else "V2_PROVIDER_NEGATIVE_RETAINED"),
