@@ -1,4 +1,4 @@
-name: F139 G9 original positive-quota scratch publisher preflight (no writes)
+name: F139 G9 fix real original-owner G3 event on scratch ledger (provider writes denied)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -10,6 +10,12 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 6
     steps:
+      - name: Checkout exact G9 repair commit for isolated source-only witness
+        uses: actions/checkout@v4
+        with:
+          ref: bf488e74e1b9c5f259dfb540e3461f83f647cf00
+          path: f139-g9-source
+          persist-credentials: false
       - name: Isolate full publisher decision on original SQLite snapshot; refuse remote writes
         shell: pwsh
         run: |
@@ -31,6 +37,10 @@ jobs:
           $python=TaskArg 'PythonExe'
           if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $expected){
             throw 'F139_G6_INSTALLED_SOURCE_DRIFT'
+          }
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'f139-g9-source'
+          if(( & git.exe -C $candidate rev-parse HEAD | Out-String).Trim() -cne 'bf488e74e1b9c5f259dfb540e3461f83f647cf00'){
+            throw 'F139_G9_ISOLATED_FIXED_SOURCE_IDENTITY_DRIFT'
           }
           $scratch=Join-Path (Split-Path $db -Parent) ('f139-g6-isolate-'+$env:GITHUB_RUN_ID+'-'+[guid]::NewGuid().ToString('N')+'.sqlite')
           $pw=@(& gh api 'repos/spoonman136668-ai/FORGE/issues/807' --jq '.number' 2>&1)
@@ -117,6 +127,9 @@ jobs:
                       raise
               result=publish_once(db,tracked_get,DENY_ALL_WRITE,
                  meta["source_sha"],owner_witness=witness)
+              assert result["disposition"]=="G3_DRAFT_OUTCOME_AMBIGUOUS_NO_RETRY"
+              assert len(touched)==1
+              print("F139_G9_G3_FIRST_ATTEMPT_ACCEPTED_BY_REAL_DATABASE_EVENT=PASS")
               print("F139_G6_SNAPSHOT_DISPOSITION="+result["disposition"])
               print("F139_G6_SNAPSHOT_PROVIDER_WRITES_DENIED="+str(len(touched)))
               events=list(db.conn.execute("SELECT kind FROM events WHERE kind IN (?,?)",
@@ -141,7 +154,7 @@ jobs:
               db.close()
           '@
           try{
-            & $python -B -c $script $root $db $scratch
+            & $python -B -c $script $candidate $db $scratch
             if($LASTEXITCODE -ne 0){throw 'F139_G6_SNAPSHOT_PUBLISHER_DENIED'}
           }finally{
             foreach($suffix in @('','-wal','-shm')){
