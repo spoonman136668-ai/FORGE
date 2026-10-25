@@ -169,6 +169,52 @@ def execute(native_root: Path, scratch: Path, output: Path):
     return receipt, bool(receipt["native_qualified"])
 
 
+
+def execute_v2_development(admission: NativeAdmission, native_root: Path,
+                           scratch: Path, output: Path):
+    """Inert DEV Python API; deliberately NOT in the production V1 CLI.
+
+    An authenticated admission MUST be supplied by independent original-owner
+    signed custody. G30 cannot produce a live V2 approval, nor upcast V1.
+    """
+    from f139.nci04_worker_v2 import (
+        SOURCE_SHA, SOURCE_TREE, run_v2, receipt_v2,
+    )
+    require(isinstance(admission, NativeAdmission),
+            "V2_SIGNED_ADMISSION_REQUIRED")
+    c = admission.intent
+    require(c.lane == admission.lane == "Yggdrasil"
+            and c.target_commit == SOURCE_SHA
+            and c.target_tree_sha == SOURCE_TREE
+            and c.path == "yggdrasil/public_causal_cells.py",
+            "V2_FROZEN_SOURCE_REQUIRED")
+    require(admission.runner_os in ("ubuntu-latest", "windows-latest")
+            and ((os.name == "nt") == (admission.runner_os == "windows-latest")),
+            "V2_RUNNER_OS_DRIFT")
+    require(not any(os.environ.get(k) for k in (
+        "F139_WORKER_HMAC_KEY", "GH_TOKEN", "GITHUB_TOKEN",
+        "OPENAI_API_KEY", "CLOUDFLARE_API_TOKEN")),
+        "V2_CREDENTIAL_INHERITANCE")
+    require(native_root.is_dir() and not native_root.is_symlink()
+            and scratch.is_dir() and not scratch.is_symlink()
+            and output.is_dir() and not output.is_symlink()
+            and not any(output.iterdir()),
+            "V2_ISOLATED_ROOT_OR_OUTPUT_INVALID")
+    report = run_v2(c, native_root, scratch, oslabel=admission.runner_os)
+    receipt = receipt_v2(admission, report)
+    # Deliberately different artifacts. The V1 provider cannot interpret
+    # these files as the old signed native-execution-receipt.v1.
+    for filename, obj in (
+        ("f139-v2-development-receipt.json", receipt),
+        ("f139-v2-development-report.json", report),
+    ):
+        with (output / filename).open("xb") as stream:
+            stream.write(canonical(obj))
+            stream.flush()
+            os.fsync(stream.fileno())
+    return receipt, bool(receipt["native_qualified"])
+
+
 def cli():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="verb", required=True)
