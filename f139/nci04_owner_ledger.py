@@ -410,7 +410,8 @@ def activate_native(db, approval: dict) -> bool:
                 if t["schema"] in (
                     "forge.f139.source-transition.v4",
                     "forge.f139.source-transition.v5",
-                    "forge.f139.source-transition.v6")]
+                    "forge.f139.source-transition.v6",
+                    "forge.f139.source-transition.v7")]
             provider_failures=db.verified_native_provider_failures()
             all_certified={NEGATIVE_TICKET,SECOND_TICKET}|set(provider_failures)
             four_certified=(

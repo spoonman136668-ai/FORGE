@@ -491,14 +491,20 @@ class Database:
                              "custodied_negative_tasks", "custodied_negative_tickets",
                              "provider_failures_sha256", "v5_terminal_event_sha256",
                              "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6,
+                is_v7 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v7"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256", "v6_terminal_event_sha256",
+                             "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6)
+                         or (is_v4 or is_v5 or is_v6 or is_v7)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -545,7 +551,7 @@ class Database:
                                     for value in (t["from_source_sha"],
                                                   t["to_source_sha"])},
                                 "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
-                if is_v4 or is_v5 or is_v6:
+                if is_v4 or is_v5 or is_v6 or is_v7:
                     from f139.nci04_negative_owner_store import TICKET as FIRST
                     from f139.nci04_split_negative_owner_store import TICKET as SECOND
                     provider_failures=self.verified_native_provider_failures(
@@ -563,7 +569,8 @@ class Database:
                                 "forge.f139.source-transition.v3",
                                 "forge.f139.source-transition.v4",
                                 "forge.f139.source-transition.v5",
-                                "forge.f139.source-transition.v6")
+                                "forge.f139.source-transition.v6",
+                                "forge.f139.source-transition.v7")
                             and doc["from_source_sha"]==
                                 source_transitions[-1]["to_source_sha"]
                             and doc["to_source_sha"] not in {
@@ -608,6 +615,26 @@ class Database:
                                     sealed_v5[-1]["sha"]
                                 and doc["v2_receipt_authorized"] is False,
                                 "SOURCE_TRANSITION_V6_V5_SEAL_OR_AUTHORITY_INVALID")
+                    if is_v7:
+                        sealed_v6 = [
+                            r for r in self.conn.execute(
+                                "SELECT sha,payload FROM events "
+                                "WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                                "AND seq<? ORDER BY seq",(row["seq"],))
+                            if json.loads(r["payload"])["schema"] ==
+                                "forge.f139.source-transition.v6"]
+                        prior_v7 = [
+                            t for t in source_transitions if t["schema"] ==
+                                "forge.f139.source-transition.v7"]
+                        require(len(sealed_v6) == 1 and not prior_v7
+                                and source_transitions[-1]["schema"] ==
+                                    "forge.f139.source-transition.v6"
+                                and doc["from_source_sha"] ==
+                                    "b2079282fed03df2203807de09b4f3e82bdfe05a"
+                                and doc["v6_terminal_event_sha256"] ==
+                                    sealed_v6[-1]["sha"]
+                                and doc["v2_receipt_authorized"] is False,
+                                "SOURCE_TRANSITION_V7_ORIGINAL_SEAL_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -637,11 +664,14 @@ class Database:
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v5"]
         negative_v6 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v6"]
+        negative_v7 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v7"]
         verified_provider_negatives=self.verified_native_provider_failures()
-        negative_transitions = negative_v2 + negative_v3 + negative_v4 + negative_v5 + negative_v6
-        require(len(negative_transitions) <= 35
+        negative_transitions = negative_v2 + negative_v3 + negative_v4 + negative_v5 + negative_v6 + negative_v7
+        require(len(negative_transitions) <= 36
                 and len(negative_v3) <= 10 and len(negative_v4) <= 10
-                and len(negative_v5) <= 4 and len(negative_v6) <= 1 and
+                and len(negative_v5) <= 4 and len(negative_v6) <= 1
+                and len(negative_v7) <= 1 and
                 (not negative_v5 or len(negative_v4)==10) and
                 (not negative_v6 or len(negative_v5)==4),
                 "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
@@ -750,7 +780,8 @@ class Database:
 
     def transition_source(self, new_source_sha: str, *,
                           allow_certified_negative: bool = False,
-                          allow_v6: bool = False):
+                          allow_v6: bool = False,
+                          allow_v7: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -849,12 +880,14 @@ class Database:
                             "forge.f139.source-transition.v3",
                             "forge.f139.source-transition.v4",
                             "forge.f139.source-transition.v5",
-                            "forge.f139.source-transition.v6")
+                            "forge.f139.source-transition.v6",
+                            "forge.f139.source-transition.v7")
                         and (verify_native_activation(self)
                              or (events[-1]["schema"] in
                                      ("forge.f139.source-transition.v4",
                                       "forge.f139.source-transition.v5",
-                                      "forge.f139.source-transition.v6")
+                                      "forge.f139.source-transition.v6",
+                                      "forge.f139.source-transition.v7")
                                  and self.conn.execute(
                                      "SELECT kind FROM events ORDER BY seq DESC LIMIT 1"
                                  ).fetchone()["kind"]=="SOURCE_TRANSITION_ADMITTED"
@@ -873,7 +906,17 @@ class Database:
                          "forge.f139.source-transition.v5"]
                 prev_v6=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v6"]
-                if len(prev_v4)==10 and len(prev_v5)==4:
+                prev_v7=[e for e in events if e["schema"]==
+                         "forge.f139.source-transition.v7"]
+                if len(prev_v4)==10 and len(prev_v5)==4 and len(prev_v6)==1:
+                    require(allow_v7 is True and not prev_v7
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v6"
+                            and meta["source_sha"] ==
+                                "b2079282fed03df2203807de09b4f3e82bdfe05a",
+                            "SOURCE_TRANSITION_V7_ONE_SHOT_ORIGINAL_SOURCE_DENIED")
+                    schema="forge.f139.source-transition.v7"
+                elif len(prev_v4)==10 and len(prev_v5)==4:
                     require(allow_v6 is True,
                             "SOURCE_TRANSITION_V5_BOUNDED_CAPACITY_EXHAUSTED")
                     require(not prev_v6
@@ -909,7 +952,8 @@ class Database:
                 event["custodied_negative_tickets"] = [NEGATIVE_696, NEGATIVE_706]
             elif schema in ("forge.f139.source-transition.v4",
                             "forge.f139.source-transition.v5",
-                            "forge.f139.source-transition.v6"):
+                            "forge.f139.source-transition.v6",
+                            "forge.f139.source-transition.v7"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -937,6 +981,17 @@ class Database:
                     event["v5_terminal_event_sha256"]=v5_rows[-1]["sha"]
                     # Migrating original code never implicitly enables V2
                     # receipt claims. Separate signed worker approval is required.
+                    event["v2_receipt_authorized"]=False
+                if schema == "forge.f139.source-transition.v7":
+                    v6_rows=[
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                        if json.loads(r["payload"])["schema"] ==
+                            "forge.f139.source-transition.v6"]
+                    require(len(v6_rows)==1,
+                            "SOURCE_TRANSITION_V7_V6_SEAL_MISSING")
+                    event["v6_terminal_event_sha256"]=v6_rows[-1]["sha"]
                     event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
