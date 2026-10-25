@@ -1,0 +1,55 @@
+name: F139 G14 detached V2 provider receipt custody (DEV only)
+on:
+  push:
+    branches: [qualify/f139-g14-v6-owner-transition-custody-20261025]
+    paths:
+      - f139/nci04_v2_provider_custody.py
+      - f139/test_nci04_v2_provider_custody.py
+      - .github/workflows/f139-g14-v2-provider-custody-dev.yml
+permissions:
+  contents: read
+jobs:
+  v2-custody:
+    name: F139 G14 provider ZIP negative / downgrade tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Qualify isolated V2 ZIP parser and version-bound signed admission tests
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest f139.test_nci04_v2_provider_custody f139.test_nci04_worker_v2 -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_V2_CUSTODY_TEST_FAILURE'}
+          Write-Host 'F139_G14_V2_RECEIPT_DOWNGRADE_FAIL_CLOSED=PASS'
+          Write-Host 'F139_G14_V2_ORIGINAL_SIGNED_ADMISSION_BINDING=PASS'
+          Write-Host 'F139_G14_DEV_ONLY_NO_OWNER_WRITES=TRUE'
+      - name: Verify G14 diff cannot alter live controller, dispatcher or V1 receipt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $parent='8dfca95510dea6ee558b860bbcec81088c3063c1'
+          & git fetch --no-tags origin $parent --depth=1
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_PARENT_UNAVAILABLE'}
+          $files=@(& git diff --name-only $parent HEAD)
+          $allowed=@(
+            'f139/nci04_v2_provider_custody.py',
+            'f139/test_nci04_v2_provider_custody.py',
+            '.github/workflows/f139-g14-v2-provider-custody-dev.yml'
+          )
+          if($files.Count -ne 3 -or @($files | Where-Object {$_ -notin $allowed}).Count -ne 0){
+            throw 'F139_G14_LIVE_CONTROLLER_OR_V1_WORKER_TOUCHED'
+          }
+          Write-Host 'F139_G14_V1_CONTROLLER_POLICY_SQLITE_SCHEMA_UNTOUCHED=PASS'
+          Write-Host 'F139_G14_V5_HISTORICAL_CAPACITY_UNMODIFIED=PASS'
