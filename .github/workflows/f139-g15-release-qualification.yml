@@ -1,7 +1,7 @@
 name: F139 G15 explicit V6 owner CLI release rehearsal and regression (DEV ONLY)
 on:
   push:
-    branches: [qualify/f139-g15-single-owner-release-20261025]
+    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025]
     paths:
       - f139/local_controller.py
       - f139/nci04_v6_owner_release.py
@@ -42,6 +42,383 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $body=[IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE '.github/workflows/f139-g15-original-owner-release-guarded.yml'))
+          if(-not [regex]::IsMatch($body, '(?m)^  workflow_dispatch:\s*          if(([regex]::Matches($body, [regex]::Escape("$"+"target='0000000000000000000000000000000000000000'"))).Count -ne 1 -or
+             -not $body.Contains('transition-qualified-native-v6') -or
+             -not $body.Contains('v2_receipt_authorized=$false') -or
+             -not $body.Contains('F139_G15_POSTEVENT_ORIGINAL_OWNER_HELD_DISABLED') -or
+             -not $body.Contains('F139_G15_MERGED_PR_HEAD_DRIFT')){
+            throw 'F139_G15_GUARDED_RELEASE_NOT_INERT_OR_INCOMPLETE'
+          }
+          Write-Host 'F139_G15_PRODUCTION_CUTOVER_DISARMED=PASS'
+      - name: One complete unchanged F139 public regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p test_*.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G15_FULL_PUBLIC_REGRESSION_FAIL'}
+          Write-Host 'F139_G15_FULL_CROSS_PLATFORM_REGRESSION=PASS'
+  original-owner-rehearsal:
+    name: G15 exact original Windows CLI scratch rehearsal; no live transition
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bound original task, source, protected policy before read-only snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $name='FORGE-F139-UnifiedController'
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             [string]$t.State -cne 'Running' -or
+             @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'G15_OWNER_TASK_IDENTITY_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $taskOwner=[string]$t.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($taskOwner)).Translate(
+               [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($taskOwner -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'G15_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function Arg([string]$n) {
+            $match=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $match.Success){throw 'G15_TASK_ARGS_DRIFT'}
+            return $match.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $oldRoot=Arg 'RepositoryRoot'
+          $py=Arg 'PythonExe'
+          if(( & git.exe -C $oldRoot rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git.exe -C $oldRoot status --porcelain --untracked-files=all).Count -ne 0 -or
+             [string]$t.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'G15_EXISTING_SOURCE_AND_RATE_BOUND_DRIFT'
+          }
+          $candidate=(& git.exe -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+          if($candidate -cne $env:GITHUB_SHA -or $candidate -ceq $old){
+            throw 'G15_UNQUALIFIED_SOURCE'
+          }
+          $tmp=Join-Path (Split-Path $db -Parent) ('g15-cli-'+$env:GITHUB_RUN_ID+'-'+
+               [guid]::NewGuid().ToString('N')+'.sqlite')
+          $approval=Join-Path $env:RUNNER_TEMP ('g15-approval-'+$env:GITHUB_RUN_ID+'.json')
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          from unittest import mock
+          old="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          live=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[3])
+          approval_path=pathlib.Path(sys.argv[4])
+          new=sys.argv[5]
+          assert scratch.parent==live.parent and not scratch.exists()
+          ro=sqlite3.connect(live.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.execute("PRAGMA query_only=ON")
+          try:
+              with sqlite3.connect(scratch) as clone:ro.backup(clone)
+          finally:ro.close()
+          sys.path.insert(0,str(src))
+          from f139.local_controller import Database,F139Error,cli
+          from f139.nci04_native_contract import canonical,digest
+          from f139.nci04_v6_owner_release import (
+             APPROVAL_SCHEMA,validate_v6_owner_approval)
+          from f139.nci04_owner_ledger import (
+             SEALED_OWNER_PREFIX_HEAD,activate_native,verify_native_activation)
+          db=Database(scratch)
+          try:
+              db.verify()
+              m=db.meta()
+              assert m["source_sha"]==old and m["head_seq"]>=218
+              assert verify_native_activation(db)
+              assert not db.actives() and db.ready() is None
+              negative_count=db.conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert negative_count>=13
+              count=db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+              v5=list(db.conn.execute(
+                "SELECT sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"))
+              v5=[x for x in v5 if json.loads(x["payload"])["schema"]==
+                  "forge.f139.source-transition.v5"]
+              assert len(v5)==4
+              tickets=sorted(r["ticket"] for r in db.conn.execute(
+                  "SELECT ticket FROM tasks WHERE stage='QUARANTINED'"))
+              approval={
+                  "schema":APPROVAL_SCHEMA,
+                  "from_source_sha":old,"to_source_sha":new,
+                  "expected_event_head_sha256":m["head_hash"],
+                  "expected_event_head_seq":m["head_seq"],
+                  "sealed_23_event_head_sha256":SEALED_OWNER_PREFIX_HEAD,
+                  "v5_terminal_event_sha256":v5[-1]["sha"],
+                  "custodied_negative_tickets_sha256":digest(canonical(tickets)),
+                  "native_development_only":True,
+                  "v2_receipt_authorized":False,
+                  "scientific_first_use":False,"new_controller":False,
+                  "new_scheduler":False,"paid_api_calls":0}
+              assert validate_v6_owner_approval(db,approval)
+              approval_path.write_bytes(canonical(approval))
+          finally:db.close()
+          # Patch ONLY owner network/environment verifiers for the isolated
+          # fixture. Actual production cutover MUST use the real verifiers.
+          def verify_clean_checkout(*args):
+              return new
+          with mock.patch("f139.local_controller.native_original_owner_profile"),\
+               mock.patch("f139.local_controller.GitHub.protected_main",
+                           return_value=new),\
+               mock.patch("f139.local_controller.GitHub.legacy_dispatchers_disabled"),\
+               mock.patch("f139.local_controller.legacy_windows_task_disabled"):
+              try:
+                  cli(["--db",str(scratch),"transition-qualified-native",
+                       "--approval",str(approval_path)])
+                  raise AssertionError("LEGACY_V1_CLI_ACCEPTED_V6_APPROVAL")
+              except F139Error:
+                  pass
+              check=Database(scratch)
+              try:
+                  assert check.meta()["head_seq"]==m["head_seq"]
+              finally:check.close()
+              cli(["--db",str(scratch),"transition-qualified-native-v6",
+                   "--approval",str(approval_path)])
+          completed=Database(scratch)
+          try:
+              completed.verify()
+              n=completed.meta()
+              assert n["source_sha"]==new and n["head_seq"]==m["head_seq"]+1
+              assert not verify_native_activation(completed)
+              transition=json.loads(completed.conn.execute(
+                  "SELECT payload FROM events ORDER BY seq DESC LIMIT 1").fetchone()["payload"])
+              assert transition["schema"]=="forge.f139.source-transition.v6"
+              assert transition["v2_receipt_authorized"] is False
+              assert transition["v5_terminal_event_sha256"]==v5[-1]["sha"]
+              assert completed.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]==count
+              assert completed.conn.execute(
+                  "SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]==negative_count
+              qualified={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":new,
+                  "expected_event_head_sha256":n["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,
+                  "create_controller":False,"paid_api_calls":0}
+              assert activate_native(completed,qualified)
+              completed.verify()
+              assert verify_native_activation(completed)
+              print("F139_G15_EXACT_ORIGINAL_V6_CLI_SCRATCH=PASS",flush=True)
+              print("F139_G15_LEGACY_V1_APPROVAL_REJECTS_V6=PASS",flush=True)
+              print("F139_G15_V5_SEALED=4_AND_V2_INERT=TRUE",flush=True)
+              print("F139_G15_REACTIVATED_ONLY_SCRATCH=PASS",flush=True)
+              print("F139_G15_HISTORICAL_NEGATIVES="+str(negative_count),flush=True)
+              print("F139_G15_NO_PRODUCTION_MUTATIONS=TRUE",flush=True)
+          finally:completed.close()
+          '@
+          try{
+            & $py -B -c $code $env:GITHUB_WORKSPACE $db $tmp $approval $candidate
+            if($LASTEXITCODE -ne 0){throw 'G15_REAL_LEDGER_CLI_REHEARSAL_FAILED'}
+          }finally{
+            foreach($suffix in @('','-shm','-wal')){
+              Remove-Item -LiteralPath ($tmp+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $approval -Force -ErrorAction SilentlyContinue
+          }
+          if([string](Get-ScheduledTask -TaskName $name).State -cne 'Running'){
+            throw 'G15_LIVE_TASK_CHANGED'
+          }
+          Write-Host 'F139_G15_ORIGINAL_CONTROLLER_UNCHANGED=PASS'
+) -or
+             [regex]::IsMatch($body, '(?m)^  push:\s*          if(([regex]::Matches($body, [regex]::Escape("$"+"target='0000000000000000000000000000000000000000'"))).Count -ne 1 -or
+             -not $body.Contains('transition-qualified-native-v6') -or
+             -not $body.Contains('v2_receipt_authorized=$false') -or
+             -not $body.Contains('F139_G15_POSTEVENT_ORIGINAL_OWNER_HELD_DISABLED') -or
+             -not $body.Contains('F139_G15_MERGED_PR_HEAD_DRIFT')){
+            throw 'F139_G15_GUARDED_RELEASE_NOT_INERT_OR_INCOMPLETE'
+          }
+          Write-Host 'F139_G15_PRODUCTION_CUTOVER_DISARMED=PASS'
+      - name: One complete unchanged F139 public regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & python -B -m unittest discover -s f139 -p test_*.py -v
+          if($LASTEXITCODE -ne 0){throw 'F139_G15_FULL_PUBLIC_REGRESSION_FAIL'}
+          Write-Host 'F139_G15_FULL_CROSS_PLATFORM_REGRESSION=PASS'
+  original-owner-rehearsal:
+    name: G15 exact original Windows CLI scratch rehearsal; no live transition
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Bound original task, source, protected policy before read-only snapshot
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $name='FORGE-F139-UnifiedController'
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             [string]$t.State -cne 'Running' -or
+             @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'G15_OWNER_TASK_IDENTITY_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $taskOwner=[string]$t.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($taskOwner)).Translate(
+               [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($taskOwner -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'G15_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function Arg([string]$n) {
+            $match=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $match.Success){throw 'G15_TASK_ARGS_DRIFT'}
+            return $match.Groups[1].Value
+          }
+          $db=Arg 'Database'
+          $oldRoot=Arg 'RepositoryRoot'
+          $py=Arg 'PythonExe'
+          if(( & git.exe -C $oldRoot rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git.exe -C $oldRoot status --porcelain --untracked-files=all).Count -ne 0 -or
+             [string]$t.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'G15_EXISTING_SOURCE_AND_RATE_BOUND_DRIFT'
+          }
+          $candidate=(& git.exe -C $env:GITHUB_WORKSPACE rev-parse HEAD | Out-String).Trim()
+          if($candidate -cne $env:GITHUB_SHA -or $candidate -ceq $old){
+            throw 'G15_UNQUALIFIED_SOURCE'
+          }
+          $tmp=Join-Path (Split-Path $db -Parent) ('g15-cli-'+$env:GITHUB_RUN_ID+'-'+
+               [guid]::NewGuid().ToString('N')+'.sqlite')
+          $approval=Join-Path $env:RUNNER_TEMP ('g15-approval-'+$env:GITHUB_RUN_ID+'.json')
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          from unittest import mock
+          old="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          src=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          live=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          scratch=pathlib.Path(sys.argv[3])
+          approval_path=pathlib.Path(sys.argv[4])
+          new=sys.argv[5]
+          assert scratch.parent==live.parent and not scratch.exists()
+          ro=sqlite3.connect(live.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.execute("PRAGMA query_only=ON")
+          try:
+              with sqlite3.connect(scratch) as clone:ro.backup(clone)
+          finally:ro.close()
+          sys.path.insert(0,str(src))
+          from f139.local_controller import Database,F139Error,cli
+          from f139.nci04_native_contract import canonical,digest
+          from f139.nci04_v6_owner_release import (
+             APPROVAL_SCHEMA,validate_v6_owner_approval)
+          from f139.nci04_owner_ledger import (
+             SEALED_OWNER_PREFIX_HEAD,activate_native,verify_native_activation)
+          db=Database(scratch)
+          try:
+              db.verify()
+              m=db.meta()
+              assert m["source_sha"]==old and m["head_seq"]>=218
+              assert verify_native_activation(db)
+              assert not db.actives() and db.ready() is None
+              negative_count=db.conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert negative_count>=13
+              count=db.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+              v5=list(db.conn.execute(
+                "SELECT sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'"))
+              v5=[x for x in v5 if json.loads(x["payload"])["schema"]==
+                  "forge.f139.source-transition.v5"]
+              assert len(v5)==4
+              tickets=sorted(r["ticket"] for r in db.conn.execute(
+                  "SELECT ticket FROM tasks WHERE stage='QUARANTINED'"))
+              approval={
+                  "schema":APPROVAL_SCHEMA,
+                  "from_source_sha":old,"to_source_sha":new,
+                  "expected_event_head_sha256":m["head_hash"],
+                  "expected_event_head_seq":m["head_seq"],
+                  "sealed_23_event_head_sha256":SEALED_OWNER_PREFIX_HEAD,
+                  "v5_terminal_event_sha256":v5[-1]["sha"],
+                  "custodied_negative_tickets_sha256":digest(canonical(tickets)),
+                  "native_development_only":True,
+                  "v2_receipt_authorized":False,
+                  "scientific_first_use":False,"new_controller":False,
+                  "new_scheduler":False,"paid_api_calls":0}
+              assert validate_v6_owner_approval(db,approval)
+              approval_path.write_bytes(canonical(approval))
+          finally:db.close()
+          # Patch ONLY owner network/environment verifiers for the isolated
+          # fixture. Actual production cutover MUST use the real verifiers.
+          def verify_clean_checkout(*args):
+              return new
+          with mock.patch("f139.local_controller.native_original_owner_profile"),\
+               mock.patch("f139.local_controller.GitHub.protected_main",
+                           return_value=new),\
+               mock.patch("f139.local_controller.GitHub.legacy_dispatchers_disabled"),\
+               mock.patch("f139.local_controller.legacy_windows_task_disabled"):
+              try:
+                  cli(["--db",str(scratch),"transition-qualified-native",
+                       "--approval",str(approval_path)])
+                  raise AssertionError("LEGACY_V1_CLI_ACCEPTED_V6_APPROVAL")
+              except F139Error:
+                  pass
+              check=Database(scratch)
+              try:
+                  assert check.meta()["head_seq"]==m["head_seq"]
+              finally:check.close()
+              cli(["--db",str(scratch),"transition-qualified-native-v6",
+                   "--approval",str(approval_path)])
+          completed=Database(scratch)
+          try:
+              completed.verify()
+              n=completed.meta()
+              assert n["source_sha"]==new and n["head_seq"]==m["head_seq"]+1
+              assert not verify_native_activation(completed)
+              transition=json.loads(completed.conn.execute(
+                  "SELECT payload FROM events ORDER BY seq DESC LIMIT 1").fetchone()["payload"])
+              assert transition["schema"]=="forge.f139.source-transition.v6"
+              assert transition["v2_receipt_authorized"] is False
+              assert transition["v5_terminal_event_sha256"]==v5[-1]["sha"]
+              assert completed.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]==count
+              assert completed.conn.execute(
+                  "SELECT COUNT(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]==negative_count
+              qualified={
+                  "schema":"forge.f139.nci04.owner-native-approval.v1",
+                  "source_sha":new,
+                  "expected_event_head_sha256":n["head_hash"],
+                  "native_development_approved":True,
+                  "scientific_first_use":False,
+                  "create_controller":False,"paid_api_calls":0}
+              assert activate_native(completed,qualified)
+              completed.verify()
+              assert verify_native_activation(completed)
+              print("F139_G15_EXACT_ORIGINAL_V6_CLI_SCRATCH=PASS",flush=True)
+              print("F139_G15_LEGACY_V1_APPROVAL_REJECTS_V6=PASS",flush=True)
+              print("F139_G15_V5_SEALED=4_AND_V2_INERT=TRUE",flush=True)
+              print("F139_G15_REACTIVATED_ONLY_SCRATCH=PASS",flush=True)
+              print("F139_G15_HISTORICAL_NEGATIVES="+str(negative_count),flush=True)
+              print("F139_G15_NO_PRODUCTION_MUTATIONS=TRUE",flush=True)
+          finally:completed.close()
+          '@
+          try{
+            & $py -B -c $code $env:GITHUB_WORKSPACE $db $tmp $approval $candidate
+            if($LASTEXITCODE -ne 0){throw 'G15_REAL_LEDGER_CLI_REHEARSAL_FAILED'}
+          }finally{
+            foreach($suffix in @('','-shm','-wal')){
+              Remove-Item -LiteralPath ($tmp+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $approval -Force -ErrorAction SilentlyContinue
+          }
+          if([string](Get-ScheduledTask -TaskName $name).State -cne 'Running'){
+            throw 'G15_LIVE_TASK_CHANGED'
+          }
+          Write-Host 'F139_G15_ORIGINAL_CONTROLLER_UNCHANGED=PASS'
+)){
+            throw 'F139_G16_RELEASE_ENTRYPOINT_NOT_MANUAL_ONLY'
+          }
+          Write-Host 'F139_G16_RELEASE_ENTRYPOINT_MANUAL_ONLY=PASS'
           if(([regex]::Matches($body, [regex]::Escape("$"+"target='0000000000000000000000000000000000000000'"))).Count -ne 1 -or
              -not $body.Contains('transition-qualified-native-v6') -or
              -not $body.Contains('v2_receipt_authorized=$false') -or
