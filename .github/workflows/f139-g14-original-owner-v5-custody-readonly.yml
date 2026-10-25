@@ -1,0 +1,112 @@
+name: F139 G14 original-owner sealed V5 custody and source budget (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g14-original-owner-v5-custody-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect original task and every preserved V5 source transition without mutations
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $original='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $name='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_G14_UNQUALIFIED_RUNNER'
+          }
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1){
+            throw 'F139_G14_ORIGINAL_OWNER_TASK_NOT_RUNNING'
+          }
+          $current=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $sid=''
+          try {
+            $sid=(New-Object Security.Principal.NTAccount(
+              [string]$task.Principal.UserId)).Translate(
+                [Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          if([string]$task.Principal.UserId -ine $current.Name -and
+             $sid -cne $current.User.Value){
+            throw 'F139_G14_ORIGINAL_SID_DRIFT'
+          }
+          function Arg([string]$k){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$k+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G14_OWNER_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $py=Arg 'PythonExe'
+          if([IO.Path]::GetFileName((Arg 'File')) -cne 'Run-FORGE-F139.ps1' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)-PollSeconds\s+300(?:\s|$)' -or
+             ( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $original){
+            throw 'F139_G14_DEPLOYED_ORIGINAL_SOURCE_DRIFT'
+          }
+          $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and
+              $_.CommandLine.Contains('loop')})
+          if($child.Count -ne 1 -or
+             [string]$child[0].CommandLine -notmatch '--seconds\s+300(?:\s|$)'){
+            throw 'F139_G14_ORIGINAL_SINGLE_CHILD_DRIFT'
+          }
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          file=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          source=sys.argv[3]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation,native_events
+          ro=sqlite3.connect(file.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.row_factory=sqlite3.Row
+          ro.execute("PRAGMA query_only=ON")
+          d=object.__new__(Database)
+          d.conn=ro;d.filename=file
+          try:
+              d.verify()
+              m=d.meta()
+              assert m["source_sha"]==source and m["head_seq"]>=218
+              assert verify_native_activation(d)
+              docs=[dict(r) for r in ro.execute(
+                "SELECT seq,sha,payload FROM events "
+                "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
+              v4=[r for r in docs if json.loads(r["payload"])["schema"]==
+                  "forge.f139.source-transition.v4"]
+              v5=[r for r in docs if json.loads(r["payload"])["schema"]==
+                  "forge.f139.source-transition.v5"]
+              assert len(v4)==10 and len(v5)==4
+              assert v5[-1]["seq"]<m["head_seq"]
+              assert json.loads(v5[-1]["payload"])["to_source_sha"]==source
+              for r in v5:
+                  assert json.loads(r["payload"])["v4_terminal_event_sha256"]==v4[-1]["sha"]
+              assert len(native_events(d))>=23
+              row=ro.execute("SELECT stage,quarantine_reason FROM tasks "
+                "WHERE ticket='f139-nci04-i907-6e14fbe374aa-8c9753f0'").fetchone()
+              assert row is not None and row["stage"]=="QUARANTINED"
+              assert row["quarantine_reason"]=="FAILED_OR_CANCELLED_NO_REPLAY"
+              assert ro.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]>=13
+              assert not d.actives() and d.ready() is None
+              print("F139_G14_ORIGINAL_EVENT_HEAD="+str(m["head_seq"]))
+              print("F139_G14_V4_HISTORICAL_SOURCE_TRANSITIONS="+str(len(v4)))
+              print("F139_G14_V5_HISTORICAL_SOURCE_TRANSITIONS="+str(len(v5)))
+              print("F139_G14_FINAL_V5_EVENT_SHA256="+v5[-1]["sha"])
+              print("F139_G14_NATIVE_ADMISSIONS="+str(len(native_events(d))))
+              print("F139_G14_SOURCE_V5_CAPACITY_EXHAUSTED=PASS")
+              print("F139_G14_ORIGINAL_907_NO_REPLAY=PASS")
+              print("F139_G14_FULL_LEDGER_AND_NATIVE_ACTIVATION=PASS")
+              print("F139_G14_SQLITE_READ_ONLY=TRUE")
+          finally:
+              ro.close()
+          '@
+          & $py -B -c $code $root $db $original
+          if($LASTEXITCODE -ne 0){throw 'F139_G14_ORIGINAL_CUSTODY_AUDIT_FAILED'}
+          Write-Host 'F139_G14_SINGLE_ORIGINAL_OWNER_ALIVE=PASS'
+          Write-Host 'F139_G14_NO_SOURCE_TASK_POLICY_OR_SQLITE_MUTATION=TRUE'
