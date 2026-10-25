@@ -1,0 +1,40 @@
+name: Mass K4T-F5 original MiniGrid R6 verified-route versus R5 and sixfield
+on:
+  push:
+    branches: [research/itd02-k4t-f5-r6-observed-20261025]
+permissions:
+  contents: read
+jobs:
+  original-r6-versus-fitted-sixfield:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 40
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Authenticated original R6 and two independent public-world experiments
+        run: bash research/lcrm01/k4t_f5_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f5-r6-observed-edges-original-source-dev
+          path: |
+            ${{ runner.temp }}/k4tf5/process-a.json
+            ${{ runner.temp }}/k4tf5/process-b.json
+            ${{ runner.temp }}/k4tf5/comparison.json
+            ${{ runner.temp }}/k4tf5/process-a.log
+            ${{ runner.temp }}/k4tf5/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
