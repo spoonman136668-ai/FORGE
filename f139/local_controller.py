@@ -485,14 +485,20 @@ class Database:
                          and set(doc) == base_fields | {
                              "custodied_negative_tasks", "custodied_negative_tickets",
                              "provider_failures_sha256", "v4_terminal_event_sha256"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5,
+                is_v6 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v6"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256", "v5_terminal_event_sha256",
+                             "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5)
+                         or (is_v4 or is_v5 or is_v6)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -539,7 +545,7 @@ class Database:
                                     for value in (t["from_source_sha"],
                                                   t["to_source_sha"])},
                                 "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
-                if is_v4 or is_v5:
+                if is_v4 or is_v5 or is_v6:
                     from f139.nci04_negative_owner_store import TICKET as FIRST
                     from f139.nci04_split_negative_owner_store import TICKET as SECOND
                     provider_failures=self.verified_native_provider_failures(
@@ -556,7 +562,8 @@ class Database:
                             and source_transitions[-1]["schema"] in (
                                 "forge.f139.source-transition.v3",
                                 "forge.f139.source-transition.v4",
-                                "forge.f139.source-transition.v5")
+                                "forge.f139.source-transition.v5",
+                                "forge.f139.source-transition.v6")
                             and doc["from_source_sha"]==
                                 source_transitions[-1]["to_source_sha"]
                             and doc["to_source_sha"] not in {
@@ -583,6 +590,24 @@ class Database:
                                 and doc["v4_terminal_event_sha256"] ==
                                     sealed_v4[-1]["sha"],
                                 "SOURCE_TRANSITION_V5_V4_SEAL_INVALID")
+                    if is_v6:
+                        sealed_v5 = [
+                            r for r in self.conn.execute(
+                                "SELECT seq,sha,payload FROM events "
+                                "WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                                "AND seq<? ORDER BY seq",(row["seq"],))
+                            if json.loads(r["payload"])["schema"] ==
+                                "forge.f139.source-transition.v5"]
+                        prior_v6 = [
+                            t for t in source_transitions if t["schema"] ==
+                                "forge.f139.source-transition.v6"]
+                        require(len(sealed_v5)==4 and not prior_v6
+                                and source_transitions[-1]["schema"] ==
+                                    "forge.f139.source-transition.v5"
+                                and doc["v5_terminal_event_sha256"] ==
+                                    sealed_v5[-1]["sha"]
+                                and doc["v2_receipt_authorized"] is False,
+                                "SOURCE_TRANSITION_V6_V5_SEAL_OR_AUTHORITY_INVALID")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -610,12 +635,15 @@ class Database:
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v4"]
         negative_v5 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v5"]
+        negative_v6 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v6"]
         verified_provider_negatives=self.verified_native_provider_failures()
-        negative_transitions = negative_v2 + negative_v3 + negative_v4 + negative_v5
-        require(len(negative_transitions) <= 34
+        negative_transitions = negative_v2 + negative_v3 + negative_v4 + negative_v5 + negative_v6
+        require(len(negative_transitions) <= 35
                 and len(negative_v3) <= 10 and len(negative_v4) <= 10
-                and len(negative_v5) <= 4 and
-                (not negative_v5 or len(negative_v4)==10),
+                and len(negative_v5) <= 4 and len(negative_v6) <= 1 and
+                (not negative_v5 or len(negative_v4)==10) and
+                (not negative_v6 or len(negative_v5)==4),
                 "NEGATIVE_TRANSITION_BUDGET_EXHAUSTED")
         require(not negative_v3 or certified_negative and certified_second,
                 "SECOND_NEGATIVE_CUSTODY_MISSING")
@@ -642,7 +670,7 @@ class Database:
                 and row["stage"] == "QUARANTINED" and row["run_id"] is None
                 and row["evidence_sha"] is None and not row["evidence_dir"])
             prior_provider_failure = (
-                bool(negative_v4 or negative_v5) and row["ticket"] in verified_provider_negatives
+                bool(negative_v4 or negative_v5 or negative_v6) and row["ticket"] in verified_provider_negatives
                 and verified_provider_negatives[row["ticket"]][0]==row["source_sha"]
                 and row["source_sha"] in historical_sources
                 and row["stage"]=="QUARANTINED" and row["run_id"] is None
@@ -716,7 +744,8 @@ class Database:
             self.event("CUTOVER_ACTIVATED",{"source_sha":self.meta()["source_sha"]})
 
     def transition_source(self, new_source_sha: str, *,
-                          allow_certified_negative: bool = False):
+                          allow_certified_negative: bool = False,
+                          allow_v6: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -814,11 +843,13 @@ class Database:
                         and events and events[-1]["schema"] in (
                             "forge.f139.source-transition.v3",
                             "forge.f139.source-transition.v4",
-                            "forge.f139.source-transition.v5")
+                            "forge.f139.source-transition.v5",
+                            "forge.f139.source-transition.v6")
                         and (verify_native_activation(self)
                              or (events[-1]["schema"] in
                                      ("forge.f139.source-transition.v4",
-                                      "forge.f139.source-transition.v5")
+                                      "forge.f139.source-transition.v5",
+                                      "forge.f139.source-transition.v6")
                                  and self.conn.execute(
                                      "SELECT kind FROM events ORDER BY seq DESC LIMIT 1"
                                  ).fetchone()["kind"]=="SOURCE_TRANSITION_ADMITTED"
@@ -835,8 +866,18 @@ class Database:
                          "forge.f139.source-transition.v4"]
                 prev_v5=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v5"]
-                if len(prev_v4)==10:
-                    require(len(prev_v5)<4,
+                prev_v6=[e for e in events if e["schema"]==
+                         "forge.f139.source-transition.v6"]
+                if len(prev_v4)==10 and len(prev_v5)==4:
+                    require(allow_v6 is True,
+                            "SOURCE_TRANSITION_V5_BOUNDED_CAPACITY_EXHAUSTED")
+                    require(not prev_v6
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v5",
+                            "SOURCE_TRANSITION_V6_BOUNDED_CAPACITY_EXHAUSTED")
+                    schema="forge.f139.source-transition.v6"
+                elif len(prev_v4)==10:
+                    require(len(prev_v5)<4 and not prev_v6,
                             "SOURCE_TRANSITION_V5_BOUNDED_CAPACITY_EXHAUSTED")
                     schema="forge.f139.source-transition.v5"
                 else:
@@ -862,7 +903,8 @@ class Database:
             if schema == "forge.f139.source-transition.v3":
                 event["custodied_negative_tickets"] = [NEGATIVE_696, NEGATIVE_706]
             elif schema in ("forge.f139.source-transition.v4",
-                            "forge.f139.source-transition.v5"):
+                            "forge.f139.source-transition.v5",
+                            "forge.f139.source-transition.v6"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -878,6 +920,19 @@ class Database:
                     require(len(v4_rows)==10,
                             "SOURCE_TRANSITION_V5_V4_SEAL_MISSING")
                     event["v4_terminal_event_sha256"]=v4_rows[-1]["sha"]
+                if schema == "forge.f139.source-transition.v6":
+                    v5_rows=[
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                        if json.loads(r["payload"])["schema"] ==
+                            "forge.f139.source-transition.v5"]
+                    require(len(v5_rows)==4,
+                            "SOURCE_TRANSITION_V6_V5_SEAL_MISSING")
+                    event["v5_terminal_event_sha256"]=v5_rows[-1]["sha"]
+                    # Migrating original code never implicitly enables V2
+                    # receipt claims. Separate signed worker approval is required.
+                    event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
@@ -2193,6 +2248,8 @@ def cli(argv=None):
     owner_native.add_argument("--approval",type=Path,required=True)
     transition=sub.add_parser("transition-qualified-native")
     transition.add_argument("--approval",type=Path,required=True)
+    transition_v6=sub.add_parser("transition-qualified-native-v6")
+    transition_v6.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -2476,6 +2533,46 @@ def cli(argv=None):
                 print(json.dumps({"native_source_transition":"PASS",
                     "source_sha":db.meta()["source_sha"],
                     "head_sha256":db.meta()["head_hash"],
+                    "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v6":
+            # DISTINCT operator action, never the legacy transition's approval.
+            # No worker V2 activation, no new scheduler and no automatic promotion.
+            from f139.nci04_v6_owner_release import validate_v6_owner_approval
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V6_SOURCE_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict, "V6_APPROVAL_MUST_BE_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v6(*parts):
+                p=subprocess.run(["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(p.returncode==0,"V6_SOURCE_CHECKOUT_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            require(_git_read_v6("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v6("status","--porcelain","--untracked-files=all")=="",
+                    "V6_EXACT_CLEAN_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V6_PROTECTED_SOURCE_IDENTITY_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                db.verify()
+                validate_v6_owner_approval(db,approval)
+                db.transition_source(
+                    approval["to_source_sha"],
+                    allow_certified_negative=True,
+                    allow_v6=True)
+                db.verify()
+                require(db.meta()["source_sha"]==approval["to_source_sha"]
+                        and db.meta()["head_seq"]==approval["expected_event_head_seq"]+1,
+                        "V6_TRANSACTION_RESULT_DRIFT")
+                print(json.dumps({"native_v6_transition":"PASS",
+                    "source_sha":db.meta()["source_sha"],
+                    "event_head":db.meta()["head_hash"],
+                    "v2_receipt_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
         elif args.verb=="activate-native":
             # Owner-only, explicit admission. Does not create a second task or

@@ -1,0 +1,107 @@
+name: F139 G13 V2 isolated development-only end-to-end native contract
+on:
+  push:
+    branches: [qualify/f139-g13-native-v2-contract-20261025]
+    paths:
+      - f139/nci04_worker_v2.py
+      - f139/test_nci04_worker_v2.py
+      - .github/workflows/f139-g13-native-v2-development-qualification.yml
+permissions:
+  contents: read
+  issues: read
+jobs:
+  g13:
+    name: G13 V2 genuine suite execution (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 20
+    steps:
+      - name: Preserve original Git byte identity
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.safecrlf true
+      - uses: actions/checkout@v4
+        with:
+          path: forge
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          fetch-depth: 0
+          path: original
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate existing immutable original data for a disconnected test fixture
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $issue=(& gh api 'repos/spoonman136668-ai/FORGE/issues/907' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $issue.id -ne 6019876053 -or
+             $issue.number -ne 907 -or
+             $issue.user.login -cne 'spoonman136668-ai'){
+            throw 'F139_G13_ORIGINAL_FIXTURE_UNAUTHENTICATED'
+          }
+          $doc=[string]$issue.body | ConvertFrom-Json
+          if($doc.source_sha -cne '6e14fbe374aa0170a5f5f952afc4b4045ac2afca' -or
+             $doc.lane -cne 'Yggdrasil' -or
+             $doc.scientific_first_use -ne $false -or
+             -not $doc.intent_base64){
+            throw 'F139_G13_FROZEN_FIXTURE_IDENTITY_DRIFT'
+          }
+          [IO.File]::WriteAllText(
+            (Join-Path $env:RUNNER_TEMP 'g13-source-only-intent.json'),
+            [string]$issue.body,[Text.UTF8Encoding]::new($false))
+          Write-Host 'F139_G13_READ_ONLY_SIGNED_ORIGINAL_FIXTURE=PASS'
+      - name: Run V2 full-history baseline and entire platform-supported native candidate suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=@'
+          import base64,json,os,pathlib,subprocess,sys,tempfile
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          forge=root/"forge";original=root/"original"
+          assert (subprocess.check_output(["git","-C",str(forge),"rev-parse","HEAD"],
+                    text=True).strip()==os.environ["GITHUB_SHA"])
+          sys.path.insert(0,str(forge))
+          from f139.nci04_native_contract import parse_intent
+          from f139.nci04_worker_v2 import run_v2,validate_v2,REPORT_SCHEMA,RECEIPT_SCHEMA
+          source="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          donor="992ef142aaa551156749a1de484a971b9a0c092f"
+          tree="7e37c56e42dbd47a87da7a75210657a040f47a71"
+          doc=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/
+             "g13-source-only-intent.json").read_text())
+          intent=base64.b64decode(doc["intent_base64"],validate=True)
+          candidate=parse_intent(intent,protected_main=source,
+                        target_commit=donor,target_tree_sha=tree)
+          oslabel="windows-latest" if os.name=="nt" else "ubuntu-latest"
+          # No original task, no signed worker dispatch, no real V2 receipt
+          # or original issue retry; this is a *disconnected* development fixture.
+          with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"]) as scratch:
+              report=run_v2(candidate,original,pathlib.Path(scratch),oslabel=oslabel)
+          assert report["schema"]==REPORT_SCHEMA and validate_v2(candidate,report)
+          assert report["qualification_complete"] is True
+          assert report["pristine_source_atlas"]["test_count"]==4
+          assert sum(x["test_count"] for x in report["candidate_behavior"])==(
+            21 if os.name=="nt" else 41)
+          assert (subprocess.check_output(["git","-C",str(original),"status",
+                      "--porcelain","--untracked-files=all"],text=True).strip()=="")
+          print("F139_G13_V2_ORIGINAL_CLEAN_FULL_HISTORY_ATLAS=PASS")
+          print("F139_G13_V2_FULL_SUPPORTED_BEHAVIOR_TESTS="+str(
+                sum(x["test_count"] for x in report["candidate_behavior"])))
+          print("F139_G13_V2_DISTINCT_REPORT_SCHEMA="+REPORT_SCHEMA)
+          print("F139_G13_V2_DISTINCT_RECEIPT_SCHEMA="+RECEIPT_SCHEMA)
+          print("F139_G13_V2_COMPILE_AND_QUALIFICATION=PASS")
+          print("F139_G13_V1_WORKER_TICKET907_NOT_DISPATCHED=TRUE")
+          print("F139_G13_NO_PRODUCTION_OR_SCIENTIFIC_AUTHORITY=TRUE")
+          '@
+          & python -B -c $code
+          if($LASTEXITCODE -ne 0){throw 'F139_G13_V2_ISOLATED_QUALIFICATION_FAILED'}
