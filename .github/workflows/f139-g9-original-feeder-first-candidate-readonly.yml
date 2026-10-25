@@ -1,0 +1,76 @@
+name: F139 G9 first original owner feeder G3 candidate authentication (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g9-original-feeder-first-candidate-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-windows-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Qualify actual owner native feed for new draft PR 503 without creating issue
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             [string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'F139_G9_FEEDER_ORIGINAL_OWNER_NOT_RUNNING'
+          }
+          function Arg([string]$n){
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G9_FEEDER_TASK_ROUTE_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $python=Arg 'PythonExe'
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $source){
+            throw 'F139_G9_FEEDER_ORIGINAL_SOURCE_DRIFT'
+          }
+          $code=@'
+          import pathlib,sqlite3,sys,json
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          source=sys.argv[3]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_owner_ledger import native_events,verify_native_activation
+          from f139.nci04_autonomy_feed import candidate_identity_from_intent_base64
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          obj=object.__new__(Database);obj.filename=dbpath;obj.conn=conn
+          try:
+              obj.verify()
+              meta=obj.meta()
+              assert meta["source_sha"]==source and meta["head_seq"]>=212
+              assert verify_native_activation(obj)
+              admissions=native_events(obj)
+              existing={candidate_identity_from_intent_base64(e["native_intent_base64"])
+                        for e in admissions}
+              assert len(existing)>=22
+              feed=GitHub().prepare_native_feed(source,existing)
+              assert feed["enabled"] is True
+              print("F139_G9_FEEDER_PREPARED_CANDIDATES="+str(len(feed["candidates"])))
+              for r in feed["rejected"]:
+                  if r.get("pr_number")==503:
+                      reason=r.get("reason","UNKNOWN")
+                      print("F139_G9_G3_PR503_REJECT_REASON="+
+                            (reason if reason.startswith("F139_NATIVE_FEED_") else "UNKNOWN"))
+              matched=[x for x in feed["candidates"] if x["pr_number"]==503
+                       and x["lane"]=="Yggdrasil"
+                       and x["head_commit"]=="43367da61ebb0903ee5fff6d7adf51021d7c9a35"]
+              assert len(matched)==1
+              print("F139_G9_G3_PR503_NATIVE_FEEDER_CANDIDATE=PASS")
+              print("F139_G9_FEEDER_ISSUE_CREATION=NOT_ATTEMPTED")
+              print("F139_G9_OWNER_SQLITE_AND_SCIENTIFIC_AUTHORITY_UNCHANGED=TRUE")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $code $root $db $source
+          if($LASTEXITCODE -ne 0){throw 'F139_G9_G3_NATIVE_FEEDER_NOT_YET_QUALIFIED'}
