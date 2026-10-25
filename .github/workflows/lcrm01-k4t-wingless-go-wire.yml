@@ -117,12 +117,25 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $env:PYTHONPATH="$env:GITHUB_WORKSPACE/research/lcrm01"
-          foreach($pattern in @('test_k4u_sourceonly.py','test_k4x_sourceonly.py','test_k4y_sourceonly.py','test_k4t_wingless_wire.py')){
-            & python -B -m unittest discover -s research/lcrm01 -p $pattern -v
-            if($LASTEXITCODE-ne0){throw ('K4T_AFFECTED_INTERFACE_FAILED_'+$pattern)}
+          if($IsLinux){
+            $env:PYTHONPATH="$env:GITHUB_WORKSPACE/research/lcrm01"
+            foreach($pattern in @('test_k4u_sourceonly.py','test_k4x_sourceonly.py','test_k4y_sourceonly.py','test_k4t_wingless_wire.py')){
+              & python -B -m unittest discover -s research/lcrm01 -p $pattern -v
+              if($LASTEXITCODE-ne0){throw ('K4T_AFFECTED_INTERFACE_FAILED_'+$pattern)}
+            }
+            Write-Host 'K4T_AFFECTED_INTERFACE_REGRESSION=PASS'
+          }else{
+            # Original source-only MiniGrid modules import POSIX-only resource.
+            # Parse those original files on Windows; run their real tests on Linux.
+            foreach($p in @('research/lcrm01/k4u_native_minigrid.py',
+                            'research/lcrm01/k4x_curriculum_intervention.py',
+                            'research/lcrm01/k4y_native_affordance.py',
+                            'research/lcrm01/test_k4t_wingless_wire.py')){
+              & python -B -c "import ast,sys;ast.parse(open(sys.argv[1],encoding='utf-8').read())" $p
+              if($LASTEXITCODE-ne0){throw ('K4T_WINDOWS_SOURCE_SYNTAX_FAILED_'+$p)}
+            }
+            Write-Host 'K4T_WINDOWS_LINUX_ONLY_SOURCE_AST=PASS'
           }
-          Write-Host 'K4T_AFFECTED_INTERFACE_REGRESSION=PASS'
       - name: One standard FORGE isolation controller Go regression vet build
         shell: pwsh
         run: |
@@ -137,17 +150,54 @@ jobs:
           if($LASTEXITCODE-ne0){throw 'K4T_FSAD1_FAIL'}
           & python -B -m unittest discover -s f139 -p 'test_*.py'
           if($LASTEXITCODE-ne0){throw 'K4T_F139_REGRESSION_FAIL'}
-          & go test -count=1 ./...
-          if($LASTEXITCODE-ne0){throw 'K4T_GO_FULL_REGRESSION_FAIL'}
+          # Standalone K4U/K4Y Go IPC bridges are built from their exact
+          # original native module in the prior job. They are not valid
+          # FORGE root-module packages. Exempt ONLY that known directory.
+          $module=(& go list -m).Trim()
+          if($LASTEXITCODE-ne0 -or $module-ne'github.com/spoonman136668-ai/forge'){
+            throw 'K4T_GO_ROOT_MODULE_IDENTITY_DRIFT'
+          }
+          $records=@(& go list -e -f '{{.ImportPath}}|{{if .Incomplete}}INCOMPLETE{{else}}OK{{end}}' ./...)
+          if($LASTEXITCODE-ne0){throw 'K4T_GO_PACKAGE_DISCOVERY_FAILED'}
+          $incomplete=@($records | Where-Object {$_ -match '\|INCOMPLETE
+      - name: Verify clean checkout and no scientific execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'K4T_SOURCE_TREE_DIRTY'}
+          Write-Host 'K4T_SOURCE_TREE_CLEAN=PASS'
+          Write-Host 'K4T_CONSUMED_MINIGRID_COHORTS=NOT_EXECUTED'
+          Write-Host 'K4T_SCIENTIFIC_FIRST_USE=NOT_AUTHORIZED'
+})
+          $expected="$module/research/lcrm01|INCOMPLETE"
+          if($incomplete.Count-ne1 -or $incomplete[0]-cne$expected){
+            throw ('K4T_UNEXPECTED_INCOMPLETE_GO_PACKAGES_'+($incomplete -join ','))
+          }
+          $packages=@($records | Where-Object {$_ -match '\|OK
+      - name: Verify clean checkout and no scientific execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dirty=@(& git status --porcelain --untracked-files=all)
+          if($LASTEXITCODE-ne0 -or $dirty.Count-ne0){throw 'K4T_SOURCE_TREE_DIRTY'}
+          Write-Host 'K4T_SOURCE_TREE_CLEAN=PASS'
+          Write-Host 'K4T_CONSUMED_MINIGRID_COHORTS=NOT_EXECUTED'
+          Write-Host 'K4T_SCIENTIFIC_FIRST_USE=NOT_AUTHORIZED'
+} | ForEach-Object { ($_ -split '\|')[0] })
+          if($packages.Count -lt 30){throw 'K4T_GO_PACKAGE_COVERAGE_BELOW_FLOOR'}
+          Write-Host ('K4T_COMPLETE_FORGE_GO_PACKAGES='+$packages.Count)
+          & go test -count=1 $packages
+          if($LASTEXITCODE-ne0){throw 'K4T_GO_FULL_APPLICABLE_REGRESSION_FAIL'}
           if($IsLinux){
-            & go test -race -count=1 ./...
+            & go test -race -count=1 $packages
             if($LASTEXITCODE-ne0){throw 'K4T_GO_RACE_REGRESSION_FAIL'}
           }
-          & go vet ./...
+          & go vet $packages
           if($LASTEXITCODE-ne0){throw 'K4T_GO_VET_FAIL'}
-          & go build ./...
+          & go build $packages
           if($LASTEXITCODE-ne0){throw 'K4T_GO_BUILD_FAIL'}
-          Write-Host 'K4T_FINAL_FULL_STANDARD_REGRESSION=PASS'
+          Write-Host 'K4T_FINAL_FULL_APPLICABLE_REGRESSION=PASS'
       - name: Verify clean checkout and no scientific execution
         shell: pwsh
         run: |
