@@ -1,0 +1,85 @@
+name: F139 G10 independent original Ygg parent regression control (public development)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g10-original-ygg-baseline-control.yml]
+permissions:
+  contents: read
+jobs:
+  donor-control:
+    name: unmodified original Ygg parent (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout authenticated unmodified historical Yggdrasil original
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: original
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run exact public focused and full suites on the untouched parent
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:GITHUB_WORKSPACE 'original'
+          $parent='992ef142aaa551156749a1de484a971b9a0c092f'
+          $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          $tree=(& git.exe -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          if($actual -cne $parent -or $tree -cne '7e37c56e42dbd47a87da7a75210657a040f47a71' -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G10_ORIGINAL_PARENT_SOURCE_TREE_DRIFT'
+          }
+          Write-Host 'F139_G10_UNMODIFIED_ORIGINAL_PARENT_IDENTITY=PASS'
+          $probe=@'
+          import os,pathlib,re,subprocess,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          allow={"PATH","HOME","USERPROFILE","SYSTEMROOT","WINDIR","SYSTEMDRIVE",
+            "PATHEXT","COMSPEC","TMP","TEMP","TMPDIR","APPDATA","LOCALAPPDATA",
+            "LANG","LC_ALL","GOPATH","GOROOT","GOCACHE","GOMODCACHE","CGO_ENABLED",
+            "PYTHONPATH"}
+          env={k:v for k,v in os.environ.items() if k.upper() in allow}
+          env.update({"GIT_TERMINAL_PROMPT":"0","GOPROXY":"off","GOSUMDB":"off",
+                      "GOTOOLCHAIN":"local","PYTHONDONTWRITEBYTECODE":"1"})
+          commands=[
+            ["python","-B","-m","unittest","discover","-s","tests","-p","test_native_cells.py","-v"],
+            ["python","-B","-m","unittest","discover","-s","tests","-p","test_*.py","-v"]
+          ]
+          for idx,cmd in enumerate(commands):
+              try:
+                  p=subprocess.run(cmd,cwd=root,env=env,stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                    timeout=600,check=False)
+                  raw=p.stdout[:1000000]
+                  outcome="PASS" if p.returncode==0 else "TEST_FAILURE"
+                  print("F139_G10_PARENT_COMMAND_"+str(idx)+"_RETURN="+str(p.returncode))
+              except subprocess.TimeoutExpired as e:
+                  raw=(e.stdout or b"")[:1000000]
+                  outcome="TIMEOUT"
+                  print("F139_G10_PARENT_COMMAND_"+str(idx)+"_RETURN=TIMEOUT")
+              message=raw.decode("utf-8","replace")
+              print("F139_G10_PARENT_COMMAND_"+str(idx)+"_OUTCOME="+outcome)
+              for result in re.finditer(r"(?m)^\s*(FAIL|ERROR):\s+([A-Za-z0-9_./() -]{3,145})\s*$",message):
+                  print("F139_G10_PARENT_COMMAND_"+str(idx)+"_CASE_"+result.group(1)+"="+result.group(2).strip())
+              for line in re.findall(r"(?m)^(?:Ran \d+ tests?.*|FAILED \([^\n]+\)|OK)\s*$",message)[-3:]:
+                  print("F139_G10_PARENT_COMMAND_"+str(idx)+"_SUMMARY="+line[:170])
+              if outcome!="PASS":
+                  break
+          print("F139_G10_PARENT_ORIGINAL_REGRESSION_CONTROL_FINISHED=TRUE")
+          print("F139_G10_NO_NATIVE_CANDIDATE_STAGED=TRUE")
+          print("F139_G10_NO_SCIENTIFIC_FIRST_USE_OR_CONTROLLER_MUTATION=TRUE")
+          '@
+          & python -B -c $probe $root
+          if($LASTEXITCODE -ne 0){throw 'F139_G10_PARENT_COMPARISON_EXECUTION_FAILED'}
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $parent){
+            throw 'F139_G10_PARENT_SOURCE_MUTATED'
+          }
