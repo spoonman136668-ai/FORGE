@@ -1,0 +1,84 @@
+name: L10-C12 source-free container-boundary qualification
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/optimizer-language-l10-c12-container-qualify.yml'
+      - 'research/optimizer_language_l10/l10_c12_container_boundary.go'
+permissions:
+  contents: read
+concurrency:
+  group: l10-c12-isolation-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  linux-container-boundary:
+    if: github.event.pull_request.number == 862
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify source pins and reproduce source-free host/container attack
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l10
+          test "$(git rev-parse "HEAD:$p/l10_c12_container_boundary.go")" = '2a3517a38491d358f785743c909e00e0310e6701'
+          test "$(git rev-parse "HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json")" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse "HEAD:$p/l10_dev_source_custody.py")" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse "HEAD:$p/l10_dev_matched_controls.py")" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+          test "$(git rev-parse "HEAD:$p/l10_semantic_dev_oracle.py")" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+          command -v go
+          command -v docker
+          docker info --format '{{.ServerVersion}}'
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          mkdir "$scratch/context" "$scratch/trusted"
+          printf 'INVENTED_SOURCE_FREE_CANARY_NOT_SCIENCE\n' > "$scratch/trusted/private-canary"
+          test "$(cat "$scratch/trusted/private-canary")" = INVENTED_SOURCE_FREE_CANARY_NOT_SCIENCE
+          CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o "$scratch/context/probe" "./$p/l10_c12_container_boundary.go"
+          chmod 0555 "$scratch/context/probe"
+          cat > "$scratch/context/Dockerfile" <<'DOCKER'
+          FROM scratch
+          COPY --chmod=0555 probe /probe
+          USER 65534:65534
+          ENTRYPOINT ["/probe"]
+          DOCKER
+          test "$(find "$scratch/context" -maxdepth 1 -type f | wc -l)" -eq 2
+          docker build --no-cache --network=none --pull=false \
+            -t l10-c12-sourcefree-boundary "$scratch/context"
+          result="$(docker run --rm --network none --read-only \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 \
+            --memory=128m --cpus=1 --user 65534:65534 \
+            l10-c12-sourcefree-boundary "$scratch/trusted/private-canary")"
+          printf '%s\n' "$result"
+          C12_RESULT="$result" python - <<'PY'
+          import json,os
+          r=json.loads(os.environ["C12_RESULT"])
+          assert r["schema"]=="forge.l10.c12.code-only-container-boundary-v1"
+          assert r["status"]=="SOURCE_FREE_CONTAINER_CANARY_PASS",r
+          for x in ("host_canary_readable","proc_host_canary_readable",
+                    "network_egress_connected","docker_socket_present",
+                    "github_auth_env_present","scientific_go"):
+              assert r[x] is False,(x,r[x])
+          for x in ("capabilities_zero","read_only_root","source_free"):
+              assert r[x] is True,(x,r[x])
+          assert r["prospective_examples_generated"]==0
+          print("L10_C12_HOSTED_CONTAINER_BOUNDARY_SOURCE_FREE=PASS")
+          print("L10_C12_NO_NETWORK_OR_HOST_CANARY_ACCESS=PASS")
+          print("L10_C12_PROSPECTIVE_SAMPLES=0")
+          print("L10_C12_UNTRUSTED_CODE_HARDENING=NOT_QUALIFIED")
+          print("L10_C12_SCIENTIFIC_GO=FALSE")
+          PY
+  windows-explicit-no-go:
+    if: github.event.pull_request.number == 862
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - name: Confirm Linux-only trial never asserts Windows isolation
+        shell: pwsh
+        run: |
+          Write-Output 'L10_C12_WINDOWS_CONTAINER_BOUNDARY=NOT_IMPLEMENTED'
+          Write-Output 'L10_C12_WINDOWS_SCIENTIFIC_GO=FALSE'
