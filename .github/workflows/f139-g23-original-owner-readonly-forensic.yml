@@ -1,0 +1,85 @@
+name: F139 G23 original owner task and SQLite post-failure read-only forensic
+on:
+  push:
+    branches:
+      - qualify/f139-g23-original-owner-failclosed-readonly-forensic-20261025
+    paths:
+      - .github/workflows/f139-g23-original-owner-readonly-forensic.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-g23-readonly-original-owner-one-shot
+  cancel-in-progress: false
+jobs:
+  forensic:
+    if: github.ref == 'refs/heads/qualify/f139-g23-original-owner-failclosed-readonly-forensic-20261025' && github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Read original task, source, child count and SQLite head without changing custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_G23_ORIGINAL_RUNNER_DRIFT'
+          }
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $user=[string]$t.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($user)).Translate(
+             [Security.Principal.SecurityIdentifier]).Value}catch{}
+          $sidMatch=($user -ieq $who.Name -or $sid -ceq $who.User.Value)
+          function TaskArg([string]$n) {
+            $found=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $found.Success){throw 'F139_G23_TASK_ARGUMENT_UNAVAILABLE'}
+            return $found.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $wrapper=[regex]::Match([string]$t.Actions[0].Arguments,
+            '(?i)(?:^|\s)-File\s+"([^"]+)"')
+          $prof=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          $profileMatch=([IO.Path]::GetFullPath($db) -ieq $prof)
+          $powershellMatch=([IO.Path]::GetFileName([string]$t.Actions[0].Execute) -ieq 'powershell.exe')
+          $wrapperMatch=($wrapper.Success -and
+              [IO.Path]::GetFileName($wrapper.Groups[1].Value) -ceq 'Run-FORGE-F139.ps1')
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_G23_GIT_SOURCE_UNAVAILABLE'}
+          $dirty=@(& git.exe -C $root status --porcelain --untracked-files=all).Count
+          if($LASTEXITCODE -ne 0){throw 'F139_G23_GIT_STATUS_UNAVAILABLE'}
+          $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+             Where-Object { $_.CommandLine -and
+                $_.CommandLine.Contains('f139.local_controller') -and
+                $_.CommandLine.Contains($db) })
+          Write-Host ('F139_G23_ORIGINAL_TASK_STATE='+[string]$t.State)
+          Write-Host ('F139_G23_TASK_ACTIONS='+@($t.Actions).Count)
+          Write-Host ('F139_G23_TASK_TRIGGERS='+@($t.Triggers).Count)
+          Write-Host ('F139_G23_OWNER_SID_MATCH='+$sidMatch)
+          Write-Host ('F139_G23_TASK_EXECUTABLE_MATCH='+$powershellMatch)
+          Write-Host ('F139_G23_WRAPPER_NAME_MATCH='+$wrapperMatch)
+          Write-Host ('F139_G23_PROFILE_DATABASE_MATCH='+$profileMatch)
+          Write-Host ('F139_G23_PYTHON_CHILD_COUNT='+$children.Count)
+          Write-Host ('F139_G23_INSTALLED_SOURCE_SHA='+$head)
+          Write-Host ('F139_G23_SOURCE_DIRTY_COUNT='+$dirty)
+          $query=@'
+          import pathlib,sqlite3,json,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          c=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          c.execute("PRAGMA query_only=ON")
+          try:
+              m=c.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              assert m is not None
+              events=c.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+              tail=c.execute("SELECT kind FROM events ORDER BY rowid DESC LIMIT 1").fetchone()
+              print(json.dumps({"source_sha":m[0],"head_seq":m[1],"head_hash":m[2],
+                  "events":events,"tail_kind":tail[0] if tail else None},sort_keys=True))
+          finally:c.close()
+          '@
+          $result=(& $python -B -c $query $db | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_G23_READONLY_LEDGER_HEAD_UNAVAILABLE'}
+          Write-Host ('F139_G23_READONLY_LEDGER_SNAPSHOT='+$result)
+          Write-Host 'F139_G23_NO_TASK_OR_DATABASE_MUTATION=PASS'
