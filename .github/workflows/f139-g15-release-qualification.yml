@@ -7,6 +7,7 @@ on:
       - f139/nci04_v6_owner_release.py
       - f139/test_nci04_v6_owner_release.py
       - .github/workflows/f139-g15-release-qualification.yml
+      - .github/workflows/f139-g15-original-owner-release-guarded.yml
 permissions:
   contents: read
 jobs:
@@ -36,6 +37,19 @@ jobs:
           & python -B -m unittest discover -s f139 -p test_nci04_provider_receipt_v2.py -v
           if($LASTEXITCODE -ne 0){throw 'F139_G15_V2_CUSTODY_REGRESSION_FAIL'}
           Write-Host 'F139_G15_V5_BUDGET_V6_APPROVAL_V2_CUSTODY=PASS'
+      - name: Verify one-shot release remains inert and source-bound
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $body=[IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE '.github/workflows/f139-g15-original-owner-release-guarded.yml'))
+          if(([regex]::Matches($body, [regex]::Escape("$"+"target='0000000000000000000000000000000000000000'"))).Count -ne 1 -or
+             -not $body.Contains('transition-qualified-native-v6') -or
+             -not $body.Contains('v2_receipt_authorized=$false') -or
+             -not $body.Contains('F139_G15_POSTEVENT_ORIGINAL_OWNER_HELD_DISABLED') -or
+             -not $body.Contains('F139_G15_MERGED_PR_HEAD_DRIFT')){
+            throw 'F139_G15_GUARDED_RELEASE_NOT_INERT_OR_INCOMPLETE'
+          }
+          Write-Host 'F139_G15_PRODUCTION_CUTOVER_DISARMED=PASS'
       - name: One complete unchanged F139 public regression
         shell: pwsh
         run: |
