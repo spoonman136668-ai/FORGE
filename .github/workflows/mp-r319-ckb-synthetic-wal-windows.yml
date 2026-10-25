@@ -1,0 +1,85 @@
+name: R319 original elevated Windows synthetic CKB WAL snapshot qualification
+on:
+  push:
+    branches: [audit/mp-r319-ckb-synthetic-wal-windows-20261025]
+    paths: [.github/workflows/mp-r319-ckb-synthetic-wal-windows.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r319-original-existing-owner-fixtures-only
+  cancel-in-progress: false
+jobs:
+  fixture:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - name: Authenticate exact CKB source via existing owner read-only API and run synthetic WAL test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r319-ckb-synthetic-wal-windows-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R319_ALTERNATE_EXISTING_OWNER_WINDOWS_IDENTITY_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R319_ORIGINAL_OWNER_EVIDENCE_RUNNER_NOT_AUTHENTIC'
+          }
+          if(!$env:RUNNER_TEMP -or !(Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)){
+            throw 'R319_PRIVATE_RUNNER_SCRATCH_NOT_AVAILABLE'
+          }
+          $py=Get-Command python.exe -ErrorAction Stop
+          $gh=Get-Command gh.exe -ErrorAction Stop
+          $git=Get-Command git.exe -ErrorAction Stop
+          $commit='b1a960a3753c9af038a5a74d6e991502f42eddfe'
+          $sha=(& $gh.Source api ('repos/spoonman136668-ai/ckb-plane/commits/'+$commit) --jq '.sha' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $sha -cne $commit){
+            throw 'R319_READONLY_CKB_REMOTE_COMMIT_IDENTITY_UNAVAILABLE'
+          }
+          $pins=[ordered]@{
+            'New-R319-SyntheticWalEscrow.py'=@('snapshot/source/scripts/New-R319-SyntheticWalEscrow.py','fc4c943da75423ee008c4a77130a15d2a743e725')
+            'Test-R319-SyntheticWalEscrow.py'=@('snapshot/source/scripts/Test-R319-SyntheticWalEscrow.py','e12a677d931f26dd324cdd3d1f9b0a8cc831e354')
+            'Test-CKBPlane-RollbackEscrow.ps1'=@('snapshot/source/scripts/Test-CKBPlane-RollbackEscrow.ps1','da8e45430a98de36c8adbbea4bcdfb7c4c57e641')
+          }
+          $parent=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
+          $scratch=Join-Path $parent ('r319-gh-readonly-fixtures-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'R319_PRIVATE_SCRATCH_EXISTS'}
+          $created=$false
+          try{
+            $null=New-Item -ItemType Directory -Path $scratch -ErrorAction Stop
+            $created=$true
+            foreach($filename in $pins.Keys){
+              $info=$pins[$filename]
+              $api='repos/spoonman136668-ai/ckb-plane/contents/'+$info[0]+'?ref='+$commit
+              $base64=(& $gh.Source api $api --jq '.content' | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($base64)){
+                throw 'R319_READONLY_PINNED_SOURCE_BLOB_UNAVAILABLE'
+              }
+              $bytes=[Convert]::FromBase64String(($base64 -replace '\s',''))
+              $target=Join-Path $scratch $filename
+              [IO.File]::WriteAllBytes($target,$bytes)
+              $blob=(& $git.Source hash-object -- $target | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne [string]$info[1]){
+                throw 'R319_PINNED_CKB_SCRIPT_BLOB_CHANGED'
+              }
+            }
+            Write-Output 'R319_EXISTING_ELEVATED_OWNER_WINDOWS=PASS'
+            Write-Output 'R319_EXACT_REMOTE_SOURCE_COMMIT_AND_THREE_SCRIPT_BLOBS=PASS'
+            & $py.Source -B (Join-Path $scratch 'Test-R319-SyntheticWalEscrow.py')
+            if($LASTEXITCODE -ne 0){throw 'R319_SYNTHETIC_WAL_ESCROW_AND_R313_RESTORE_FAILED'}
+            Write-Output 'R319_EXISTING_WINDOWS_SYNTHETIC_WAL_RESTORE=PASS'
+            Write-Output 'R319_NO_PRODUCTION_CONTROLLER_OR_SQLITE_ACCESSED=TRUE'
+            Write-Output 'R319_NO_DURABLE_OWNER_ESCROW_CREATED=TRUE'
+            Write-Output 'R319_FORGE_SCIENCE_AND_CKB_NATIVE_AUTHORITY_UNCHANGED=TRUE'
+          }finally{
+            if($created -and (Test-Path -LiteralPath $scratch)){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
