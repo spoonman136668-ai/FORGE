@@ -114,6 +114,39 @@ class OriginalOwnerPublicationTests(unittest.TestCase):
         self.assertFalse(list(db.conn.execute(
             "SELECT 1 FROM events WHERE kind=?", (SUCCESS_KIND,))))
 
+    def test_real_owner_event_writer_accepts_exact_g3_kinds_only(self):
+        # G9 regression: G3 must be appendable before ANY remote mutation.
+        # Earlier FakeDb.event bypassed the actual Database.event grammar.
+        from f139.local_controller import Database, F139Error, SCHEMA, ZERO
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute(
+                "CREATE TABLE meta(id INTEGER PRIMARY KEY,schema TEXT,"
+                "source_sha TEXT,epoch INTEGER,enabled INTEGER,"
+                "legacy_suspended INTEGER,starts INTEGER,head_seq INTEGER,"
+                "head_hash TEXT)")
+            conn.execute(
+                "INSERT INTO meta VALUES(1,?,?,?,?,?,?,?,?)",
+                (SCHEMA, "b" * 40, 1, 1, 1, 0, 0, ZERO))
+            conn.execute(
+                "CREATE TABLE events(seq INTEGER PRIMARY KEY,kind TEXT,"
+                "payload TEXT,prior_sha TEXT,sha TEXT)")
+            db = object.__new__(Database)
+            db.conn = conn
+            for kind in (ATTEMPT_KIND, SUCCESS_KIND):
+                Database.event(db, kind, {
+                    "scientific_first_use": False, "retry_allowed": False})
+            with self.assertRaisesRegex(F139Error, "INVALID_EVENT_KIND"):
+                Database.event(db, "G4_UNAUTHORIZED_EVENT", {})
+            found = conn.execute(
+                "SELECT kind FROM events ORDER BY seq").fetchall()
+            self.assertEqual([row["kind"] for row in found],
+                             [ATTEMPT_KIND, SUCCESS_KIND])
+            self.assertEqual(db.meta()["head_seq"], 2)
+        finally:
+            conn.close()
+
     def test_preflight_denial_never_writes_or_consumes_attempt(self):
         db = FakeDb(G1_EVENT)
         writes = []
