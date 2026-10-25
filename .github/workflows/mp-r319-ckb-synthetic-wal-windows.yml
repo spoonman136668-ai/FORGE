@@ -1,0 +1,85 @@
+name: R319 original elevated Windows synthetic CKB WAL snapshot qualification
+on:
+  push:
+    branches: [audit/mp-r319-ckb-synthetic-wal-windows-20261025]
+    paths: [.github/workflows/mp-r319-ckb-synthetic-wal-windows.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r319-original-existing-owner-fixtures-only
+  cancel-in-progress: false
+jobs:
+  fixture:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - name: Fetch exact pinned public CKB-plane source only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: spoonman136668-ai/ckb-plane
+          ref: 920579888881fe886a5727f0868291f660d2a287
+          path: r319-source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify frozen parent/source and exercise ONLY synthetic SQLite WAL + R313 restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r319-ckb-synthetic-wal-windows-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R319_ALTERNATE_EXISTING_OWNER_WINDOWS_IDENTITY_DRIFT'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R319_ORIGINAL_OWNER_EVIDENCE_RUNNER_NOT_AUTHENTIC'
+          }
+          $source=Join-Path $env:GITHUB_WORKSPACE 'r319-source'
+          $observed=(& git.exe -C $source rev-parse HEAD).Trim()
+          if($observed -cne '920579888881fe886a5727f0868291f660d2a287'){
+            throw 'R319_CKB_SOURCE_COMMIT_IDENTITY_DRIFT'
+          }
+          & git.exe -C $source merge-base --is-ancestor '9753e06fd2455a978393850ad68b3d683e3789f2' HEAD
+          if($LASTEXITCODE -ne 0){throw 'R319_R313_QUALIFIED_PARENT_DRIFT'}
+          $changed=@(& git.exe -C $source diff --name-only '9753e06fd2455a978393850ad68b3d683e3789f2' HEAD)
+          $allowed=@(
+            '.github/workflows/r319-wal-snapshot-source-qualify.yml',
+            'snapshot/source/docs/autonomy-r1/R319-WAL-SNAPSHOT-SOURCE.md',
+            'snapshot/source/scripts/New-R319-SyntheticWalEscrow.py',
+            'snapshot/source/scripts/Test-R319-SyntheticWalEscrow.py'
+          )
+          if($LASTEXITCODE -ne 0 -or $changed.Count -ne 4 -or
+             @($changed|Where-Object {$_ -notin $allowed}).Count -ne 0){
+            throw 'R319_EXACT_FOUR_FILE_R313_TO_R319_DELTA_DRIFT'
+          }
+          $pins=@{
+            'snapshot/source/scripts/New-R319-SyntheticWalEscrow.py'='fc4c943da75423ee008c4a77130a15d2a743e725'
+            'snapshot/source/scripts/Test-R319-SyntheticWalEscrow.py'='99a9a7abd1c63b1562c07b4b63f1ecb9ed5af50a'
+            'snapshot/source/docs/autonomy-r1/R319-WAL-SNAPSHOT-SOURCE.md'='e216b00252e85a1f065662f83559fc305dfcb5ca'
+            'snapshot/source/scripts/Test-CKBPlane-RollbackEscrow.ps1'='da8e45430a98de36c8adbbea4bcdfb7c4c57e641'
+            'snapshot/source/scripts/Test-R313-Offline-Restore.ps1'='80ba037bd6fa0d889f36e9b83a3254eea7ca553f'
+            'snapshot/source/internal/plane/status_projection.go'='977092831e3330f0a49e78eb4107bd00ab117c22'
+          }
+          foreach($p in $pins.Keys){
+            $actual=(& git.exe -C $source rev-parse ('HEAD:'+$p)).Trim()
+            if($actual -cne [string]$pins[$p]){throw 'R319_PINNED_CKB_SOURCE_BLOB_CHANGED'}
+          }
+          if(!$env:RUNNER_TEMP -or !(Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)){
+            throw 'R319_PRIVATE_RUNNER_SCRATCH_NOT_AVAILABLE'
+          }
+          $py=Get-Command python.exe -ErrorAction Stop
+          Write-Output 'R319_AUTHENTIC_EXISTING_ELEVATED_OWNER_WINDOWS=PASS'
+          Write-Output 'R319_EXACT_R313_BASE_AND_FOUR_FILE_SOURCE=PASS'
+          $test=Join-Path $source 'snapshot/source/scripts/Test-R319-SyntheticWalEscrow.py'
+          & $py.Source -B $test
+          if($LASTEXITCODE -ne 0){throw 'R319_WAL_SYNTHETIC_AND_R313_RESTORE_TEST_FAILED'}
+          Write-Output 'R319_EXISTING_WINDOWS_WAL_SNAPSHOT_SOURCE_TESTS=PASS'
+          Write-Output 'R319_NO_PRODUCTION_CKB_FILES_OR_CONTROLLER_ACCESSED=TRUE'
+          Write-Output 'R319_LIVE_DURABLE_ESCROW_NOT_CREATED=TRUE'
+          Write-Output 'R319_FORGE_SCIENTIFIC_AUTHORITY_NOT_CHANGED=TRUE'
