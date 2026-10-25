@@ -145,6 +145,38 @@ jobs:
             $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
             Write-Host ('D19_ORIGINAL_CONTROLLER_SCHEDULED_TASK_STATE='+[string]$task.State)
           }catch{Write-Host 'D19_ORIGINAL_CONTROLLER_SCHEDULED_TASK_STATE=UNAVAILABLE'}
+          # Identify exact running image identity; do not inspect command-line
+          # arguments (which may contain private operator data).
+          if($processReadable){
+            foreach($p in $native){
+              $image=[string]$p.ExecutablePath
+              if([string]::IsNullOrWhiteSpace($image)){
+                Write-Host 'D19_RUNNING_CKB_IMAGE=PATH_NOT_AVAILABLE'
+                continue
+              }
+              $exact=[IO.Path]::GetFullPath($image)
+              $ownerPrefix='C:\Users\camar\GolandProjects\ckb-plane'
+              $programPrefix='C:\ProgramData\CKBR'
+              if($exact.StartsWith($ownerPrefix,[StringComparison]::OrdinalIgnoreCase)){
+                $class='OWNER_CKB_CHECKOUT'
+                $rel=$exact.Substring($ownerPrefix.Length).TrimStart('\')
+                Write-Host ('D19_RUNNING_CKB_IMAGE_RELATIVE_PATH='+$rel)
+              } elseif($exact.StartsWith($programPrefix,[StringComparison]::OrdinalIgnoreCase)){
+                $class='CKBR_PROGRAMDATA'
+                $rel=$exact.Substring($programPrefix.Length).TrimStart('\')
+                Write-Host ('D19_RUNNING_CKB_IMAGE_RELATIVE_PATH='+$rel)
+              }else{
+                $class='OTHER_UNVERIFIED_INSTALL_ROOT'
+              }
+              Write-Host ('D19_RUNNING_CKB_IMAGE_CLASS='+$class)
+              if($class -ne 'OTHER_UNVERIFIED_INSTALL_ROOT' -and
+                 (Test-Path -LiteralPath $exact -PathType Leaf)){
+                $imgItem=Get-Item -LiteralPath $exact -Force
+                Need (-not (($imgItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'EXECUTABLE_REPARSE'
+                Write-Host ('D19_RUNNING_CKB_IMAGE_SHA256='+(Get-FileHash -LiteralPath $exact -Algorithm SHA256).Hash.ToLowerInvariant())
+              }
+            }
+          }
           Write-Host 'D19_IDLE_STATE=NOT_PROVEN_BY_PROCESS_OR_TASK_METADATA'
           Write-Host 'D19_NO_CONTROLLER_OR_MEMORY_WRITES=PASS'
           Write-Host 'D19_CODEX_MODEL_CALLS=0'
