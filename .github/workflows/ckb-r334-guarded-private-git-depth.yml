@@ -1,0 +1,209 @@
+name: R334 guarded private KTRADE attempt4 Git ancestry repair only
+on:
+  push:
+    branches: [repair/ckb-r334-attempt4-private-git-depth-20261025]
+    paths: [.github/workflows/ckb-r334-guarded-private-git-depth.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r334-single-original-ckb-private-workspace-owner
+  cancel-in-progress: false
+jobs:
+  repair-private-metadata:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Repair exact attempt4 private shallow marker without queue or worker actions
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $priv=[Security.Principal.WindowsPrincipal]::new($who)
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'repair/ckb-r334-attempt4-private-git-depth-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             !$priv.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R334_ORIGINAL_ADMIN_OWNER_IDENTITY_REQUIRED'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $baseline='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $parent='8101e4822b336a5f6d297410f76d51db1b6fe52c'
+          $worker='codex/ktrade-rb1-single-track-20261022'
+          function Sha([string]$p){return (Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          function G([string]$where,[string[]]$argv){
+            $saved=$ErrorActionPreference
+            try{$ErrorActionPreference='Continue';$out=@(& git.exe -C $where @argv 2>&1);$code=$LASTEXITCODE}
+            finally{$ErrorActionPreference=$saved}
+            return @{rc=$code;output=($out -join [Environment]::NewLine).Trim()}
+          }
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($process.Count -ne 1){throw 'R334_ORIGINAL_NATIVE_CONTROLLER_COUNT_CHANGED'}
+          $pid0=[int]$process[0].ProcessId
+          $created=([datetime]$process[0].CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$process[0].ExecutablePath
+          if((Sha $exe) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+             (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+            throw 'R334_ORIGINAL_R303_IMAGE_CONFIG_DRIFT'
+          }
+          $read=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          path=Path(sys.argv[1]).resolve(strict=True)
+          db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=8)
+          try:
+              db.execute('PRAGMA query_only=ON')
+              own=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation')"))
+              if own.get('autonomy_authority')!='plane' or own.get('autonomy_generation')!='6':
+                  raise RuntimeError('R334_PLANE_GENERATION_CHANGED')
+              row=db.execute('SELECT state,attempt,workspace FROM work_orders WHERE id=?',(sys.argv[2],)).fetchone()
+              if not row or row[0]!='BLOCKED' or int(row[1])!=4:
+                  raise RuntimeError('R334_EXACT_BLOCKED_ATTEMPT4_MISSING')
+              leases=db.execute('SELECT COUNT(*) FROM worker_leases WHERE work_order_id=?',(sys.argv[2],)).fetchone()[0]
+              if leases!=0:raise RuntimeError('R334_WORKER_STILL_OWNED')
+              print(json.dumps({'state':row[0],'attempt':row[1],'workspace':row[2],'leases':leases},separators=(',',':')))
+          finally:db.close()
+          '@
+          function ReadNative(){
+            $raw=@(& python.exe -B -c $read $db $id)
+            if($LASTEXITCODE -ne 0 -or $raw.Count -ne 1){throw 'R334_NATIVE_READONLY_STATE_UNAVAILABLE'}
+            return $raw[0]|ConvertFrom-Json
+          }
+          $job=ReadNative
+          $work=[IO.Path]::GetFullPath([string]$job.workspace)
+          $prefix=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(!$work.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or
+             (Split-Path -Leaf $work) -cne 'worktree' -or
+             !(Test-Path -LiteralPath $work -PathType Container)){throw 'R334_PRIVATE_WORKSPACE_PATH_DRIFT'}
+          $private=Join-Path (Split-Path -Parent $work) 'repository'
+          $shallow=Join-Path $private '.git\shallow'
+          if(!(Test-Path -LiteralPath (Join-Path $private '.git') -PathType Container) -or
+             (Test-Path -LiteralPath $shallow)){
+            throw 'R334_PRIVATE_SHALLOW_MARKER_ALREADY_PRESENT_OR_GIT_DRIFT'
+          }
+          $head=G $work @('rev-parse','HEAD')
+          $branch=G $work @('symbolic-ref','--short','HEAD')
+          $srcHead=G $source @('rev-parse','HEAD')
+          $srcShallow=G $source @('rev-parse','--is-shallow-repository')
+          $workShallow=G $work @('rev-parse','--is-shallow-repository')
+          $ancestor=G $work @('merge-base','--is-ancestor',$baseline,'HEAD')
+          $baseObject=G $work @('cat-file','-e',($baseline+'^{commit}'))
+          $parentObject=G $work @('cat-file','-e',($parent+'^{commit}'))
+          $sourceStatus=G $source @('status','--porcelain')
+          $refs=G $private @('for-each-ref','--format=%(refname) %(objectname)')
+          $sourceRefs=G $source @('for-each-ref','--format=%(refname) %(objectname)')
+          $workStatus=G $work @('status','--porcelain','-z')
+          if($head.rc -ne 0 -or $head.output -cne $baseline -or
+             $branch.rc -ne 0 -or $branch.output -cne $worker -or
+             $srcHead.rc -ne 0 -or $srcHead.output -cne $baseline -or
+             $srcShallow.rc -ne 0 -or $srcShallow.output -cne 'true' -or
+             $workShallow.rc -ne 0 -or $workShallow.output -cne 'false' -or
+             $ancestor.rc -ne 128 -or $baseObject.rc -ne 0 -or $parentObject.rc -eq 0 -or
+             $sourceStatus.rc -ne 0 -or $sourceStatus.output -ne '' -or
+             $refs.rc -ne 0 -or $sourceRefs.rc -ne 0 -or $workStatus.rc -ne 0){
+            throw 'R334_EXACT_SHALLOW_BUG_PREIMAGE_NOT_PRESENT'
+          }
+          # Bounded, read-only full private worktree digest covers tracked and
+          # untracked regular source bytes. The Git common-dir is excluded.
+          $hashpy=@'
+          import hashlib,os,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]).resolve(strict=True)
+          overall=hashlib.sha256()
+          n=0
+          total=0
+          for base,dirs,files in os.walk(root,followlinks=False):
+              dirs[:]=sorted(d for d in dirs if d!='.git')
+              for name in sorted(files):
+                  path=Path(base)/name
+                  rel=path.relative_to(root).as_posix()
+                  if rel=='.git':continue
+                  if path.is_symlink() or not path.is_file():
+                      raise RuntimeError('R334_NONREGULAR_SOURCE_FILE')
+                  n+=1
+                  size=path.stat().st_size
+                  total+=size
+                  if n>20000 or total>2_000_000_000:
+                      raise RuntimeError('R334_WORKSPACE_DIGEST_BUDGET')
+                  h=hashlib.sha256()
+                  with path.open('rb') as f:
+                      for chunk in iter(lambda:f.read(131072),b''):h.update(chunk)
+                  overall.update(rel.encode('utf-8')+b'\0'+str(size).encode()+b'\0'+h.digest())
+          print(overall.hexdigest())
+          '@
+          function WorkDigest(){
+            $v=@(& python.exe -B -c $hashpy $work)
+            if($LASTEXITCODE -ne 0 -or $v.Count -ne 1 -or $v[0] -cnotmatch '^[0-9a-f]{64}$'){
+              throw 'R334_CANDIDATE_FILE_DIGEST_UNAVAILABLE'
+            }
+            return [string]$v[0]
+          }
+          $before=WorkDigest
+          Write-Output 'R334_EXACT_ATTEMPT4_BLOCKED_NO_LEASE_SHA_AND_GRAPH_PREIMAGES=PASS'
+          $attempted=$false
+          try{
+            $attempted=$true
+            $prior=$ErrorActionPreference
+            try{
+              $ErrorActionPreference='Continue'
+              $fetch=@(& git.exe -C $private fetch --depth=1 --no-tags --no-write-fetch-head -- $source $baseline 2>&1)
+              $rc=$LASTEXITCODE
+            }finally{$ErrorActionPreference=$prior}
+            if($rc -ne 0){throw 'R334_PRIVATE_DEPTH_FETCH_FAILED'}
+            if(!(Test-Path -LiteralPath $shallow -PathType Leaf)){throw 'R334_SHALLOW_MARKER_NOT_CREATED'}
+            $item=Get-Item -LiteralPath $shallow -Force -ErrorAction Stop
+            if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+               ([IO.File]::ReadAllText($shallow)).Trim() -cne $baseline){
+              throw 'R334_PRIVATE_BOUNDARY_NOT_EXACT_BASELINE'
+            }
+            $newShallow=G $work @('rev-parse','--is-shallow-repository')
+            $newAncestry=G $work @('merge-base','--is-ancestor',$baseline,'HEAD')
+            $self=G $work @('merge-base','--is-ancestor','HEAD','HEAD')
+            $newHead=G $work @('rev-parse','HEAD')
+            $newBranch=G $work @('symbolic-ref','--short','HEAD')
+            $newRefs=G $private @('for-each-ref','--format=%(refname) %(objectname)')
+            $newSourceRefs=G $source @('for-each-ref','--format=%(refname) %(objectname)')
+            $newWorkStatus=G $work @('status','--porcelain','-z')
+            $newSourceStatus=G $source @('status','--porcelain')
+            $after=WorkDigest
+            $newJob=ReadNative
+            $newProcess=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+            if($newShallow.rc -ne 0 -or $newShallow.output -cne 'true' -or
+               $newAncestry.rc -ne 0 -or $self.rc -ne 0 -or
+               $newHead.rc -ne 0 -or $newHead.output -cne $baseline -or
+               $newBranch.rc -ne 0 -or $newBranch.output -cne $worker -or
+               $newRefs.rc -ne 0 -or $newRefs.output -cne $refs.output -or
+               $newSourceRefs.rc -ne 0 -or $newSourceRefs.output -cne $sourceRefs.output -or
+               $newWorkStatus.rc -ne 0 -or $newWorkStatus.output -cne $workStatus.output -or
+               $newSourceStatus.rc -ne 0 -or $newSourceStatus.output -cne $sourceStatus.output -or
+               $after -cne $before -or
+               $newJob.state -cne 'BLOCKED' -or [int]$newJob.attempt -ne 4 -or [int]$newJob.leases -ne 0 -or
+               [string]$newJob.workspace -cne [string]$job.workspace -or
+               $newProcess.Count -ne 1 -or [int]$newProcess[0].ProcessId -ne $pid0 -or
+               ([datetime]$newProcess[0].CreationDate).ToUniversalTime().ToString('o') -cne $created -or
+               (Sha $exe) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+               (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+              throw 'R334_STRICT_POST_REPAIR_ORIGINAL_OWNER_IMMUTABILITY_FAILED'
+            }
+            Write-Output 'R334_EXACT_ATTEMPT4_PRIVATE_SHALLOW_ANCESTRY_REPAIRED=PASS'
+            Write-Output 'R334_CANDIDATE_ALL_SOURCE_BYTES_AND_REFS_PRESERVED=PASS'
+            Write-Output 'R334_ORIGINAL_NATIVE_BLOCKED_ATTEMPT4_AND_CONTROLLER_UNCHANGED=PASS'
+            Write-Output 'R334_NO_OPERATOR_ACK_RETRY_QUEUE_SUBMIT_DISPATCH_OR_CODEX=TRUE'
+            Write-Output 'R334_ACCEPTANCE_NOT_RERUN_AND_WORK_ORDER_STILL_BLOCKED=TRUE'
+          }catch{
+            $failure=[string]$_.Exception.Message
+            if($attempted -and (Test-Path -LiteralPath $shallow -PathType Leaf)){
+              $present=([IO.File]::ReadAllText($shallow)).Trim()
+              if($present -ceq $baseline){
+                Remove-Item -LiteralPath $shallow -Force -ErrorAction Stop
+                Write-Output 'R334_ORIGINAL_PRIVATE_SHALLOW_BOUNDARY_RESTORED_ON_FAILURE=PASS'
+              }
+            }
+            throw $failure
+          }
