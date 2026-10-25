@@ -124,7 +124,17 @@ jobs:
                   tail = logpath.read_text(encoding="utf-8-sig", errors="replace")[-120000:]
                   recent_dispositions = re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]+)"', tail)[-12:]
                   recent_error_codes = re.findall(r'\bF139_[A-Z0-9_]{5,80}\b', tail)[-8:]
+              # Authenticate #970's original provider lookup using the EXACT
+              # same bounded code path as F139 reconciliation. Read-only.
+              from f139.local_controller import GitHub
+              provider_970 = None
+              if len(wanted) == 1:
+                  provider_970 = GitHub().candidates(wanted[0]["ticket"], wanted[0]["started_at"])
               report = {
+                  "provider_970": ({"id": provider_970["id"],
+                                    "status": provider_970["status"],
+                                    "conclusion": provider_970.get("conclusion")}
+                                   if provider_970 else None),
                   "schema": "forge.f139.g46.readonly-original-v7-diagnostic.v1",
                   "source_sha": meta["source_sha"],
                   "head_seq": meta["head_seq"],
