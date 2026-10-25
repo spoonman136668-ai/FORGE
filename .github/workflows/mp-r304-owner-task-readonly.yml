@@ -29,3 +29,24 @@ jobs:
           Write-Output 'R304_QUEUE_AND_CONFIG_COMPATIBILITY=NOT_TESTED'
           Write-Output 'R304_CONTROLLER_MUTATIONS=0'
           Write-Output 'R304_READ_ONLY_TASK_OBSERVATION=PASS'
+
+      - name: Observe authority and lease counts through SQLite read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R304_WRONG_RUNNER'}
+          $py=@'
+          import sqlite3,pathlib,json
+          p=pathlib.Path("C:/Users/camar/GolandProjects/ckb-plane/state/autonomy.db")
+          with sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=5) as db:
+              db.execute("PRAGMA query_only=ON")
+              if db.execute("PRAGMA quick_check").fetchone()[0]!="ok":
+                  raise RuntimeError("R304_SQLITE_INTEGRITY")
+              settings=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              queue=db.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0]
+              print("R304_READONLY_DB_STATUS="+json.dumps(dict(settings=settings,active_leases=leases,active_queue=queue),sort_keys=True))
+          '@
+          & python.exe -B -c $py
+          if($LASTEXITCODE -ne 0){throw 'R304_READ_ONLY_SQLITE_FAILED'}
+          Write-Output 'R304_SQLITE_LIVE_WRITES=0'
