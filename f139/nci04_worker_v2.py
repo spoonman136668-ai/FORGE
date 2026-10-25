@@ -99,6 +99,8 @@ def _command(argv, root: Path, runner=None):
         status = "PASS" if returncode == 0 else "TEST_FAILURE"
     require(isinstance(output, bytes) and len(output) <= 1_000_000,
             "V2_CHILD_OUTPUT_INVALID")
+    if status in ("OUTPUT_LIMIT", "ORPHANED_OUTPUT"):
+        status, returncode = "TEST_FAILURE", 1
     require(status in ("PASS", "TEST_FAILURE", "TIMEOUT")
             and type(returncode) is int, "V2_CHILD_STATUS_INVALID")
     module = argv[argv.index("-p") + 1] if "-p" in argv else None
@@ -126,6 +128,8 @@ def run_v2(candidate: Candidate, original: Path, scratch: Path, *,
     This is a DEV probe only, not a V1 workflow entrypoint or replay facility.
     """
     modules, unsupported = supported_modules(oslabel)
+    require((os.name == "nt") == (oslabel == "windows-latest"),
+            "V2_ACTUAL_RUNNER_OS_DRIFT")
     original = _original_source(candidate, Path(original))
     require(Path(scratch).is_dir() and not Path(scratch).is_symlink(),
             "V2_SCRATCH_INVALID")
@@ -196,7 +200,9 @@ def _valid_result(value, argv, expected_count):
         and ((outcome == "PASS" and ret == 0)
              or (outcome == "TEST_FAILURE" and ret > 0)
              or (outcome == "TIMEOUT" and ret == -1))
-        and (n == expected_count if expected_count is not None else n is None)
+        and (n is None if expected_count is None else
+             (n == expected_count if outcome == "PASS" else
+              (n is None or (type(n) is int and n >= 0))))
         and isinstance(value["output_sha256"], str)
         and SHA256.fullmatch(value["output_sha256"]) is not None
         and type(value["output_bytes"]) is int and 0 <= value["output_bytes"] <= 1_000_000
