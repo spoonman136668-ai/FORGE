@@ -193,6 +193,44 @@ class G35ProviderOriginTests(unittest.TestCase):
         with self.assertRaisesRegex(G35ProviderDenied, "RUN_NOT_TERMINAL"):
             self.read()
 
+    def test_authentic_negative_report_stays_negative_without_terminal(self):
+        # Build an independently valid FAILED V2 report for the Windows job;
+        # a failed outcome is evidence, never approval to replay or restart.
+        import zipfile
+        from f139.test_nci04_provider_receipt_v2 import bundle
+        outer = self.artifacts[51]
+        with zipfile.ZipFile(io.BytesIO(outer)) as z:
+            inner = z.read(INNER_FILENAME)
+        with zipfile.ZipFile(io.BytesIO(inner)) as z:
+            report = json.loads(z.read("f139-v2-native-report.json"))
+        report["candidate_behavior"][0]["outcome"] = "TEST_FAILURE"
+        report["candidate_behavior"][0]["returncode"] = 1
+        report["candidate_behavior"] = report["candidate_behavior"][:1]
+        report["candidate_compile"] = None
+        report["qualification_complete"] = False
+        failed, _ = bundle(self.admissions[OS[1]], report)
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w", zipfile.ZIP_STORED) as z:
+            z.writestr(INNER_FILENAME, failed)
+        self.artifacts[51] = stream.getvalue()
+        self.arts[1]["digest"] = "sha256:" + digest(self.artifacts[51])
+        self.arts[1]["size_in_bytes"] = len(self.artifacts[51])
+        self.jobs[2]["conclusion"] = "failure"
+        self.run["conclusion"] = "failure"
+        result = self.read()
+        self.assertFalse(result["both_platforms_development_qualified"])
+        self.assertEqual(result["disposition"], "V2_PROVIDER_NEGATIVE_RETAINED")
+        self.assertFalse(result["original_terminal_written"])
+        self.assertFalse(result["unattended_progression_verified"])
+        self.assertFalse(result["platforms"][OS[1]]["development_qualified"])
+
+    def test_worker_job_failure_cannot_hide_a_positive_receipt(self):
+        self.jobs[2]["conclusion"] = "failure"
+        self.run["conclusion"] = "failure"
+        with self.assertRaisesRegex(G35ProviderDenied,
+                                    "V2_REPORT_JOB_CONCLUSION_MISMATCH"):
+            self.read()
+
     def test_github_adapter_requires_existing_provider_client(self):
         with self.assertRaisesRegex(G35ProviderDenied,
                                     "ORIGINAL_PROVIDER_CLIENT_AND_SIGNED"):
