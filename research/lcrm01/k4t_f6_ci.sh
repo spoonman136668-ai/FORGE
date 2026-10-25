@@ -2,10 +2,10 @@
 # K4T-F6: original native cost frontier, independent FIT six-field conventional comparator.
 set -euo pipefail
 cd "$GITHUB_WORKSPACE"
-test "$(git rev-parse '27c0ccd3e2b2e00f443bcf89a1e4c4cf7c53646c^')" = '5dcefc87fb6ae9db7431c1b2673fb1d9e5145954'
-git merge-base --is-ancestor 27c0ccd3e2b2e00f443bcf89a1e4c4cf7c53646c HEAD
+test "$(git rev-parse '0c4bf4ba9ea4610a2c4f954d3eabea98b2343cd5^')" = 'a1dc7bf282fdb9354941b1a7ad05f37941791cb3'
+git merge-base --is-ancestor 0c4bf4ba9ea4610a2c4f954d3eabea98b2343cd5 HEAD
 test "$(git hash-object research/lcrm01/k4y_frozen_learned_affordance.json)" = 'c34ac2b73e07c0117ff0bea863addd358749e9cb'
-test "$(git hash-object research/lcrm01/k4t_f5_frozen_r6_edges.json)" = '22d677c99aa689b6024926bc2fb51ee7ed0361d6'
+test "$(git hash-object research/lcrm01/k4t_f6_frozen_r7_physical.json)" = 'c733d053a10bb4b12d8de87ca846a8e006cbd881'
 test "$(git hash-object research/lcrm01/k4u_native_minigrid.py)" = 'd0e0a4ac9396a05f9fb024aa09cd64407769459b'
 test "$(git hash-object research/lcrm01/k4y_native_affordance.py)" = '251ca00f7334809ef9afe815992272d0e3a68379'
 test "$(git hash-object research/lcrm01/k4x_frozen_curriculum_intervention.json)" = '664f0c92070ed5bedc70ba934edce9adaf9cdb4f'
@@ -19,7 +19,7 @@ PY
 export PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01"
 python -B -m unittest discover -s research/lcrm01 -p 'test_k4t_f6_sourceonly.py' -v
 python -B -m unittest discover -s research/lcrm01 -p 'test_k4t_wingless_wire.py' -v
-mkdir -p "$RUNNER_TEMP/k4tf6/minigrid" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r1" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r2" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r3" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r4" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r5" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r6" "$RUNNER_TEMP/k4tf6/yggroot/research/native/itd02/r1" "$RUNNER_TEMP/k4tf6/yggroot/research/native/itd02/r2"
+mkdir -p "$RUNNER_TEMP/k4tf6/minigrid" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r1" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r2" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r3" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r4" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r5" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r6" "$RUNNER_TEMP/k4tf6/go/research/native/itd02/r7" "$RUNNER_TEMP/k4tf6/yggroot/research/native/itd02/r1" "$RUNNER_TEMP/k4tf6/yggroot/research/native/itd02/r2"
 python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
 python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
 git init -q "$RUNNER_TEMP/k4tf6/minigrid"
