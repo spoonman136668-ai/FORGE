@@ -1,0 +1,135 @@
+name: MP-AI05 practical source recall and context footprint once
+on:
+  push:
+    branches: [qualification/mp-ai05-practical-benefits-20261025]
+    paths: ['.github/workflows/mp-ai05-practical-benefits-20261025.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai05-one-practical-audit
+  cancel-in-progress: false
+jobs:
+  measure:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Exact accepted memory read without models
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code){if(-not $ok){throw ('MPAI05_PRACTICAL_'+$code)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-ai05-practical-benefits-20261025' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          # Machine name includes Codex historically; no Codex invocation is made.
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $head='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mp-ai05-practical-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          Need (-not (Test-Path $scratch)) 'SCRATCH_EXISTS'
+          New-Item -Path $scratch -ItemType Directory | Out-Null
+          try {
+            $live=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            Need ($LASTEXITCODE -eq 0 -and $live.Count -eq 1 -and ([string]$live[0] -split '\s+')[0] -ceq $head) 'MAIN_SOURCE_DRIFT'
+            & git.exe clone --quiet --depth 1 --single-branch --branch main $remote $root
+            Need ($LASTEXITCODE -eq 0) 'SOURCE_CLONE'
+            $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $head) 'EXACT_ACCEPTED_HEAD'
+            $audit=@'
+            from pathlib import Path
+            import hashlib
+            import json
+            import sys
+            
+            root, sha = Path(sys.argv[1]), sys.argv[2]
+            sys.path.insert(0, str(root / "tools"))
+            from mindpalace_readonly import MemorySnapshot, _cost
+            CASES = [
+                ("P1", "FORGE", "Mind-Palace scheduled queue polling merged source without fresh ingestion", "project_state/forge-guarded-mind-palace-polling-merged-20261017"),
+                ("P2", "KTRADE", "KLP07R3 secure update signing authority accepted Windows source release activation forbidden", "project_state/ktrade-klp07r3-secure-update-signing-authority-accepted-20261005"),
+                ("P3", "Wingless", "Wingless Stage 3.5 isolated integration proof plane reconciliation inactive adapter", "project_state/wingless-stage35-reconciliation"),
+                ("P4", "Yggdrasil", "Yggdrasil Y092 learned cognition consumer pilot experiment launched", "project_state/yggdrasil-y092-learned-consumer-running-20261005"),
+                ("P5", "Mind-Palace", "Mind-Palace direct read-only repository path remote bootstrap catalog no CKB-plane mailbox", "baseline/mind-palace-direct-readonly-retrieval-promoted-20261001"),
+            ]
+            records_digest = "e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa"
+            rows = []
+            snapshots = {p: MemorySnapshot(root, sha, [p]) for _, p, _, _ in CASES}
+            example = snapshots["Mind-Palace"]
+            assert all(x.source_sha == sha and x.records_sha256 == records_digest for x in snapshots.values())
+            assert len(example.index) == 261, "ACCEPTED_RECORD_COUNT_DRIFT"
+            governance = ["boundary/authority-order", "boundary/no-secrets"]
+            full_261 = sum(_cost(r["statement"]) for r in example.index)
+            for ident, project, query, expected in CASES:
+                snap = snapshots[project]
+                source = snap.by_id.get(expected)
+                assert source is not None and source.get("project") == project and source.get("source_refs"), "MISSING_EXPECTED_GIT_MEMORY_RECORD"
+                got = snap.recall(sha, query, projects=[project], profile="continuation")
+                limits = snap.profiles["continuation"]
+                matches = got["matches"]
+                govern = got["governance"]
+                assert got["source_sha"] == sha and got["records_sha256"] == records_digest
+                assert got["scope"] == [project] and got["profile"] == "continuation"
+                assert [r["id"] for r in govern] == governance
+                assert 0 <= got["estimated_text_tokens"] <= limits["primary_token_budget"]
+                assert len(matches) <= limits["primary_max_records"]
+                assert all(r["project"] == project and r.get("source_refs") for r in matches)
+                target = expected in {r["id"] for r in matches}
+                project_context = sum(_cost(r["statement"]) for r in example.index if r["project"] == project)
+                project_context += sum(_cost(snap.by_id[r]["statement"]) for r in governance)
+                # Fairer comparator than 261-record full bank: ALL current project text + mandatory governance.
+                assert project_context >= got["estimated_text_tokens"] > 0
+                row = {
+                    "case": ident, "project": project, "expected_present": target,
+                    "selected_ids": [r["id"] for r in matches],
+                    "mandatory_governance_preserved": True, "source_refs_present": True,
+                    "context_proxy_tokens": got["estimated_text_tokens"],
+                    "full_project_context_proxy_tokens": project_context,
+                    "full_261_records_context_proxy_tokens": full_261,
+                    "saving_vs_project_pct": round(100 * (1 - got["estimated_text_tokens"] / project_context), 1),
+                    "saving_vs_all_records_pct": round(100 * (1 - got["estimated_text_tokens"] / full_261), 1),
+                }
+                rows.append(row)
+                print("MPAI05_PRACTICAL_CASE=" + json.dumps(row, sort_keys=True, separators=(",", ":")))
+            tot_returned = sum(x["context_proxy_tokens"] for x in rows)
+            tot_project_full = sum(x["full_project_context_proxy_tokens"] for x in rows)
+            summary = {
+                "schema": "mind-palace.mpai05-practical-benefits-source-audit.v1",
+                "source_sha": sha, "records_sha256": records_digest,
+                "tasks_preregistered_before_scoring": 5,
+                "target_evidence_found": sum(x["expected_present"] for x in rows),
+                "target_evidence_missed": sum(not x["expected_present"] for x in rows),
+                "same_project_baseline_total_proxy_tokens": tot_project_full,
+                "bounded_context_total_proxy_tokens": tot_returned,
+                "source_payload_saving_vs_project_pct": round(100 * (1 - tot_returned / tot_project_full), 1),
+                "proxy_not_actual_model_tokenizer": True,
+                "model_task_success_tested": False,
+                "independent_agent_identity_authenticated": False,
+                "chatgpt_cloud_mcp_connected": False,
+                "scientific_first_use_holdout": False,
+                "source_only_retrieval_quality": True,
+                "model_inference_calls": 0,
+                "production_memory_writes": 0,
+            }
+            print("MPAI05_PRACTICAL_SUMMARY=" + json.dumps(summary, sort_keys=True, separators=(",", ":")))
+            
+'@
+            $auditPath=Join-Path $scratch 'audit.py'
+            [IO.File]::WriteAllText($auditPath,$audit,[Text.UTF8Encoding]::new($false))
+            & python.exe -B $auditPath $root $head
+            Need ($LASTEXITCODE -eq 0) 'SOURCE_RECALL_AUDIT'
+            Need (-not ((& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'SOURCE_MUTATION'
+            $live2=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            Need ($LASTEXITCODE -eq 0 -and $live2.Count -eq 1 -and ([string]$live2[0] -split '\s+')[0] -ceq $head) 'END_IDENTITY_DRIFT'
+            Write-Host 'MPAI05_PRACTICAL_ACCEPTED_SOURCE_AND_READ_ONLY=PASS'
+            Write-Host 'MPAI05_PRACTICAL_CODEX_MODEL_CALLS=0'
+            Write-Host 'MPAI05_PRACTICAL_PAID_APIS=0'
+          } finally {
+            if(Test-Path $scratch){Remove-Item $scratch -Recurse -Force}
+            Need (-not (Test-Path $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI05_PRACTICAL_SCRATCH_CLEAN=PASS'
+          }
