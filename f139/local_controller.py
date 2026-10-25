@@ -1024,7 +1024,8 @@ class Database:
             elif schema in ("forge.f139.source-transition.v4",
                             "forge.f139.source-transition.v5",
                             "forge.f139.source-transition.v6",
-                            "forge.f139.source-transition.v7"):
+                            "forge.f139.source-transition.v7",
+                            "forge.f139.source-transition.v8"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1063,6 +1064,23 @@ class Database:
                     require(len(v6_rows)==1,
                             "SOURCE_TRANSITION_V7_V6_SEAL_MISSING")
                     event["v6_terminal_event_sha256"]=v6_rows[-1]["sha"]
+                    event["v2_receipt_authorized"]=False
+                if schema == "forge.f139.source-transition.v8":
+                    v7_rows=[
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                        if json.loads(r["payload"])["schema"] ==
+                            "forge.f139.source-transition.v7"]
+                    custody=self.conn.execute(
+                        "SELECT seq,sha FROM events "
+                        "WHERE kind='NATIVE_PREDISPATCH_NEGATIVE_CUSTODY'"
+                    ).fetchall()
+                    require(len(v7_rows)==1 and len(custody)==1
+                            and custody[0]["seq"]==227,
+                            "SOURCE_TRANSITION_V8_SEALS_MISSING")
+                    event["v7_terminal_event_sha256"]=v7_rows[0]["sha"]
+                    event["prepost_negative_event_sha256"]=custody[0]["sha"]
                     event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
