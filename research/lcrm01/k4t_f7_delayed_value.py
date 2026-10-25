@@ -128,7 +128,7 @@ def evaluate(stream):
   "all_fold_train_validation_seed_disjoint":all(not(set(x["training_public_seed_ids"])&set(x["test_public_seed_ids"])) for x in folds),
   "frozen_real_fit_event_count":len(stream)==contract()["actualFitEvents"]}
  return {"schema":SCHEMA,"gate":"LCRM01-K4T-F7",
-  "result":p["passResult"] if False else (p["acceptance"]["passResult"] if all(criteria.values()) else p["acceptance"]["failResult"]),
+  "result":p["passResult"] if all(criteria.values()) else p["failResult"],
   "criteria":criteria,"folds":folds,"fit_label_audit":audit,
   "pooled_relative_MSE_improvement_fraction":1-sse1/sse0,
   "pooled_support_fraction":covered/total,"source_observation_fields":list(FIELDS),
