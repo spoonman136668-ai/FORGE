@@ -88,6 +88,20 @@ jobs:
           $workStatus=G $work @('status','--porcelain')
           $sourceStatus=G $source @('status','--porcelain')
           $refs=G $private @('for-each-ref','--format=%(refname) %(objectname)')
+          $predicates=[ordered]@{
+            WORKTREE_HEAD_PINN=($head.rc -eq 0 -and $head.value -ceq $base)
+            WORKTREE_BRANCH_PINNED=($branch.rc -eq 0 -and $branch.value -ceq $workerBranch)
+            SOURCE_HEAD_PINNED=($sHead.rc -eq 0 -and $sHead.value -ceq $base)
+            SOURCE_SHALLOW=($sShallow.rc -eq 0 -and $sShallow.value -ceq 'true')
+            WORKTREE_SHALLOW=($aShallow.rc -eq 0 -and $aShallow.value -ceq 'true')
+            BASE_OBJECT_PRESENT=($baseObject.rc -eq 0)
+            PARENT_OBJECT_MISSING=($parentObject.rc -ne 0)
+            ANCESTRY_EXIT128=($ancestor.rc -eq 128)
+            SOURCE_CLEAN=($sourceStatus.rc -eq 0 -and $sourceStatus.value -eq '')
+            WORKTREE_STATUS_READABLE=($workStatus.rc -eq 0)
+            PRIVATE_REFS_READABLE=($refs.rc -eq 0)
+          }
+          foreach($k in $predicates.Keys){Write-Output ('R333_PREIMAGE_'+$k+'='+[string]$predicates[$k])}
           if($head.rc -ne 0 -or $head.value -cne $base -or
              $branch.rc -ne 0 -or $branch.value -cne $workerBranch -or
              $sHead.rc -ne 0 -or $sHead.value -cne $base -or
