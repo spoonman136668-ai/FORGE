@@ -1,0 +1,160 @@
+name: MP R304 owner task contract read-only
+on:
+  push:
+    branches: [audit/mp-r304-owner-config-queue-readonly-20261025]
+    paths: [.github/workflows/mp-r304-owner-task-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe original task metadata without modification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'R304_RUNNER_INVALID' }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if (-not $admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'R304_ADMIN_REQUIRED' }
+          $t=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Write-Output ('R304_TASK_STATE='+[string]$t.State)
+          Write-Output ('R304_TASK_ACTIONS='+@($t.Actions).Count)
+          $args=[string]$t.Actions[0].Arguments
+          $kind=if($args -match '(?i)Start-R18-Controller'){'R18_FAMILY'} elseif($args -match '(?i)Start-R1P-Controller'){'R1P_FAMILY'}else{'UNKNOWN'}
+          Write-Output ('R304_LAUNCHER_CLASS='+$kind)
+          $owner=if([string]$t.Principal.UserId -match '(?i)camar$'){'EXPECTED'}else{'OTHER'}
+          Write-Output ('R304_TASK_OWNER_CLASS='+$owner)
+          Write-Output 'R304_QUEUE_AND_CONFIG_COMPATIBILITY=NOT_TESTED'
+          Write-Output 'R304_CONTROLLER_MUTATIONS=0'
+          Write-Output 'R304_READ_ONLY_TASK_OBSERVATION=PASS'
+
+      - name: Observe authority and lease counts through SQLite read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R304_WRONG_RUNNER'}
+          $py=@'
+          import sqlite3,pathlib,json
+          p=pathlib.Path("C:/Users/camar/GolandProjects/ckb-plane/state/autonomy.db")
+          with sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=5) as db:
+              db.execute("PRAGMA query_only=ON")
+              if db.execute("PRAGMA quick_check").fetchone()[0]!="ok":
+                  raise RuntimeError("R304_SQLITE_INTEGRITY")
+              settings=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('paused','autonomy_authority','autonomy_generation')"))
+              leases=db.execute("SELECT count(*) FROM worker_leases").fetchone()[0]
+              queue=db.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0]
+              print("R304_READONLY_DB_STATUS="+json.dumps(dict(settings=settings,active_leases=leases,active_queue=queue),sort_keys=True))
+          '@
+          & python.exe -B -c $py
+          if($LASTEXITCODE -ne 0){throw 'R304_READ_ONLY_SQLITE_FAILED'}
+          Write-Output 'R304_SQLITE_LIVE_WRITES=0'
+
+      - name: Check original controller configuration identity read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=Join-Path $env:USERPROFILE 'GolandProjects'
+          $cfg=Join-Path $base 'ckb-plane/config/autonomy.yaml'
+          $digest=(Get-FileHash -LiteralPath $cfg -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R304_CONFIG_PIN_MATCH=' + ($digest -ceq '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'))
+          Write-Output 'R304_CONFIG_READONLY=PASS'
+
+      - name: Inventory original rollback members without altering them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback'
+          $count=0
+          foreach($n in @('original-task.xml','original-autonomy.yaml','original-launcher.ps1','autonomy.db')){
+            $p=Join-Path $root $n
+            if(Test-Path -LiteralPath $p -PathType Leaf){$count++}
+          }
+          Write-Output ('R304_HISTORICAL_ROLLBACK_FILE_COUNT='+$count)
+          Write-Output 'R304_PROPOSED_R300_ROLLBACK_TEST=NOT_PERFORMED'
+          Write-Output 'R304_ROLLBACK_FILES_MODIFIED=FALSE'
+
+      - name: Reconcile existing R18 cutover receipt and task anchor read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $a=[string]$task.Actions[0].Arguments
+          $bound=($a -like '*PLANE-R18-OWNER-CUTOVER-39809195564*')
+          Write-Output ('R304_R18_ORIGINAL_TASK_BOUND_TO_CUTOVER='+$bound)
+          $file=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/cutover-receipt.json'
+          $r=Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          $passed=($r.result -ceq 'PASS' -and [string]$r.run_id -ceq '39809195564')
+          Write-Output ('R304_HISTORICAL_CUTOVER_RECEIPT_MATCH='+$passed)
+          Write-Output 'R304_NEW_R300_CUTOVER_NOT_AUTHORIZED=TRUE'
+
+      - name: R305 source-pinned configuration versus original rollback comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R305_WRONG_OWNER_RUNNER'}
+          $live=Join-Path $env:USERPROFILE 'GolandProjects/ckb-plane/config/autonomy.yaml'
+          $old=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback/original-autonomy.yaml'
+          $l=(Get-FileHash -LiteralPath $live -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          $h=(Get-FileHash -LiteralPath $old -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          Write-Output ('R305_CURRENT_EQUALS_HISTORICAL_ROLLBACK='+($l -ceq $h))
+          Write-Output ('R305_BACKUP_EQUALS_PREVIOUS_R18_PIN='+($h -ceq '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'))
+          Write-Output 'R305_CONFIG_VALUES_NOT_EXPORTED=TRUE'
+          Write-Output 'R305_CONTROLLER_OR_BACKUP_MODIFICATION=FALSE'
+
+      - name: R305 classify configuration changes by section with no values exported
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=@'
+          from pathlib import Path
+          import json
+          try:
+              import yaml
+          except ImportError:
+              print("R305_SAFE_YAML_PARSER=UNAVAILABLE")
+              raise SystemExit(0)
+          base=Path.home()
+          live=base/"GolandProjects/ckb-plane/config/autonomy.yaml"
+          old=Path("C:/ProgramData/CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback/original-autonomy.yaml")
+          x=yaml.safe_load(old.read_text(encoding="utf-8-sig"))
+          y=yaml.safe_load(live.read_text(encoding="utf-8-sig"))
+          if not isinstance(x,dict) or not isinstance(y,dict):
+              raise RuntimeError("R305_INVALID_CONFIG_ROOT")
+          known=["server","state","repos","tools","policy","execution","autonomy","profile"]
+          changed=[k for k in known if x.get(k)!=y.get(k)]
+          extra=len(set(x)|set(y)-set(known))
+          print("R305_SAFE_YAML_PARSER=PASS")
+          print("R305_CONFIG_SECTION_CHANGES="+json.dumps(changed))
+          print("R305_CONFIG_UNRECOGNIZED_ROOT_FIELDS_PRESENT="+str(bool(extra)).upper())
+          print("R305_CONFIG_VALUES_EXPORTED=FALSE")
+          '@
+          & python.exe -B -c $py
+          if($LASTEXITCODE -ne 0){throw 'R305_CONFIG_CLASSIFICATION_FAILED'}
+
+      - name: R305 bounded section-diff fingerprint without YAML module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          function Sections([string]$p){
+            $out=@{};$key='OTHER'
+            foreach($line in @(Get-Content -LiteralPath $p -ErrorAction Stop)){
+              if($line -cmatch '^([a-z_]+):'){$key=[string]$Matches[1]}
+              if(-not $out.ContainsKey($key)){$out[$key]=''}
+              $out[$key]+=$line+[char]10
+            }
+            return $out
+          }
+          $old=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback/original-autonomy.yaml'
+          $now=Join-Path $env:USERPROFILE 'GolandProjects/ckb-plane/config/autonomy.yaml'
+          $a=Sections $old;$b=Sections $now
+          $known=@('server','state','repos','tools','policy','execution','autonomy','profile')
+          foreach($name in $known){
+            $changed=([string]$a[$name] -cne [string]$b[$name])
+            Write-Output ('R305_SECTION_'+$name.ToUpperInvariant()+'_CHANGED='+$changed)
+          }
+          $other=@($a.Keys+$b.Keys | Where-Object {$_ -notin $known} | Select-Object -Unique)
+          Write-Output ('R305_OTHER_TOP_LEVEL_SECTION_COUNT='+$other.Count)
+          Write-Output 'R305_LEXICAL_SECTION_COMPARISON_ONLY=TRUE'
+          Write-Output 'R305_CONFIG_VALUES_EXPORTED=FALSE'
