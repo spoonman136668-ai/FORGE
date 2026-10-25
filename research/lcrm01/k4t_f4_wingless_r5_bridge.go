@@ -43,7 +43,7 @@ func main(){
     if e!=nil{out.Error=e.Error()}else{out.OK=true;out.Action=&a}
    case "feedback":
     e:=learner.Feedback(r.Before,r.Action,r.After)
-    if e!=nil{out.Error=e.Error()}else{out.OK=true;out.Updates=learner.Core.Core.Events;out.Steps=learner.Route.Steps}
+    if e!=nil{out.Error=e.Error()}else{out.OK=true;out.Updates=learner.Core.Core.Events;out.Steps=learner.Core.Route.Steps}
    case "learn":
     e:=learner.ObserveFit(r.Before,r.Action,r.After,r.Reward,r.Terminal)
     if e!=nil{out.Error=e.Error()}else{out.OK=true;out.Updates=learner.Core.Core.Events}
@@ -52,14 +52,14 @@ func main(){
     if e!=nil{out.Error=e.Error()}else{out.OK=true}
    case "snapshot":
     b,e:=learner.Snapshot()
-    if e!=nil{out.Error=e.Error()}else{out.OK=true;out.State=base64.StdEncoding.EncodeToString(b);out.Updates=learner.Core.Core.Events;out.Steps=learner.Route.Steps}
+    if e!=nil{out.Error=e.Error()}else{out.OK=true;out.State=base64.StdEncoding.EncodeToString(b);out.Updates=learner.Core.Core.Events;out.Steps=learner.Core.Route.Steps}
    case "snapshot_base":
     b,e:=learner.Core.Core.Snapshot()
     if e!=nil{out.Error=e.Error()}else{out.OK=true;out.State=base64.StdEncoding.EncodeToString(b);out.Updates=learner.Core.Core.Events}
    case "load":
     b,e:=base64.StdEncoding.DecodeString(r.State)
     if e==nil{learner,e=r5.Restore(b)}
-    if e!=nil{out.Error=e.Error()}else{out.OK=true;out.Updates=learner.Core.Core.Events;out.Steps=learner.Route.Steps}
+    if e!=nil{out.Error=e.Error()}else{out.OK=true;out.Updates=learner.Core.Core.Events;out.Steps=learner.Core.Route.Steps}
    case "quit":out.OK=true
    default:out.Error="K4T_F4_INVALID_NATIVE_BRIDGE_OP"
    }
