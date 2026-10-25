@@ -57,7 +57,7 @@ python -B research/lcrm01/k4t_f1_corrected_prospective.py \
  --output "$RUNNER_TEMP/k4tf1/process-b.json" > "$RUNNER_TEMP/k4tf1/process-b.log" 2>&1
 b=$?
 set -e
-echo "K4T_F1_PROCESS_A_EXIT=$a K4Y_PROCESS_B_EXIT=$b"
+echo "K4T_F1_PROCESS_A_EXIT=$a K4T_F1_PROCESS_B_EXIT=$b"
 cat "$RUNNER_TEMP/k4tf1/process-a.log" "$RUNNER_TEMP/k4tf1/process-b.log"
 test "$a" -eq 0 && test "$b" -eq 0
 python -B research/lcrm01/k4t_f1_compare.py \
