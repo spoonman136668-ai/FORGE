@@ -147,7 +147,7 @@ def run():
     e=[case for case in cases if case["family_label_auditor_only"]=="E2"]
     report={
       "schema":"forge.itd02.f124co.discovered_wiring_development_result.v1",
-      "frozen_contract_sha256":hashlib.sha256(FREEZE.read_bytes()).hexdigest(),
+      "frozen_contract_sha256":hashlib.sha256(learner.canonical(protocol)).hexdigest(),
       "original_source_blobs":blobs,
       "result_roles":"artificial_public_math_DEV_only_unblinded_source_law",
       "source_independent_native_model_built":False,
@@ -179,7 +179,7 @@ if __name__=="__main__":
     options=ap.parse_args()
     result,resources=run()
     options.json.parent.mkdir(parents=True,exist_ok=True)
-    options.json.write_text(json.dumps(result,sort_keys=True,indent=2)+"\n")
+    options.json.write_bytes(learner.canonical(result)+b"\n")
     options.resources.write_text(json.dumps(resources,sort_keys=True,indent=2)+"\n")
     print("F124CO_E2_95PCT_CASES="+str(result["E2_cases_95_percent"]))
     print("F124CO_E2_BEAT_FULL_TWO_PARENT_CASES="+str(result["E2_cases_beating_two_parent"]))
