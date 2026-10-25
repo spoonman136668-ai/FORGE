@@ -1,0 +1,150 @@
+name: MP-AI05 one-shot source-pinned Codex CLI development smoke
+on:
+  push:
+    branches: [qualification/mp-ai05-codex-one-shot-20261025]
+    paths: ['.github/workflows/mp-ai05-codex-one-shot-20261025.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai05-codex-one-shot-20261025
+  cancel-in-progress: false
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: One read-only original memory-source Codex agent execution, no scientific claim
+        shell: pwsh
+        env:
+          CODEX_HOME: C:\ProgramData\CKBR\codex\home
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code) {
+            if(-not $ok){ throw ('MPAI05_D11_CODEX_'+$code) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-ai05-codex-one-shot-20261025' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXACT_ISOLATED_RUNNER'
+          Need (-not $env:OPENAI_API_KEY -and -not $env:AZURE_OPENAI_API_KEY) 'PAID_API_ENV_FORBIDDEN'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $cli=Get-Command codex -ErrorAction Stop
+          $login=(& $cli.Source login status 2>&1 | Out-String)
+          Need ($LASTEXITCODE -eq 0 -and $login -match '(?i)logged in using chatgpt') 'CHATGPT_SUBSCRIPTION_LOGIN'
+          Write-Host 'MPAI05_D11_CODEX_CHATGPT_PLAN_LOGIN=PASS'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $source='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $digest='e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-codex-once-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $scratch 'repo'
+          $promptFile=Join-Path $scratch 'prompt.txt'
+          $answerFile=Join-Path $scratch 'answer.json'
+          $eventsFile=Join-Path $scratch 'events.jsonl'
+          $stderrFile=Join-Path $scratch 'stderr.log'
+          Need (-not (Test-Path -LiteralPath $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          try {
+            $pin=@(& git.exe ls-remote --exit-code $remote refs/heads/main)
+            Need ($LASTEXITCODE -eq 0 -and $pin.Count -eq 1 -and
+              (([string]$pin[0] -split '\s+')[0]) -ceq $source) 'ACCEPTED_MAIN_DRIFT'
+            & git.exe clone --quiet --single-branch --branch main --depth 1 $remote $repo
+            Need ($LASTEXITCODE -eq 0) 'SOURCE_CLONE'
+            $actual=(& git.exe -C $repo rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $source) 'ORIGINAL_SOURCE_PIN'
+            $script=@'
+          import hashlib,json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1])
+          source=sys.argv[2]
+          digest=sys.argv[3]
+          prompt_path=Path(sys.argv[4])
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          snap=MemorySnapshot(root,source,['Mind-Palace'])
+          if snap.records_sha256!=digest:
+              raise ValueError('MPAI05_D11_SOURCE_DIGEST_DRIFT')
+          recalled=snap.recall(source,'Mind-Palace safe retrieval and authority boundaries',projects=['Mind-Palace'],profile='architecture')
+          if len(recalled['governance'])!=2 or not recalled['advisory']:
+              raise ValueError('MPAI05_D11_GOVERNANCE_OR_ADVISORY_DRIFT')
+          def minimal(record):
+              return {'id':record['id'],'statement':record.get('statement','')[:550],
+                      'source_refs':record.get('source_refs',[])[:2]}
+          context={'source_sha':source,'records_sha256':digest,
+                   'governance':[minimal(x) for x in recalled['governance']],
+                   'matches':[minimal(x) for x in recalled['matches'][:2]]}
+          instruction=(
+              'This is a one-time source-grounded development comprehension check, NOT a scientific improvement experiment. '
+              'Do not call tools, open files, or modify anything. Use ONLY the source-pinned JSON below. '
+              'Return exactly one plain JSON object, with keys source_sha, governance, and production_memory_write_authorized. '
+              'source_sha must repeat the input source SHA. '
+              'governance must contain exactly two objects {id, rule}, one for each supplied governance record; '
+              'explain each restriction in one short sentence. '
+              'production_memory_write_authorized must be false. No markdown or extra text.\n'
+          )
+          prompt=instruction+json.dumps(context,sort_keys=True,ensure_ascii=True)
+          if len(prompt.encode('utf-8'))>6500:
+              raise ValueError('MPAI05_D11_PROMPT_BUDGET')
+          prompt_path.write_text(prompt,encoding='utf-8')
+          print('MPAI05_D11_MEMORY_SNAPSHOT_PINNED=PASS')
+          print('MPAI05_D11_PROMPT_SHA256='+hashlib.sha256(prompt.encode('utf-8')).hexdigest())
+          '@
+            & python.exe -B -c $script $repo $source $digest $promptFile
+            Need ($LASTEXITCODE -eq 0) 'PINNED_MEMORY_CONTEXT_GENERATION'
+            $prompt=[IO.File]::ReadAllText($promptFile)
+            Push-Location $repo
+            try {
+              & $cli.Source exec --json --sandbox read-only --skip-git-repo-check --config 'model_reasoning_effort="low"' --output-last-message $answerFile $prompt 1> $eventsFile 2> $stderrFile
+              Need ($LASTEXITCODE -eq 0) 'ONE_SHOT_REAL_EXEC'
+            } finally {
+              Pop-Location
+            }
+            Need (Test-Path -LiteralPath $answerFile -PathType Leaf) 'MODEL_ANSWER_MISSING'
+            Need ((Get-Item -LiteralPath $answerFile).Length -gt 0 -and
+              (Get-Item -LiteralPath $answerFile).Length -le 4096) 'ANSWER_SIZE'
+            $answer=([IO.File]::ReadAllText($answerFile) | ConvertFrom-Json -AsHashtable)
+            Need ($answer.source_sha -ceq $source -and
+              $answer.production_memory_write_authorized -ceq $false) 'ANSWER_SOURCE_OR_AUTHORITY'
+            $gov=@($answer.governance)
+            Need ($gov.Count -eq 2) 'GOVERNANCE_CARDINALITY'
+            $ids=@($gov | ForEach-Object {[string]$_.id} | Sort-Object)
+            Need ($ids[0] -ceq 'boundary/authority-order' -and
+              $ids[1] -ceq 'boundary/no-secrets') 'GOVERNANCE_IDENTITIES'
+            foreach($g in $gov) {
+              Need (($g.rule -is [string]) -and $g.rule.Length -ge 12 -and
+                $g.rule.Length -le 400) 'RULE_EXPLANATION'
+            }
+            $eventBytes=(Get-Item -LiteralPath $eventsFile).Length
+            Need ($eventBytes -gt 0 -and $eventBytes -le 1048576) 'CODEX_EVENT_BUDGET'
+            $events=@()
+            foreach($line in [IO.File]::ReadAllLines($eventsFile)) {
+              if([string]::IsNullOrWhiteSpace($line)){continue}
+              $events+=,(ConvertFrom-Json -InputObject $line -AsHashtable)
+            }
+            $thread=@($events | Where-Object { $_.type -eq 'thread.started' })
+            $end=@($events | Where-Object { $_.type -eq 'turn.completed' })
+            Need ($thread.Count -eq 1 -and $end.Count -eq 1) 'ORIGINAL_MODEL_SESSION_EVENTS'
+            $usage=$end[0].usage
+            Need ($null -ne $usage -and
+              [int64]$usage.input_tokens -gt 0 -and
+              [int64]$usage.output_tokens -gt 0) 'ORIGINAL_TOKEN_USAGE'
+            $before=(& git.exe -C $repo status --porcelain=v1 --untracked-files=no | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and -not $before) 'READONLY_SOURCE_UNCHANGED'
+            Write-Host 'MPAI05_D11_ORIGINAL_CODEX_SESSION=VERIFIED_FROM_EXEC_JSON'
+            Write-Host 'MPAI05_D11_ORIGINAL_SOURCE_GOVERNANCE_ANSWER=PASS'
+            Write-Host ('MPAI05_D11_MODEL_INPUT_TOKENS='+[string]$usage.input_tokens)
+            Write-Host ('MPAI05_D11_MODEL_OUTPUT_TOKENS='+[string]$usage.output_tokens)
+            Write-Host ('MPAI05_D11_ANSWER_SHA256='+(Get-FileHash -LiteralPath $answerFile -Algorithm SHA256).Hash.ToLowerInvariant())
+            Write-Host 'MPAI05_D11_SINGLE_DEVELOPMENT_TASK_ONLY=YES'
+            Write-Host 'MPAI05_D11_SCIENTIFIC_LEARNING_GAIN=NOT_TESTED'
+            Write-Host 'MPAI05_D11_CHATGPT_COMPARISON_CLIENT=NOT_AUTHENTICATED'
+            Write-Host 'MPAI05_D11_API_BILLING=NO_API_KEY'
+            Write-Host 'MPAI05_D11_PRODUCTION_MEMORY_WRITES=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI05_D11_PRIVATE_SCRATCH_CLEAN=PASS'
+          }
