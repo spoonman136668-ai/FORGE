@@ -122,6 +122,122 @@ jobs:
              if($extra -cmatch '^internal/paperreconcile/[A-Za-z0-9_.-]{1,100}\.go$'){
                 Write-Output ('R336_ADDITIONAL_PAPERRECONCILE_GO='+$extra)
              }else{
+                if($extra -cmatch '^[A-Za-z0-9_.-][A-Za-z0-9_./-]{0,149}
+             }
+          }
+          if($extras.Count -gt 8 -or @($extras|Where-Object {$_ -cnotmatch '^internal/paperreconcile/[A-Za-z0-9_.-]{1,100}\.go$'}).Count -gt 0){
+             throw 'R336_EXTRA_UNTRACKED_PATHS_NEED_SOURCE_SCOPE_REVIEW'
+          }
+          $candidateFiles=@($allowed)+@($extras)
+          Write-Output ('R336_CHANGED_SOURCE_PATH_COUNT='+$paths.Count)
+          if($paths.Count -ne 2 -or @($paths | Where-Object {$_ -notin $allowed}).Count -ne 0){
+             throw 'R336_ATTEMPT4_DIFF_NOT_THE_EXISTING_QUALIFIED_TWO_FILE_SCOPE'
+          }
+          $hashes=@{}
+          foreach($rel in $candidateFiles){
+             $file=Join-Path $work ($rel.Replace('/','\'))
+             $item=Get-Item -LiteralPath $file -Force -ErrorAction Stop
+             if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'R336_PRIVATE_CANDIDATE_PATH_NOT_REGULAR'
+             }
+             $hashes[$rel]=Sha $file
+          }
+          $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([char]92)
+          $systemTemp=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'Temp')).TrimEnd([char]92)
+          if(!(Test-Path -LiteralPath $temp -PathType Container) -or
+             $temp.StartsWith($systemTemp,[StringComparison]::OrdinalIgnoreCase)){
+             throw 'R336_PRIVATE_NON_SYSTEM_TEMP_REQUIRED'
+          }
+          $scratch=Join-Path $temp ('r336-recovered-candidate-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'R336_SCRATCH_ALREADY_EXISTS'}
+          $null=New-Item -ItemType Directory -Path $scratch -ErrorAction Stop
+          try{
+             $copy=Join-Path $scratch 'isolated-source'
+             $null=New-Item -ItemType Directory -Path $copy -ErrorAction Stop
+             & git.exe -C $copy init --quiet
+             if($LASTEXITCODE -ne 0){throw 'R336_NEW_GIT_INIT_FAILED'}
+             & git.exe -C $copy fetch --depth=1 --no-tags --no-write-fetch-head -- $source $baseline
+             if($LASTEXITCODE -ne 0){throw 'R336_LOCAL_BASELINE_FETCH_FAILED'}
+             & git.exe -C $copy checkout --quiet --detach $baseline
+             if($LASTEXITCODE -ne 0){throw 'R336_SOURCE_ISOLATED_CHECKOUT_FAILED'}
+             $self=G $copy @('merge-base','--is-ancestor',$baseline,'HEAD')
+             if($self.rc -ne 0){throw 'R336_ISOLATED_SHALLOW_GIT_ANCESTRY_FAILED'}
+             foreach($rel in $candidateFiles){
+                $orig=Join-Path $work ($rel.Replace('/','\'))
+                $dst=Join-Path $copy ($rel.Replace('/','\'))
+                if($rel -in $allowed -and !(Test-Path -LiteralPath $dst -PathType Leaf)){throw 'R336_SOURCE_BASELINE_REQUIRED_FILE_MISSING'}
+                Copy-Item -LiteralPath $orig -Destination $dst -ErrorAction Stop
+                if((Sha $orig) -cne $hashes[$rel] -or (Sha $dst) -cne $hashes[$rel]){
+                   throw 'R336_DISPOSABLE_CANDIDATE_FILE_HASH_MISMATCH'
+                }
+             }
+             $diff=G $copy @('diff','--name-only','HEAD','--')
+             $copiedUntracked=G $copy @('ls-files','--others','--exclude-standard')
+             $actual=@($diff.out -split '\r?\n' | Where-Object {$_ -ne ''})
+             $actualExtras=@($copiedUntracked.out -split '\r?\n' | Where-Object {$_ -ne ''})
+             if($copiedUntracked.rc -ne 0 -or $actualExtras.Count -ne $extras.Count -or
+                @($actualExtras|Where-Object {$_ -notin $extras}).Count -ne 0){
+                throw 'R336_DISPOSABLE_UNTRACKED_OVERLAY_NOT_EXACT'
+             }
+             if($diff.rc -ne 0 -or $actual.Count -ne 2 -or
+                @($actual|Where-Object {$_ -notin $allowed}).Count -ne 0){
+                throw 'R336_DISPOSABLE_CANDIDATE_CHANGED_FILES_UNEXPECTED'
+             }
+             $env:GOPROXY='off';$env:GOSUMDB='off';$env:GOFLAGS='-mod=readonly -p=1'
+             $env:GOMAXPROCS='1';$env:GOMEMLIMIT='1536MiB'
+             $env:TEMP=Join-Path $scratch 'temp';$env:TMP=$env:TEMP;$env:TMPDIR=$env:TEMP
+             $null=New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop
+             Write-Output 'R336_R334_GRAPH_REPAIRED_AND_CANDIDATE_EXACT_OVERLAY=PASS'
+             Write-Output 'R336_ISOLATED_INDEPENDENT_GIT_BASELINE_AND_OVERLAY=PASS'
+             Push-Location $copy
+             try{
+                & go.exe test -p 1 -count=1 -timeout 8m ./internal/paperreconcile
+                if($LASTEXITCODE -ne 0){throw 'R336_ACTUAL_CANDIDATE_FOCUSED_TEST_FAILED'}
+                Write-Output 'R336_ACTUAL_CANDIDATE_FOCUSED_TEST=PASS'
+                & go.exe vet -copylocks=false ./internal/paperreconcile
+                if($LASTEXITCODE -ne 0){throw 'R336_ACTUAL_CANDIDATE_VET_FAILED'}
+                Write-Output 'R336_ACTUAL_CANDIDATE_VET=PASS'
+                $exe=Join-Path $scratch 'stopped-ktrade-r336.exe'
+                & go.exe build -tags ktrade_full -trimpath -o $exe ./cmd/ktrade
+                if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){
+                   throw 'R336_STOPPED_KTRADE_CANDIDATE_BUILD_FAILED'
+                }
+                Write-Output ('R336_STOPPED_KTRADE_CANDIDATE_SHA256='+(Sha $exe))
+                Write-Output 'R336_ACTUAL_CANDIDATE_STOPPED_BUILD=PASS'
+             }finally{Pop-Location}
+             $refsAfter=G $private @('for-each-ref','--format=%(refname) %(objectname)')
+             $statusAfter=G $work @('status','--porcelain')
+             $headAfter=G $work @('rev-parse','HEAD')
+             $sourceAfter=G $source @('rev-parse','HEAD')
+             $jobAfter=Native
+             $procAfter=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+             if($refsAfter.rc -ne 0 -or $refsAfter.out -cne $beforeRefs.out -or
+                $statusAfter.rc -ne 0 -or $statusAfter.out -cne $beforeStatus.out -or
+                $headAfter.rc -ne 0 -or $headAfter.out -cne $baseline -or
+                $sourceAfter.rc -ne 0 -or $sourceAfter.out -cne $baseline -or
+                $jobAfter.state -cne 'BLOCKED' -or [int]$jobAfter.attempt -ne 4 -or
+                [string]$jobAfter.workspace -cne [string]$job.workspace -or
+                $procAfter.Count -ne 1 -or [int]$procAfter[0].ProcessId -ne $pidBefore){
+                throw 'R336_LIVE_CONTROLLER_OR_ORIGINAL_CANDIDATE_DRIFT'
+             }
+             foreach($rel in $candidateFiles){
+                if((Sha (Join-Path $work ($rel.Replace('/','\')))) -cne $hashes[$rel]){
+                   throw 'R336_ORIGINAL_PRESERVED_CANDIDATE_BYTES_CHANGED'
+                }
+             }
+             Write-Output 'R336_ORIGINAL_WORKORDER_BLOCKED_ATTEMPT4_AND_FILES_UNCHANGED=PASS'
+             Write-Output 'R336_NO_NATIVE_ACCEPTANCE_RETRY_ACK_DISPATCH_OR_CODEX=TRUE'
+             Write-Output 'R336_NO_KTRADE_OWNER_INSTALL_OR_BROKER_ACCESS=TRUE'
+          }finally{
+             if(Test-Path -LiteralPath $scratch){
+                Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+             }
+          }
+ -and $extra -notmatch '(?i)secret|credential|token|password|private[-_]?key'){
+                   Write-Output ('R336_UNTRACKED_SAFE_RELATIVE_SOURCE_PATH='+$extra)
+                }else{
+                   Write-Output 'R336_UNTRACKED_OTHER_SENSITIVE_OR_NONCANONICAL_NAME=TRUE'
+                }
                 Write-Output 'R336_UNTRACKED_OUTSIDE_PAPERRECONCILE_GO=TRUE'
              }
           }
