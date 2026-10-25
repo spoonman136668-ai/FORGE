@@ -5,11 +5,26 @@ Deliberately no original-owner DB writes and no repeated full-suite test.
 import unittest
 from f139.nci04_v7_owner_release import (
     OLD,SCHEMA,FIELDS,V7OwnerDenied,validate_v7_original_owner,
+    original_owner_database_source,
 )
 from f139.local_controller import Database
 
 
 class G39OriginalReleaseTests(unittest.TestCase):
+    def test_actual_python_module_entrypoint_class_is_owner_source(self):
+        from f139.local_controller import Database
+        import runpy
+        self.assertTrue(original_owner_database_source(object.__new__(Database)))
+        # Re-execute the SAME source as a second module, modeling -m's
+        # __main__.Database identity without invoking the live CLI.
+        alt = runpy.run_module(
+            "f139.local_controller", run_name="__f139_g41_alias__")
+        duplicate = alt["Database"]
+        self.assertIsNot(duplicate, Database)
+        self.assertTrue(original_owner_database_source(
+            object.__new__(duplicate)))
+        self.assertFalse(original_owner_database_source(object()))
+
     def test_old_protected_source_is_frozen(self):
         self.assertEqual(OLD,"b2079282fed03df2203807de09b4f3e82bdfe05a")
         self.assertIn("v6_terminal_event_sha256",FIELDS)

@@ -7,6 +7,7 @@ This validator cannot dispatch anything, create an issue or enable science.
 from __future__ import annotations
 import json
 import re
+from pathlib import Path
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_ledger import verify_native_activation
 
@@ -32,9 +33,28 @@ def need(ok: bool, reason: str):
         raise V7OwnerDenied("F139_G39_"+reason)
 
 
-def validate_v7_original_owner(db, approval: dict) -> dict:
+def original_owner_database_source(db) -> bool:
+    """Accept the real installed controller class from either import mode.
+
+    'python -m f139.local_controller' instantiates __main__.Database,
+    whereas preflight import creates f139.local_controller.Database.
+    They are distinct Python types despite the same verified source file.
+    Verify the actual defining file on disk, not module object identity.
+    """
     from f139.local_controller import Database
-    need(type(db) is Database and type(approval) is dict
+    if type(db).__name__ != "Database":
+        return False
+    try:
+        # Method code filenames remain authoritative even for 'runpy' or
+        # Python '-m' aliases whose module object isn't retained in sys.modules.
+        return Path(type(db).verify.__code__.co_filename).samefile(
+            Path(Database.verify.__code__.co_filename))
+    except (AttributeError, TypeError, OSError, ValueError):
+        return False
+
+
+def validate_v7_original_owner(db, approval: dict) -> dict:
+    need(original_owner_database_source(db) and type(approval) is dict
          and set(approval) == FIELDS and approval.get("schema") == SCHEMA
          and approval.get("from_source_sha") == OLD
          and isinstance(approval.get("to_source_sha"),str)
