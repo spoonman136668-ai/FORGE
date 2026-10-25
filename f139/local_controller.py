@@ -2782,7 +2782,17 @@ def cli(argv=None):
             legacy_windows_task_disabled()
             with SingleOwner(args.db.with_suffix(".lock")):
                 old_head=db.meta()["head_seq"]
-                validate_v7_original_owner(db,approval)
+                # Executing -m f139.local_controller instantiates Database
+                # from __main__; the exact-type owner guard imports its
+                # canonical class from f139.local_controller instead.
+                # Validate on that canonical read-only handle, preserving
+                # exact class identity; original db alone writes the V7 event.
+                from f139.local_controller import Database as CanonicalOwnerDB
+                validator_db=CanonicalOwnerDB(args.db)
+                try:
+                    validate_v7_original_owner(validator_db,approval)
+                finally:
+                    validator_db.close()
                 db.transition_source(approval["to_source_sha"],
                     allow_certified_negative=True,allow_v7=True)
                 db.verify()
