@@ -2045,6 +2045,16 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     # it cannot be replayed or mistaken for fully accepted evidence on recovery.
     return (str(folder),hash_bytes(payload))
 
+def v2_owner_terminal_release_guard(source_sha: str) -> bool:
+    """Pre-claim STOP, not an authorization: release requires source-pinned
+    original-owner deployment AND separately qualified V2 terminal custody.
+    An environment variable alone can never prove provider/scientific work.
+    """
+    return (isinstance(source_sha, str) and SHA.fullmatch(source_sha) is not None
+            and os.environ.get("F139_V2_ORIGINAL_OWNER_RELEASE_SOURCE")==source_sha
+            and os.environ.get("F139_V2_PROVIDER_TERMINAL_WRITER_APPROVED")=="true")
+
+
 def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     timestamp=now or utc_now()
     require(len(hmac_key)>=32,"WORKER_HMAC_SECRET_MISSING")
@@ -2245,9 +2255,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                      proposed.candidate.target_commit==V2_SHA and
                      proposed.candidate.target_tree_sha==V2_TREE and
                      proposed.candidate.path=="yggdrasil/public_causal_cells.py")
-        if v2_original and not (os.environ.get("F139_V2_ORIGINAL_OWNER_RELEASE_SOURCE")==
-                                meta["source_sha"] and
-                                os.environ.get("F139_V2_PROVIDER_TERMINAL_WRITER_APPROVED")=="true"):
+        if v2_original and not v2_owner_terminal_release_guard(meta["source_sha"]):
             return {"disposition":"V2_TERMINAL_CUSTODY_NOT_AUTHORIZED",
                     "ticket":task["ticket"],"claimed":False,
                     "live_v2_dispatched":False,"science_authorized":False}
