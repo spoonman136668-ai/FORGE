@@ -5,6 +5,7 @@ Read-only, allowlist-only; no original game, subscription, action or scorer.
 Authenticated source runtime and independent permission remain mandatory.
 """
 from __future__ import annotations
+from tw4_native_ids import source_entity_id
 
 ROLE = "TW2_OPEN_HANDCRAFTED_DEV_ONLY"
 ALLOWED = {"travel.departed", "travel.arrived", "travel.blocked"}
@@ -30,7 +31,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
     copying arbitrary data, future route, cost, arrival time or cause chain.
     Cursor is (tick, event_id) for the last accepted event.
     """
-    refuse(type(scoped_actor) is str and bool(scoped_actor),
+    refuse(source_entity_id(scoped_actor, "npc"),
            "SCOPED_ACTOR_REQUIRED")
     refuse(type(cursor) is tuple and len(cursor) == 2 and
            all(type(v) is int and v >= 0 for v in cursor),
@@ -44,7 +45,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
            type(raw.get("tick")) is int and raw["tick"] >= 0,
            "ORIGINAL_EVENT_ID_OR_TICK")
     tick, number = raw["tick"], raw["id"]
-    refuse(tick > cursor[0] or (tick == cursor[0] and number > cursor[1]),
+    refuse(tick >= cursor[0] and number > cursor[1],
            "NONMONOTONIC_EVENT")
     refuse(type(raw.get("actors")) is list and
            raw["actors"] == [scoped_actor], "CROSS_ACTOR_EVENT")
@@ -58,7 +59,7 @@ def project_event(raw, scoped_actor, cursor=(0, 0)):
         "status": STATUS[typ],
     }
     if typ == "travel.arrived":
-        refuse(type(data.get("at")) is str and bool(data["at"]),
+        refuse(source_entity_id(data.get("at"), "location"),
                "ARRIVAL_LOCATION")
         out["at"] = data["at"]
     elif typ == "travel.blocked":
