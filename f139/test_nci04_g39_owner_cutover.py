@@ -18,6 +18,14 @@ class G39OwnerCutoverTests(unittest.TestCase):
         self.assertIn("FORGE-CODEX-REMOTE",raw)
         self.assertIn("forge-codex-isolated",raw)
 
+    def test_owner_event_file_read_is_powershell_path_safe(self):
+        raw=(pathlib.Path(__file__).resolve().parent.parent /
+             ".github/workflows/f139-g39-original-owner-v7-cutover.yml").read_text()
+        self.assertIn(
+            "Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw -ErrorAction Stop",
+            raw)
+        self.assertNotIn("$env:GITHUB_EVENT_PATH | Get-Content -Raw", raw)
+
     def test_source_transition_requires_exact_old_one_shot_v6(self):
         from f139.local_controller import Database
         import inspect
