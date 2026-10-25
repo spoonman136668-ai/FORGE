@@ -1,0 +1,140 @@
+name: R310 original CKB owner transition controls - read only
+on:
+  push:
+    branches: [audit/mp-r310-original-owner-transition-readiness-20261025]
+    paths: [.github/workflows/mp-r310-original-owner-transition-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Inspect existing sole CKB authority transition controls without invoking them
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r310-original-owner-transition-readiness-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1') {throw 'R310_ORIGINAL_OWNER_SOURCE_EVENT_DRIFT'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($identity)
+          if($identity.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R310_ORIGINAL_ELEVATED_OWNER_NOT_VERIFIED'
+          }
+          $previous=(& gh.exe api 'repos/spoonman136668-ai/FORGE/actions/runs/40185723068' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $previous.status -cne 'completed' -or
+             $previous.conclusion -cne 'success' -or
+             $previous.head_sha -cne 'c4ef6aa971a7bd2ac70185a973def34d66cf5d1b'){
+            throw 'R310_R309_NATIVE_OWNER_READINESS_RECEIPT_DRIFT'
+          }
+          function Hash([string]$p){(Get-FileHash -LiteralPath $p -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $cfg=Join-Path $root 'config\autonomy.yaml'
+          $db=Join-Path $root 'state\autonomy.db'
+          $cfgHash=Hash $cfg
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          if([string]$task.State -cne 'Running' -or @($task.Actions).Count -ne 1 -or
+             [string]$task.Principal.UserId -notmatch '(?i)camar$' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)Start-R18-Controller'){
+            throw 'R310_REGISTERED_TASK_OWNER_STARTER_CHANGED'
+          }
+          $taskXml=Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $info=Get-ScheduledTaskInfo -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $triggerCount=@($task.Triggers).Count
+          $startupClass=if([string]$task.Actions[0].Execute -match '(?i)powershell'){ 'POWERSHELL_LAUNCHER' } else {'OTHER_EXECUTABLE_LAUNCHER'}
+          Write-Output 'R310_NATIVE_TASK_IS_RUNNING=PASS'
+          Write-Output 'R310_NATIVE_ORIGINAL_OWNER_AND_R18_LAUNCHER=PASS'
+          Write-Output ('R310_TASK_STARTUP_EXECUTABLE_CLASS='+$startupClass)
+          Write-Output ('R310_TASK_RUNLEVEL='+[string]$task.Principal.RunLevel)
+          Write-Output ('R310_TASK_TRIGGER_COUNT='+$triggerCount)
+          $resultCode=([long]$info.LastTaskResult -band 0xffffffff)
+          $resultHex=('0x{0:X8}' -f $resultCode)
+          $resultClass=if($resultCode -eq 0x41301){'SCHED_S_TASK_RUNNING_INFORMATIONAL'}
+                       elseif($resultCode -eq 0){'SUCCESS'}
+                       else{'OTHER_NONZERO_NOT_INTERPRETED'}
+          Write-Output ('R310_TASK_LAST_RESULT_CODE='+$resultHex)
+          Write-Output ('R310_TASK_LAST_RESULT_CLASS='+$resultClass)
+          $controlCmdletCount=0
+          foreach($name in @('Get-ScheduledTask','Start-ScheduledTask','Stop-ScheduledTask')){
+            if($null-ne(Get-Command $name -ErrorAction SilentlyContinue)){$controlCmdletCount++}
+          }
+          Write-Output ('R310_WIN_TASK_CONTROL_CMDLETS_AVAILABLE='+$controlCmdletCount+'/3')
+          Write-Output 'R310_TASK_CONTROLS_CALLED=FALSE'
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($ps.Count -ne 1){throw 'R310_CKB_PROCESS_NOT_SINGLETON'}
+          $pidBefore=[int]$ps[0].ProcessId
+          $born=([datetime]$ps[0].CreationDate).ToUniversalTime().ToString('o')
+          $exe=[string]$ps[0].ExecutablePath
+          if([string]::IsNullOrWhiteSpace($exe)){throw 'R310_CKB_RUNNING_EXE_NOT_READABLE'}
+          $exeHash=Hash $exe
+          if($exeHash -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R310_ORIGINAL_IMAGE_IDENTITY_CHANGED'
+          }
+          $dbPy=@'
+          import sqlite3,sys
+          from pathlib import Path
+          p=Path(sys.argv[1]).resolve(strict=True)
+          with sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=5) as db:
+              db.execute("PRAGMA query_only=ON")
+              if db.execute("PRAGMA quick_check").fetchone()[0]!="ok":
+                  raise RuntimeError("R310_SQLITE_INTEGRITY_NOT_VERIFIED")
+              s=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation','paused')"))
+              q=int(db.execute("SELECT count(*) FROM queue_items WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT','FINALIZING','WAITING_FOR_EXTERNAL_ORCHESTRATOR')").fetchone()[0])
+              leases=int(db.execute("SELECT count(*) FROM worker_leases").fetchone()[0])
+              rows=int(db.execute("SELECT count(*) FROM work_orders").fetchone()[0])
+              if s.get("autonomy_authority")!="plane" or s.get("autonomy_generation")!="6" or s.get("paused")!="false":
+                  raise RuntimeError("R310_OWNER_GENERATION_STATE_CHANGED")
+              if q!=0 or leases!=0:
+                  raise RuntimeError("R310_NOT_QUIESCENT_AT_OBSERVATION")
+              if rows<199:
+                  raise RuntimeError("R310_HISTORICAL_CUSTODY_COUNT_REGRESSED")
+              print("R310_OWNER_GENERATION6_QUEUE0_LEASE0=PASS")
+              print("R310_199_OR_MORE_HISTORY_ROWS=PASS")
+              print("R310_SQLITE_OPENED_QUERY_ONLY=TRUE")
+          '@
+          & python.exe -B -c $dbPy $db
+          if($LASTEXITCODE -ne 0){throw 'R310_SQLITE_QUERY_ONLY_STATUS_FAILED'}
+          $rollback='C:\ProgramData\CKBR\cutover\PLANE-R18-OWNER-CUTOVER-39809195564\rollback'
+          $oldCount=0
+          foreach($name in @('original-task.xml','original-autonomy.yaml','original-launcher.ps1','autonomy.db')){
+            $p=Join-Path $rollback $name
+            if(Test-Path -LiteralPath $p -PathType Leaf){
+              $metadata=Get-Item -LiteralPath $p -ErrorAction Stop
+              if($metadata.Length -gt 0 -and ($metadata.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0){$oldCount++}
+            }
+          }
+          Write-Output ('R310_HISTORIC_R18_ROLLBACK_MEMBERS_PRESENT='+$oldCount+'/4')
+          if($oldCount -ne 4){throw 'R310_HISTORICAL_ROLLBACK_CUSTODY_REGRESSION'}
+          $previousConfig=Join-Path $rollback 'original-autonomy.yaml'
+          $historicConfigMatches= ((Hash $previousConfig) -ceq $cfgHash)
+          Write-Output ('R310_HISTORIC_ROLLBACK_CONFIG_EQUALS_LIVE='+$historicConfigMatches)
+          # Original R308 backup existed only in deleted private scratch.
+          # Never treat historical R18 files as a current post-cutover
+          # persistent escrow for the new candidate.
+          Write-Output 'R310_CURRENT_R307_DURABLE_ROLLBACK_ESCROW=NOT_ATTESTED'
+          Write-Output 'R310_RESTART_CANCELLATION_SEMANTICS=NOT_TESTED'
+          Write-Output 'R310_REAL_PARTIAL_CUTOVER_RESTORE=NOT_TESTED'
+          Write-Output 'R310_OPERATOR_APPROVED_LIVE_RELEASE=FALSE'
+          $end=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($end.Count -ne 1 -or [int]$end[0].ProcessId -ne $pidBefore -or
+             ([datetime]$end[0].CreationDate).ToUniversalTime().ToString('o') -cne $born -or
+             (Hash ([string]$end[0].ExecutablePath)) -cne $exeHash){
+            throw 'R310_LIVE_CONTROLLER_CHANGED_DURING_READ'
+          }
+          if([string](Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop).State -cne 'Running' -or
+             (Export-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop) -cne $taskXml -or
+             (Hash $cfg) -cne $cfgHash){
+            throw 'R310_TASK_OR_CONFIG_CHANGED_DURING_READ'
+          }
+          Write-Output 'R310_LIVE_PROCESS_TASK_CONFIG_PREPOST=PASS'
+          Write-Output 'R310_NO_CONTROLLER_CLI_COMMANDS=TRUE'
+          Write-Output 'R310_NO_SCHEDULED_TASK_ACTIONS=TRUE'
+          Write-Output 'R310_NO_LIVE_CONFIG_DB_OR_EXECUTABLE_WRITES=TRUE'
+          Write-Output 'R310_NO_QUEUED_ITEM_EXECUTED=TRUE'
+          Write-Output 'R310_SAFE_TO_INSTALL_OR_ADMIT_MINDPALACE=FALSE'
+          Write-Output 'R310_READONLY_OPERATOR_BOUNDARY_AUDIT=PASS'
