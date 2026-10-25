@@ -217,6 +217,36 @@ jobs:
           print("F139_R7_GH_ISSUE_READ="+("PASS" if rc==0 else "FAIL"))
           if rc!=0:
               print("F139_R7_GH_SAFE_HTTP_CODES="+",".join(http_codes or ["NONE"]))
+          # Diagnostic only: compare user-scoped Windows gh credential storage
+          # with inherited job environment. Never print token bytes or paths.
+          authkeys=("GH_TOKEN","GITHUB_TOKEN","GH_CONFIG_DIR","GITHUB_HOST")
+          print("F139_R8_AUTH_ENV_FLAGS="+",".join(
+              key+":"+("PRESENT" if os.environ.get(key) else "ABSENT")
+              for key in authkeys))
+          clean_env={k:v for k,v in os.environ.items() if k not in authkeys}
+          for label,argv in (
+              ("CACHED_GH_AUTH",["gh","auth","status"]),
+              ("CACHED_GH_POLICY_READ",["gh","api","repos/spoonman136668-ai/FORGE/issues/807"]),
+              ("CACHED_GH_YGG_REPO_READ",["gh","api","repos/spoonman136668-ai/Yggdrasil"]),
+          ):
+              test=subprocess.run(argv,env=clean_env,stdin=subprocess.DEVNULL,
+                  stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,
+                  timeout=20,check=False)
+              err=test.stderr.decode("utf-8","replace")
+              codes=re.findall(r"(?<![0-9])(?:401|403|404|429)(?![0-9])",err)
+              print("F139_R8_"+label+"="+("PASS" if test.returncode==0 else
+                  "FAIL_HTTP_"+",".join(sorted(set(codes or ["UNKNOWN"])))) )
+          # Read controller health as counts only. No raw log lines, credentials,
+          # profile paths, runner tokens, or task arguments in provider logs.
+          from pathlib import Path
+          log=Path(db_path).parent/"logs"/"controller.log"
+          if log.is_file():
+              raw=log.read_bytes()[-65536:]
+              for token in ("F139_GITHUB_API_FAILED","QUEUE_EMPTY_NO_SCIENCE",
+                            "G3_PUBLISH_BLOCKED_FAIL_CLOSED","F139_CONTROLLER_EXITED"):
+                  print("F139_R8_CONTROLLER_LOG_"+token+"="+str(raw.count(token.encode())))
+          else:
+              print("F139_R8_CONTROLLER_LOG=ABSENT")
           owner_auth_qualified=(status==0 and rc==0)
           # Scoped Actions identity is strictly a source preflight; owner stays unqualified.
           actions_read=os.environ.pop("F139_R7_READONLY_ACTIONS_TOKEN","")
