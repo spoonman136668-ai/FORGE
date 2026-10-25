@@ -1,0 +1,35 @@
+name: MP R303 owner process identity observation
+on:
+  push:
+    branches: [audit/mp-r303-original-owner-installed-custody-20261025]
+    paths: [.github/workflows/mp-r303-owner-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe CKB process and scheduled task without modification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'R303_WRONG_RUNNER' }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $role=[Security.Principal.WindowsPrincipal]::new($who)
+          if (-not $role.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'R303_NO_OWNER_ADMIN_TOKEN' }
+          Write-Output 'R303_EXISTING_ELEVATED_OWNER=PASS'
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          Write-Output ('R303_PROCESS_COUNT='+$procs.Count)
+          if ($procs.Count -ne 1) { throw 'R303_SINGLETON_NOT_PROVEN' }
+          $path=[string]$procs[0].ExecutablePath
+          if ([string]::IsNullOrWhiteSpace($path)) { throw 'R303_IMAGE_UNAVAILABLE' }
+          $sha=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R303_LIVE_IMAGE_SHA256='+$sha)
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Write-Output ('R303_TASK_STATE='+[string]$task.State)
+          Write-Output ('R303_TASK_ACTION_COUNT='+@($task.Actions).Count)
+          Write-Output ('R303_TASK_RUNLEVEL='+[string]$task.Principal.RunLevel)
+          Write-Output 'R303_CKB_CONTROLLER_NOT_INVOKED=TRUE'
+          Write-Output 'R303_CKB_QUEUED_WORK_NOT_RUN=TRUE'
+          Write-Output 'R303_LIVE_INSTALL_NOT_ATTEMPTED=TRUE'
