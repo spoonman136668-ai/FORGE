@@ -1,12 +1,10 @@
-name: F139 R7B source preflight and original owner auth (read only)
+name: F139 R7C freshly authenticated original owner preflight (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
     paths: [.github/workflows/f139-r4-single-owner-cutover-readiness-readonly-20261024.yml]
 permissions:
   contents: read
-  issues: read
-  pull-requests: read
 jobs:
   original-owner:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
@@ -20,8 +18,6 @@ jobs:
           persist-credentials: false
       - name: Inspect original owner task and complete immutable SQLite readiness
         shell: pwsh
-        env:
-          F139_R7_READONLY_ACTIONS_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
           if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_R4_WRONG_RUNNER'}
@@ -218,10 +214,6 @@ jobs:
           if rc!=0:
               print("F139_R7_GH_SAFE_HTTP_CODES="+",".join(http_codes or ["NONE"]))
           owner_auth_qualified=(status==0 and rc==0)
-          # Scoped Actions identity is strictly a source preflight; owner stays unqualified.
-          actions_read=os.environ.pop("F139_R7_READONLY_ACTIONS_TOKEN","")
-          assert len(actions_read)>=20,"F139_R7_ACTIONS_READ_IDENTITY_UNAVAILABLE"
-          os.environ["GH_TOKEN"]=actions_read
           from f139.local_controller import Database,GitHub
           from f139.nci04_candidate_publisher import publisher_preflight,RECIPE_G3
           from f139.nci04_owner_publication import history_proof,G1_ORIGINAL_PARENT
@@ -258,7 +250,7 @@ jobs:
               after=obj.meta()["head_hash"]
               assert before==after
               print("F139_R7_OWNER_SQLITE_UNCHANGED=PASS")
-              print("F139_R7_G3_PREFLIGHT_IDENTITY=ACTIONS_READ_ONLY_NOT_ORIGINAL_OWNER")
+              print("F139_R7_G3_PREFLIGHT_IDENTITY=ORIGINAL_WINDOWS_OWNER")
               print("F139_R7_G3_DRAFT_PUBLICATION=NOT_ATTEMPTED")
               print("F139_R7_SCIENTIFIC_FIRST_USE=FALSE")
           finally:
