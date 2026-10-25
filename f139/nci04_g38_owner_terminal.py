@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 
-from f139.local_controller import Database, GitHub, store_evidence, utc_now
+from f139.local_controller import Database, GitHub, store_evidence, utc_now, canonical as owner_canonical
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_ledger import frozen_native_issue
 from f139.nci04_owner_issue import make_signed_dispatch_inputs
@@ -230,7 +230,7 @@ def settle_original_v2(db: Database, api: GitHub, db_path: Path, *,
                 "schema":"forge.f139.owner-native-provider-negative.v1",
                 "ticket":ticket, "run_id":run_id,
                 "source_sha":task["source_sha"],
-                "provider_sha256":digest(canonical(report)),
+                "provider_sha256":digest(owner_canonical(report)),
                 "provider":report,"scientific_first_use":False})
             db.conn.execute(
                 "UPDATE tasks SET stage='QUARANTINED',"
@@ -309,7 +309,7 @@ def verify_g38_custody(db: Database) -> None:
                     platforms[label]["outer_artifact_sha256"],
                  "COLD_CUSTODY_GITHUB_ARCHIVE_TAMPERED")
             manifest["sha256"][label]=digest(blob.read_bytes())
-        need(folder.joinpath("manifest.json").read_bytes()==canonical(manifest)
-             and digest(canonical(manifest))==
+        need(folder.joinpath("manifest.json").read_bytes()==owner_canonical(manifest)
+             and digest(owner_canonical(manifest))==
                     doc["evidence_manifest_sha256"],
              "COLD_CUSTODY_MANIFEST_TAMPERED")
