@@ -696,7 +696,11 @@ class Database:
             raise
 
     def event(self, kind: str, payload: dict):
-        require(re.fullmatch(r"[A-Z_]{3,48}", kind) is not None, "INVALID_EVENT_KIND")
+        # Only the two qualified G3 publication custody kinds contain digits.
+        # Keep the legacy event grammar unchanged for all other events.
+        require(re.fullmatch(r"[A-Z_]{3,48}", kind) is not None
+                or kind in {"G3_DRAFT_ATTEMPTED", "G3_DRAFT_AUTHENTICATED"},
+                "INVALID_EVENT_KIND")
         meta = self.meta()
         seq = meta["head_seq"]+1
         entry = {"seq":seq,"prior_sha":meta["head_hash"],"kind":kind,"payload":payload}
