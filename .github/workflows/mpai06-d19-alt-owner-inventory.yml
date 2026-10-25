@@ -57,5 +57,42 @@ jobs:
           } else {
             Write-Host 'D19_ALTERNATE_RUNNER_OWNER_PRIVILEGED_CUSTODY=NOT_ESTABLISHED'
           }
+          # Separate exact-source inventory on this SAME physical workstation.
+          # Directory listing is limited to three already source-grounded roots;
+          # never print file bodies or mutable queue content.
+          $roots=[ordered]@{
+            USER_CKB_REPO='C:\Users\camar\GolandProjects\ckb-plane'
+            PROGRAMDATA_CKBR='C:\ProgramData\CKBR'
+            PROGRAMDATA_CKBPLANE='C:\ProgramData\CKBR\ckb-plane'
+          }
+          foreach($row in $roots.GetEnumerator()){
+            $present=Test-Path -LiteralPath $row.Value -PathType Container
+            Write-Host ('D19_'+$row.Key+'_ROOT_VISIBLE='+$present.ToString().ToUpperInvariant())
+          }
+          $lookups=@(
+            'config/autonomy.yaml',
+            'config/local-operations.json',
+            'bin/ckb-plane.exe',
+            'operations/Read-MindPalaceContext.ps1',
+            'operations/Read-PlaneHealth.ps1'
+          )
+          foreach($prefix in @('C:\Users\camar\GolandProjects\ckb-plane','C:\ProgramData\CKBR','C:\ProgramData\CKBR\ckb-plane')){
+            $label=if($prefix -like '*GolandProjects*'){'USER_CKB'}elseif($prefix.EndsWith('ckb-plane')){'DATA_CKB'}else{'DATA_ROOT'}
+            foreach($relative in $lookups){
+              $candidate=Join-Path $prefix $relative
+              $exists=Test-Path -LiteralPath $candidate -PathType Leaf
+              $id=($relative -replace '[^A-Za-z0-9]','_').ToUpperInvariant()
+              Write-Host ('D19_'+$label+'_'+$id+'_FOUND='+$exists.ToString().ToUpperInvariant())
+              if($exists){
+                $item=Get-Item -LiteralPath $candidate -Force
+                Need (-not (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) 'OWNER_PREIMAGE_REPARSE'
+                $digest=(Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+                Write-Host ('D19_'+$label+'_'+$id+'_SHA256='+$digest)
+              }
+            }
+          }
+          $administrator=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Host ('D19_ALTERNATE_RUNNER_ADMIN_ROLE='+$administrator.ToString().ToUpperInvariant())
+          Write-Host 'D19_ORIGINAL_RUNNING_CONTROLLER_IDLE=NOT_VERIFIED'
           Write-Host 'D19_NO_CONTROLLER_OR_MEMORY_WRITES=PASS'
           Write-Host 'D19_CODEX_MODEL_CALLS=0'
