@@ -101,7 +101,8 @@ class G49OriginalPrepostTests(unittest.TestCase):
             2)
         with self.assertRaisesRegex(G49Denied, "CANONICAL_OWNER_ONLY"):
             settle_g49_original_prepost(
-                self.db, object(), owner_quiesced=True)
+                self.db, object(), owner_quiesced=True,
+                approved_target_sha="f"*40)
         self.assertEqual(
             self.db.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
             2)
