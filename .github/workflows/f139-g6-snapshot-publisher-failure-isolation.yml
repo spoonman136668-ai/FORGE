@@ -1,0 +1,102 @@
+name: F139 G6 original snapshot G3 publisher failure isolation (no writes to provider)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g6-snapshot-publisher-failure-isolation.yml]
+permissions:
+  contents: read
+jobs:
+  original-source-snapshot:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Isolate full publisher decision on original SQLite snapshot; refuse remote writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_G6_WRONG_ORIGINAL_RUNNER'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'F139_G6_ORIGINAL_TASK_DRIFT'
+          }
+          function TaskArg([string]$n){
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G6_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $db=TaskArg 'Database'
+          $root=TaskArg 'RepositoryRoot'
+          $python=TaskArg 'PythonExe'
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $expected){
+            throw 'F139_G6_INSTALLED_SOURCE_DRIFT'
+          }
+          $scratch=Join-Path (Split-Path $db -Parent) ('f139-g6-isolate-'+$env:GITHUB_RUN_ID+'-'+[guid]::NewGuid().ToString('N')+'.sqlite')
+          $script=@'
+          import json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          original=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          snapshot=pathlib.Path(sys.argv[3])
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_owner_publication import publish_once,ATTEMPT_KIND,SUCCESS_KIND
+          read=sqlite3.connect(original.as_uri()+"?mode=ro",uri=True,timeout=20)
+          read.execute("PRAGMA query_only=ON")
+          assert not snapshot.exists() and snapshot.parent==original.parent
+          try:
+              copy=sqlite3.connect(snapshot)
+              try:read.backup(copy)
+              finally:copy.close()
+          finally:read.close()
+          db=Database(snapshot)
+          touched=[]
+          def DENY_ALL_WRITE(method,route,payload):
+              touched.append((method,route))
+              raise RuntimeError("G6_PROVIDER_MUTATION_EXPLICITLY_DENIED")
+          def witness():
+              # Scratch-only original-owner provenance is already independently attested.
+              # This deliberately does NOT claim the original kernel mutex or task PID.
+              return True
+          try:
+              meta=db.meta()
+              assert meta["source_sha"]=="72486da5ce96142424b189dd8e3dcf3c39dfc401"
+              assert db.ready() is None and not db.actives()
+              print("F139_G6_SOURCE_AND_OWNER_HISTORY_SNAPSHOT=PASS")
+              result=publish_once(db,GitHub().native_repo_get,DENY_ALL_WRITE,
+                 meta["source_sha"],owner_witness=witness)
+              print("F139_G6_SNAPSHOT_DISPOSITION="+result["disposition"])
+              print("F139_G6_SNAPSHOT_PROVIDER_WRITES_DENIED="+str(len(touched)))
+              events=list(db.conn.execute("SELECT kind FROM events WHERE kind IN (?,?)",
+                (ATTEMPT_KIND,SUCCESS_KIND)))
+              assert len(events)<=1
+              if events:
+                  assert events[0]["kind"]==ATTEMPT_KIND
+                  print("F139_G6_SNAPSHOT_ATTEMPT_EVENT=PASS")
+              else:
+                  print("F139_G6_SNAPSHOT_ATTEMPT_EVENT=NOT_APPENDED")
+              db.verify()
+              print("F139_G6_SNAPSHOT_LEDGER_VERIFY=PASS")
+              print("F139_G6_NO_LIVE_DB_OR_PROVIDER_MUTATION=TRUE")
+          except Exception as exc:
+              # Errors print CLASS + SAFE LABEL only; never emit credential or raw API response.
+              print("F139_G6_SNAPSHOT_FAILURE_CLASS="+type(exc).__name__)
+              msg=str(exc)
+              if msg.startswith(("F139_","F139_G3_")) and len(msg)<180:
+                  print("F139_G6_SNAPSHOT_FAILURE_CODE="+msg)
+              raise RuntimeError("F139_G6_SNAPSHOT_G3_PUBLISHER_FAILED") from None
+          finally:
+              db.close()
+          '@
+          try{
+            & $python -B -c $script $root $db $scratch
+            if($LASTEXITCODE -ne 0){throw 'F139_G6_SNAPSHOT_PUBLISHER_DENIED'}
+          }finally{
+            foreach($suffix in @('','-wal','-shm')){
+              Remove-Item -LiteralPath ($scratch+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if([string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController').State -cne 'Running'){
+            throw 'F139_G6_OWNER_TASK_MUTATED'
+          }
+          Write-Host 'F139_G6_TEMP_SNAPSHOT_CLEANED=PASS'
