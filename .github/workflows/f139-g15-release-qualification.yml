@@ -1,7 +1,7 @@
 name: F139 G15 explicit V6 owner CLI release rehearsal and regression (DEV ONLY)
 on:
   push:
-    branches: [qualify/f139-g15-single-owner-release-20261025]
+    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025]
     paths:
       - f139/local_controller.py
       - f139/nci04_v6_owner_release.py
@@ -42,6 +42,11 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $body=[IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE '.github/workflows/f139-g15-original-owner-release-guarded.yml'))
+          if(-not [regex]::IsMatch($body, '(?m)^  workflow_dispatch:\s*$') -or
+             [regex]::IsMatch($body, '(?m)^  push:\s*$')){
+            throw 'F139_G16_RELEASE_ENTRYPOINT_NOT_MANUAL_ONLY'
+          }
+          Write-Host 'F139_G16_RELEASE_ENTRYPOINT_MANUAL_ONLY=PASS'
           if(([regex]::Matches($body, [regex]::Escape("$"+"target='0000000000000000000000000000000000000000'"))).Count -ne 1 -or
              -not $body.Contains('transition-qualified-native-v6') -or
              -not $body.Contains('v2_receipt_authorized=$false') -or
