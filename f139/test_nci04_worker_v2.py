@@ -111,6 +111,19 @@ class V2ContractTests(unittest.TestCase):
         self.assertFalse(receipt["scientific_first_use_authorized"])
         self.assertEqual(receipt["original_signed_admission_sha256"], "f"*64)
 
+    def test_explicit_zero_test_negative_is_retained_but_never_passes(self):
+        r = self.report()
+        r["candidate_behavior"][0]["outcome"] = "TEST_FAILURE"
+        r["candidate_behavior"][0]["returncode"] = 1
+        r["candidate_behavior"][0]["test_count"] = 0
+        r["candidate_behavior"] = r["candidate_behavior"][:1]
+        r["candidate_compile"] = None
+        r["qualification_complete"] = False
+        self.assertFalse(validate_v2(self.c, r))
+        r["qualification_complete"] = True
+        with self.assertRaisesRegex(NativeContractError, "FALSE_QUALIFICATION"):
+            validate_v2(self.c, r)
+
     def test_unbound_os_or_admission_cannot_make_signed_receipt(self):
         entry = NativeAdmission("ticket", "Yggdrasil", "e"*40, 123, "ubuntu-latest",
                                 907, 6019876053, self.c, "f"*64)
