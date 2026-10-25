@@ -123,11 +123,31 @@ def inspect_v2_provider_run(api: GitHub, *, run_id: int, ticket: str,
     artifacts_doc = api.get(path + "/artifacts?per_page=100")
     jobs = jobs_doc.get("jobs") if type(jobs_doc) is dict else None
     arts = artifacts_doc.get("artifacts") if type(artifacts_doc) is dict else None
-    require(type(jobs) is list and len(jobs) == 3
+    require(type(jobs) is list and 3 <= len(jobs) <= 10
             and jobs_doc.get("total_count") == len(jobs)
             and type(arts) is list and len(arts) == 2
             and artifacts_doc.get("total_count") == len(arts),
             "PROVIDER_JOB_ARTIFACT_INVENTORY_INCOMPLETE_OR_EXTRA")
+    # GitHub includes skipped old V1 jobs in the same workflow run. Those
+    # are required to remain skipped, not absent by assumption. Accept
+    # only known legacy job identities, never arbitrary extra execution.
+    live = {AUTH_JOB_V2} | {
+        RUN_JOB_V2 + label + ")" for label in OS_LABELS}
+    legacy_skipped = {
+        "execute", "execute (ubuntu-latest)", "execute (windows-latest)",
+        "native-authorize", "native-execute",
+        "native-execute (ubuntu-latest)",
+        "native-execute (windows-latest)",
+    }
+    names = [j.get("name") for j in jobs]
+    require(len(set(names)) == len(names)
+            and all(isinstance(j, dict)
+                    and (j.get("name") in live or
+                         (j.get("name") in legacy_skipped
+                          and j.get("status") == "completed"
+                          and j.get("conclusion") == "skipped"))
+                    for j in jobs),
+            "UNEXPECTED_OR_LIVE_V1_JOB_ON_V2_RUN")
     authorizers = [j for j in jobs if j.get("name") == AUTH_JOB_V2]
     require(len(authorizers) == 1
             and authorizers[0].get("status") == "completed"
