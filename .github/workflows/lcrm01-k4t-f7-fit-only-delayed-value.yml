@@ -1,0 +1,36 @@
+name: Mass K4T-F7 original-source FIT-only delayed-value prediction
+on:
+  push:
+    branches: [research/itd02-k4t-f7-delayed-value-fit-20261025]
+permissions:
+  contents: read
+jobs:
+  prospective-fit-only-original-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 35
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Frozen source, FIT-only learned value and two independent process verification
+        run: bash research/lcrm01/k4t_f7_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f7-original-source-fit-only-delayed-value
+          path: |
+            ${{ runner.temp }}/k4tf7/process-a.json
+            ${{ runner.temp }}/k4tf7/process-b.json
+            ${{ runner.temp }}/k4tf7/comparison.json
+            ${{ runner.temp }}/k4tf7/process-a.log
+            ${{ runner.temp }}/k4tf7/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
