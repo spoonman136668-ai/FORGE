@@ -57,6 +57,10 @@ def validate_v7_original_owner(db, approval: dict) -> dict:
          and type(approval.get("paid_api_calls")) is int
          and approval["paid_api_calls"] == 0,
          "APPROVAL_FORM_UNQUALIFIED")
+    # Check canonical file round-trip deterministically, preventing a
+    # mutating release from accepting mismatched typed input.
+    need(json.loads(canonical(approval)) == approval,
+         "APPROVAL_CANONICAL_ROUNDTRIP_DRIFT")
     db.verify()
     meta=db.meta()
     need(meta["source_sha"]==OLD
