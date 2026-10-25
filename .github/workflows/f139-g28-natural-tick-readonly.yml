@@ -1,0 +1,135 @@
+name: F139 G28 original owner natural 45s tick evidence read-only
+on:
+  push:
+    branches: [qualify/f139-g28-postrelease-natural-tick-20261025]
+    paths: [.github/workflows/f139-g28-natural-tick-readonly.yml]
+permissions: {}
+concurrency:
+  group: f139-g28-original-owner-natural-observer-once
+  cancel-in-progress: false
+jobs:
+  original-tick-readonly:
+    if: github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Observe existing 45s natural controller ticks and original SQLite without side effects
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_G28_ORIGINAL_OWNER_RUNNER_UNQUALIFIED'
+          }
+          $name='FORGE-F139-UnifiedController'
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or
+             @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'F139_G28_EXISTING_TASK_NOT_RUNNING'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[string]$t.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($owner -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'F139_G28_OWNER_SID_MISMATCH'
+          }
+          function Arg([string]$key){
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G28_TASK_IDENTITY_INCOMPLETE'}
+            return $m.Groups[1].Value
+          }
+          $root=Arg 'RepositoryRoot'
+          $db=Arg 'Database'
+          $py=Arg 'PythonExe'
+          $source=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $source -cne 'b2079282fed03df2203807de09b4f3e82bdfe05a'){
+            throw 'F139_G28_INSTALLED_PROTECTED_SOURCE_DRIFT'
+          }
+          if(@(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G28_INSTALLED_SOURCE_DIRTY'
+          }
+          $expected=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          if([IO.Path]::GetFullPath($db) -ine $expected){
+            throw 'F139_G28_EXISTING_SQLITE_IDENTITY_DRIFT'
+          }
+          $details=Get-ScheduledTaskInfo -TaskName $name -ErrorAction Stop
+          $code=@'
+          import collections,datetime,json,pathlib,re,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          c=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=15)
+          c.execute("PRAGMA query_only=ON")
+          try:
+              m=c.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert m is not None and m[0]=="b2079282fed03df2203807de09b4f3e82bdfe05a" and m[1]>=220
+              assert m[3]==1 and m[4]==1
+              kinds=[{"seq":int(x[0]),"kind":x[1]} for x in c.execute(
+                  "SELECT seq,kind FROM events WHERE seq>218 ORDER BY seq DESC LIMIT 16")]
+              stages=dict(c.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              original_events=[x for x in kinds if x["seq"]>220]
+          finally:
+              c.close()
+          log=p.parent/"logs"/"controller.log"
+          records=[]
+          markers=[]
+          if log.is_file():
+              with log.open("r",encoding="utf-8-sig",errors="replace") as f:
+                  tail=collections.deque(f,maxlen=256)
+              for line in tail:
+                  stripped=line.strip()
+                  if "F139_JOB_CHILD_ASSIGNED_BEFORE_RESUME=PASS" in stripped:
+                      markers.append("CHILD_ASSIGNED_BEFORE_RESUME")
+                  if "F139_PROCESS_LIFETIME=KILL_ON_JOB_CLOSE" in stripped:
+                      markers.append("LIFETIME_BOUND_TO_JOB")
+                  if not stripped.startswith("{"):
+                      continue
+                  try:
+                      obj=json.loads(stripped)
+                  except (ValueError,UnicodeError):
+                      continue
+                  if type(obj) is not dict or not isinstance(obj.get("at"),str):
+                      continue
+                  if type(obj.get("disposition")) is str and re.fullmatch(
+                          r"[A-Z0-9_]{2,120}",obj["disposition"]):
+                      records.append({"at":obj["at"],"disposition":obj["disposition"]})
+                  elif type(obj.get("blocked")) is str:
+                      safe=re.match(r"^(F139_[A-Z0-9_]{4,120})",obj["blocked"])
+                      records.append({"at":obj["at"],"blocked":safe.group(1) if safe else "REDACTED"})
+          now=datetime.datetime.now(datetime.timezone.utc)
+          most_recent=None
+          age=None
+          if records:
+              most_recent=records[-1]["at"]
+              try:
+                  ts=datetime.datetime.fromisoformat(most_recent.replace("Z","+00:00"))
+                  age=int((now-ts).total_seconds())
+              except ValueError:
+                  pass
+          report={
+              "schema":"forge.f139.g28.original-natural-tick-readonly.v1",
+              "checked_utc":now.isoformat(),
+              "source_sha":m[0],"ledger_head_seq":m[1],"ledger_head_hash":m[2],
+              "new_development_events_since_activation":len(original_events),
+              "new_event_kinds_since_activation":list(reversed(original_events)),
+              "task_stage_counts":stages,
+              "controller_log_found":log.is_file(),
+              "recent_log_lifetime_markers":markers[-4:],
+              "last_logged_tick_at":most_recent,
+              "last_logged_tick_age_seconds":age,
+              "last_12_tick_dispositions":records[-12:],
+              "science_first_use":False,
+              "live_originals_dispatched_by_this_observer":0,
+              "mutation":False
+          }
+          print("F139_G28_NATURAL_TICK_OBSERVATION="+json.dumps(report,sort_keys=True))
+          '@
+          & $py -B -c $code $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G28_READONLY_ORIGINAL_OBSERVATION_FAILED'}
+          Write-Output ('F139_G28_EXISTING_TASK_LAST_RESULT='+[string]$details.LastTaskResult)
+          Write-Output ('F139_G28_EXISTING_TASK_LAST_RUN='+$details.LastRunTime.ToString('o'))
+          Write-Output 'F139_G28_TASK_AND_SOURCE_IDENTITY=PASS'
+          Write-Output 'F139_G28_OBSERVER_DID_NOT_TICK_DISPATCH_OR_MUTATE=PASS'
+          Write-Output 'F139_G28_SCIENTIFIC_FIRST_USE=DENIED'
