@@ -1,0 +1,73 @@
+name: Wingless R1 R2 original Go transport source contract
+on:
+  push:
+    branches: [repair/itd02-wingless-go-wire-20261024]
+permissions:
+  contents: read
+jobs:
+  go-public-observation-wire-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Fetch exact frozen native source files and verify Git blob identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/k4t/go/research/native/itd02/r1" "$RUNNER_TEMP/k4t/go/research/native/itd02/r2"
+          python -B - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+          from urllib.parse import quote
+          p=json.loads(Path("research/lcrm01/k4y_frozen_learned_affordance.json").read_text())
+          root=Path(os.environ["RUNNER_TEMP"])/"k4t/go/research/native/itd02"
+          for k, rel in (("wingless_R1","r1/policy.go"),("wingless_R2","r2/affordance.go")):
+              spec=p["source"][k]
+              url="https://api.github.com/repos/"+spec["repo"]+"/contents/"+quote(spec["file"],safe="/")+"?ref="+spec["head"]
+              headers={"Accept":"application/vnd.github+json","User-Agent":"FORGE-K4T-Source-Only",
+                       "Authorization":"Bearer "+os.environ["GH_TOKEN"]}
+              with urlopen(Request(url,headers=headers),timeout=45) as r:
+                  result=json.load(r)
+              raw=base64.b64decode(result["content"].replace("\\n",""),validate=True)
+              git_blob=hashlib.sha1(b"blob "+str(len(raw)).encode()+b"\\0"+raw).hexdigest()
+              if result["sha"]!=git_blob or git_blob!=spec["blob"]:
+                  raise RuntimeError("WINGLESS_ORIGINAL_NATIVE_SOURCE_IDENTITY_DRIFT")
+              (root/rel).write_bytes(raw)
+              print("K4T_"+k+"_ORIGINAL_BLOB="+git_blob)
+          PY
+      - name: Compile and vet original native R1 and R2 bridges without any environment execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'module github.com/spoonman136668-ai/Wingless\n\ngo 1.25.0\n' > "$RUNNER_TEMP/k4t/go/go.mod"
+          sed 's|"k4u/wingless"|"github.com/spoonman136668-ai/Wingless/research/native/itd02/r1"|' research/lcrm01/k4u_wingless_bridge.go > "$RUNNER_TEMP/k4t/go/bridge_r1.go"
+          cp research/lcrm01/k4y_wingless_r2_bridge.go "$RUNNER_TEMP/k4t/go/bridge_r2.go"
+          (cd "$RUNNER_TEMP/k4t/go" && go vet ./research/native/itd02/... && go build -trimpath -o "$RUNNER_TEMP/k4t/wingless-r1" bridge_r1.go && go build -trimpath -o "$RUNNER_TEMP/k4t/wingless-r2" bridge_r2.go)
+      - name: Verify Python wire schema and real original Go learning/round trip
+        env:
+          WINGLESS_R1_NATIVE_BRIDGE: ${{ runner.temp }}/k4t/wingless-r1
+          WINGLESS_R2_NATIVE_BRIDGE: ${{ runner.temp }}/k4t/wingless-r2
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01"
+          python -B -m unittest discover -s research/lcrm01 -p 'test_k4t_wingless_wire.py' -v
+          echo K4T_SOURCE_ONLY_NATIVE_TRANSPORT=PASS
