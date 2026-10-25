@@ -1,4 +1,4 @@
-name: F139 R5 transition capacity and original owner readiness (read only)
+name: F139 R6 current original owner custody and G4 candidate (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -125,3 +125,54 @@ jobs:
           '@
           & $python -B -c $check $root $db
           if($LASTEXITCODE -ne 0){throw 'F139_R4_READINESS_FAILED'}
+
+          # R6: original running-owner profile and G4 source availability,
+          # strictly read-only, AFTER R5 immutable ledger/custody PASS.
+          # This does not impersonate a live G4 owner tick or authorize cutover.
+          if([string]$task.State -cne 'Running'){throw 'F139_R6_TASK_NOT_RUNNING'}
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $principal=[string]$task.Principal.UserId
+          $sid=''
+          try {
+            $sid=(New-Object Security.Principal.NTAccount($principal)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          if($principal -ine $who.Name -and $sid -cne $who.User.Value){
+            throw 'F139_R6_TASK_OWNER_SID_DRIFT'
+          }
+          if([IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe'){
+            throw 'F139_R6_TASK_EXECUTABLE_DRIFT'
+          }
+          $wrapper=ReadArg 'File'
+          if([IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1'){
+            throw 'F139_R6_WRAPPER_DRIFT'
+          }
+          $actual=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and
+              $_.CommandLine.Contains('loop') })
+          if($actual.Count -ne 1){throw 'F139_R6_OWNER_CHILD_COUNT_DRIFT'}
+          $p=$actual[0]
+          if([int]$p.ProcessId -le 0 -or [int]$p.ParentProcessId -le 0){
+            throw 'F139_R6_OWNER_CHILD_PID_INVALID'
+          }
+          $parent=Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)" -ErrorAction Stop
+          if(-not $parent -or $parent.Name -ine 'powershell.exe' -or
+             -not $parent.CommandLine -or
+             -not $parent.CommandLine.Contains('Run-FORGE-F139.ps1')){
+            throw 'F139_R6_OWNER_PARENT_ROUTE_DRIFT'
+          }
+          $dirty=@(& git.exe -C $root status --porcelain --untracked-files=all)
+          if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'F139_R6_INSTALLED_CHECKOUT_DIRTY'}
+          $head=@(& git.exe -C $root ls-remote origin 'refs/heads/dev/f139-g2-g3-publisher-compatibility-20261024')
+          if($LASTEXITCODE -ne 0 -or $head.Count -ne 1 -or
+             -not $head[0].StartsWith('7844ae6b0e75ce5c1f83de8e47c13457a34e0e0e')){
+            throw 'F139_R6_G4_CANDIDATE_IDENTITY_DRIFT'
+          }
+          Write-Host 'F139_R6_ORIGINAL_WINDOWS_TASK_AND_SID=PASS'
+          Write-Host 'F139_R6_RUNNING_OWNER_PROCESS_ANCESTRY=PASS'
+          Write-Host 'F139_R6_INSTALLED_OLD_SOURCE_CLEAN=PASS'
+          Write-Host 'F139_R6_G4_REMOTE_CANDIDATE_PIN=PASS'
+          Write-Host 'F139_R6_NO_OWNER_DB_TASK_OR_REF_MUTATION=TRUE'
+          Write-Host 'F139_R6_G4_LIVE_CUTOVER_PERFORMED=FALSE'
