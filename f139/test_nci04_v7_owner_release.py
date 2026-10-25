@@ -32,6 +32,16 @@ class G39OriginalReleaseTests(unittest.TestCase):
         self.assertIn('approval.get(field) is expected',raw)
         self.assertIn('approval["paid_api_calls"] == 0',raw)
 
+    def test_module_entrypoint_validates_canonical_db_identity(self):
+        import inspect
+        from f139.local_controller import cli
+        source=inspect.getsource(cli)
+        self.assertIn('from f139.local_controller import Database as CanonicalOwnerDB',source)
+        self.assertIn('validator_db=CanonicalOwnerDB(args.db)',source)
+        self.assertIn('validate_v7_original_owner(validator_db,approval)',source)
+        self.assertIn('validator_db.close()',source)
+        self.assertIn('db.transition_source(approval["to_source_sha"]',source)
+
     def test_v7_requires_separate_manual_owner_cli(self):
         import inspect
         from f139.local_controller import cli
