@@ -1,0 +1,156 @@
+name: F139 G12 original source-integrity plus complete supported candidate regression (development only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g12-original-source-separated-behavior-contract.yml]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  contract:
+    name: G12 independent behavior contract (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Preserve exact native source bytes
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.safecrlf true
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 6e14fbe374aa0170a5f5f952afc4b4045ac2afca
+          path: forge
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: original
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read authenticated existing G3 immutable issue only
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $i=(& gh api 'repos/spoonman136668-ai/FORGE/issues/907' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $i.number -ne 907 -or
+             $i.id -ne 6019876053 -or
+             $i.user.login -cne 'spoonman136668-ai'){
+            throw 'F139_G12_ORIGINAL_ISSUE_DRIFT'
+          }
+          $doc=[string]$i.body | ConvertFrom-Json
+          if($doc.source_sha -cne '6e14fbe374aa0170a5f5f952afc4b4045ac2afca' -or
+             $doc.lane -cne 'Yggdrasil' -or
+             $doc.scientific_first_use -ne $false -or
+             -not $doc.intent_base64){throw 'F139_G12_SOURCE_INTENT_DRIFT'}
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'original-issue907.json'),
+            [string]$i.body,[Text.UTF8Encoding]::new($false))
+          Write-Host 'F139_G12_G3_ORIGINAL_ISSUE_AUTHENTICATED=PASS'
+      - name: Run clean pinned source atlas then exhaustively enumerate and run supported staged behavior suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=@'
+          import base64,json,os,pathlib,re,subprocess,sys,tempfile
+          FORGE="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          DONOR="992ef142aaa551156749a1de484a971b9a0c092f"
+          TREE="7e37c56e42dbd47a87da7a75210657a040f47a71"
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          original=root/"original";forge=root/"forge"
+          osname=os.environ["RUNNER_OS"]
+          assert osname in ("Linux","Windows")
+          def git(path,*args):
+              p=subprocess.run(["git","-C",str(path),*args],stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,check=False,timeout=30,stdin=subprocess.DEVNULL)
+              assert p.returncode==0,"F139_G12_GIT_READ_OR_IDENTITY_FAILED"
+              return p.stdout.decode().strip()
+          assert git(forge,"rev-parse","HEAD")==FORGE
+          assert git(original,"rev-parse","HEAD")==DONOR
+          assert git(original,"rev-parse","HEAD^{tree}")==TREE
+          assert git(original,"rev-parse","--is-shallow-repository")=="false"
+          assert git(original,"status","--porcelain","--untracked-files=all")==""
+          sys.path.insert(0,str(forge))
+          from f139.nci04_native_contract import parse_intent,digest
+          from f139.nci04_native_worker import stage_candidate
+          raw=base64.b64decode(json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"original-issue907.json").read_text())["intent_base64"],validate=True)
+          candidate=parse_intent(raw,protected_main=FORGE,target_commit=DONOR,target_tree_sha=TREE)
+          assert candidate.lane=="Yggdrasil" and candidate.path=="yggdrasil/public_causal_cells.py"
+          assert candidate.qualification_key=="fe6285e897fbc2b3ab4f1580b1272e972b7fb8a92dcb316866a2e73e6513ac44"
+          allow={"PATH","HOME","USERPROFILE","SYSTEMROOT","WINDIR","SYSTEMDRIVE",
+             "PATHEXT","COMSPEC","TMP","TEMP","TMPDIR","APPDATA","LOCALAPPDATA",
+             "LANG","LC_ALL","GOPATH","GOROOT","GOCACHE","GOMODCACHE","CGO_ENABLED","PYTHONPATH"}
+          env={k:v for k,v in os.environ.items() if k.upper() in allow}
+          env.update({"PYTHONDONTWRITEBYTECODE":"1","GIT_TERMINAL_PROMPT":"0",
+                      "GOPROXY":"off","GOSUMDB":"off","GOTOOLCHAIN":"local"})
+          assert all(k not in env for k in ("GH_TOKEN","GITHUB_TOKEN","F139_WORKER_HMAC_KEY","OPENAI_API_KEY"))
+          def test(path,filename):
+              cmd=[sys.executable,"-B","-m","unittest","discover","-s","tests","-p",filename,"-v"]
+              p=subprocess.run(cmd,cwd=path,env=env,stdin=subprocess.DEVNULL,
+                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=120)
+              txt=p.stdout[:200000].decode("utf-8","replace")
+              counts=re.findall(r"Ran ([0-9]+) tests? in",txt)
+              n=int(counts[-1]) if counts else 0
+              return p.returncode,n,txt
+          rc,n,out=test(original,"test_code_atlas.py")
+          print("F139_G12_CLEAN_ORIGINAL_ATLAS_TESTS="+str(n),flush=True)
+          assert rc==0 and n==4,"F139_G12_SOURCE_INTEGRITY_ATLAS_NOT_QUALIFIED"
+          print("F139_G12_ORIGINAL_FULL_HISTORY_ATLAS=PASS",flush=True)
+          tracked=set(
+              x for x in git(original,"ls-tree","-r","--name-only","HEAD","tests").splitlines()
+              if re.fullmatch(r"tests/test_[A-Za-z0-9_]+\.py",x))
+          observed=set("tests/"+p.name for p in (original/"tests").glob("test_*.py"))
+          assert tracked==observed and len(tracked)>=4,"F139_G12_FROZEN_TEST_INVENTORY_DRIFT"
+          assert "tests/test_code_atlas.py" in tracked
+          assert "tests/test_free_fanout_sidecar.py" in tracked
+          platform_excluded={"tests/test_code_atlas.py"}
+          if osname=="Windows": platform_excluded.add("tests/test_free_fanout_sidecar.py")
+          assert len(platform_excluded.intersection(tracked))==len(platform_excluded)
+          behavioral=sorted(tracked-platform_excluded)
+          assert len(behavioral)>=2
+          print("F139_G12_ORIGINAL_TEST_INVENTORY="+",".join(sorted(tracked)),flush=True)
+          print("F139_G12_BASELINE_ONLY_ATLAS=test_code_atlas.py",flush=True)
+          print("F139_G12_PLATFORM_UNSUPPORTED="+(
+            "test_free_fanout_sidecar.py" if osname=="Windows" else "NONE"),flush=True)
+          print("F139_G12_CANDIDATE_BEHAVIOR_TEST_MODULES="+",".join(behavioral),flush=True)
+          with tempfile.TemporaryDirectory(prefix="f139-g12-",dir=os.environ["RUNNER_TEMP"]) as temp:
+              stage=stage_candidate(candidate,original,pathlib.Path(temp))
+              dest=stage/"checkout"
+              assert git(dest,"rev-parse","HEAD")==DONOR
+              assert git(dest,"remote")==""
+              assert git(dest,"status","--porcelain","--untracked-files=all")=="M "+candidate.path
+              assert digest((dest/candidate.path).read_bytes())==candidate.after_sha256
+              rc,focused,output=test(dest,"test_native_cells.py")
+              assert rc==0 and focused==8,"F139_G12_AUTHENTIC_G3_FOCUSED_NEGATIVE"
+              print("F139_G12_AUTHENTIC_G3_FOCUSED_8=PASS",flush=True)
+              total=0; failures=[]
+              for entry in behavioral:
+                  label=entry.rsplit("/",1)[-1]
+                  code,count,output=test(dest,label)
+                  total+=count
+                  print("F139_G12_BEHAVIOR_MODULE_"+label+"="+
+                        ("PASS" if code==0 and count>0 else "FAIL")+
+                        "_"+str(count),flush=True)
+                  if code!=0 or count<1:
+                      failures.append(label)
+              assert not failures,"F139_G12_BEHAVIOR_FAILED_"+",".join(failures)
+              assert total>=15,"F139_G12_BEHAVIOR_TEST_COUNT_TOO_LOW"
+              print("F139_G12_TOTAL_BEHAVIORAL_TESTS="+str(total),flush=True)
+              print("F139_G12_ALL_SUPPORTED_FROZEN_BEHAVIOR_TESTS=PASS",flush=True)
+          assert git(original,"status","--porcelain","--untracked-files=all")==""
+          print("F139_G12_SEPARATE_FULL_SOURCE_AND_BEHAVIOR_QUALIFIED=PASS",flush=True)
+          print("F139_G12_G3_ORIGINAL_TICKET907_STILL_TERMINAL_NO_REPLAY=TRUE",flush=True)
+          print("F139_G12_QUALIFICATION_CONTRACT_DEV_ONLY_NO_SCIENCE=TRUE",flush=True)
+          '@
+          & python -B -c $code
+          if($LASTEXITCODE -ne 0){throw 'F139_G12_FULL_SUPPORTED_BEHAVIOR_CONTROL_FAILED'}
