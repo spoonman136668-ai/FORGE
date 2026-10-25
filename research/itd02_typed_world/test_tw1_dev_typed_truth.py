@@ -8,7 +8,7 @@ import tw1_dev_typed_truth as m
 def fixture():
     return {
         "role": m.ROLE,
-        "npcs": ["npc:ada", "npc:ben", "npc:cy"],
+        "npcs": ["npc:ada", "npc:ben", "npc:cy", "npc:di"],
         "locations": ["loc:home", "loc:market"],
         "buildings": ["bld:cottage", "bld:empty"],
         "occupancy": {"npc:ada": "loc:home", "npc:ben": None, "npc:cy": "loc:market"},
@@ -80,7 +80,7 @@ class TW1SourceNativeDevelopmentTests(unittest.TestCase):
         self.assertEqual(self.result("parent_of", "npc:ben", "npc:cy"), m.UNKNOWN)
 
     def test_14_complete_parentage_two_known_false_for_third(self):
-        self.assertEqual(self.result("parent_of", "npc:ben", "npc:cy"), m.UNKNOWN)
+        self.assertEqual(self.result("parent_of", "npc:di", "npc:ben"), m.FALSE)
 
     def test_15_second_known_parent_is_true(self):
         self.assertEqual(self.result("parent_of", "npc:cy", "npc:ben"), m.TRUE)
