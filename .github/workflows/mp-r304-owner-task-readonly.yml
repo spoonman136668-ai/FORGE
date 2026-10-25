@@ -88,3 +88,17 @@ jobs:
           $passed=($r.result -ceq 'PASS' -and [string]$r.run_id -ceq '39809195564')
           Write-Output ('R304_HISTORICAL_CUTOVER_RECEIPT_MATCH='+$passed)
           Write-Output 'R304_NEW_R300_CUTOVER_NOT_AUTHORIZED=TRUE'
+
+      - name: R305 source-pinned configuration versus original rollback comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R305_WRONG_OWNER_RUNNER'}
+          $live=Join-Path $env:USERPROFILE 'GolandProjects/ckb-plane/config/autonomy.yaml'
+          $old=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback/original-autonomy.yaml'
+          $l=(Get-FileHash -LiteralPath $live -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          $h=(Get-FileHash -LiteralPath $old -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+          Write-Output ('R305_CURRENT_EQUALS_HISTORICAL_ROLLBACK='+($l -ceq $h))
+          Write-Output ('R305_BACKUP_EQUALS_PREVIOUS_R18_PIN='+($h -ceq '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'))
+          Write-Output 'R305_CONFIG_VALUES_NOT_EXPORTED=TRUE'
+          Write-Output 'R305_CONTROLLER_OR_BACKUP_MODIFICATION=FALSE'
