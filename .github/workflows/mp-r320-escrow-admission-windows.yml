@@ -1,0 +1,79 @@
+name: R320 original Windows synthetic-only escrow admission
+on:
+  push:
+    branches: [audit/mp-r320-escrow-admission-windows-20261025]
+    paths: [.github/workflows/mp-r320-escrow-admission-windows.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r320-original-windows-synthetic-admission
+  cancel-in-progress: false
+jobs:
+  verify-fixture-only:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Authenticate exact R319/R320 source blobs and exercise synthetic-only acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r320-escrow-admission-windows-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R320_EXISTING_WINDOWS_OWNER_OR_BRANCH_DRIFT'
+          }
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($owner)
+          if($owner.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R320_EXISTING_ELEVATED_OWNER_IDENTITY_REQUIRED'
+          }
+          $py=Get-Command python.exe -ErrorAction Stop
+          $gh=Get-Command gh.exe -ErrorAction Stop
+          $git=Get-Command git.exe -ErrorAction Stop
+          if(!$env:RUNNER_TEMP -or !(Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)){
+            throw 'R320_PRIVATE_TEST_SCRATCH_MISSING'
+          }
+          $commit='45950d053562188b5ce306e50f3755799d903e55'
+          $remote=(& $gh.Source api ('repos/spoonman136668-ai/ckb-plane/commits/'+$commit) --jq '.sha' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $remote -cne $commit){throw 'R320_REMOTE_COMMIT_IDENTITY_DRIFT'}
+          $pins=[ordered]@{
+            'New-R319-SyntheticWalEscrow.py'=@('snapshot/source/scripts/New-R319-SyntheticWalEscrow.py','fc4c943da75423ee008c4a77130a15d2a743e725')
+            'Test-R320-EscrowAdmissibility.py'=@('snapshot/source/scripts/Test-R320-EscrowAdmissibility.py','402c39b89dc27305f36252f70b3f08196ad3eab2')
+            'Test-R320-SyntheticAdmission.py'=@('snapshot/source/scripts/Test-R320-SyntheticAdmission.py','ae9ea82290d9f46d8c8f167a8b6de821fe22d7fd')
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('r320-source-fixture-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root){throw 'R320_SCRATCH_DESTINATION_PREEXISTS'}
+          $made=$false
+          try{
+            $null=New-Item -ItemType Directory -Path $root -ErrorAction Stop
+            $made=$true
+            foreach($filename in $pins.Keys){
+              $p=$pins[$filename]
+              $endpoint='repos/spoonman136668-ai/ckb-plane/contents/'+$p[0]+'?ref='+$commit
+              $base64=(& $gh.Source api $endpoint --jq '.content' | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($base64)){
+                throw 'R320_PINNED_PUBLIC_TEST_SOURCE_NOT_READABLE'
+              }
+              [IO.File]::WriteAllBytes((Join-Path $root $filename),[Convert]::FromBase64String(($base64-replace '\s','')))
+              $blob=(& $git.Source hash-object -- (Join-Path $root $filename) | Out-String).Trim()
+              if($LASTEXITCODE -ne 0 -or $blob -cne [string]$p[1]){
+                throw 'R320_SOURCE_GIT_BLOB_HASH_CHANGED'
+              }
+            }
+            Write-Output 'R320_EXISTING_WINDOWS_OWNER_AND_PINNED_SOURCE=PASS'
+            & $py.Source -B (Join-Path $root 'Test-R320-SyntheticAdmission.py')
+            if($LASTEXITCODE -ne 0){throw 'R320_SYNTHETIC_ONLY_ESCROW_ADMISSION_TEST_FAILED'}
+            Write-Output 'R320_WINDOWS_SYNTHETIC_ACCEPTANCE_AND_LIVE_REFUSAL=PASS'
+            Write-Output 'R320_REAL_CKB_DATABASE_AND_TASK_NOT_OPENED=TRUE'
+            Write-Output 'R320_NO_PRODUCTION_BACKUP_OR_RESTORE_CREATED=TRUE'
+            Write-Output 'R320_NO_CKB_OR_FORGE_AUTHORITY_CHANGE=TRUE'
+          }finally{
+            if($made -and (Test-Path -LiteralPath $root)){
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop
+            }
+          }
