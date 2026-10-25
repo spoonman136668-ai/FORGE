@@ -2542,6 +2542,7 @@ def cli(argv=None):
             raw=args.approval.read_bytes()
             require(0<len(raw)<=4096,"V6_SOURCE_APPROVAL_FILE_INVALID")
             approval=json.loads(raw)
+            require(type(approval) is dict, "V6_APPROVAL_MUST_BE_OBJECT")
             checkout=Path(__file__).resolve().parent.parent
             def _git_read_v6(*parts):
                 p=subprocess.run(["git","-C",str(checkout),*parts],
