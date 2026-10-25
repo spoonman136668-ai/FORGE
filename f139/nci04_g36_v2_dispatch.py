@@ -15,7 +15,7 @@ import subprocess
 
 from f139.nci04_native_contract import canonical, digest, parse_intent
 from f139.nci04_owner_issue import NativeIssue, make_signed_dispatch_inputs
-from f139.nci04_signed_native import NativeAdmission
+from f139.nci04_signed_native import NativeAdmission, _identity
 from f139.nci04_worker_entry import (
     authorize, common_source, git, intent_raw, native_provider_pin,
     execute_v2_development,
@@ -237,11 +237,26 @@ def execute_v2(native_root: Path, scratch: Path, output: Path):
          "PINNED_NATIVE_SOURCE_DRIFT")
     c = parse_intent(intent_raw(), protected_main=source,
                      target_commit=commit, target_tree_sha=tree)
-    _bound(_issue_from_env(source, c), int(os.environ.get("F139_EPOCH", "0")),
+    issue = _issue_from_env(source, c)
+    epoch = int(os.environ.get("F139_EPOCH", "0"))
+    record = _bound(issue, epoch,
            int(os.environ.get("F139_V2_ORIGINAL_EVENT_SEQ", "0")),
            os.environ.get("F139_V2_ORIGINAL_EVENT_SHA256", ""),
            int(os.environ.get("F139_V2_CLAIM_EVENT_SEQ", "0")),
            os.environ.get("F139_V2_CLAIM_EVENT_SHA256", ""))
+    need(digest(canonical(record)) == bound,
+         "V2_OWNER_COMMITMENT_HANDOFF_DRIFT")
+    original_sig = os.environ.get("F139_SIGNATURE", "")
+    need(type(original_sig) is str and SHA64.fullmatch(original_sig),
+         "ORIGINAL_CONTROLLER_SIGNATURE_MISSING")
+    legacy = _identity(
+        {"ticket": issue.ticket, "lane": issue.lane,
+         "source_sha": source, "epoch": str(epoch),
+         "signature": original_sig},
+        str(issue.number), str(issue.issue_id),
+        issue.issue_body_sha256, c)
+    need(digest(canonical(legacy)) == auth,
+         "SIGNED_V1_NATIVE_ADMISSION_HANDOFF_DRIFT")
     need(os.environ.get("F139_QUALIFICATION_KEY") == c.qualification_key,
          "CANDIDATE_QUALIFICATION_DRIFT")
     label = os.environ.get("F139_RUNNER_OS", "")
