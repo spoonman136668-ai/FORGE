@@ -114,6 +114,23 @@ class G35ProviderOriginTests(unittest.TestCase):
                     "scientific_first_use_authorized"):
             self.assertFalse(out[key])
 
+    def test_real_workflow_skips_all_legacy_v1_jobs(self):
+        self.jobs.extend([
+            {"name":"execute","id":10,"status":"completed","conclusion":"skipped"},
+            {"name":"native-authorize","id":11,"status":"completed","conclusion":"skipped"},
+            {"name":"native-execute","id":12,"status":"completed","conclusion":"skipped"},
+        ])
+        checked=self.read()
+        self.assertTrue(checked["both_platforms_development_qualified"])
+
+    def test_any_legacy_v1_execution_on_v2_run_is_denied(self):
+        self.jobs.append(
+            {"name":"native-authorize","id":11,"status":"completed",
+             "conclusion":"success"})
+        with self.assertRaisesRegex(G35ProviderDenied,
+                                    "UNEXPECTED_OR_LIVE_V1_JOB_ON_V2_RUN"):
+            self.read()
+
     def test_g34_pr_run_is_not_an_original_v2_workflow(self):
         self.run["event"] = "pull_request"
         with self.assertRaisesRegex(G35ProviderDenied,
