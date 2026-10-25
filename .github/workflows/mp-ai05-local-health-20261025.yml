@@ -1,0 +1,108 @@
+name: MP-AI05 bounded loopback model health (read-only)
+on:
+  push:
+    branches: [qualification/mp-ai05-local-health-20261025]
+    paths: ['.github/workflows/mp-ai05-local-health-20261025.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai05-local-health-once
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify fixed loopback-only inference metadata without model invocation
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/mp-ai05-local-health-20261025' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_D11_WRONG_SOURCE_OR_RUNNER'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          Write-Host 'MPAI05_D11_HOST=FORGE_CODEX_REMOTE_ONLY'
+          Write-Host 'MPAI05_D11_TRANSPORT=EXACT_LOOPBACK_GET_NO_PROXY_NO_REDIRECT'
+          foreach($spec in @(
+             @{ Port=8080; Path='/v1/models'; Kind='LLAMA_COMPATIBLE' },
+             @{ Port=11434; Path='/api/tags'; Kind='OLLAMA' }
+          )) {
+            $port=[int]$spec.Port
+            $kind=[string]$spec.Kind
+            $status='UNVERIFIED'
+            $socket=[Net.Sockets.TcpClient]::new()
+            try {
+              $task=$socket.ConnectAsync([Net.IPAddress]::Loopback,$port)
+              if(-not $task.Wait(1250)) {
+                $status='TCP_CONNECT_TIMEOUT'
+              } elseif(-not $socket.Connected) {
+                $status='NO_TCP_LISTENER'
+              } else {
+                $handler=[Net.Http.HttpClientHandler]::new()
+                $handler.AllowAutoRedirect=$false
+                $handler.UseProxy=$false
+                $http=[Net.Http.HttpClient]::new($handler)
+                $http.Timeout=[TimeSpan]::FromSeconds(3)
+                try {
+                  $uri='http://127.0.0.1:'+ [string]$port + [string]$spec.Path
+                  $resp=$http.GetAsync($uri,[Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+                  try {
+                    if([int]$resp.StatusCode -ne 200) {
+                      $status='HTTP_NON_200'
+                    } else {
+                      $st=$resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                      $buffer=[byte[]]::new(16385)
+                      $total=0
+                      try {
+                        while($total -lt $buffer.Length) {
+                          $n=$st.Read($buffer,$total,$buffer.Length-$total)
+                          if($n -eq 0){break}
+                          $total+=$n
+                        }
+                        if($total -eq 0 -or $total -gt 16384) {
+                          $status='INVALID_OR_OVERSIZE_METADATA'
+                        } else {
+                          $json=[Text.Encoding]::UTF8.GetString($buffer,0,$total) | ConvertFrom-Json -AsHashtable
+                          $items=if($kind -ceq 'LLAMA_COMPATIBLE'){$json.data}else{$json.models}
+                          $labels=@($items | Where-Object {
+                            $_ -is [System.Collections.IDictionary] -and
+                            (($_.Contains('id') -and $_.id -is [string] -and $_.id.Length -gt 0) -or
+                             ($_.Contains('name') -and $_.name -is [string] -and $_.name.Length -gt 0) -or
+                             ($_.Contains('model') -and $_.model -is [string] -and $_.model.Length -gt 0))
+                          })
+                          $status=if($labels.Count -gt 0){'METADATA_RESPONDS_MODEL_UNAUTHENTICATED'}else{'NO_VALID_MODEL_METADATA'}
+                        }
+                      } finally {
+                        $st.Dispose()
+                      }
+                    }
+                  } finally {
+                    $resp.Dispose()
+                  }
+                } finally {
+                  $http.Dispose()
+                  $handler.Dispose()
+                }
+              }
+            } catch [System.AggregateException] {
+              $status='NO_TCP_LISTENER_OR_REQUEST_FAILED'
+            } catch {
+              $status='NO_TCP_LISTENER_OR_REQUEST_FAILED'
+            } finally {
+              $socket.Dispose()
+            }
+            Write-Host ('MPAI05_D11_'+$kind+'_LOOPBACK='+$status)
+          }
+          Write-Host 'MPAI05_D11_MODEL_INFERENCE=NOT_EXECUTED'
+          Write-Host 'MPAI05_D11_MODEL_WEIGHTS_IDENTITY=NOT_ATTESTED'
+          Write-Host 'MPAI05_D11_CHATGPT_CLIENT_IDENTITY=NOT_ATTESTED'
+          Write-Host 'MPAI05_D11_HOLDOUT_FIRST_USE=NOT_TESTED'
+          Write-Host 'MPAI05_D11_PAID_API_CALLS=0'
+          Write-Host 'MPAI05_D11_MEMORY_WRITES=0'
+          Write-Host 'MPAI05_D11_NO_DOWNLOADS_NO_MUTATIONS=PASS'
