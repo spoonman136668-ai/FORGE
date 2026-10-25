@@ -1,0 +1,158 @@
+name: MP-AI06-D15 one-shot guarded historical-feedback candidate qualification
+on:
+  push:
+    branches: [qualification/mpai06-d15-guarded-intake-20261025]
+    paths: ['.github/workflows/mpai06-d15-exact-feedback-intake.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai06-d15-one-shot-20261025
+  cancel-in-progress: false
+jobs:
+  exact-intake:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 18
+    steps:
+      - name: Verify exact source then run existing collector in disposable checkout only
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$label) {
+            if(-not $ok){throw ('MPAI06_D15_'+$label)}
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai06-d15-guarded-intake-20261025' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXPECTED_EXISTING_WINDOWS_RUNNER'
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:CODEX_HOME,Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai06-d15-exact-guarded-candidate-20261025'
+          $target='c6770dfcc0e07764ee384236aab8f8dc3412a63e'
+          $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $batchPath='pilots/agent-feedback/2026-10-25-mpai06-d15-exact-two-failures.batch.json'
+          $policyPath='policies/mpai06-d15-original-feedback-exact-cohort.json'
+          $reviewPath='reviews/mpai06-d14-original-model-feedback-20261025.json'
+          $expectedIds=@('lesson/mpai06-d14-dev3-original-model-failure-20261024',
+                         'lesson/mpai06-d14-dev4-original-model-failure-20261024')
+          $pins=@{
+            'pilots/agent-feedback/2026-10-25-mpai06-d15-exact-two-failures.batch.json'='2eefe08655b23a87f515ec82e9ca31b50040b9c4'
+            'policies/mpai06-d15-original-feedback-exact-cohort.json'='037de329db048e568b7338d2c3dbc29ca7d8f15a'
+            'reviews/mpai06-d14-original-model-feedback-20261025.json'='ca6c880c4548d095d7eaa2c9bf70d2f3e660fe89'
+          }
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json',
+            '.ice/project-dependency-graph.json')
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d15-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          function Pin([string]$ref,[string]$sha){
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REMOTE_SOURCE_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          New-Item -ItemType Directory -Path $scratch | Out-Null
+          $hashes=@{}
+          $initialized=$false
+          try {
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $head -ceq $target) 'PINNED_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $accepted HEAD
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
+            $changed=@(& git.exe -C $root diff --name-only $accepted HEAD)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 3 -and
+              (($changed | Sort-Object) -join '|') -ceq (($pins.Keys | Sort-Object) -join '|')) 'THREE_FILE_EXACT_SOURCE_SCOPE'
+            foreach($f in $pins.Keys){
+              $blob=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $blob -ceq $pins[$f]) ('SOURCE_BLOB_DRIFT_'+$f)
+            }
+            Write-Host 'MPAI06_D15_EXACT_THREE_FILE_SCOPE=PASS'
+            foreach($f in $protected){
+              $baseline=(& git.exe -C $root rev-parse ($accepted+':'+$f) | Out-String).Trim()
+              $now=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $baseline -ceq $now) ('PROTECTED_BLOB_'+$f)
+              $hashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $initialized=$true
+            Write-Host 'MPAI06_D15_ORIGINAL_PROTECTED_NINE_BLOBS=PASS'
+            $policy=Get-Content -LiteralPath (Join-Path $root $policyPath) -Raw | ConvertFrom-Json
+            $review=Get-Content -LiteralPath (Join-Path $root $reviewPath) -Raw | ConvertFrom-Json
+            $batch=Get-Content -LiteralPath (Join-Path $root $batchPath) -Raw | ConvertFrom-Json
+            Need ([string]$policy.admission_status -ceq 'ISOLATED_CANDIDATE_STAGE_APPROVED_ONLY' -and
+              -not [bool]$policy.production_memory_writes -and
+              -not [bool]$policy.auto_promote -and
+              -not [bool]$policy.codex_model_calls -and
+              [string]$review.status -ceq 'REVIEW_ONLY_NOT_ADMITTED' -and
+              @($review.observations).Count -eq 2 -and
+              @($batch.candidates).Count -eq 2 -and
+              @($batch.sources).Count -eq 2 -and
+              [string]$batch.collector.source_kind -ceq 'agent' -and
+              @($policy.expected_candidate_ids).Count -eq 2) 'SCOPE_DENIED'
+            $incoming=@($batch.candidates | ForEach-Object {([string]$_.kind+'/'+[string]$_.key)} | Sort-Object)
+            Need (($incoming -join '|') -ceq (($expectedIds | Sort-Object) -join '|') -and
+              (@($batch.candidates | Where-Object {@($_.supersedes).Count -gt 0}).Count -eq 0)) 'CANDIDATE_ID_SCOPE'
+            Write-Host 'MPAI06_D15_EXACT_SOURCE_POLICY_NO_WRITES=PASS'
+            $collector=Join-Path $root 'tools/collect.ps1'
+            $inputFile=Join-Path $root $batchPath
+            $validationRaw=(& $collector validate -InputPath $inputFile | Out-String).Trim()
+            Need ($validationRaw.Length -gt 0) 'COLLECT_VALIDATE_NO_OUTPUT'
+            $validation=$validationRaw | ConvertFrom-Json
+            Need ([string]$validation.schema -ceq 'mind-palace.collector-result.v1' -and
+              [int]$validation.candidate_count -eq 2 -and [int]$validation.source_count -eq 2 -and
+              [bool]$validation.result.valid) 'COLLECT_VALIDATION'
+            Write-Host 'MPAI06_D15_REAL_COLLECTOR_VALIDATE=PASS'
+            $classificationRaw=(& $collector classify -InputPath $inputFile | Out-String).Trim()
+            Need ($classificationRaw.Length -gt 0) 'COLLECT_CLASSIFY_NO_OUTPUT'
+            $classification=$classificationRaw | ConvertFrom-Json
+            Need ([string]$classification.schema -ceq 'mind-palace.collector-result.v1' -and
+              [int]$classification.candidate_count -eq 2 -and
+              [int]$classification.result.counts.supersede -eq 0 -and
+              [int]$classification.result.counts.review -eq 0 -and
+              [int]$classification.result.counts.new -eq 2) 'COLLECT_CLASSIFY_FAIL_CLOSED'
+            Write-Host 'MPAI06_D15_REAL_COLLECTOR_CLASSIFY_TWO_NEW=PASS'
+            # Stage ONLY in this disposable repository; never on the host's live installation.
+            $stagedRaw=(& $collector stage -InputPath $inputFile | Out-String).Trim()
+            Need ($stagedRaw.Length -gt 0) 'COLLECT_STAGE_NO_OUTPUT'
+            $staged=$stagedRaw | ConvertFrom-Json
+            Need ([int]$staged.result.counts.new -eq 2 -and
+              [int]$staged.result.counts.review -eq 0 -and
+              [int]$staged.result.counts.supersede -eq 0) 'COLLECT_STAGE_FAIL_CLOSED'
+            $pending=Join-Path $root '.mind-runtime/pending.jsonl'
+            Need (Test-Path -LiteralPath $pending -PathType Leaf) 'PENDING_SCRATCH_MISSING'
+            $rows=@(Get-Content -LiteralPath $pending | Where-Object {-not [string]::IsNullOrWhiteSpace($_)} |
+              ForEach-Object {$_ | ConvertFrom-Json})
+            Need ($rows.Count -eq 2 -and
+              (($rows | ForEach-Object {[string]$_.id} | Sort-Object) -join '|') -ceq
+              (($expectedIds | Sort-Object) -join '|') -and
+              @($rows | Where-Object {[string]$_.status -cne 'candidate'}).Count -eq 0) 'SCRATCH_PENDING_EXACTLY_TWO'
+            Write-Host 'MPAI06_D15_TWO_GUARDED_CANDIDATES_STAGED_IN_DISPOSABLE_SCRATCH=PASS'
+            Need (-not ((& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'TRACKED_WORKTREE_CHANGED'
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            Write-Host 'MPAI06_D15_REPOSITORY_ACCEPTED_MAIN_UNCHANGED=PASS'
+            Write-Host 'MPAI06_D15_LIVE_PENDING_QUEUE_WRITES=0'
+            Write-Host 'MPAI06_D15_PRODUCTION_ICE_WRITES=0'
+            Write-Host 'MPAI06_D15_MODEL_CODEX_CALLS=0'
+            Write-Host 'MPAI06_D15_SCIENTIFIC_GENERALIZATION=NOT_TESTED'
+            Write-Host 'MPAI06_D15_CANDIDATES_APPROVED_FOR_LIVE_MEMORY=NO'
+          } finally {
+            if($initialized){
+              foreach($f in $protected){
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq
+                  $hashes[$f]) ('PROTECTED_POSTIMAGE_'+$f)
+              }
+              Write-Host 'MPAI06_D15_PROTECTED_FINAL=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI06_D15_DISPOSABLE_SCRATCH_CLEAN=PASS'
+          }
