@@ -1,0 +1,42 @@
+name: Mass K4T-F1 corrected native Wingless prospective public development
+on:
+  push:
+    branches: [research/itd02-k4t-f1-corrected-wingless-20261024]
+permissions:
+  contents: read
+jobs:
+  corrected-native-original-public-minigrid-dev:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 16
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Original source identity and frozen-first new public development
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash research/lcrm01/k4t_f1_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f1-corrected-wingless-fresh-public-dev-evidence
+          path: |
+            ${{ runner.temp }}/k4tf1/process-a.json
+            ${{ runner.temp }}/k4tf1/process-b.json
+            ${{ runner.temp }}/k4tf1/comparison.json
+            ${{ runner.temp }}/k4tf1/process-a.log
+            ${{ runner.temp }}/k4tf1/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
