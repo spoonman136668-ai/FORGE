@@ -1,0 +1,36 @@
+name: Mass K4T-F9 fresh randomized causal-action FIT and paired DEV
+on:
+  push:
+    branches: [research/itd02-k4t-f9-randomized-action-value-20261025]
+permissions:
+  contents: read
+jobs:
+  true-original-interventions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 40
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate source and train real three-action FIT before fresh independent evaluation
+        run: bash research/lcrm01/k4t_f9_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f9-randomized-FIT-and-fresh-paired-action-DEV
+          path: |
+            ${{ runner.temp }}/k4tf9/process-a.json
+            ${{ runner.temp }}/k4tf9/process-b.json
+            ${{ runner.temp }}/k4tf9/comparison.json
+            ${{ runner.temp }}/k4tf9/process-a.log
+            ${{ runner.temp }}/k4tf9/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
