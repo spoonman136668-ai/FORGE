@@ -120,7 +120,7 @@ def execute_family_seeds(family,seeds,phase):
   for tick in ANCHORS:
    anchor=f8.original_prefix(family,seed,tick)
    if anchor is None:continue
-   if set(anchor["public"])!=set(f8.FIELDS):
+   if set(anchor["public"])!=set(f8.f7.FIELDS):
     raise ValueError("F9_PUBLIC_ANCHOR_HAS_PRIVILEGED_FIELD")
    # Set execution order by hashed FIT/DEV seed, not prediction or reward.
    order=sorted(ACTIONS,key=lambda a:hashlib.sha256(
