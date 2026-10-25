@@ -1,0 +1,36 @@
+name: Mass K4T-F8 original MiniGrid paired actions versus FIT control
+on:
+  push:
+    branches: [research/itd02-k4t-f8-paired-interventions-20261025]
+permissions:
+  contents: read
+jobs:
+  real-paired-action-original-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 35
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute all three original source action interventions and independent process replay
+        run: bash research/lcrm01/k4t_f8_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f8-public-original-world-paired-action-evidence
+          path: |
+            ${{ runner.temp }}/k4tf8/process-a.json
+            ${{ runner.temp }}/k4tf8/process-b.json
+            ${{ runner.temp }}/k4tf8/comparison.json
+            ${{ runner.temp }}/k4tf8/process-a.log
+            ${{ runner.temp }}/k4tf8/process-b.log
+          if-no-files-found: warn
+          retention-days: 90

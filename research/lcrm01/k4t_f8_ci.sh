@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# F8 independently authored original-world, fully executed three-action trials
+set -euo pipefail
+cd "$GITHUB_WORKSPACE"
+test "$(git rev-parse 'c3eaa734b9c02aad3798e9a54efa1e003df947fa^')" = 83e6d08606f741605c2f8c5e7536b606575a2f11
+git merge-base --is-ancestor c3eaa734b9c02aad3798e9a54efa1e003df947fa HEAD
+test "$(git hash-object research/lcrm01/k4t_f8_frozen_paired_actions.json)" = ada300b48db4998a4a8aaaf1f26ec5c6b5727c9e
+test "$(git hash-object research/lcrm01/k4t_f7_delayed_value.py)" = f28f0f669a2b6621f2da7083976af0d508803e76
+test "$(git hash-object research/lcrm01/k4x_curriculum_intervention.py)" = e9cac7e9b47a9e19483b6b05d0afd0ecbaf4ab59
+test "$(git hash-object research/lcrm01/k4r_minigrid_source.py)" = a09f73d528192f41e1e9572d9b8476a66cdff644
+echo K4T_F8_FROZEN_PROSPECTIVE_BEFORE_ORIGINAL_SOURCE=PASS
+python -B - <<'PY'
+import ast,pathlib
+for name in ("k4t_f8_paired_actions.py","k4t_f8_compare.py","test_k4t_f8_sourceonly.py"):
+ ast.parse((pathlib.Path("research/lcrm01")/name).read_text())
+print("K4T_F8_AST_PASS")
+PY
+export PYTHONPATH="$GITHUB_WORKSPACE/research/lcrm01"
+python -B -m unittest discover -s research/lcrm01 -p test_k4t_f8_sourceonly.py -v
+python -m pip install 'pip==24.0' 'setuptools==69.5.1' 'wheel==0.43.0'
+python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+mkdir -p "$RUNNER_TEMP/k4tf8/minigrid" "$RUNNER_TEMP/k4tf8"
+git init -q "$RUNNER_TEMP/k4tf8/minigrid"
+git -C "$RUNNER_TEMP/k4tf8/minigrid" remote add origin https://github.com/Farama-Foundation/Minigrid.git
+git -C "$RUNNER_TEMP/k4tf8/minigrid" fetch --no-tags --depth 1 origin 7f5853792ea7f04f75614661006d87fcf949f26d
+git -C "$RUNNER_TEMP/k4tf8/minigrid" checkout --detach -q 7f5853792ea7f04f75614661006d87fcf949f26d
+test "$(git -C "$RUNNER_TEMP/k4tf8/minigrid" hash-object minigrid/envs/empty.py)" = 8810bb0fa156d18475022edd8859b135ef745a5f
+test "$(git -C "$RUNNER_TEMP/k4tf8/minigrid" hash-object minigrid/envs/fourrooms.py)" = d79f007e00f95f48284da66d760872483c02fab2
+test "$(git -C "$RUNNER_TEMP/k4tf8/minigrid" hash-object minigrid/wrappers.py)" = 1eb2da8fb612653c97f443ff6c7492ed3f1aaa80
+test "$(git -C "$RUNNER_TEMP/k4tf8/minigrid" hash-object minigrid/minigrid_env.py)" = eb29e9a902de0715ab77ec981a2113576d7664fa
+python -m pip install --no-deps -e "$RUNNER_TEMP/k4tf8/minigrid"
+echo K4T_F8_ORIGINAL_IMMUTABLE_MINIGRID_SOURCE=PASS
+python -B research/lcrm01/k4t_f8_paired_actions.py --output "$RUNNER_TEMP/k4tf8/process-a.json" > "$RUNNER_TEMP/k4tf8/process-a.log" 2>&1 || {
+ cat "$RUNNER_TEMP/k4tf8/process-a.log"
+ echo K4T_F8_PROCESS_A_INFRASTRUCTURE_BLOCKED
+ exit 1
+}
+python -B research/lcrm01/k4t_f8_paired_actions.py --output "$RUNNER_TEMP/k4tf8/process-b.json" > "$RUNNER_TEMP/k4tf8/process-b.log" 2>&1 || {
+ cat "$RUNNER_TEMP/k4tf8/process-b.log"
+ echo K4T_F8_PROCESS_B_INFRASTRUCTURE_BLOCKED
+ exit 1
+}
+cat "$RUNNER_TEMP/k4tf8/process-a.log"
+cat "$RUNNER_TEMP/k4tf8/process-b.log"
+python -B research/lcrm01/k4t_f8_compare.py \
+ --first "$RUNNER_TEMP/k4tf8/process-a.json" \
+ --second "$RUNNER_TEMP/k4tf8/process-b.json" \
+ --output "$RUNNER_TEMP/k4tf8/comparison.json"
+python -B - <<'PY'
+import json,os
+from pathlib import Path
+root=Path(os.environ["RUNNER_TEMP"])/"k4tf8"
+a=json.loads((root/"process-a.json").read_text())
+b=json.loads((root/"process-b.json").read_text())
+c=json.loads((root/"comparison.json").read_text())
+assert c["science_identical"] is True
+assert c["scientific_first_use"] is False
+assert len(a["original_FIT_source_records"])==len(b["original_FIT_source_records"])==12000
+assert set(a["public_intervention_summary"])=={"empty","fourrooms"}
+print("K4T_F8_TWO_INDEPENDENT_ORIGINAL_SOURCE_PAIRED_PROCESSES=PASS")
+print("K4T_F8_OFFICIAL_DISPOSITION="+c["result"])
+PY
+test -z "$(git status --porcelain --untracked-files=all)"
+echo K4T_F8_CLEAN_DEVELOPMENT_SOURCE=PASS
+echo K4T_F8_PROTECTED_SCIENTIFIC_FIRST_USE=FALSE
