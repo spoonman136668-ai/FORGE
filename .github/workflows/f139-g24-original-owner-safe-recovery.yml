@@ -1,0 +1,144 @@
+name: F139 G24 original Windows owner exact preevent recovery - one-shot
+on:
+  push:
+    branches:
+      - qualify/f139-g24-original-owner-verified-rollback-20261025
+    paths:
+      - .github/workflows/f139-g24-original-owner-safe-recovery.yml
+permissions:
+  contents: read
+concurrency:
+  group: f139-g24-original-owner-preevent-recovery-one-shot
+  cancel-in-progress: false
+jobs:
+  guarded-recovery:
+    if: github.ref == 'refs/heads/qualify/f139-g24-original-owner-verified-rollback-20261025' && github.run_attempt == 1 && github.event.head_commit.message == 'F139 G24 explicitly recover verified pre-event original owner from failclosed hold'
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Recover original source/task only after ledger and backup equality prove no event was appended
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='spoonman136668-ai/FORGE'
+          $target='1e6032e436fb38544549edf90161f1f31f71d83a'
+          $old='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
+          $name='FORGE-F139-UnifiedController'
+          $sealedHead='10978331615359a2c9e316363a11dba8745c93d699171eeffb65f73414c19deb'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne $repo -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'F139_G24_ORIGINAL_OWNER_RUNNER_DRIFT'
+          }
+          $me=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($me).IsInRole(
+                [Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'F139_G24_ORIGINAL_OWNER_NOT_ADMIN'
+          }
+          $who=(& gh api user --jq '.login' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $who -cne 'spoonman136668-ai'){
+            throw 'F139_G24_OWNER_GITHUB_AUTH_DRIFT'
+          }
+          $current=(& gh api "repos/$repo/branches/main" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $current.protected -ne $true -or
+             $current.commit.sha -cne $target){
+            throw 'F139_G24_PROTECTED_MAIN_CHANGED'
+          }
+          $issue=(& gh api "repos/$repo/issues/807" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_G24_POLICY_UNAVAILABLE'}
+          $policy=[string]$issue.body | ConvertFrom-Json
+          if($policy.enabled -ne $true -or $policy.source_sha -cne $old -or
+             $policy.scientific_first_use -ne $false -or
+             $policy.new_controller -ne $false -or
+             $policy.new_scheduler -ne $false -or
+             $policy.new_queue -ne $false -or
+             $policy.paid_model_calls -ne 0){
+            throw 'F139_G24_ORIGINAL_POLICY_CHANGED'
+          }
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$task.State -cne 'Disabled' -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_G24_EXPECTED_DISABLED_TASK_MISSING'
+          }
+          $id=[string]$task.Principal.UserId;$sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($id)).Translate(
+               [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($id -ine $me.Name -and $sid -cne $me.User.Value){
+            throw 'F139_G24_OWNER_SID_DRIFT'
+          }
+          function TaskArg([string]$n) {
+            $f=[regex]::Match([string]$task.Actions[0].Arguments,
+               '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $f.Success){throw 'F139_G24_OWNER_TASK_ARG_DRIFT'}
+            return $f.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $wrapper=TaskArg 'File'
+          if([IO.Path]::GetFileName($wrapper) -cne 'Run-FORGE-F139.ps1' -or
+             [IO.Path]::GetFileName([string]$task.Actions[0].Execute) -ine 'powershell.exe' -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'F139_G24_ORIGINAL_TASK_EXECUTION_DRIFT'
+          }
+          $expectedDb=Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb)){
+            throw 'F139_G24_DB_PROFILE_DRIFT'
+          }
+          $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction Stop |
+             Where-Object { $_.CommandLine -and
+               $_.CommandLine.Contains('f139.local_controller') -and
+               $_.CommandLine.Contains($db) })
+          if($children.Count -ne 0){throw 'F139_G24_PYTHON_CHILD_STILL_RUNNING'}
+          $source=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $source -cne $target -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G24_INSTALLED_SOURCE_OR_CLEAN_TREE_DRIFT'
+          }
+          $backup=Join-Path (Split-Path $db -Parent) 'f139-g15-local-recovery-40206785007.sqlite'
+          if(-not(Test-Path -LiteralPath $backup)){
+            throw 'F139_G24_ORIGINAL_READONLY_BACKUP_NOT_FOUND'
+          }
+          $read=@'
+          import pathlib,sqlite3,sys
+          a=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          b=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          expected=sys.argv[3];head=sys.argv[4]
+          def check(path):
+              c=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=20)
+              c.execute("PRAGMA query_only=ON")
+              try:
+                  m=c.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+                  count=c.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                  tail=c.execute("SELECT kind FROM events ORDER BY rowid DESC LIMIT 1").fetchone()
+                  assert m is not None and tail is not None
+                  return m,count,tail[0]
+              finally:c.close()
+          x=check(a);y=check(b)
+          assert x==y
+          assert x[0][0]==expected and x[0][1]==218 and x[0][2]==head
+          assert x[1]==218 and x[2]=='ATTEMPT_QUARANTINED'
+          print("F139_G24_PREWRITE_LEDGER_EQUALS_SNAPSHOT=PASS",flush=True)
+          '@
+          & $python -B -c $read $db $backup $old $sealedHead
+          if($LASTEXITCODE -ne 0){throw 'F139_G24_LEDGER_OR_BACKUP_DRIFT'}
+          # Last chance, side-effect-free custody checks done above.
+          & git.exe -C $root checkout --detach $old
+          if($LASTEXITCODE -ne 0 -or
+             ( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G24_ORIGINAL_SOURCE_RESTORE_NOT_CONFIRMED'
+          }
+          Write-Host 'F139_G24_ORIGINAL_SOURCE_RESTORED=PASS'
+          Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+          Start-ScheduledTask -TaskName $name -ErrorAction Stop
+          $running=$false
+          for($i=0;$i -lt 20;$i++){
+            if([string](Get-ScheduledTask -TaskName $name).State -ceq 'Running'){
+              $running=$true;break
+            }
+            Start-Sleep -Seconds 1
+          }
+          if(-not $running){throw 'F139_G24_ORIGINAL_TASK_START_NOT_CONFIRMED'}
+          Write-Host 'F139_G24_ORIGINAL_TASK_RESTORED=PASS'
+          Write-Host 'F139_G24_NO_NEW_CONTROLLER_AND_NO_SCIENTIFIC_AUTHORITY=PASS'
