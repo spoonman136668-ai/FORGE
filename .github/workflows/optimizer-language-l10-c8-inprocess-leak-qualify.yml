@@ -1,0 +1,48 @@
+name: L10-C8 development-only in-process source-leak falsification
+on:
+  push:
+    branches: [research/optimizer-language-l10-semantic-fidelity-20261024]
+    paths:
+      - '.github/workflows/optimizer-language-l10-c8-inprocess-leak-qualify.yml'
+      - 'research/optimizer_language_l10/test_l10_c8_inprocess_mapping_leak.py'
+permissions:
+  contents: read
+concurrency:
+  group: l10-c8-source-only-falsification-20261024
+  cancel-in-progress: false
+jobs:
+  development-only-falsification:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Enforce exact source-only test delta and frozen original L10 code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD~2)" = '952cbb1215edc18a12997bb1454b3bc74a79f1b6'
+          expected="$(printf '%s\n' '.github/workflows/optimizer-language-l10-c8-inprocess-leak-qualify.yml' 'research/optimizer_language_l10/test_l10_c8_inprocess_mapping_leak.py')"
+          test "$(git diff --name-only HEAD~2 HEAD)" = "$expected"
+          p=research/optimizer_language_l10
+          test "$(git rev-parse "HEAD:$p/L10_SEMANTIC_FIDELITY_PROSPECTIVE_CONTRACT.json")" = '60ea8f15ee73059849873d04685f40fbc320ae9a'
+          test "$(git rev-parse "HEAD:$p/l10_dev_source_custody.py")" = '42dc48c286a1a8c21c3ceb947d49ff1121b26ecc'
+          test "$(git rev-parse "HEAD:$p/l10_dev_matched_controls.py")" = '10d6c12225d85bd6aaf49032c246c3df11196878'
+          test "$(git rev-parse "HEAD:$p/l10_semantic_dev_oracle.py")" = '61cfcabcfd3f5a5d6e28b510e81f889566bbb877'
+      - name: Reproduce callback leakage on manually specified public-input-only case
+        shell: bash
+        run: |
+          set -euo pipefail
+          p=research/optimizer_language_l10
+          python -B -m py_compile "$p/test_l10_c8_inprocess_mapping_leak.py"
+          (cd "$p" && python -B -m unittest -v test_l10_c8_inprocess_mapping_leak.py)
+          echo 'L10_C8_ORIGINAL_INPROCESS_MAPPING_LEAK_REPRODUCED=TRUE'
+          echo 'L10_C8_UNTRUSTED_MODEL_ISOLATION=NOT_QUALIFIED'
+          echo 'L10_C8_PROSPECTIVE_CASES_GENERATED=0'
+          echo 'L10_C8_SCIENTIFIC_GO=FALSE'
