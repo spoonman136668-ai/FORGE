@@ -1,0 +1,44 @@
+name: ITD02 F124CM original E2 one-stage causal support bound
+on:
+  push:
+    branches:
+      - research/itd02-f124cm-influence-veto-20261025
+    paths:
+      - "research/north-star-transfer/f124cm/FROZEN_PROTOCOL.json"
+      - "research/north-star-transfer/f124cm/run.py"
+      - ".github/workflows/itd02-f124cm-expressivity.yml"
+permissions:
+  contents: read
+jobs:
+  exact-source-mathematical-falsifier:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Verify source-first freeze and run one bounded algebraic study
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 4cbbdfe785900e9edc875e7f1c1a4bc5da7beef3 "$GITHUB_SHA"
+          python -B research/north-star-transfer/f124cm/run.py --json "$RUNNER_TEMP/f124cm-result.json"
+          python -B -c 'import json,sys; x=json.load(open(sys.argv[1])); assert x["coordinate_witnesses_total"]==1024 and x["scientific_go"] is False and x["FSA_firstuse"]=="DENIED"' "$RUNNER_TEMP/f124cm-result.json"
+          git diff --exit-code
+          echo F124CM_FROZEN_SOURCE_ONLY_MATHEMATICAL_GATE=PASS
+      - name: Upload original provider mathematical evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: f124cm-math-witness-${{ matrix.os }}
+          path: ${{ runner.temp }}/f124cm-result.json
+          retention-days: 30
