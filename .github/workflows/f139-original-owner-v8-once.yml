@@ -219,9 +219,12 @@ jobs:
               throw 'F139_V8_SOURCE_INSTALL_NOT_EXACT'
             }
             Set-Location -LiteralPath $root
+            # From this point, even an unsuccessful subprocess might have
+            # COMMITTED event226/227 before exiting. Never roll back to V7
+            # or restart the owner based solely on its return code.
+            $mutated=$true
             $settle | & $python -B - $db $target
             if($LASTEXITCODE -ne 0){throw 'F139_V8_G49_PREPOST_NEGATIVE_FAILED'}
-            $mutated=$true
             $approvalScript | & $python -B - $db $target $approval
             if($LASTEXITCODE -ne 0){throw 'F139_V8_APPROVAL_FAILED'}
             & $python -B -m f139.local_controller --db $db transition-qualified-native-v8 --approval $approval
