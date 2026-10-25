@@ -56,6 +56,36 @@ jobs:
                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                   stdin=subprocess.PIPE if secret is None else None,
                   timeout=limit,check=False,env=env)
+          import json,sys
+          already=invoke(["gh","api","user","--jq",".login"],limit=15)
+          if already.returncode==0 and already.stdout.strip()=="spoonman136668-ai":
+              print("F139_R9_OWNER_GH_AUTH_REPAIRED=ALREADY_PASS")
+              sys.exit(0)
+          gh_state=invoke(["gh","auth","status","--json","hosts","--no-refresh"],
+                          limit=15)
+          print("F139_R9_SAVED_GH_ACCOUNT_METADATA="+(
+              "AVAILABLE" if gh_state.stdout.strip().startswith("{") else "UNAVAILABLE"))
+          try:
+              state=json.loads(gh_state.stdout)
+              accounts=state.get("hosts",{}).get("github.com",[])
+              if isinstance(accounts,dict): accounts=[accounts]
+              available=any(isinstance(acc,dict) and
+                            acc.get("login")=="spoonman136668-ai" for acc in accounts)
+          except (ValueError,TypeError,AttributeError):
+              available=False
+          print("F139_R9_SAVED_ORIGINAL_GH_ACCOUNT="+(
+              "PRESENT" if available else "ABSENT"))
+          if available:
+              switch=invoke(["gh","auth","switch","--hostname","github.com",
+                             "--user","spoonman136668-ai"],limit=15)
+              verified=invoke(["gh","api","user","--jq",".login"],limit=15)
+              if switch.returncode==0 and verified.returncode==0 and (
+                  verified.stdout.strip()=="spoonman136668-ai"):
+                  ok=invoke(["gh","api",
+                             "repos/spoonman136668-ai/FORGE/issues/807"],limit=15)
+                  if ok.returncode==0:
+                      print("F139_R9_OWNER_GH_AUTH_REPAIRED=PASS_SAVED_ACCOUNT")
+                      sys.exit(0)
           try:
               proc=invoke(["git","credential","fill"],
                           secret="protocol=https\nhost=github.com\nusername=spoonman136668-ai\n\n",limit=15)
