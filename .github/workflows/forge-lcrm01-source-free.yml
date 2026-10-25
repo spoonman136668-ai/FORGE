@@ -1,0 +1,64 @@
+name: LCRM-01 source-free bounded mechanism qualification
+on:
+  push:
+    branches: [research/lcrm01-optimizer-pivot-20261020]
+    paths: ['.github/workflows/forge-lcrm01-source-free.yml']
+permissions:
+  contents: read
+concurrency:
+  group: forge-lcrm01-source-free
+  cancel-in-progress: false
+jobs:
+  source-free-model-checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Pin preregistration and development implementation exact identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ((git rev-parse HEAD).Trim() -cne $env:GITHUB_SHA) { throw 'LCRM_HEAD_DRIFT' }
+          $blobs=@{
+            'research/lcrm01/20261020-lcrm01-optimizer-preregistration.json'='e8a73678ba405f9abe572abe896c4d9ac8ec002f'
+            'research/lcrm01/prototype.go'='544a7b6be72214cd580588aa728742df8cf9f1a8'
+            'research/lcrm01/prototype_test.go'='cf3badf01eba8b48a9893b0801ab4c4df0c6733a'
+          }
+          foreach ($path in $blobs.Keys) {
+            if ((git hash-object -- $path).Trim() -cne $blobs[$path]) { throw "LCRM_EXACT_BLOB_DRIFT:$path" }
+          }
+          git merge-base --is-ancestor 34ca99c1b5b063225566082aee5aa180a15d093b 01a8e0a225cb276cee47c95d99523c53c0731b60
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_BASE_DRIFT' }
+          git merge-base --is-ancestor 01a8e0a225cb276cee47c95d99523c53c0731b60 c22fa7ff0b3902bd11d07c5fd1d0438e1534c66b
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_PRECODE_POSTDATES_MECHANISM' }
+          git merge-base --is-ancestor c22fa7ff0b3902bd11d07c5fd1d0438e1534c66b 9510e6cef488f221ab7295e6194a8e9db388ced3
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_TESTS_PRECEDE_CODE' }
+          Write-Output 'LCRM_FREEZE_BEFORE_MECHANISM_AND_TESTS=PASS'
+      - name: Bounded source-free focused Go tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          go test -count=1 ./research/lcrm01
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_FOCUSED_TESTS_FAILURE' }
+          go vet ./research/lcrm01
+          if ($LASTEXITCODE -ne 0) { throw 'LCRM_FOCUSED_VET_FAILURE' }
+          Write-Output 'LCRM_SOURCE_FREE_FOCUSED_TEST_VET=PASS'
+      - name: No science, no controller, no deployment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $spec = Get-Content research/lcrm01/20261020-lcrm01-optimizer-preregistration.json -Raw | ConvertFrom-Json
+          if ($spec.nonpromotion.scientific_accepted -or $spec.nonpromotion.optimizer_admitted -or $spec.nonpromotion.merge_authorized -or $spec.nonpromotion.first_use_consumed) { throw 'LCRM_UNAUTHORIZED_PROMOTION' }
+          Write-Output 'LCRM_FIRST_USE_CONSUMED=FALSE'
+          Write-Output 'LCRM_SCIENTIFIC_ACCEPTED=FALSE'
+          Write-Output 'LCRM_OPTIMIZER_ADMITTED=FALSE'
