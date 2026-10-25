@@ -206,5 +206,29 @@ jobs:
               }
             }
           }
+          # Examine release-pointer identity without exposing the pointer's
+          # raw contents (it can contain machine-local installation paths).
+          if($ptrExists){
+            $raw=([IO.File]::ReadAllText($pointer,[Text.Encoding]::UTF8)).Trim()
+            $ids=@([regex]::Matches($raw,'PLANE-[A-Za-z0-9._-]+') | ForEach-Object {$_.Value} | Select-Object -Unique)
+            Write-Host ('D19_ACTIVE_POINTER_RELEASE_ID_COUNT='+$ids.Count)
+            if($ids.Count -eq 1){
+              Write-Host ('D19_ACTIVE_POINTER_RELEASE_ID='+$ids[0])
+              Write-Host ('D19_ACTIVE_POINTER_RELEASE_MATCHES_RUNNING='+($ids[0] -ceq $releaseId).ToString().ToUpperInvariant())
+            }
+            Write-Host ('D19_ACTIVE_POINTER_IS_JSON='+($raw.StartsWith('{')).ToString().ToUpperInvariant())
+            Write-Host ('D19_ACTIVE_POINTER_BYTE_COUNT='+[Text.Encoding]::UTF8.GetByteCount($raw))
+          }
+          if($relExists){
+            $rootFiles=@(Get-ChildItem -LiteralPath $release -File -ErrorAction Stop | Select-Object -ExpandProperty Name | Sort-Object)
+            Write-Host ('D19_RUNNING_RELEASE_ROOT_FILE_COUNT='+$rootFiles.Count)
+            foreach($name in $rootFiles){
+              if($name -match '^[A-Za-z0-9._-]{1,80}
+          Write-Host 'D19_CODEX_MODEL_CALLS=0'
+){
+                Write-Host ('D19_RUNNING_RELEASE_ROOT_FILE_NAME='+$name)
+              }
+            }
+          }
           Write-Host 'D19_NO_CONTROLLER_OR_MEMORY_WRITES=PASS'
           Write-Host 'D19_CODEX_MODEL_CALLS=0'
