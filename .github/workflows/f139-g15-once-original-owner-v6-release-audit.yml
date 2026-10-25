@@ -250,6 +250,30 @@ jobs:
               Start-Sleep -Seconds 1
             }
             if(-not $live){throw 'F139_G15_ORIGINAL_OWNER_NOT_RESTARTED'}
+            $one=$false
+            for($i=0;$i -lt 30;$i++){
+              $kids=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                Where-Object { $_.CommandLine -and
+                  $_.CommandLine.Contains('f139.local_controller') -and
+                  $_.CommandLine.Contains($db) -and
+                  $_.CommandLine.Contains('loop') })
+              if($kids.Count -eq 1 -and
+                 [string]$kids[0].CommandLine -match '--seconds\\s+300(?:\\s|$)'){
+                $one=$true;break
+              }
+              Start-Sleep -Seconds 1
+            }
+            if(-not $one){throw 'F139_G15_ORIGINAL_CHILD_NOT_AT_300_SECONDS'}
+            if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $target -or
+               @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+              throw 'F139_G15_RESTART_SOURCE_NOT_CLEAN'
+            }
+            $finalPolicy=(& gh api "repos/$repo/issues/807" | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or
+               ([string]$finalPolicy.body | ConvertFrom-Json).source_sha -cne $target){
+              throw 'F139_G15_FINAL_POLICY_NOT_PINNED'
+            }
+            Write-Host 'F139_G15_SINGLE_CHILD_300S_RESTART_AND_POLICY=PASS'
             Write-Host 'F139_G15_SINGLE_ORIGINAL_OWNER_RELEASE=PASS'
             Write-Host 'F139_G15_PROTECTED_SOURCE_PIN='+$target
           }catch{
