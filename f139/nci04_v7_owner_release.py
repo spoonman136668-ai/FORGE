@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-import inspect
 from f139.nci04_native_contract import canonical, digest
 from f139.nci04_owner_ledger import verify_native_activation
 
@@ -46,9 +45,11 @@ def original_owner_database_source(db) -> bool:
     if type(db).__name__ != "Database":
         return False
     try:
-        return Path(inspect.getfile(type(db))).samefile(
-            Path(inspect.getfile(Database)))
-    except (TypeError, OSError, ValueError):
+        # Method code filenames remain authoritative even for 'runpy' or
+        # Python '-m' aliases whose module object isn't retained in sys.modules.
+        return Path(type(db).verify.__code__.co_filename).samefile(
+            Path(Database.verify.__code__.co_filename))
+    except (AttributeError, TypeError, OSError, ValueError):
         return False
 
 
