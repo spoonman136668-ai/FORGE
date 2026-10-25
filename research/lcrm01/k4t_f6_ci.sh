@@ -104,6 +104,9 @@ cp research/lcrm01/k4t_f6_wingless_r7_bridge.go "$RUNNER_TEMP/k4tf6/go/bridge_r7
 (cd "$RUNNER_TEMP/k4tf6/go" && go test -count=1 ./research/native/itd02/r6)
 (cd "$RUNNER_TEMP/k4tf6/go" && go vet ./research/native/itd02/r6)
 (cd "$RUNNER_TEMP/k4tf6/go" && go build -trimpath -o "$RUNNER_TEMP/k4tf6/wingless-r6" bridge_r6.go)
+(cd "$RUNNER_TEMP/k4tf6/go" && go test -count=1 ./research/native/itd02/r7)
+(cd "$RUNNER_TEMP/k4tf6/go" && go vet ./research/native/itd02/r7)
+(cd "$RUNNER_TEMP/k4tf6/go" && go build -trimpath -o "$RUNNER_TEMP/k4tf6/wingless-r7" bridge_r7.go)
 export PYTHONPATH="$RUNNER_TEMP/k4tf6/yggroot:$GITHUB_WORKSPACE/research/lcrm01"
 set +e
 python -B research/lcrm01/k4t_f6_original_r7_physical.py \
@@ -113,6 +116,7 @@ python -B research/lcrm01/k4t_f6_original_r7_physical.py \
  --wingless-r4 "$RUNNER_TEMP/k4tf6/wingless-r4" \
  --wingless-r5 "$RUNNER_TEMP/k4tf6/wingless-r5" \
  --wingless-r6 "$RUNNER_TEMP/k4tf6/wingless-r6" \
+ --wingless-r7 "$RUNNER_TEMP/k4tf6/wingless-r7" \
  --yggdrasil-source "$RUNNER_TEMP/k4tf6/yggroot" \
  --output "$RUNNER_TEMP/k4tf6/process-a.json" > "$RUNNER_TEMP/k4tf6/process-a.log" 2>&1
 a=$?
@@ -123,6 +127,7 @@ python -B research/lcrm01/k4t_f6_original_r7_physical.py \
  --wingless-r4 "$RUNNER_TEMP/k4tf6/wingless-r4" \
  --wingless-r5 "$RUNNER_TEMP/k4tf6/wingless-r5" \
  --wingless-r6 "$RUNNER_TEMP/k4tf6/wingless-r6" \
+ --wingless-r7 "$RUNNER_TEMP/k4tf6/wingless-r7" \
  --yggdrasil-source "$RUNNER_TEMP/k4tf6/yggroot" \
  --output "$RUNNER_TEMP/k4tf6/process-b.json" > "$RUNNER_TEMP/k4tf6/process-b.log" 2>&1
 b=$?
@@ -145,10 +150,10 @@ a=json.loads((root/"process-a.json").read_text())
 b=json.loads((root/"process-b.json").read_text())
 c=json.loads((root/"comparison.json").read_text())
 assert a["FIT_public_experience_count"]==b["FIT_public_experience_count"]==12000
-assert a["CHECK_episodes"]==b["CHECK_episodes"]==120
-assert a["DEV_episodes"]==b["DEV_episodes"]==240
+assert a["CHECK_episodes"]==b["CHECK_episodes"]==128
+assert a["DEV_episodes"]==b["DEV_episodes"]==256
 assert a["scientific_accepted"] is False and b["scientific_accepted"] is False
 assert c["science_identical"] is True
 print("K4T_F6_SOURCE_AND_SCIENCE_REPEATED=PASS")
-print("K4T_F6_R6_ROUTE_DISPOSITION="+c["result"])
+print("K4T_F6_R7_PHYSICAL_DISPOSITION="+c["result"])
 PY
