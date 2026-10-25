@@ -104,7 +104,8 @@ class DevSlotLedger:
                     and type(event.get("id")) is int and event["id"] > 0
                     and type(event.get("tick")) is int and event["tick"] >= 0
                     and type(event.get("data")) is dict
-                    and event["data"].get("traveller") == self.actor,
+                    and event["data"].get("traveller") == self.actor
+                    and event["data"].get("destination") == held["destination"],
                     "SOURCE_SHAPED_EVENT_MISMATCH")
         redact_original_result(raw_outcome)  # strict raw shape, never exposed
         slot = held["slot"]
