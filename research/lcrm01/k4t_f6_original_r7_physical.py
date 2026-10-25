@@ -85,19 +85,19 @@ def outcome(base,dev):
          "criteria":criteria,"results":r,"scientific_first_use":False,"scientific_accepted":False,
          "matched_sixfield_independent_control":True,"full_map_fitted_BFS_is_more_informed":True}
 
-def experiment(r1,r2,r3,r4,r5,r6):
+def experiment(r1,r2,r3,r4,r5,r6,r7):
  frozen=contract()
  k4y.SEEDS={"FIT":FIT,"CHECK":CHECK,"DEV":DEV}
  stream,starts,audit,source_wall,control=k4y.fit()
- base={"schema":SCHEMA,"gate":"LCRM01-K4T-F5",
-       "source_minigrid_commit":frozen["sources"]["minigrid"],
-       "original_Wingless_R6_blob":frozen["sources"]["r6_blob"],
+ base={"schema":SCHEMA,"gate":"LCRM01-K4T-F6",
+       "source_minigrid_commit":frozen["source"]["minigrid"],
+       "original_Wingless_R7_blob":frozen["source"]["Wingless_R7_code"],
        "protocol_sha256":hashlib.sha256(FROZEN.read_bytes()).hexdigest(),
        "FIT_public_experience_count":len(stream),"FIT_original_public_experiences":stream,
        "FIT_episodes":len(starts),"FIT_original_balance":audit,
        "shared_FIT_source_wall_seconds":source_wall,
        "CHECK_episodes":0,"DEV_episodes":0,
-       "old_K4Y_F1_F2_F3_F4_no_go_immutable":True,
+       "old_K4Y_F1_F2_F3_F4_F5_no_go_immutable":True,
        "scientific_first_use":False,"scientific_accepted":False}
  if control is None or len(stream)!=12000:
   base["result"]="FIT_SOURCE_NOT_QUALIFIED_HELDOUT_UNCONSUMED"
@@ -106,16 +106,18 @@ def experiment(r1,r2,r3,r4,r5,r6):
  base["trained_sixfield_FIT_sha256"]=fit_sha
  base["full_grid_FIT_sha256"]=sha(canon(control).encode())
  legacy,y1,y2,native=k4y.train(stream,r1,r2)
- w3=w4=w5=w6=None
+ w3=w4=w5=w6=w7=None
  try:
   w3,i3=f2.train_r3(stream,r3)
   w4,i4=f4.train_r4(stream,r4)
   w5,i5=f4.train_r4(stream,r5)
   w6,i6=f4.train_r4(stream,r6)
+  w7,i7=f4.train_r4(stream,r7)
   base5=i5.pop("native_CORE_snapshot_b64_before_holdout")
   base6=i6.pop("native_CORE_snapshot_b64_before_holdout")
+  base7=i7.pop("native_CORE_snapshot_b64_before_holdout")
   i4.pop("native_CORE_snapshot_b64_before_holdout")
-  if base5!=base6:raise ValueError("F5_NOT_SAME_ORIGINAL_FIT_MODEL")
+  if base5!=base6 or base5!=base7:raise ValueError("F6_R5_R6_R7_NOT_SAME_FIT_MODEL")
   i5={("R5"+k[2:] if k.startswith("R4") else k):v for k,v in i5.items()}
   i6={("R6"+k[2:] if k.startswith("R4") else k):v for k,v in i6.items()}
   base["native_FIT_custody"]={**native,**i3,**i4,**i5,**i6}
@@ -163,7 +165,7 @@ def main():
   sys.path.insert(0,str(a.yggdrasil_source.resolve()))
   q=experiment(a.wingless_r1,a.wingless_r2,a.wingless_r3,a.wingless_r4,a.wingless_r5,a.wingless_r6)
  except Exception as e:
-  q={"schema":SCHEMA,"gate":"LCRM01-K4T-F5",
+  q={"schema":SCHEMA,"gate":"LCRM01-K4T-F6",
      "result":"SOURCE_OR_INFRASTRUCTURE_BLOCKED","error":str(e),
      "error_type":type(e).__name__,"traceback_tail":traceback.format_exc().splitlines()[-18:],
      "scientific_first_use":False,"scientific_accepted":False}
