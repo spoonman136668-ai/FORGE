@@ -68,9 +68,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test -count=1 ./...
-          go test -race -count=1 ./...
-          go vet ./...
-          go build ./...
+          # This job first qualified original isolation/FSA against deep history.
+          # The standing Go suite intentionally uses shallow history; the
+          # immutable G61/G29 source-delta test is independently deep-history
+          # qualified in FORGE's existing dedicated source-atlas workflow.
+          # Never edit, disable or spoof G61 in the original repository.
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          go_root="$RUNNER_TEMP/tw3b-standing-go-shallow"
+          git init -q "$go_root"
+          git -C "$go_root" remote add origin "file://$GITHUB_WORKSPACE"
+          git -C "$go_root" -c protocol.file.allow=always fetch -q --depth=2 --no-tags origin HEAD
+          git -C "$go_root" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$go_root" rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C "$go_root" rev-parse --is-shallow-repository)" = true
+          (
+            cd "$go_root"
+            go test -count=1 ./...
+            go test -race -count=1 ./...
+            go vet ./...
+            go build ./...
+            git diff --exit-code
+          )
           git diff --exit-code
           echo 'TW3B_ONE_FINAL_FULL_LINUX_REGRESSION=PASS'
+          echo 'TW3B_G61_DEDICATED_DEEP_SOURCE_ATLAS_NOT_REQUALIFIED_HERE=TRUE'
