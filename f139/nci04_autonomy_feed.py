@@ -282,8 +282,13 @@ def _candidate_from_pr(get: Callable[[str], object], *, lane: str,
 
 
 def prepare_feed(get: Callable[[str], object], *, source_sha: str,
-                 existing_candidate_identities: set[str]) -> dict:
-    """Return up to two issue drafts; caller decides whether to create them."""
+                 existing_candidate_identities: set[str],
+                 steering_get: Callable[[str], object] | None = None) -> dict:
+    """Prepare eligible development issue drafts; optional source-pinned steering.
+
+    Steering can reorder only *new* fully authenticated PRs at this planning
+    boundary. It never touches existing ledger entries, tasks or science.
+    """
     require(callable(get) and _sha40(source_sha)
             and isinstance(existing_candidate_identities, set)
             and all(isinstance(x, str)
@@ -294,6 +299,18 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
     policy = inspect_policy(policy_raw, source_sha)
     if not policy["enabled"]:
         return {"enabled": False, "candidates": [], "rejected": []}
+    steering = None
+    if steering_get is not None:
+        from f139.nci04_research_steering import (
+            SteeringDenied, read_approved_steering, rank_eligible,
+        )
+        try:
+            steering = read_approved_steering(steering_get)
+        except SteeringDenied as exc:
+            # No new issue is published on untrusted steering bytes; existing
+            # ledger, active workers and original development issues survive.
+            raise NativeFeedDenied(
+                "F139_NATIVE_FEED_STEERING_SOURCE_UNQUALIFIED") from exc
     candidates, rejected = [], []
     for lane in policy["lanes"]:
         repo = REPOS[lane][0]
@@ -318,7 +335,13 @@ def prepare_feed(get: Callable[[str], object], *, source_sha: str,
                 continue
             candidates.append(candidate)
             existing_candidate_identities.add(candidate["candidate_identity"])
-            if len(candidates) >= policy["max_issue_creations_per_cycle"]:
+            if (steering is None and
+                    len(candidates) >= policy["max_issue_creations_per_cycle"]):
                 return {"enabled": True, "candidates": candidates,
                         "rejected": rejected}
+    if steering is not None:
+        selected = rank_eligible(
+            candidates, maximum=policy["max_issue_creations_per_cycle"])
+        return {"enabled": True, "candidates": selected,
+                "rejected": rejected, "steering": steering}
     return {"enabled": True, "candidates": candidates, "rejected": rejected}
