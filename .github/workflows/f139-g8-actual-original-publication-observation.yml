@@ -1,0 +1,97 @@
+name: F139 G8 one-shot original-owner natural first G3 publication observation
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g8-actual-original-publication-observation.yml]
+permissions:
+  contents: read
+concurrency:
+  group: f139-g8-once-readonly-owner-observation
+  cancel-in-progress: false
+jobs:
+  original-owner-readonly-observation:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe ONE original 300s cycle; never run another controller or write to ledger
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $taskName='FORGE-F139-UnifiedController'
+          $source='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'G8_OBSERVE_WRONG_RUNNER'}
+          $t=Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
+          if([string]$t.State -cne 'Running'){throw 'G8_OBSERVE_ORIGINAL_TASK_NOT_RUNNING'}
+          $m=[regex]::Match([string]$t.Actions[0].Arguments,'(?i)(?:^|\s)-Database\s+"([^"]+)"')
+          if(-not $m.Success){throw 'G8_OBSERVE_DB_PATH_INVALID'}
+          $db=$m.Groups[1].Value
+          $sourceRoot=[regex]::Match([string]$t.Actions[0].Arguments,'(?i)(?:^|\s)-RepositoryRoot\s+"([^"]+)"')
+          if(-not $sourceRoot.Success){throw 'G8_OBSERVE_SOURCE_PATH_INVALID'}
+          $root=$sourceRoot.Groups[1].Value
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $source){
+            throw 'G8_OBSERVE_ORIGINAL_SOURCE_DRIFT'
+          }
+          if([string]$t.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'G8_OBSERVE_ORIGINAL_POLL_INTERVAL_DRIFT'
+          }
+          $python=[regex]::Match([string]$t.Actions[0].Arguments,'(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not $python.Success){throw 'G8_OBSERVE_ORIGINAL_PYTHON_PATH_DRIFT'}
+          $py=$python.Groups[1].Value
+          $script=@'
+          import json,pathlib,sqlite3,sys,time
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          path=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sha=sys.argv[3]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          from f139.nci04_owner_publication import ATTEMPT_KIND,SUCCESS_KIND
+          start=time.monotonic()
+          print("F139_G8_ORIGINAL_NATURAL_CYCLE_OBSERVATION_STARTED=TRUE",flush=True)
+          conn=sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=10)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          d=object.__new__(Database)
+          d.filename=path;d.conn=conn
+          try:
+              d.verify()
+              m=d.meta()
+              assert m["source_sha"]==sha and verify_native_activation(d)
+              assert m["head_seq"]>=208
+              count=0
+              while time.monotonic()-start < 365:
+                  at=list(conn.execute("SELECT seq,payload FROM events WHERE kind=? ORDER BY seq",(ATTEMPT_KIND,)))
+                  ok=list(conn.execute("SELECT seq,payload FROM events WHERE kind=? ORDER BY seq",(SUCCESS_KIND,)))
+                  if at or ok:
+                      assert len(at)==1 and len(ok)<=1
+                      print("F139_G8_REAL_OWNER_FIRST_G3_ATTEMPT=SEEN",flush=True)
+                      print("F139_G8_REAL_OWNER_SUCCESS_EVENTS="+str(len(ok)),flush=True)
+                      if ok:
+                          assert ok[0]["seq"]>at[0]["seq"]
+                          plan=json.loads(at[0]["payload"])
+                          receipt=json.loads(ok[0]["payload"])
+                          assert plan["source_sha"]==sha and plan["retry_allowed"] is False
+                          assert receipt["candidate_identity"]==plan["candidate_identity"]
+                          print("F139_G8_REAL_OWNER_G3_PUBLISHED_PR="+str(receipt["pr_number"]),flush=True)
+                      else:
+                          print("F139_G8_REAL_OWNER_G3_ATTEMPT_ONLY_NO_RETRY=TRUE",flush=True)
+                      d.verify()
+                      break
+                  count+=1
+                  if count%5==0:
+                      print("F139_G8_ORIGINAL_NATURAL_CYCLE_STILL_NO_ATTEMPT=TRUE",flush=True)
+                  time.sleep(12)
+              else:
+                  print("F139_G8_NO_G3_ATTEMPT_IN_BOUNDED_NATURAL_CYCLE=TRUE",flush=True)
+              m=d.meta()
+              assert m["source_sha"]==sha
+              d.verify()
+              print("F139_G8_ORIGINAL_FULL_LEDGER_REVERIFIED=PASS",flush=True)
+              print("F139_G8_ORIGINAL_EVENT_HEAD="+str(m["head_seq"]),flush=True)
+              print("F139_G8_SQLITE_READ_ONLY_AND_NO_WORKER_DISPATCH=TRUE",flush=True)
+          finally:
+              conn.close()
+          '@
+          & $py -B -c $script $root $db $source
+          if($LASTEXITCODE -ne 0){throw 'G8_OBSERVE_ORIGINAL_LEDGER_UNQUALIFIED'}
+          Write-Host 'F139_G8_ONE_SHOT_OBSERVER_FINISHED_NO_SECOND_CONTROLLER=TRUE'
