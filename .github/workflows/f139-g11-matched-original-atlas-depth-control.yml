@@ -1,0 +1,144 @@
+name: F139 G11 pinned Ygg original shallow/full history and G3 scratch controls
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g11-matched-original-atlas-depth-control.yml]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  matched-original:
+    name: G11 exact frozen control (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 15
+    steps:
+      - name: Preserve exact native Git source bytes
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.safecrlf true
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/FORGE
+          ref: 6e14fbe374aa0170a5f5f952afc4b4045ac2afca
+          path: forge
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: shallow
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/Yggdrasil
+          ref: 992ef142aaa551156749a1de484a971b9a0c092f
+          path: full
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read owner-original issue intent; never expose token to native code
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $issue=(& gh api 'repos/spoonman136668-ai/FORGE/issues/907' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $issue.id -ne 6019876053 -or
+             $issue.number -ne 907 -or
+             $issue.user.login -cne 'spoonman136668-ai'){
+            throw 'F139_G11_IMMUTABLE_ISSUE_NOT_AUTHENTIC'
+          }
+          $doc=[string]$issue.body | ConvertFrom-Json
+          if($doc.source_sha -cne '6e14fbe374aa0170a5f5f952afc4b4045ac2afca' -or
+             $doc.lane -cne 'Yggdrasil' -or
+             $doc.scientific_first_use -ne $false -or
+             -not $doc.intent_base64){
+            throw 'F139_G11_ISSUE_INTENT_IDENTITY_DRIFT'
+          }
+          [IO.File]::WriteAllText(
+            (Join-Path $env:RUNNER_TEMP 'f139-g11-issue.json'),
+            [string]$issue.body, [Text.UTF8Encoding]::new($false))
+          Write-Host 'F139_G11_EXACT_ORIGINAL_ISSUE_INTENT_READ=PASS'
+      - name: Paired immutable original shallow/full and isolated candidate tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $code=@'
+          import base64,json,os,pathlib,re,subprocess,sys,tempfile
+          original="992ef142aaa551156749a1de484a971b9a0c092f"
+          original_tree="7e37c56e42dbd47a87da7a75210657a040f47a71"
+          owner="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          root=pathlib.Path(os.environ["GITHUB_WORKSPACE"])
+          forge=root/"forge"; shallow=root/"shallow"; full=root/"full"
+          def git(path,*args):
+              p=subprocess.run(["git","-C",str(path),*args],
+                  stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,check=False,timeout=30)
+              assert p.returncode==0,"F139_G11_READONLY_GIT_FAILURE"
+              return p.stdout.decode().strip()
+          assert git(forge,"rev-parse","HEAD")==owner
+          for p in (shallow,full):
+              assert git(p,"rev-parse","HEAD")==original
+              assert git(p,"rev-parse","HEAD^{tree}")==original_tree
+              assert git(p,"status","--porcelain","--untracked-files=all")==""
+          record=json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])/"f139-g11-issue.json").read_text())
+          raw=base64.b64decode(record["intent_base64"],validate=True)
+          sys.path.insert(0,str(forge))
+          from f139.nci04_native_contract import parse_intent
+          from f139.nci04_native_worker import stage_candidate
+          candidate=parse_intent(raw,protected_main=owner,target_commit=original,target_tree_sha=original_tree)
+          assert candidate.lane=="Yggdrasil" and candidate.path=="yggdrasil/public_causal_cells.py"
+          assert candidate.qualification_key=="fe6285e897fbc2b3ab4f1580b1272e972b7fb8a92dcb316866a2e73e6513ac44"
+          print("F139_G11_G3_IMMUTABLE_INTENT_AND_SOURCE=PASS",flush=True)
+          allow={"PATH","HOME","USERPROFILE","SYSTEMROOT","WINDIR","SYSTEMDRIVE",
+              "PATHEXT","COMSPEC","TMP","TEMP","TMPDIR","APPDATA","LOCALAPPDATA",
+              "LANG","LC_ALL","GOPATH","GOROOT","GOCACHE","GOMODCACHE","CGO_ENABLED","PYTHONPATH"}
+          env={k:v for k,v in os.environ.items() if k.upper() in allow}
+          env.update({"PYTHONDONTWRITEBYTECODE":"1","GIT_TERMINAL_PROMPT":"0",
+                      "GOPROXY":"off","GOSUMDB":"off","GOTOOLCHAIN":"local"})
+          assert all(k not in env for k in ("GH_TOKEN","GITHUB_TOKEN","F139_WORKER_HMAC_KEY"))
+          def test(label,where,pattern):
+              command=["python","-B","-m","unittest","discover","-s","tests","-p",pattern,"-v"]
+              p=subprocess.run(command,cwd=where,env=env,stdin=subprocess.DEVNULL,
+                  stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=False,timeout=90)
+              output=p.stdout[:300000].decode("utf-8","replace")
+              print("F139_G11_"+label+"_EXIT="+str(p.returncode),flush=True)
+              categories=[]
+              for reason in ("source commit missing","source commit not ancestor",
+                  "indexed file set changed","source blob changed","working source mismatch",
+                  "stale committed blob","ModuleNotFoundError","ImportError","resource",
+                  "test_html_injection_encoding","test_source_and_pinned_artifact"):
+                  if reason in output:categories.append(reason.replace(" ","_").upper())
+              print("F139_G11_"+label+"_CLASS="+(",".join(categories) if categories else "OTHER"),flush=True)
+              for m in re.finditer(r"(?m)^\s*(?:FAIL|ERROR):\s+([A-Za-z0-9_./() -]{1,145})\s*$",output):
+                  print("F139_G11_"+label+"_CASE="+m.group(1).strip(),flush=True)
+              for total in re.findall(r"Ran [0-9]+ tests? in [0-9.]+s",output)[-2:]:
+                  print("F139_G11_"+label+"_SUMMARY="+total,flush=True)
+              return p.returncode,categories
+          test("SHALLOW_PARENT_ATLAS",shallow,"test_code_atlas.py")
+          test("FULL_PARENT_ATLAS",full,"test_code_atlas.py")
+          with tempfile.TemporaryDirectory(prefix="f139-g11-",dir=os.environ["RUNNER_TEMP"]) as scratch:
+              stage=stage_candidate(candidate,shallow,pathlib.Path(scratch))
+              dest=stage/"checkout"
+              assert git(dest,"rev-parse","HEAD")==original
+              assert git(dest,"remote")==""
+              assert git(dest,"status","--porcelain","--untracked-files=all")==" M "+candidate.path
+              test("G3_SCRATCH_ATLAS",dest,"test_code_atlas.py")
+              test("G3_SCRATCH_FOCUSED",dest,"test_native_cells.py")
+          test("PARENT_FANOUT",full,"test_free_fanout_sidecar.py")
+          for p in (shallow,full):
+              assert git(p,"status","--porcelain","--untracked-files=all")==""
+          print("F139_G11_ORIGINAL_SOURCE_AND_TEMP_G3_NO_REF_CHANGES=PASS",flush=True)
+          print("F139_G11_ORIGINAL_TICKET907_NOT_REPLAYED=TRUE",flush=True)
+          print("F139_G11_SCIENTIFIC_FIRST_USE=FALSE",flush=True)
+          '@
+          & python -B -c $code
+          if($LASTEXITCODE -ne 0){throw 'F139_G11_PAIRED_DIAGNOSTIC_FAILED'}
