@@ -4,7 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-from k4t_f4_original_r4_frontier import FROZEN,SCHEMA,FIT,CHECK,DEV,METHODS,FAMILIES,contract
+from k4t_f4_original_r5_cost import FROZEN,SCHEMA,FIT,CHECK,DEV,METHODS,FAMILIES,contract
 from k4y_compare import stable as stable_f2
 
 def stable(q):
