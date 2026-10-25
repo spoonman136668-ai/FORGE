@@ -102,3 +102,33 @@ jobs:
           Write-Output ('R305_BACKUP_EQUALS_PREVIOUS_R18_PIN='+($h -ceq '6ff5310bf343a72c07343874f06ba9060567549d1ddbb8dd5e4c17691201967c'))
           Write-Output 'R305_CONFIG_VALUES_NOT_EXPORTED=TRUE'
           Write-Output 'R305_CONTROLLER_OR_BACKUP_MODIFICATION=FALSE'
+
+      - name: R305 classify configuration changes by section with no values exported
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $py=@'
+          from pathlib import Path
+          import json
+          try:
+              import yaml
+          except ImportError:
+              print("R305_SAFE_YAML_PARSER=UNAVAILABLE")
+              raise SystemExit(0)
+          base=Path.home()
+          live=base/"GolandProjects/ckb-plane/config/autonomy.yaml"
+          old=Path("C:/ProgramData/CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback/original-autonomy.yaml")
+          x=yaml.safe_load(old.read_text(encoding="utf-8-sig"))
+          y=yaml.safe_load(live.read_text(encoding="utf-8-sig"))
+          if not isinstance(x,dict) or not isinstance(y,dict):
+              raise RuntimeError("R305_INVALID_CONFIG_ROOT")
+          known=["server","state","repos","tools","policy","execution","autonomy","profile"]
+          changed=[k for k in known if x.get(k)!=y.get(k)]
+          extra=len(set(x)|set(y)-set(known))
+          print("R305_SAFE_YAML_PARSER=PASS")
+          print("R305_CONFIG_SECTION_CHANGES="+json.dumps(changed))
+          print("R305_CONFIG_UNRECOGNIZED_ROOT_FIELDS_PRESENT="+str(bool(extra)).upper())
+          print("R305_CONFIG_VALUES_EXPORTED=FALSE")
+          '@
+          & python.exe -B -c $py
+          if($LASTEXITCODE -ne 0){throw 'R305_CONFIG_CLASSIFICATION_FAILED'}
