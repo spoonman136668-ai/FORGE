@@ -1,0 +1,63 @@
+name: MP-AI05 D11 existing Codex CLI subscription auth readiness
+on:
+  push:
+    branches: [qualification/mp-ai05-codex-cli-auth-20261025]
+    paths: ['.github/workflows/mp-ai05-codex-cli-auth-20261025.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai05-codex-cli-auth-readiness-once
+  cancel-in-progress: false
+jobs:
+  verify-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect existing CLI and ChatGPT-plan login only
+        shell: pwsh
+        env:
+          CODEX_HOME: C:\ProgramData\CKBR\codex\home
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF -cne 'refs/heads/qualification/mp-ai05-codex-cli-auth-20261025' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+             throw 'MPAI05_D11_CODEX_WRONG_RUNNER_OR_REF'
+          }
+          if($env:OPENAI_API_KEY -or $env:AZURE_OPENAI_API_KEY) {
+             throw 'MPAI05_D11_CODEX_PAID_API_ENV_FORBIDDEN'
+          }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN -ErrorAction SilentlyContinue
+          Write-Host 'MPAI05_D11_CODEX_CHECK=EXISTING_ISOLATED_RUNNER_ONLY'
+          Write-Host 'MPAI05_D11_CODEX_MODEL_INVOCATION=FORBIDDEN'
+          $codex=Get-Command -Name codex -ErrorAction SilentlyContinue
+          if($null -eq $codex) {
+             Write-Host 'MPAI05_D11_CODEX_CLI_COMMAND=NOT_FOUND_ON_THIS_RUNNER'
+             Write-Host 'MPAI05_D11_CODEX_CHATGPT_SUBSCRIPTION_AUTH=NOT_VERIFIED'
+          } else {
+             Write-Host 'MPAI05_D11_CODEX_CLI_COMMAND=FOUND_ON_THIS_RUNNER'
+             $result=''
+             $exitCode=-1
+             try {
+               $lines=(& $codex.Source login status 2>&1 | Out-String)
+               $result=[string]$lines
+               $exitCode=$LASTEXITCODE
+             } catch {
+               # No error output, credentials, paths, account IDs or raw response in logs.
+               $result=''
+             }
+             if($exitCode -eq 0 -and $result -match '(?i)logged in using chatgpt') {
+               Write-Host 'MPAI05_D11_CODEX_CHATGPT_SUBSCRIPTION_AUTH=CONFIRMED_BY_CLI_LOGIN_STATUS'
+             } else {
+               Write-Host 'MPAI05_D11_CODEX_CHATGPT_SUBSCRIPTION_AUTH=NOT_VERIFIED'
+             }
+          }
+          Write-Host 'MPAI05_D11_CODEX_SUBSCRIPTION_USAGE=ZERO_MODEL_CALLS'
+          Write-Host 'MPAI05_D11_CHATGPT_INDEPENDENT_CLIENT_ATTESTATION=NOT_TESTED'
+          Write-Host 'MPAI05_D11_PAIR_TASK_EXECUTION=NOT_RUN'
+          Write-Host 'MPAI05_D11_PAID_API_CALLS=0'
+          Write-Host 'MPAI05_D11_PRODUCTION_MEMORY_WRITES=0'
+          Write-Host 'MPAI05_D11_NO_MODEL_LAUNCH_NO_SOURCE_MUTATION=PASS'
