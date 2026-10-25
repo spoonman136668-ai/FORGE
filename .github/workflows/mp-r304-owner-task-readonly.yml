@@ -1,0 +1,31 @@
+name: MP R304 owner task contract read-only
+on:
+  push:
+    branches: [audit/mp-r304-owner-config-queue-readonly-20261025]
+    paths: [.github/workflows/mp-r304-owner-task-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe original task metadata without modification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'R304_RUNNER_INVALID' }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if (-not $admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'R304_ADMIN_REQUIRED' }
+          $t=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          Write-Output ('R304_TASK_STATE='+[string]$t.State)
+          Write-Output ('R304_TASK_ACTIONS='+@($t.Actions).Count)
+          $args=[string]$t.Actions[0].Arguments
+          $kind=if($args -match '(?i)Start-R18-Controller'){'R18_FAMILY'} elseif($args -match '(?i)Start-R1P-Controller'){'R1P_FAMILY'}else{'UNKNOWN'}
+          Write-Output ('R304_LAUNCHER_CLASS='+$kind)
+          $owner=if([string]$t.Principal.UserId -match '(?i)camar$'){'EXPECTED'}else{'OTHER'}
+          Write-Output ('R304_TASK_OWNER_CLASS='+$owner)
+          Write-Output 'R304_QUEUE_AND_CONFIG_COMPATIBILITY=NOT_TESTED'
+          Write-Output 'R304_CONTROLLER_MUTATIONS=0'
+          Write-Output 'R304_READ_ONLY_TASK_OBSERVATION=PASS'
