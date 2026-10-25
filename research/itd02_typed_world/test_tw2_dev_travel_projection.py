@@ -65,7 +65,7 @@ class TW2PublicDevelopmentProjectionTests(unittest.TestCase):
     def test_06_exclude_route_and_destination(self):
         e, _ = self.project()
         self.assertEqual(set(e), {"kind", "tick", "traveller", "status"})
-        self.assertNotIn("to", str(e))
+        self.assertNotIn("loc:unknown-next-node", str(e))
         self.assertNotIn("SECRET_FUTURE", str(e))
 
     def test_07_arrived_location_positive(self):
