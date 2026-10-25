@@ -1,0 +1,84 @@
+name: F139 G27 current original-owner native progression custody read-only
+on:
+  push:
+    branches: [qualify/f139-g27-current-owner-natural-ledger-readonly-20261025]
+    paths: [.github/workflows/f139-g27-postrelease-ledger-readonly.yml]
+permissions: {}
+concurrency:
+  group: f139-g27-owner-readonly-once
+  cancel-in-progress: false
+jobs:
+  original-owner-ledger:
+    if: github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Read original F139 native controller and immutable ledger only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){
+            throw 'F139_G27_ORIGINAL_RUNNER_DRIFT'
+          }
+          $name='FORGE-F139-UnifiedController'
+          $task=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if(@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3){
+            throw 'F139_G27_ORIGINAL_TASK_SHAPE_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'F139_G27_OWNER_SID_DRIFT'
+          }
+          function TaskArg([string]$key){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G27_ORIGINAL_TASK_ARG_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $py=TaskArg 'PythonExe'
+          $source=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $source -cne 'b2079282fed03df2203807de09b4f3e82bdfe05a'){
+            throw 'F139_G27_INSTALLED_SOURCE_NOT_RELEASED_MAIN'
+          }
+          if(@(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G27_SOURCE_DIRTY'
+          }
+          $expected=[IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'))
+          if([IO.Path]::GetFullPath($db) -ine $expected){
+            throw 'F139_G27_OWNER_DB_IDENTITY_DRIFT'
+          }
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          c=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=15)
+          c.execute("PRAGMA query_only=ON")
+          try:
+              m=c.execute("SELECT source_sha,head_seq,head_hash,enabled,legacy_suspended FROM meta WHERE id=1").fetchone()
+              assert m is not None
+              assert m[0]=="b2079282fed03df2203807de09b4f3e82bdfe05a"
+              assert m[1]>=220 and m[3]==1 and m[4]==1
+              stages=dict(c.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage"))
+              recent=[{"seq":int(r[0]),"kind":r[1]} for r in c.execute(
+                  "SELECT seq,kind FROM events WHERE seq>218 ORDER BY seq DESC LIMIT 20")]
+              report={"schema":"forge.f139.g27.original-owner-readonly-postrelease.v1",
+                      "source_sha":m[0],"head_seq":m[1],"head_hash":m[2],
+                      "native_enabled":bool(m[3]),"legacy_suspended":bool(m[4]),
+                      "task_stages":stages,"new_events_since_before_release":m[1]-218,
+                      "recent_event_kinds":list(reversed(recent)),
+                      "scientific_first_use":False}
+              print("F139_G27_ORIGINAL_NATIVE_LEDGER="+json.dumps(report,sort_keys=True))
+          finally:c.close()
+          '@
+          & $py -B -c $code $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G27_ORIGINAL_LEDGER_READ_FAILED'}
+          Write-Host ('F139_G27_ORIGINAL_TASK_STATE='+[string]$task.State)
+          Write-Host 'F139_G27_NO_TASK_OR_DATABASE_MUTATION=PASS'
+          Write-Host 'F139_G27_NO_SCIENTIFIC_FIRST_USE=PASS'
