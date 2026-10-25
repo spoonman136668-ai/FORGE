@@ -1,4 +1,4 @@
-name: F139 R8 real-ledger isolated V5 candidate transition (read only)
+name: F139 R8 real-ledger isolated V5 transition and activation (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -334,7 +334,7 @@ jobs:
               read.close()
           sys.path.insert(0,str(candidate))
           from f139.local_controller import Database
-          from f139.nci04_owner_ledger import verify_native_activation
+          from f139.nci04_owner_ledger import verify_native_activation,activate_native
           from f139.nci04_owner_publication import history_proof
           proof=Database(scratch)
           try:
@@ -362,9 +362,22 @@ jobs:
               assert event["new_dispatches"]==0
               assert proof.conn.execute("SELECT count(*) FROM tasks").fetchone()[0]==originals
               assert proof.conn.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]==quarantined
-              assert verify_native_activation(proof)
+              assert verify_native_activation(proof) is False
+              approval={
+                "schema":"forge.f139.nci04.owner-native-approval.v1",
+                "source_sha":expected,
+                "expected_event_head_sha256":after["head_hash"],
+                "native_development_approved":True,
+                "scientific_first_use":False,
+                "create_controller":False,
+                "paid_api_calls":0,
+              }
+              assert activate_native(proof,approval) is True
               proof.verify()
+              assert verify_native_activation(proof)
+              assert proof.meta()["head_seq"]==before["head_seq"]+2
               print("F139_R8_REAL_ORIGINAL_LEDGER_SNAPSHOT_QUALIFIED=PASS")
+              print("F139_R8_G4_PER_SOURCE_REACTIVATION_SNAPSHOT=PASS")
               print("F139_R8_G4_V5_TRANSITION_SNAPSHOT=PASS")
               print("F139_R8_ORIGINAL_22_ADMISSIONS_AND_12_NEGATIVES=PASS")
               print("F139_R8_SNAPSHOT_TRANSITION_EVENT_HEAD="+str(after["head_seq"]))
