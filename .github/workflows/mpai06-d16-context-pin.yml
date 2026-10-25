@@ -1,0 +1,62 @@
+name: D16 accepted-source read-only Mind-Palace context fix qualification
+on:
+  push:
+    branches: [qualification/mpai06-d16-context-pin-20261025]
+    paths: ['.github/workflows/mpai06-d16-context-pin.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai06-d16-context-pin-once-20261025
+  cancel-in-progress: false
+jobs:
+  exact-context:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Test read-only operation against exact accepted Mind-Palace with no model usage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$yes,[string]$reason){if(-not $yes){throw ('D16_CONTEXT_'+$reason)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai06-d16-context-pin-20261025' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXISTING_RUNNER'
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:CODEX_HOME -ErrorAction SilentlyContinue
+          $url='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $branch='repair/mpai06-d16-context-tool-drift-20261025'
+          $source='738af83b440955ea59494a715104322af52c0ec6'
+          $script='implementations/mpai06-d16-context-pin-repair/Read-MindPalaceContext.ps1'
+          $test='implementations/mpai06-d16-context-pin-repair/Test-ReadOnlyContext-Isolated.ps1'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d16-context-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $remote=@(git.exe ls-remote --exit-code $url ('refs/heads/'+$branch))
+          Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and
+            ([string]$remote[0] -split '\s+')[0] -ceq $source) 'SOURCE_REMOTE_DRIFT'
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_ALREADY_EXISTS'
+          [void][IO.Directory]::CreateDirectory($scratch)
+          try {
+            git.exe clone --quiet --single-branch --branch $branch $url $root
+            Need ($LASTEXITCODE -eq 0) 'SOURCE_CLONE'
+            $actual=(git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($actual -ceq $source) 'SOURCE_HEAD_DRIFT'
+            $s=(git.exe -C $root rev-parse ('HEAD:'+$script) | Out-String).Trim()
+            $t=(git.exe -C $root rev-parse ('HEAD:'+$test) | Out-String).Trim()
+            Need ($s -ceq '30d29b2776fb220d44c86b7ef5246a0d9abe0740' -and
+              $t -ceq 'c2e0b181aa5e54379b84d8092058d1dd011a7672') 'PINNED_SOURCE_BLOBS'
+            foreach($f in @($script,$test)){
+              $tokens=$null
+              $parseErrors=$null
+              [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $f),[ref]$tokens,[ref]$parseErrors)
+              Need (@($parseErrors).Count -eq 0) 'POWERSHELL_SYNTAX'
+            }
+            Write-Host 'D16_CONTEXT_PINNED_ORIGINAL_SOURCE_AND_SYNTAX=PASS'
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root $test)
+            Need ($LASTEXITCODE -eq 0) 'ORIGINAL_READONLY_CONTEXT_FIXTURE'
+            Write-Host 'D16_CONTEXT_NO_MODEL_CALLS=PASS'
+            Write-Host 'D16_CONTEXT_LIVE_REGISTRY_CHANGED=NO'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'D16_CONTEXT_SCRATCH_CLEAN=PASS'
+          }
