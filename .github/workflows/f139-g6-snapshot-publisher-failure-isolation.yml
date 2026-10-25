@@ -1,4 +1,4 @@
-name: F139 G6 isolate failed original owner GitHub read route (no provider writes)
+name: F139 G6 compare original Python and PowerShell gh API (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -33,6 +33,40 @@ jobs:
             throw 'F139_G6_INSTALLED_SOURCE_DRIFT'
           }
           $scratch=Join-Path (Split-Path $db -Parent) ('f139-g6-isolate-'+$env:GITHUB_RUN_ID+'-'+[guid]::NewGuid().ToString('N')+'.sqlite')
+          $pw=@(& gh api 'repos/spoonman136668-ai/FORGE/issues/807' --jq '.number' 2>&1)
+          if($LASTEXITCODE -eq 0 -and (($pw | Out-String).Trim() -ceq '807')){
+            Write-Host 'F139_G6_POWERSHELL_SAME_PROCESS_ISSUE_GET=PASS'
+          }else{
+            Write-Host 'F139_G6_POWERSHELL_SAME_PROCESS_ISSUE_GET=FAIL'
+          }
+          $tiny=@'
+          import os,re,subprocess,sys
+          cmds=[
+            ["gh","auth","status"],
+            ["gh","api","user","--jq",".login"],
+            ["gh","api","repos/spoonman136668-ai/FORGE/issues/807","--jq",".number"],
+          ]
+          for i,cmd in enumerate(cmds):
+              p=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,timeout=30,check=False)
+              stdout=p.stdout.decode("utf-8","replace").strip()
+              stderr=p.stderr.decode("utf-8","replace")
+              http=sorted(set(re.findall(r"(?<!\d)(?:401|403|404|429)(?!\d)",stderr)))
+              print("F139_G6_PYTHON_GH_CHECK_"+str(i)+"_EXIT="+str(p.returncode))
+              if i==1:
+                  print("F139_G6_PYTHON_IDENTITY="+
+                        ("EXPECTED" if stdout=="spoonman136668-ai"
+                         else "OTHER" if p.returncode==0 else "UNAVAILABLE"))
+              if i==2:
+                  print("F139_G6_PYTHON_ISSUE_807="+
+                        ("PASS" if stdout=="807" and p.returncode==0 else "FAIL"))
+              if http:print("F139_G6_PYTHON_HTTP="+",".join(http))
+          print("F139_G6_PYTHON_HAS_GH_TOKEN="+str(bool(os.environ.get("GH_TOKEN"))))
+          print("F139_G6_PYTHON_HAS_GITHUB_TOKEN="+str(bool(os.environ.get("GITHUB_TOKEN"))))
+          print("F139_G6_PYTHON_HAS_GH_CONFIG_DIR="+str(bool(os.environ.get("GH_CONFIG_DIR"))))
+          '@
+          & $python -B -c $tiny
+          if($LASTEXITCODE -ne 0){throw 'F139_G6_AUTH_COMPARISON_FAILED'}
           $script=@'
           import json,pathlib,sqlite3,sys
           root=pathlib.Path(sys.argv[1]).resolve(strict=True)
