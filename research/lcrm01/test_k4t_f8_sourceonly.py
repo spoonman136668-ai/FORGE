@@ -21,13 +21,15 @@ class F8SourceOnly(unittest.TestCase):
   for seed in range(91400,91424):
    for action in ACTIONS:
     stream.append(e(seed,action,state(4),state(5)))
+    stream.append({**e(seed,action,state(4),state(5)),"family":"fourrooms"})
   learner=LearnedLoggedValues(stream)
   v=learner.values("empty",state(4))
   self.assertEqual(len(v),3)
   self.assertEqual({z["action"] for z in v},{0,1,2})
   self.assertTrue(all(z["FIT_context_count"]==24 for z in v))
  def test_six_public_fields_only(self):
-  stream=[e(91400,action,state(4),state(5)) for action in ACTIONS]
+  stream=[{**e(91400,action,state(4),state(5)),"family":family}
+          for family in ("empty","fourrooms") for action in ACTIONS]
   v=LearnedLoggedValues(stream)
   with self.assertRaises(ValueError):v.values("empty",{**state(4),"hiddenCausalGraph":0})
  def test_action_trials_replay_public_state_fail_closed(self):
