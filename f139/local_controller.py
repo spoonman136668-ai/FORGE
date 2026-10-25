@@ -836,7 +836,8 @@ class Database:
     def transition_source(self, new_source_sha: str, *,
                           allow_certified_negative: bool = False,
                           allow_v6: bool = False,
-                          allow_v7: bool = False):
+                          allow_v7: bool = False,
+                          allow_v8: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -849,6 +850,11 @@ class Database:
         recognized = {NEGATIVE_696: SOURCE_696, NEGATIVE_706: SOURCE_706}
         provider_failures=self.verified_native_provider_failures()
         recognized.update({ticket:source for ticket,(source,_) in provider_failures.items()})
+        from f139.nci04_g49_prepost_negative import (
+            verify_g49_custody, TICKET as PREPOST, SOURCE_V7)
+        prepost = verify_g49_custody(self)
+        if prepost:
+            recognized[PREPOST] = SOURCE_V7
         with self.transaction():
             self.verify()
             meta = self.meta()
@@ -963,7 +969,17 @@ class Database:
                          "forge.f139.source-transition.v6"]
                 prev_v7=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v7"]
-                if len(prev_v4)==10 and len(prev_v5)==4 and len(prev_v6)==1:
+                prev_v8=[e for e in events if e["schema"]==
+                         "forge.f139.source-transition.v8"]
+                if (len(prev_v4)==10 and len(prev_v5)==4
+                        and len(prev_v6)==1 and len(prev_v7)==1):
+                    require(allow_v8 is True and not prev_v8 and prepost
+                            and events[-1]["schema"] ==
+                                "forge.f139.source-transition.v7"
+                            and meta["source_sha"] == SOURCE_V7,
+                            "SOURCE_TRANSITION_V8_ONE_SHOT_PREPOST_REQUIRED")
+                    schema="forge.f139.source-transition.v8"
+                elif len(prev_v4)==10 and len(prev_v5)==4 and len(prev_v6)==1:
                     require(allow_v7 is True and not prev_v7
                             and events[-1]["schema"]==
                                 "forge.f139.source-transition.v6"
