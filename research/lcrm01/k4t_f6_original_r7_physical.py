@@ -156,7 +156,7 @@ def experiment(r1,r2,r3,r4,r5,r6,r7):
 
 def main():
  parser=argparse.ArgumentParser()
- for name in ("wingless_r1","wingless_r2","wingless_r3","wingless_r4","wingless_r5","wingless_r6","yggdrasil_source"):
+ for name in ("wingless_r1","wingless_r2","wingless_r3","wingless_r4","wingless_r5","wingless_r6","wingless_r7","yggdrasil_source"):
   parser.add_argument("--"+name.replace("_","-"),type=Path,required=True)
  parser.add_argument("--output",type=Path,required=True)
  a=parser.parse_args()
@@ -166,7 +166,7 @@ def main():
  child=resource.getrusage(resource.RUSAGE_CHILDREN)
  try:
   sys.path.insert(0,str(a.yggdrasil_source.resolve()))
-  q=experiment(a.wingless_r1,a.wingless_r2,a.wingless_r3,a.wingless_r4,a.wingless_r5,a.wingless_r6)
+  q=experiment(a.wingless_r1,a.wingless_r2,a.wingless_r3,a.wingless_r4,a.wingless_r5,a.wingless_r6,a.wingless_r7)
  except Exception as e:
   q={"schema":SCHEMA,"gate":"LCRM01-K4T-F6",
      "result":"SOURCE_OR_INFRASTRUCTURE_BLOCKED","error":str(e),
@@ -184,9 +184,9 @@ def main():
  print("K4T_F6_ORIGINAL_SOURCE_RESULT="+q["result"])
  if "r7_preregistered_disposition" in q:
   d=q["r7_preregistered_disposition"]
-  print("K4T_F6_R6_DECISION="+d["result"])
+  print("K4T_F6_R7_DECISION="+d["result"])
   print("K4T_F6_REAL_GOALS="+canon({f:{m:d["results"][f][m]["successes"]
-       for m in ("wingless_r5_cost_frontier","wingless_r6_observed_route","sixfield_fit_model_route","fit_dynamics_bfs")}
+       for m in ("wingless_r5_cost_frontier","wingless_r6_observed_route","wingless_r7_physical_frontier","sixfield_fit_model_route","fit_dynamics_bfs")}
        for f in FAMILIES}))
   print("K4T_F6_CRITERIA="+canon(d["criteria"]))
  print("K4T_F6_REAL_TRAINING_STEPS="+str(q.get("FIT_public_experience_count",0)))
