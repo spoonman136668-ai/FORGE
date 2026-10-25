@@ -1,6 +1,15 @@
-name: F139 G15 guarded original-owner V6 production release — INERT
+name: F139 G19 guarded original-owner V6 release — MANUAL OWNER APPROVAL
 on:
   workflow_dispatch:
+    inputs:
+      protected_sha:
+        description: 'Exact current protected main SHA for one V6 development-only release'
+        type: string
+        required: true
+      owner_approval:
+        description: 'Type F139-V6-OWNER-APPROVE-ONE-SHOT to explicitly approve this release'
+        type: string
+        required: true
 permissions:
   contents: read
 concurrency:
@@ -8,17 +17,39 @@ concurrency:
   cancel-in-progress: false
 jobs:
   guarded-release:
+    if: github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai'
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 13
+    env:
+      F139_G19_TARGET_SHA: ${{ inputs.protected_sha }}
+      F139_G19_OWNER_APPROVAL: ${{ inputs.owner_approval }}
     steps:
       - name: Execute only the exact armed, protected, previously-qualified original owner release
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          # Safe source default; no release without explicit owner-origin
+          # protected-main dispatch at its exact live immutable commit.
           $target='0000000000000000000000000000000000000000'
+          if($env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
+             $env:GITHUB_REF -cne 'refs/heads/main' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1'){
+            throw 'F139_G19_OWNER_DISPATCH_OR_REPLAY_INVALID'
+          }
+          $requested=[string]$env:F139_G19_TARGET_SHA
+          $affirm=[string]$env:F139_G19_OWNER_APPROVAL
+          if($requested -cnotmatch '^[a-f0-9]{40}$' -or
+             $requested -ceq ('0'*40) -or
+             $affirm -cne 'F139-V6-OWNER-APPROVE-ONE-SHOT'){
+            throw 'F139_G19_EXPLICIT_OWNER_APPROVAL_MISSING'
+          }
+          if($env:GITHUB_SHA -cne $requested){
+            throw 'F139_G19_EXACT_TRIGGER_SOURCE_DRIFT'
+          }
+          $target=$requested
           if($target -ceq ('0'*40)){
-            Write-Host 'F139_G15_RELEASE_UNARMED_NO_OWNER_MUTATION=PASS'
-            exit 0
+            throw 'F139_G19_ZERO_TARGET_UNARMED'
           }
           $old='6e14fbe374aa0170a5f5f952afc4b4045ac2afca'
           $head='4cc043464e491f7c676ea55b8d95cbf5bf350e5d'

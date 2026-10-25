@@ -1,7 +1,7 @@
 name: F139 G15 explicit V6 owner CLI release rehearsal and regression (DEV ONLY)
 on:
   push:
-    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025]
+    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025, qualify/f139-g19-one-shot-manual-release-20261025]
     paths:
       - f139/local_controller.py
       - f139/nci04_v6_owner_release.py
@@ -67,6 +67,28 @@ jobs:
           if($possible -lt 0 -or $transition -lt 0 -or $possible -gt $transition){
             throw 'F139_G18_MUTATION_FENCE_AFTER_CLI'
           }
+          # G19 authorization must be checked before any original-owner mutation.
+          if(-not $body.Contains("github.ref == 'refs/heads/main' && github.actor == 'spoonman136668-ai'") -or
+             -not $body.Contains('F139_G19_OWNER_DISPATCH_OR_REPLAY_INVALID') -or
+             -not $body.Contains('F139_G19_EXPLICIT_OWNER_APPROVAL_MISSING') -or
+             -not $body.Contains('F139_G19_EXACT_TRIGGER_SOURCE_DRIFT') -or
+             -not $body.Contains("$"+"env:GITHUB_RUN_ATTEMPT -cne '1'") -or
+             -not $body.Contains("$"+"env:F139_G19_TARGET_SHA") -or
+             -not $body.Contains("$"+"env:F139_G19_OWNER_APPROVAL") -or
+             -not $body.Contains('$env:GITHUB_SHA -cne $requested') -or
+             -not $body.Contains('$target=$requested')){
+            throw 'F139_G19_OWNER_DISPATCH_GUARD_MISSING'
+          }
+          $read=$body.IndexOf('$requested=[string]$env:F139_G19_TARGET_SHA')
+          $approve=$body.IndexOf('F139_G19_EXPLICIT_OWNER_APPROVAL_MISSING')
+          $tip=$body.IndexOf('F139_G19_EXACT_TRIGGER_SOURCE_DRIFT')
+          $arm=$body.IndexOf('$target=$requested')
+          $mutate=$body.IndexOf('Disable-ScheduledTask -TaskName $name')
+          if($read -lt 0 -or $approve -lt $read -or
+             $tip -lt $approve -or $arm -lt $tip -or $mutate -lt $arm){
+            throw 'F139_G19_APPROVAL_SEQUENCE_NOT_FAILCLOSED'
+          }
+          Write-Host 'F139_G19_MANUAL_OWNER_ONE_SHOT_GUARD=PASS'
           Write-Host 'F139_G18_CONSOLIDATED_G17_MERGE_SOURCE_FENCE=PASS'
           Write-Host 'F139_G18_PREWRITE_FAILCLOSED_MUTATION_FENCE=PASS'
           Write-Host 'F139_G15_PRODUCTION_CUTOVER_DISARMED=PASS'
