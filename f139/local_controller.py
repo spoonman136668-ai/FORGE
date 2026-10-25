@@ -2144,8 +2144,9 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             # Optional G3 publication must not terminate the original F139
             # reconciliation/dispatch loop on a failed owner or API preflight.
             publication = {"disposition": "G3_PUBLISH_BLOCKED_FAIL_CLOSED"}
-        if publication["disposition"] == "G3_DRAFT_PUBLISHED":
-            return publication
+        # Preserve the truthful publication disposition (including an
+        # ambiguous no-retry outcome) in original scheduled-owner telemetry.
+        return publication
     if ready is None:
         return {"disposition":"QUEUE_EMPTY_NO_SCIENCE","completed":db.conn.execute("SELECT COUNT(*) FROM tasks WHERE stage='VERIFIED'").fetchone()[0]}
     task=dict(ready)

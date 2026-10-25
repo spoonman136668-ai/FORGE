@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from f139.nci04_owner_publication import (
-    G1_ORIGINAL_PARENT, ATTEMPT_KIND, history_proof, publish_once,
+    G1_ORIGINAL_PARENT, ATTEMPT_KIND, SUCCESS_KIND, history_proof, publish_once,
     OwnerPublicationDenied,
 )
 
@@ -87,6 +87,32 @@ class OriginalOwnerPublicationTests(unittest.TestCase):
         self.assertEqual(result["disposition"],
                          "G3_DRAFT_ALREADY_ATTEMPTED_NO_REPLAY")
         self.assertEqual(writes, [])
+
+    def test_partial_write_is_recorded_before_remote_call_and_never_retried(self):
+        db = FakeDb(G1_EVENT)
+        plan = dict(candidate_identity="c"*64, mechanism_sha256="e"*64,
+                    parent_commit=G1_ORIGINAL_PARENT, before_blob="f"*40,
+                    source_sha256="b"*64)
+        observed = []
+        def failing_publisher(*args, **kwargs):
+            observed.append(len(list(db.conn.execute(
+                "SELECT 1 FROM events WHERE kind=?", (ATTEMPT_KIND,)))))
+            raise ConnectionError("ambiguous")
+        with patch("f139.nci04_owner_publication.history_proof",
+                   return_value=(set(), set())), patch(
+                "f139.nci04_owner_publication.publisher_preflight",
+                return_value=plan), patch(
+                "f139.nci04_owner_publication.publish_single_draft",
+                side_effect=failing_publisher):
+            first = publish_once(db, lambda _: None, lambda *_: None,
+                                 db.source, owner_witness=lambda: True)
+            second = publish_once(db, lambda _: None, lambda *_: None,
+                                  db.source, owner_witness=lambda: True)
+        self.assertEqual(observed, [1])
+        self.assertEqual(first["disposition"], "G3_DRAFT_OUTCOME_AMBIGUOUS_NO_RETRY")
+        self.assertEqual(second["disposition"], "G3_DRAFT_ALREADY_ATTEMPTED_NO_REPLAY")
+        self.assertFalse(list(db.conn.execute(
+            "SELECT 1 FROM events WHERE kind=?", (SUCCESS_KIND,))))
 
     def test_preflight_denial_never_writes_or_consumes_attempt(self):
         db = FakeDb(G1_EVENT)

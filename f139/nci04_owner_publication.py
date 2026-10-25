@@ -115,7 +115,7 @@ def publish_once(db, get: Callable, write: Callable, source_sha: str,
             "candidate_identity": plan["candidate_identity"],
             "mechanism_sha256": plan["mechanism_sha256"],
             "parent_commit": plan["parent_commit"],
-            "source_before_sha256": plan["before_blob"],
+            "source_before_blob_sha1": plan["before_blob"],
             "source_after_sha256": plan["source_sha256"],
             "scientific_first_use": False, "retry_allowed": False,
         })
