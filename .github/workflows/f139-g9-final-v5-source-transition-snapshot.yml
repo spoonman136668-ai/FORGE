@@ -1,0 +1,130 @@
+name: F139 G9 original SQLite last-slot V5 transition rehearsal (read only production)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g9-final-v5-source-transition-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Checkout exact qualified G9 candidate only for scratch original ledger rehearsal
+        uses: actions/checkout@v4
+        with:
+          ref: bf488e74e1b9c5f259dfb540e3461f83f647cf00
+          path: f139-g9-last-v5-source
+          persist-credentials: false
+      - name: Verify original owner source and rehearse final V5 under scratch-only original history
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          $new='bf488e74e1b9c5f259dfb540e3461f83f647cf00'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             [string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'F139_G9_ORIGINAL_TASK_UNQUALIFIED'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner=[string]$t.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+            [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $who.Name -and $sid -cne $who.User.Value){
+            throw 'F139_G9_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function TaskArg([string]$name){
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G9_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'f139-g9-last-v5-source'
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             ( & git.exe -C $candidate rev-parse HEAD | Out-String).Trim() -cne $new -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G9_INSTALLED_OR_PROPOSED_SOURCE_DRIFT'
+          }
+          $temp=Join-Path (Split-Path $db -Parent) ('f139-g9-last-v5-'+$env:GITHUB_RUN_ID+'-'+[guid]::NewGuid().ToString('N')+'.sqlite')
+          $code=@'
+          import json,pathlib,sqlite3,sys
+          old="72486da5ce96142424b189dd8e3dcf3c39dfc401"
+          new="bf488e74e1b9c5f259dfb540e3461f83f647cf00"
+          source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          live=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          temp=pathlib.Path(sys.argv[3])
+          assert temp.parent==live.parent and not temp.exists()
+          ro=sqlite3.connect(live.as_uri()+"?mode=ro",uri=True,timeout=20)
+          ro.execute("PRAGMA query_only=ON")
+          try:
+              with sqlite3.connect(temp) as dest:
+                  ro.backup(dest)
+          finally:
+              ro.close()
+          sys.path.insert(0,str(source))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import (
+              verify_native_activation,activate_native)
+          from f139.nci04_owner_publication import history_proof
+          d=Database(temp)
+          try:
+              d.verify()
+              m=d.meta()
+              assert m["source_sha"]==old and m["head_seq"]>=208
+              assert verify_native_activation(d)
+              assert d.ready() is None and not d.actives()
+              _mechanisms,identities=history_proof(d)
+              assert len(identities)==22
+              hist=[json.loads(r["payload"]) for r in d.conn.execute(
+                "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+              assert sum(h["schema"]=="forge.f139.source-transition.v5" for h in hist)==3
+              negatives=d.conn.execute(
+                "SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert negatives==12
+              d.transition_source(new,allow_certified_negative=True)
+              x=d.meta()
+              assert x["source_sha"]==new and x["head_seq"]==m["head_seq"]+1
+              assert verify_native_activation(d) is False
+              hist2=[json.loads(r["payload"]) for r in d.conn.execute(
+                "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED'")]
+              assert sum(h["schema"]=="forge.f139.source-transition.v5" for h in hist2)==4
+              approval={
+                "schema":"forge.f139.nci04.owner-native-approval.v1",
+                "source_sha":new,
+                "expected_event_head_sha256":x["head_hash"],
+                "native_development_approved":True,
+                "scientific_first_use":False,
+                "create_controller":False,
+                "paid_api_calls":0}
+              assert activate_native(d,approval)
+              d.verify()
+              assert verify_native_activation(d)
+              assert d.meta()["head_seq"]==m["head_seq"]+2
+              assert d.conn.execute(
+                "SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]==12
+              print("F139_G9_FINAL_V5_ORIGINAL_SNAPSHOT_TRANSITION=PASS")
+              print("F139_G9_FINAL_V5_ACTIVATION_SNAPSHOT=PASS")
+              print("F139_G9_HISTORIC_22_ADMISSIONS_AND_12_NEGATIVES=PASS")
+              print("F139_G9_SNAPSHOT_REMAINING_V5_AFTER_TRANSITION=0")
+              print("F139_G9_LIVE_ORIGINAL_LEDGER_UNMODIFIED=TRUE")
+              print("F139_G9_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              d.close()
+          '@
+          try{
+            & $python -B -c $code $candidate $db $temp
+            if($LASTEXITCODE -ne 0){throw 'F139_G9_FINAL_V5_SNAPSHOT_FAILED'}
+          }finally{
+            foreach($suffix in @('','-shm','-wal')){
+              Remove-Item -LiteralPath ($temp+$suffix) -Force -ErrorAction SilentlyContinue
+            }
+          }
+          if([string](Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController').State -cne 'Running'){
+            throw 'F139_G9_ORIGINAL_TASK_MUTATED'
+          }
+          Write-Host 'F139_G9_ORIGINAL_WINDOWS_CONTROLLER_INTACT=PASS'
