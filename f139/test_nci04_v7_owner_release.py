@@ -28,7 +28,7 @@ class G39OriginalReleaseTests(unittest.TestCase):
         self.assertIn('approval.get("v2_production_dispatch_authorized") is False',raw)
         self.assertIn('approval.get("scientific_first_use") is False',raw)
         self.assertIn('approval.get("new_controller") is False',raw)
-        self.assertIn('approval.get("paid_api_calls") == 0',raw)
+        self.assertIn('approval["paid_api_calls"] == 0',raw)
 
     def test_v7_requires_separate_manual_owner_cli(self):
         import inspect
