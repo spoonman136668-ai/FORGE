@@ -2220,10 +2220,15 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
         if row is None:
             return False
         event=json.loads(row["payload"])
-        if not (event.get("schema")=="forge.f139.source-transition.v7"
-                and event.get("to_source_sha")==source_sha
-                and event.get("from_source_sha")==
-                    "b2079282fed03df2203807de09b4f3e82bdfe05a"
+        v7 = (event.get("schema")=="forge.f139.source-transition.v7"
+              and event.get("from_source_sha")==
+                  "b2079282fed03df2203807de09b4f3e82bdfe05a")
+        from f139.nci04_g49_prepost_negative import (
+            verify_g49_custody, SOURCE_V7)
+        v8 = (event.get("schema")=="forge.f139.source-transition.v8"
+              and event.get("from_source_sha")==SOURCE_V7
+              and verify_g49_custody(db))
+        if not ((v7 or v8) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
