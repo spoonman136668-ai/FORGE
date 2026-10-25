@@ -646,6 +646,34 @@ class Database:
                                     sealed_v6[-1]["sha"]
                                 and doc["v2_receipt_authorized"] is False,
                                 "SOURCE_TRANSITION_V7_ORIGINAL_SEAL_DRIFT")
+                    if is_v8:
+                        from f139.nci04_g49_prepost_negative import (
+                            verify_g49_custody, SOURCE_V7, CLAIM_SEQ)
+                        prepost_rows=list(self.conn.execute(
+                            "SELECT seq,sha,payload FROM events WHERE "
+                            "kind='NATIVE_PREDISPATCH_NEGATIVE_CUSTODY' "
+                            "AND seq<? ORDER BY seq", (row["seq"],)))
+                        v7_rows=[
+                            t for t in self.conn.execute(
+                                "SELECT sha,payload FROM events "
+                                "WHERE kind='SOURCE_TRANSITION_ADMITTED' "
+                                "AND seq<? ORDER BY seq", (row["seq"],))
+                            if json.loads(t["payload"])["schema"]==
+                                "forge.f139.source-transition.v7"]
+                        prior_v8=[t for t in source_transitions if
+                            t["schema"]=="forge.f139.source-transition.v8"]
+                        require(verify_g49_custody(self) and len(prepost_rows)==1
+                                and prepost_rows[0]["seq"]==CLAIM_SEQ+2
+                                and doc["prepost_negative_event_sha256"]==
+                                    prepost_rows[0]["sha"]
+                                and len(v7_rows)==1 and not prior_v8
+                                and source_transitions[-1]["schema"]==
+                                    "forge.f139.source-transition.v7"
+                                and doc["v7_terminal_event_sha256"]==
+                                    v7_rows[0]["sha"]
+                                and doc["from_source_sha"]==SOURCE_V7
+                                and doc["v2_receipt_authorized"] is False,
+                                "SOURCE_TRANSITION_V8_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
