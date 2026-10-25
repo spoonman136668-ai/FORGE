@@ -74,3 +74,17 @@ jobs:
           Write-Output ('R304_HISTORICAL_ROLLBACK_FILE_COUNT='+$count)
           Write-Output 'R304_PROPOSED_R300_ROLLBACK_TEST=NOT_PERFORMED'
           Write-Output 'R304_ROLLBACK_FILES_MODIFIED=FALSE'
+
+      - name: Reconcile existing R18 cutover receipt and task anchor read only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop
+          $a=[string]$task.Actions[0].Arguments
+          $bound=($a -like '*PLANE-R18-OWNER-CUTOVER-39809195564*')
+          Write-Output ('R304_R18_ORIGINAL_TASK_BOUND_TO_CUTOVER='+$bound)
+          $file=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/cutover-receipt.json'
+          $r=Get-Content -LiteralPath $file -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          $passed=($r.result -ceq 'PASS' -and [string]$r.run_id -ceq '39809195564')
+          Write-Output ('R304_HISTORICAL_CUTOVER_RECEIPT_MATCH='+$passed)
+          Write-Output 'R304_NEW_R300_CUTOVER_NOT_AUTHORIZED=TRUE'
