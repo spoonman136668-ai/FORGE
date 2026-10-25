@@ -157,7 +157,16 @@ def run_v2(candidate: Candidate, original: Path, scratch: Path, *,
     finally:
         if stage is not None:
             import shutil
-            shutil.rmtree(stage)
+            import stat
+            def readonly_git_file(function, path, exc):
+                # Windows marks Git pack/index objects read-only. A chmod on
+                # just the failed disposable path is permitted; a locked file
+                # still raises and the result is never declared qualified.
+                if not isinstance(exc[1], PermissionError):
+                    raise exc[1]
+                os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+                function(path)
+            shutil.rmtree(stage, onerror=readonly_git_file if os.name == "nt" else None)
     completed = (pristine["outcome"] == "PASS" and len(behavioral) == len(modules)
                  and all(x["outcome"] == "PASS" for x in behavioral)
                  and build is not None and build["outcome"] == "PASS")
