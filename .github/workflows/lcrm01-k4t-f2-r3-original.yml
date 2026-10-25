@@ -1,0 +1,42 @@
+name: Mass K4T-F2 original MiniGrid R3 native action model public DEV
+on:
+  push:
+    branches: [research/itd02-k4t-f2-r3-original-world-20261025]
+permissions:
+  contents: read
+jobs:
+  original-minigrid-r3-vs-r2-equal-info:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Frozen protocol and original Wingless source authenticated before public first use
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash research/lcrm01/k4t_f2_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f2-native-r3-vs-equal-info-r2-public-source-dev
+          path: |
+            ${{ runner.temp }}/k4tf2/process-a.json
+            ${{ runner.temp }}/k4tf2/process-b.json
+            ${{ runner.temp }}/k4tf2/comparison.json
+            ${{ runner.temp }}/k4tf2/process-a.log
+            ${{ runner.temp }}/k4tf2/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
