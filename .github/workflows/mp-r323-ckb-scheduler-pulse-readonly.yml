@@ -1,0 +1,136 @@
+name: R323 original CKB scheduler pulse status-only observation
+on:
+  push:
+    branches: [audit/mp-r323-scheduler-pulse-readonly-20261025]
+    paths: [.github/workflows/mp-r323-ckb-scheduler-pulse-readonly.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r323-original-scheduler-readonly-status
+  cancel-in-progress: false
+jobs:
+  observe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Observe only authority, pause, heartbeat and bounded stored-status class
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r323-scheduler-pulse-readonly-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:RUNNER_OS -cne 'Windows' -or
+             $env:COMPUTERNAME -cne 'LINKDEADKB'){
+            throw 'R323_EXISTING_ELEVATED_OWNER_AND_EVENT_REQUIRED'
+          }
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($who)
+          if($who.Name -ine 'LINKDEADKB\camar' -or
+             !$admin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R323_ORIGINAL_ADMIN_OWNER_REQUIRED'
+          }
+          $procs=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($procs.Count -ne 1){throw 'R323_ORIGINAL_PROCESS_SINGLETON_MISSING'}
+          $p=$procs[0]
+          $pidInitial=[int]$p.ProcessId
+          $born=([datetime]$p.CreationDate).ToUniversalTime().ToString('o')
+          $path=[string]$p.ExecutablePath
+          $fileSha=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($fileSha -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R323_ORIGINAL_R303_RUNNING_FILE_DRIFT'
+          }
+          $listeners=@(Get-NetTCPConnection -LocalPort 8791 -State Listen -ErrorAction Stop)
+          if($listeners.Count -lt 1 -or
+             @($listeners | Where-Object {$_.LocalAddress -notin @('127.0.0.1','::1') -or [int]$_.OwningProcess -ne $pidInitial}).Count -ne 0){
+            throw 'R323_ORIGINAL_LOCAL_NATIVE_PROCESS_BINDING_DRIFT'
+          }
+          # Status-only query; unlike the historical unqualified R253 proposal,
+          # do NOT examine any reason text, work_order, queue, worker, or recovery row.
+          $python=@'
+          import datetime
+          import sqlite3
+          import time
+          import sys
+          from pathlib import Path
+          from contextlib import closing
+
+          db=Path(r"C:\Users\camar\GolandProjects\ckb-plane\state\autonomy.db")
+          if not db.is_file() or db.is_symlink():
+              raise RuntimeError("R323_ORIGINAL_DB_UNREADABLE")
+          def snapshot():
+              with closing(sqlite3.connect(db.resolve(strict=True).as_uri()+"?mode=ro",uri=True,timeout=8,isolation_level=None)) as conn:
+                  conn.execute("PRAGMA query_only=ON")
+                  conn.execute("BEGIN")
+                  record=conn.execute("""
+                    SELECT
+                    (SELECT value FROM settings WHERE key='autonomy_authority'),
+                    (SELECT value FROM settings WHERE key='autonomy_generation'),
+                    (SELECT value FROM settings WHERE key='paused'),
+                    (SELECT value FROM settings WHERE key='autonomy_heartbeat'),
+                    (SELECT CASE
+                      WHEN value LIKE 'OPERATOR_BLOCKED:%' THEN 'OPERATOR_BLOCKED'
+                      WHEN value LIKE 'IDLE:%' THEN 'IDLE'
+                      WHEN value LIKE 'PAUSED%' THEN 'PAUSED'
+                      WHEN value LIKE 'RUNNING:%' THEN 'RUNNING'
+                      WHEN value LIKE 'QUEUE_%' THEN 'QUEUE_CONSTRAINT'
+                      WHEN value LIKE 'WAITING_%' THEN 'WAITING'
+                      ELSE 'OTHER_OR_UNKNOWN' END
+                      FROM settings WHERE key='autonomy_status')
+                  """).fetchone()
+                  conn.execute("ROLLBACK")
+              authority, generation, paused, heartbeat, status=record
+              if authority!="plane" or generation!="6" or paused not in ("true","false"):
+                  raise RuntimeError("R323_NATIVE_AUTHORITY_OR_GENERATION_DRIFT")
+              if status not in ("OPERATOR_BLOCKED","IDLE","PAUSED","RUNNING","QUEUE_CONSTRAINT","WAITING","OTHER_OR_UNKNOWN"):
+                  raise RuntimeError("R323_STATUS_CLASS_NOT_BOUNDED")
+              return (paused,heartbeat,status)
+          def age_class(stamp):
+              if not isinstance(stamp,str) or not stamp.strip():
+                  return "MISSING"
+              try:
+                  t=datetime.datetime.fromisoformat(stamp.replace("Z","+00:00"))
+                  if t.tzinfo is None:
+                      return "UNPARSEABLE"
+                  age=(datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()
+                  if age<0: return "FUTURE_OR_CLOCK_SKEW"
+                  if age<=60: return "UNDER_60_SECONDS"
+                  if age<=300: return "BETWEEN_1_AND_5_MINUTES"
+                  return "OVER_5_MINUTES"
+              except (ValueError,TypeError,OverflowError):
+                  return "UNPARSEABLE"
+          samples=[snapshot()]
+          time.sleep(12)
+          samples.append(snapshot())
+          time.sleep(12)
+          samples.append(snapshot())
+          advancing=(samples[0][1]!=samples[1][1] or samples[1][1]!=samples[2][1])
+          print("R323_AUTHORITY_PLANE_GENERATION_6=PASS")
+          print("R323_PAUSED_AT_FIRST="+samples[0][0].upper())
+          print("R323_PAUSED_AT_LAST="+samples[-1][0].upper())
+          print("R323_FIRST_STATUS_CLASS="+samples[0][2])
+          print("R323_LAST_STATUS_CLASS="+samples[-1][2])
+          print("R323_LAST_HEARTBEAT_AGE_BUCKET="+age_class(samples[-1][1]))
+          print("R323_HEARTBEAT_CHANGED_IN_24_SECONDS="+str(advancing).upper())
+          print("R323_HEARTBEAT_PROVES_SUCCESSFUL_TICK_COMPLETION=FALSE")
+          print("R323_NO_HEARTBEAT_CHANGE_PROVES_LOOP_STOPPED=FALSE")
+          print("R323_STATUS_RAW_TEXT_AND_REASON_NOT_RETURNED=TRUE")
+          print("R323_QUEUE_WORKORDERS_RECOVERY_WORKERS_NOT_QUERIED=TRUE")
+          print("R323_SQLITE_MODE_RO_QUERY_ONLY=PASS")
+          '@
+          $py=Get-Command python.exe -ErrorAction Stop
+          Write-Output 'R323_AUTHENTIC_EXISTING_ELEVATED_OWNER_R303_PROCESS=PASS'
+          & $py.Source -B -c $python
+          if($LASTEXITCODE -ne 0){throw 'R323_ORIGINAL_NATIVE_STATUS_PULSE_READ_FAILED'}
+          $again=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($again.Count -ne 1 -or [int]$again[0].ProcessId -ne $pidInitial -or
+             ([datetime]$again[0].CreationDate).ToUniversalTime().ToString('o') -cne $born -or
+             (Get-FileHash -LiteralPath ([string]$again[0].ExecutablePath) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $fileSha){
+            throw 'R323_ORIGINAL_PROCESS_CHANGED_DURING_READ'
+          }
+          Write-Output 'R323_ORIGINAL_NATIVE_PROCESS_PREPOST=PASS'
+          Write-Output 'R323_NO_WORK_ORDER_RELEASE_RETRY_OR_DISPATCH=TRUE'
+          Write-Output 'R323_NO_ORIGINAL_CONTROLLER_TASK_CONFIG_OR_DB_WRITES=TRUE'
+          Write-Output 'R323_PROTECTED_DURABLE_ESCROW_STILL_NOT_ATTESTED=TRUE'
