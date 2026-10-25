@@ -9,6 +9,34 @@ throughput, number of positive results, repeated benchmark successes or gate
 counts. Wingless, Yggdrasil and Mass Research remain separate scientific
 lanes: **do not merge their underlying evidence, hypotheses or custody**.
 
+## ITD-02 acceleration steering (2026-10-25; advisory)
+
+Preserve the established full optimizer portfolio, but **prioritize improved native
+learner capability per real interaction and per complete unit of compute**, not
+proposal, source-only test, or gate counts. The seven additive optimization
+directions are: decision-discriminating authentic development environments;
+a native Wingless/Yggdrasil integration fast lane; uncertainty-aware short-horizon
+causal planning; reusable multistep skills; adaptive plasticity protection;
+a learning-progress development curriculum; and content-addressed multi-fidelity
+research allocation. These are **priorities/proposals**, not claims of deployment,
+scientific advancement, or live steering authorization.
+
+The three separately reviewable research-workspace steering supplements specify
+how to use those directions without duplicating architectures or authority:
+
+- [Core Native Intelligence](research-steering/CORE-NATIVE-INTELLIGENCE.md)
+- [Learning & Mechanism Discovery](research-steering/LEARNING-MECHANISM-DISCOVERY.md)
+- [Independent Scientific Validation](research-steering/INDEPENDENT-SCIENTIFIC-VALIDATION.md)
+
+Explore compatible, qualified enhancement combinations during authorized
+development **before** demanding attribution of every individual component.
+Freeze exact combined identities and then perform targeted ablations and
+independent prospective validation on promising results. Every candidate must
+identify a real native learner consumer and an isolated, reversible integration
+path. No change to hash-pinned research charters, original source roles, sealed
+first-use/holdout permissions, scientific evidence, existing FORGE owner
+controller, or accepted Wingless/Yggdrasil model and checkpoint state.
+
 ## Existing FORGE optimizations retained
 
 The proposal selector recognizes existing FORGE-native candidate mechanisms:
