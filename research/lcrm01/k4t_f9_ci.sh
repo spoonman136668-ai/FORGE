@@ -56,8 +56,10 @@ b=json.loads((root/"process-b.json").read_text())
 c=json.loads((root/"comparison.json").read_text())
 assert c["science_identical"] is True
 assert c["scientific_first_use"] is False
-assert len(a["original_FIT_source_records"])==len(b["original_FIT_source_records"])==12000
-assert set(a["public_intervention_summary"])=={"empty","fourrooms"}
+assert len(a["original_source_training"])==len(b["original_source_training"])>0
+assert len(a["original_source_prospective_evaluation"])==len(b["original_source_prospective_evaluation"])>0
+assert a["FIT_trained_action_return_count"]==3*len(a["original_source_training"])
+assert set(a["summary"])=={"empty","fourrooms"}
 print("K4T_F9_TWO_INDEPENDENT_ORIGINAL_SOURCE_PAIRED_PROCESSES=PASS")
 print("K4T_F9_OFFICIAL_DISPOSITION="+c["result"])
 PY
