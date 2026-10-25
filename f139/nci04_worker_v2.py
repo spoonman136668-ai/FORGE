@@ -281,6 +281,13 @@ def receipt_v2(admission: NativeAdmission, report: dict):
     c = admission.intent
     require(c.lane == "Yggdrasil" and admission.runner_os in SUPPORTED_OS
             and admission.runner_os == report.get("os")
+            and admission.lane == c.lane
+            and type(admission.issue_number) is int and admission.issue_number > 0
+            and type(admission.issue_id) is int and admission.issue_id > 0
+            and isinstance(admission.source_sha, str)
+            and re.fullmatch(r"[a-f0-9]{40}", admission.source_sha) is not None
+            and admission.ticket == ("f139-nci04-i"+str(admission.issue_number)+"-"
+                 +admission.source_sha[:12]+"-"+c.intent_sha256[:8])
             and isinstance(admission.authorization_sha256, str)
             and SHA256.fullmatch(admission.authorization_sha256) is not None
             and type(admission.run_id) is int and admission.run_id > 0,

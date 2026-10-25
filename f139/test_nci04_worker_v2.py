@@ -103,7 +103,7 @@ class V2ContractTests(unittest.TestCase):
         r["candidate_compile"] = None
         r["qualification_complete"] = False
         self.assertFalse(validate_v2(self.c, r))
-        entry = NativeAdmission("ticket", "Yggdrasil", "e"*40, 123, "ubuntu-latest",
+        entry = NativeAdmission("f139-nci04-i907-eeeeeeeeeeee-aaaaaaaa", "Yggdrasil", "e"*40, 123, "ubuntu-latest",
                                 907, 6019876053, self.c, "f"*64)
         receipt = receipt_v2(entry, r)
         self.assertEqual(receipt["schema"], RECEIPT_SCHEMA)
@@ -125,13 +125,17 @@ class V2ContractTests(unittest.TestCase):
             validate_v2(self.c, r)
 
     def test_unbound_os_or_admission_cannot_make_signed_receipt(self):
-        entry = NativeAdmission("ticket", "Yggdrasil", "e"*40, 123, "ubuntu-latest",
+        entry = NativeAdmission("f139-nci04-i907-eeeeeeeeeeee-aaaaaaaa", "Yggdrasil", "e"*40, 123, "ubuntu-latest",
                                 907, 6019876053, self.c, "f"*64)
         self.assertTrue(receipt_v2(entry, self.report())["native_qualified"])
         with self.assertRaises(NativeContractError):
             receipt_v2(entry, self.report("windows-latest"))
         with self.assertRaises(NativeContractError):
             receipt_v2(replace(entry, authorization_sha256=""), self.report())
+        with self.assertRaises(NativeContractError):
+            receipt_v2(replace(entry, ticket="invented"), self.report())
+        with self.assertRaises(NativeContractError):
+            receipt_v2(replace(entry, source_sha="0"*40), self.report())
 
     def test_legacy_receipt_schema_never_reused(self):
         self.assertNotEqual(RECEIPT_SCHEMA,
