@@ -1,0 +1,40 @@
+name: Mass K4T-F4 original MiniGrid R5 versus R4 and sixfield conventional
+on:
+  push:
+    branches: [research/itd02-k4t-f4-r5-cost-frontier-20261025]
+permissions:
+  contents: read
+jobs:
+  original-r5-vs-r4-sixfield:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: '0'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 40
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Authenticate original native R5 and prereg, compare real worlds twice
+        run: bash research/lcrm01/k4t_f4_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f4-r5-versus-r4-sixfield-original-public-dev
+          path: |
+            ${{ runner.temp }}/k4tf4/process-a.json
+            ${{ runner.temp }}/k4tf4/process-b.json
+            ${{ runner.temp }}/k4tf4/comparison.json
+            ${{ runner.temp }}/k4tf4/process-a.log
+            ${{ runner.temp }}/k4tf4/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
