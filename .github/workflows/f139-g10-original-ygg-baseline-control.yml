@@ -1,4 +1,4 @@
-name: F139 G10 independent original Ygg parent regression control (public development)
+name: F139 G10 cross-platform original parent full regression control (public development)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -33,10 +33,10 @@ jobs:
           $ErrorActionPreference='Stop'
           $root=Join-Path $env:GITHUB_WORKSPACE 'original'
           $parent='992ef142aaa551156749a1de484a971b9a0c092f'
-          $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
-          $tree=(& git.exe -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
+          $actual=(& git -C $root rev-parse HEAD | Out-String).Trim()
+          $tree=(& git -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
           if($actual -cne $parent -or $tree -cne '7e37c56e42dbd47a87da7a75210657a040f47a71' -or
-             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0){
             throw 'F139_G10_ORIGINAL_PARENT_SOURCE_TREE_DRIFT'
           }
           Write-Host 'F139_G10_UNMODIFIED_ORIGINAL_PARENT_IDENTITY=PASS'
@@ -80,6 +80,6 @@ jobs:
           '@
           & python -B -c $probe $root
           if($LASTEXITCODE -ne 0){throw 'F139_G10_PARENT_COMPARISON_EXECUTION_FAILED'}
-          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $parent){
+          if(( & git -C $root rev-parse HEAD | Out-String).Trim() -cne $parent){
             throw 'F139_G10_PARENT_SOURCE_MUTATED'
           }
