@@ -27,7 +27,7 @@ DEV=tuple(range(43400,43408))
 R3_METHODS=("wingless_r3","wingless_r3_no_plan")
 FAMILIES=("empty","fourrooms")
 ORIGINAL_METHODS=k4y.METHODS
-METHODS=ORIGINAL_METHODS+R3_METHODS
+METHODS=ORIGINAL_METHODS[:2]+R3_METHODS+ORIGINAL_METHODS[2:]
 
 def contract():
  p=json.loads(FROZEN.read_text())
