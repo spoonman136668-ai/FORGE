@@ -1,4 +1,4 @@
-name: F139 R6 current original owner custody and G4 candidate (read only)
+name: F139 R7 G4 real-ledger preflight on original owner (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -10,6 +10,12 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 6
     steps:
+      - name: Isolated exact G4 candidate source checkout (not installed original)
+        uses: actions/checkout@v4
+        with:
+          ref: 7844ae6b0e75ce5c1f83de8e47c13457a34e0e0e
+          path: f139-g4-readonly-source
+          persist-credentials: false
       - name: Inspect original owner task and complete immutable SQLite readiness
         shell: pwsh
         run: |
@@ -176,3 +182,62 @@ jobs:
           Write-Host 'F139_R6_G4_REMOTE_CANDIDATE_PIN=PASS'
           Write-Host 'F139_R6_NO_OWNER_DB_TASK_OR_REF_MUTATION=TRUE'
           Write-Host 'F139_R6_G4_LIVE_CUTOVER_PERFORMED=FALSE'
+
+          # R7: execute G4's ACTUAL original ledger + GitHub publisher
+          # preflight, on authenticated original installed source/DB.
+          # Original task stays Running. Neither publisher nor writer is called.
+          $candidate=Join-Path $env:GITHUB_WORKSPACE 'f139-g4-readonly-source'
+          $sourceHead=(& git.exe -C $candidate rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or
+             $sourceHead -cne '7844ae6b0e75ce5c1f83de8e47c13457a34e0e0e'){
+            throw 'F139_R7_G4_ISOLATED_CHECKOUT_DRIFT'
+          }
+          $py=@'
+          import json,pathlib,sqlite3,subprocess,sys
+          original_root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          db_path=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          candidate=pathlib.Path(sys.argv[3]).resolve(strict=True)
+          sys.path.insert(0,str(candidate))
+          from f139.local_controller import Database,GitHub
+          from f139.nci04_candidate_publisher import publisher_preflight,RECIPE_G3
+          from f139.nci04_owner_publication import history_proof,G1_ORIGINAL_PARENT
+          from f139.nci04_owner_ledger import verify_native_activation
+          conn=sqlite3.connect(db_path.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          obj=object.__new__(Database)
+          obj.filename=db_path
+          obj.conn=conn
+          try:
+              obj.verify()
+              meta=obj.meta()
+              assert meta["source_sha"]=="8eca700c39223e176dea55f488b6f3397ce4e27a"
+              assert verify_native_activation(obj) and not obj.actives() and obj.ready() is None
+              before=meta["head_hash"]
+              consumed,identities=history_proof(obj)
+              print("F139_R7_ORIGINAL_G1_NEGATIVE_AND_22_ADMISSIONS=PASS")
+              assert len(identities)==22
+              api=GitHub()
+              plan=publisher_preflight(
+                api.native_repo_get,source_sha=meta["source_sha"],
+                parent_commit=G1_ORIGINAL_PARENT,historical_sha256=before,
+                consumed_mechanisms=consumed,
+                existing_candidate_identities=identities,recipe=RECIPE_G3)
+              assert plan["writes_authorized"] is False
+              assert plan["no_scientific_acceptance"] is True
+              assert plan["recipe"]==RECIPE_G3 and plan["lane"]=="Yggdrasil"
+              assert plan["parent_commit"]==G1_ORIGINAL_PARENT
+              assert plan["candidate_identity"] not in identities
+              assert plan["branch"].startswith("f139/auto-g2-ygg-")
+              print("F139_R7_REAL_G3_GITHUB_SOURCE_AND_PR_HISTORY=PASS")
+              print("F139_R7_NEW_CANDIDATE_DEDUP=PASS")
+              after=obj.meta()["head_hash"]
+              assert before==after
+              print("F139_R7_OWNER_SQLITE_UNCHANGED=PASS")
+              print("F139_R7_G3_DRAFT_PUBLICATION=NOT_ATTEMPTED")
+              print("F139_R7_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $py $root $db $candidate
+          if($LASTEXITCODE -ne 0){throw 'F139_R7_G3_REAL_PREFLIGHT_UNQUALIFIED'}
