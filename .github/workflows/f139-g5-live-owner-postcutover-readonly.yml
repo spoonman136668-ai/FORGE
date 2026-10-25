@@ -1,0 +1,112 @@
+name: F139 G5 original owner live postcutover audit (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g5-live-owner-postcutover-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-owner:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Verify original live G5 source, policy, ledger and publisher events without writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='72486da5ce96142424b189dd8e3dcf3c39dfc401'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'F139_G5_POST_WRONG_RUNNER'}
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'F139_G5_POST_ORIGINAL_TASK_INACTIVE'
+          }
+          function TaskArg([string]$name) {
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$name+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G5_POST_TASK_ROUTE_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $db=TaskArg 'Database'
+          $root=TaskArg 'RepositoryRoot'
+          $python=TaskArg 'PythonExe'
+          if(( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $source -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G5_POST_INSTALLED_SOURCE_DRIFT'
+          }
+          $child=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and $_.CommandLine.Contains('loop') })
+          if($child.Count -ne 1){throw 'F139_G5_POST_SINGLE_ORIGINAL_PYTHON_CHILD_INVALID'}
+          $p=Get-CimInstance Win32_Process -Filter "ProcessId=$($child[0].ParentProcessId)"
+          if(-not $p -or $p.Name -ine 'powershell.exe' -or
+             -not $p.CommandLine.Contains('Run-FORGE-F139.ps1')){
+            throw 'F139_G5_POST_ORIGINAL_JOB_SUPERVISOR_DRIFT'
+          }
+          $main=(& gh api 'repos/spoonman136668-ai/FORGE/branches/main' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or [string]$main.commit.sha -cne $source -or
+             $main.protected -ne $true){throw 'F139_G5_POST_PROTECTED_MAIN_DRIFT'}
+          $issue=(& gh api 'repos/spoonman136668-ai/FORGE/issues/807' | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_G5_POST_POLICY_UNREADABLE'}
+          $policy=[string]$issue.body | ConvertFrom-Json
+          if([string]$policy.source_sha -cne $source -or $policy.enabled -ne $true -or
+             $policy.scientific_first_use -ne $false -or $policy.new_controller -ne $false){
+            throw 'F139_G5_POST_POLICY_BINDING_DRIFT'
+          }
+          $script=@'
+          import json,pathlib,sqlite3,sys
+          root=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          dbpath=pathlib.Path(sys.argv[2]).resolve(strict=True)
+          expected=sys.argv[3]
+          sys.path.insert(0,str(root))
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import verify_native_activation
+          conn=sqlite3.connect(dbpath.as_uri()+"?mode=ro",uri=True,timeout=20)
+          conn.row_factory=sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          obj=object.__new__(Database)
+          obj.filename=dbpath
+          obj.conn=conn
+          try:
+              obj.verify()
+              meta=obj.meta()
+              assert meta["source_sha"]==expected
+              assert meta["head_seq"]>=208
+              assert verify_native_activation(obj)
+              total=conn.execute("SELECT count(*) FROM tasks").fetchone()[0]
+              quarantined=conn.execute("SELECT count(*) FROM tasks WHERE stage='QUARANTINED'").fetchone()[0]
+              assert total>=31 and quarantined>=12
+              transitions=[
+                  json.loads(x["payload"]) for x in conn.execute(
+                    "SELECT payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")]
+              assert transitions[-1]["to_source_sha"]==expected
+              assert transitions[-1]["schema"]=="forge.f139.source-transition.v5"
+              attempts=list(conn.execute(
+                "SELECT seq,payload FROM events WHERE kind='G3_DRAFT_ATTEMPTED' ORDER BY seq"))
+              successes=list(conn.execute(
+                "SELECT seq,payload FROM events WHERE kind='G3_DRAFT_AUTHENTICATED' ORDER BY seq"))
+              assert len(attempts)<=1 and len(successes)<=1
+              if successes:
+                  assert attempts and successes[0]["seq"]>attempts[0]["seq"]
+                  final=json.loads(successes[0]["payload"])
+                  assert final["scientific_first_use"] is False
+                  print("F139_G5_G3_ORIGINAL_DRAFT_AUTHENTICATED=PASS")
+                  print("F139_G5_G3_PR_NUMBER="+str(final["pr_number"]))
+              elif attempts:
+                  print("F139_G5_G3_ORIGINAL_ATTEMPT=IRREVERSIBLY_RECORDED")
+                  print("F139_G5_G3_DRAFT=UNCONFIRMED_CHECK_PROVIDER")
+              else:
+                  print("F139_G5_G3_ORIGINAL_DRAFT=NOT_YET_ATTEMPTED")
+              print("F139_G5_ORIGINAL_EVENT_HEAD="+str(meta["head_seq"]))
+              print("F139_G5_ORIGINAL_TOTAL_TASKS="+str(total))
+              print("F139_G5_ORIGINAL_QUARANTINED="+str(quarantined))
+              print("F139_G5_SOURCE_V5_AND_NATIVE_ACTIVATION=PASS")
+              print("F139_G5_ORIGINAL_LEDGER_FULL_VERIFY=PASS")
+              print("F139_G5_SCIENTIFIC_FIRST_USE=FALSE")
+          finally:
+              conn.close()
+          '@
+          & $python -B -c $script $root $db $source
+          if($LASTEXITCODE -ne 0){throw 'F139_G5_POST_LIVE_ORIGINAL_EVIDENCE_FAILED'}
+          Write-Host 'F139_G5_POST_ORIGINAL_TASK_AND_CHILD=PASS'
+          Write-Host 'F139_G5_POST_MAIN_AND_POLICY_PIN=PASS'
+          Write-Host 'F139_G5_POST_AUDIT_READ_ONLY=TRUE'
