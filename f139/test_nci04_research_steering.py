@@ -130,6 +130,22 @@ class SteeringIntakeTests(unittest.TestCase):
         with self.assertRaises(steering.SteeringDenied):
             steering.read_approved_steering(bad)
 
+    def test_advisory_provider_outage_keeps_legacy_intake(self):
+        p = self.fixture()
+        legacy = prepare_feed(p.get, source_sha=p.original.source,
+                              existing_candidate_identities=set())
+        def offline(route):
+            if "/contents/docs/" in route:
+                raise RuntimeError("F139_GITHUB_API_TIMEOUT")
+            return p.get(route)
+        guided = prepare_feed(
+            p.get, source_sha=p.original.source,
+            existing_candidate_identities=set(), steering_get=offline)
+        self.assertEqual(guided["steering"]["status"],
+                         "UNAVAILABLE_LEGACY_ORDER")
+        self.assertEqual(guided["candidates"], legacy["candidates"])
+        self.assertEqual(guided["rejected"], legacy["rejected"])
+
     def test_source_scope_mismatch_denied(self):
         p = self.fixture()
         path = steering.DOCUMENTS[1][0]
