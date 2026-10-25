@@ -2248,7 +2248,10 @@ def original_owner_v2_guard_canonical(db, db_path: Path,
     use a verified, separately opened canonical handle to the SAME original
     SQLite ledger, never a relocated copy or a class-name comparison.
     """
-    from f139.local_controller import Database as CanonicalDatabase
+    from f139.local_controller import (
+        Database as CanonicalDatabase,
+        v2_owner_terminal_release_guard as CanonicalGuard,
+    )
     source = Path(db.filename).resolve(strict=True)
     require(source == Path(db_path).resolve(strict=True),
             "G52_ORIGINAL_V2_GUARD_DB_PATH_DRIFT")
@@ -2259,7 +2262,7 @@ def original_owner_v2_guard_canonical(db, db_path: Path,
         require(all(meta[k] == original_meta[k] for k in (
                 "source_sha", "head_seq", "head_hash", "epoch")),
                 "G52_ORIGINAL_V2_GUARD_LEDGER_DRIFT")
-        return v2_owner_terminal_release_guard(source_sha, canonical)
+        return CanonicalGuard(source_sha, canonical)
     finally:
         canonical.close()
 
