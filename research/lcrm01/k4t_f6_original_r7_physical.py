@@ -25,19 +25,19 @@ OLD=k4y.METHODS
 METHODS=OLD[:2]+f2.R3_METHODS+("wingless_r4_frontier","wingless_r5_cost_frontier","wingless_r6_observed_route","wingless_r7_physical_frontier","sixfield_fit_model_route")+OLD[2:]
 
 def contract():
- c=json.loads(FROZEN.read_text())
- if (c["schema"]!="mass.lcrm01.k4t-f5.r6-empirical-source-route-dev-v1"
-     or c["prior_F4_exact_parent"]!="5dcefc87fb6ae9db7431c1b2673fb1d9e5145954"
-     or c["sources"]["r6_original_commit"]!="c6850eabab1a0deafdfc71883c1e33f24c035d31"
-     or c["sources"]["r6_blob"]!="08af1b25ed6e5a260ef27e6baf0310e974e71f4c"
-     or c["cohorts"]["FIT"]!=[71400,71423]
-     or c["cohorts"]["CHECK"]!=[72400,72403]
-     or c["cohorts"]["DEV"]!=[73400,73407]
-     or c["cohorts"]["methods"]!=list(METHODS)
-     or c["governance"]["scientific_first_use"] is not False
-     or c["governance"]["scientific_accepted"] is not False):
-  raise ValueError("F5_ORIGINAL_SOURCE_FROZEN_CONTRACT_DRIFT")
- return c
+ p=json.loads(FROZEN.read_text())
+ if(p["schema"]!="mass.lcrm01.k4t-f6.frozen-physical-cell-r7-v1"
+    or p["priorExactF5Commit"]!="a1dc7bf282fdb9354941b1a7ad05f37941791cb3"
+    or p["source"]["Wingless_R7_commit"]!="7980717a7b751844c154cdd35e795c21d9679464"
+    or p["source"]["Wingless_R7_code"]!="4dcb8d83fe40be2f31faa90dac463ccf31485945"
+    or p["cohorts"]["FIT"]!=[81400,81423]
+    or p["cohorts"]["CHECK"]!=[82400,82403]
+    or p["cohorts"]["DEV"]!=[83400,83407]
+    or p["cohorts"]["methods"]!=list(METHODS)
+    or p["governance"]["scientificFirstUse"] is not False
+    or p["governance"]["scientificAccepted"] is not False):
+  raise ValueError("F6_ORIGINAL_SOURCE_CONTRACT_DRIFT")
+ return p
 
 def evaluation(phase,method,subject):
  seeds=CHECK if phase=="CHECK" else DEV
