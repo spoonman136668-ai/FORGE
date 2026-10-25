@@ -132,3 +132,29 @@ jobs:
           '@
           & python.exe -B -c $py
           if($LASTEXITCODE -ne 0){throw 'R305_CONFIG_CLASSIFICATION_FAILED'}
+
+      - name: R305 bounded section-diff fingerprint without YAML module
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          function Sections([string]$p){
+            $out=@{};$key='OTHER'
+            foreach($line in @(Get-Content -LiteralPath $p -ErrorAction Stop)){
+              if($line -cmatch '^([a-z_]+):'){$key=[string]$Matches[1]}
+              if(-not $out.ContainsKey($key)){$out[$key]=''}
+              $out[$key]+=$line+[char]10
+            }
+            return $out
+          }
+          $old=Join-Path $env:ProgramData 'CKBR/cutover/PLANE-R18-OWNER-CUTOVER-39809195564/rollback/original-autonomy.yaml'
+          $now=Join-Path $env:USERPROFILE 'GolandProjects/ckb-plane/config/autonomy.yaml'
+          $a=Sections $old;$b=Sections $now
+          $known=@('server','state','repos','tools','policy','execution','autonomy','profile')
+          foreach($name in $known){
+            $changed=([string]$a[$name] -cne [string]$b[$name])
+            Write-Output ('R305_SECTION_'+$name.ToUpperInvariant()+'_CHANGED='+$changed)
+          }
+          $other=@($a.Keys+$b.Keys | Where-Object {$_ -notin $known} | Select-Object -Unique)
+          Write-Output ('R305_OTHER_TOP_LEVEL_SECTION_COUNT='+$other.Count)
+          Write-Output 'R305_LEXICAL_SECTION_COMPARISON_ONLY=TRUE'
+          Write-Output 'R305_CONFIG_VALUES_EXPORTED=FALSE'
