@@ -1,4 +1,4 @@
-name: F139 G5 native loop publication diagnosis (read only)
+name: F139 G5 original running owner G3 witness diagnosis (read only)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -171,3 +171,55 @@ jobs:
           '@
           & $python -B -c $script $root $db
           if($LASTEXITCODE -ne 0){throw 'F139_G5_NATIVE_LOOP_READ_DIAG_FAILED'}
+
+      - name: Diagnose exact G4 running-owner PowerShell witness on original child (read only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$t.State -cne 'Running'){throw 'G3_WITNESS_DIAG_ORIGINAL_TASK_INACTIVE'}
+          $opts=[string]$t.Actions[0].Arguments
+          function TaskArg([string]$n){
+            $m=[regex]::Match($opts,'(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'G3_WITNESS_DIAG_TASK_ARGUMENT_MISSING'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $children=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+            Where-Object { $_.CommandLine -and
+              $_.CommandLine.Contains('f139.local_controller') -and
+              $_.CommandLine.Contains($db) -and
+              $_.CommandLine.Contains('loop') })
+          if($children.Count -ne 1){throw 'G3_WITNESS_DIAG_OWNER_PID_NOT_UNIQUE'}
+          $script=@'
+          import pathlib,sys,unittest.mock as mock
+          import f139.local_controller as c
+          db=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          real_pid=int(sys.argv[2])
+          saved=c.subprocess.run
+          called=[]
+          def observe(argv,*args,**kwargs):
+              p=saved(argv,*args,**kwargs)
+              called.append(p.returncode)
+              return p
+          # DIAGNOSTIC ONLY: supply already-verified live Python PID.
+          # There is no owner lock claim, publisher call, SQLite write or API call.
+          with mock.patch.object(c.SingleOwner,"held",return_value=True), \
+               mock.patch.object(c.os,"getpid",return_value=real_pid), \
+               mock.patch.object(c.subprocess,"run",side_effect=observe):
+              try:
+                  c.native_original_running_publisher_profile(db)
+                  print("F139_G5_DIAGNOSTIC_G4_POWERSHELL_WITNESS=PASS")
+              except c.F139Error:
+                  print("F139_G5_DIAGNOSTIC_G4_POWERSHELL_WITNESS=FAIL")
+          print("F139_G5_DIAGNOSTIC_POWERSHELL_RETURN_CODE="+
+                (str(called[-1]) if called else "NOT_CALLED"))
+          print("F139_G5_DIAGNOSTIC_ONLY_NO_REAL_OWNER_CREDENTIAL_OR_MUTEX_INHERITANCE=TRUE")
+          '@
+          Push-Location $root
+          try{
+            & $python -B -c $script $db ([string]$children[0].ProcessId)
+            if($LASTEXITCODE -ne 0){throw 'G3_WITNESS_DIAG_EXECUTION_FAILED'}
+          }finally{Pop-Location}
