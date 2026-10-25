@@ -1,4 +1,4 @@
-name: F139 G6 original snapshot G3 publisher failure isolation (no writes to provider)
+name: F139 G6 isolate failed original owner GitHub read route (no provider writes)
 on:
   push:
     branches: [audit/f139-r4-single-owner-readiness-20261024]
@@ -63,7 +63,18 @@ jobs:
               assert meta["source_sha"]=="72486da5ce96142424b189dd8e3dcf3c39dfc401"
               assert db.ready() is None and not db.actives()
               print("F139_G6_SOURCE_AND_OWNER_HISTORY_SNAPSHOT=PASS")
-              result=publish_once(db,GitHub().native_repo_get,DENY_ALL_WRITE,
+              provider=GitHub()
+              def tracked_get(route):
+                  try:
+                      outcome=provider.native_repo_get(route)
+                      return outcome
+                  except Exception as problem:
+                      print("F139_G6_LAST_FAILED_READ_ROUTE="+route.split("?")[0])
+                      print("F139_G6_LAST_FAILED_READ_CLASS="+type(problem).__name__)
+                      if str(problem).startswith("F139_"):
+                          print("F139_G6_LAST_FAILED_READ_CODE="+str(problem))
+                      raise
+              result=publish_once(db,tracked_get,DENY_ALL_WRITE,
                  meta["source_sha"],owner_witness=witness)
               print("F139_G6_SNAPSHOT_DISPOSITION="+result["disposition"])
               print("F139_G6_SNAPSHOT_PROVIDER_WRITES_DENIED="+str(len(touched)))
