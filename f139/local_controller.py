@@ -742,6 +742,8 @@ class Database:
         # migration or controller fork is needed.
         from f139.nci04_g38_owner_terminal import verify_g38_custody
         verify_g38_custody(self)
+        from f139.nci04_g49_prepost_negative import verify_g49_custody
+        verify_g49_custody(self)
         active_rows = self.actives()
         require(len(active_rows) <= (2 if self.dual_native_schema() else 1)
                 and (len(active_rows)<=1 or all(
