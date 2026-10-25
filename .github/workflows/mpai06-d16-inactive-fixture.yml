@@ -1,0 +1,66 @@
+name: D16 exact two-feedback isolated Windows fixture qualification
+on:
+  push:
+    branches: [qualification/mpai06-d16-inactive-fixture-20261025]
+    paths: ['.github/workflows/mpai06-d16-inactive-fixture.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai06-d16-inactive-once-20261025
+  cancel-in-progress: false
+jobs:
+  fixture:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    steps:
+      - name: Verify exact original CKB candidate; run synthetic owner fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$v,[string]$name) {if(-not $v){throw ('D16_'+$name)}}
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai06-d16-inactive-fixture-20261025' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'RUNNER_IDENTITY'
+          Remove-Item Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY,Env:CODEX_HOME -ErrorAction SilentlyContinue
+          $url='https://github.com/spoonman136668-ai/ckb-plane.git'
+          $branch='proposal/mpai06-d16-registered-feedback-stage-20261025'
+          $target='02d65c1e8784029b8f07b4598948860236a7d41e'
+          $ancestor='ceee64384ebfd6b9e00108ae22488505a68c53d1'
+          $script='implementations/mpai06-d16-owner-feedback-stage/Stage-ExactFeedback.ps1'
+          $fixture='implementations/mpai06-d16-owner-feedback-stage/Test-ExactFeedback-Isolated.ps1'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d16-'+$env:GITHUB_RUN_ID)
+          $checkout=Join-Path $scratch 'repo'
+          $remote=@(git.exe ls-remote --exit-code $url ('refs/heads/'+$branch))
+          Need ($LASTEXITCODE -eq 0 -and $remote.Count -eq 1 -and
+            ([string]$remote[0] -split '\s+')[0] -ceq $target) 'REMOTE_BRANCH_IDENTITY'
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_PREEXISTS'
+          New-Item -Path $scratch -ItemType Directory | Out-Null
+          try {
+            git.exe clone --quiet --single-branch --branch $branch $url $checkout
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            $actual=(git.exe -C $checkout rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target) 'HEAD_DRIFT'
+            git.exe -C $checkout merge-base --is-ancestor $ancestor HEAD
+            Need ($LASTEXITCODE -eq 0) 'ANCESTRY'
+            $scriptBlob=(git.exe -C $checkout rev-parse ('HEAD:'+$script) | Out-String).Trim()
+            $fixtureBlob=(git.exe -C $checkout rev-parse ('HEAD:'+$fixture) | Out-String).Trim()
+            Need ($scriptBlob -ceq '75e04792e7dbe62b5cd90a170489d8cc504d9f10' -and
+              $fixtureBlob -ceq '9014e19468ffd685c3666b1782cb2112230a113e') 'SOURCE_BLOBS'
+            $tokens=$null; $parseErrors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $checkout $script),[ref]$tokens,[ref]$parseErrors)
+            Need (@($parseErrors).Count -eq 0) 'SCRIPT_SYNTAX'
+            $tokens=$null; $parseErrors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $checkout $fixture),[ref]$tokens,[ref]$parseErrors)
+            Need (@($parseErrors).Count -eq 0) 'FIXTURE_SYNTAX'
+            Write-Host 'D16_EXACT_SOURCE_AND_POWERSHELL_SYNTAX=PASS'
+            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $checkout $fixture)
+            Need ($LASTEXITCODE -eq 0) 'ORIGINAL_FIXTURE'
+            Write-Host 'D16_SYNTHETIC_OWNER_NEGATIVES_AND_STAGE=PASS'
+            Write-Host 'D16_REAL_OWNER_PENDING_STAGE=NOT_PERFORMED'
+            Write-Host 'D16_CODEX_MODEL_CALLS=0'
+          } finally {
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force}
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'D16_SCRATCH_CLEAN=PASS'
+          }
