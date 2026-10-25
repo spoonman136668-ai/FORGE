@@ -1,0 +1,284 @@
+name: F139 G39 one-time original owner V7 source cutover
+# Runs ONLY on authenticated owner-authored issue #807 release comment.
+# No new controller, scheduler, queue, model API, live broker, or science.
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+concurrency:
+  group: f139-g39-original-one-shot-v7
+  cancel-in-progress: false
+jobs:
+  original-owner-cutover:
+    if: ${{ github.actor == 'spoonman136668-ai' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V7-OWNER-CUTOVER ') }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate owner comment, protected immutable source and one original task
+        id: source
+        shell: pwsh
+        env:
+          F139_V7_APPROVAL_TEXT: ${{ github.event.comment.body }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='b2079282fed03df2203807de09b4f3e82bdfe05a'
+          $target=[string]$env:F139_V7_APPROVAL_TEXT
+          if($env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $target -cnotmatch '^F139-V7-OWNER-CUTOVER [a-f0-9]{40}$'){
+            throw 'F139_G39_ORIGINAL_OWNER_APPROVAL_ABSENT'
+          }
+          $target=$target.Substring('F139-V7-OWNER-CUTOVER '.Length)
+          if($target -cne $env:GITHUB_SHA -or $target -ceq $old){
+            throw 'F139_G39_EXACT_CURRENT_MAIN_TARGET_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+                  [Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'F139_G39_ESCALATED_ORIGINAL_OWNER_REQUIRED'
+          }
+          $me=(& gh api user --jq '.login' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $me -cne 'spoonman136668-ai'){
+            throw 'F139_G39_GITHUB_ORIGINAL_OWNER_NOT_AUTHENTICATED'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true -or
+             $main.commit.sha -cne $target){
+            throw 'F139_G39_PROTECTED_MAIN_MISMATCH'
+          }
+          $event=$env:GITHUB_EVENT_PATH | Get-Content -Raw | ConvertFrom-Json
+          if($event.issue.number -ne 807 -or
+             $event.comment.user.login -cne 'spoonman136668-ai' -or
+             [string]$event.comment.body -cne $env:F139_V7_APPROVAL_TEXT -or
+             [int64]$event.comment.id -le 0){
+            throw 'F139_G39_ORIGINAL_ISSUE_AUTHOR_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Ready','Running') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)'){
+            throw 'F139_G39_SINGLE_ORIGINAL_TASK_DRIFT'
+          }
+          $owner=[string]$task.Principal.UserId
+          $sid=''
+          try{$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+                    [Security.Principal.SecurityIdentifier]).Value}catch{}
+          if($owner -ine $identity.Name -and $sid -cne $identity.User.Value){
+            throw 'F139_G39_ORIGINAL_TASK_OWNER_SID_CHANGED'
+          }
+          function Field([string]$key){
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+                            '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G39_ORIGINAL_TASK_ARG_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $database=Field 'Database'
+          $python=Field 'PythonExe'
+          if((-not(Test-Path -LiteralPath $database -PathType Leaf)) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             ( & git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $old -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G39_INSTALLED_ORIGINAL_SOURCE_DRIFT'
+          }
+          if(( & git.exe rev-parse HEAD | Out-String).Trim() -cne $target){
+            throw 'F139_G39_RELEASE_WORKSPACE_SOURCE_DRIFT'
+          }
+          "target=$target" >> $env:GITHUB_OUTPUT
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "database=$database" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          Write-Host 'F139_G39_EXCLUSIVE_ORIGINAL_OWNER_AND_PROTECTED_SOURCE=VERIFIED'
+      - name: Quiesce original task and migrate exact original source once
+        shell: pwsh
+        env:
+          F139_V7_TARGET: ${{ steps.source.outputs.target }}
+          F139_V7_ROOT: ${{ steps.source.outputs.root }}
+          F139_V7_DB: ${{ steps.source.outputs.database }}
+          F139_V7_PYTHON: ${{ steps.source.outputs.python }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $old='b2079282fed03df2203807de09b4f3e82bdfe05a'
+          $name='FORGE-F139-UnifiedController'
+          $db=$env:F139_V7_DB
+          $root=$env:F139_V7_ROOT
+          $python=$env:F139_V7_PYTHON
+          $target=$env:F139_V7_TARGET
+          $approval=Join-Path $env:RUNNER_TEMP ('f139-v7-'+$env:GITHUB_RUN_ID+'.json')
+          $activated=Join-Path $env:RUNNER_TEMP ('f139-v7-activate-'+$env:GITHUB_RUN_ID+'.json')
+          $quiesced=$false
+          $transitioned=$false
+          $originalSource=@'
+          import json,pathlib,sys
+          from f139.local_controller import Database
+          from f139.nci04_v7_owner_release import OLD,SCHEMA,validate_v7_original_owner
+          from f139.nci04_native_contract import canonical,digest
+          from f139.nci04_negative_owner_store import TICKET as FIRST
+          from f139.nci04_split_negative_owner_store import TICKET as SECOND
+          db=Database(pathlib.Path(sys.argv[1]))
+          try:
+              db.verify()
+              m=db.meta()
+              assert m["source_sha"]==OLD and m["head_seq"]>=220
+              assert db.ready() is None and not db.actives()
+              rows=list(db.conn.execute(
+                "SELECT sha,payload FROM events WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq"))
+              v6=[row for row in rows if json.loads(row["payload"])["schema"]==
+                   "forge.f139.source-transition.v6"]
+              assert len(v6)==1 and rows[-1]["sha"]==v6[-1]["sha"]
+              tickets=sorted({FIRST,SECOND}|set(db.verified_native_provider_failures()))
+              a={"schema":SCHEMA,"from_source_sha":OLD,
+                 "to_source_sha":sys.argv[2],
+                 "owner_event_seq":m["head_seq"],
+                 "owner_event_sha256":m["head_hash"],
+                 "v6_terminal_event_sha256":v6[-1]["sha"],
+                 "original_quarantined_tickets_sha256":digest(canonical(tickets)),
+                 "development_only":True,
+                 "v2_production_dispatch_authorized":False,
+                 "scientific_first_use":False,"new_controller":False,
+                 "new_scheduler":False,"new_queue":False,"paid_api_calls":0}
+              validate_v7_original_owner(db,a)
+              pathlib.Path(sys.argv[3]).write_bytes(canonical(a))
+              print("F139_G39_ORIGINAL_PROTECTED_LEDGER_SEAL=PASS")
+          finally:db.close()
+          '@
+          try {
+            Set-Location -LiteralPath $env:GITHUB_WORKSPACE
+            $originalSource | & $python -B - $db $target $approval
+            if($LASTEXITCODE -ne 0){throw 'F139_G39_ORIGINAL_APPROVAL_SNAPSHOT_FAILED'}
+            Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            $quiesced=$true
+            $running=@()
+            for($i=0;$i -lt 30;$i++){
+              $running=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+                  Where-Object { $_.CommandLine -and
+                    $_.CommandLine.Contains('f139.local_controller') -and
+                    $_.CommandLine.Contains($db) })
+              if($running.Count -eq 0){break}
+              Start-Sleep -Seconds 1
+            }
+            if($running.Count -ne 0 -or
+               [string](Get-ScheduledTask -TaskName $name).State -cne 'Disabled'){
+              throw 'F139_G39_OWNER_NOT_QUIESCED'
+            }
+            # Preserve the approval snapshot from BEFORE quiescence, and
+            # compare byte-for-byte with an independently reread snapshot.
+            $recheck=Join-Path $env:RUNNER_TEMP (
+              'f139-v7-recheck-'+$env:GITHUB_RUN_ID+'.json')
+            $originalSource | & $python -B - $db $target $recheck
+            if($LASTEXITCODE -ne 0 -or
+               -not(Test-Path -LiteralPath $recheck) -or
+               (Get-FileHash -LiteralPath $approval -Algorithm SHA256).Hash -cne
+               (Get-FileHash -LiteralPath $recheck -Algorithm SHA256).Hash){
+              throw 'F139_G39_QUIESCED_LEDGER_CHANGED'
+            }
+            $backup=Join-Path (Split-Path $db -Parent) (
+              'f139-v7-original-'+$env:GITHUB_RUN_ID+'.sqlite')
+            if(Test-Path -LiteralPath $backup){throw 'F139_G39_BACKUP_COLLISION'}
+            @'
+          import pathlib,sqlite3,sys
+          a=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          b=pathlib.Path(sys.argv[2])
+          assert b.parent==a.parent and not b.exists()
+          with sqlite3.connect(a.as_uri()+"?mode=ro",uri=True) as src:
+              src.execute("PRAGMA query_only=ON")
+              with sqlite3.connect(b) as dest:src.backup(dest)
+          '@ | & $python -B - $db $backup
+            if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath $backup)){
+              throw 'F139_G39_ORIGINAL_LEDGER_BACKUP_FAILED'
+            }
+            & git.exe -C $root fetch --no-tags origin $target
+            if($LASTEXITCODE -ne 0 -or
+               (& git.exe -C $root rev-parse FETCH_HEAD | Out-String).Trim() -cne $target){
+              throw 'F139_G39_MERGED_SOURCE_FETCH_FAILED'
+            }
+            & git.exe -C $root checkout --detach $target
+            if($LASTEXITCODE -ne 0 -or
+               (& git.exe -C $root rev-parse HEAD | Out-String).Trim() -cne $target){
+              throw 'F139_G39_INSTALLED_MAIN_SOURCE_NOT_EXACT'
+            }
+            Set-Location -LiteralPath $root
+            & $python -B -m f139.local_controller --db $db transition-qualified-native-v7 --approval $approval
+            if($LASTEXITCODE -ne 0){throw 'F139_G39_ONE_SHOT_V7_TRANSITION_DENIED'}
+            $transitioned=$true
+            @'
+          import pathlib,sys
+          from f139.local_controller import Database
+          from f139.nci04_owner_ledger import APPROVAL_SCHEMA
+          from f139.nci04_native_contract import canonical
+          db=Database(pathlib.Path(sys.argv[1]))
+          try:
+              db.verify();meta=db.meta();assert meta["source_sha"]==sys.argv[2]
+              assert db.ready() is None and not db.actives()
+              a={"schema":APPROVAL_SCHEMA,"source_sha":meta["source_sha"],
+                 "expected_event_head_sha256":meta["head_hash"],
+                 "native_development_approved":True,
+                 "scientific_first_use":False,"create_controller":False,
+                 "paid_api_calls":0}
+              pathlib.Path(sys.argv[3]).write_bytes(canonical(a))
+          finally:db.close()
+          '@ | & $python -B - $db $target $activated
+            if($LASTEXITCODE -ne 0){throw 'F139_G39_NEW_SOURCE_APPROVAL_FAILED'}
+            & $python -B -m f139.local_controller --db $db activate-native --approval $activated
+            if($LASTEXITCODE -ne 0){throw 'F139_G39_ORIGINAL_NATIVE_REACTIVATION_FAILED'}
+            # Existing owner feeder is source-pinned to the OLD protected
+            # source. Change ONLY its source_sha after the original SQLite
+            # cutover, otherwise genuine new issues remain unadmittable.
+            $issue=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+            if($LASTEXITCODE -ne 0 -or -not $issue -or
+               [string]$issue.user.login -cne 'spoonman136668-ai'){
+              throw 'F139_G39_OWNER_POLICY_ORIGIN_DRIFT'
+            }
+            $policy=[string]$issue.body | ConvertFrom-Json -ErrorAction Stop
+            if($policy.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+               $policy.enabled -ne $true -or
+               $policy.source_sha -cne $old -or
+               $policy.scientific_first_use -ne $false -or
+               $policy.new_controller -ne $false -or
+               $policy.new_scheduler -ne $false -or
+               $policy.new_queue -ne $false -or
+               $policy.paid_model_calls -ne 0 -or
+               $policy.max_issue_creations_per_cycle -ne 2){
+              throw 'F139_G39_SOURCE_BOUND_OWNER_FEEDER_POLICY_DRIFT'
+            }
+            $policy.source_sha=$target
+            $newBody=$policy | ConvertTo-Json -Compress -Depth 12
+            & gh api -X PATCH repos/spoonman136668-ai/FORGE/issues/807 -f "body=$newBody" --silent
+            if($LASTEXITCODE -ne 0){throw 'F139_G39_OWNER_FEEDER_SOURCE_PROMOTION_FAILED'}
+            $confirmed=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+            $state=[string]$confirmed.body | ConvertFrom-Json
+            if($LASTEXITCODE -ne 0 -or $state.source_sha -cne $target -or
+               $state.enabled -ne $true){
+              throw 'F139_G39_OWNER_FEEDER_PROMOTION_READBACK_DRIFT'
+            }
+            Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            Write-Host 'F139_G39_ORIGINAL_SOURCE_TRANSITION_V7=PASS'
+            Write-Host 'F139_G39_NATIVE_DEVELOPMENT_REACTIVATION=PASS'
+            Write-Host 'F139_G39_NEW_CONTROLLERS=0'
+            Write-Host 'F139_G39_SCIENTIFIC_FIRST_USE=FALSE'
+          } catch {
+            if($quiesced -and -not $transitioned){
+              try {
+                & git.exe -C $root checkout --detach $old | Out-Null
+                if($LASTEXITCODE -eq 0){
+                  Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                  Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+                }
+              } catch {
+                Write-Warning 'F139_G39_ROLLBACK_UNVERIFIED_OWNER_REMAINS_BLOCKED'
+              }
+            }
+            if($transitioned){
+              Write-Warning 'F139_G39_V7_MUTATED_OWNER_HELD_FOR_MANUAL_RECOVERY'
+            }
+            throw
+          }

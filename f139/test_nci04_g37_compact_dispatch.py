@@ -46,7 +46,9 @@ class G37CompactWorkflowTests(unittest.TestCase):
             "F139_V2_ORIGINAL_OWNER_RELEASE_SOURCE": "a" * 40,
             "F139_V2_PROVIDER_TERMINAL_WRITER_APPROVED": "true"
         }, clear=True):
-            self.assertTrue(v2_owner_terminal_release_guard("a" * 40))
+            # Ambient environment is no longer authoritative. Only the
+            # actual original V7 SQLite event followed by activation can arm.
+            self.assertFalse(v2_owner_terminal_release_guard("a" * 40))
             self.assertFalse(v2_owner_terminal_release_guard("invalid"))
 
     def test_no_extra_controller_or_secret_reference_in_dispatch_contract(self):
