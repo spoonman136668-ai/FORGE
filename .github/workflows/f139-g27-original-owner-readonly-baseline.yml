@@ -1,0 +1,83 @@
+name: F139 G27 original Windows owner post-V6 release read-only baseline
+on:
+  push:
+    branches:
+      - qualify/f139-g27-original-owner-postrelease-readonly-20261025
+    paths:
+      - .github/workflows/f139-g27-original-owner-readonly-baseline.yml
+permissions:
+  contents: read
+jobs:
+  postrelease-readonly:
+    if: github.ref == 'refs/heads/qualify/f139-g27-original-owner-postrelease-readonly-20261025' && github.run_attempt == 1
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Observe existing running task and source-pinned native SQLite event head only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $repo='spoonman136668-ai/FORGE'
+          $expected='b2079282fed03df2203807de09b4f3e82bdfe05a'
+          $name='FORGE-F139-UnifiedController'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){
+            throw 'F139_G27_ORIGINAL_RUNNER_MISMATCH'
+          }
+          $gh=(& gh api user --jq '.login' | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $gh -cne 'spoonman136668-ai'){
+            throw 'F139_G27_GITHUB_OWNER_UNQUALIFIED'
+          }
+          $current=(& gh api "repos/$repo/branches/main" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $current.protected -ne $true -or
+             $current.commit.sha -cne $expected){
+            throw 'F139_G27_PROTECTED_MAIN_DRIFT'
+          }
+          $policy=(& gh api "repos/$repo/issues/807" | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0){throw 'F139_G27_POLICY_UNAVAILABLE'}
+          $ownerPolicy=[string]$policy.body | ConvertFrom-Json
+          if($ownerPolicy.enabled -ne $true -or
+             $ownerPolicy.source_sha -cne $expected -or
+             $ownerPolicy.scientific_first_use -ne $false){
+            throw 'F139_G27_OWNER_POLICY_NOT_ON_NEW_SOURCE'
+          }
+          $t=Get-ScheduledTask -TaskName $name -ErrorAction Stop
+          if([string]$t.State -cne 'Running' -or
+             @($t.Actions).Count -ne 1 -or @($t.Triggers).Count -ne 3){
+            throw 'F139_G27_ORIGINAL_TASK_NOT_RUNNING'
+          }
+          function TaskArg([string]$n) {
+            $m=[regex]::Match([string]$t.Actions[0].Arguments,
+              '(?i)(?:^|\s)-'+$n+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G27_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=TaskArg 'RepositoryRoot'
+          $db=TaskArg 'Database'
+          $python=TaskArg 'PythonExe'
+          $head=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+          if($LASTEXITCODE -ne 0 -or $head -cne $expected -or
+             @(& git.exe -C $root status --porcelain --untracked-files=all).Count -ne 0){
+            throw 'F139_G27_INSTALLED_SOURCE_NOT_CURRENT_OR_CLEAN'
+          }
+          $sql=@'
+          import pathlib,sqlite3,json,sys
+          p=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          c=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=20)
+          c.execute("PRAGMA query_only=ON")
+          try:
+              row=c.execute("SELECT source_sha,head_seq,head_hash FROM meta WHERE id=1").fetchone()
+              assert row is not None and row[0]==sys.argv[2] and row[1]>=220
+              kinds=[r[0] for r in c.execute("SELECT kind FROM events ORDER BY rowid DESC LIMIT 14")]
+              stages=[list(r) for r in c.execute("SELECT stage,COUNT(*) FROM tasks GROUP BY stage ORDER BY stage")]
+              print(json.dumps({"source_sha":row[0],"head_seq":row[1],
+                  "head_hash":row[2],"latest_event_kinds":kinds,
+                  "task_stage_counts":stages},sort_keys=True))
+          finally:c.close()
+          '@
+          $state=(& $python -B -c $sql $db $expected | Out-String).Trim()
+          if($LASTEXITCODE -ne 0){throw 'F139_G27_READONLY_SOURCE_LEDGER_DRIFT'}
+          Write-Host ('F139_G27_NATIVE_OWNER_LEDGER='+$state)
+          Write-Host 'F139_G27_ORIGINAL_TASK_RUNNING=PASS'
+          Write-Host 'F139_G27_PROTECTED_V6_NATIVE_OWNER_SOURCE_MATCH=PASS'
+          Write-Host 'F139_G27_SCIENCE_FIRST_USE_DENIED=PASS'
+          Write-Host 'F139_G27_READONLY_NO_MUTATIONS=PASS'
