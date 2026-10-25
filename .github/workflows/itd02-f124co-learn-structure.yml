@@ -52,8 +52,42 @@ jobs:
           Write-Output "F124CO_DISCOVERED_WIRING_SOURCE_PUBLIC_FIT=QUALIFIED_ENGINEERING"
           Write-Output "F124CO_ORIGINAL_PROTECTED_ACTIONS=ZERO"
           Write-Output "F124CO_FSA_ORIGINAL_FIRSTUSE=DENIED"
-  one-final-go-regression:
+      - name: Export canonical nonsecret source-public report for independent OS comparison
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: f124co-${{ matrix.os }}
+          path: ${{ runner.temp }}/f124co-A.json
+          retention-days: 7
+          if-no-files-found: error
+  compare-public-results:
     needs: [source-public-fit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Import independent Linux/Windows canonical source-public reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: f124co-*
+          path: reports
+          merge-multiple: false
+      - name: Require exact cross-platform scientific evidence byte identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          $left="reports/f124co-ubuntu-24.04/f124co-A.json"
+          $right="reports/f124co-windows-2022/f124co-A.json"
+          if(-not (Test-Path $left) -or -not (Test-Path $right)){ throw "F124CO_MISSING_ORIGINAL_REPORT" }
+          $l=(Get-FileHash $left -Algorithm SHA256).Hash
+          $r=(Get-FileHash $right -Algorithm SHA256).Hash
+          if($l -cne $r){ throw "F124CO_CROSS_OS_SCIENCE_REPORT_DRIFT Linux=$l Windows=$r" }
+          $report=(Get-Content $left -Raw | ConvertFrom-Json)
+          if($report.matched_strong_same_class_conventional_ties -ne 12){ throw "F124CO_CONVENTIONAL_LEARNING_MISMATCH" }
+          Write-Output "F124CO_LINUX_WINDOWS_CANONICAL_PUBLIC_SCIENCE=IDENTICAL_SHA256_$l"
+          Write-Output "F124CO_E2_95PCT_CASES=$($report.E2_cases_95_percent)"
+          Write-Output "F124CO_E2_BEAT_FULL_TWO_PARENT_CASES=$($report.E2_cases_beating_two_parent)"
+          Write-Output "F124CO_FSA_FIRSTUSE=DENIED"
+  one-final-go-regression:
+    needs: [compare-public-results]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
