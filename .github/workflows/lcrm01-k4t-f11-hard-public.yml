@@ -1,0 +1,36 @@
+name: Mass K4T-F11 original public hard-state witnessed-memory qualification
+on:
+  push:
+    branches: [research/itd02-k4t-f11-public-route-memory-20261025]
+permissions:
+  contents: read
+jobs:
+  original-hard-world-memory:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PYTHONHASHSEED: '0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 40
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate immutable original MiniGrid and compare real memory on fresh public hard states
+        run: bash research/lcrm01/k4t_f11_ci.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k4t-f11-public-hard-source-three-arm-repeated
+          path: |
+            ${{ runner.temp }}/k4tf11/process-a.json
+            ${{ runner.temp }}/k4tf11/process-b.json
+            ${{ runner.temp }}/k4tf11/comparison.json
+            ${{ runner.temp }}/k4tf11/process-a.log
+            ${{ runner.temp }}/k4tf11/process-b.log
+          if-no-files-found: warn
+          retention-days: 90
