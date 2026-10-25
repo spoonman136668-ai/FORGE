@@ -72,10 +72,11 @@ def verify_synthetic_catalog(data, digest, *, dev_owner_key, run_id, world_id):
     }
 
 
-def check_synthetic_destination(verified, *, actor, destination):
-    """Pure source-format/catalog-membership check, not dispatch or budget reservation."""
-    deny(type(verified) is dict and verified.get("status") == ROLE
-         and verified.get("source_owner_authenticated") is False, "DEV_ONLY")
+def check_synthetic_destination(data, digest, *, dev_owner_key, run_id,
+                                world_id, actor, destination):
+    """Recheck the original signed fixture; never trust caller-built report objects."""
+    verified = verify_synthetic_catalog(
+        data, digest, dev_owner_key=dev_owner_key, run_id=run_id, world_id=world_id)
     deny(valid_id(actor, ACTOR) and actor == verified["actor"], "ACTOR_CUSTODY")
     deny(valid_id(destination, PLACE), "DESTINATION_ID")
     deny(destination in verified["destinations"], "DESTINATION_NOT_PUBLIC")

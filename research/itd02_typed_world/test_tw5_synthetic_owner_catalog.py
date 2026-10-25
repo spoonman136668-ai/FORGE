@@ -24,6 +24,16 @@ def verify(d=None, *, key=KEY, run="run:development-1", world="world:development
     return verify_synthetic_catalog(d, seal(d) if signature is None else signature,
                                     dev_owner_key=key, run_id=run, world_id=world)
 
+def allowed(d=None, *, actor="npc:0", destination="location:1",
+            key=KEY, run="run:development-1", world="world:development-1",
+            signature=None):
+    d = fixture() if d is None else d
+    return check_synthetic_destination(
+        d, seal(d) if signature is None else signature,
+        dev_owner_key=key, run_id=run, world_id=world,
+        actor=actor, destination=destination)
+
+
 class SyntheticTW5(unittest.TestCase):
     def reject(self, text, fn):
         with self.assertRaisesRegex(ValueError, text):
@@ -37,7 +47,7 @@ class SyntheticTW5(unittest.TestCase):
         self.assertEqual(z["destinations"], ("location:0","location:1"))
 
     def test_02_membership_has_no_original_dispatch(self):
-        z=check_synthetic_destination(verify(), actor="npc:0", destination="location:1")
+        z=allowed(actor="npc:0", destination="location:1")
         self.assertFalse(z["source_executed"])
         self.assertFalse(z["budget_reserved"])
 
@@ -86,12 +96,10 @@ class SyntheticTW5(unittest.TestCase):
         self.reject("ACTOR_ID",lambda:verify(d))
 
     def test_15_unknown_destination_rejected(self):
-        self.reject("DESTINATION_NOT_PUBLIC",lambda:check_synthetic_destination(
-            verify(),actor="npc:0",destination="location:3"))
+        self.reject("DESTINATION_NOT_PUBLIC",lambda:allowed(actor="npc:0",destination="location:3"))
 
     def test_16_other_actor_rejected(self):
-        self.reject("ACTOR_CUSTODY",lambda:check_synthetic_destination(
-            verify(),actor="npc:1",destination="location:0"))
+        self.reject("ACTOR_CUSTODY",lambda:allowed(actor="npc:1",destination="location:0"))
 
     def test_17_boolean_budget_rejected(self):
         d=fixture();d["max_actions"]=True
@@ -111,14 +119,33 @@ class SyntheticTW5(unittest.TestCase):
 
     def test_21_no_action_consumption_on_repeated_validation(self):
         a=verify()
-        x=check_synthetic_destination(a,actor="npc:0",destination="location:0")
-        y=check_synthetic_destination(a,actor="npc:0",destination="location:0")
+        x=allowed(actor="npc:0",destination="location:0")
+        y=allowed(actor="npc:0",destination="location:0")
         self.assertEqual(x,y)
         self.assertFalse(x["budget_reserved"])
 
     def test_22_world_binding_cannot_be_retagged_with_same_signature(self):
         d=fixture();proof=seal(d);d["world_id"]="world:development-2"
         self.reject("SEAL_MISMATCH",lambda:verify(d,world="world:development-2",signature=proof))
+
+    def test_23_reject_fabricated_verified_catalog_without_signed_input(self):
+        invented={"status":ROLE,"source_owner_authenticated":False,
+                  "actor":"npc:0","destinations":("location:777",)}
+        self.reject("EXACT_FIELDS",lambda:check_synthetic_destination(
+            invented,"0"*64,dev_owner_key=KEY,run_id="run:development-1",
+            world_id="world:development-1",actor="npc:0",destination="location:777"))
+
+    def test_24_membership_rejects_mutated_catalog_with_old_signature(self):
+        d=fixture();before=seal(d);d["destinations"].append("location:2")
+        self.reject("SEAL_MISMATCH",lambda:allowed(d,signature=before,
+                    destination="location:2"))
+
+    def test_25_membership_rejects_cross_world_run_replay(self):
+        self.reject("SCOPE_MISMATCH",lambda:allowed(world="world:development-2"))
+
+    def test_26_membership_rejects_wrong_seal_key(self):
+        self.reject("SEAL_MISMATCH",lambda:allowed(key=b"Y"*40))
+
 
 if __name__ == "__main__":
     unittest.main()
