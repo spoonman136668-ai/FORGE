@@ -2192,10 +2192,21 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                             "waiting","pending"):
                         continue
                     from f139.nci04_g38_owner_terminal import settle_original_v2
-                    settle_original_v2(
-                        db, api, db_path, ticket=active["ticket"],
-                        run_id=run["id"], started_at=active["started_at"],
-                        owner_key=hmac_key)
+                    try:
+                        settle_original_v2(
+                            db, api, db_path, ticket=active["ticket"],
+                            run_id=run["id"], started_at=active["started_at"],
+                            owner_key=hmac_key)
+                    except (F139Error, ValueError):
+                        # Fail closed for THIS original V2 ticket. Provider
+                        # timeout, missing artifact or invalid signed receipt
+                        # must not abort a tick before the other active native
+                        # worker can reach its terminal. This attempt stays
+                        # WAIT_PROVIDER: never requeue, synthesize a receipt,
+                        # or infer success from incomplete provider evidence.
+                        legacy_pending[active["ticket"]] = (
+                            "V2_PROVIDER_EVIDENCE_UNVERIFIED_NO_REPLAY")
+                        continue
                     continue
             result=api.run_proof(run,active["ticket"],active["source_sha"],active["started_at"])
             if result is None:
