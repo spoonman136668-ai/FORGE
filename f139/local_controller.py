@@ -2238,6 +2238,64 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
 
 
 
+
+def original_owner_v2_guard_canonical(db, db_path: Path,
+                                      source_sha: str) -> bool:
+    """Run the strict V2 release guard on original canonical DB under -m.
+
+    A Python -m entrypoint constructs __main__.Database. The G38 guard
+    deliberately rejects that different type. Preserve its exact type check:
+    use a verified, separately opened canonical handle to the SAME original
+    SQLite ledger, never a relocated copy or a class-name comparison.
+    """
+    from f139.local_controller import Database as CanonicalDatabase
+    source = Path(db.filename).resolve(strict=True)
+    require(source == Path(db_path).resolve(strict=True),
+            "G52_ORIGINAL_V2_GUARD_DB_PATH_DRIFT")
+    original_meta = db.meta()
+    canonical = CanonicalDatabase(source)
+    try:
+        meta = canonical.meta()
+        require(all(meta[k] == original_meta[k] for k in (
+                "source_sha", "head_seq", "head_hash", "epoch")),
+                "G52_ORIGINAL_V2_GUARD_LEDGER_DRIFT")
+        return v2_owner_terminal_release_guard(source_sha, canonical)
+    finally:
+        canonical.close()
+
+
+def settle_original_v2_canonical(db, api, db_path: Path, *,
+                                 ticket: str, run_id: int,
+                                 started_at: str, owner_key: str):
+    """Keep the original mutex; settle with strict canonical DB/API types.
+
+    G38 authenticates BOTH GitHub provider platforms and appends one real
+    terminal receipt. __main__.Database/Hub are not those canonical types.
+    Under the existing process mutex, use freshly verified handles pointed
+    to the same original SQLite and the same gh provider. Never replay.
+    """
+    from f139.local_controller import (
+        Database as CanonicalDatabase, GitHub as CanonicalGitHub,
+    )
+    from f139.nci04_g38_owner_terminal import settle_original_v2
+    path = Path(db_path).resolve(strict=True)
+    require(Path(db.filename).resolve(strict=True) == path
+            and SingleOwner.held(path.with_suffix(".lock")),
+            "G52_ORIGINAL_TERMINAL_LOCK_OR_PATH_DRIFT")
+    original = db.meta()
+    canonical_db = CanonicalDatabase(path)
+    try:
+        current = canonical_db.meta()
+        require(all(current[k] == original[k] for k in (
+            "source_sha", "head_seq", "head_hash", "epoch")),
+            "G52_ORIGINAL_TERMINAL_LEDGER_DRIFT")
+        return settle_original_v2(
+            canonical_db, CanonicalGitHub(), path,
+            ticket=ticket, run_id=run_id, started_at=started_at,
+            owner_key=owner_key)
+    finally:
+        canonical_db.close()
+
 def original_owner_v2_fields_canonical(db, db_path: Path, ticket: str,
                                        *, owner_hmac_key: str):
     """Resolve -m/__main__ class identity without relaxing the G36 type guard.
@@ -2316,7 +2374,7 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                         continue
                     from f139.nci04_g38_owner_terminal import settle_original_v2
                     try:
-                        settle_original_v2(
+                        settle_original_v2_canonical(
                             db, api, db_path, ticket=active["ticket"],
                             run_id=run["id"], started_at=active["started_at"],
                             owner_key=hmac_key)
@@ -2501,7 +2559,8 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
                      proposed.candidate.target_commit==V2_SHA and
                      proposed.candidate.target_tree_sha==V2_TREE and
                      proposed.candidate.path=="yggdrasil/public_causal_cells.py")
-        if v2_original and not v2_owner_terminal_release_guard(meta["source_sha"],db):
+        if v2_original and not original_owner_v2_guard_canonical(
+                db, db_path, meta["source_sha"]):
             return {"disposition":"V2_TERMINAL_CUSTODY_NOT_AUTHORIZED",
                     "ticket":task["ticket"],"claimed":False,
                     "live_v2_dispatched":False,"science_authorized":False}
