@@ -54,6 +54,28 @@ def native_from_public(module,st):
        v["X"],v["Y"],v["GoalX"],v["GoalY"],v["Direction"],v["FrontBlocked"])
 
 
+# The native Go r1.PublicGrid JSON tags use snake_case. Preserve the
+# historical uppercase public_grid observations for Yggdrasil, FIT records
+# and conventional controls; convert only when crossing the Wingless IPC.
+_WINGLESS_PUBLIC_FIELDS = ("X", "Y", "GoalX", "GoalY", "Direction", "FrontBlocked")
+_WINGLESS_GO_FIELDS = ("x", "y", "goal_x", "goal_y", "direction", "front_blocked")
+
+
+def wingless_wire_grid(grid):
+    """Fail closed rather than silently default missing Go observation fields."""
+    if type(grid) is not dict or set(grid) != set(_WINGLESS_PUBLIC_FIELDS):
+        raise ValueError("WINGLESS_PUBLIC_OBSERVATION_SCHEMA_DRIFT")
+    if any(type(grid[name]) is not int for name in _WINGLESS_PUBLIC_FIELDS[:-1]):
+        raise ValueError("WINGLESS_PUBLIC_OBSERVATION_INTEGER_TYPE_DRIFT")
+    if type(grid["FrontBlocked"]) is not bool:
+        raise ValueError("WINGLESS_PUBLIC_OBSERVATION_BLOCKED_TYPE_DRIFT")
+    if (any(not 0 <= grid[name] <= 64 for name in _WINGLESS_PUBLIC_FIELDS[:4])
+            or not 0 <= grid["Direction"] <= 3):
+        raise ValueError("WINGLESS_PUBLIC_OBSERVATION_VALUE_OUT_OF_RANGE")
+    return dict(zip(_WINGLESS_GO_FIELDS,
+                    (grid[name] for name in _WINGLESS_PUBLIC_FIELDS)))
+
+
 class WingBridge:
     def __init__(self,executable):
         self.proc=subprocess.Popen([str(executable)],stdin=subprocess.PIPE,
@@ -74,13 +96,14 @@ class WingBridge:
         return item
 
     def choose(self,before):
-        a=self.request("choose",before=before)["action"]
+        a=self.request("choose",before=wingless_wire_grid(before))["action"]
         if type(a) is not int or a not in (0,1,2):
             raise ValueError("WINGLESS_UNLAWFUL_ACTION")
         return a
 
     def learn(self,before,arm,after,reward,done):
-        self.request("learn",before=before,action=arm,after=after,
+        self.request("learn",before=wingless_wire_grid(before),action=arm,
+                     after=wingless_wire_grid(after),
                      reward=float(reward),terminal=bool(done))
 
     def snapshot(self):
