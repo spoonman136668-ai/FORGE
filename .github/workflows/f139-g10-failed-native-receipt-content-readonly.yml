@@ -1,0 +1,103 @@
+name: F139 G10 failed original native receipt exact result classification (read only)
+on:
+  push:
+    branches: [audit/f139-r4-single-owner-readiness-20261024]
+    paths: [.github/workflows/f139-g10-failed-native-receipt-content-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  original-receipt:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Verify 2 authentic immutable GitHub artifact ZIPs and classify fixed native failures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $t=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             [string]$t.State -cne 'Running' -or @($t.Actions).Count -ne 1){
+            throw 'F139_G10_ORIGINAL_RUNNER_OR_OWNER_INVALID'
+          }
+          $m=[regex]::Match([string]$t.Actions[0].Arguments,
+            '(?i)(?:^|\s)-PythonExe\s+"([^"]+)"')
+          if(-not $m.Success){throw 'F139_G10_PYTHON_NOT_ORIGINAL'}
+          $py=$m.Groups[1].Value
+          $code=@'
+          import hashlib,io,json,re,subprocess,sys,zipfile
+          runid=40153474857
+          repo="spoonman136668-ai/FORGE"
+          source="6e14fbe374aa0170a5f5f952afc4b4045ac2afca"
+          ticket="f139-nci04-i907-6e14fbe374aa-8c9753f0"
+          def api(route,*,binary=False):
+              proc=subprocess.run(["gh","api",route],stdin=subprocess.DEVNULL,
+                  stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False,timeout=60)
+              if proc.returncode:
+                  raise RuntimeError("F139_G10_ARTIFACT_API_DENIED")
+              return proc.stdout if binary else json.loads(proc.stdout)
+          docs=api(f"repos/{repo}/actions/runs/{runid}/artifacts?per_page=100")
+          arts=docs["artifacts"]
+          assert docs["total_count"]==2 and len(arts)==2
+          for oslabel in ("ubuntu-latest","windows-latest"):
+              found=[a for a in arts if a["name"]=="forge-f139-native-receipt-"+oslabel]
+              assert len(found)==1
+              art=found[0]
+              assert art["expired"] is False
+              assert art["workflow_run"]["id"]==runid
+              assert art["workflow_run"]["head_sha"]==source
+              digest=art["digest"]
+              assert re.fullmatch(r"sha256:[a-f0-9]{64}",digest)
+              raw=api(f"repos/{repo}/actions/artifacts/{art['id']}/zip",binary=True)
+              assert 0<len(raw)<=2_000_000 and len(raw)==art["size_in_bytes"]
+              assert "sha256:"+hashlib.sha256(raw).hexdigest()==digest
+              with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                  names=z.namelist()
+                  assert set(names)=={
+                      "f139-receipt.json","f139-receipt.sha256","f139-native-report.json"}
+                  receipt_raw=z.read("f139-receipt.json")
+                  sha=z.read("f139-receipt.sha256")
+                  report_raw=z.read("f139-native-report.json")
+              assert sha==(hashlib.sha256(receipt_raw).hexdigest()+
+                          "  f139-receipt.json\n").encode()
+              receipt=json.loads(receipt_raw)
+              report=json.loads(report_raw)
+              assert receipt["ticket"]==ticket and receipt["source_sha"]==source
+              assert receipt["run_id"]==runid and receipt["os"]==oslabel
+              assert receipt["native_qualified"] is False
+              assert receipt["native_report_sha256"]==hashlib.sha256(
+                  json.dumps(report,sort_keys=True,separators=(",",":")).encode()).hexdigest()
+              assert receipt["scientific_first_use_authorized"] is False
+              assert receipt["accepted_ref_mutations"]==0
+              assert receipt["paid_model_calls"]==0
+              commands=report["commands"]
+              assert commands and report["qualification_complete"] is False
+              print("F139_G10_"+oslabel+"_ZIP_SHA_AND_REPORT=PASS")
+              print("F139_G10_"+oslabel+"_COMMANDS_EXECUTED="+str(len(commands)))
+              for index,item in enumerate(commands):
+                  assert item["outcome"] in ("PASS","TEST_FAILURE","TIMEOUT")
+                  argv=item["command"]
+                  assert isinstance(argv,list) and all(isinstance(x,str) for x in argv)
+                  print("F139_G10_"+oslabel+"_COMMAND_"+str(index)+"_OUTCOME="+item["outcome"])
+                  print("F139_G10_"+oslabel+"_COMMAND_"+str(index)+"_RETURN="+str(item["returncode"]))
+                  print("F139_G10_"+oslabel+"_COMMAND_"+str(index)+"_ELAPSED_MS="+str(item["elapsed_ms"]))
+                  excerpt=item.get("excerpt","")
+                  labels=[]
+                  for name,pattern in [
+                      ("ASSERTION",r"(?i)assertionerror|assertion failed"),
+                      ("PYTHON_TRACEBACK",r"Traceback \(most recent call last\)"),
+                      ("IMPORT_ERROR",r"(?i)ModuleNotFoundError|ImportError"),
+                      ("SYNTAX_ERROR",r"(?i)SyntaxError:"),
+                      ("UNITTEST_FAILURE",r"(?i)FAILED \(|FAIL:|ERROR:"),
+                      ("TESTS_RAN",r"Ran \d+ tests?"),
+                      ("ZERO_TEST_GUARD",r"F139_NATIVE_ZERO_OR_UNPROVEN_UNITTEST_COUNT"),
+                      ("OUTPUT_LIMIT",r"F139_NATIVE_OUTPUT_LIMIT"),
+                      ("ORPHANED_PIPE",r"F139_NATIVE_ORPHANED_STDOUT_PIPE"),
+                      ("TIMEOUT",r"(?i)timed out|timeout")]:
+                      if re.search(pattern,excerpt):labels.append(name)
+                  print("F139_G10_"+oslabel+"_COMMAND_"+str(index)+"_FAILURE_CLASSES="+
+                        (",".join(labels) if labels else "OTHER"))
+          print("F139_G10_BOTH_ORIGINAL_PROVIDER_NEGATIVE_RECEIPTS_AUTHENTICATED=PASS")
+          print("F139_G10_PROTECTED_SOURCE_ORIGINAL_LEDGER_AND_REFS_UNCHANGED=TRUE")
+          '@
+          & $py -B -c $code
+          if($LASTEXITCODE -ne 0){throw 'F139_G10_EXACT_NEGATIVE_REPORT_FAILED'}
