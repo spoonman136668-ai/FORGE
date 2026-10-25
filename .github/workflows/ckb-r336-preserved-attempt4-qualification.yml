@@ -1,0 +1,200 @@
+name: R336 CKB original preserved attempt4 independent candidate qualification
+on:
+  push:
+    branches: [qualify/ckb-r336-preserved-candidate-20261025]
+    paths: [.github/workflows/ckb-r336-preserved-attempt4-qualification.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r336-ckb-native-preserved-original-candidate-once
+  cancel-in-progress: false
+jobs:
+  isolated-source:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Qualify exact candidate in separate shallow repository, do not touch native queue
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; Set-StrictMode -Version 3.0
+          $u=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'qualify/ckb-r336-preserved-candidate-20261025' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or $env:GITHUB_EVENT_NAME -cne 'push' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $u.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($u).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+             throw 'R336_AUTHENTIC_ELEVATED_EXISTING_WINDOWS_OWNER_REQUIRED'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $source='C:\Users\camar\GolandProjects\ktrade-rb1-plane'
+          $config=Join-Path $root 'config\autonomy.yaml'
+          $database=Join-Path $root 'state\autonomy.db'
+          $id='KTRADE_RB1_SINGLE_TRACK_20261022'
+          $baseline='bde51540fe5da8e2fbf7b6e6ce5043ad373e1a96'
+          $expectedBranch='codex/ktrade-rb1-single-track-20261022'
+          $allowed=@('internal/paperreconcile/reconcile.go','internal/paperreconcile/reconcile_test.go')
+          function Sha([string]$path){(Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()}
+          function G([string]$cwd,[string[]]$argv){
+             $saved=$ErrorActionPreference
+             try{$ErrorActionPreference='Continue';$output=@(& git.exe -C $cwd @argv 2>&1);$code=$LASTEXITCODE}
+             finally{$ErrorActionPreference=$saved}
+             return @{rc=$code;out=($output -join [Environment]::NewLine).Trim()}
+          }
+          $proc=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($proc.Count -ne 1 -or
+             (Sha ([string]$proc[0].ExecutablePath)) -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678' -or
+             (Sha $config) -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+             throw 'R336_NATIVE_ORIGINAL_PROCESS_PREIMAGE_DRIFT'
+          }
+          $pidBefore=[int]$proc[0].ProcessId
+          $read=@'
+          import json,sqlite3,sys
+          from pathlib import Path
+          db=sqlite3.connect(Path(sys.argv[1]).resolve(strict=True).as_uri()+'?mode=ro',uri=True,timeout=8)
+          try:
+             db.execute('PRAGMA query_only=ON')
+             owner=dict(db.execute("SELECT key,value FROM settings WHERE key IN ('autonomy_authority','autonomy_generation')"))
+             if owner.get('autonomy_authority')!='plane' or owner.get('autonomy_generation')!='6':raise RuntimeError('R336_GENERATION_CHANGED')
+             row=db.execute('SELECT state,attempt,workspace FROM work_orders WHERE id=?',(sys.argv[2],)).fetchone()
+             if row is None or row[0]!='BLOCKED' or int(row[1])!=4:raise RuntimeError('R336_ORIGINAL_ATTEMPT4_NOT_BLOCKED')
+             if db.execute('SELECT count(*) FROM worker_leases WHERE work_order_id=?',(sys.argv[2],)).fetchone()[0]!=0:raise RuntimeError('R336_WORKER_LEASE_ACTIVE')
+             print(json.dumps({'state':row[0],'attempt':row[1],'workspace':row[2]}))
+          finally:db.close()
+          '@
+          function Native(){
+             $raw=@(& python.exe -B -c $read $database $id)
+             if($LASTEXITCODE -ne 0 -or $raw.Count -ne 1){throw 'R336_NATIVE_READONLY_STATE_UNAVAILABLE'}
+             return $raw[0]|ConvertFrom-Json
+          }
+          $job=Native
+          $work=[IO.Path]::GetFullPath([string]$job.workspace)
+          $prefix=[IO.Path]::GetFullPath((Join-Path $root 'workspaces\s'))+[IO.Path]::DirectorySeparatorChar
+          if(!$work.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase) -or
+             (Split-Path -Leaf $work) -cne 'worktree' -or !(Test-Path -LiteralPath $work -PathType Container)){
+             throw 'R336_PRIVATE_WORKTREE_PATH_UNEXPECTED'
+          }
+          $private=Join-Path (Split-Path -Parent $work) 'repository'
+          $boundary=Join-Path $private '.git\shallow'
+          if(!(Test-Path -LiteralPath $boundary -PathType Leaf) -or
+             ([IO.File]::ReadAllText($boundary)).Trim() -cne $baseline){
+             throw 'R336_R334_REPAIRED_PRIVATE_SHALLOW_GRAPH_MISSING'
+          }
+          $head=G $work @('rev-parse','HEAD')
+          $branch=G $work @('symbolic-ref','--short','HEAD')
+          $ancestry=G $work @('merge-base','--is-ancestor',$baseline,'HEAD')
+          $sourceHead=G $source @('rev-parse','HEAD')
+          $sourceShallow=G $source @('rev-parse','--is-shallow-repository')
+          $sourceStatus=G $source @('status','--porcelain')
+          $beforeStatus=G $work @('status','--porcelain')
+          $beforeRefs=G $private @('for-each-ref','--format=%(refname) %(objectname)')
+          $changed=G $work @('diff','--name-only','HEAD','--')
+          $untracked=G $work @('ls-files','--others','--exclude-standard')
+          if($head.rc -ne 0 -or $head.out -cne $baseline -or
+             $branch.rc -ne 0 -or $branch.out -cne $expectedBranch -or $ancestry.rc -ne 0 -or
+             $sourceHead.rc -ne 0 -or $sourceHead.out -cne $baseline -or
+             $sourceShallow.rc -ne 0 -or $sourceShallow.out -cne 'true' -or
+             $sourceStatus.rc -ne 0 -or $sourceStatus.out -ne '' -or
+             $beforeStatus.rc -ne 0 -or $beforeRefs.rc -ne 0 -or
+             $changed.rc -ne 0 -or $untracked.rc -ne 0 -or $untracked.out -ne ''){
+             throw 'R336_PRESERVED_CANDIDATE_SOURCE_GIT_PREIMAGE_DRIFT'
+          }
+          $paths=@($changed.out -split '\r?\n' | Where-Object {$_ -ne ''})
+          Write-Output ('R336_CHANGED_SOURCE_PATH_COUNT='+$paths.Count)
+          if($paths.Count -ne 2 -or @($paths | Where-Object {$_ -notin $allowed}).Count -ne 0){
+             throw 'R336_ATTEMPT4_DIFF_NOT_THE_EXISTING_QUALIFIED_TWO_FILE_SCOPE'
+          }
+          $hashes=@{}
+          foreach($rel in $allowed){
+             $file=Join-Path $work ($rel.Replace('/','\'))
+             $item=Get-Item -LiteralPath $file -Force -ErrorAction Stop
+             if($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                throw 'R336_PRIVATE_CANDIDATE_PATH_NOT_REGULAR'
+             }
+             $hashes[$rel]=Sha $file
+          }
+          $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([char]92)
+          $systemTemp=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'Temp')).TrimEnd([char]92)
+          if(!(Test-Path -LiteralPath $temp -PathType Container) -or
+             $temp.StartsWith($systemTemp,[StringComparison]::OrdinalIgnoreCase)){
+             throw 'R336_PRIVATE_NON_SYSTEM_TEMP_REQUIRED'
+          }
+          $scratch=Join-Path $temp ('r336-recovered-candidate-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'R336_SCRATCH_ALREADY_EXISTS'}
+          $null=New-Item -ItemType Directory -Path $scratch -ErrorAction Stop
+          try{
+             $copy=Join-Path $scratch 'isolated-source'
+             $null=New-Item -ItemType Directory -Path $copy -ErrorAction Stop
+             & git.exe -C $copy init --quiet
+             if($LASTEXITCODE -ne 0){throw 'R336_NEW_GIT_INIT_FAILED'}
+             & git.exe -C $copy fetch --depth=1 --no-tags --no-write-fetch-head -- $source $baseline
+             if($LASTEXITCODE -ne 0){throw 'R336_LOCAL_BASELINE_FETCH_FAILED'}
+             & git.exe -C $copy checkout --quiet --detach $baseline
+             if($LASTEXITCODE -ne 0){throw 'R336_SOURCE_ISOLATED_CHECKOUT_FAILED'}
+             $self=G $copy @('merge-base','--is-ancestor',$baseline,'HEAD')
+             if($self.rc -ne 0){throw 'R336_ISOLATED_SHALLOW_GIT_ANCESTRY_FAILED'}
+             foreach($rel in $allowed){
+                $orig=Join-Path $work ($rel.Replace('/','\'))
+                $dst=Join-Path $copy ($rel.Replace('/','\'))
+                if(!(Test-Path -LiteralPath $dst -PathType Leaf)){throw 'R336_SOURCE_BASELINE_REQUIRED_FILE_MISSING'}
+                Copy-Item -LiteralPath $orig -Destination $dst -ErrorAction Stop
+                if((Sha $orig) -cne $hashes[$rel] -or (Sha $dst) -cne $hashes[$rel]){
+                   throw 'R336_DISPOSABLE_CANDIDATE_FILE_HASH_MISMATCH'
+                }
+             }
+             $diff=G $copy @('diff','--name-only','HEAD','--')
+             $actual=@($diff.out -split '\r?\n' | Where-Object {$_ -ne ''})
+             if($diff.rc -ne 0 -or $actual.Count -ne 2 -or
+                @($actual|Where-Object {$_ -notin $allowed}).Count -ne 0){
+                throw 'R336_DISPOSABLE_CANDIDATE_CHANGED_FILES_UNEXPECTED'
+             }
+             $env:GOPROXY='off';$env:GOSUMDB='off';$env:GOFLAGS='-mod=readonly -p=1'
+             $env:GOMAXPROCS='1';$env:GOMEMLIMIT='1536MiB'
+             $env:TEMP=Join-Path $scratch 'temp';$env:TMP=$env:TEMP;$env:TMPDIR=$env:TEMP
+             $null=New-Item -ItemType Directory -Path $env:TEMP -ErrorAction Stop
+             Write-Output 'R336_R334_GRAPH_REPAIRED_AND_CANDIDATE_EXACT_OVERLAY=PASS'
+             Write-Output 'R336_ISOLATED_INDEPENDENT_GIT_BASELINE_AND_OVERLAY=PASS'
+             Push-Location $copy
+             try{
+                & go.exe test -p 1 -count=1 -timeout 8m ./internal/paperreconcile
+                if($LASTEXITCODE -ne 0){throw 'R336_ACTUAL_CANDIDATE_FOCUSED_TEST_FAILED'}
+                Write-Output 'R336_ACTUAL_CANDIDATE_FOCUSED_TEST=PASS'
+                & go.exe vet -copylocks=false ./internal/paperreconcile
+                if($LASTEXITCODE -ne 0){throw 'R336_ACTUAL_CANDIDATE_VET_FAILED'}
+                Write-Output 'R336_ACTUAL_CANDIDATE_VET=PASS'
+                $exe=Join-Path $scratch 'stopped-ktrade-r336.exe'
+                & go.exe build -tags ktrade_full -trimpath -o $exe ./cmd/ktrade
+                if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $exe -PathType Leaf)){
+                   throw 'R336_STOPPED_KTRADE_CANDIDATE_BUILD_FAILED'
+                }
+                Write-Output ('R336_STOPPED_KTRADE_CANDIDATE_SHA256='+(Sha $exe))
+                Write-Output 'R336_ACTUAL_CANDIDATE_STOPPED_BUILD=PASS'
+             }finally{Pop-Location}
+             $refsAfter=G $private @('for-each-ref','--format=%(refname) %(objectname)')
+             $statusAfter=G $work @('status','--porcelain')
+             $headAfter=G $work @('rev-parse','HEAD')
+             $sourceAfter=G $source @('rev-parse','HEAD')
+             $jobAfter=Native
+             $procAfter=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+             if($refsAfter.rc -ne 0 -or $refsAfter.out -cne $beforeRefs.out -or
+                $statusAfter.rc -ne 0 -or $statusAfter.out -cne $beforeStatus.out -or
+                $headAfter.rc -ne 0 -or $headAfter.out -cne $baseline -or
+                $sourceAfter.rc -ne 0 -or $sourceAfter.out -cne $baseline -or
+                $jobAfter.state -cne 'BLOCKED' -or [int]$jobAfter.attempt -ne 4 -or
+                [string]$jobAfter.workspace -cne [string]$job.workspace -or
+                $procAfter.Count -ne 1 -or [int]$procAfter[0].ProcessId -ne $pidBefore){
+                throw 'R336_LIVE_CONTROLLER_OR_ORIGINAL_CANDIDATE_DRIFT'
+             }
+             foreach($rel in $allowed){
+                if((Sha (Join-Path $work ($rel.Replace('/','\')))) -cne $hashes[$rel]){
+                   throw 'R336_ORIGINAL_PRESERVED_CANDIDATE_BYTES_CHANGED'
+                }
+             }
+             Write-Output 'R336_ORIGINAL_WORKORDER_BLOCKED_ATTEMPT4_AND_FILES_UNCHANGED=PASS'
+             Write-Output 'R336_NO_NATIVE_ACCEPTANCE_RETRY_ACK_DISPATCH_OR_CODEX=TRUE'
+             Write-Output 'R336_NO_KTRADE_OWNER_INSTALL_OR_BROKER_ACCESS=TRUE'
+          }finally{
+             if(Test-Path -LiteralPath $scratch){
+                Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+             }
+          }
