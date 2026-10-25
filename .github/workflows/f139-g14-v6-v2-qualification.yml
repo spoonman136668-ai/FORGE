@@ -123,7 +123,14 @@ jobs:
               assert len(v5)==4
               assert not any(json.loads(r["payload"])["schema"]=="forge.f139.source-transition.v6" for r in rows)
               future=hashlib.sha1(b"f139-g14-only-on-scratch-protected-source").hexdigest()
-              db.transition_source(future,allow_certified_negative=True)
+              # The legacy V1/V5 API MUST still refuse fifth succession.
+              before=db.meta().copy()
+              try:
+                  db.transition_source(future,allow_certified_negative=True)
+                  raise AssertionError("LEGACY_V5_BYPASSED")
+              except F139Error:pass
+              assert db.meta()==before
+              db.transition_source(future,allow_certified_negative=True,allow_v6=True)
               item=json.loads(db.conn.execute("SELECT payload FROM events ORDER BY seq DESC LIMIT 1").fetchone()["payload"])
               assert item["schema"]=="forge.f139.source-transition.v6"
               assert item["v5_terminal_event_sha256"]==v5[-1]["sha"]
@@ -133,7 +140,7 @@ jobs:
               assert not verify_native_activation(db)
               try:
                   db.transition_source(hashlib.sha1(b"forbidden-second-v6").hexdigest(),
-                                       allow_certified_negative=True)
+                                       allow_certified_negative=True,allow_v6=True)
                   raise AssertionError("SECOND_V6_UNEXPECTEDLY_ALLOWED")
               except F139Error:pass
               assert db.meta()["head_seq"]==meta["head_seq"]+1
