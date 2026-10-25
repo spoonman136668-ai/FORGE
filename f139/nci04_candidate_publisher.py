@@ -27,6 +27,9 @@ from f139.nci04_candidate_producer import (
 from f139.nci04_native_contract import REPOS, digest
 
 SCHEMA = "forge.f139.g2.owner-draft-publisher.v1"
+RECIPE_G1 = "g1-tier-local-pooling"
+RECIPE_G3 = "g3-local-evidence-abstention"
+SUPPORTED_RECIPES = frozenset({RECIPE_G1, RECIPE_G3})
 BRANCH_PREFIX = "f139/auto-g2-ygg-"
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
@@ -79,7 +82,8 @@ def publisher_preflight(get: Callable[[str], object], *,
                         source_sha: str, parent_commit: str,
                         historical_sha256: str,
                         consumed_mechanisms: set[str],
-                        existing_candidate_identities: set[str]) -> dict:
+                        existing_candidate_identities: set[str],
+                        recipe: str = RECIPE_G1) -> dict:
     """Authenticate available source and reject repeats BEFORE any write.
 
     Returns a *non-authorizing* bounded plan, containing actual source bytes.
@@ -96,8 +100,18 @@ def publisher_preflight(get: Callable[[str], object], *,
          and all(isinstance(v, str) and SHA64.fullmatch(v)
                  for v in consumed_mechanisms | existing_candidate_identities),
          "HISTORICAL_SOURCE_OR_DEDUP_INVALID")
-    need(candidate_mechanism_identity() not in consumed_mechanisms,
-         "PREVIOUSLY_CONSUMED_MECHANISM_NO_REPLAY")
+    need(recipe in SUPPORTED_RECIPES, "UNKNOWN_RECIPE_DENIED")
+    if recipe == RECIPE_G1:
+        need(candidate_mechanism_identity() not in consumed_mechanisms,
+             "PREVIOUSLY_CONSUMED_MECHANISM_NO_REPLAY")
+    else:
+        # The original G1 negative must remain in the witnessed history.
+        # A G3 proposal is never permitted to erase the failed G1 outcome.
+        from f139.nci04_candidate_producer_g3 import mechanism_identity
+        need(candidate_mechanism_identity() in consumed_mechanisms,
+             "G1_NEGATIVE_HISTORY_NOT_RETAINED")
+        need(mechanism_identity() not in consumed_mechanisms,
+             "PREVIOUSLY_CONSUMED_MECHANISM_NO_REPLAY")
     repo = REPOS[LANE][0]
     parent = get(f"repos/{repo}/git/commits/{parent_commit}")
     need(isinstance(parent, dict) and parent.get("sha") == parent_commit
@@ -110,12 +124,22 @@ def publisher_preflight(get: Callable[[str], object], *,
         before, before_blob = _decode_content(blob_doc)
     except Exception as exc:
         raise PublisherDenied("F139_G2_BEFORE_SOURCE_BYTES_UNVERIFIED") from exc
-    generated = produce(
-        lane=LANE, path=PATH, parent_commit=parent_commit,
-        before_bytes=before, pinned_before_sha256=digest(before),
-        history_sha256=historical_sha256,
-        consumed_mechanism_sha256=consumed_mechanisms,
-        scientific_first_use=False)
+    if recipe == RECIPE_G3:
+        from f139.nci04_candidate_producer_g3 import produce_g3
+        generated = produce_g3(
+            lane=LANE, path=PATH, parent_commit=parent_commit,
+            original=before, original_sha256=digest(before),
+            history_sha256=historical_sha256,
+            consumed_mechanisms=consumed_mechanisms,
+            consumed_candidates=existing_candidate_identities,
+            scientific_first_use=False)
+    else:
+        generated = produce(
+            lane=LANE, path=PATH, parent_commit=parent_commit,
+            before_bytes=before, pinned_before_sha256=digest(before),
+            history_sha256=historical_sha256,
+            consumed_mechanism_sha256=consumed_mechanisms,
+            scientific_first_use=False)
     need(generated["candidate_identity"] not in existing_candidate_identities,
          "PREVIOUS_CANDIDATE_IDENTITY_NO_REPLAY")
     suffix = generated["record"]["mechanism_sha256"][:12] + "-" + parent_commit[:12]
@@ -123,23 +147,59 @@ def publisher_preflight(get: Callable[[str], object], *,
     refs = get(f"repos/{repo}/git/matching-refs/heads/{branch_name}")
     need(isinstance(refs, list) and len(refs) == 0,
          "SOURCE_BRANCH_EXISTS_OR_UNVERIFIED")
-    prs = get(f"repos/{repo}/pulls?state=all&per_page=100&page=1")
-    need(isinstance(prs, list) and len(prs) < 100,
-         "PR_HISTORY_INCOMPLETE")
-    for pr in prs:
-        need(not (isinstance(pr, dict) and
-                  isinstance(pr.get("head"), dict)
-                  and pr["head"].get("ref") == branch_name),
-             "PR_ALREADY_PUBLISHED")
+    # Exhaust the bounded public PR catalog: a 100-row first page is not
+    # a complete uniqueness witness. Re-read page one against drift.
+    seen: set[int] = set()
+    first_page: list[tuple[int, str]] | None = None
+    last_number: int | None = None
+    for page in range(1, 13):
+        route = f"repos/{repo}/pulls?state=all&per_page=100&page={page}"
+        prs = get(route)
+        need(isinstance(prs, list) and len(prs) <= 100,
+             "PR_HISTORY_PAGE_INVALID")
+        identities: list[tuple[int, str]] = []
+        for pr in prs:
+            need(isinstance(pr, dict) and
+                 type(pr.get("number")) is int and pr["number"] > 0 and
+                 isinstance(pr.get("head"), dict) and
+                 isinstance(pr["head"].get("ref"), str) and
+                 bool(pr["head"]["ref"]),
+                 "PR_HISTORY_ENTRY_UNVERIFIED")
+            number, ref = pr["number"], pr["head"]["ref"]
+            need(number not in seen and
+                 (last_number is None or number < last_number),
+                 "PR_HISTORY_CHANGED_DURING_SCAN")
+            seen.add(number)
+            last_number = number
+            identities.append((number, ref))
+            need(ref != branch_name, "PR_ALREADY_PUBLISHED")
+        if page == 1:
+            first_page = identities
+        if len(prs) < 100:
+            fresh = get(f"repos/{repo}/pulls?state=all&per_page=100&page=1")
+            need(isinstance(fresh, list) and
+                 len(fresh) == len(first_page) and
+                 all(isinstance(item, dict) and
+                     type(item.get("number")) is int and
+                     isinstance(item.get("head"), dict) and
+                     (item["number"], item["head"].get("ref")) == identity
+                     for item, identity in zip(fresh, first_page)),
+                 "PR_HISTORY_CHANGED_DURING_SCAN")
+            break
+    else:
+        need(False, "PR_HISTORY_EXCEEDS_BOUNDED_SCAN")
     return {
         "schema": SCHEMA,
+        "recipe": recipe,
         "lane": LANE, "repository": repo, "path": PATH,
         "branch": branch_name, "source_sha": source_sha,
         "parent_commit": parent_commit, "parent_tree": parent["tree"]["sha"],
         "before_blob": before_blob, "after_blob": _sha1_blob(generated["source"]),
         "candidate_identity": generated["candidate_identity"],
         "candidate_source": generated["source"],
-        "source_sha256": generated["record"]["after_sha256"],
+        "source_sha256": (generated["record"]["source_after_sha256"]
+                          if recipe == RECIPE_G3 else
+                          generated["record"]["after_sha256"]),
         "history_sha256": historical_sha256,
         "mechanism_sha256": generated["record"]["mechanism_sha256"],
         "pr_title": generated["pr_title"],
@@ -165,7 +225,9 @@ def publish_single_draft(
     """
     need(callable(get) and callable(write) and callable(owner_witness)
          and owner_witness() is True and isinstance(plan, dict)
-         and plan.get("schema") == SCHEMA and plan.get("lane") == LANE
+         and plan.get("schema") == SCHEMA
+         and plan.get("recipe") in SUPPORTED_RECIPES
+         and plan.get("lane") == LANE
          and plan.get("path") == PATH and plan.get("repository") == REPOS[LANE][0]
          and plan.get("writes_authorized") is False
          and plan.get("no_scientific_acceptance") is True
@@ -176,7 +238,8 @@ def publish_single_draft(
         parent_commit=plan["parent_commit"],
         historical_sha256=plan["history_sha256"],
         consumed_mechanisms=consumed_mechanisms,
-        existing_candidate_identities=existing_candidate_identities)
+        existing_candidate_identities=existing_candidate_identities,
+        recipe=plan["recipe"])
     # Verify the *same* historical consumed set under the owner lock again.
     # A negative from #840 must never be republished by clearing history.
     need(all(fresh[k] == plan[k] for k in fresh),
@@ -211,14 +274,21 @@ def publish_single_draft(
          and files[0].get("status") == "modified"
          and files[0].get("sha") == plan["after_blob"],
          "NOT_ONE_SOURCE_COMMIT_NO_PR")
+    hypothesis = (
+        "This G3 hypothesis abstains until three genuine local observations "
+        "per action; it never pools evidence across contexts and may slow "
+        "exploration. "
+        if plan["recipe"] == RECIPE_G3 else
+        "Public causal tier-local pooling is an untested mechanism; "
+        "unfamiliar transfer and confounding remain unverified. "
+    )
     pr = write("POST", f"repos/{repo}/pulls", {
         "title": plan["pr_title"],
         "head": branch, "base": "main", "draft": True,
         "body": (
             "Development-only source proposal created by the original "
-            "FORGE G2 bounded publisher. Public causal tier-local pooling "
-            "is an untested mechanism; unfamiliar transfer and confounding "
-            "remain unverified. No independent advisory Decision has been "
+            "FORGE G2 bounded publisher. " + hypothesis +
+            "No independent advisory Decision has been "
             "issued. No scientific first-use, accepted-ref mutation, "
             "paid API, or additional controller authorization. "
             "The existing F139 feeder must independently verify every "
