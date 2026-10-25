@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 _MAX_SAFE_ID = 9007199254740991
-_CANONICAL_INDEX = re.compile(r"(?:0|[1-9][0-9]*)\\Z")
+_CANONICAL_INDEX = re.compile(r"(?:0|[1-9][0-9]*)\Z")
 
 
 def original_typed_id(value, kind):
