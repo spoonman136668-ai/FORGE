@@ -497,14 +497,20 @@ class Database:
                              "custodied_negative_tasks", "custodied_negative_tickets",
                              "provider_failures_sha256", "v6_terminal_event_sha256",
                              "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7,
+                is_v8 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v8"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256", "v7_terminal_event_sha256",
+                             "prepost_negative_event_sha256", "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -551,12 +557,17 @@ class Database:
                                     for value in (t["from_source_sha"],
                                                   t["to_source_sha"])},
                                 "SOURCE_TRANSITION_V3_SUCCESSOR_DRIFT")
-                if is_v4 or is_v5 or is_v6 or is_v7:
+                if is_v4 or is_v5 or is_v6 or is_v7 or is_v8:
                     from f139.nci04_negative_owner_store import TICKET as FIRST
                     from f139.nci04_split_negative_owner_store import TICKET as SECOND
                     provider_failures=self.verified_native_provider_failures(
                         through_seq=row["seq"])
-                    expected=sorted({FIRST,SECOND}|set(provider_failures))
+                    from f139.nci04_g49_prepost_negative import (
+                        verify_g49_custody, TICKET as PREPOST,
+                        SOURCE_V7, CLAIM_SEQ)
+                    prepost = verify_g49_custody(self)
+                    expected=sorted({FIRST,SECOND}|set(provider_failures)
+                                    | ({PREPOST} if is_v8 else set()))
                     require(len(provider_failures)>=1
                             and doc["custodied_negative_tickets"]==expected
                             and doc["custodied_negative_tasks"]==len(expected)
