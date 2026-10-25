@@ -98,38 +98,44 @@ jobs:
             $parsed=[xml]([IO.File]::ReadAllText((Join-Path $baseline 'task.xml')))
             if($parsed.DocumentElement.LocalName -cne 'Task'){throw 'R308_TASK_XML_INVALID'}
             Write-Host 'R308_CURRENT_EXE_CONFIG_TASK_DB_BACKUP=PASS'
-            # Use already approved original-owner GitHub login ONLY if available.
-            # All source checkout/build activity is confined to scratch.
-            $gitSrc=Join-Path $scratch 'source'
+            # Fetch only the immutable source-qualified R308 native artifact.
+            # This is a new build SHA; never claim it equals original R307 exe.
+            $artifactDir=Join-Path $scratch 'r307-stopped-artifact'
             $gh=Get-Command gh.exe -ErrorAction SilentlyContinue
-            $go=Get-Command go.exe -ErrorAction SilentlyContinue
-            if($null-ne$gh -and $null-ne$go){
-              $expectedCommit='e37bcaa94652b39f474df95608ccacd14f94abf8'
-              $env:GIT_TERMINAL_PROMPT='0'
-              $result=''
-              try{$result=(& gh.exe api ('repos/spoonman136668-ai/ckb-plane/commits/'+$expectedCommit) --jq '.sha' 2>$null | Out-String).Trim()}catch{$result=''}
-              if($LASTEXITCODE -eq 0 -and $result -ceq $expectedCommit){
-                & gh.exe repo clone spoonman136668-ai/ckb-plane $gitSrc -- --quiet --no-checkout 2>$null | Out-Null
-                if($LASTEXITCODE -eq 0){
-                  & git.exe -C $gitSrc checkout --quiet --detach $expectedCommit 2>$null | Out-Null
-                  if($LASTEXITCODE -ne 0 -or
-                     (& git.exe -C $gitSrc rev-parse HEAD).Trim() -cne $expectedCommit){
-                    throw 'R308_R307_SOURCE_IDENTITY_FAIL'
-                  }
-                  $env:GOPROXY='off';$env:GOSUMDB='off';$env:GOFLAGS='-mod=readonly -p=1'
-                  $env:GOMAXPROCS='1';$env:GOMEMLIMIT='1536MiB'
-                  Push-Location (Join-Path $gitSrc 'snapshot\source')
-                  try{
-                    & go.exe build -trimpath -o $candidate ./cmd/ckb-plane
-                    if($LASTEXITCODE -ne 0){throw 'R308_ISOLATED_CANDIDATE_BUILD_FAILED'}
-                  }finally{Pop-Location}
-                  if((Hash $candidate) -cne '107194890d6a4611cce167e09a06fdffd34a4634aa9ed14362a852a5ed21216b'){
-                    throw 'R308_R307_CANDIDATE_BINARY_HASH_DRIFT'
-                  }
-                  $candidateReady=$true
-                  Write-Host 'R308_EXACT_R307_CANDIDATE_REPRODUCED=PASS'
-                }
+            if($null-ne$gh){
+              $nativeRun='40184118747'
+              $expectedRunHead='c2d54544d5c4f570b62c3e6acf0b18718dc5911e'
+              $remoteHead=(& gh.exe api ('repos/spoonman136668-ai/ckb-plane/actions/runs/'+$nativeRun) --jq '.head_sha' | Out-String).Trim()
+              $conclusion=(& gh.exe api ('repos/spoonman136668-ai/ckb-plane/actions/runs/'+$nativeRun) --jq '.conclusion' | Out-String).Trim()
+              if($remoteHead -cne $expectedRunHead -or $conclusion -cne 'success'){
+                throw 'R308_ORIGINAL_NATIVE_ARTIFACT_RUN_IDENTITY_NOT_GREEN'
               }
+              $artifactDigest=(& gh.exe api 'repos/spoonman136668-ai/ckb-plane/actions/artifacts/12595690980' --jq '.digest' | Out-String).Trim()
+              if($artifactDigest -cne 'sha256:b4afa52104c3780f92d36cc3a72b2961aaf41b5da4823f867e93f0101b46af8b'){
+                throw 'R308_R307_NATIVE_ARTIFACT_DIGEST_DRIFT'
+              }
+              & gh.exe run download 40184118747 --repo spoonman136668-ai/ckb-plane --name r308-r307-reproducible-source-image --dir $artifactDir
+              if($LASTEXITCODE -ne 0){throw 'R308_NATIVE_ARTIFACT_DOWNLOAD_FAILED'}
+              $images=@(Get-ChildItem -LiteralPath $artifactDir -Recurse -File -Filter 'ckb-plane.exe')
+              $manifests=@(Get-ChildItem -LiteralPath $artifactDir -Recurse -File -Filter 'manifest.json')
+              if($images.Count -ne 1 -or $manifests.Count -ne 1){
+                throw 'R308_DOWNLOADED_ARTIFACT_STRUCTURE_INVALID'
+              }
+              $manifest=Get-Content -LiteralPath $manifests[0].FullName -Raw | ConvertFrom-Json
+              if([string]$manifest.schema -cne 'ckb.r308.reproducible-image.v1' -or
+                 [string]$manifest.source_sha -cne 'e37bcaa94652b39f474df95608ccacd14f94abf8' -or
+                 [string]$manifest.new_image_sha256 -cne 'eab186dfad5c3b91dd807d1568568394409f1b18550c83630f0c65c43bad8b86' -or
+                 [string]$manifest.previous_r307_full_windows_regression_run -cne '40182526755' -or
+                 !$manifest.focused_pass -or !$manifest.go_vet_pass -or !$manifest.reproducible_build){
+                throw 'R308_NATIVE_IMAGE_MANIFEST_NOT_QUALIFIED'
+              }
+              Copy-Item -LiteralPath $images[0].FullName -Destination $candidate -Force
+              if((Hash $candidate) -cne [string]$manifest.new_image_sha256){
+                throw 'R308_NEW_NATIVE_STOPPED_BINARY_HASH_MISMATCH'
+              }
+              $candidateReady=$true
+              Write-Host 'R308_NATIVE_NEW_SOURCE_IDENTICAL_CANDIDATE_IDENTITY=PASS'
+              Write-Host 'R308_SOURCE_QUALIFICATION_REUSED_NOT_RERUN=PASS'
             }
             if(!$candidateReady){Write-Host 'R308_R307_PRIVATE_CANDIDATE_NOT_AVAILABLE=BLOCKED'}
             if($candidateReady){
@@ -175,8 +181,8 @@ jobs:
             & python.exe -B -c $verify (Join-Path $stage 'autonomy.db')
             if($LASTEXITCODE -ne 0){throw 'R308_RESTORED_DB_FAILED'}
             Write-Host 'R308_EXACT_RESTORATION_4_OF_4=PASS'
-            if($candidateReady){Write-Host 'R308_R307_BINARY_FILE_ROLLBACK=PASS'}
-            else{Write-Host 'R308_R307_BINARY_FILE_ROLLBACK=NOT_TESTED'}
+            if($candidateReady){Write-Host 'R308_SOURCE_IDENTICAL_R307_BINARY_FILE_ROLLBACK=PASS'}
+            else{Write-Host 'R308_SOURCE_IDENTICAL_R307_BINARY_FILE_ROLLBACK=NOT_TESTED'}
             $completed=$true
           }finally{
             if(Test-Path -LiteralPath $scratch){
