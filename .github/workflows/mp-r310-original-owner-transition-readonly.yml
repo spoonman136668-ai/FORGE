@@ -52,7 +52,13 @@ jobs:
           Write-Output ('R310_TASK_STARTUP_EXECUTABLE_CLASS='+$startupClass)
           Write-Output ('R310_TASK_RUNLEVEL='+[string]$task.Principal.RunLevel)
           Write-Output ('R310_TASK_TRIGGER_COUNT='+$triggerCount)
-          Write-Output ('R310_TASK_LAST_RESULT_ZERO='+([long]$info.LastTaskResult -eq 0))
+          $resultCode=([long]$info.LastTaskResult -band 0xffffffff)
+          $resultHex=('0x{0:X8}' -f $resultCode)
+          $resultClass=if($resultCode -eq 0x41301){'SCHED_S_TASK_RUNNING_INFORMATIONAL'}
+                       elseif($resultCode -eq 0){'SUCCESS'}
+                       else{'OTHER_NONZERO_NOT_INTERPRETED'}
+          Write-Output ('R310_TASK_LAST_RESULT_CODE='+$resultHex)
+          Write-Output ('R310_TASK_LAST_RESULT_CLASS='+$resultClass)
           $controlCmdletCount=0
           foreach($name in @('Get-ScheduledTask','Start-ScheduledTask','Stop-ScheduledTask')){
             if($null-ne(Get-Command $name -ErrorAction SilentlyContinue)){$controlCmdletCount++}
