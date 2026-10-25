@@ -1,7 +1,7 @@
 name: F139 G15 explicit V6 owner CLI release rehearsal and regression (DEV ONLY)
 on:
   push:
-    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025]
+    branches: [qualify/f139-g15-single-owner-release-20261025, qualify/f139-g16-manual-only-release-20261025, qualify/f139-g18-original-owner-merge-guard-20261025]
     paths:
       - f139/local_controller.py
       - f139/nci04_v6_owner_release.py
@@ -51,9 +51,24 @@ jobs:
              -not $body.Contains('transition-qualified-native-v6') -or
              -not $body.Contains('v2_receipt_authorized=$false') -or
              -not $body.Contains('F139_G15_POSTEVENT_ORIGINAL_OWNER_HELD_DISABLED') -or
-             -not $body.Contains('F139_G15_MERGED_PR_HEAD_DRIFT')){
-            throw 'F139_G15_GUARDED_RELEASE_NOT_INERT_OR_INCOMPLETE'
+             -not $body.Contains('F139_G18_QUALIFIED_G17_PR_DRIFT') -or
+             -not $body.Contains('F139_G18_PROTECTED_RELEASE_LINEAGE_DRIFT') -or
+             -not $body.Contains('F139_G18_PROTECTED_G17_MERGE_MISSING') -or
+             -not $body.Contains('F139_G15_SAFE_PRETRANSITION_OWNER_RECOVERY')){
+            throw 'F139_G18_GUARDED_RELEASE_NOT_INERT_OR_INCOMPLETE'
           }
+          $pin="$"+"head='4cc043464e491f7c676ea55b8d95cbf5bf350e5d'"
+          if(-not $body.Contains($pin) -or
+             [regex]::Matches($body,[regex]::Escape($pin)).Count -ne 1){
+            throw 'F139_G18_EXACT_ACCEPTED_SOURCE_PIN_DRIFT'
+          }
+          $possible=$body.IndexOf('            $mutated=$true')
+          $transition=$body.IndexOf('            & $python -B -m f139.local_controller --db $db transition-qualified-native-v6 --approval $approval')
+          if($possible -lt 0 -or $transition -lt 0 -or $possible -gt $transition){
+            throw 'F139_G18_MUTATION_FENCE_AFTER_CLI'
+          }
+          Write-Host 'F139_G18_CONSOLIDATED_G17_MERGE_SOURCE_FENCE=PASS'
+          Write-Host 'F139_G18_PREWRITE_FAILCLOSED_MUTATION_FENCE=PASS'
           Write-Host 'F139_G15_PRODUCTION_CUTOVER_DISARMED=PASS'
       - name: One complete unchanged F139 public regression
         shell: pwsh
