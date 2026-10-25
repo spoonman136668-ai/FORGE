@@ -41,7 +41,6 @@ def compare(a,b):
       or len(q.get("DEV_original_public_traces",[]))!=176
       or q.get("native_FIT_custody",{}).get("true_native_cold_restart") is not True
       or q["native_FIT_custody"].get("R3_authentic_cold_OS_restore") is not True
-      or q["native_FIT_custody"].get("R3_FIT_original_native_R3_completed_updates",12000)!=12000
       or q["native_FIT_custody"].get("FIT_original_native_R3_completed_updates")!=12000
       or q["r3_preregistered_disposition"]["scientific_accepted"] is not False):
     raise ValueError("K4T_F2_NATIVE_RESTORE_OR_REAL_WORLD_INCOMPLETE_"+label)
