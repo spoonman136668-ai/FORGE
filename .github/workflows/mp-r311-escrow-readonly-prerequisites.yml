@@ -1,0 +1,59 @@
+name: R311 owner rollback escrow prerequisites (read-only)
+on:
+  push:
+    branches: [audit/mp-r311-original-owner-durable-rollback-20261025]
+    paths: [.github/workflows/mp-r311-escrow-readonly-prerequisites.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Verify safe local durable-escrow prerequisites without writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/mp-r311-original-owner-durable-rollback-20261025'){
+            throw 'R311_ORIGINAL_OWNER_RUNNER_NOT_CONFIRMED'
+          }
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $role=[Security.Principal.WindowsPrincipal]::new($id)
+          if($id.Name -ine 'LINKDEADKB\camar' -or
+             !$role.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+            throw 'R311_OWNER_ADMIN_IDENTITY_INVALID'
+          }
+          $root='C:\ProgramData\CKBR'
+          if(!(Test-Path -LiteralPath $root -PathType Container)){throw 'R311_OWNER_RELEASE_ROOT_ABSENT'}
+          $escrow=Join-Path $root 'rollback-escrow'
+          if(Test-Path -LiteralPath $escrow -PathType Container){
+            $security=Get-Acl -LiteralPath $escrow
+            Write-Output ('R311_EXISTING_ESCROW_ROOT_PROTECTED_ACL='+$security.AreAccessRulesProtected)
+          }else{
+            Write-Output 'R311_EXISTING_ESCROW_ROOT=NOT_CREATED'
+          }
+          $live='C:\Users\camar\GolandProjects\ckb-plane'
+          $database=Join-Path $live 'state\autonomy.db'
+          $config=Join-Path $live 'config\autonomy.yaml'
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'")
+          if($processes.Count -ne 1){throw 'R311_PROCESS_SINGLETON_NOT_VERIFIED'}
+          $exe=[string]$processes[0].ExecutablePath
+          if(!$exe){throw 'R311_PROCESS_IMAGE_ACCESS_DENIED'}
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($hash -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+            throw 'R311_ORIGINAL_IMAGE_IDENTITY_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'CKB-plane Controller'
+          if([string]$task.State -cne 'Running'){throw 'R311_ORIGINAL_TASK_NOT_RUNNING'}
+          $sizes=@((Get-Item -LiteralPath $exe).Length,(Get-Item -LiteralPath $database).Length,(Get-Item -LiteralPath $config).Length)
+          $drive=[IO.DriveInfo]::new('C')
+          $need=([long]($sizes | Measure-Object -Sum).Sum)*5
+          if($drive.AvailableFreeSpace -lt $need){throw 'R311_ESCROW_CAPACITY_NOT_PROVEN'}
+          Write-Output 'R311_EXISTING_OWNER_AND_RELEASE_STORE=PASS'
+          Write-Output 'R311_LIVE_EXECUTABLE_AND_TASK=UNCHANGED'
+          Write-Output 'R311_FIVE_TIMES_ORIGINAL_FILE_CAPACITY=PASS'
+          Write-Output 'R311_CURRENT_DATABASE_SIZE_CLASS=OBSERVED_PRIVATE'
+          Write-Output 'R311_DURABLE_ESCROW_CREATED=FALSE'
+          Write-Output 'R311_NO_PRIVATE_DATA_COPIED_OR_EXPORTED=TRUE'
+          Write-Output 'R311_NO_CONTROLLER_OR_TASK_MUTATION=TRUE'
