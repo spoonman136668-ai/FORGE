@@ -1,4 +1,4 @@
-name: CKB R383 bounded R220 source checkout availability
+name: CKB R384 bounded livecandidate fingerprint qualification
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,17 +26,17 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $roots=@('C:\FORGE-Runner\_work','C:\Users\camar\GolandProjects')
-          foreach($root in $roots){
-            if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
-            $dirs=Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Select-Object -First 40
-            foreach($dir in $dirs){
-              if($dir.Name -match '(?i)ckb|plane'){
-                Write-Output ('R383_CANDIDATE_DIR='+$dir.FullName)
-                foreach($rel in @('snapshot\source\go.mod','go.mod','.git')){
-                  Write-Output ('R383_MARKER='+$rel+' PRESENT='+(Test-Path -LiteralPath (Join-Path $dir.FullName $rel)))
-                }
-              }
+          $root='C:\Users\camar\GolandProjects'
+          $dirs=@('ckb-plane','ckb-plane-authority-lease-r2','ckb-plane-authority-lease-r2-livecandidate','ckb-plane-dk-work')
+          $paths=@('go.mod','cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go')
+          foreach($name in $dirs){
+            $base=Join-Path $root $name
+            foreach($rel in $paths){
+              $p=Join-Path $base $rel
+              if(Test-Path -LiteralPath $p -PathType Leaf){
+                $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+                Write-Output ('R384_SOURCE='+$name+' FILE='+$rel+' SHA256='+$sha)
+              }else{Write-Output ('R384_SOURCE='+$name+' FILE='+$rel+' MISSING=TRUE')}
             }
           }
-          Write-Output 'R383_READ_ONLY=TRUE'
+          Write-Output 'R384_READ_ONLY=TRUE'
