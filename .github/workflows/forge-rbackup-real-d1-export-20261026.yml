@@ -35,6 +35,13 @@ jobs:
           token: ${{ secrets.RBACKUP_WRITE_TOKEN }}
           path: rbackup
           persist-credentials: false
+      - name: Check out immutable age v1.2.1 source
+        uses: actions/checkout@v4
+        with:
+          repository: FiloSottile/age
+          ref: 482cf6fc9babd3ab06f6606762aac10447222201
+          path: age-src
+          persist-credentials: false
       - name: Build age tools and verify existing protected keys
         shell: pwsh
         run: |
@@ -47,10 +54,19 @@ jobs:
           $env:GOMODCACHE = Join-Path $tempRoot 'gomodcache'
           $env:GOCACHE = Join-Path $tempRoot 'gocache'
           New-Item -ItemType Directory -Force -Path $env:GOBIN,$env:GOPATH,$env:GOMODCACHE,$env:GOCACHE | Out-Null
-          go install filippo.io/age/cmd/age@v1.2.1
-          if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_BUILD_FAILED' }
-          go install filippo.io/age/cmd/age-keygen@v1.2.1
-          if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_KEYGEN_BUILD_FAILED' }
+          $ageRoot = Join-Path $env:GITHUB_WORKSPACE 'age-src'
+          $expectedAgeCommit = '482cf6fc9babd3ab06f6606762aac10447222201'
+          $actualAgeCommit = (& git -C $ageRoot rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actualAgeCommit -cne $expectedAgeCommit) { throw 'RBACKUP_AGE_SOURCE_IDENTITY_DRIFT' }
+          Push-Location $ageRoot
+          try {
+            go build -o (Join-Path $env:GOBIN 'age.exe') ./cmd/age
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_BUILD_FAILED' }
+            go build -o (Join-Path $env:GOBIN 'age-keygen.exe') ./cmd/age-keygen
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_KEYGEN_BUILD_FAILED' }
+          } finally {
+            Pop-Location
+          }
           $env:PATH = $env:GOBIN + [IO.Path]::PathSeparator + $env:PATH
           $env:GOBIN >> $env:GITHUB_PATH
           Push-Location rbackup
