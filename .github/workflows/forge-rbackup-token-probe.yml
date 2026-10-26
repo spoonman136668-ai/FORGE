@@ -21,7 +21,6 @@ jobs:
           if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RBACKUP_QUALIFICATION_WRONG_RUNNER' }
           if ([string]::IsNullOrWhiteSpace($env:RBACKUP_WRITE_TOKEN)) { throw 'RBACKUP_WRITE_TOKEN_UNAVAILABLE' }
           $headers = @{ Authorization = "Bearer $($env:RBACKUP_WRITE_TOKEN)"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
-          $rawHeaders = @{ Authorization = "Bearer $($env:RBACKUP_WRITE_TOKEN)"; Accept = 'application/vnd.github.raw+json'; 'X-GitHub-Api-Version' = '2022-11-28' }
           $root = Join-Path $env:RUNNER_TEMP ('rbackup-source-tests-' + $env:GITHUB_RUN_ID)
           if (Test-Path -LiteralPath $root) { throw 'RBACKUP_SCRATCH_ALREADY_EXISTS' }
           New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
@@ -41,18 +40,16 @@ jobs:
                 'tests/test_d1_isolated_restore_verify.py'
               )
               foreach ($file in $files) {
-                Write-Output "RBACKUP_SOURCE_FETCH_INDEX=$($fetchCount + 1)"
-                $uri = "https://api.github.com/repos/$repoName/contents/$file?ref=$source"
-                $response = Invoke-WebRequest -Method Get -Uri $uri -Headers $rawHeaders -TimeoutSec 20
-                $text = [string]$response.Content
-                if ([string]::IsNullOrEmpty($text)) { throw 'RBACKUP_SOURCE_FILE_EMPTY' }
+                $item = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/contents/$file?ref=$source" -Headers $headers -TimeoutSec 20
+                $length = 0
+                if ($null -ne $item.content) { $length = ([string]$item.content).Length }
+                Write-Output "RBACKUP_SOURCE_META type=$($item.type) encoding=$($item.encoding) size=$($item.size) content_length=$length"
+                if ($item.type -cne 'file' -or $item.encoding -cne 'base64' -or $length -le 0) { throw 'RBACKUP_SOURCE_FILE_FORMAT_UNEXPECTED' }
                 $dest = Join-Path $root ($file -replace '/', [IO.Path]::DirectorySeparatorChar)
                 New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
-                [IO.File]::WriteAllText($dest, $text, [Text.UTF8Encoding]::new($false))
+                [IO.File]::WriteAllBytes($dest, [Convert]::FromBase64String(($item.content -replace '\s', '')))
                 $fetchCount++
               }
-              Write-Output 'RBACKUP_PINNED_SOURCE_COMMIT=PASS'
-              Write-Output "RBACKUP_SOURCE_FILES_FETCHED=$fetchCount"
             } catch {
               $status = 'none'
               try { if ($_.Exception.Response.StatusCode) { $status = [string][int]$_.Exception.Response.StatusCode } } catch {}
@@ -61,12 +58,8 @@ jobs:
               Write-Output "RBACKUP_SOURCE_FETCH_ERROR_TYPE=$($_.Exception.GetType().Name)"
               throw 'RBACKUP_PINNED_SOURCE_FETCH_FAILED'
             }
-            $env:RBACKUP_WRITE_TOKEN = $null
             Remove-Item Env:RBACKUP_WRITE_TOKEN,Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
             $headers.Clear()
-            $rawHeaders.Clear()
-            $response = $null
-            $text = $null
             Push-Location $root
             try {
               $python = Get-Command python -ErrorAction Stop
