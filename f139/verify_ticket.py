@@ -63,7 +63,9 @@ def admit(inputs):
     demand(isinstance(actual, str) and re.fullmatch(r"[a-f0-9]{64}", actual)
            and hmac.compare_digest(actual, expected), "TICKET_SIGNATURE_REJECTED")
     demand(inputs.get("repository") == REPO
-           and inputs.get("ref") == "refs/heads/main"
+           and inputs.get("ref") in (
+               "refs/heads/main",
+               "refs/heads/f139-owner-release-"+inputs.get("source_sha",""))
            and inputs.get("event") == "workflow_dispatch"
            and inputs.get("head_sha") == inputs.get("source_sha")
            and inputs.get("run_attempt") == "1"
