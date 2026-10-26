@@ -1,0 +1,140 @@
+name: MP-AI06-D17 isolated MCP evidence Windows qualification
+on:
+  push:
+    branches: [qualification/mp-ai06-d17-exact-ref-20261026]
+    paths: ['.github/workflows/mp-ai06-d17-isolated-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai06-d17-one-windows
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 65
+    steps:
+      - name: Pin original source, execute focused and one complete regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code) {
+            if(-not $ok) { throw ('MPAI06_D17_' + $code) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mp-ai06-d17-exact-ref-20261026' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXPECTED_ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $env:GIT_CONFIG_COUNT='1'
+          $env:GIT_CONFIG_KEY_0='core.longpaths'
+          $env:GIT_CONFIG_VALUE_0='true'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai06-d17-select-exact-source-ref-20261026'
+          $target='ad9f6aefe27b6fcf1fe46b0e357848cfa07e157b'
+          $parent='cf436a3912351b15e134d4699db5e43a1cd353ca'
+          $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d17-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $allowed=@('agentic/mpai06_d16_verified_run_status.py', 'docs/MP-AI06-D17-EXACT-SOURCE-REF.md', 'tests/test_mpai06_d16_verified_run_status.py', 'tools/mindpalace_mcp.py')
+          $pins=@{
+            'agentic/mpai06_d16_verified_run_status.py'='961698b48906ceda5bd3f537e6b02126cce444de'
+            'docs/MP-AI06-D17-EXACT-SOURCE-REF.md'='3c4bb754bf42d6d40e99a6c307e6ad45f0deca50'
+            'tests/test_mpai06_d16_verified_run_status.py'='1766ed1f6fce79100814d9aa18c9eeda387208db'
+            'tools/mindpalace_mcp.py'='0a9f3ed42f0509b59575102e61136e501ee44c8a'
+          }
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha) {
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REMOTE_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $hashes=@{}
+          $initialized=$false
+          try {
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target) 'PINNED_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $parent HEAD
+            Need ($LASTEXITCODE -eq 0) 'QUALIFIED_PARENT'
+            & git.exe -C $root merge-base --is-ancestor $accepted HEAD
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
+            $changed=@(& git.exe -C $root diff --name-only $parent HEAD)
+            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 5 -and
+              (($changed | Sort-Object) -join '|') -ceq (($allowed | Sort-Object) -join '|')) 'DELTA_SCOPE'
+            foreach($f in $pins.Keys) {
+              $actualBlob=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $actualBlob -ceq $pins[$f]) ('BLOB_PIN_'+$f)
+            }
+            Write-Host 'MPAI06_D17_SOURCE_PARENT_FIVE_FILE_SCOPE=PASS'
+            foreach($f in $protected) {
+              $a=(& git.exe -C $root rev-parse ($accepted+':'+$f) | Out-String).Trim()
+              $b=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $a -ceq $b) ('PROTECTED_BLOB_'+$f)
+              $hashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $initialized=$true
+            Write-Host 'MPAI06_D17_PROTECTED_BASELINE=PASS'
+            & python.exe -B -c "import pathlib; root=pathlib.Path(r'$root'); [compile((root/p).read_bytes(),str(root/p),'exec') for p in ('tools/mindpalace_mcp.py','agentic/mpai06_d16_verified_run_status.py','tests/test_mpai06_d16_verified_run_status.py')]"
+            Need ($LASTEXITCODE -eq 0) 'SYNTAX'
+            Write-Host 'MPAI06_D17_STOPPED_PYTHON_SYNTAX=PASS'
+            $suites=@('test_mpai06_answerability.py','test_mpai06_d5_source_guard.py','test_mpai06_d6_mcp_evidence.py','test_mpai06_d16_verified_run_status.py','test_mpn1_mcp.py','test_mpai01_mcp_adapter.py','test_mpai02_probe_mcp.py')
+            foreach($suite in $suites) {
+              & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FOCUSED_'+$suite)
+            }
+            Write-Host 'MPAI06_D17_FOCUSED_TESTS=PASS'
+            & python.exe -B (Join-Path $root 'agentic/mpai06_answerability.py') --root $root --source $target
+            Need ($LASTEXITCODE -eq 0) 'EVALUATION'
+            Write-Host 'MPAI06_D17_DEVELOPMENT_EVALUATION=PASS'
+            Write-Host 'MPAI06_D17_ORIGINAL_GET_ATTEMPT=1'
+            $smoke='import pathlib,sys,json; p=pathlib.Path(sys.argv[1]); sys.path[:0]=[str(p/"tools"),str(p/"agentic")]; from mindpalace_readonly import MemorySnapshot; from mindpalace_mcp import handle; sha=sys.argv[2]; rid="project_state/wingless-r46-r47-r48-frontier-20261005"; ref="github-actions:spoonman136668-ai/Wingless:37388686980"; req={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mindpalace_verified_run_status","arguments":{"source_sha":sha,"record_id":rid,"source_ref":ref}}}; reply=handle(MemorySnapshot(p,sha,["Wingless"]),req); assert "result" in reply; payload=json.loads(reply["result"]["content"][0]["text"]); print("MPAI06_D17_PROVIDER_RESULT="+payload["status"]); assert payload["status"]=="VERIFIED_ORIGINAL_RUN_STATUS" and "completed/success" in payload["statement"] and payload["source_evidence"][0]["source_ref"]==ref'
+            & python.exe -B -c $smoke $root $target
+            Need ($LASTEXITCODE -eq 0) 'ORIGINAL_PROVIDER_GET'
+            Write-Host 'MPAI06_D17_ORIGINAL_PROVIDER_GET=PASS'
+            foreach($f in $protected) {
+              $now=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Need ($now -ceq $hashes[$f]) ('POST_FOCUSED_BLOB_'+$f)
+            }
+            $stdout=Join-Path $scratch 'regression.stdout'
+            $stderr=Join-Path $scratch 'regression.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $log=[IO.File]::ReadAllText($stdout)
+            if($p.ExitCode -ne 0) {
+              $last=@([regex]::Matches($log,'RUN Test-[A-Za-z0-9_-]+[.]ps1') | ForEach-Object {$_.Value})
+              if($last.Count) {Write-Host ('MPAI06_D17_LAST_REGRESSION_TEST='+[string]$last[-1])}
+              throw 'MPAI06_D17_FULL_REGRESSION_FAILED'
+            }
+            Need ($log.Contains('Mind-Palace regression suite passed')) 'REGRESSION_MARKER'
+            Write-Host 'MPAI06_D17_ONE_FULL_WINDOWS_REGRESSION=PASS'
+            Need (-not ((& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'SOURCE_WORKTREE_CHANGED'
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            Write-Host 'MPAI06_D17_SOURCE_STILL_PINNED=PASS'
+            Write-Host 'MPAI06_D17_INDEPENDENT_SCIENTIFIC_GAIN=NOT_TESTED'
+            Write-Host 'MPAI06_D17_CONTROLLER_ADMISSION=NOT_PERFORMED'
+            Write-Host 'MPAI06_D17_PAID_MODEL_CALLS=0'
+            Write-Host 'MPAI06_D17_PRODUCTION_WRITES=0'
+          } finally {
+            if($initialized) {
+              foreach($f in $protected) {
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$f]) ('PROTECTED_POSTIMAGE_'+$f)
+              }
+              Write-Host 'MPAI06_D17_PROTECTED_FINAL=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI06_D17_SCRATCH_CLEAN=PASS'
+          }
