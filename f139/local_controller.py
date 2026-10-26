@@ -1769,14 +1769,11 @@ class GitHub:
                 and signed_fields["target_tree_sha"]==issue.candidate.target_tree_sha,
                 "NATIVE_DISPATCH_ISSUE_IDENTITY")
         from f139.nci04_release_pin_continuity import (
-            verify_release_worker_branch)
+            verify_release_worker_branch, release_worker_branch)
         source = issue.source_sha
         require(source == signed_fields["source_sha"],
                 "NATIVE_DISPATCH_SOURCE_IDENTITY_DRIFT")
-        # Authenticate the exact released worker code before ever doing POST.
-        # The protected default branch is allowed to move independently.
-        worker_ref = verify_release_worker_branch(
-            self.native_repo_get, source)
+        worker_ref = release_worker_branch(source)
         payload = [
             "--method","POST",
             "repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
@@ -1825,6 +1822,11 @@ class GitHub:
         encoded=base64.b64encode(canonical(bundle)).decode("ascii")
         require(0<len(encoded)<=60000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
         payload.extend(["-f","inputs[native_bundle]="+encoded])
+        # Authenticate the exact released worker code AFTER typed/HMAC claim
+        # validation, immediately before the ONE remote POST.
+        require(verify_release_worker_branch(
+                    self.native_repo_get, source) == worker_ref,
+                "NATIVE_DISPATCH_WORKER_REF_RACE")
         self.runner(payload)
 
     def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str, *, d2k_fields=None):
