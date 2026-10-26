@@ -95,5 +95,17 @@ class ShuttleOriginalSourceOnlyTests(unittest.TestCase):
         self.assertFalse(guard.pending)
 
 
+
+def load_tests(loader, suite, pattern):
+    # The existing source-only CI already executes this test module on both
+    # platforms. Include the isolated producer's NO-ADMISSION tests without
+    # altering workflow permissions or executing a source episode.
+    from test_shuttle_owner_producer_sourceonly import (
+        OriginalProducerNotAdmittedTests,
+    )
+    suite.addTests(loader.loadTestsFromTestCase(OriginalProducerNotAdmittedTests))
+    return suite
+
+
 if __name__ == "__main__":
     unittest.main()
