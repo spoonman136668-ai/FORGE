@@ -16,10 +16,10 @@ class ShuttleYggdrasilPublicSeamTests(unittest.TestCase):
         original = learner.model_identities()
         owner.begin("LRV")
         learner.start_observation("LRV")
-        chosen = learner.choose()
+        chosen = "Backup"  # Explicit legal exploration selection, not an oracle.
         # Source-free public fixture only. Not an original Shuttle step.
-        event = owner.accept(action=chosen, next_observation="Nothing",
-                             reward=0, terminal=True)
+        event = owner.accept(action=chosen, next_observation="MRV",
+                             reward=10, terminal=True)
         self.assertEqual(set(event), {
             "observation", "action", "next_observation", "reward", "terminal"})
         learner.accept_public_transition(
