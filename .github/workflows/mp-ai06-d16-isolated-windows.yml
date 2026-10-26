@@ -98,7 +98,7 @@ jobs:
             Need ($LASTEXITCODE -eq 0) 'EVALUATION'
             Write-Host 'MPAI06_D16_DEVELOPMENT_EVALUATION=PASS'
             Write-Host 'MPAI06_D16_ORIGINAL_GET_ATTEMPT=1'
-            $smoke='import pathlib,sys; p=pathlib.Path(sys.argv[1]); sys.path[:0]=[str(p/"tools"),str(p/"agentic")]; from mindpalace_readonly import MemorySnapshot; from mpai06_d16_verified_run_status import verified_run_status; result=verified_run_status(MemorySnapshot(p,sys.argv[2],["Yggdrasil"]),record_id="project_state/yggdrasil-y092-learned-consumer-running-20261005"); print("MPAI06_D16_PROVIDER_RESULT="+result["status"]); assert result["status"]=="VERIFIED_ORIGINAL_RUN_STATUS" and "completed/cancelled" in result["statement"]'
+            $smoke='import pathlib,sys,json; p=pathlib.Path(sys.argv[1]); sys.path[:0]=[str(p/"tools"),str(p/"agentic")]; from mindpalace_readonly import MemorySnapshot; from mindpalace_mcp import handle; sha=sys.argv[2]; req={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mindpalace_verified_run_status","arguments":{"source_sha":sha,"record_id":"project_state/yggdrasil-y092-learned-consumer-running-20261005"}}}; reply=handle(MemorySnapshot(p,sha,["Yggdrasil"]),req); assert "result" in reply; payload=json.loads(reply["result"]["content"][0]["text"]); print("MPAI06_D16_PROVIDER_RESULT="+payload["status"]); assert payload["status"]=="VERIFIED_ORIGINAL_RUN_STATUS" and "completed/cancelled" in payload["statement"]'
             & python.exe -B -c $smoke $root $target
             Need ($LASTEXITCODE -eq 0) 'ORIGINAL_PROVIDER_GET'
             Write-Host 'MPAI06_D16_ORIGINAL_PROVIDER_GET=PASS'
