@@ -90,7 +90,14 @@ jobs:
              try{$ErrorActionPreference='Continue';$v=@(& git.exe -C $repo rev-parse --verify HEAD 2>&1);$rc=$LASTEXITCODE}
              finally{$ErrorActionPreference=$old}
              if($rc -eq 0 -and $v.Count -eq 1 -and [string]$v[0] -cmatch '^[0-9a-f]{40}$'){$head=[string]$v[0]}
-             $repoMatches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go']})
+             $objectHits=0
+             foreach($name in $expected.Keys){
+                $old=$ErrorActionPreference
+                try{$ErrorActionPreference='Continue';$kind=@(& git.exe -C $repo cat-file -t $expected[$name] 2>&1);$rc=$LASTEXITCODE}
+                finally{$ErrorActionPreference=$old}
+                if($rc -eq 0 -and $kind.Count -eq 1 -and [string]$kind[0] -ceq 'blob'){$objectHits++}
+             }
+             $repoMatches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go'];ExactOriginalBlobObjects=$objectHits})
           }
           $exact=@($repoMatches|Where-Object {$_.MatchedFiles -eq 3})
           Write-Output 'R345_ACTIVE_R303_PROCESS_AND_CONFIG_PIN=PASS'
@@ -98,7 +105,7 @@ jobs:
           Write-Output ('R345_CKB_SOURCE_SHAPED_CHECKOUTS='+$reposToCheck.Count)
           Write-Output ('R345_CHECKOUTS_MATCHING_ALL_THREE_LIVE_SOURCE_BLOBS='+$exact.Count)
           foreach($v in $repoMatches){
-             Write-Output ('R345_SOURCE_MATCH_COUNT='+$v.MatchedFiles+';HEAD='+$v.Head)
+             Write-Output ('R345_SOURCE_MATCH_COUNT='+$v.MatchedFiles+';HEAD='+$v.Head+';EXACT_ORIGINAL_BLOB_OBJECTS='+$v.ExactOriginalBlobObjects)
           }
           if($exact.Count -eq 1){
              Write-Output ('R345_AUTHENTIC_SOURCE_HEAD='+$exact[0].Head)
