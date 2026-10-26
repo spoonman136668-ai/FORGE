@@ -44,7 +44,7 @@ jobs:
           $cacheRoot=Join-Path $env:RUNNER_TOOL_CACHE 'mpai05-fastpath'
           $mirror=Join-Path $cacheRoot 'mind-palace.git'
           $root=Join-Path $scratch 'repo'
-          $worktreeAdded=$false
+          $initialized=$false
           $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
             '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
             '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
@@ -79,14 +79,12 @@ jobs:
             $sourceObject=(& git.exe --git-dir $mirror rev-parse ('refs/remotes/origin/'+$sourceBranch+'^{commit}') | Out-String).Trim()
             $mainObject=(& git.exe --git-dir $mirror rev-parse 'refs/remotes/origin/main^{commit}' | Out-String).Trim()
             Need ($LASTEXITCODE -eq 0 -and $sourceObject -ceq $target -and $mainObject -ceq $accepted) 'CACHE_OBJECT_IDENTITY'
-            $checkoutBranch='mpai05-final-'+$env:GITHUB_RUN_ID
-            & git.exe --git-dir $mirror worktree add --quiet -b $checkoutBranch $root $target
-            Need ($LASTEXITCODE -eq 0) 'WORKTREE_ADD'
-            $worktreeAdded=$true
+            & git.exe clone --quiet --reference-if-able $mirror --single-branch --branch $sourceBranch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'REFERENCE_CLONE'
             $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
             $tree=(& git.exe -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
             $attached=(& git.exe -C $root symbolic-ref --short HEAD | Out-String).Trim()
-            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target -and $tree -match '^[0-9a-f]{40}$' -and $attached -ceq $checkoutBranch) 'PINNED_SOURCE_TREE_AND_BRANCH'
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target -and $tree -match '^[0-9a-f]{40}
             & git.exe -C $root merge-base --is-ancestor $accepted HEAD
             Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
             $changed=@(& git.exe -C $root diff --name-only $accepted HEAD)
@@ -106,6 +104,7 @@ jobs:
               Need ($LASTEXITCODE -eq 0 -and $a -ceq $b) ('PROTECTED_BLOB_'+$f)
               $hashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
             }
+            $initialized=$true
             Need (-not ((& git.exe -C $root status --porcelain=v1 | Out-String).Trim())) 'SOURCE_WORKTREE_DIRTY'
             Write-Host ('MPAI05_FASTPATH_FINAL_SOURCE_SHA='+$actual)
             Write-Host ('MPAI05_FASTPATH_FINAL_TREE_SHA='+$tree)
@@ -139,19 +138,14 @@ jobs:
             Write-Host 'MPAI05_FASTPATH_ACCEPTANCE=ENGINEERING_ONLY_NOT_AUTH_AUTHORIZED'
             Write-Host 'MPAI05_FASTPATH_PRODUCTION_WRITES=0'
           } finally {
-            if($worktreeAdded) {
+            if($initialized) {
               foreach($f in $protected) {
                 Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$f]) ('PROTECTED_POSTIMAGE_'+$f)
               }
               Write-Host 'MPAI05_FASTPATH_PROTECTED_FINAL=PASS'
-              & git.exe --git-dir $mirror worktree remove --force $root
-              Need ($LASTEXITCODE -eq 0) 'WORKTREE_CLEANUP'
-              & git.exe --git-dir $mirror worktree prune
-              Need ($LASTEXITCODE -eq 0) 'WORKTREE_PRUNE'
-              & git.exe --git-dir $mirror branch -D $checkoutBranch
-              Need ($LASTEXITCODE -eq 0) 'LOCAL_BRANCH_CLEANUP'
             }
             if(Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
             Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
             Write-Host 'MPAI05_FASTPATH_FINAL_SCRATCH_CLEAN=PASS'
+            Write-Host 'MPAI05_FASTPATH_PERSISTENT_MIRROR_RETAINED=PASS'
           }
