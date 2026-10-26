@@ -1,0 +1,51 @@
+name: ITD-02 original Shuttle source contract (read-only)
+on:
+  pull_request:
+    paths:
+      - 'research/itd02/shuttle_source_contract.py'
+      - 'research/itd02/test_shuttle_source_contract.py'
+      - '.github/workflows/itd02-shuttle-source-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  original-source-contract:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Disable line ending rewriting
+        shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+      - name: Authenticate independently authored original source (NO episodes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shuttle-original"
+          git init -q "$RUNNER_TEMP/shuttle-original"
+          git -C "$RUNNER_TEMP/shuttle-original" remote add origin https://github.com/mhahsler/pomdp.git
+          git -C "$RUNNER_TEMP/shuttle-original" fetch --no-tags --depth 1 origin 05db0c69396128e6960f54d41503dca1e90e221c
+          git -C "$RUNNER_TEMP/shuttle-original" checkout --detach -q 05db0c69396128e6960f54d41503dca1e90e221c
+          test "$(git -C "$RUNNER_TEMP/shuttle-original" hash-object inst/examples/shuttle_95.POMDP)" = fb8612d67e43112e210a252b29b49f8bdba37863
+          echo "ITD02_SHUTTLE_SOURCE_PIN=PASS"
+      - name: Source-only public-custody qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ITD02_SHUTTLE_SOURCE="$RUNNER_TEMP/shuttle-original/inst/examples/shuttle_95.POMDP"
+          export PYTHONPATH="$GITHUB_WORKSPACE/research/itd02"
+          python -B -m unittest discover -s research/itd02 -p 'test_shuttle_source_contract.py' -v
+          echo "ITD02_ORIGINAL_SOURCE_EPISODES=0"
+          echo "ITD02_ORIGINAL_SOURCE_CONTRACT=PASS"
+      - name: No tracked modifications
+        shell: bash
+        run: git diff --exit-code
