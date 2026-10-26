@@ -24,4 +24,5 @@ python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_statistical_e
 python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_r5_fallback.py -v
 python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_external_action_contract.py -v
 python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_independent_control.py -v
+python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_sixfield_adapter.py -v
 echo ITD02_R8_PINNED_NATIVE_BRIDGE_FOCUSED_PASS
