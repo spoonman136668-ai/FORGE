@@ -1,4 +1,4 @@
-name: CKB R368 read-only release provenance inventory
+name: CKB R369 bounded read-only release provenance inventory
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -9,59 +9,65 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 8
     steps:
-      - name: Inspect matching release metadata without mutation
+      - name: Inspect bounded release metadata without mutation
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_OWNER_RUNNER' }
           $base='C:\ProgramData\CKBR\release-store\ckb-plane'
-          $release=Join-Path $base 'releases\PLANE-R220-LIVECOMPAT-20261023'
+          $releases=Join-Path $base 'releases'
+          $release=Join-Path $releases 'PLANE-R220-LIVECOMPAT-20261023'
           $target='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          if (!(Test-Path -LiteralPath $base -PathType Container)) { throw 'RELEASE_STORE_MISSING' }
-          if (!(Test-Path -LiteralPath $release -PathType Container)) { throw 'MATCHING_RELEASE_DIRECTORY_MISSING' }
+          foreach($p in @($base,$releases,$release)) {
+            if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
+          }
           $exe=Join-Path $release 'bin\ckb-plane.exe'
           if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'MATCHING_EXECUTABLE_MISSING' }
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output ('R368_MATCHING_EXE_SHA256='+$exeHash)
+          Write-Output ('R369_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $targetFiles=@(Get-ChildItem -LiteralPath $release -File -Recurse -Force -ErrorAction Stop)
-          if ($targetFiles.Count -gt 300) { throw 'TARGET_RELEASE_FILE_BOUND_EXCEEDED' }
-          Write-Output ('R368_TARGET_RELEASE_FILE_COUNT='+$targetFiles.Count)
-          foreach($f in $targetFiles) {
-            $rel=$f.FullName.Substring($base.Length).TrimStart('\')
-            $sha=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Output ('R368_TARGET_FILE='+$rel+' BYTES='+$f.Length+' SHA256='+$sha)
-          }
-          $all=@(Get-ChildItem -LiteralPath $base -File -Recurse -Force -ErrorAction Stop)
-          if ($all.Count -gt 1500) { throw 'RELEASE_STORE_FILE_BOUND_EXCEEDED' }
-          Write-Output ('R368_RELEASE_STORE_FILE_COUNT='+$all.Count)
-          $candidates=@($all | Where-Object {
-            $_.Name -match '(?i)(manifest|provenance|build.?info|release.?info|source|commit|revision|checksums|sha256|receipt)' -or
-            $_.Extension -in @('.zip','.7z','.tar','.gz','.tgz','.manifest')
-          })
-          if ($candidates.Count -gt 250) { throw 'PROVENANCE_CANDIDATE_BOUND_EXCEEDED' }
-          Write-Output ('R368_PROVENANCE_CANDIDATE_COUNT='+$candidates.Count)
-          foreach($f in $candidates) {
-            $rel=$f.FullName.Substring($base.Length).TrimStart('\')
-            $sha=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Output ('R368_CANDIDATE='+$rel+' BYTES='+$f.Length+' SHA256='+$sha)
-            if ($f.Extension -ieq '.json' -and $f.Length -le 262144) {
-              try {
-                $obj=Get-Content -LiteralPath $f.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                foreach($key in @('commit','commit_sha','source_sha','source_commit','revision','tree_sha','go_version','toolchain','builder','artifact_sha256','source_archive','source_path','repository','repo','branch','version','build_id')) {
-                  $prop=$obj.PSObject.Properties[$key]
-                  if ($null -ne $prop -and $null -ne $prop.Value) {
-                    $value=[string]$prop.Value
-                    if ($value.Length -gt 160) { $value=$value.Substring(0,160) }
-                    if ($value -notmatch '(?i)(token|password|secret|credential|private.?key|authorization)') {
-                      Write-Output ('R368_METADATA_'+$key+'='+$value)
+          $locations=@($base,$releases,$release)
+          $fileCount=0
+          $candidateCount=0
+          foreach($p in $locations) {
+            Write-Output ('R369_DIRECTORY='+$p)
+            $entries=@(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop)
+            if ($entries.Count -gt 500) { throw ('DIRECTORY_ENTRY_BOUND_EXCEEDED='+$p) }
+            foreach($entry in $entries) {
+              if ($entry.PSIsContainer) {
+                Write-Output ('R369_SUBDIRECTORY='+$entry.FullName)
+                continue
+              }
+              $fileCount++
+              if ($fileCount -gt 500) { throw 'BOUNDED_FILE_COUNT_EXCEEDED' }
+              $rel=$entry.FullName.Substring($base.Length).TrimStart('\')
+              $sha=(Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Output ('R369_FILE='+$rel+' BYTES='+$entry.Length+' SHA256='+$sha)
+              if ($entry.Name -match '(?i)(manifest|provenance|build.?info|release.?info|source|commit|revision|checksums|sha256|receipt)' -or $entry.Extension -in @('.zip','.7z','.tar','.gz','.tgz','.manifest','.json')) {
+                $candidateCount++
+                if ($candidateCount -gt 100) { throw 'BOUNDED_CANDIDATE_COUNT_EXCEEDED' }
+                Write-Output ('R369_CANDIDATE='+$rel)
+                if ($entry.Extension -ieq '.json' -and $entry.Length -le 262144) {
+                  try {
+                    $obj=Get-Content -LiteralPath $entry.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    foreach($key in @('commit','commit_sha','source_sha','source_commit','revision','tree_sha','go_version','toolchain','builder','artifact_sha256','source_archive','source_path','repository','repo','branch','version','build_id')) {
+                      $prop=$obj.PSObject.Properties[$key]
+                      if ($null -ne $prop -and $null -ne $prop.Value) {
+                        $value=[string]$prop.Value
+                        if ($value.Length -gt 160) { $value=$value.Substring(0,160) }
+                        if ($value -notmatch '(?i)(token|password|secret|credential|private.?key|authorization)') {
+                          Write-Output ('R369_METADATA_'+$key+'='+$value)
+                        }
+                      }
                     }
+                  } catch {
+                    Write-Output ('R369_JSON_PARSE_UNAVAILABLE='+$rel)
                   }
                 }
-              } catch {
-                Write-Output ('R368_JSON_PARSE_UNAVAILABLE='+$rel)
               }
             }
           }
-          Write-Output 'R368_READ_ONLY=TRUE'
-          Write-Output 'R368_NO_CONTROLLER_DATABASE_TASK_QUEUE_OR_RELEASE_MUTATION=TRUE'
+          Write-Output ('R369_BOUNDED_FILE_COUNT='+$fileCount)
+          Write-Output ('R369_BOUNDED_CANDIDATE_COUNT='+$candidateCount)
+          Write-Output 'R369_READ_ONLY=TRUE'
+          Write-Output 'R369_NO_CONTROLLER_DATABASE_TASK_QUEUE_OR_RELEASE_MUTATION=TRUE'
