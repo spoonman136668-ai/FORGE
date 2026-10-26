@@ -411,9 +411,15 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v4",
                     "forge.f139.source-transition.v5",
                     "forge.f139.source-transition.v6",
-                    "forge.f139.source-transition.v7")]
+                    "forge.f139.source-transition.v7",
+                    "forge.f139.source-transition.v8")]
             provider_failures=db.verified_native_provider_failures()
-            all_certified={NEGATIVE_TICKET,SECOND_TICKET}|set(provider_failures)
+            from f139.nci04_g49_prepost_negative import (
+                verify_g49_custody, TICKET as PREPOST)
+            prepost=verify_g49_custody(db)
+            all_certified=({NEGATIVE_TICKET,SECOND_TICKET}
+                           | set(provider_failures)
+                           | ({PREPOST} if prepost else set()))
             four_certified=(
                 len(failures)>=3
                 and bool(provider_failures)
