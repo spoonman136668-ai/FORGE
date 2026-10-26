@@ -387,7 +387,7 @@ jobs:
           meta=dict(con.execute("SELECT schema,source_sha,enabled,legacy_suspended,head_seq,head_hash FROM meta WHERE id=1").fetchone())
           counts=[dict(r) for r in con.execute("SELECT stage,COUNT(*) AS count FROM tasks GROUP BY stage ORDER BY stage")]
           latest=[dict(r) for r in con.execute("SELECT seq,kind,payload FROM events WHERE kind IN ('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED','NATIVE_V9_TRANSITION','NATIVE_DEVELOPMENT_ACTIVATED') ORDER BY seq DESC LIMIT 12")]
-          active=[dict(r) for r in con.execute("SELECT ticket,lane,stage,source_sha,run_id,issue_number FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY created_at LIMIT 12")]
+          active=[dict(r) for r in con.execute("SELECT ticket,lane,stage,source_sha,run_id,started_at,completed_at,quarantine_reason FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 12")]
           print(json.dumps({"quick_check":check,"meta":meta,"task_counts":counts,"active_or_ready":active,"relevant_events":latest},sort_keys=True))
           '@
           $dbReport | & $python -B - $db
