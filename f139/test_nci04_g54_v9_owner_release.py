@@ -4,7 +4,10 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from f139.local_controller import Database, cli
+from f139.local_controller import (
+    Database, cli, v2_owner_terminal_release_guard,
+)
+from f139.nci04_owner_ledger import activate_native
 from f139.nci04_v9_owner_release import (
     EXPECTED_HEAD_SEQ, EXPECTED_HEAD_SHA256, FIELDS, SCHEMA, SOURCE_V8,
     SHA40, SHA64, V9OwnerDenied, validate_v9_original_owner,
@@ -51,6 +54,19 @@ class G54V9OwnerReleaseTests(unittest.TestCase):
         self.assertIn('events[-1]["schema"] ==', source)
         self.assertIn('"forge.f139.source-transition.v8"', source)
         self.assertIn("allow_v9 is True", source)
+
+    def test_native_activation_accepts_sealed_v9_negative_successor(self):
+        source = inspect.getsource(activate_native)
+        self.assertIn('"forge.f139.source-transition.v9"', source)
+        self.assertIn('negative_successors[-1]["to_source_sha"]==meta["source_sha"]', source)
+        self.assertIn('negative_successors[-1]["custodied_negative_tickets"]==sorted(all_certified)', source)
+
+    def test_v2_guard_validates_v9_v8_seal_and_g49_before_activation(self):
+        source = inspect.getsource(v2_owner_terminal_release_guard)
+        self.assertIn('event.get("schema")=="forge.f139.source-transition.v9"', source)
+        self.assertIn('event.get("v8_terminal_event_sha256")==v8_rows[0]["sha"]', source)
+        self.assertIn("verify_g49_custody(db)", source)
+        self.assertIn("verify_native_activation(db)", source)
 
     def test_cold_verifier_binds_v8_and_g49_custody(self):
         source = inspect.getsource(Database.verify)
