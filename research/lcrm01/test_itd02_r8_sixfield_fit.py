@@ -9,7 +9,7 @@ class FitBindingTest(unittest.TestCase):
         old_fit=subject.k4x.FIT_SEEDS
         def fake_fit():
             self.assertEqual(subject.k4y.SEEDS["FIT"],tuple(range(81400,81424)))
-            return ([{"fixture":True}]*12000,[1],{},0.0,{"eligible":True})
+            return ([{"family":"empty","action":2}]*12000,[1],{},0.0,{"eligible":True})
         with patch.object(subject.k4y,"fit",side_effect=fake_fit),patch.object(subject,"fit_sixfield",return_value=({"model":1},"digest")):
             learned,receipt=subject.train_sixfield_fit()
         self.assertEqual(receipt["fit_seeds"],[81400,81423])
