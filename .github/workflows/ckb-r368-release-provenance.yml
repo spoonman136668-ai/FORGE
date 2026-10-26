@@ -1,4 +1,4 @@
-name: CKB R406 full candidate source-tree comparison
+name: CKB R407 locate R220-era local source archives
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -21,18 +21,11 @@ jobs:
           foreach($p in @($base,$releases,$release)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
-          $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $candidates=@('C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate','C:\Users\camar\GolandProjects\ckb-plane-dk-work')
-          $rel=@(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -Filter '*.go' | ForEach-Object {$_.FullName.Substring($root.Length+1)})
-          $rel+=@('go.mod','go.sum')
-          foreach($candidate in $candidates){
-            if(!(Test-Path -LiteralPath $candidate -PathType Container)){continue}
-            $same=0;$different=0;$missing=0
-            foreach($p in $rel){
-              $a=Join-Path $root $p;$b=Join-Path $candidate $p
-              if(!(Test-Path -LiteralPath $b -PathType Leaf)){$missing++;continue}
-              if((Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash -ceq (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash){$same++}else{$different++}
-            }
-            Write-Output ('R406_CANDIDATE='+$candidate+' SAME='+$same+' DIFFERENT='+$different+' MISSING='+$missing)
+          $roots=@('C:\Users\camar\GolandProjects','C:\ProgramData\CKBR\release-store\ckb-plane')
+          foreach($root in $roots){
+            if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
+            $items=@(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)(r220|livecompat|source|backup)' -and $_.Extension -match '(?i)^\.(zip|tar|gz|7z|json|txt)$'} | Select-Object -First 80)
+            Write-Output ('R407_ROOT='+$root+' MATCHES='+$items.Count)
+            foreach($f in $items){Write-Output ('R407_ARCHIVE='+$f.FullName+' BYTES='+$f.Length)}
           }
-          Write-Output 'R406_READ_ONLY=TRUE'
+          Write-Output 'R407_READ_ONLY=TRUE'
