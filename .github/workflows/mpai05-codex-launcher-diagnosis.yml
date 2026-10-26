@@ -1,0 +1,32 @@
+name: MP-AI05 Codex launcher diagnosis
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-launcher-diagnosis.yml']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: Inspect Codex launcher safely without model calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $cmd=Get-Command codex -ErrorAction Stop
+          Write-Host ('MPAI05_CODEX_COMMAND_TYPE='+$cmd.CommandType)
+          Write-Host ('MPAI05_CODEX_EXTENSION='+[IO.Path]::GetExtension($cmd.Source))
+          $native=Get-Command codex.exe -ErrorAction SilentlyContinue
+          Write-Host ('MPAI05_NATIVE_CODEX_EXE_PRESENT='+[bool]($null -ne $native))
+          $node=Get-Command node -ErrorAction SilentlyContinue
+          Write-Host ('MPAI05_NODE_PRESENT='+[bool]($null -ne $node))
+          $help=@(& codex exec --help 2>&1)
+          Write-Host ('MPAI05_CODEX_EXEC_HELP_EXIT='+$LASTEXITCODE)
+          foreach($flag in @('--ephemeral','--skip-git-repo-check','--sandbox','--output-last-message')) {
+            Write-Host ('MPAI05_FLAG_'+$flag.TrimStart('-').Replace('-','_').ToUpperInvariant()+'='+[bool](($help -join [Environment]::NewLine).Contains($flag)))
+          }
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
