@@ -81,4 +81,53 @@ jobs:
           Write-Output ('R341_RUNNING_GO_VCS_REVISION='+$(if($vcs){$vcs}else{'NOT_EMBEDDED'}))
           Write-Output ('R341_RUNNING_GO_VCS_MODIFIED='+$(if($modified){$modified}else{'NOT_EMBEDDED'}))
           foreach($entry in $builds){Write-Output ('R341_RUNNING_GO_BUILD_FLAG='+$entry)}
+
+          # Identify only non-sensitive source file identities alongside the
+          # existing original executable. No live DB reads, queue inspection,
+          # original file writes or process control.
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $paths=@($root, (Join-Path $root 'snapshot\source'))
+          $candidateRoots=@($paths|Where-Object {
+             (Test-Path -LiteralPath (Join-Path $_ 'go.mod') -PathType Leaf) -and
+             (Test-Path -LiteralPath (Join-Path $_ 'internal\plane\autonomy_controls.go') -PathType Leaf) -and
+             (Test-Path -LiteralPath (Join-Path $_ 'internal\plane\webui_bridge.go') -PathType Leaf)
+          })
+          if($candidateRoots.Count -ne 1){
+             Write-Output ('R343_ORIGINAL_HOST_GO_CHECKOUT_FOUND='+$candidateRoots.Count)
+             Write-Output 'R343_INSTALLED_PROCESS_SOURCE_EQUIVALENCE=UNVERIFIED'
+          } else {
+             $tree=[string]$candidateRoots[0]
+             $mod=[IO.File]::ReadAllText((Join-Path $tree 'go.mod'))
+             if($mod -notmatch '(?m)^module ckb-plane\s*$' -or
+                $mod -notmatch '(?m)^go 1\.25\.5\s*$'){
+                throw 'R343_LOCAL_SOURCE_MODULE_IDENTITY_DRIFT'
+             }
+             foreach($item in @(
+               @{name='autonomy_controls.go'; baseline='2970635f597a2d5f00a7c7468d87b5bae0af27db'; patched='daa7ead6648b0dc58765418c58f570a289bc12ce'},
+               @{name='webui_bridge.go';baseline='2dff3a64ca8e5f85a219edea699c6d35fe283300';patched='b929de2ca590589568b77de3355490af454d42c4'},
+               @{name='autonomy.go';baseline='f5d99410c80627234c4d38df31a65d82d5087d53';patched=''}
+             )){
+                $file=Join-Path $tree ('internal\plane\'+[string]$item.name)
+                $info=Get-Item -LiteralPath $file -Force -ErrorAction Stop
+                if($info.PSIsContainer -or
+                   ($info.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){
+                   throw 'R343_SOURCE_PATH_NOT_REGULAR_FILE'
+                }
+                $prior=$ErrorActionPreference
+                try{$ErrorActionPreference='Continue';$blob=@(& git.exe hash-object -- $file 2>&1);$rc=$LASTEXITCODE}
+                finally{$ErrorActionPreference=$prior}
+                if($rc -ne 0 -or $blob.Count -ne 1 -or
+                   [string]$blob[0] -notmatch '^[0-9a-f]{40}$'){
+                   throw 'R343_SOURCE_BLOB_FINGERPRINT_UNAVAILABLE'
+                }
+                $hash=[string]$blob[0]
+                Write-Output ('R343_LOCAL_SOURCE_'+[string]$item.name+'_MATCH_FROZEN_BASELINE='+[string]($hash -ceq [string]$item.baseline))
+                if([string]$item.patched -ne ''){
+                   Write-Output ('R343_LOCAL_SOURCE_'+[string]$item.name+'_MATCH_R326_PATCHED='+[string]($hash -ceq [string]$item.patched))
+                }
+             }
+             Write-Output 'R343_ORIGINAL_NATIVE_SOURCE_CHECKOUT_MODULE_VALID=PASS'
+             Write-Output 'R343_INSTALLED_BINARY_SOURCE_EQUIVALENCE=NOT_PROVEN_BY_SOURCE_HASHES'
+          }
+
           Write-Output 'R341_NO_NATIVE_DB_QUEUE_TASK_OR_CONTROLLER_MUTATION=TRUE'
