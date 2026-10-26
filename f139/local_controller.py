@@ -715,13 +715,34 @@ class Database:
                             "ORDER BY seq", (row["seq"],))
                         if json.loads(t["payload"])["schema"] ==
                             "forge.f139.source-transition.v9"]
+                    from f139.nci04_negative_owner_store import (
+                        verify_original_negative_custody, TICKET as FIRST)
+                    from f139.nci04_split_negative_owner_store import (
+                        verify_second_negative_custody, TICKET as SECOND)
+                    from f139.nci04_g49_prepost_negative import (
+                        verify_g49_custody, TICKET as PREPOST)
+                    provider_failures = self.verified_native_provider_failures(
+                        through_seq=row["seq"])
+                    expected = sorted({FIRST, SECOND, PREPOST} |
+                                      set(provider_failures))
                     require(len(v9_rows) == 1 and source_transitions
                             and source_transitions[-1]["schema"] ==
                                 "forge.f139.source-transition.v9"
                             and doc["from_source_sha"] ==
                                 source_transitions[-1]["to_source_sha"]
                             and doc["v9_terminal_event_sha256"] == v9_rows[0]["sha"]
-                            and doc["v2_receipt_authorized"] is False,
+                            and doc["v2_receipt_authorized"] is False
+                            and len(provider_failures) >= 1
+                            and verify_original_negative_custody(self)
+                            and verify_second_negative_custody(self)
+                            and verify_g49_custody(self)
+                            and doc["custodied_negative_tickets"] == expected
+                            and doc["custodied_negative_tasks"] == len(expected)
+                            and doc["provider_failures_sha256"] == hash_bytes(
+                                canonical([{"ticket": ticket,
+                                            "source_sha": provider_failures[ticket][0],
+                                            "event_sha": provider_failures[ticket][1]}
+                                           for ticket in sorted(provider_failures)])),
                             "SOURCE_TRANSITION_V10_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
