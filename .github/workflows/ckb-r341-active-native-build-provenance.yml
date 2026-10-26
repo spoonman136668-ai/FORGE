@@ -52,6 +52,8 @@ jobs:
           $mod=''
           $modified=''
           $builds=@()
+          $extra=@()
+
           foreach($line in $lines){
              $t=[string]$line
              if($t -match '(?<![A-Za-z0-9])go1\.[0-9]+(?:\.[0-9]+)?'){$gover=$Matches[0]}
@@ -64,8 +66,20 @@ jobs:
              elseif($t -match '^\s*build\s+vcs\.modified=(true|false)\s*$'){
                 $modified=$Matches[1]
              }
-             elseif($t -match '^\s*build\s+(GOOS|GOARCH|CGO_ENABLED|vcs)=(Windows|windows|amd64|0|1|git)\s*$'){
-                $builds+=($Matches[1]+'='+$Matches[2])
+             elseif($t -match '^\s*build\s+([A-Za-z0-9_.-]+)=(.*)$'){
+                $key=$Matches[1]
+                $value=$Matches[2]
+                if($key -in @('GOOS','GOARCH','CGO_ENABLED','vcs','-buildmode','-compiler','-trimpath','-ldflags','-gcflags','-tags','GOEXPERIMENT','-mod','-modcacherw','-overlay','-pgo')){
+                   # Emit a whitelist of build knobs; never print arbitrary module
+                   # dependencies, paths, linker values or process arguments.
+                   if($key -in @('GOOS','GOARCH','CGO_ENABLED','vcs','-buildmode','-compiler','-trimpath','-mod','-modcacherw','-pgo')){
+                      $builds+=($key+'='+$value)
+                   }elseif($value -match '^[A-Za-z0-9_.,=+-]{0,120}$'){
+                      $extra+=($key+'='+$value)
+                   }else{
+                      $extra+=($key+'=<present>')
+                   }
+                }
              }
           }
           Write-Output ('R341_GO_VERSION_CAPTURED='+[string]($gover -ne ''))
@@ -195,5 +209,9 @@ jobs:
              }
           }
           $global:LASTEXITCODE=0
+
+          foreach($entry in ($builds|Select-Object -Unique)){Write-Output ('R345_SAFE_BUILD_SETTING='+$entry)}
+          foreach($entry in ($extra|Select-Object -Unique)){Write-Output ('R345_SAFE_BUILD_SETTING='+$entry)}
+          Write-Output ('R345_ACTIVE_IMAGE_SYMBOL_PROBE_AVAILABLE='+[string]((Get-Command go.exe -ErrorAction SilentlyContinue) -ne $null))
 
           Write-Output 'R341_NO_NATIVE_DB_QUEUE_TASK_OR_CONTROLLER_MUTATION=TRUE'
