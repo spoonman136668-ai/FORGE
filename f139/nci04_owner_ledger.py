@@ -413,7 +413,8 @@ def activate_native(db, approval: dict) -> bool:
                     "forge.f139.source-transition.v6",
                     "forge.f139.source-transition.v7",
                     "forge.f139.source-transition.v8",
-                    "forge.f139.source-transition.v9")]
+                    "forge.f139.source-transition.v9",
+                    "forge.f139.source-transition.v10")]
             provider_failures=db.verified_native_provider_failures()
             from f139.nci04_g49_prepost_negative import (
                 verify_g49_custody, TICKET as PREPOST)
