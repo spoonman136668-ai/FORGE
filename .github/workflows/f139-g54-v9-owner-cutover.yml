@@ -226,7 +226,7 @@ jobs:
             if($readback.enabled -ne $true -or $readback.source_sha -cne $target) {
               throw 'F139_G54_POLICY_READBACK_FAILED'
             }
-            $log=Join-Path (Split-Path $db -Parent) 'logs\\controller.log'
+            $log=Join-Path (Split-Path $db -Parent) (Join-Path (Join-Path (Split-Path $db -Parent) 'logs') 'controller.log')
             $beforeLines=0
             if(Test-Path -LiteralPath $log){$beforeLines=@(Get-Content -LiteralPath $log).Count}
             Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
@@ -237,7 +237,7 @@ jobs:
               if(-not(Test-Path -LiteralPath $log)){continue}
               $lines=@(Get-Content -LiteralPath $log)
               foreach($line in ($lines | Select-Object -Skip $beforeLines)){
-                if($line -notmatch '^\\s*\\{'){continue}
+                if(-not $line.StartsWith('{')){continue}
                 try{$entry=$line | ConvertFrom-Json}catch{continue}
                 if($entry.disposition -eq 'MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED'){
                   throw 'F139_G54_MAIN_SOURCE_DRIFT_REMAINS'
