@@ -285,3 +285,143 @@ jobs:
             if($resumed){Write-Warning 'F139_G54_POST_CUTOVER_EVIDENCE_FAILED_EXISTING_TASK_LEFT_RUNNING'}
             throw
           }
+
+  read-only-status:
+    if: ${{ github.actor == 'spoonman136668-ai' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V9-STATUS ') }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read original owner, ledger, and controller evidence without mutation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          F139_STATUS_COMMENT: ${{ github.event.comment.body }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $prefix='F139-V9-STATUS '
+          if($env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:F139_STATUS_COMMENT -cnotmatch '^F139-V9-STATUS [a-f0-9]{40}$') {
+            throw 'F139_G54_STATUS_WRONG_OWNER_EVENT'
+          }
+          $target=$env:F139_STATUS_COMMENT.Substring($prefix.Length)
+          if($target -cne $env:GITHUB_SHA -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne $target) {
+            throw 'F139_G54_STATUS_EXACT_MAIN_COMMIT_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+                  [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_G54_STATUS_ESCALATED_OWNER_REQUIRED'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true -or
+             $main.commit.sha -cne $target) {
+            throw 'F139_G54_STATUS_PROTECTED_MAIN_DRIFT'
+          }
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.issue.number -ne 807 -or
+             $event.comment.user.login -cne 'spoonman136668-ai' -or
+             [string]$event.comment.body -cne $env:F139_STATUS_COMMENT -or
+             [int64]$event.comment.id -le 0) {
+            throw 'F139_G54_STATUS_APPROVAL_EVENT_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Ready','Running') -or
+             @($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_G54_STATUS_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $owner=[string]$task.Principal.UserId
+          $sid=''
+          try {$sid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+                 [Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($owner -ine $identity.Name -and $sid -cne $identity.User.Value) {
+            throw 'F139_G54_STATUS_OWNER_SID_DRIFT'
+          }
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+                   '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G54_STATUS_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          if(-not(Test-Path -LiteralPath $db -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $target -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_G54_STATUS_INSTALLED_OWNER_SOURCE_DRIFT'
+          }
+          $policy=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+          $policyBody=[string]$policy.body | ConvertFrom-Json
+          if($policy.user.login -cne 'spoonman136668-ai' -or
+             $policyBody.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+             $policyBody.enabled -ne $true -or $policyBody.source_sha -cne $target -or
+             $policyBody.scientific_first_use -ne $false -or
+             $policyBody.paid_model_calls -ne 0 -or
+             $policyBody.new_controller -ne $false -or
+             $policyBody.new_scheduler -ne $false -or
+             $policyBody.new_queue -ne $false) {
+            throw 'F139_G54_STATUS_OWNER_POLICY_DRIFT'
+          }
+          $dbReport = @'
+          import json, sqlite3, sys
+          path=sys.argv[1]
+          uri="file:"+path.replace("\\","/")+"?mode=ro"
+          con=sqlite3.connect(uri,uri=True)
+          con.row_factory=sqlite3.Row
+          con.execute("PRAGMA query_only=ON")
+          check=con.execute("PRAGMA quick_check").fetchone()[0]
+          meta=dict(con.execute("SELECT schema,source_sha,enabled,legacy_suspended,head_seq,head_hash FROM meta WHERE id=1").fetchone())
+          counts=[dict(r) for r in con.execute("SELECT stage,COUNT(*) AS count FROM tasks GROUP BY stage ORDER BY stage")]
+          latest=[dict(r) for r in con.execute("SELECT seq,kind,payload FROM events WHERE kind IN ('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED','NATIVE_V9_TRANSITION','NATIVE_DEVELOPMENT_ACTIVATED') ORDER BY seq DESC LIMIT 12")]
+          active=[dict(r) for r in con.execute("SELECT ticket,lane,stage,source_sha,run_id,started_at,completed_at,quarantine_reason FROM tasks WHERE stage IN ('READY','START_RISK','WAIT_PROVIDER') ORDER BY ticket LIMIT 12")]
+          print(json.dumps({"quick_check":check,"meta":meta,"task_counts":counts,"active_or_ready":active,"relevant_events":latest},sort_keys=True))
+          '@
+          $dbReport | & $python -B - $db
+          if($LASTEXITCODE -ne 0){throw 'F139_G54_STATUS_SQLITE_READ_FAILED'}
+          $log=Join-Path (Split-Path $db -Parent) (Join-Path 'logs' 'controller.log')
+          if(Test-Path -LiteralPath $log) {
+            $entries=@()
+            foreach($line in (Get-Content -LiteralPath $log | Select-Object -Last 2000)) {
+              if(-not $line.StartsWith('{')){continue}
+              try {$e=$line | ConvertFrom-Json}catch{continue}
+              function OptionalField($object,[string]$name) {
+                $property=$object.PSObject.Properties[$name]
+                if($null -eq $property){return $null}
+                return $property.Value
+              }
+              $entries += [pscustomobject]@{
+                timestamp=(OptionalField $e 'at')
+                disposition=(OptionalField $e 'disposition')
+                event=(OptionalField $e 'event')
+                blocked=(OptionalField $e 'blocked')
+                error=(OptionalField $e 'error')
+                reason=(OptionalField $e 'reason')
+                ticket=(OptionalField $e 'ticket')
+                issue_number=(OptionalField $e 'issue_number')
+                candidates=(OptionalField $e 'candidates')
+                rejected=(OptionalField $e 'rejected')
+                detail=(OptionalField $e 'detail')
+              }
+            }
+            Write-Host ('F139_G54_CONTROLLER_LOG_TAIL=' + (($entries | Select-Object -Last 30 | ConvertTo-Json -Compress -Depth 6)))
+          } else { Write-Host 'F139_G54_CONTROLLER_LOG=MISSING' }
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          Write-Host ('F139_G54_OWNER_TASK_STATE=' + [string]$task.State)
+          Write-Host ('F139_G54_OWNER_TASK_LAST_RUN=' + [string]$taskInfo.LastRunTime)
+          Write-Host ('F139_G54_OWNER_TASK_NEXT_RUN=' + [string]$taskInfo.NextRunTime)
+          Write-Host ('F139_G54_INSTALLED_SOURCE_SHA=' + ((& git -C $root rev-parse HEAD | Out-String).Trim()))
+          Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
