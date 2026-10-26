@@ -31,9 +31,9 @@ class SteeringProvider:
                 b"LEARNING-MECHANISM-DISCOVERY.md\n"
                 b"INDEPENDENT-SCIENTIFIC-VALIDATION.md\n",
             steering.DOCUMENTS[1][0]:
-                b"decision-discriminating source-native integration\n",
+                b"Decision-discriminating source-native integration\n",
             steering.DOCUMENTS[2][0]:
-                b"learning-progress and multi-fidelity prioritization\n",
+                b"Learning-progress and Multi-fidelity prioritization\n",
             steering.DOCUMENTS[3][0]:
                 b"independent development ablation confirmation\n",
         }
