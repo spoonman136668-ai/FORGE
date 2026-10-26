@@ -62,23 +62,46 @@ class OriginalProducerNotAdmittedTests(unittest.TestCase):
         with self.assertRaises(NotAdmitted):
             owner.step("Backup")
 
-    def test_rejected_external_admission_has_zero_original_draws(self):
-        owner = self.make_owner(admission=_RejectingVerifier(),
-                                journal=_ForbiddenJournal())
-        with self.assertRaisesRegex(NotAdmitted, "NOT_AVAILABLE"):
-            self.opening(owner)
-        self.assertIsNone(owner._rng)
-        self.assertIsNone(owner._state)
-        self.assertEqual(owner.public_metadata()["steps"], 0)
+    def test_injected_fake_authority_cannot_draw_original_rng(self):
+        # Previously an attacker-supplied verifier returning a matching dict
+        # and a no-op journal could pass the old shape-only admission gate.
+        # No actual original episode may run under either fake.
+        class ForgedVerifier:
+            calls = 0
+            def verify_open(self, meta):
+                self.calls += 1
+                return {**meta, "authority_receipt": "FAKE-UNSIGNED-GRANT"}
 
-    def test_mismatched_external_grant_is_not_accepted(self):
-        owner = self.make_owner(admission=_MismatchedVerifier(),
-                                journal=_ForbiddenJournal())
-        with self.assertRaisesRegex(NotAdmitted, "GRANT_MISMATCH"):
+        class FakeJournal:
+            calls = 0
+            def write_intent(self, record):
+                self.calls += 1
+            def write_terminal(self, record):
+                self.calls += 1
+
+        verifier, journal = ForgedVerifier(), FakeJournal()
+        owner = self.make_owner(admission=verifier, journal=journal)
+        with self.assertRaisesRegex(NotAdmitted, "AUTHORITY_UNPROVISIONED"):
             self.opening(owner)
+        self.assertEqual(verifier.calls, 0)
+        self.assertEqual(journal.calls, 0)
         self.assertIsNone(owner._rng)
         self.assertIsNone(owner._state)
+        self.assertFalse(owner.public_metadata()["open"])
         self.assertEqual(owner.public_metadata()["steps"], 0)
+        with self.assertRaises(NotAdmitted):
+            owner.step("Backup")
+
+    def test_rejecting_and_mismatched_external_adapters_cannot_start(self):
+        for adapter in (_RejectingVerifier(), _MismatchedVerifier()):
+            with self.subTest(adapter=type(adapter).__name__):
+                owner = self.make_owner(admission=adapter,
+                                        journal=_ForbiddenJournal())
+                with self.assertRaisesRegex(NotAdmitted, "AUTHORITY_UNPROVISIONED"):
+                    self.opening(owner)
+                self.assertIsNone(owner._rng)
+                self.assertIsNone(owner._state)
+                self.assertEqual(owner.public_metadata()["steps"], 0)
 
     def test_no_direct_step_or_invalid_action_before_admission(self):
         owner = self.make_owner()
