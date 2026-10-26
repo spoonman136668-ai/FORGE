@@ -1,4 +1,4 @@
-name: CKB R405 compare historical native snapshots against current source
+name: CKB R406 full candidate source-tree comparison
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -23,17 +23,16 @@ jobs:
           }
           $root='C:\Users\camar\GolandProjects\ckb-plane'
           $candidates=@('C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate','C:\Users\camar\GolandProjects\ckb-plane-dk-work')
-          $relative=@('go.mod','internal\plane\model.go','cmd\ckb-plane\main.go')
+          $rel=@(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -Filter '*.go' | ForEach-Object {$_.FullName.Substring($root.Length+1)})
+          $rel+=@('go.mod','go.sum')
           foreach($candidate in $candidates){
             if(!(Test-Path -LiteralPath $candidate -PathType Container)){continue}
-            $matches=0;$checked=0
-            foreach($rel in $relative){
-              $a=Join-Path $root $rel;$b=Join-Path $candidate $rel
-              if((Test-Path -LiteralPath $a -PathType Leaf) -and (Test-Path -LiteralPath $b -PathType Leaf)){
-                $checked++
-                if((Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash -ceq (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash){$matches++}
-              }
+            $same=0;$different=0;$missing=0
+            foreach($p in $rel){
+              $a=Join-Path $root $p;$b=Join-Path $candidate $p
+              if(!(Test-Path -LiteralPath $b -PathType Leaf)){$missing++;continue}
+              if((Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash -ceq (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash){$same++}else{$different++}
             }
-            Write-Output ('R405_CANDIDATE='+$candidate+' CHECKED='+$checked+' MATCHED='+$matches)
+            Write-Output ('R406_CANDIDATE='+$candidate+' SAME='+$same+' DIFFERENT='+$different+' MISSING='+$missing)
           }
-          Write-Output 'R405_READ_ONLY=TRUE'
+          Write-Output 'R406_READ_ONLY=TRUE'
