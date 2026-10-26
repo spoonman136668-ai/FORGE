@@ -33,4 +33,21 @@ class FitBindingTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"NOT_QUALIFIED"):
                 subject.train_sixfield_fit()
 
+    def test_seed_contamination_rejected_before_model_fit(self):
+        stream=[{"family":f,"seed":81400,"action":2} for f in ("empty","fourrooms") for _ in range(6000)]
+        stream[0]["seed"]=82400
+        audit={f:{"public_steps":6000,"episodes_executed":1,"distinct_training_seeds":1} for f in ("empty","fourrooms")}
+        with patch.object(subject.k4y,"fit",return_value=(stream,[{"family":"empty","seed":81400}],audit,0,{"eligible":True})),patch.object(subject,"fit_sixfield") as fit:
+            with self.assertRaisesRegex(ValueError,"SEED_CONTAMINATION"):
+                subject.train_sixfield_fit()
+            fit.assert_not_called()
+    def test_audit_imbalance_rejected_before_model_fit(self):
+        stream=[{"family":f,"seed":81400,"action":2} for f in ("empty","fourrooms") for _ in range(6000)]
+        audit={f:{"public_steps":6000,"episodes_executed":1,"distinct_training_seeds":1} for f in ("empty","fourrooms")}
+        audit["empty"]["public_steps"]=5999
+        with patch.object(subject.k4y,"fit",return_value=(stream,[{"family":"empty","seed":81400}],audit,0,{"eligible":True})),patch.object(subject,"fit_sixfield") as fit:
+            with self.assertRaisesRegex(ValueError,"SOURCE_AUDIT_MISMATCH"):
+                subject.train_sixfield_fit()
+            fit.assert_not_called()
+
 if __name__=="__main__":unittest.main()
