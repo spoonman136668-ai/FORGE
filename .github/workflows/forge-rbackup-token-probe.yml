@@ -1,24 +1,26 @@
-name: FORGE private RBACKUP credential permission probe
+name: FORGE private RBACKUP Windows custody-source qualification
 on:
   push:
     branches: [qualification/forge-rbackup-token-probe-20261026]
 permissions:
   contents: read
 jobs:
-  probe:
+  qualify:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
-      - name: Check existing private vault access without disclosure or mutation
+      - name: Fetch pinned private RBACKUP source, then run offline Windows tests
         shell: pwsh
         env:
           RBACKUP_WRITE_TOKEN: ${{ secrets.RBACKUP_WRITE_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
+          $repoName = 'spoonman136668-ai/rbackup'
+          $source = 'aac8b2983e89d454e4e65efa50e1ba51d4ee30f8'
           if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
               $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
-            throw 'RBACKUP_PROBE_WRONG_RUNNER_OR_REPOSITORY'
+            throw 'RBACKUP_QUALIFICATION_WRONG_RUNNER'
           }
           if ([string]::IsNullOrWhiteSpace($env:RBACKUP_WRITE_TOKEN)) {
             throw 'RBACKUP_WRITE_TOKEN_UNAVAILABLE'
@@ -28,20 +30,51 @@ jobs:
             Accept = 'application/vnd.github+json'
             'X-GitHub-Api-Version' = '2022-11-28'
           }
+          $root = Join-Path $env:RUNNER_TEMP ('rbackup-source-tests-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $root) { throw 'RBACKUP_SCRATCH_ALREADY_EXISTS' }
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
           try {
-            $repo = Invoke-RestMethod -Method Get -Uri 'https://api.github.com/repos/spoonman136668-ai/rbackup' -Headers $headers -TimeoutSec 20
-          } catch {
-            throw 'RBACKUP_TOKEN_REPO_READ_DENIED'
+            try {
+              $commit = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/commits/$source" -Headers $headers -TimeoutSec 20
+              if ($commit.sha -cne $source) { throw 'RBACKUP_PIN_MISMATCH' }
+              $files = @(
+                'scripts/age_recovery_preflight.py',
+                'scripts/age_synthetic_d1_roundtrip.py',
+                'scripts/d1_encrypted_export.py',
+                'scripts/d1_isolated_restore_verify.py',
+                'tests/test_age_recovery_preflight.py',
+                'tests/test_age_synthetic_d1_roundtrip.py',
+                'tests/test_d1_encrypted_export.py',
+                'tests/test_d1_isolated_restore_verify.py'
+              )
+              foreach ($file in $files) {
+                $item = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/contents/$file?ref=$source" -Headers $headers -TimeoutSec 20
+                if ($item.type -cne 'file' -or $item.encoding -cne 'base64') { throw 'RBACKUP_SOURCE_FILE_FORMAT_UNEXPECTED' }
+                $dest = Join-Path $root ($file -replace '/', [IO.Path]::DirectorySeparatorChar)
+                $parent = Split-Path -Parent $dest
+                New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                $bytes = [Convert]::FromBase64String(($item.content -replace '\s', ''))
+                [IO.File]::WriteAllBytes($dest, $bytes)
+              }
+            } catch {
+              throw 'RBACKUP_PINNED_SOURCE_FETCH_FAILED'
+            }
+            $env:RBACKUP_WRITE_TOKEN = $null
+            Remove-Item Env:RBACKUP_WRITE_TOKEN,Env:GH_TOKEN,Env:GITHUB_TOKEN -ErrorAction SilentlyContinue
+            $headers.Clear()
+            Push-Location $root
+            try {
+              $python = Get-Command python -ErrorAction Stop
+              & $python.Source -B -m unittest discover -s tests -p 'test_*.py' -v
+              if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_WINDOWS_SOURCE_TESTS_FAILED' }
+              Write-Output 'RBACKUP_WINDOWS_SOURCE_TESTS=PASS'
+              Write-Output 'RBACKUP_SOURCE_SHA=$source'
+              Write-Output 'CLOUDFLARE_ACCESS=NONE'
+              Write-Output 'D1_EXPORT=NOT_EXECUTED'
+              Write-Output 'RBACKUP_WRITE=NONE'
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
           }
-          if ($repo.visibility -cne 'private') {
-            throw 'RBACKUP_REPOSITORY_VISIBILITY_MISMATCH'
-          }
-          if ($repo.permissions.push -ne $true) {
-            Write-Output 'RBACKUP_PRIVATE_READ=PASS'
-            Write-Output 'RBACKUP_WRITE_PERMISSION=ABSENT'
-            throw 'RBACKUP_WRITE_PERMISSION_MISSING'
-          }
-          Write-Output 'RBACKUP_PRIVATE_READ=PASS'
-          Write-Output 'RBACKUP_WRITE_PERMISSION=PASS'
-          Write-Output 'SECRET_VALUE_OUTPUT=NONE'
-          Write-Output 'RBACKUP_MUTATION=NONE'
