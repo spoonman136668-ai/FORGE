@@ -209,12 +209,15 @@ jobs:
               db.verify()
               current = db.meta()
               row = db.conn.execute(
-                  "SELECT stage,source_sha,run_id,started_at FROM tasks WHERE ticket=?",
-                  (TICKET,)).fetchone()
+                  "SELECT stage,source_sha,run_id,started_at,quarantine_reason "
+                  "FROM tasks WHERE ticket=?", (TICKET,)).fetchone()
+              expected_stage = "QUARANTINED" if already else "START_RISK"
               if ((current["head_seq"], current["head_hash"]) != before
-                      or row is None or row["stage"] != "START_RISK"
+                      or row is None or row["stage"] != expected_stage
                       or row["source_sha"] != SOURCE or row["run_id"] is not None
-                      or row["started_at"] != STARTED):
+                      or row["started_at"] != STARTED
+                      or (already and row["quarantine_reason"] != REASON)
+                      or (not already and row["quarantine_reason"] is not None)):
                   raise SystemExit("F139_G54_RELEASE_LEDGER_CHANGED_DURING_READS")
 
               backup = None
