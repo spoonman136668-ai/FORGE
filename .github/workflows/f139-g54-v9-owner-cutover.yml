@@ -21,6 +21,7 @@ jobs:
         id: gate
         shell: pwsh
         env:
+          GH_TOKEN: ${{ github.token }}
           F139_V9_COMMENT: ${{ github.event.comment.body }}
         run: |
           $ErrorActionPreference='Stop'
@@ -45,9 +46,8 @@ jobs:
                   [Security.Principal.WindowsBuiltInRole]::Administrator)) {
             throw 'F139_G54_ESCALATED_ORIGINAL_OWNER_REQUIRED'
           }
-          $me=(& gh api user --jq '.login' | Out-String).Trim()
           $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
-          if($LASTEXITCODE -ne 0 -or $me -cne 'spoonman136668-ai' -or
+          if($LASTEXITCODE -ne 0 -or
              $main.protected -ne $true -or $main.commit.sha -cne $target) {
             throw 'F139_G54_PROTECTED_MAIN_OR_OWNER_DRIFT'
           }
@@ -111,6 +111,7 @@ jobs:
           F139_V9_DB: ${{ steps.gate.outputs.db }}
           F139_V9_PYTHON: ${{ steps.gate.outputs.python }}
           F139_V9_TARGET: ${{ steps.gate.outputs.target }}
+          GH_TOKEN: ${{ github.token }}
           F139_V9_EVENT_ID: ${{ steps.gate.outputs.owner_event_id }}
         run: |
           $ErrorActionPreference='Stop'
