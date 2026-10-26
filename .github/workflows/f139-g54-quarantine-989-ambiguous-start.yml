@@ -257,17 +257,23 @@ jobs:
           $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($result))
           "result_b64=$encoded" >> $env:GITHUB_OUTPUT
       - name: Record owner-job result on FORGE policy issue
-        if: success()
+        if: always()
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           F139_RELEASE_RESULT_B64: ${{ steps.quarantine.outputs.result_b64 }}
+          F139_RELEASE_STEP_OUTCOME: ${{ steps.quarantine.outcome }}
+          F139_RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
-          $result=[Text.Encoding]::UTF8.GetString(
-              [Convert]::FromBase64String($env:F139_RELEASE_RESULT_B64))
-          $body="F139 G54 owner result for ticket #989 (no replay):`n"+$result
+          if([string]::IsNullOrWhiteSpace($env:F139_RELEASE_RESULT_B64)) {
+            $body="F139 G54 owner job did not produce a successful custody readback (step outcome=$($env:F139_RELEASE_STEP_OUTCOME)). No lane-release success is claimed. Inspect $($env:F139_RELEASE_RUN_URL) before taking another action."
+          } else {
+            $result=[Text.Encoding]::UTF8.GetString(
+                [Convert]::FromBase64String($env:F139_RELEASE_RESULT_B64))
+            $body="F139 G54 owner result for ticket #989 (no replay):`n"+$result+"`nRun: "+$env:F139_RELEASE_RUN_URL
+          }
           $payload=@{body=$body} | ConvertTo-Json -Compress
           $path=Join-Path $env:RUNNER_TEMP ('f139-g54-result-'+$env:GITHUB_RUN_ID+'.json')
           [IO.File]::WriteAllText($path,$payload,[Text.UTF8Encoding]::new($false))
