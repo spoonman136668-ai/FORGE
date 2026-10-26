@@ -5,7 +5,7 @@ on:
 permissions:
   actions: read
   contents: read
-  issues: read
+  issues: write
 concurrency:
   group: forge-g54-quarantine-989
   cancel-in-progress: false
@@ -113,6 +113,7 @@ jobs:
           "before_lines=$beforeLines" >> $env:GITHUB_OUTPUT
           Write-Host 'F139_G54_RELEASE_PREFLIGHT=PASS'
       - name: Confirm absent original run twice and append quarantine under existing owner lock
+        id: quarantine
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -125,7 +126,7 @@ jobs:
           $ErrorActionPreference='Stop'
           Set-StrictMode -Version Latest
           Set-Location -LiteralPath $env:F139_RELEASE_ROOT
-          @'
+          $resultLines = @'
           import datetime, json, pathlib, sqlite3, sys, time
           from f139.local_controller import Database, F139Error, GitHub, SingleOwner
           from f139.nci04_owner_ledger import frozen_native_issue, verify_native_activation
@@ -164,15 +165,29 @@ jobs:
               if meta["source_sha"] != SOURCE or not verify_native_activation(db):
                   raise SystemExit("F139_G54_RELEASE_LEDGER_OR_ACTIVATION_DRIFT")
               active = [dict(row) for row in db.actives()]
-              if len(active) != 1 or active[0]["ticket"] != TICKET:
-                  raise SystemExit("F139_G54_RELEASE_ACTIVE_SLOT_DRIFT")
               task = db.conn.execute(
-                  "SELECT ticket,lane,stage,source_sha,run_id,started_at "
+                  "SELECT ticket,lane,stage,source_sha,run_id,started_at,quarantine_reason "
                   "FROM tasks WHERE ticket=?", (TICKET,)).fetchone()
               if (task is None or task["lane"] != "Yggdrasil"
-                      or task["stage"] != "START_RISK" or task["run_id"] is not None
-                      or task["source_sha"] != SOURCE or task["started_at"] != STARTED):
+                      or task["source_sha"] != SOURCE or task["run_id"] is not None
+                      or task["started_at"] != STARTED):
                   raise SystemExit("F139_G54_RELEASE_EXACT_TASK_DRIFT")
+              already = (task["stage"] == "QUARANTINED"
+                         and task["quarantine_reason"] == REASON)
+              if already:
+                  if any(x["ticket"] == TICKET for x in active):
+                      raise SystemExit("F139_G54_RELEASE_QUARANTINE_ACTIVE_DRIFT")
+                  matches = []
+                  for event in db.conn.execute(
+                          "SELECT payload FROM events WHERE kind='ATTEMPT_QUARANTINED'"):
+                      doc = json.loads(event["payload"])
+                      if doc.get("ticket") == TICKET and doc.get("reason") == REASON:
+                          matches.append(doc)
+                  if len(matches) != 1:
+                      raise SystemExit("F139_G54_RELEASE_QUARANTINE_EVENT_DRIFT")
+              elif (task["stage"] != "START_RISK" or len(active) != 1
+                    or active[0]["ticket"] != TICKET):
+                  raise SystemExit("F139_G54_RELEASE_ACTIVE_SLOT_DRIFT")
               native = frozen_native_issue(db, TICKET)
               if (native.number != 989 or native.lane != "Yggdrasil"
                       or native.source_sha != SOURCE):
@@ -194,22 +209,27 @@ jobs:
               db.verify()
               current = db.meta()
               row = db.conn.execute(
-                  "SELECT stage,source_sha,run_id,started_at FROM tasks WHERE ticket=?",
-                  (TICKET,)).fetchone()
+                  "SELECT stage,source_sha,run_id,started_at,quarantine_reason "
+                  "FROM tasks WHERE ticket=?", (TICKET,)).fetchone()
+              expected_stage = "QUARANTINED" if already else "START_RISK"
               if ((current["head_seq"], current["head_hash"]) != before
-                      or row is None or row["stage"] != "START_RISK"
+                      or row is None or row["stage"] != expected_stage
                       or row["source_sha"] != SOURCE or row["run_id"] is not None
-                      or row["started_at"] != STARTED):
+                      or row["started_at"] != STARTED
+                      or (already and row["quarantine_reason"] != REASON)
+                      or (not already and row["quarantine_reason"] is not None)):
                   raise SystemExit("F139_G54_RELEASE_LEDGER_CHANGED_DURING_READS")
 
-              backup = db_path.with_name(
-                  "f139-i989-before-quarantine-" + str(__import__("os").environ["GITHUB_RUN_ID"]) + ".sqlite")
-              if backup.exists():
-                  raise SystemExit("F139_G54_RELEASE_BACKUP_COLLISION")
-              with sqlite3.connect(str(backup)) as out:
-                  db.conn.backup(out)
-              db.quarantine(TICKET, REASON)
-              db.verify()
+              backup = None
+              if not already:
+                  backup = db_path.with_name(
+                      "f139-i989-before-quarantine-" + str(__import__("os").environ["GITHUB_RUN_ID"]) + ".sqlite")
+                  if backup.exists():
+                      raise SystemExit("F139_G54_RELEASE_BACKUP_COLLISION")
+                  with sqlite3.connect(str(backup)) as out:
+                      db.conn.backup(out)
+                  db.quarantine(TICKET, REASON)
+                  db.verify()
               final = db.conn.execute(
                   "SELECT stage,quarantine_reason,run_id FROM tasks WHERE ticket=?",
                   (TICKET,)).fetchone()
@@ -218,12 +238,13 @@ jobs:
                       or any(x["ticket"] == TICKET for x in db.actives())):
                   raise SystemExit("F139_G54_RELEASE_QUARANTINE_READBACK_FAILED")
               print(json.dumps({
-                  "disposition":"EXACT_AMBIGUOUS_START_QUARANTINED_NO_REPLAY",
+                  "disposition":("ALREADY_QUARANTINED_READBACK_NO_REPLAY" if already
+                                 else "EXACT_AMBIGUOUS_START_QUARANTINED_NO_REPLAY"),
                   "ticket":TICKET,"source_sha":SOURCE,
                   "provider_reads":["ABSENT","ABSENT"],
                   "provider_read_times":read_times,
                   "started_at":STARTED,"age_minutes":int(age.total_seconds()//60),
-                  "backup":str(backup),
+                  "backup_created":backup is not None,
                   "head_seq":db.meta()["head_seq"],
                   "head_sha256":db.meta()["head_hash"],
                   "scientific_first_use":False,"redispatches":0
@@ -234,3 +255,30 @@ jobs:
               lock.__exit__(None,None,None)
           '@ | & $env:F139_RELEASE_PYTHON -B - $env:F139_RELEASE_DB $env:F139_RELEASE_SOURCE $env:F139_RELEASE_TICKET
           if($LASTEXITCODE -ne 0){throw 'F139_G54_RELEASE_CUSTODY_FAILED'}
+          $result=($resultLines -join "`n")
+          Write-Host ('F139_G54_RELEASE_RESULT='+$result)
+          $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($result))
+          "result_b64=$encoded" >> $env:GITHUB_OUTPUT
+      - name: Record owner-job result on FORGE policy issue
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          F139_RELEASE_RESULT_B64: ${{ steps.quarantine.outputs.result_b64 }}
+          F139_RELEASE_STEP_OUTCOME: ${{ steps.quarantine.outcome }}
+          F139_RELEASE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if([string]::IsNullOrWhiteSpace($env:F139_RELEASE_RESULT_B64)) {
+            $body="F139 G54 owner job did not produce a successful custody readback (step outcome=$($env:F139_RELEASE_STEP_OUTCOME)). No lane-release success is claimed. Inspect $($env:F139_RELEASE_RUN_URL) before taking another action."
+          } else {
+            $result=[Text.Encoding]::UTF8.GetString(
+                [Convert]::FromBase64String($env:F139_RELEASE_RESULT_B64))
+            $body="F139 G54 owner result for ticket #989 (no replay):`n"+$result+"`nRun: "+$env:F139_RELEASE_RUN_URL
+          }
+          $payload=@{body=$body} | ConvertTo-Json -Compress
+          $path=Join-Path $env:RUNNER_TEMP ('f139-g54-result-'+$env:GITHUB_RUN_ID+'.json')
+          [IO.File]::WriteAllText($path,$payload,[Text.UTF8Encoding]::new($false))
+          & gh api --method POST repos/spoonman136668-ai/FORGE/issues/807/comments --input $path --silent
+          if($LASTEXITCODE -ne 0){throw 'F139_G54_RELEASE_RESULT_COMMENT_FAILED'}
