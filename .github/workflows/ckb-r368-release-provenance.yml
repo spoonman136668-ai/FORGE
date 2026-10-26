@@ -1,4 +1,4 @@
-name: CKB R404 source-tree custody fingerprint
+name: CKB R405 compare historical native snapshots against current source
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -22,17 +22,18 @@ jobs:
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
           $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $paths=@('go.mod','go.sum') + @(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -ErrorAction Stop | ForEach-Object {$_.FullName.Substring($root.Length+1).Replace('\','/')})
-          $paths=@($paths | Sort-Object -Unique)
-          $sha=[System.Security.Cryptography.SHA256]::Create()
-          $records=[System.Collections.Generic.List[string]]::new()
-          foreach($p in $paths){
-            $f=Join-Path $root $p
-            $h=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
-            $records.Add($p.Replace('\','/')+' '+$h)
+          $candidates=@('C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate','C:\Users\camar\GolandProjects\ckb-plane-dk-work')
+          $relative=@('go.mod','internal\plane\model.go','cmd\ckb-plane\main.go')
+          foreach($candidate in $candidates){
+            if(!(Test-Path -LiteralPath $candidate -PathType Container)){continue}
+            $matches=0;$checked=0
+            foreach($rel in $relative){
+              $a=Join-Path $root $rel;$b=Join-Path $candidate $rel
+              if((Test-Path -LiteralPath $a -PathType Leaf) -and (Test-Path -LiteralPath $b -PathType Leaf)){
+                $checked++
+                if((Get-FileHash -LiteralPath $a -Algorithm SHA256).Hash -ceq (Get-FileHash -LiteralPath $b -Algorithm SHA256).Hash){$matches++}
+              }
+            }
+            Write-Output ('R405_CANDIDATE='+$candidate+' CHECKED='+$checked+' MATCHED='+$matches)
           }
-          $bytes=[Text.Encoding]::UTF8.GetBytes(($records -join "`n")+"`n")
-          $tree=[Convert]::ToHexString($sha.ComputeHash($bytes)).ToLowerInvariant()
-          Write-Output ('R404_SOURCE_FILE_COUNT='+$paths.Count)
-          Write-Output ('R404_SOURCE_TREE_SHA256='+$tree)
-          Write-Output 'R404_READ_ONLY=TRUE'
+          Write-Output 'R405_READ_ONLY=TRUE'
