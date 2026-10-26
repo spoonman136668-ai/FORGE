@@ -146,4 +146,54 @@ jobs:
              Write-Output 'R343_INSTALLED_BINARY_SOURCE_EQUIVALENCE=NOT_PROVEN_BY_SOURCE_HASHES'
           }
 
+
+          # Independently determine whether this actual on-host source tree
+          # reproduces the active controller binary. Compile only stopped
+          # executables in a dedicated non-SystemTemp runner directory.
+          if($candidateRoots.Count -eq 1){
+             $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([char]92)+[char]92
+             $system=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'Temp')).TrimEnd([char]92)+[char]92
+             if(!(Test-Path -LiteralPath $temp -PathType Container) -or
+                $temp.StartsWith($system,[StringComparison]::OrdinalIgnoreCase)){
+                throw 'R344_DEDICATED_NON_SYSTEM_TEMP_REQUIRED'
+             }
+             $scratch=Join-Path $temp ('r344-source-binary-parity-'+$env:GITHUB_RUN_ID)
+             if(Test-Path -LiteralPath $scratch){throw 'R344_NONEMPTY_SCRATCH'}
+             $null=New-Item -Path $scratch -ItemType Directory -ErrorAction Stop
+             $env:GOPROXY='off';$env:GOSUMDB='off';$env:GOFLAGS='-mod=readonly -p=1'
+             $env:CGO_ENABLED='0';$env:GOMAXPROCS='1';$env:GOMEMLIMIT='1536MiB'
+             $env:TMP=Join-Path $scratch 'temp';$env:TEMP=$env:TMP;$env:TMPDIR=$env:TMP
+             $null=New-Item -Path $env:TEMP -ItemType Directory -ErrorAction Stop
+             try{
+                Push-Location ([string]$candidateRoots[0])
+                try{
+                   foreach($flavor in @('trimpath','originalpath')){
+                      $out=Join-Path $scratch ('ckb-native-'+$flavor+'.exe')
+                      if($flavor -ceq 'trimpath'){
+                         & go.exe build -trimpath -buildvcs=false -o $out ./cmd/ckb-plane
+                      }else{
+                         & go.exe build -buildvcs=false -o $out ./cmd/ckb-plane
+                      }
+                      if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $out -PathType Leaf)){
+                         throw 'R344_LOCAL_SOURCE_STOPPED_GO_BUILD_FAILED'
+                      }
+                      $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                      Write-Output ('R344_LOCAL_SOURCE_'+$flavor+'_SHA256='+$hash)
+                      Write-Output ('R344_LOCAL_SOURCE_'+$flavor+'_MATCHES_RUNNING_R303='+[string]($hash -ceq '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'))
+                   }
+                }finally{Pop-Location}
+                $nativeNow=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+                if($nativeNow.Count -ne 1 -or
+                   [int]$nativeNow[0].ProcessId -ne [int]$original[0].ProcessId -or
+                   (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant() -cne $observed){
+                   throw 'R344_ORIGINAL_NATIVE_PROCESS_IDENTITY_CHANGED'
+                }
+                Write-Output 'R344_ORIGINAL_NATIVE_PROCESS_AND_CONFIG_UNCHANGED=PASS'
+                Write-Output 'R344_STOPPED_BINARIES_NOT_INSTALLED=TRUE'
+             }finally{
+                if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+             }
+          }
+          $global:LASTEXITCODE=0
+
           Write-Output 'R341_NO_NATIVE_DB_QUEUE_TASK_OR_CONTROLLER_MUTATION=TRUE'
