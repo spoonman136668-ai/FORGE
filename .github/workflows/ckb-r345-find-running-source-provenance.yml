@@ -1,0 +1,109 @@
+name: R345 locate authentic source provenance for active CKB R303
+on:
+  push:
+    branches: [audit/ckb-r341-active-native-build-id-20261025]
+    paths: [.github/workflows/ckb-r345-find-running-source-provenance.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r345-active-ckb-source-provenance-readonly
+  cancel-in-progress: false
+jobs:
+  provenance:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Match actual running source blob fingerprints against existing local Git checkouts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $who=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/ckb-r341-active-native-build-id-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $who.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($who).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+             throw 'R345_ORIGINAL_OWNER_WINDOWS_IDENTITY_REQUIRED'
+          }
+          $activeSha='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          $running=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($running.Count -ne 1){throw 'R345_LIVE_CONTROLLER_COUNT_CHANGED'}
+          $image=[string]$running[0].ExecutablePath
+          if((Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant() -cne $activeSha -or
+             (Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+             throw 'R345_ORIGINAL_PROCESS_OR_CONFIG_DRIFT'
+          }
+          $expected=@{
+             'autonomy_controls.go'='7d6bacc44e32ce46a531a2fe3e25da7863ea1538'
+             'webui_bridge.go'='261e4fa939dcf7a2094410374fb83ca6b606022d'
+             'autonomy.go'='647a21ffa7115cfffb0586f72faddac55aacf6be'
+          }
+          $roots=@(
+             'C:\Users\camar\GolandProjects',
+             'C:\Users\camar\Documents',
+             'C:\FORGE-Runner\_work',
+             'C:\Users\camar\source'
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+          $repos=[System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+          foreach($root in $roots){
+             Get-ChildItem -LiteralPath $root -Directory -Force -Recurse -Depth 6 -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -eq '.git' } |
+               ForEach-Object {
+                  if($_.Parent -and $_.Parent.FullName -notmatch '[\\/](node_modules|\.cache|pkg|vendor)[\\/]'){
+                     [void]$repos.Add($_.Parent.FullName)
+                  }
+               }
+          }
+          # Also include the current source checkout if its Git metadata resides
+          # in a .git file or a common-dir outside the source root.
+          $reposToCheck=@()
+          foreach($repo in $repos){
+             $found=$true
+             foreach($name in $expected.Keys){
+                if(!(Test-Path -LiteralPath (Join-Path $repo ('internal\plane\'+$name)) -PathType Leaf)){
+                   $found=$false;break
+                }
+             }
+             if($found){$reposToCheck+=,$repo}
+          }
+          $matches=[System.Collections.Generic.List[object]]::new()
+          foreach($repo in $reposToCheck){
+             $hashes=@{}
+             $all=$true
+             foreach($name in $expected.Keys){
+                $f=Join-Path $repo ('internal\plane\'+$name)
+                $i=Get-Item -LiteralPath $f -Force -ErrorAction Stop
+                if($i.PSIsContainer -or ($i.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0){$all=$false;break}
+                $old=$ErrorActionPreference
+                try{$ErrorActionPreference='Continue';$blob=@(& git.exe hash-object -- $f 2>&1);$rc=$LASTEXITCODE}
+                finally{$ErrorActionPreference=$old}
+                if($rc -ne 0 -or $blob.Count -ne 1 -or [string]$blob[0] -cnotmatch '^[0-9a-f]{40}$'){$all=$false;break}
+                $hashes[$name]=[string]$blob[0]
+             }
+             if(!$all){continue}
+             $n=0
+             foreach($name in $expected.Keys){if($hashes[$name] -ceq $expected[$name]){$n++}}
+             $head='UNVERSIONED'
+             $old=$ErrorActionPreference
+             try{$ErrorActionPreference='Continue';$v=@(& git.exe -C $repo rev-parse --verify HEAD 2>&1);$rc=$LASTEXITCODE}
+             finally{$ErrorActionPreference=$old}
+             if($rc -eq 0 -and $v.Count -eq 1 -and [string]$v[0] -cmatch '^[0-9a-f]{40}$'){$head=[string]$v[0]}
+             $matches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go']})
+          }
+          $exact=@($matches|Where-Object {$_.MatchedFiles -eq 3})
+          Write-Output 'R345_ACTIVE_R303_PROCESS_AND_CONFIG_PIN=PASS'
+          Write-Output ('R345_GIT_CHECKOUTS_DISCOVERED='+$repos.Count)
+          Write-Output ('R345_CKB_SOURCE_SHAPED_CHECKOUTS='+$reposToCheck.Count)
+          Write-Output ('R345_CHECKOUTS_MATCHING_ALL_THREE_LIVE_SOURCE_BLOBS='+$exact.Count)
+          foreach($v in $matches){
+             Write-Output ('R345_SOURCE_MATCH_COUNT='+$v.MatchedFiles+';HEAD='+$v.Head)
+          }
+          if($exact.Count -eq 1){
+             Write-Output ('R345_AUTHENTIC_SOURCE_HEAD='+$exact[0].Head)
+          }else{
+             Write-Output 'R345_AUTHENTIC_SOURCE_HEAD=NOT_RESOLVED'
+          }
+          Write-Output 'R345_NO_SOURCE_FILES_OR_GIT_REFS_MODIFIED=TRUE'
+          Write-Output 'R345_NO_DATABASE_QUEUE_TASK_OR_CONTROLLER_MUTATION=TRUE'
