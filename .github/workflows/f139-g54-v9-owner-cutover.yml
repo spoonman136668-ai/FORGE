@@ -12,7 +12,7 @@ jobs:
   cutover:
     if: ${{ github.actor == 'spoonman136668-ai' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-V9-OWNER-CUTOVER ') }}
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -226,9 +226,29 @@ jobs:
             if($readback.enabled -ne $true -or $readback.source_sha -cne $target) {
               throw 'F139_G54_POLICY_READBACK_FAILED'
             }
+            $log=Join-Path (Split-Path $db -Parent) 'logs\\controller.log'
+            $beforeLines=0
+            if(Test-Path -LiteralPath $log){$beforeLines=@(Get-Content -LiteralPath $log).Count}
             Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
-            Start-Sleep -Seconds 330
+            $dispatched=$null
+            for($cycle=0;$cycle -lt 3 -and $null -eq $dispatched;$cycle++){
+              Start-Sleep -Seconds 315
+              if(-not(Test-Path -LiteralPath $log)){continue}
+              $lines=@(Get-Content -LiteralPath $log)
+              foreach($line in ($lines | Select-Object -Skip $beforeLines)){
+                if($line -notmatch '^\\s*\\{'){continue}
+                try{$entry=$line | ConvertFrom-Json}catch{continue}
+                if($entry.disposition -eq 'MAIN_SOURCE_DRIFT_DISPATCH_BLOCKED'){
+                  throw 'F139_G54_MAIN_SOURCE_DRIFT_REMAINS'
+                }
+                if($entry.disposition -eq 'DEVELOPMENT_DISPATCHED_ONCE'){
+                  $dispatched=$entry
+                  break
+                }
+              }
+            }
+            if($null -eq $dispatched){throw 'F139_G54_UNATTENDED_WORK_ORDER_NOT_OBSERVED'}
             $final=Get-ScheduledTask -TaskName $name -ErrorAction Stop
             if([string]$final.State -cnotin @('Ready','Running')){throw 'F139_G54_OWNER_TASK_NOT_RESUMED'}
             $statusText=& $python -B -m f139.local_controller --db $db status
@@ -236,13 +256,14 @@ jobs:
             $status=$statusText | ConvertFrom-Json
             if($status.status.meta.source_sha -cne $target -or
                $status.status.meta.enabled -ne 1 -or
-               $status.status.meta.legacy_suspended -ne 1) {
+               $status.status.meta.legacy_suspended -ne 1 -or
+               @($status.status.tasks | Where-Object {$_.ticket -ceq $dispatched.ticket}).Count -ne 1) {
               throw 'F139_G54_FINAL_OWNER_STATE_DRIFT'
             }
             Write-Host 'F139_G54_V9_SOURCE_TRANSITION=PASS'
             Write-Host ('F139_G54_FINAL_LEDGER_HEAD=' + $status.status.meta.head_seq + ':' + $status.status.meta.head_hash)
             Write-Host 'F139_G54_EXISTING_TASK_RESUMED=PASS'
-            Write-Host 'F139_G54_NATURAL_TICK_OBSERVED=PASS'
+            Write-Host ('F139_G54_UNATTENDED_WORK_ORDER=PASS ticket=' + $dispatched.ticket)
             Write-Host 'F139_G54_SCIENTIFIC_FIRST_USE=FALSE'
           } catch {
             if($quiesced -and -not $mutated) {
