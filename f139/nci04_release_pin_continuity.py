@@ -24,6 +24,25 @@ def need(ok: bool, reason: str) -> None:
         raise ReleaseContinuityDenied("F139_RELEASE_PIN_" + reason)
 
 
+def release_worker_branch(source_sha: str) -> str:
+    """A distinct exact-commit worker ref for each owner-approved release."""
+    need(isinstance(source_sha, str) and _SHA.fullmatch(source_sha) is not None,
+         "RELEASE_REF_SOURCE_INVALID")
+    return "f139-owner-release-" + source_sha
+
+
+def verify_release_worker_branch(get: Callable[[str], object],
+                                 source_sha: str) -> str:
+    branch_name = release_worker_branch(source_sha)
+    doc = get(f"repos/{FORGE_REPO}/branches/{branch_name}")
+    need(isinstance(doc, dict)
+         and doc.get("name") == branch_name
+         and isinstance(doc.get("commit"), dict)
+         and doc["commit"].get("sha") == source_sha,
+         "WORKER_BRANCH_NOT_IMMUTABLE_EXACT_SOURCE")
+    return branch_name
+
+
 def prove_deployed_release_pin(get: Callable[[str], object], *,
                                deployed_source: str,
                                protected_source: str) -> dict:
@@ -53,6 +72,10 @@ def prove_deployed_release_pin(get: Callable[[str], object], *,
         raise ReleaseContinuityDenied(
             "F139_RELEASE_PIN_" + str(exc)) from exc
     need(policy["enabled"] is True, "RELEASE_POLICY_DISABLED")
+    # The moving protected default branch is for development only. Before
+    # releasing new work, a separate exact-commit workflow ref MUST exist;
+    # otherwise Actions would silently run the wrong worker code from main.
+    verify_release_worker_branch(get, deployed_source)
     comparison = get(f"repos/{FORGE_REPO}/compare/"
                      f"{deployed_source}...{protected_source}")
     need(isinstance(comparison, dict)
@@ -75,6 +98,7 @@ def prove_deployed_release_pin(get: Callable[[str], object], *,
         "released_source_sha": deployed_source,
         "latest_protected_main_sha": protected_source,
         "new_commits_are_uninstalled": True,
+        "worker_ref_is_exact_release": True,
         "existing_owner_policy_authorized": True,
         "native_development_only": True,
         "scientific_first_use": False,
