@@ -69,8 +69,13 @@ jobs:
             & git.exe -C $root merge-base --is-ancestor $accepted HEAD
             Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
             $changed=@(& git.exe -C $root diff --name-only $parent HEAD)
-            Need ($LASTEXITCODE -eq 0 -and $changed.Count -eq 5 -and
-              (($changed | Sort-Object) -join '|') -ceq (($allowed | Sort-Object) -join '|')) 'DELTA_SCOPE'
+            $changedSet=@($changed | ForEach-Object { $_.Replace('\','/') } | Sort-Object -CaseSensitive)
+            $allowedSet=@($allowed | ForEach-Object { $_.Replace('\','/') } | Sort-Object -CaseSensitive)
+            Write-Host ('MPAI06_D17_CHANGED_COUNT=' + $changedSet.Count)
+            Write-Host ('MPAI06_D17_CHANGED_PATHS=' + ($changedSet -join '|'))
+            Write-Host ('MPAI06_D17_ALLOWED_PATHS=' + ($allowedSet -join '|'))
+            $scopeDelta=@(Compare-Object -ReferenceObject $changedSet -DifferenceObject $allowedSet -CaseSensitive)
+            Need ($LASTEXITCODE -eq 0 -and $changedSet.Count -eq 4 -and $scopeDelta.Count -eq 0) 'DELTA_SCOPE'
             foreach($f in $pins.Keys) {
               $actualBlob=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
               Need ($LASTEXITCODE -eq 0 -and $actualBlob -ceq $pins[$f]) ('BLOB_PIN_'+$f)
