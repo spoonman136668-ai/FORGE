@@ -61,8 +61,10 @@ def parse_original_source(raw, *, expected_blob=SOURCE_GIT_BLOB):
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("SHUTTLE_SOURCE_ENCODING") from exc
-    lines = [line.strip() for line in text.splitlines()
-             if line.strip() and not line.lstrip().startswith("#")]
+    # Active reward row 6->6 includes an inline author's note in upstream.
+    # Remove comments only after authentic byte identity has been verified.
+    lines = [part for line in text.splitlines()
+             if (part := line.split("#", 1)[0].strip())]
     def header(name):
         found = [line[len(name) + 1:].strip() for line in lines
                  if line.startswith(name + ":")]
