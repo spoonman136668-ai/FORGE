@@ -20,6 +20,10 @@ jobs:
           persist-credentials: false
       - name: Run offline Windows custody-source regression without credentials
         shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-StrictMode -Version Latest
@@ -42,6 +46,18 @@ jobs:
             Write-Output 'CLOUDFLARE_ACCESS=NONE'
             Write-Output 'D1_EXPORT=NOT_EXECUTED'
             Write-Output 'RBACKUP_WRITE=NONE'
+            $age = [bool](Get-Command age -ErrorAction SilentlyContinue)
+            $ageKeygen = [bool](Get-Command age-keygen -ErrorAction SilentlyContinue)
+            Write-Output "AGE_BINARY_AVAILABLE=$($age.ToString().ToUpperInvariant())"
+            Write-Output "AGE_KEYGEN_AVAILABLE=$($ageKeygen.ToString().ToUpperInvariant())"
+            Write-Output "CLOUDFLARE_TOKEN_CONFIGURED=$([bool](-not [string]::IsNullOrWhiteSpace($env:CLOUDFLARE_API_TOKEN)))"
+            Write-Output "CLOUDFLARE_ACCOUNT_ID_CONFIGURED=$([bool](-not [string]::IsNullOrWhiteSpace($env:CLOUDFLARE_ACCOUNT_ID)))"
+            Write-Output "CLOUDFLARE_D1_ID_CONFIGURED=$([bool](-not [string]::IsNullOrWhiteSpace($env:CLOUDFLARE_D1_DATABASE_ID)))"
+            $localRoot = Join-Path $env:LOCALAPPDATA 'rbackup-custody'
+            $primary = Join-Path $localRoot 'primary/identity.txt'
+            $recovery = Join-Path $localRoot 'recovery/identity.txt'
+            Write-Output "LOCAL_PRIMARY_IDENTITY_PRESENT=$(Test-Path -LiteralPath $primary -PathType Leaf)"
+            Write-Output "LOCAL_RECOVERY_IDENTITY_PRESENT=$(Test-Path -LiteralPath $recovery -PathType Leaf)"
           } finally {
             if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
           }
