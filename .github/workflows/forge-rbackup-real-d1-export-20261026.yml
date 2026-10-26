@@ -56,7 +56,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $env:GOBIN,$env:GOPATH,$env:GOMODCACHE,$env:GOCACHE | Out-Null
           $env:GOWORK = 'off'
           $env:GO111MODULE = 'on'
-          $env:GOFLAGS = '-mod=readonly'
+          $env:GOFLAGS = '-mod=mod'
           $ageRoot = Join-Path $env:GITHUB_WORKSPACE 'age-src'
           $expectedAgeCommit = '482cf6fc9babd3ab06f6606762aac10447222201'
           $actualAgeCommit = (& git -C $ageRoot rev-parse HEAD | Out-String).Trim()
@@ -67,9 +67,11 @@ jobs:
           try {
             $actualGoMod = [IO.Path]::GetFullPath((& go env GOMOD | Out-String).Trim())
             if ($actualGoMod -cne $expectedGoMod) { throw 'RBACKUP_AGE_MODULE_ROOT_DRIFT' }
-            go build -mod=readonly -o (Join-Path $env:GOBIN 'age.exe') ./cmd/age
+            go mod download
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_MODULE_DOWNLOAD_FAILED' }
+            go build -mod=mod -o (Join-Path $env:GOBIN 'age.exe') ./cmd/age
             if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_BUILD_FAILED' }
-            go build -mod=readonly -o (Join-Path $env:GOBIN 'age-keygen.exe') ./cmd/age-keygen
+            go build -mod=mod -o (Join-Path $env:GOBIN 'age-keygen.exe') ./cmd/age-keygen
             if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_KEYGEN_BUILD_FAILED' }
           } finally {
             Pop-Location
