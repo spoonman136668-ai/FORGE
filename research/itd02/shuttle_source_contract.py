@@ -106,7 +106,7 @@ def parse_original_source(raw, *, expected_blob=SOURCE_GIT_BLOB):
         if not line.startswith("R:"):
             continue
         match = re.fullmatch(
-            r"R:\s+(TurnAround|GoForward|Backup)\s+:\s+(\d+)\s+:\s+(\d+)\s+:\s+\\*\s+(-?\d+)",
+            r"R:\s+(TurnAround|GoForward|Backup)\s+:\s+(\d+)\s+:\s+(\d+)\s+:\s+\*\s+(-?\d+)",
             line)
         if not match:
             raise ValueError("SHUTTLE_REWARD_SYNTAX")
