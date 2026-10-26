@@ -30,8 +30,15 @@ jobs:
             try {
               $out=Join-Path $root 'response.txt'
               $prompt='Return exactly this string and nothing else: MPAI05_PROBE_OK'
-              $null=@(& codex exec --ephemeral --skip-git-repo-check --sandbox read-only -o $out $prompt 2>&1)
-              if($LASTEXITCODE -ne 0) {
+              $log=Join-Path $root 'codex-stderr.txt'
+              $proc=Start-Process -FilePath (Get-Command codex).Source -ArgumentList @('exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','-o',$out,$prompt) -WorkingDirectory $root -Wait -PassThru -NoNewWindow -RedirectStandardError $log -RedirectStandardOutput (Join-Path $root 'codex-stdout.txt')
+              if($proc.ExitCode -ne 0) {
+                $err=Get-Content -LiteralPath $log -Raw -ErrorAction SilentlyContinue
+                if($err -match '(?i)rate.limit|usage.limit|quota') { Write-Host 'MPAI05_FAILURE_CLASS=USAGE_LIMIT' }
+                elseif($err -match '(?i)unauthorized|authentication|login|401|403') { Write-Host 'MPAI05_FAILURE_CLASS=AUTH' }
+                elseif($err -match '(?i)connection|network|timeout|dns') { Write-Host 'MPAI05_FAILURE_CLASS=NETWORK' }
+                elseif($err -match '(?i)model.*not.found|unsupported.model') { Write-Host 'MPAI05_FAILURE_CLASS=MODEL_SELECTION' }
+                else { Write-Host 'MPAI05_FAILURE_CLASS=OTHER_REDACTED' }
                 Write-Host 'MPAI05_PROBE=MODEL_EXECUTION_FAILED'
               } elseif((Test-Path -LiteralPath $out) -and ((Get-Content -LiteralPath $out -Raw).Trim() -ceq 'MPAI05_PROBE_OK')) {
                 Write-Host 'MPAI05_PROBE=ONE_AUTHENTIC_MODEL_CALL_PASS'
@@ -42,5 +49,6 @@ jobs:
           } finally {
             if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
           }
+          $global:LASTEXITCODE=0
           Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
           Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
