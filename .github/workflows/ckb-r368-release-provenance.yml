@@ -1,4 +1,4 @@
-name: CKB R399 compare historical native preimage and current tree
+name: CKB R400 inspect installed executable build identity
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,15 +26,12 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $git=(Get-Command git -ErrorAction Stop).Source
-          foreach($rel in @('go.mod','internal\plane\model.go')){
-            $file=Join-Path $root $rel
-            if(!(Test-Path -LiteralPath $file -PathType Leaf)){throw ('R399_MISSING_'+$rel)}
-            $blob=(& $git hash-object -- $file).Trim()
-            if($LASTEXITCODE -ne 0){throw 'R399_HASH_FAILED'}
-            Write-Output ('R399_BLOB='+$rel+' '+$blob)
-          }
-          Write-Output 'R399_HISTORICAL_GO_MOD=e05cfbaf7fa1cbf9d4baecdade2fbcc451b5cbc8'
-          Write-Output 'R399_HISTORICAL_MODEL=9412cc9deff0603bf33d69681f347e9633442d64'
-          Write-Output 'R399_READ_ONLY=TRUE'
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'R400_INSTALLED_MISSING'}
+          $go=(Get-Command go -ErrorAction Stop).Source
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R400_INSTALLED_SHA256='+$hash)
+          $info=@(& $go version -m $exe)
+          if($LASTEXITCODE -ne 0){throw 'R400_BUILDINFO_FAILED'}
+          foreach($line in $info){if($line -match '(?i)^(\s*)(path|mod|build|dep)\s|go1\.'){Write-Output ('R400_BUILDINFO='+$line.Trim())}}
+          Write-Output 'R400_READ_ONLY=TRUE'
