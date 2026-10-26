@@ -1,4 +1,4 @@
-name: CKB R380 local source identity and checkout provenance
+name: CKB R381 bounded source origin markers
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -27,19 +27,19 @@ jobs:
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
           $source='C:\Users\camar\GolandProjects\ckb-plane'
-          $git=(Get-Command git -ErrorAction SilentlyContinue)
-          Write-Output ('R380_GIT_AVAILABLE='+($null -ne $git))
-          if($null -ne $git){
-            foreach($p in @($source,(Split-Path $source -Parent))){
-              $dot=Join-Path $p '.git'
-              Write-Output ('R380_GIT_MARKER='+$p+' PRESENT='+(Test-Path -LiteralPath $dot))
+          $names=@('AGENTS.md','README.md','go.mod','go.sum','source_manifest.json','backup_manifest.json','manifest.json','VERSION','.git')
+          foreach($name in $names){
+            $p=Join-Path $source $name
+            if(Test-Path -LiteralPath $p){
+              $item=Get-Item -LiteralPath $p
+              Write-Output ('R381_MARKER='+$name+' TYPE='+$(if($item.PSIsContainer){'directory'}else{'file'})+' LASTWRITE_UTC='+$item.LastWriteTimeUtc.ToString('o'))
             }
-            Push-Location $source
-            try{
-              $env:GIT_OPTIONAL_LOCKS='0'
-              & $git.Source -C $source rev-parse --show-toplevel 2>&1 | ForEach-Object {Write-Output ('R380_TOPLEVEL='+$_)}
-              & $git.Source -C $source rev-parse HEAD 2>&1 | ForEach-Object {Write-Output ('R380_HEAD='+$_)}
-              & $git.Source -C $source remote -v 2>&1 | ForEach-Object { if([string]$_ -notmatch '(@|token|password|secret)'){Write-Output ('R380_REMOTE='+$_)} }
-            } finally {Pop-Location}
           }
-          Write-Output 'R380_READ_ONLY=TRUE'
+          foreach($name in @('cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go')){
+            $p=Join-Path $source $name
+            if(Test-Path -LiteralPath $p -PathType Leaf){
+              $item=Get-Item -LiteralPath $p
+              Write-Output ('R381_FILE='+$name+' BYTES='+$item.Length+' LASTWRITE_UTC='+$item.LastWriteTimeUtc.ToString('o'))
+            }
+          }
+          Write-Output 'R381_READ_ONLY=TRUE'
