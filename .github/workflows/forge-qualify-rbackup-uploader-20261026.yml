@@ -1,0 +1,42 @@
+name: FORGE qualify RBACKUP ciphertext uploader
+on:
+  push:
+    branches:
+      - qualification/forge-rbackup-token-probe-20261026
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Check out FORGE
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out private RBACKUP draft
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/rbackup
+          ref: recovery/f139-stream-encrypted-d1-export-20261026
+          token: ${{ secrets.RBACKUP_WRITE_TOKEN }}
+          path: rbackup
+          persist-credentials: false
+      - name: Run focused uploader tests without network writes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RBACKUP_UPLOADER_WRONG_RUNNER' }
+          Push-Location rbackup
+          try {
+            python -B -m unittest discover -s tests -p 'test_upload_ciphertext_to_rbackup.py' -v
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_UPLOADER_TESTS_FAILED' }
+            python -B -m py_compile scripts/upload_ciphertext_to_rbackup.py
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_UPLOADER_COMPILE_FAILED' }
+            Write-Output 'RBACKUP_UPLOADER_FOCUSED_TESTS=PASS'
+            Write-Output 'RBACKUP_REAL_UPLOAD=NOT_EXECUTED'
+            Write-Output 'RBACKUP_D1_EXPORT=NOT_EXECUTED'
+          } finally {
+            Pop-Location
+          }
