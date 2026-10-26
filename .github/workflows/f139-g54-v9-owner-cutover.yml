@@ -125,6 +125,7 @@ jobs:
           $activation=Join-Path $env:RUNNER_TEMP ('f139-v9-activation-'+$env:GITHUB_RUN_ID+'.json')
           $quiesced=$false
           $mutated=$false
+          $resumed=$false
           try {
             Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
@@ -231,6 +232,7 @@ jobs:
             if(Test-Path -LiteralPath $log){$beforeLines=@(Get-Content -LiteralPath $log).Count}
             Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
             Start-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            $resumed=$true
             $dispatched=$null
             for($cycle=0;$cycle -lt 3 -and $null -eq $dispatched;$cycle++){
               Start-Sleep -Seconds 315
@@ -275,6 +277,7 @@ jobs:
                 }
               } catch { Write-Warning 'F139_G54_UNMUTATED_OWNER_ROLLBACK_NOT_VERIFIED' }
             }
-            if($mutated){Write-Warning 'F139_G54_OWNER_HELD_DISABLED_AFTER_PARTIAL_CUSTODY'}
+            if($mutated -and -not $resumed){Write-Warning 'F139_G54_OWNER_HELD_DISABLED_AFTER_PARTIAL_CUSTODY'}
+            if($resumed){Write-Warning 'F139_G54_POST_CUTOVER_EVIDENCE_FAILED_EXISTING_TASK_LEFT_RUNNING'}
             throw
           }
