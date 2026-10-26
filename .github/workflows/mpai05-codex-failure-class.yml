@@ -1,0 +1,47 @@
+name: MP-AI05 Codex bounded failure classification
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-failure-class.yml']
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 7
+    steps:
+      - name: One bounded invocation with sanitized failure classification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $status=@(& codex login status 2>&1)
+          if($LASTEXITCODE -ne 0 -or ($status -join ' ') -notmatch '(?i)chatgpt' -or ($status -join ' ') -match '(?i)api.key|api key') { throw 'CHATGPT_LOGIN_NOT_CONFIRMED' }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-class-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            $err=Join-Path $root 'stderr.txt'
+            $out=Join-Path $root 'stdout.txt'
+            $answer=Join-Path $root 'answer.txt'
+            $args=@('exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--output-last-message',$answer,'Return exactly MPAI05_PROBE_OK')
+            $proc=Start-Process -FilePath (Get-Command codex.exe).Source -ArgumentList $args -WorkingDirectory $root -RedirectStandardError $err -RedirectStandardOutput $out -PassThru -Wait -NoNewWindow
+            $e=Get-Content $err -Raw -ErrorAction SilentlyContinue
+            $o=Get-Content $out -Raw -ErrorAction SilentlyContinue
+            $combined=([string]$e)+' '+([string]$o)
+            if($proc.ExitCode -eq 0 -and (Test-Path $answer) -and ((Get-Content $answer -Raw).Trim() -ceq 'MPAI05_PROBE_OK')) { $kind='PASS' }
+            elseif($combined -match '(?i)usage.limit|rate.limit|quota|too many requests') { $kind='USAGE_LIMIT' }
+            elseif($combined -match '(?i)401|403|unauthorized|authentication|not logged in|login required') { $kind='AUTH' }
+            elseif($combined -match '(?i)connection|network|timeout|dns|certificate|tls') { $kind='NETWORK' }
+            elseif($combined -match '(?i)unknown option|unexpected argument|unrecognized option|invalid value') { $kind='ARGUMENTS' }
+            elseif($combined -match '(?i)model.*not.found|unsupported.model') { $kind='MODEL' }
+            elseif($combined -match '(?i)permission|access denied|sandbox') { $kind='PERMISSIONS' }
+            else { $kind='UNCLASSIFIED' }
+            Write-Host ('MPAI05_CODEX_EXIT='+$proc.ExitCode)
+            Write-Host ('MPAI05_CODEX_FAILURE_CLASS='+$kind)
+            Write-Host ('MPAI05_STDERR_NONEMPTY='+[bool](-not [string]::IsNullOrWhiteSpace($e)))
+            Write-Host ('MPAI05_STDOUT_NONEMPTY='+[bool](-not [string]::IsNullOrWhiteSpace($o)))
+          } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
