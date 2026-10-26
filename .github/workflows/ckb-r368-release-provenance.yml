@@ -1,4 +1,4 @@
-name: CKB R375 isolated native source compatibility build
+name: CKB R376 source identity and build divergence classification
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,39 +26,18 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $candidates=@(
-            'C:\Users\camar\GolandProjects\ckb-plane\snapshot\source',
-            'C:\Users\camar\GolandProjects\ckb-plane',
-            'C:\Users\camar\source\repos\ckb-plane\snapshot\source'
-          )
-          $source=$null
-          foreach($candidate in $candidates) {
-            $mod=Join-Path $candidate 'go.mod'
-            $main=Join-Path $candidate 'cmd\ckb-plane\main.go'
-            if ((Test-Path -LiteralPath $mod -PathType Leaf) -and (Test-Path -LiteralPath $main -PathType Leaf)) {
-              $source=$candidate
-              break
-            }
-          }
-          if ($null -eq $source) { Write-Output 'R375_SOURCE_CANDIDATE=NOT_FOUND_IN_BOUNDED_PATHS'; Write-Output 'R375_NO_BUILD_ATTEMPTED=TRUE'; exit 0 }
-          Write-Output ('R375_SOURCE_PATH='+$source)
-          $go=(Get-Command go -ErrorAction Stop).Source
-          $env:GOTOOLCHAIN='local'
-          $env:GOPROXY='off'
-          $env:GOSUMDB='off'
-          $env:CGO_ENABLED='0'
-          $env:GOOS='windows'
-          $env:GOARCH='amd64'
-          $env:GOAMD64='v1'
-          $temp=Join-Path $env:RUNNER_TEMP ('r375-'+$env:GITHUB_RUN_ID)
-          New-Item -ItemType Directory -Path $temp -Force | Out-Null
-          $out=Join-Path $temp 'ckb-plane.exe'
+          $source='C:\Users\camar\GolandProjects\ckb-plane'
+          if (!(Test-Path -LiteralPath (Join-Path $source 'go.mod') -PathType Leaf)) { throw 'R376_SOURCE_MISSING' }
+          Write-Output ('R376_SOURCE='+$source)
+          Push-Location $source
           try {
-            Push-Location $source
-            try { & $go build -trimpath -o $out ./cmd/ckb-plane; if ($LASTEXITCODE -ne 0) { throw 'R375_BUILD_FAILED' } }
-            finally { Pop-Location }
-            $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Output ('R375_CANDIDATE_SHA256='+$sha)
-            Write-Output ('R375_EXACT_BINARY_MATCH='+($sha -ceq $target))
-            Write-Output 'R375_LIVE_CONTROLLER_DATABASE_QUEUE_UNCHANGED=TRUE'
-          } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
+            $git=Get-Command git -ErrorAction SilentlyContinue
+            if ($null -ne $git) {
+              & $git.Source rev-parse HEAD | ForEach-Object { Write-Output ('R376_GIT_HEAD='+$_) }
+              & $git.Source status --porcelain | Select-Object -First 25 | ForEach-Object { Write-Output ('R376_GIT_STATUS='+$_) }
+            }
+            Get-Content -LiteralPath 'go.mod' -TotalCount 20 | ForEach-Object { Write-Output ('R376_GO_MOD='+$_) }
+            $go=(Get-Command go -ErrorAction Stop).Source
+            & $go version | ForEach-Object { Write-Output ('R376_GO_VERSION='+$_) }
+          } finally { Pop-Location }
+          Write-Output 'R376_READ_ONLY=TRUE'
