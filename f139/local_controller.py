@@ -1442,7 +1442,8 @@ class GitHub:
         from f139.nci04_autonomy_feed import prepare_feed
         return prepare_feed(
             self.native_repo_get, source_sha=source_sha,
-            existing_candidate_identities=existing_candidate_identities)
+            existing_candidate_identities=existing_candidate_identities,
+            steering_get=self.native_repo_get)
 
     def create_native_feed_issue(self, *, title: str, body: str):
         """Create an ordinary existing-schema owner issue; never dispatch here."""
