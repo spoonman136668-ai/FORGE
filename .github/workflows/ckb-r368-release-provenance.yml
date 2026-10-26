@@ -1,4 +1,4 @@
-name: CKB R400 inspect installed executable build identity
+name: CKB R401 compare native source and installed build dependencies
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -21,17 +21,15 @@ jobs:
           foreach($p in @($base,$releases,$release)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
-          $exe=Join-Path $release 'bin\ckb-plane.exe'
-          if (!(Test-Path -LiteralPath $exe -PathType Leaf)) { throw 'MATCHING_EXECUTABLE_MISSING' }
-          $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
-          if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
           $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'R400_INSTALLED_MISSING'}
           $go=(Get-Command go -ErrorAction Stop).Source
-          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Output ('R400_INSTALLED_SHA256='+$hash)
-          $info=@(& $go version -m $exe)
-          if($LASTEXITCODE -ne 0){throw 'R400_BUILDINFO_FAILED'}
-          foreach($line in $info){if($line -match '(?i)^(\s*)(path|mod|build|dep)\s|go1\.'){Write-Output ('R400_BUILDINFO='+$line.Trim())}}
-          Write-Output 'R400_READ_ONLY=TRUE'
+          $installed=@(& $go version -m $exe)
+          $mod=@(Get-Content -LiteralPath (Join-Path $root 'go.mod'))
+          foreach($dep in @('modernc.org/sqlite','golang.org/x/net','golang.org/x/sys','github.com/bmatcuk/doublestar/v4')){
+            $build=@($installed | Where-Object {$_ -match ('^\s*dep\s+'+[regex]::Escape($dep)+'\s+') } | Select-Object -First 1)
+            $decl=@($mod | Where-Object {$_ -match ('^\s*'+[regex]::Escape($dep)+'\s+') } | Select-Object -First 1)
+            Write-Output ('R401_DEP='+$dep+' INSTALLED='+($build -join ' ')+' CURRENT='+($decl -join ' '))
+          }
+          Write-Output ('R401_GO_VERSION='+(& $go version))
+          Write-Output 'R401_READ_ONLY=TRUE'
