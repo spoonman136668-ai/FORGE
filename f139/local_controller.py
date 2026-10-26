@@ -503,14 +503,20 @@ class Database:
                              "custodied_negative_tasks", "custodied_negative_tickets",
                              "provider_failures_sha256", "v7_terminal_event_sha256",
                              "prepost_negative_event_sha256", "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8,
+                is_v9 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v9"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256", "v8_terminal_event_sha256",
+                             "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -674,6 +680,27 @@ class Database:
                                 and doc["from_source_sha"]==SOURCE_V7
                                 and doc["v2_receipt_authorized"] is False,
                                 "SOURCE_TRANSITION_V8_ORIGINAL_CUSTODY_DRIFT")
+                if is_v9:
+                    v8_rows = [
+                        t for t in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<? "
+                            "ORDER BY seq", (row["seq"],))
+                        if json.loads(t["payload"])["schema"] ==
+                            "forge.f139.source-transition.v8"]
+                    previous_v9 = [t for t in source_transitions
+                                   if t["schema"] == "forge.f139.source-transition.v9"]
+                    from f139.nci04_g49_prepost_negative import verify_g49_custody
+                    require(len(v8_rows) == 1 and not previous_v9
+                            and source_transitions
+                            and source_transitions[-1]["schema"] ==
+                                "forge.f139.source-transition.v8"
+                            and doc["from_source_sha"] ==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["v8_terminal_event_sha256"] == v8_rows[0]["sha"]
+                            and doc["v2_receipt_authorized"] is False
+                            and verify_g49_custody(self),
+                            "SOURCE_TRANSITION_V9_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -837,7 +864,8 @@ class Database:
                           allow_certified_negative: bool = False,
                           allow_v6: bool = False,
                           allow_v7: bool = False,
-                          allow_v8: bool = False):
+                          allow_v8: bool = False,
+                          allow_v9: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -938,6 +966,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v3",
                             "forge.f139.source-transition.v4",
                             "forge.f139.source-transition.v5",
@@ -971,7 +1000,17 @@ class Database:
                          "forge.f139.source-transition.v7"]
                 prev_v8=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v8"]
-                if (len(prev_v4)==10 and len(prev_v5)==4
+                if prev_v8:
+                    from f139.nci04_owner_ledger import verify_native_activation
+                    require(allow_v9 is True and len(prev_v8)==1
+                            and events[-1]["schema"] ==
+                                "forge.f139.source-transition.v8"
+                            and meta["source_sha"] ==
+                                prev_v8[0]["to_source_sha"]
+                            and verify_native_activation(self) and prepost,
+                            "SOURCE_TRANSITION_V9_ONE_SHOT_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v9"
+                elif (len(prev_v4)==10 and len(prev_v5)==4
                         and len(prev_v6)==1 and len(prev_v7)==1):
                     require(allow_v8 is True and not prev_v8 and prepost
                             and events[-1]["schema"] ==
@@ -1025,7 +1064,8 @@ class Database:
                             "forge.f139.source-transition.v5",
                             "forge.f139.source-transition.v6",
                             "forge.f139.source-transition.v7",
-                            "forge.f139.source-transition.v8"):
+                            "forge.f139.source-transition.v8",
+                            "forge.f139.source-transition.v9"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1082,6 +1122,17 @@ class Database:
                     event["v7_terminal_event_sha256"]=v7_rows[0]["sha"]
                     event["prepost_negative_event_sha256"]=custody[0]["sha"]
                     event["v2_receipt_authorized"]=False
+            if schema == "forge.f139.source-transition.v9":
+                v8_rows=[
+                    r for r in self.conn.execute(
+                        "SELECT sha,payload FROM events "
+                        "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"])["schema"] ==
+                        "forge.f139.source-transition.v8"]
+                require(len(v8_rows)==1,
+                        "SOURCE_TRANSITION_V9_V8_SEAL_MISSING")
+                event["v8_terminal_event_sha256"]=v8_rows[0]["sha"]
+                event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
@@ -2266,8 +2317,8 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     return (str(folder),hash_bytes(payload))
 
 def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
-    """Eligible to sign NEW V2 native work only after the authenticated,
-    one-use original V7 transition AND separate native development activation.
+    """Allow native V2 development after a sealed original V7/V8/V9 transition
+    and separate native development activation.
 
     An environment variable, issue label or a source SHA alone never arms
     the credentialed V2 signer. The G36 signed original claim still must
@@ -2297,15 +2348,30 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
         v8 = (event.get("schema")=="forge.f139.source-transition.v8"
               and event.get("from_source_sha")==SOURCE_V7
               and verify_g49_custody(db))
-        if not ((v7 or v8) and event.get("to_source_sha")==source_sha
+        v9 = False
+        if event.get("schema")=="forge.f139.source-transition.v9":
+            # Database.verify seals the V9 transition to the unique terminal
+            # V8 event and G49 custody; recheck the seal here before the signer
+            # can dispatch any new work against this source.
+            db.verify()
+            v8_rows=[
+                r for r in db.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                if json.loads(r["payload"]).get("schema")==
+                    "forge.f139.source-transition.v8"]
+            v9=(len(v8_rows)==1
+                and event.get("from_source_sha")==
+                    json.loads(v8_rows[0]["payload"]).get("to_source_sha")
+                and event.get("v8_terminal_event_sha256")==v8_rows[0]["sha"]
+                and verify_g49_custody(db))
+        if not ((v7 or v8 or v9) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
         return verify_native_activation(db)
     except (F139Error, sqlite3.DatabaseError, ValueError, TypeError, KeyError):
         return False
-
-
 
 
 def original_owner_v2_guard_canonical(db, db_path: Path,
@@ -2699,6 +2765,8 @@ def cli(argv=None):
     transition_v7.add_argument("--approval",type=Path,required=True)
     transition_v8=sub.add_parser("transition-qualified-native-v8")
     transition_v8.add_argument("--approval",type=Path,required=True)
+    transition_v9=sub.add_parser("transition-qualified-native-v9")
+    transition_v9.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -3072,6 +3140,57 @@ def cli(argv=None):
                     "event_head":meta["head_hash"],"event_seq":meta["head_seq"],
                     "v2_production_dispatch_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v9":
+            # One G54 V9 release, bound to the authenticated original owner and V8 ledger.
+            from f139.nci04_v9_owner_release import validate_v9_original_owner
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V9_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict,"V9_APPROVAL_NOT_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v9(*parts):
+                result=subprocess.run(
+                    ["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(result.returncode==0,"V9_GIT_COMMAND_FAILED")
+                return result.stdout.decode("utf-8").strip()
+            require(_git_read_v9("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v9("status","--porcelain",
+                                     "--untracked-files=all")=="",
+                    "V9_INSTALLED_CLEAN_EXACT_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V9_PROTECTED_MAIN_SHA_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                from f139.local_controller import Database as CanonicalOwnerDB
+                validator_db=CanonicalOwnerDB(args.db)
+                try:
+                    validate_v9_original_owner(validator_db,approval)
+                finally:
+                    validator_db.close()
+                before=db.meta()["head_seq"]
+                db.transition_source(approval["to_source_sha"],
+                                     allow_certified_negative=True,
+                                     allow_v9=True)
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==approval["to_source_sha"]
+                        and meta["head_seq"]==before+1,
+                        "V9_ONE_EVENT_TRANSITION_NOT_ATOMIC")
+                print(json.dumps({
+                    "native_v9_transition":"PASS",
+                    "source_sha":meta["source_sha"],
+                    "event_head":meta["head_hash"],
+                    "event_seq":meta["head_seq"],
+                    "scientific_first_use":False,
+                    "v2_production_dispatch_authorized":False,
+                    "new_controller":False,
+                    "new_scheduler":False,
+                    "paid_api_calls":0},sort_keys=True))
         elif args.verb=="transition-qualified-native-v8":
             # One original-owner-only release, after G49 negative custody.
             # Never replay the previous G39 V7 transition.
