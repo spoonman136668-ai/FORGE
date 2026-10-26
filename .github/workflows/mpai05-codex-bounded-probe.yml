@@ -1,0 +1,46 @@
+name: MP-AI05 Codex bounded model execution probe
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-bounded-probe.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: One no-API-key ChatGPT-login Codex probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $status=@(& codex login status 2>&1)
+          if($LASTEXITCODE -ne 0 -or ($status -join ' ') -notmatch '(?i)chatgpt' -or ($status -join ' ') -match '(?i)api.key|api key') {
+            Write-Host 'MPAI05_PROBE=BLOCKED_NON_CHATGPT_LOGIN'
+            exit 0
+          }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-codex-probe-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) { throw 'SCRATCH_EXISTS' }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          try {
+            Push-Location $root
+            try {
+              $out=Join-Path $root 'response.txt'
+              $prompt='Return exactly this string and nothing else: MPAI05_PROBE_OK'
+              $null=@(& codex exec --ephemeral --skip-git-repo-check --sandbox read-only -o $out $prompt 2>&1)
+              if($LASTEXITCODE -ne 0) {
+                Write-Host 'MPAI05_PROBE=MODEL_EXECUTION_FAILED'
+              } elseif((Test-Path -LiteralPath $out) -and ((Get-Content -LiteralPath $out -Raw).Trim() -ceq 'MPAI05_PROBE_OK')) {
+                Write-Host 'MPAI05_PROBE=ONE_AUTHENTIC_MODEL_CALL_PASS'
+              } else {
+                Write-Host 'MPAI05_PROBE=OUTPUT_MISMATCH'
+              }
+            } finally { Pop-Location }
+          } finally {
+            if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          }
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
