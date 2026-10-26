@@ -128,8 +128,11 @@ jobs:
           $mutated=$false
           $resumed=$false
           try {
+            $priorTask=Get-ScheduledTask -TaskName $name -ErrorAction Stop
             Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
-            Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            if([string]$priorTask.State -ceq 'Running'){
+              Stop-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
+            }
             $quiesced=$true
             $running=@()
             for($i=0;$i -lt 30;$i++){
