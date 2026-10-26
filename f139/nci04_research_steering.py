@@ -71,10 +71,10 @@ def read_approved_steering(get: Callable[[str], object]) -> dict:
         texts[DOCUMENTS[i][0]] for i in range(4))
     require(all(path.split("/")[-1] in root for path, _ in DOCUMENTS[1:])
             and "advisory" in root.lower()
-            and "decision-discriminating" in core
+            and "decision-discriminating" in core.lower()
             and "integration" in core.lower()
-            and "learning-progress" in discovery
-            and "multi-fidelity" in discovery
+            and "learning-progress" in discovery.lower()
+            and "multi-fidelity" in discovery.lower()
             and "independent" in validation.lower()
             and "ablation" in validation.lower(),
             "DOCUMENT_SCOPE_INVALID")
