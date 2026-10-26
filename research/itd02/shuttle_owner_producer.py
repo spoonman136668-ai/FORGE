@@ -64,6 +64,13 @@ class OriginalShuttlePrivateOwner:
                 not callable(getattr(self._journal, "write_intent", None)) or
                 not callable(getattr(self._journal, "write_terminal", None))):
             raise NotAdmitted("FORGE_INDEPENDENT_ADMISSION_AND_DURABLE_JOURNAL_REQUIRED")
+        # IMPORTANT: injected Python objects and a nonempty receipt string are
+        # not an authenticated FORGE grant or a durable external witness.
+        # FORGE nativefirstuse.AuthorizeLiveOriginal is currently an explicit
+        # DENY; fsaintent.Append is in-memory; signed checkpoint is not a
+        # first-use permit. Until a separately qualified real FORGE adapter
+        # replaces this explicit interlock, NO original RNG may be drawn.
+        raise NotAdmitted("FORGE_LIVE_SCIENTIFIC_AUTHORITY_UNPROVISIONED")
 
     def open(self, *, prereg_id, cohort_id, episode_id, seed, max_steps):
         if self._open or self._faulted:
