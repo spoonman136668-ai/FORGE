@@ -90,14 +90,7 @@ jobs:
              try{$ErrorActionPreference='Continue';$v=@(& git.exe -C $repo rev-parse --verify HEAD 2>&1);$rc=$LASTEXITCODE}
              finally{$ErrorActionPreference=$old}
              if($rc -eq 0 -and $v.Count -eq 1 -and [string]$v[0] -cmatch '^[0-9a-f]{40}$'){$head=[string]$v[0]}
-             $objectHits=0
-             foreach($name in $expected.Keys){
-                $old=$ErrorActionPreference
-                try{$ErrorActionPreference='Continue';$kind=@(& git.exe -C $repo cat-file -t $expected[$name] 2>&1);$rc=$LASTEXITCODE}
-                finally{$ErrorActionPreference=$old}
-                if($rc -eq 0 -and $kind.Count -eq 1 -and [string]$kind[0] -ceq 'blob'){$objectHits++}
-             }
-             $repoMatches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go'];ExactOriginalBlobObjects=$objectHits})
+             $repoMatches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go']})
           }
           $exact=@($repoMatches|Where-Object {$_.MatchedFiles -eq 3})
           Write-Output 'R345_ACTIVE_R303_PROCESS_AND_CONFIG_PIN=PASS'
@@ -105,12 +98,85 @@ jobs:
           Write-Output ('R345_CKB_SOURCE_SHAPED_CHECKOUTS='+$reposToCheck.Count)
           Write-Output ('R345_CHECKOUTS_MATCHING_ALL_THREE_LIVE_SOURCE_BLOBS='+$exact.Count)
           foreach($v in $repoMatches){
-             Write-Output ('R345_SOURCE_MATCH_COUNT='+$v.MatchedFiles+';HEAD='+$v.Head+';EXACT_ORIGINAL_BLOB_OBJECTS='+$v.ExactOriginalBlobObjects)
+             Write-Output ('R345_SOURCE_MATCH_COUNT='+$v.MatchedFiles+';HEAD='+$v.Head)
           }
           if($exact.Count -eq 1){
              Write-Output ('R345_AUTHENTIC_SOURCE_HEAD='+$exact[0].Head)
           }else{
              Write-Output 'R345_AUTHENTIC_SOURCE_HEAD=NOT_RESOLVED'
           }
+
+          # Read-only search of retained ZIP source/build archives. Emit aggregate
+          # counts and matching archive SHA only, never path or source contents.
+          Add-Type -AssemblyName System.IO.Compression
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archiveRoots=@(
+             'C:\Users\camar\Documents',
+             'C:\Users\camar\GolandProjects',
+             'C:\Users\camar\Downloads',
+             'C:\Users\camar\AppData\Local\Temp',
+             'C:\FORGE-Runner\_work'
+          )|Where-Object {Test-Path -LiteralPath $_ -PathType Container}
+          $archives=[System.Collections.Generic.List[string]]::new()
+          foreach($root in $archiveRoots){
+             Get-ChildItem -LiteralPath $root -File -Filter '*.zip' -Force -Recurse -Depth 6 -ErrorAction SilentlyContinue |
+               Where-Object {
+                 $_.Length -gt 0 -and $_.Length -le 2147483648 -and
+                 $_.Name -match '(?i)(ckb|plane|native|r303|backup|source|release|archive)'
+               }|ForEach-Object {
+                 if($archives.Count -lt 3000){$archives.Add($_.FullName)}
+               }
+          }
+          $zipMatches=[System.Collections.Generic.List[object]]::new()
+          $zipChecked=0
+          foreach($archive in ($archives|Select-Object -Unique)){
+             $zipChecked++
+             $fs=$null;$zip=$null
+             try{
+               $fs=[IO.File]::Open($archive,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+               $zip=[IO.Compression.ZipArchive]::new($fs,[IO.Compression.ZipArchiveMode]::Read,$false)
+               if($zip.Entries.Count -gt 50000){continue}
+               $candidates=@{}
+               $moduleFound=$false
+               foreach($entry in $zip.Entries){
+                  $ep=$entry.FullName.Replace('\','/')
+                  if($entry.Length -gt 20000000){continue}
+                  if($ep -match '(^|/)go\.mod$'){
+                     $st=$entry.Open();$sr=[IO.StreamReader]::new($st)
+                     try{$text=$sr.ReadToEnd()}finally{$sr.Dispose();$st.Dispose()}
+                     if($text -match '(?m)^module ckb-plane\s*$'){$moduleFound=$true}
+                  }
+                  foreach($filename in $expected.Keys){
+                     if($ep.EndsWith('/internal/plane/'+$filename,[StringComparison]::OrdinalIgnoreCase) -or
+                        $ep -ceq ('internal/plane/'+$filename)){
+                        $st=$entry.Open();$ms=[IO.MemoryStream]::new()
+                        try{$st.CopyTo($ms);$bytes=$ms.ToArray()}finally{$ms.Dispose();$st.Dispose()}
+                        if($bytes.Length -ne $entry.Length){throw 'R345_ARCHIVE_SOURCE_LENGTH_MISMATCH'}
+                        $prefix=[Text.Encoding]::ASCII.GetBytes(('blob '+$bytes.Length)+([string][char]0))
+                        $payload=[byte[]]::new($prefix.Length+$bytes.Length)
+                        [Array]::Copy($prefix,0,$payload,0,$prefix.Length)
+                        [Array]::Copy($bytes,0,$payload,$prefix.Length,$bytes.Length)
+                        $sha=[Security.Cryptography.SHA1]::Create()
+                        try{$blob=[BitConverter]::ToString($sha.ComputeHash($payload)).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+                        if($blob -ceq [string]$expected[$filename]){$candidates[$filename]=$blob}
+                     }
+                  }
+               }
+               if($moduleFound -and $candidates.Count -eq 3){
+                  $archSha=(Get-FileHash -LiteralPath $archive -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                  $zipMatches.Add([pscustomobject]@{sha=$archSha})
+               }
+             }catch{
+               continue
+             }finally{
+               if($zip){$zip.Dispose()}
+               if($fs){$fs.Dispose()}
+             }
+          }
+          Write-Output ('R345_RETAINED_ZIP_ARCHIVES_CANDIDATE_COUNT='+$archives.Count)
+          Write-Output ('R345_RETAINED_ZIP_ARCHIVES_CHECKED='+$zipChecked)
+          Write-Output ('R345_ARCHIVES_MATCHING_ALL_THREE_ACTIVE_SOURCE_BLOBS_AND_MODULE='+$zipMatches.Count)
+          foreach($m in $zipMatches){Write-Output ('R345_EXACT_SOURCE_ARCHIVE_SHA256='+$m.sha)}
+
           Write-Output 'R345_NO_SOURCE_FILES_OR_GIT_REFS_MODIFIED=TRUE'
           Write-Output 'R345_NO_DATABASE_QUEUE_TASK_OR_CONTROLLER_MUTATION=TRUE'
