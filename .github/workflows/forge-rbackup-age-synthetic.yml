@@ -1,0 +1,81 @@
+name: FORGE private RBACKUP Windows synthetic age roundtrip
+on:
+  push:
+    branches: [qualification/forge-rbackup-token-probe-20261026]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact private RBACKUP source without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/rbackup
+          ref: 27d18fd1b29cde338c38d100224890b2f5cb7eb7
+          token: ${{ secrets.RBACKUP_WRITE_TOKEN }}
+          path: rbackup-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Build pinned age tools and run only synthetic encryption and restore
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RBACKUP_AGE_QUALIFICATION_WRONG_RUNNER' }
+          $sourceRoot = Join-Path $env:GITHUB_WORKSPACE 'rbackup-source'
+          $expected = '27d18fd1b29cde338c38d100224890b2f5cb7eb7'
+          $head = (& git -C $sourceRoot rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $expected) { throw 'RBACKUP_SOURCE_IDENTITY_MISMATCH' }
+          Remove-Item Env:RBACKUP_WRITE_TOKEN,Env:GH_TOKEN,Env:GITHUB_TOKEN,Env:CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue
+          $root = Join-Path $env:RUNNER_TEMP ('rbackup-age-synthetic-' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $root) { throw 'RBACKUP_AGE_SCRATCH_EXISTS' }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          try {
+            $bin = Join-Path $root 'bin'
+            $gopath = Join-Path $root 'gopath'
+            $gomod = Join-Path $root 'gomodcache'
+            $gocache = Join-Path $root 'gocache'
+            foreach ($dir in @($bin,$gopath,$gomod,$gocache)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+            $go = Get-Command go -ErrorAction Stop
+            $env:GOBIN = $bin
+            $env:GOPATH = $gopath
+            $env:GOMODCACHE = $gomod
+            $env:GOCACHE = $gocache
+            $env:GOSUMDB = 'sum.golang.org'
+            $env:GOPROXY = 'https://proxy.golang.org,direct'
+            & $go.Source install filippo.io/age/cmd/...@v1.2.1
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_PINNED_BUILD_FAILED' }
+            $age = Join-Path $bin 'age.exe'
+            $ageKeygen = Join-Path $bin 'age-keygen.exe'
+            if (-not (Test-Path -LiteralPath $age -PathType Leaf) -or -not (Test-Path -LiteralPath $ageKeygen -PathType Leaf)) { throw 'RBACKUP_AGE_TOOLS_MISSING_AFTER_BUILD' }
+            $env:PATH = $bin + [IO.Path]::PathSeparator + $env:PATH
+            $keys = Join-Path $root 'synthetic-keys'
+            $archives = Join-Path $root 'synthetic-archives'
+            New-Item -ItemType Directory -Path $keys,$archives | Out-Null
+            $primary = Join-Path $keys 'primary.txt'
+            $recovery = Join-Path $keys 'recovery.txt'
+            & $ageKeygen -o $primary *> $null
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_SYNTHETIC_PRIMARY_KEYGEN_FAILED' }
+            & $ageKeygen -o $recovery *> $null
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_SYNTHETIC_RECOVERY_KEYGEN_FAILED' }
+            Push-Location $sourceRoot
+            try {
+              & python -B -m unittest discover -s tests -p 'test_*.py' -v
+              if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_WINDOWS_SOURCE_TESTS_FAILED' }
+              & python -B scripts/age_synthetic_d1_roundtrip.py --primary-identity $primary --recovery-identity $recovery --archive-directory $archives --checkout $sourceRoot --local-only --accept-same-disk-loss-risk
+              if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_SYNTHETIC_AGE_ROUNDTRIP_FAILED' }
+            } finally { Pop-Location }
+            Write-Output 'RBACKUP_WINDOWS_SOURCE_TESTS=PASS'
+            Write-Output "RBACKUP_SOURCE_SHA=$head"
+            Write-Output 'RBACKUP_SYNTHETIC_AGE_SQL_ROUNDTRIP=PASS'
+            Write-Output 'REAL_KEYS=NOT_USED'
+            Write-Output 'CLOUDFLARE_ACCESS=NONE'
+            Write-Output 'D1_EXPORT=NOT_EXECUTED'
+            Write-Output 'RBACKUP_WRITE=NONE'
+          } finally {
+            Remove-Item Env:GOBIN,Env:GOPATH,Env:GOMODCACHE,Env:GOCACHE -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+            if (Test-Path -LiteralPath $sourceRoot) { Remove-Item -LiteralPath $sourceRoot -Recurse -Force }
+          }
