@@ -1,0 +1,37 @@
+name: CKB R367 read-only release inventory
+on:
+  push:
+    branches: [audit/ckb-r367-release-inventory-20261025]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: [self-hosted, Windows, X64, FORGE-CODEX-REMOTE]
+    timeout-minutes: 8
+    steps:
+      - name: Inspect release-store hashes without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_OWNER_RUNNER' }
+          $root='C:\ProgramData\CKBR\release-store\ckb-plane\releases'
+          $target='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if (!(Test-Path -LiteralPath $root -PathType Container)) { throw 'RELEASE_STORE_MISSING' }
+          $files=@(Get-ChildItem -LiteralPath $root -Filter ckb-plane.exe -File -Recurse -ErrorAction Stop)
+          if ($files.Count -gt 250) { throw 'INVENTORY_BOUND_EXCEEDED' }
+          Write-Output ('R367_RELEASE_EXECUTABLE_COUNT='+$files.Count)
+          foreach($f in $files) {
+            $sha=(Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Output ('R367_RELEASE='+($f.FullName.Substring($root.Length).TrimStart('\'))+' SHA256='+$sha+' MATCH='+($sha -ceq $target))
+          }
+          $p=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          Write-Output ('R367_RUNNING_PROCESS_COUNT='+$p.Count)
+          foreach($x in $p) {
+            if ($x.ExecutablePath -and (Test-Path -LiteralPath $x.ExecutablePath -PathType Leaf)) {
+              $sha=(Get-FileHash -LiteralPath $x.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Output ('R367_RUNNING_EXE_SHA256='+$sha)
+              Write-Output ('R367_RUNNING_EXE_IN_RELEASE_STORE='+$x.ExecutablePath.StartsWith($root,[StringComparison]::OrdinalIgnoreCase))
+            }
+          }
+          Write-Output 'R367_NO_CONTROLLER_DB_TASK_OR_QUEUE_MUTATION=TRUE'
