@@ -23,6 +23,8 @@ def train_sixfield_fit():
                type(event.get("action")) is not int or event["action"] not in (0,1,2)
                for event in stream):
             raise ValueError("R8_FIT_EVENT_IDENTITY_OR_ACTION_DRIFT")
+        if any("seed" in event and event["seed"] not in FIT for event in stream):
+            raise ValueError("R8_FIT_STREAM_SEED_CONTAMINATION")
         learned,digest=fit_sixfield(stream)
         return learned,{"fit_seeds":[FIT[0],FIT[-1]],"fit_events":len(stream),
                         "fit_model_sha256":digest,"scientific_accepted":False}
