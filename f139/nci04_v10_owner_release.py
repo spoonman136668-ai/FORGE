@@ -24,8 +24,8 @@ FIELDS = frozenset({
     "v2_production_dispatch_authorized", "new_controller",
     "new_scheduler", "new_queue", "paid_api_calls",
 })
-SHA40 = re.compile(r"[a-f0-9]{40}\\Z")
-SHA64 = re.compile(r"[a-f0-9]{64}\\Z")
+SHA40 = re.compile(r"[a-f0-9]{40}\Z")
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 
 
 class V10OwnerDenied(ValueError):
