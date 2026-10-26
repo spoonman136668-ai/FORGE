@@ -182,7 +182,7 @@ def validate_v10_original_owner(db, approval: dict) -> dict:
          and approval["prepost_negative_event_sha256"] ==
              state["prepost_negative_event_sha256"]
          and approval["quarantined_tickets_sha256"] ==
-             digest(canonical(state["quarantined_tickets"]),
+             digest(canonical(state["quarantined_tickets"])),
          "NEGATIVE_CUSTODY_DRIFT")
     need(all(approval["to_source_sha"] not in
              (event.get("from_source_sha"), event.get("to_source_sha"))
