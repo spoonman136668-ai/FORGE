@@ -1,0 +1,139 @@
+name: FORGE RBACKUP real encrypted D1 export
+on:
+  push:
+    branches:
+      - qualification/forge-rbackup-token-probe-20261026
+    paths:
+      - .github/workflows/forge-rbackup-real-d1-export-20261026.yml
+permissions:
+  contents: read
+concurrency:
+  group: forge-rbackup-real-d1-export
+  cancel-in-progress: false
+jobs:
+  export:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - name: Verify exact owner-triggered runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REF -cne 'refs/heads/qualification/forge-rbackup-token-probe-20261026' -or
+              $env:GITHUB_RUN_ATTEMPT -cne '1') {
+            throw 'RBACKUP_EXPORT_WRONG_OWNER_RUNNER_OR_ATTEMPT'
+          }
+      - name: Check out pinned private RBACKUP source
+        uses: actions/checkout@v4
+        with:
+          repository: spoonman136668-ai/rbackup
+          ref: 27996c3dc1e0b0c457c1280f5f1db7f0c8031fd1
+          token: ${{ secrets.RBACKUP_WRITE_TOKEN }}
+          path: rbackup
+          persist-credentials: false
+      - name: Build age tools and verify existing protected keys
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $tempRoot = Join-Path $env:RUNNER_TEMP 'rbackup-age-tools'
+          New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
+          $env:GOBIN = Join-Path $tempRoot 'bin'
+          $env:GOPATH = Join-Path $tempRoot 'gopath'
+          $env:GOMODCACHE = Join-Path $tempRoot 'gomodcache'
+          $env:GOCACHE = Join-Path $tempRoot 'gocache'
+          New-Item -ItemType Directory -Force -Path $env:GOBIN,$env:GOPATH,$env:GOMODCACHE,$env:GOCACHE | Out-Null
+          go install filippo.io/age/cmd/age@v1.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_BUILD_FAILED' }
+          go install filippo.io/age/cmd/age-keygen@v1.2.1
+          if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_AGE_KEYGEN_BUILD_FAILED' }
+          $env:PATH = $env:GOBIN + [IO.Path]::PathSeparator + $env:PATH
+          Push-Location rbackup
+          try {
+            & .\scripts\Initialize-RbackupLocalCustody.ps1 -VerifyExisting -AcceptSameDiskLossRisk
+            if (-not $?) { throw 'RBACKUP_EXISTING_KEY_PREFLIGHT_FAILED' }
+          } finally {
+            Pop-Location
+          }
+          $archiveDir = Join-Path $env:LOCALAPPDATA 'rbackup-custody\archives'
+          $archive = Join-Path $archiveDir ('f139-d1-' + $env:GITHUB_RUN_ID + '.age')
+          if (Test-Path -LiteralPath $archive) { throw 'RBACKUP_ARCHIVE_COLLISION' }
+          "RBACKUP_ARCHIVE_PATH=$archive" >> $env:GITHUB_ENV
+          Write-Output 'RBACKUP_EXISTING_KEYS_AND_PROTECTED_ARCHIVE_DIR=PASS'
+      - name: Discover the single intended D1 and stream encrypted export locally
+        shell: pwsh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          try {
+            if ([string]::IsNullOrWhiteSpace($env:CLOUDFLARE_API_TOKEN)) { throw 'RBACKUP_CLOUDFLARE_TOKEN_UNAVAILABLE' }
+            if ($env:CLOUDFLARE_ACCOUNT_ID -notmatch '^[0-9a-fA-F]{32}$') { throw 'RBACKUP_CLOUDFLARE_ACCOUNT_UNAVAILABLE' }
+            $headers = @{ Authorization = "Bearer $($env:CLOUDFLARE_API_TOKEN)"; Accept = 'application/json' }
+            $uri = "https://api.cloudflare.com/client/v4/accounts/$($env:CLOUDFLARE_ACCOUNT_ID)/d1/database?per_page=100&page=1"
+            try {
+              $response = Invoke-RestMethod -Method Get -Uri $uri -Headers $headers -TimeoutSec 30 -MaximumRedirection 0
+            } catch {
+              throw 'RBACKUP_D1_INVENTORY_REQUEST_FAILED'
+            }
+            if ($response.success -ne $true) { throw 'RBACKUP_D1_INVENTORY_REJECTED' }
+            $items = @($response.result)
+            $total = [int]$response.result_info.total_count
+            if ($total -gt 100 -or $items.Count -ne $total) { throw 'RBACKUP_D1_INVENTORY_INCOMPLETE' }
+            $target = @($items | Where-Object { [string]$_.name -match '(?i)(fsa|forge)' })
+            if ($target.Count -ne 1) { throw 'RBACKUP_D1_TARGET_NOT_UNIQUE' }
+            $database = [string]$target[0].uuid
+            if ($database -notmatch '^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') {
+              throw 'RBACKUP_D1_TARGET_ID_INVALID'
+            }
+            $primary = Join-Path $env:LOCALAPPDATA 'rbackup-custody\primary\identity.txt'
+            $recovery = Join-Path $env:LOCALAPPDATA 'rbackup-custody\recovery\identity.txt'
+            $env:CLOUDFLARE_D1_DATABASE_ID = $database
+            Push-Location rbackup
+            try {
+              python -B .\scripts\d1_encrypted_export.py --execute --acknowledge-query-pause --local-only --accept-same-disk-loss-risk --primary-identity $primary --recovery-identity $recovery --output $env:RBACKUP_ARCHIVE_PATH
+              if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_ENCRYPTED_D1_EXPORT_FAILED' }
+            } finally {
+              Pop-Location
+            }
+            Write-Output 'RBACKUP_REAL_D1_EXPORT_AND_DUAL_CIPHERTEXT_VERIFY=PASS'
+          } finally {
+            if ($headers) { $headers.Clear() }
+            Remove-Item Env:CLOUDFLARE_API_TOKEN,Env:CLOUDFLARE_ACCOUNT_ID,Env:CLOUDFLARE_D1_DATABASE_ID -ErrorAction SilentlyContinue
+          }
+      - name: Upload only ciphertext to the private RBACKUP release and verify readback
+        shell: pwsh
+        env:
+          RBACKUP_WRITE_TOKEN: ${{ secrets.RBACKUP_WRITE_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          Push-Location rbackup
+          try {
+            python -B .\scripts\upload_ciphertext_to_rbackup.py --archive $env:RBACKUP_ARCHIVE_PATH --checkout $env:GITHUB_WORKSPACE\rbackup
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_CIPHERTEXT_UPLOAD_FAILED' }
+          } finally {
+            Pop-Location
+            Remove-Item Env:RBACKUP_WRITE_TOKEN -ErrorAction SilentlyContinue
+          }
+      - name: Restore independently with both keys in isolated memory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          $primary = Join-Path $env:LOCALAPPDATA 'rbackup-custody\primary\identity.txt'
+          $recovery = Join-Path $env:LOCALAPPDATA 'rbackup-custody\recovery\identity.txt'
+          Push-Location rbackup
+          try {
+            python -B .\scripts\d1_isolated_restore_verify.py --local-only --accept-same-disk-loss-risk --ciphertext $env:RBACKUP_ARCHIVE_PATH --primary-identity $primary --recovery-identity $recovery --max-bytes 268435456
+            if ($LASTEXITCODE -ne 0) { throw 'RBACKUP_ISOLATED_RESTORE_FAILED' }
+          } finally {
+            Pop-Location
+          }
+          Write-Output 'RBACKUP_ISOLATED_D1_RESTORE=PASS'
