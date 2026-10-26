@@ -1,4 +1,4 @@
-name: CKB R379 local source versus repository snapshot hashes
+name: CKB R380 local source identity and checkout provenance
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -27,14 +27,19 @@ jobs:
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
           $source='C:\Users\camar\GolandProjects\ckb-plane'
-          $snapshot=Join-Path $source 'snapshot\source'
-          $paths=@('go.mod','cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go','internal\plane\recovery.go','internal\plane\server.go')
-          Write-Output ('R379_SNAPSHOT_EXISTS='+(Test-Path -LiteralPath $snapshot -PathType Container))
-          foreach($rel in $paths) {
-            $local=Join-Path $source $rel
-            $remote=Join-Path $snapshot $rel
-            $lh=if(Test-Path -LiteralPath $local -PathType Leaf){(Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
-            $rh=if(Test-Path -LiteralPath $remote -PathType Leaf){(Get-FileHash -LiteralPath $remote -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
-            Write-Output ('R379_FILE='+$rel+' LOCAL='+$lh+' SNAPSHOT='+$rh+' MATCH='+($lh -ceq $rh -and $lh -ne 'MISSING'))
+          $git=(Get-Command git -ErrorAction SilentlyContinue)
+          Write-Output ('R380_GIT_AVAILABLE='+($null -ne $git))
+          if($null -ne $git){
+            foreach($p in @($source,(Split-Path $source -Parent))){
+              $dot=Join-Path $p '.git'
+              Write-Output ('R380_GIT_MARKER='+$p+' PRESENT='+(Test-Path -LiteralPath $dot))
+            }
+            Push-Location $source
+            try{
+              $env:GIT_OPTIONAL_LOCKS='0'
+              & $git.Source -C $source rev-parse --show-toplevel 2>&1 | ForEach-Object {Write-Output ('R380_TOPLEVEL='+$_)}
+              & $git.Source -C $source rev-parse HEAD 2>&1 | ForEach-Object {Write-Output ('R380_HEAD='+$_)}
+              & $git.Source -C $source remote -v 2>&1 | ForEach-Object { if([string]$_ -notmatch '(@|token|password|secret)'){Write-Output ('R380_REMOTE='+$_)} }
+            } finally {Pop-Location}
           }
-          Write-Output 'R379_READ_ONLY=TRUE'
+          Write-Output 'R380_READ_ONLY=TRUE'
