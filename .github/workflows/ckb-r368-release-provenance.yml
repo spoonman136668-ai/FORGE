@@ -1,4 +1,4 @@
-name: CKB R378 bounded source fingerprint comparison
+name: CKB R379 local source versus repository snapshot hashes
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -27,11 +27,14 @@ jobs:
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
           $source='C:\Users\camar\GolandProjects\ckb-plane'
+          $snapshot=Join-Path $source 'snapshot\source'
           $paths=@('go.mod','cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go','internal\plane\recovery.go','internal\plane\server.go')
+          Write-Output ('R379_SNAPSHOT_EXISTS='+(Test-Path -LiteralPath $snapshot -PathType Container))
           foreach($rel in $paths) {
-            $p=Join-Path $source $rel
-            if (!(Test-Path -LiteralPath $p -PathType Leaf)) { Write-Output ('R378_MISSING='+$rel); continue }
-            $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
-            Write-Output ('R378_FILE='+$rel+' SHA256='+$sha)
+            $local=Join-Path $source $rel
+            $remote=Join-Path $snapshot $rel
+            $lh=if(Test-Path -LiteralPath $local -PathType Leaf){(Get-FileHash -LiteralPath $local -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
+            $rh=if(Test-Path -LiteralPath $remote -PathType Leaf){(Get-FileHash -LiteralPath $remote -Algorithm SHA256).Hash.ToLowerInvariant()}else{'MISSING'}
+            Write-Output ('R379_FILE='+$rel+' LOCAL='+$lh+' SNAPSHOT='+$rh+' MATCH='+($lh -ceq $rh -and $lh -ne 'MISSING'))
           }
-          Write-Output 'R378_READ_ONLY=TRUE'
+          Write-Output 'R379_READ_ONLY=TRUE'
