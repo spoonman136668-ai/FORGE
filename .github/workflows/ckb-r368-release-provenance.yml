@@ -1,4 +1,4 @@
-name: CKB R393 installed R220 release lineage inventory
+name: CKB R394 bounded R220 custody receipt search
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,21 +26,17 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $root='C:\ProgramData\CKBR\release-store\ckb-plane\releases'
-          $target='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
-          $files=@(Get-ChildItem -LiteralPath $root -Filter 'release-manifest.json' -File -Recurse -ErrorAction SilentlyContinue)
-          Write-Output ('R393_MANIFEST_COUNT='+$files.Count)
-          $matches=0
-          foreach($file in $files){
-            try{$o=Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json}catch{continue}
-            $binary=[string]$o.controller_binary_sha256
-            $release=[string]$o.release_id
-            if($binary -eq $target -or $release -match '(?i)R220|LIVECOMPAT'){
-              Write-Output ('R393_RELEVANT='+$file.FullName+' RELEASE='+$release+' BINARY='+$binary+' SOURCE='+$o.controller_source_tree_sha256+' PARENT='+$o.parent_release_id)
-              $matches++
+          $roots=@('C:\ProgramData\CKBR\release-store\ckb-plane','C:\Users\camar\GolandProjects\ckb-plane','C:\Users\camar\GolandProjects\ckb-plane-dk-work')
+          $pattern='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678|PLANE-R220-LIVECOMPAT-20261023'
+          $count=0
+          foreach($root in $roots){
+            if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
+            $files=@(Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Length -le 1048576 -and $_.Extension -in @('.json','.txt','.md','.yaml','.yml','.log') } | Select-Object -First 1500)
+            Write-Output ('R394_ROOT='+$root+' FILES_SCANNED='+$files.Count)
+            foreach($file in $files){
+              $hit=Select-String -LiteralPath $file.FullName -Pattern $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+              if($hit){Write-Output ('R394_HIT='+$file.FullName+' LINE='+$hit.LineNumber);$count++}
             }
           }
-          Write-Output ('R393_RELEVANT_COUNT='+$matches)
-          $r220=Join-Path $root 'PLANE-R220-LIVECOMPAT-20261023'
-          foreach($file in @(Get-ChildItem -LiteralPath $r220 -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)(manifest|receipt|seal|source|provenance|build)' } | Select-Object -First 25)){Write-Output ('R393_R220_FILE='+$file.FullName)}
-          Write-Output 'R393_READ_ONLY=TRUE'
+          Write-Output ('R394_TOTAL_HITS='+$count)
+          Write-Output 'R394_READ_ONLY=TRUE'
