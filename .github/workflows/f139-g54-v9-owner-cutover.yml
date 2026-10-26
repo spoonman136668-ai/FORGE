@@ -398,17 +398,30 @@ jobs:
             foreach($line in (Get-Content -LiteralPath $log | Select-Object -Last 2000)) {
               if(-not $line.StartsWith('{')){continue}
               try {$e=$line | ConvertFrom-Json}catch{continue}
+              function OptionalField($object,[string]$name) {
+                $property=$object.PSObject.Properties[$name]
+                if($null -eq $property){return $null}
+                return $property.Value
+              }
               $entries += [pscustomobject]@{
-                timestamp=$e.timestamp; disposition=$e.disposition; event=$e.event
-                error=$e.error; reason=$e.reason; ticket=$e.ticket
-                issue_number=$e.issue_number; candidates=$e.candidates
-                rejected=$e.rejected; detail=$e.detail
+                timestamp=(OptionalField $e 'at')
+                disposition=(OptionalField $e 'disposition')
+                event=(OptionalField $e 'event')
+                blocked=(OptionalField $e 'blocked')
+                error=(OptionalField $e 'error')
+                reason=(OptionalField $e 'reason')
+                ticket=(OptionalField $e 'ticket')
+                issue_number=(OptionalField $e 'issue_number')
+                candidates=(OptionalField $e 'candidates')
+                rejected=(OptionalField $e 'rejected')
+                detail=(OptionalField $e 'detail')
               }
             }
             Write-Host ('F139_G54_CONTROLLER_LOG_TAIL=' + (($entries | Select-Object -Last 30 | ConvertTo-Json -Compress -Depth 6)))
           } else { Write-Host 'F139_G54_CONTROLLER_LOG=MISSING' }
+          $taskInfo=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
           Write-Host ('F139_G54_OWNER_TASK_STATE=' + [string]$task.State)
-          Write-Host ('F139_G54_OWNER_TASK_LAST_RUN=' + [string]$task.LastRunTime)
-          Write-Host ('F139_G54_OWNER_TASK_NEXT_RUN=' + [string]$task.NextRunTime)
+          Write-Host ('F139_G54_OWNER_TASK_LAST_RUN=' + [string]$taskInfo.LastRunTime)
+          Write-Host ('F139_G54_OWNER_TASK_NEXT_RUN=' + [string]$taskInfo.NextRunTime)
           Write-Host ('F139_G54_INSTALLED_SOURCE_SHA=' + ((& git -C $root rev-parse HEAD | Out-String).Trim()))
           Write-Host 'F139_G54_STATUS_READ_ONLY=PASS'
