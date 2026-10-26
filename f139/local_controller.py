@@ -2317,8 +2317,8 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     return (str(folder),hash_bytes(payload))
 
 def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
-    """Eligible to sign NEW V2 native work only after the authenticated,
-    one-use original V7 transition AND separate native development activation.
+    """Allow native V2 development after a sealed original V7/V8/V9 transition
+    and separate native development activation.
 
     An environment variable, issue label or a source SHA alone never arms
     the credentialed V2 signer. The G36 signed original claim still must
@@ -2348,15 +2348,30 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
         v8 = (event.get("schema")=="forge.f139.source-transition.v8"
               and event.get("from_source_sha")==SOURCE_V7
               and verify_g49_custody(db))
-        if not ((v7 or v8) and event.get("to_source_sha")==source_sha
+        v9 = False
+        if event.get("schema")=="forge.f139.source-transition.v9":
+            # Database.verify seals the V9 transition to the unique terminal
+            # V8 event and G49 custody; recheck the seal here before the signer
+            # can dispatch any new work against this source.
+            db.verify()
+            v8_rows=[
+                r for r in db.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                if json.loads(r["payload"]).get("schema")==
+                    "forge.f139.source-transition.v8"]
+            v9=(len(v8_rows)==1
+                and event.get("from_source_sha")==
+                    json.loads(v8_rows[0]["payload"]).get("to_source_sha")
+                and event.get("v8_terminal_event_sha256")==v8_rows[0]["sha"]
+                and verify_g49_custody(db))
+        if not ((v7 or v8 or v9) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
         return verify_native_activation(db)
     except (F139Error, sqlite3.DatabaseError, ValueError, TypeError, KeyError):
         return False
-
-
 
 
 def original_owner_v2_guard_canonical(db, db_path: Path,
