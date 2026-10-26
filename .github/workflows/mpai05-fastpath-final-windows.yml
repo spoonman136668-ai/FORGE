@@ -79,12 +79,14 @@ jobs:
             $sourceObject=(& git.exe --git-dir $mirror rev-parse ('refs/remotes/origin/'+$sourceBranch+'^{commit}') | Out-String).Trim()
             $mainObject=(& git.exe --git-dir $mirror rev-parse 'refs/remotes/origin/main^{commit}' | Out-String).Trim()
             Need ($LASTEXITCODE -eq 0 -and $sourceObject -ceq $target -and $mainObject -ceq $accepted) 'CACHE_OBJECT_IDENTITY'
-            & git.exe --git-dir $mirror worktree add --quiet --detach $root $target
+            $checkoutBranch='mpai05-final-'+$env:GITHUB_RUN_ID
+            & git.exe --git-dir $mirror worktree add --quiet -b $checkoutBranch $root $target
             Need ($LASTEXITCODE -eq 0) 'WORKTREE_ADD'
             $worktreeAdded=$true
             $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
             $tree=(& git.exe -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
-            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target -and $tree -match '^[0-9a-f]{40}$') 'PINNED_SOURCE_TREE'
+            $attached=(& git.exe -C $root symbolic-ref --short HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target -and $tree -match '^[0-9a-f]{40}$' -and $attached -ceq $checkoutBranch) 'PINNED_SOURCE_TREE_AND_BRANCH'
             & git.exe -C $root merge-base --is-ancestor $accepted HEAD
             Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
             $changed=@(& git.exe -C $root diff --name-only $accepted HEAD)
@@ -146,6 +148,8 @@ jobs:
               Need ($LASTEXITCODE -eq 0) 'WORKTREE_CLEANUP'
               & git.exe --git-dir $mirror worktree prune
               Need ($LASTEXITCODE -eq 0) 'WORKTREE_PRUNE'
+              & git.exe --git-dir $mirror branch -D $checkoutBranch
+              Need ($LASTEXITCODE -eq 0) 'LOCAL_BRANCH_CLEANUP'
             }
             if(Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
             Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
