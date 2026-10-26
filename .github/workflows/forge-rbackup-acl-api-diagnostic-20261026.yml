@@ -1,0 +1,45 @@
+name: FORGE RBACKUP ACL API diagnostic
+on:
+  push:
+    branches:
+      - qualification/forge-rbackup-token-probe-20261026
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check ACL operations in disposable runner temp directory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RBACKUP_ACL_DIAGNOSTIC_WRONG_RUNNER' }
+          $owner = [Security.Principal.WindowsIdentity]::GetCurrent().User
+          $acl = [Security.AccessControl.DirectorySecurity]::new()
+          $acl.SetOwner($owner)
+          $acl.SetAccessRuleProtection($true, $false)
+          $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $owner, [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.InheritanceFlags]'ContainerInherit,ObjectInherit',
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow)
+          $acl.AddAccessRule($rule)
+          $probe = Join-Path $env:RUNNER_TEMP ('rbackup-acl-probe-' + [guid]::NewGuid().ToString('N'))
+          try {
+            $null = [IO.Directory]::CreateDirectory($probe, $acl)
+            $saved = Get-Acl -LiteralPath $probe
+            $rules = @($saved.Access)
+            if ($rules.Count -ne 1) { throw 'RBACKUP_ACL_RULE_COUNT_UNEXPECTED' }
+            Write-Output 'RBACKUP_ATOMIC_ACL_CREATE=PASS'
+            Write-Output 'RBACKUP_ACL_PRIVATE_RULE_COUNT=1'
+          } catch {
+            Write-Output ('RBACKUP_ATOMIC_ACL_CREATE=BLOCKED ' + $_.Exception.GetType().Name)
+            throw 'RBACKUP_ACL_DIAGNOSTIC_FAILED'
+          } finally {
+            if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue }
+          }
