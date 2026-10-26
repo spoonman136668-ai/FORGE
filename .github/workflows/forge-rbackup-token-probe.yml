@@ -25,10 +25,14 @@ jobs:
           if (Test-Path -LiteralPath $root) { throw 'RBACKUP_SCRATCH_ALREADY_EXISTS' }
           New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
           $fetchCount = 0
+          $phase = 'commit'
           try {
             try {
               $commit = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/commits/$source" -Headers $headers -TimeoutSec 20
               if ($commit.sha -cne $source) { throw 'RBACKUP_PIN_MISMATCH' }
+              $phase = 'tree'
+              $treeSha = [string]$commit.commit.tree.sha
+              $tree = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/git/trees/$treeSha?recursive=1" -Headers $headers -TimeoutSec 20
               $files = @(
                 'scripts/age_recovery_preflight.py',
                 'scripts/age_synthetic_d1_roundtrip.py',
@@ -40,19 +44,20 @@ jobs:
                 'tests/test_d1_isolated_restore_verify.py'
               )
               foreach ($file in $files) {
-                $item = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/contents/$file?ref=$source" -Headers $headers -TimeoutSec 20
-                $length = 0
-                if ($null -ne $item.content) { $length = ([string]$item.content).Length }
-                Write-Output "RBACKUP_SOURCE_META type=$($item.type) encoding=$($item.encoding) size=$($item.size) content_length=$length"
-                if ($item.type -cne 'file' -or $item.encoding -cne 'base64' -or $length -le 0) { throw 'RBACKUP_SOURCE_FILE_FORMAT_UNEXPECTED' }
+                $entry = @($tree.tree | Where-Object { $_.path -ceq $file -and $_.type -ceq 'blob' })
+                if ($entry.Count -ne 1 -or [string]$entry[0].sha -notmatch '^[0-9a-f]{40}$') { throw 'RBACKUP_PINNED_BLOB_MISSING' }
+                $phase = 'blob'
+                $blob = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repoName/git/blobs/$($entry[0].sha)" -Headers $headers -TimeoutSec 20
+                if ($blob.encoding -cne 'base64') { throw 'RBACKUP_PINNED_BLOB_ENCODING_UNEXPECTED' }
                 $dest = Join-Path $root ($file -replace '/', [IO.Path]::DirectorySeparatorChar)
                 New-Item -ItemType Directory -Path (Split-Path -Parent $dest) -Force | Out-Null
-                [IO.File]::WriteAllBytes($dest, [Convert]::FromBase64String(($item.content -replace '\s', '')))
+                [IO.File]::WriteAllBytes($dest, [Convert]::FromBase64String(($blob.content -replace '\s', '')))
                 $fetchCount++
               }
             } catch {
               $status = 'none'
               try { if ($_.Exception.Response.StatusCode) { $status = [string][int]$_.Exception.Response.StatusCode } } catch {}
+              Write-Output "RBACKUP_SOURCE_FETCH_PHASE=$phase"
               Write-Output "RBACKUP_SOURCE_FETCH_HTTP_STATUS=$status"
               Write-Output "RBACKUP_SOURCE_FILES_FETCHED=$fetchCount"
               Write-Output "RBACKUP_SOURCE_FETCH_ERROR_TYPE=$($_.Exception.GetType().Name)"
