@@ -1,4 +1,4 @@
-name: CKB R403 inspect R220 PE build identity and native rebuild
+name: CKB R404 source-tree custody fingerprint
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -21,20 +21,18 @@ jobs:
           foreach($p in @($base,$releases,$release)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
           $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $go=(Get-Command go -ErrorAction Stop).Source
-          $installed=@(& $go version -m $exe)
-          $mod=@(Get-Content -LiteralPath (Join-Path $root 'go.mod'))
-          $deps=@($installed | Where-Object {$_ -match '^\s*dep\s+'})
-          Write-Output ('R403_INSTALLED_DEP_COUNT='+$deps.Count)
-          foreach($line in $deps){
-            $parts=($line.Trim() -split '\s+')
-            if($parts.Count -lt 3){continue}
-            $name=$parts[1];$ver=$parts[2]
-            $match=@($mod | Where-Object {$_ -match ('^\s*'+[regex]::Escape($name)+'\s+')})
-            if($match.Count -ne 1 -or $match[0] -notmatch [regex]::Escape($ver)){Write-Output ('R403_DEP_MISMATCH='+$name+' INSTALLED='+$ver+' CURRENT='+($match -join ' '))}
+          $paths=@('go.mod','go.sum') + @(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -ErrorAction Stop | ForEach-Object {$_.FullName.Substring($root.Length+1).Replace('\','/')})
+          $paths=@($paths | Sort-Object -Unique)
+          $sha=[System.Security.Cryptography.SHA256]::Create()
+          $records=[System.Collections.Generic.List[string]]::new()
+          foreach($p in $paths){
+            $f=Join-Path $root $p
+            $h=(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+            $records.Add($p.Replace('\','/')+' '+$h)
           }
-          $src=@(Get-ChildItem -LiteralPath (Join-Path $root 'cmd'),(Join-Path $root 'internal') -Recurse -File -Filter '*.go' -ErrorAction Stop)
-          Write-Output ('R403_NATIVE_GO_FILE_COUNT='+$src.Count)
-          Write-Output 'R403_READ_ONLY=TRUE'
+          $bytes=[Text.Encoding]::UTF8.GetBytes(($records -join "`n")+"`n")
+          $tree=[Convert]::ToHexString($sha.ComputeHash($bytes)).ToLowerInvariant()
+          Write-Output ('R404_SOURCE_FILE_COUNT='+$paths.Count)
+          Write-Output ('R404_SOURCE_TREE_SHA256='+$tree)
+          Write-Output 'R404_READ_ONLY=TRUE'
