@@ -1768,10 +1768,19 @@ class GitHub:
                 and signed_fields["target_commit"]==issue.candidate.target_commit
                 and signed_fields["target_tree_sha"]==issue.candidate.target_tree_sha,
                 "NATIVE_DISPATCH_ISSUE_IDENTITY")
+        from f139.nci04_release_pin_continuity import (
+            verify_release_worker_branch)
+        source = issue.source_sha
+        require(source == signed_fields["source_sha"],
+                "NATIVE_DISPATCH_SOURCE_IDENTITY_DRIFT")
+        # Authenticate the exact released worker code before ever doing POST.
+        # The protected default branch is allowed to move independently.
+        worker_ref = verify_release_worker_branch(
+            self.native_repo_get, source)
         payload = [
             "--method","POST",
             "repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
-            "-f","ref=main",
+            "-f","ref="+worker_ref,
         ]
         # GitHub workflow_dispatch supports only TEN input keys; legacy
         # endpoint already consumes nine. Keep those exact preexisting fields
@@ -1837,13 +1846,30 @@ class GitHub:
         self.runner(args)
 
     def candidates(self,ticket:str,started_at:str):
+        # Frozen legacy/historical provider lookups remain main-scoped.
+        return self._candidates_for_ref(ticket,started_at,"main")
+
+    def candidates_for_source(self, ticket: str, started_at: str,
+                              source_sha: str):
+        """Look up once-only runs ONLY under exact authenticated release ref."""
+        from f139.nci04_release_pin_continuity import (
+            verify_release_worker_branch)
+        ref = verify_release_worker_branch(self.native_repo_get, source_sha)
+        return self._candidates_for_ref(ticket, started_at, ref)
+
+    def _candidates_for_ref(self,ticket:str,started_at:str,ref:str):
+        require(isinstance(ref,str)
+                and re.fullmatch(r"(?:main|f139-owner-release-[a-f0-9]{40})",
+                                 ref) is not None,
+                "F139_WORKER_REF_INVALID")
         source_start=parse_time(started_at)
         found=[]
         for page in range(1,6):
             index=self.get("repos/"+REPO+"/actions/workflows/"+WORKFLOW+
-                           "/runs?branch=main&event=workflow_dispatch&per_page=100&page="+str(page))
+                           "/runs?branch="+ref+"&event=workflow_dispatch&per_page=100&page="+str(page))
             rows=index.get("workflow_runs")
-            require(isinstance(rows,list) and isinstance(index.get("total_count"),int),"PROVIDER_HISTORY_INVALID")
+            require(isinstance(rows,list) and isinstance(index.get("total_count"),int),
+                    "PROVIDER_HISTORY_INVALID")
             found.extend(run for run in rows if run.get("display_title")=="F139 "+ticket)
             if len(rows)<100 or not rows or parse_time(rows[-1]["created_at"])<source_start-dt.timedelta(minutes=2):
                 break
@@ -1857,7 +1883,8 @@ class GitHub:
                 and run.get("event")=="workflow_dispatch" and run.get("name")=="F139 "+ticket
                 and run.get("workflow_id")==388797257
                 and run.get("path")==".github/workflows/"+WORKFLOW
-                and run.get("head_sha")==source and run.get("head_branch")=="main"
+                and run.get("head_sha")==source and run.get("head_branch") in (
+                    "main","f139-owner-release-"+source)
                 and run.get("run_attempt")==1 and isinstance(run.get("id"),int)
                 and run["id"]>0 and parse_time(run.get("created_at")) >= parse_time(started_at)-dt.timedelta(minutes=2),
                 "PROVIDER_SOURCE_EVENT_SPOOFED")
@@ -1901,7 +1928,8 @@ class GitHub:
                 and run.get("name")=="F139 "+ticket
                 and run.get("workflow_id")==388797257
                 and run.get("path")==".github/workflows/"+WORKFLOW
-                and run.get("head_sha")==source and run.get("head_branch")=="main"
+                and run.get("head_sha")==source and run.get("head_branch") in (
+                    "main","f139-owner-release-"+source)
                 and run.get("run_attempt")==1 and isinstance(run.get("id"),int)
                 and run["id"]>0
                 and parse_time(run.get("created_at")) >=
@@ -2396,7 +2424,14 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
     for active_record in db.actives():
         active=dict(active_record)
         try:
-            run=api.candidates(active["ticket"],active["started_at"])
+            pinned_lookup=getattr(api,"candidates_for_source",None)
+            if (callable(pinned_lookup) and native_enabled
+                    and active["ticket"].startswith("f139-nci04-")
+                    and active["source_sha"]==meta["source_sha"]):
+                run=pinned_lookup(active["ticket"],active["started_at"],
+                                  active["source_sha"])
+            else:
+                run=api.candidates(active["ticket"],active["started_at"])
             if run is None:
                 if not active["ticket"].startswith("f139-nci04-"):
                     legacy_pending[active["ticket"]]="START_RISK_PENDING_NO_REDISPATCH"
