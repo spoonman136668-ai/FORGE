@@ -1,4 +1,4 @@
-name: CKB R384 bounded livecandidate fingerprint qualification
+name: CKB R385 isolated livecandidate binary comparison
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,17 +26,23 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $root='C:\Users\camar\GolandProjects'
-          $dirs=@('ckb-plane','ckb-plane-authority-lease-r2','ckb-plane-authority-lease-r2-livecandidate','ckb-plane-dk-work')
-          $paths=@('go.mod','cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go')
-          foreach($name in $dirs){
-            $base=Join-Path $root $name
-            foreach($rel in $paths){
-              $p=Join-Path $base $rel
-              if(Test-Path -LiteralPath $p -PathType Leaf){
-                $sha=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
-                Write-Output ('R384_SOURCE='+$name+' FILE='+$rel+' SHA256='+$sha)
-              }else{Write-Output ('R384_SOURCE='+$name+' FILE='+$rel+' MISSING=TRUE')}
-            }
-          }
-          Write-Output 'R384_READ_ONLY=TRUE'
+          $source='C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate'
+          if(!(Test-Path -LiteralPath (Join-Path $source 'cmd\ckb-plane\main.go') -PathType Leaf)){throw 'R385_SOURCE_MISSING'}
+          $go=(Get-Command go -ErrorAction Stop).Source
+          $env:GOTOOLCHAIN='local';$env:GOPROXY='off';$env:GOSUMDB='off'
+          $env:CGO_ENABLED='0';$env:GOOS='windows';$env:GOARCH='amd64';$env:GOAMD64='v1'
+          $temp=Join-Path $env:RUNNER_TEMP ('r385-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $temp -Force | Out-Null
+          try{
+            Push-Location $source
+            try{
+              $out=Join-Path $temp 'ckb-plane.exe'
+              & $go build -trimpath -o $out ./cmd/ckb-plane
+              if($LASTEXITCODE -ne 0){throw 'R385_BUILD_FAILED'}
+              $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+              Write-Output ('R385_CANDIDATE_SHA256='+$hash)
+              Write-Output ('R385_INSTALLED_SHA256='+$target)
+              Write-Output ('R385_EXACT_MATCH='+($hash -ceq $target))
+            }finally{Pop-Location}
+          }finally{Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue}
+          Write-Output 'R385_LIVE_STATE_UNCHANGED=TRUE'
