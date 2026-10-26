@@ -121,10 +121,26 @@ jobs:
                    throw 'R343_SOURCE_BLOB_FINGERPRINT_UNAVAILABLE'
                 }
                 $hash=[string]$blob[0]
+                Write-Output ('R343_ORIGINAL_SOURCE_BLOB_'+[string]$item.name+'='+$hash)
                 Write-Output ('R343_LOCAL_SOURCE_'+[string]$item.name+'_MATCH_FROZEN_BASELINE='+[string]($hash -ceq [string]$item.baseline))
                 if([string]$item.patched -ne ''){
                    Write-Output ('R343_LOCAL_SOURCE_'+[string]$item.name+'_MATCH_R326_PATCHED='+[string]($hash -ceq [string]$item.patched))
                 }
+             }
+             $prior=$ErrorActionPreference
+             try{
+                $ErrorActionPreference='Continue'
+                $gitHead=@(& git.exe -C $tree rev-parse --verify HEAD 2>&1)
+                $headRC=$LASTEXITCODE
+                $tracked=@(& git.exe -C $tree status --porcelain -uno 2>&1)
+                $trackedRC=$LASTEXITCODE
+             }finally{$ErrorActionPreference=$prior}
+             if($headRC -eq 0 -and $gitHead.Count -eq 1 -and
+                [string]$gitHead[0] -cmatch '^[0-9a-f]{40}$'){
+                Write-Output ('R343_ORIGINAL_SOURCE_GIT_HEAD='+[string]$gitHead[0])
+                Write-Output ('R343_ORIGINAL_SOURCE_TRACKED_CHANGE_COUNT='+$(if($trackedRC -eq 0){$tracked.Count}else{'UNAVAILABLE'}))
+             } else {
+                Write-Output 'R343_ORIGINAL_SOURCE_GIT_HEAD=NOT_AVAILABLE'
              }
              Write-Output 'R343_ORIGINAL_NATIVE_SOURCE_CHECKOUT_MODULE_VALID=PASS'
              Write-Output 'R343_INSTALLED_BINARY_SOURCE_EQUIVALENCE=NOT_PROVEN_BY_SOURCE_HASHES'
