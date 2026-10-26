@@ -1,0 +1,122 @@
+name: R347 locate archive with exact active CKB source blobs
+on:
+  push:
+    branches: [audit/ckb-r341-active-native-build-id-20261025]
+    paths: [.github/workflows/ckb-r347-find-active-source-archive.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r347-original-ckb-source-archive-search
+  cancel-in-progress: false
+jobs:
+  source-archives:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Search only named CKB/plane archives for the exact three original source blobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $u=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/ckb-r341-active-native-build-id-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $u.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($u).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+             throw 'R347_ORIGINAL_WINDOWS_OWNER_REQUIRED'
+          }
+          $expected=@{
+             'autonomy_controls.go'='7d6bacc44e32ce46a531a2fe3e25da7863ea1538'
+             'webui_bridge.go'='261e4fa939dcf7a2094410374fb83ca6b606022d'
+             'autonomy.go'='647a21ffa7115cfffb0586f72faddac55aacf6be'
+          }
+          $active='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $process=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($process.Count -ne 1 -or
+             (Get-FileHash -LiteralPath ([string]$process[0].ExecutablePath) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $active){
+             throw 'R347_ACTIVE_R303_IDENTITY_CHANGED'
+          }
+          $roots=@('C:\Users\camar\GolandProjects','C:\Users\camar\Documents','C:\Users\camar\Downloads','C:\Users\camar\Desktop','C:\FORGE-Runner\_work')|Where-Object {Test-Path -LiteralPath $_ -PathType Container}
+          $candidateFiles=[System.Collections.Generic.List[System.IO.FileInfo]]::new()
+          foreach($root in $roots){
+             Get-ChildItem -LiteralPath $root -File -Force -Recurse -Depth 8 -ErrorAction SilentlyContinue |
+               Where-Object {
+                 $_.Name -match '(?i)(ckb|plane|r303|r307|r302)' -and
+                 ($_.Extension -eq '.zip' -or $_.Name -match '\.(tar\.gz|tgz)$')
+               } | ForEach-Object {
+                   if($candidateFiles.Count -lt 2500){$candidateFiles.Add($_)}
+               }
+          }
+          $archiveCount=$candidateFiles.Count
+          $checked=0
+          $zipCount=0
+          $sourceArchiveCount=0
+          $partialHits=0
+          $exactHits=[System.Collections.Generic.List[object]]::new()
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach($file in $candidateFiles){
+             if($file.Length -gt 2GB){continue}
+             if($file.Extension -ne '.zip'){continue}
+             $checked++
+             $stream=$null;$archive=$null
+             try{
+                $stream=[IO.File]::Open($file.FullName,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite)
+                $archive=[IO.Compression.ZipArchive]::new($stream,[IO.Compression.ZipArchiveMode]::Read,$false)
+                $entryByName=@{}
+                foreach($entry in $archive.Entries){
+                   $norm=$entry.FullName.Replace('\','/')
+                   if($norm -match '(^|/)internal/plane/(autonomy_controls\.go|webui_bridge\.go|autonomy\.go)$'){
+                      $name=[IO.Path]::GetFileName($norm)
+                      if(!$entryByName.ContainsKey($name) -and $entry.Length -le 8MB){$entryByName[$name]=$entry}
+                   }
+                }
+                if($entryByName.Count -ge 2){$sourceArchiveCount++}
+                if($entryByName.Count -eq 0){continue}
+                $n=0
+                foreach($name in $expected.Keys){
+                   if(!$entryByName.ContainsKey($name)){continue}
+                   $entry=$entryByName[$name]
+                   $input=$entry.Open()
+                   try{
+                      $ms=[IO.MemoryStream]::new()
+                      try{
+                         $input.CopyTo($ms)
+                         $bytes=$ms.ToArray()
+                         $prefix=[Text.Encoding]::ASCII.GetBytes('blob '+$bytes.Length.ToString() + [char]0)
+                         $all=[byte[]]::new($prefix.Length+$bytes.Length)
+                         [Array]::Copy($prefix,0,$all,0,$prefix.Length)
+                         [Array]::Copy($bytes,0,$all,$prefix.Length,$bytes.Length)
+                         $sha=[Security.Cryptography.SHA1]::HashData($all)
+                         $hex=[Convert]::ToHexString($sha).ToLowerInvariant()
+                         if($hex -ceq $expected[$name]){$n++}
+                      }finally{$ms.Dispose()}
+                   }finally{$input.Dispose()}
+                }
+                if($n -gt 0){$partialHits++}
+                if($n -eq 3){
+                   $fileHash=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                   $exactHits.Add([pscustomobject]@{ArchiveSHA256=$fileHash;ArchiveBytes=$file.Length;MatchedBlobs=$n})
+                }
+             }catch{
+                # Corrupt/unreadable archive is a miss; do not expose its path.
+             }finally{
+                if($archive){$archive.Dispose()}
+                if($stream){$stream.Dispose()}
+             }
+          }
+          $end=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($end.Count -ne 1 -or [int]$end[0].ProcessId -ne [int]$process[0].ProcessId -or
+             (Get-FileHash -LiteralPath ([string]$process[0].ExecutablePath) -Algorithm SHA256).Hash.ToLowerInvariant() -cne $active){
+             throw 'R347_ACTIVE_R303_CHANGED_DURING_ARCHIVE_SEARCH'
+          }
+          Write-Output 'R347_ACTIVE_R303_IMAGE_PIN=PASS'
+          Write-Output ('R347_NAMED_ARCHIVES_FOUND='+$archiveCount)
+          Write-Output ('R347_ARCHIVES_READ='+$checked)
+          Write-Output ('R347_SOURCE_SHAPED_ARCHIVES='+$sourceArchiveCount)
+          Write-Output ('R347_ARCHIVES_WITH_ANY_EXACT_SOURCE_BLOB='+$partialHits)
+          Write-Output ('R347_ARCHIVES_MATCHING_ALL_THREE_ACTIVE_SOURCE_BLOBS='+$exactHits.Count)
+          foreach($hit in $exactHits){Write-Output ('R347_EXACT_SOURCE_ARCHIVE_SHA256='+$hit.ArchiveSHA256+';BYTES='+$hit.ArchiveBytes)}
+          Write-Output 'R347_NO_ARCHIVE_EXTRACTED_TO_DISK=TRUE'
+          Write-Output 'R347_NO_SOURCE_REF_OR_FILE_MODIFIED=TRUE'
+          Write-Output 'R347_NO_DATABASE_QUEUE_PROCESS_OR_TASK_MUTATION=TRUE'
