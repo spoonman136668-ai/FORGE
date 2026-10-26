@@ -1,0 +1,236 @@
+name: FORGE G54 quarantine exact ambiguous start
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  actions: read
+  contents: read
+  issues: read
+concurrency:
+  group: forge-g54-quarantine-989
+  cancel-in-progress: false
+jobs:
+  quarantine-989:
+    if: ${{ github.actor == 'spoonman136668-ai' && github.event.issue.number == 807 && startsWith(github.event.comment.body, 'F139-G54-RELEASE-AMBIGUOUS ') }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Authenticate original FORGE owner and exact target
+        id: gate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          F139_RELEASE_COMMENT: ${{ github.event.comment.body }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          $source='e49569d4a8b74aa5d854caafa92abcdbcf15bc39'
+          $ticket='f139-nci04-i989-e49569d4a8b7-58834924'
+          $prefix='F139-G54-RELEASE-AMBIGUOUS '
+          if($env:GITHUB_EVENT_NAME -cne 'issue_comment' -or
+             $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_ACTOR -cne 'spoonman136668-ai' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+             $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:F139_RELEASE_COMMENT -cnotmatch ('^F139-G54-RELEASE-AMBIGUOUS '+$env:GITHUB_SHA+' '+$ticket+'$')) {
+            throw 'F139_G54_RELEASE_WRONG_OWNER_EVENT'
+          }
+          $target=$env:F139_RELEASE_COMMENT.Substring($prefix.Length).Split(' ')[0]
+          if($target -cne $env:GITHUB_SHA -or
+             (& git rev-parse HEAD | Out-String).Trim() -cne $target) {
+            throw 'F139_G54_RELEASE_EXACT_MAIN_COMMIT_DRIFT'
+          }
+          $event=Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
+          if($event.issue.number -ne 807 -or
+             $event.comment.user.login -cne 'spoonman136668-ai' -or
+             [string]$event.comment.body -cne $env:F139_RELEASE_COMMENT -or
+             [int64]$event.comment.id -le 0) {
+            throw 'F139_G54_RELEASE_APPROVAL_EVENT_DRIFT'
+          }
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole(
+                  [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'F139_G54_RELEASE_ESCALATED_ORIGINAL_OWNER_REQUIRED'
+          }
+          $main=(& gh api repos/spoonman136668-ai/FORGE/branches/main | ConvertFrom-Json)
+          if($LASTEXITCODE -ne 0 -or $main.protected -ne $true -or
+             $main.commit.sha -cne $target) {
+            throw 'F139_G54_RELEASE_PROTECTED_MAIN_DRIFT'
+          }
+          $task=Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if([string]$task.State -cnotin @('Ready','Running') -or
+             $task.Settings.Enabled -ne $true -or @($task.Actions).Count -ne 1 -or
+             @($task.Triggers).Count -ne 3 -or
+             [string]$task.Actions[0].Arguments -notmatch '(?i)(?:^|\s)-PollSeconds\s+300(?:\s|$)') {
+            throw 'F139_G54_RELEASE_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $owner=[string]$task.Principal.UserId
+          $ownerSid=''
+          try {$ownerSid=(New-Object Security.Principal.NTAccount($owner)).Translate(
+                 [Security.Principal.SecurityIdentifier]).Value} catch {}
+          if($owner -ine $identity.Name -and $ownerSid -cne $identity.User.Value) {
+            throw 'F139_G54_RELEASE_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function Field([string]$key) {
+            $m=[regex]::Match([string]$task.Actions[0].Arguments,
+                   '(?i)(?:^|\s)-'+$key+'\s+"([^"]+)"')
+            if(-not $m.Success){throw 'F139_G54_RELEASE_TASK_ARGUMENT_DRIFT'}
+            return $m.Groups[1].Value
+          }
+          $root=Field 'RepositoryRoot'
+          $db=Field 'Database'
+          $python=Field 'PythonExe'
+          if(-not(Test-Path -LiteralPath $db -PathType Leaf) -or
+             -not(Test-Path -LiteralPath $python -PathType Leaf) -or
+             (& git -C $root rev-parse HEAD | Out-String).Trim() -cne $source -or
+             @(& git -C $root status --porcelain --untracked-files=all).Count -ne 0) {
+            throw 'F139_G54_RELEASE_INSTALLED_SOURCE_DRIFT'
+          }
+          $policy=(& gh api repos/spoonman136668-ai/FORGE/issues/807 | ConvertFrom-Json)
+          $policyBody=[string]$policy.body | ConvertFrom-Json
+          if($policy.user.login -cne 'spoonman136668-ai' -or
+             $policyBody.schema -cne 'forge.f139.native-autonomy-feed-owner-policy.v1' -or
+             $policyBody.enabled -ne $true -or $policyBody.source_sha -cne $source -or
+             $policyBody.scientific_first_use -ne $false -or
+             $policyBody.new_controller -ne $false -or
+             $policyBody.new_scheduler -ne $false -or
+             $policyBody.new_queue -ne $false -or
+             $policyBody.paid_model_calls -ne 0) {
+            throw 'F139_G54_RELEASE_OWNER_POLICY_DRIFT'
+          }
+          $log=Join-Path (Split-Path $db -Parent) (Join-Path 'logs' 'controller.log')
+          $beforeLines=0
+          if(Test-Path -LiteralPath $log){$beforeLines=@(Get-Content -LiteralPath $log).Count}
+          "root=$root" >> $env:GITHUB_OUTPUT
+          "db=$db" >> $env:GITHUB_OUTPUT
+          "python=$python" >> $env:GITHUB_OUTPUT
+          "source=$source" >> $env:GITHUB_OUTPUT
+          "ticket=$ticket" >> $env:GITHUB_OUTPUT
+          "controller_log=$log" >> $env:GITHUB_OUTPUT
+          "before_lines=$beforeLines" >> $env:GITHUB_OUTPUT
+          Write-Host 'F139_G54_RELEASE_PREFLIGHT=PASS'
+      - name: Confirm absent original run twice and append quarantine under existing owner lock
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          F139_RELEASE_ROOT: ${{ steps.gate.outputs.root }}
+          F139_RELEASE_DB: ${{ steps.gate.outputs.db }}
+          F139_RELEASE_PYTHON: ${{ steps.gate.outputs.python }}
+          F139_RELEASE_SOURCE: ${{ steps.gate.outputs.source }}
+          F139_RELEASE_TICKET: ${{ steps.gate.outputs.ticket }}
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          Set-Location -LiteralPath $env:F139_RELEASE_ROOT
+          @'
+          import datetime, json, pathlib, sqlite3, sys, time
+          from f139.local_controller import Database, F139Error, GitHub, SingleOwner
+          from f139.nci04_owner_ledger import frozen_native_issue, verify_native_activation
+
+          SOURCE = "e49569d4a8b74aa5d854caafa92abcdbcf15bc39"
+          TICKET = "f139-nci04-i989-e49569d4a8b7-58834924"
+          STARTED = "2026-10-26T09:27:19.277942Z"
+          REASON = "AMBIGUOUS_START_NO_PROVIDER_RUN"
+          db_path = pathlib.Path(sys.argv[1])
+          if (sys.argv[2] != SOURCE or sys.argv[3] != TICKET):
+              raise SystemExit("F139_G54_RELEASE_ARGUMENT_DRIFT")
+          started = datetime.datetime.fromisoformat(STARTED.replace("Z","+00:00"))
+          age = datetime.datetime.now(datetime.timezone.utc) - started
+          if age < datetime.timedelta(minutes=30):
+              raise SystemExit("F139_G54_RELEASE_GRACE_PERIOD_NOT_MET")
+
+          lock = SingleOwner(db_path.with_suffix(".lock"))
+          acquired = False
+          for _ in range(60):
+              try:
+                  lock.__enter__()
+                  acquired = True
+                  break
+              except F139Error as exc:
+                  if "CONTROLLER_ALREADY_RUNNING" not in str(exc):
+                      raise
+                  time.sleep(10)
+          if not acquired:
+              raise SystemExit("F139_G54_RELEASE_ORIGINAL_LOCK_BUSY")
+
+          db = None
+          try:
+              db = Database(db_path)
+              db.verify()
+              meta = db.meta()
+              if meta["source_sha"] != SOURCE or not verify_native_activation(db):
+                  raise SystemExit("F139_G54_RELEASE_LEDGER_OR_ACTIVATION_DRIFT")
+              active = [dict(row) for row in db.actives()]
+              if len(active) != 1 or active[0]["ticket"] != TICKET:
+                  raise SystemExit("F139_G54_RELEASE_ACTIVE_SLOT_DRIFT")
+              task = db.conn.execute(
+                  "SELECT ticket,lane,stage,source_sha,run_id,started_at "
+                  "FROM tasks WHERE ticket=?", (TICKET,)).fetchone()
+              if (task is None or task["lane"] != "Yggdrasil"
+                      or task["stage"] != "START_RISK" or task["run_id"] is not None
+                      or task["source_sha"] != SOURCE or task["started_at"] != STARTED):
+                  raise SystemExit("F139_G54_RELEASE_EXACT_TASK_DRIFT")
+              native = frozen_native_issue(db, TICKET)
+              if (native.number != 989 or native.lane != "Yggdrasil"
+                      or native.source_sha != SOURCE):
+                  raise SystemExit("F139_G54_RELEASE_FROZEN_ADMISSION_DRIFT")
+
+              api = GitHub()
+              protected = api.protected_main()
+              if api.deployed_release_continuity(db, SOURCE, protected) is not True:
+                  raise SystemExit("F139_G54_RELEASE_PIN_CONTINUITY_FAILED")
+              before = (meta["head_seq"], meta["head_hash"])
+              read_times = []
+              for index in range(2):
+                  found = api.candidates_for_source(TICKET, STARTED, SOURCE)
+                  read_times.append(datetime.datetime.now(datetime.timezone.utc).isoformat())
+                  if found is not None:
+                      raise SystemExit("F139_G54_RELEASE_PROVIDER_RUN_EXISTS")
+                  if index == 0:
+                      time.sleep(60)
+              db.verify()
+              current = db.meta()
+              row = db.conn.execute(
+                  "SELECT stage,source_sha,run_id,started_at FROM tasks WHERE ticket=?",
+                  (TICKET,)).fetchone()
+              if ((current["head_seq"], current["head_hash"]) != before
+                      or row is None or row["stage"] != "START_RISK"
+                      or row["source_sha"] != SOURCE or row["run_id"] is not None
+                      or row["started_at"] != STARTED):
+                  raise SystemExit("F139_G54_RELEASE_LEDGER_CHANGED_DURING_READS")
+
+              backup = db_path.with_name(
+                  "f139-i989-before-quarantine-" + str(__import__("os").environ["GITHUB_RUN_ID"]) + ".sqlite")
+              if backup.exists():
+                  raise SystemExit("F139_G54_RELEASE_BACKUP_COLLISION")
+              with sqlite3.connect(str(backup)) as out:
+                  db.conn.backup(out)
+              db.quarantine(TICKET, REASON)
+              db.verify()
+              final = db.conn.execute(
+                  "SELECT stage,quarantine_reason,run_id FROM tasks WHERE ticket=?",
+                  (TICKET,)).fetchone()
+              if (final is None or final["stage"] != "QUARANTINED"
+                      or final["quarantine_reason"] != REASON or final["run_id"] is not None
+                      or any(x["ticket"] == TICKET for x in db.actives())):
+                  raise SystemExit("F139_G54_RELEASE_QUARANTINE_READBACK_FAILED")
+              print(json.dumps({
+                  "disposition":"EXACT_AMBIGUOUS_START_QUARANTINED_NO_REPLAY",
+                  "ticket":TICKET,"source_sha":SOURCE,
+                  "provider_reads":["ABSENT","ABSENT"],
+                  "provider_read_times":read_times,
+                  "started_at":STARTED,"age_minutes":int(age.total_seconds()//60),
+                  "backup":str(backup),
+                  "head_seq":db.meta()["head_seq"],
+                  "head_sha256":db.meta()["head_hash"],
+                  "scientific_first_use":False,"redispatches":0
+              },sort_keys=True))
+          finally:
+              if db is not None:
+                  db.close()
+              lock.__exit__(None,None,None)
+          '@ | & $env:F139_RELEASE_PYTHON -B - $env:F139_RELEASE_DB $env:F139_RELEASE_SOURCE $env:F139_RELEASE_TICKET
+          if($LASTEXITCODE -ne 0){throw 'F139_G54_RELEASE_CUSTODY_FAILED'}
