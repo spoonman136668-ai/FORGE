@@ -1,4 +1,4 @@
-name: CKB R391 bounded source-proof baseline ancestry
+name: CKB R392 bounded historical module and executable provenance
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -29,15 +29,14 @@ jobs:
           $root='C:\Users\camar\GolandProjects\ckb-codex-r4a-clean'
           $git=(Get-Command git -ErrorAction Stop).Source
           $rev='01260dda4bdebc454921cdf0c5d3d0eeafef7629'
-          & $git -C $root cat-file -e ($rev+'^{commit}') 2>$null
-          $exists=($LASTEXITCODE -eq 0)
-          Write-Output ('R391_BASELINE_COMMIT_PRESENT='+$exists)
-          if($exists){
-            $name=(& $git -C $root show -s --format='%s' $rev)
-            Write-Output ('R391_BASELINE_SUBJECT='+$name)
-            $paths=@(& $git -C $root ls-tree -r --name-only $rev | Where-Object { $_ -match '(?i)(^|/)(go\.mod|main\.go|autonomy\.go|engine\.go)$' } | Select-Object -First 30)
-            foreach($p in $paths){Write-Output ('R391_BASELINE_PATH='+$p)}
-            & $git -C $root merge-base --is-ancestor $rev HEAD
-            Write-Output ('R391_BASELINE_ANCESTOR_OF_HEAD='+($LASTEXITCODE -eq 0))
+          foreach($rel in @('go.mod','main.go')){
+            $raw=(& $git -C $root show ($rev+':'+$rel) | Out-String)
+            if($LASTEXITCODE -ne 0){throw ('R392_READ_FAILED_'+$rel)}
+            Write-Output ('R392_PATH='+$rel+' BYTES='+([Text.Encoding]::UTF8.GetByteCount($raw)))
+            if($rel -eq 'go.mod'){
+              foreach($line in ($raw -split '`n' | Select-Object -First 8)){Write-Output ('R392_MOD='+$line.Trim())}
+            }else{
+              foreach($line in ($raw -split '`n' | Where-Object { $_ -match '(?i)func main\(|package |ckb-plane|controller' } | Select-Object -First 12)){Write-Output ('R392_MAIN='+$line.Trim())}
+            }
           }
-          Write-Output 'R391_READ_ONLY=TRUE'
+          Write-Output 'R392_READ_ONLY=TRUE'
