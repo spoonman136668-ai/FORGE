@@ -442,6 +442,31 @@ jobs:
             Write-Host ('F139_G54_CONTROLLER_LOG_TAIL=' + (($entries | Select-Object -Last 30 | ConvertTo-Json -Compress -Depth 6)))
           } else { Write-Host 'F139_G54_CONTROLLER_LOG=MISSING' }
           $taskInfo=Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $triggerSummary=@()
+          foreach($trigger in $task.Triggers) {
+            $triggerSummary += [pscustomobject]@{
+              enabled=(OptionalField $trigger 'Enabled')
+              start_boundary=(OptionalField $trigger 'StartBoundary')
+              end_boundary=(OptionalField $trigger 'EndBoundary')
+              repetition_interval=(OptionalField $trigger.Repetition 'Interval')
+              repetition_duration=(OptionalField $trigger.Repetition 'Duration')
+            }
+          }
+          Write-Host ('F139_G54_OWNER_TASK_ENABLED=' + [string]$task.Settings.Enabled)
+          Write-Host ('F139_G54_OWNER_TASK_LAST_RESULT=' + [string]$taskInfo.LastTaskResult)
+          Write-Host ('F139_G54_OWNER_TASK_ACTION=' + [string]$task.Actions[0].Execute)
+          Write-Host ('F139_G54_OWNER_TASK_ARGUMENTS=' + [string]$task.Actions[0].Arguments)
+          Write-Host ('F139_G54_OWNER_TASK_TRIGGERS=' + ($triggerSummary | ConvertTo-Json -Compress -Depth 5))
+          $taskEvents=@()
+          try {
+            $taskEvents=@(Get-WinEvent -FilterHashtable @{
+              LogName='Microsoft-Windows-TaskScheduler/Operational'
+              StartTime=(Get-Date).AddHours(-12)
+            } -MaxEvents 200 -ErrorAction Stop |
+              Where-Object {$_.Message -like '*FORGE-F139-UnifiedController*'} |
+              Select-Object -First 12 Id,TimeCreated,LevelDisplayName,Message)
+          } catch {}
+          Write-Host ('F139_G54_TASKSCHEDULER_EVENTS=' + ($taskEvents | ConvertTo-Json -Compress -Depth 4))
           Write-Host ('F139_G54_OWNER_TASK_STATE=' + [string]$task.State)
           Write-Host ('F139_G54_OWNER_TASK_LAST_RUN=' + [string]$taskInfo.LastRunTime)
           Write-Host ('F139_G54_OWNER_TASK_NEXT_RUN=' + [string]$taskInfo.NextRunTime)
