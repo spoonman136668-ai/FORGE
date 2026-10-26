@@ -1,4 +1,4 @@
-name: CKB R392 bounded historical module and executable provenance
+name: CKB R393 installed R220 release lineage inventory
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,17 +26,21 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $root='C:\Users\camar\GolandProjects\ckb-codex-r4a-clean'
-          $git=(Get-Command git -ErrorAction Stop).Source
-          $rev='01260dda4bdebc454921cdf0c5d3d0eeafef7629'
-          foreach($rel in @('go.mod','main.go')){
-            $raw=(& $git -C $root show ($rev+':'+$rel) | Out-String)
-            if($LASTEXITCODE -ne 0){throw ('R392_READ_FAILED_'+$rel)}
-            Write-Output ('R392_PATH='+$rel+' BYTES='+([Text.Encoding]::UTF8.GetByteCount($raw)))
-            if($rel -eq 'go.mod'){
-              foreach($line in ($raw -split '`n' | Select-Object -First 8)){Write-Output ('R392_MOD='+$line.Trim())}
-            }else{
-              foreach($line in ($raw -split '`n' | Where-Object { $_ -match '(?i)func main\(|package |ckb-plane|controller' } | Select-Object -First 12)){Write-Output ('R392_MAIN='+$line.Trim())}
+          $root='C:\ProgramData\CKBR\release-store\ckb-plane\releases'
+          $target='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $files=@(Get-ChildItem -LiteralPath $root -Filter 'release-manifest.json' -File -Recurse -ErrorAction SilentlyContinue)
+          Write-Output ('R393_MANIFEST_COUNT='+$files.Count)
+          $matches=0
+          foreach($file in $files){
+            try{$o=Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json}catch{continue}
+            $binary=[string]$o.controller_binary_sha256
+            $release=[string]$o.release_id
+            if($binary -eq $target -or $release -match '(?i)R220|LIVECOMPAT'){
+              Write-Output ('R393_RELEVANT='+$file.FullName+' RELEASE='+$release+' BINARY='+$binary+' SOURCE='+$o.controller_source_tree_sha256+' PARENT='+$o.parent_release_id)
+              $matches++
             }
           }
-          Write-Output 'R392_READ_ONLY=TRUE'
+          Write-Output ('R393_RELEVANT_COUNT='+$matches)
+          $r220=Join-Path $root 'PLANE-R220-LIVECOMPAT-20261023'
+          foreach($file in @(Get-ChildItem -LiteralPath $r220 -File -Recurse -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)(manifest|receipt|seal|source|provenance|build)' } | Select-Object -First 25)){Write-Output ('R393_R220_FILE='+$file.FullName)}
+          Write-Output 'R393_READ_ONLY=TRUE'
