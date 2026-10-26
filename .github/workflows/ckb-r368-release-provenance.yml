@@ -1,4 +1,4 @@
-name: CKB R388 bounded controller release metadata inspection
+name: CKB R389 bounded release provenance field extraction
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,11 +26,17 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $roots=@('C:\ProgramData\CKBR\release-store\ckb-plane','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate')
-          foreach($root in $roots){
-            if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
-            $files=Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(?i)(manifest|provenance|receipt|build|source|version|release)' -and $_.Extension -match '^\.(json|txt|md|yaml|yml|sum)$' } | Select-Object -First 35
-            Write-Output ('R388_ROOT='+$root+' METADATA_COUNT='+@($files).Count)
-            foreach($file in $files){Write-Output ('R388_METADATA='+$file.FullName+' BYTES='+$file.Length)}
+          $paths=@('C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate\PACKAGE-MANIFEST.json','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate\profiles\ckb-r4a-source-proof.json','C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-CONSOLIDATION-R1\release-manifest.json','C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1\release-manifest.json')
+          foreach($p in $paths){
+            if(!(Test-Path -LiteralPath $p -PathType Leaf)){continue}
+            $obj=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
+            Write-Output ('R389_DOCUMENT='+$p)
+            foreach($prop in $obj.PSObject.Properties){
+              if($prop.Name -match '(?i)(source|commit|revision|build|artifact|sha|version|release|origin|repo|fingerprint)'){
+                $v=$prop.Value | ConvertTo-Json -Compress -Depth 3
+                if($v.Length -gt 350){$v=$v.Substring(0,350)+'...[truncated]'}
+                Write-Output ('R389_FIELD='+$prop.Name+' VALUE='+$v)
+              }
+            }
           }
-          Write-Output 'R388_READ_ONLY=TRUE'
+          Write-Output 'R389_READ_ONLY=TRUE'
