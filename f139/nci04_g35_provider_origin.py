@@ -101,7 +101,8 @@ def inspect_v2_provider_run(api: GitHub, *, run_id: int, ticket: str,
             and run.get("workflow_id") == OWNER_WORKFLOW_ID
             and run.get("path") == ".github/workflows/" + WORKFLOW
             and run.get("head_sha") == base.source_sha
-            and run.get("head_branch") == "main"
+            and run.get("head_branch") in (
+                "main", "f139-owner-release-" + base.source_sha)
             and type(run.get("run_attempt")) is int
             and run["run_attempt"] == 1
             and type(run.get("repository")) is dict
