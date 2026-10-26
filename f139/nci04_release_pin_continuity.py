@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 from typing import Callable
-from f139.nci04_autonomy_feed import inspect_policy, POLICY_ISSUE, FORGE_REPO
+from f139.nci04_autonomy_feed import (
+    NativeFeedDenied, inspect_policy, POLICY_ISSUE, FORGE_REPO,
+)
 
 _SHA = re.compile(r"[a-f0-9]{40}\Z")
 
@@ -43,7 +45,13 @@ def prove_deployed_release_pin(get: Callable[[str], object], *,
          and branch["commit"].get("sha") == protected_source,
          "PROTECTED_MAIN_IDENTITY_DRIFT")
     raw = get(f"repos/{FORGE_REPO}/issues/{POLICY_ISSUE}")
-    policy = inspect_policy(raw, deployed_source)
+    try:
+        policy = inspect_policy(raw, deployed_source)
+    except NativeFeedDenied as exc:
+        # Reuse the existing exact owner-policy verifier, retain only its
+        # bounded non-sensitive denial code, never silently accept drift.
+        raise ReleaseContinuityDenied(
+            "F139_RELEASE_PIN_" + str(exc)) from exc
     need(policy["enabled"] is True, "RELEASE_POLICY_DISABLED")
     comparison = get(f"repos/{FORGE_REPO}/compare/"
                      f"{deployed_source}...{protected_source}")
