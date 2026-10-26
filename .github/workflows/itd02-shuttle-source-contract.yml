@@ -4,6 +4,7 @@ on:
     paths:
       - 'research/itd02/shuttle_source_contract.py'
       - 'research/itd02/test_shuttle_source_contract.py'
+      - 'research/itd02/test_shuttle_ygg_public_wire.py'
       - '.github/workflows/itd02-shuttle-source-contract.yml'
   workflow_dispatch:
 permissions:
@@ -46,6 +47,27 @@ jobs:
           python -B -m unittest discover -s research/itd02 -p 'test_shuttle_source_contract.py' -v
           echo "ITD02_ORIGINAL_SOURCE_EPISODES=0"
           echo "ITD02_ORIGINAL_SOURCE_CONTRACT=PASS"
+      - name: Authenticate genuine Yggdrasil native public bridge (NO episodes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ygg-native"
+          git init -q "$RUNNER_TEMP/ygg-native"
+          git -C "$RUNNER_TEMP/ygg-native" remote add origin https://github.com/spoonman136668-ai/Yggdrasil.git
+          git -C "$RUNNER_TEMP/ygg-native" fetch --no-tags --depth 1 origin 5bac4532d223f220f58111de1bc4a7a9219d5a28
+          git -C "$RUNNER_TEMP/ygg-native" checkout --detach -q 5bac4532d223f220f58111de1bc4a7a9219d5a28
+          test "$(git -C "$RUNNER_TEMP/ygg-native" hash-object yggdrasil/task_runtime.py)" = 68a1423e0bd7206af511212c14b6ce8534154cc2
+          test "$(git -C "$RUNNER_TEMP/ygg-native" hash-object yggdrasil/itd02_native_task_bridge_dev.py)" = 2825edf231b8501034fa147432052a9e19b37d3d
+          test "$(git -C "$RUNNER_TEMP/ygg-native" hash-object yggdrasil/itd02_local_ring_memory_dev.py)" = 6d55a848411afb558105d23c6dc73722f842a592
+          echo "ITD02_NATIVE_SOURCE_PIN=PASS"
+      - name: Original FORGE public wire to genuine Yggdrasil native learner
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="$RUNNER_TEMP/ygg-native:$GITHUB_WORKSPACE/research/itd02"
+          python -B -m unittest discover -s research/itd02 -p 'test_shuttle_ygg_public_wire.py' -v
+          echo "ITD02_CROSS_REPO_PUBLIC_SEAM=PASS"
+          echo "ITD02_ORIGINAL_SOURCE_EPISODES=0"
       - name: No tracked modifications
         shell: bash
         run: git diff --exit-code
