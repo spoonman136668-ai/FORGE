@@ -1,4 +1,4 @@
-name: CKB R387 bounded retained source archive inventory
+name: CKB R388 bounded controller release metadata inspection
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,11 +26,11 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $roots=@('C:\Users\camar\GolandProjects\ckb-plane-autonomy-backups','C:\Users\camar\GolandProjects\ckb-plane-hotfix-backups-b8f53c8fda5241578d44ab60e1df17e5','C:\Users\camar\GolandProjects\ckb-plane-hotfix-backups-r2b-aa5354b50cb14d3f9f19b6c775125733','C:\Users\camar\GolandProjects\ckb-plane-hotfix-backups-r2c-582d3a23da73427390733c4fa266b8c6','C:\Users\camar\GolandProjects\ckb-plane-hotfix-backups-r2c1-ce2d4eb8a2634e10a7526bc62f1872ac','C:\Users\camar\GolandProjects\ckb-plane-hotfix-backups-r2c2-2c51cc0354df4fe886098c1effb0075f')
+          $roots=@('C:\ProgramData\CKBR\release-store\ckb-plane','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate')
           foreach($root in $roots){
             if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
-            $files=Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(?i)^(main|autonomy|engine)\.go$|\.(zip|tar|tgz|7z)$|manifest' } | Select-Object -First 35
-            Write-Output ('R387_ROOT='+$root+' CANDIDATE_COUNT='+@($files).Count)
-            foreach($file in $files){Write-Output ('R387_FILE='+$file.FullName+' BYTES='+$file.Length)}
+            $files=Get-ChildItem -LiteralPath $root -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(?i)(manifest|provenance|receipt|build|source|version|release)' -and $_.Extension -match '^\.(json|txt|md|yaml|yml|sum)$' } | Select-Object -First 35
+            Write-Output ('R388_ROOT='+$root+' METADATA_COUNT='+@($files).Count)
+            foreach($file in $files){Write-Output ('R388_METADATA='+$file.FullName+' BYTES='+$file.Length)}
           }
-          Write-Output 'R387_READ_ONLY=TRUE'
+          Write-Output 'R388_READ_ONLY=TRUE'
