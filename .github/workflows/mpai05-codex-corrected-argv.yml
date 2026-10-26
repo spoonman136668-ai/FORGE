@@ -1,0 +1,45 @@
+name: MP-AI05 Codex corrected argv probe
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-corrected-argv.yml']
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Correct Codex exec option placement and test one bounded model call
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $login=@(& codex login status 2>&1)
+          if($LASTEXITCODE -ne 0 -or ($login -join ' ') -notmatch '(?i)chatgpt' -or ($login -join ' ') -match '(?i)api.key|api key') { throw 'CHATGPT_LOGIN_NOT_CONFIRMED' }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-argv-'+$env:GITHUB_RUN_ID)
+          New-Item -ItemType Directory -Path $root -ErrorAction Stop | Out-Null
+          try {
+            Push-Location $root
+            try {
+              $answer=Join-Path $root 'answer.txt'
+              $err=Join-Path $root 'stderr.txt'
+              $out=Join-Path $root 'stdout.txt'
+              $cmd=(Get-Command codex.exe).Source
+              $args=@('exec','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--output-last-message',$answer,'Return exactly MPAI05_PROBE_OK')
+              $proc=Start-Process -FilePath $cmd -ArgumentList $args -WorkingDirectory $root -Wait -PassThru -NoNewWindow -RedirectStandardError $err -RedirectStandardOutput $out
+              $e=[string](Get-Content $err -Raw -ErrorAction SilentlyContinue)
+              if($proc.ExitCode -eq 0 -and (Test-Path $answer) -and ((Get-Content $answer -Raw).Trim() -ceq 'MPAI05_PROBE_OK')) { $kind='PASS' }
+              elseif($e -match '(?i)unexpected argument|unrecognized|invalid value|unknown option') { $kind='ARGUMENTS' }
+              elseif($e -match '(?i)usage.limit|rate.limit|quota') { $kind='USAGE_LIMIT' }
+              elseif($e -match '(?i)authentication|unauthorized|401|403') { $kind='AUTH' }
+              elseif($e -match '(?i)network|connection|timeout|dns') { $kind='NETWORK' }
+              else { $kind='OTHER' }
+              Write-Host ('MPAI05_CORRECTED_PROBE='+$kind)
+              Write-Host ('MPAI05_CODEX_EXIT='+$proc.ExitCode)
+            } finally { Pop-Location }
+          } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
