@@ -1,4 +1,4 @@
-name: CKB R390 bounded r4a baseline identity verification
+name: CKB R391 bounded source-proof baseline ancestry
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -28,19 +28,16 @@ jobs:
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
           $root='C:\Users\camar\GolandProjects\ckb-codex-r4a-clean'
           $git=(Get-Command git -ErrorAction Stop).Source
-          if(!(Test-Path -LiteralPath (Join-Path $root '.git'))){throw 'R390_GIT_MISSING'}
-          $head=(& $git -C $root rev-parse HEAD).Trim()
-          if($LASTEXITCODE -ne 0){throw 'R390_HEAD_FAILED'}
-          Write-Output ('R390_HEAD='+$head)
-          Write-Output ('R390_EXPECTED_BASELINE=01260dda4bdebc454921cdf0c5d3d0eeafef7629')
-          Write-Output ('R390_HEAD_MATCH='+($head -ceq '01260dda4bdebc454921cdf0c5d3d0eeafef7629'))
-          $status=@(& $git -C $root status --porcelain)
-          if($LASTEXITCODE -ne 0){throw 'R390_STATUS_FAILED'}
-          Write-Output ('R390_DIRTY_ENTRIES='+@($status).Count)
-          foreach($rel in @('go.mod','cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go')){
-            $p=Join-Path $root $rel
-            if(Test-Path -LiteralPath $p -PathType Leaf){
-              Write-Output ('R390_FILE='+$rel+' SHA256='+((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()))
-            }
+          $rev='01260dda4bdebc454921cdf0c5d3d0eeafef7629'
+          & $git -C $root cat-file -e ($rev+'^{commit}') 2>$null
+          $exists=($LASTEXITCODE -eq 0)
+          Write-Output ('R391_BASELINE_COMMIT_PRESENT='+$exists)
+          if($exists){
+            $name=(& $git -C $root show -s --format='%s' $rev)
+            Write-Output ('R391_BASELINE_SUBJECT='+$name)
+            $paths=@(& $git -C $root ls-tree -r --name-only $rev | Where-Object { $_ -match '(?i)(^|/)(go\.mod|main\.go|autonomy\.go|engine\.go)$' } | Select-Object -First 30)
+            foreach($p in $paths){Write-Output ('R391_BASELINE_PATH='+$p)}
+            & $git -C $root merge-base --is-ancestor $rev HEAD
+            Write-Output ('R391_BASELINE_ANCESTOR_OF_HEAD='+($LASTEXITCODE -eq 0))
           }
-          Write-Output 'R390_READ_ONLY=TRUE'
+          Write-Output 'R391_READ_ONLY=TRUE'
