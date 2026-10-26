@@ -864,7 +864,8 @@ class Database:
                           allow_certified_negative: bool = False,
                           allow_v6: bool = False,
                           allow_v7: bool = False,
-                          allow_v8: bool = False):
+                          allow_v8: bool = False,
+                          allow_v9: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -965,6 +966,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v3",
                             "forge.f139.source-transition.v4",
                             "forge.f139.source-transition.v5",
@@ -998,7 +1000,17 @@ class Database:
                          "forge.f139.source-transition.v7"]
                 prev_v8=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v8"]
-                if (len(prev_v4)==10 and len(prev_v5)==4
+                if prev_v8:
+                    from f139.nci04_owner_ledger import verify_native_activation
+                    require(allow_v9 is True and len(prev_v8)==1
+                            and events[-1]["schema"] ==
+                                "forge.f139.source-transition.v8"
+                            and meta["source_sha"] ==
+                                prev_v8[0]["to_source_sha"]
+                            and verify_native_activation(self) and prepost,
+                            "SOURCE_TRANSITION_V9_ONE_SHOT_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v9"
+                elif (len(prev_v4)==10 and len(prev_v5)==4
                         and len(prev_v6)==1 and len(prev_v7)==1):
                     require(allow_v8 is True and not prev_v8 and prepost
                             and events[-1]["schema"] ==
@@ -1052,7 +1064,8 @@ class Database:
                             "forge.f139.source-transition.v5",
                             "forge.f139.source-transition.v6",
                             "forge.f139.source-transition.v7",
-                            "forge.f139.source-transition.v8"):
+                            "forge.f139.source-transition.v8",
+                            "forge.f139.source-transition.v9"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1109,6 +1122,17 @@ class Database:
                     event["v7_terminal_event_sha256"]=v7_rows[0]["sha"]
                     event["prepost_negative_event_sha256"]=custody[0]["sha"]
                     event["v2_receipt_authorized"]=False
+            if schema == "forge.f139.source-transition.v9":
+                v8_rows=[
+                    r for r in self.conn.execute(
+                        "SELECT sha,payload FROM events "
+                        "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"])["schema"] ==
+                        "forge.f139.source-transition.v8"]
+                require(len(v8_rows)==1,
+                        "SOURCE_TRANSITION_V9_V8_SEAL_MISSING")
+                event["v8_terminal_event_sha256"]=v8_rows[0]["sha"]
+                event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
 
