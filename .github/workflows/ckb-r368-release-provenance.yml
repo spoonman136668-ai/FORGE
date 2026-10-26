@@ -1,4 +1,4 @@
-name: CKB R401 compare native source and installed build dependencies
+name: CKB R402 isolated exact-flag reproducibility probe
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -22,14 +22,24 @@ jobs:
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
           $root='C:\Users\camar\GolandProjects\ckb-plane'
-          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
-          $go=(Get-Command go -ErrorAction Stop).Source
-          $installed=@(& $go version -m $exe)
-          $mod=@(Get-Content -LiteralPath (Join-Path $root 'go.mod'))
-          foreach($dep in @('modernc.org/sqlite','golang.org/x/net','golang.org/x/sys','github.com/bmatcuk/doublestar/v4')){
-            $build=@($installed | Where-Object {$_ -match ('^\s*dep\s+'+[regex]::Escape($dep)+'\s+') } | Select-Object -First 1)
-            $decl=@($mod | Where-Object {$_ -match ('^\s*'+[regex]::Escape($dep)+'\s+') } | Select-Object -First 1)
-            Write-Output ('R401_DEP='+$dep+' INSTALLED='+($build -join ' ')+' CURRENT='+($decl -join ' '))
-          }
-          Write-Output ('R401_GO_VERSION='+(& $go version))
-          Write-Output 'R401_READ_ONLY=TRUE'
+          $installed='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $expected='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if((Get-FileHash -LiteralPath $installed -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected){throw 'R402_INSTALLED_IDENTITY_DRIFT'}
+          $tmp=Join-Path $env:RUNNER_TEMP ('r402-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $tmp){throw 'R402_TEMP_COLLISION'}
+          New-Item -ItemType Directory -Path $tmp -ErrorAction Stop | Out-Null
+          try {
+            foreach($p in @('go.mod','go.sum')){Copy-Item -LiteralPath (Join-Path $root $p) -Destination (Join-Path $tmp $p) -ErrorAction Stop}
+            foreach($p in @('cmd','internal')){Copy-Item -LiteralPath (Join-Path $root $p) -Destination (Join-Path $tmp $p) -Recurse -ErrorAction Stop}
+            Push-Location $tmp
+            try {
+              $env:CGO_ENABLED='0'
+              $env:GOAMD64='v1'
+              & go build -trimpath -o (Join-Path $tmp 'ckb-plane.exe') ./cmd/ckb-plane
+              if($LASTEXITCODE -ne 0){throw 'R402_BUILD_FAILED'}
+            } finally {Pop-Location}
+            $actual=(Get-FileHash -LiteralPath (Join-Path $tmp 'ckb-plane.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+            Write-Output ('R402_ISOLATED_SHA256='+$actual)
+            Write-Output ('R402_MATCH_INSTALLED='+($actual -ceq $expected))
+            Write-Output 'R402_LIVE_UNCHANGED=TRUE'
+          } finally {Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue}
