@@ -1,0 +1,96 @@
+name: R346 compare common stopped Go build variants to active CKB image
+on:
+  push:
+    branches: [audit/ckb-r341-active-native-build-id-20261025]
+    paths: [.github/workflows/ckb-r346-live-binary-common-build-flags.yml]
+permissions:
+  contents: read
+concurrency:
+  group: r346-original-ckb-build-flag-parity
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Compile only stopped variants from current on-host CKB source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';Set-StrictMode -Version 3.0
+          $u=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:GITHUB_REF_NAME -cne 'audit/ckb-r341-active-native-build-id-20261025' -or
+             $env:GITHUB_EVENT_NAME -cne 'push' -or $env:GITHUB_RUN_ATTEMPT -cne '1' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:COMPUTERNAME -cne 'LINKDEADKB' -or
+             $u.Name -ine 'LINKDEADKB\camar' -or
+             ![Security.Principal.WindowsPrincipal]::new($u).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
+             throw 'R346_ORIGINAL_ELEVATED_WINDOWS_OWNER_REQUIRED'
+          }
+          $imageList=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+          if($imageList.Count -ne 1){throw 'R346_LIVE_PROCESS_COUNT_CHANGED'}
+          $image=[string]$imageList[0].ExecutablePath
+          $liveSha=(Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($liveSha -cne '82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'){
+             throw 'R346_RUNNING_IMAGE_PREIMAGE_DRIFT'
+          }
+          $config='C:\Users\camar\GolandProjects\ckb-plane\config\autonomy.yaml'
+          if((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash.ToLowerInvariant() -cne 'a14f210a146de9bd248bb4cfdc2e156b19c985a6c964a91881c4391f0a0190dc'){
+             throw 'R346_CONFIG_PREIMAGE_DRIFT'
+          }
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $candidates=@($root,(Join-Path $root 'snapshot\source'))|Where-Object {
+             (Test-Path -LiteralPath (Join-Path $_ 'go.mod') -PathType Leaf) -and
+             (Test-Path -LiteralPath (Join-Path $_ 'cmd\ckb-plane') -PathType Container) -and
+             (Test-Path -LiteralPath (Join-Path $_ 'internal\plane\autonomy_controls.go') -PathType Leaf) -and
+             (Test-Path -LiteralPath (Join-Path $_ 'internal\plane\webui_bridge.go') -PathType Leaf)
+          }
+          if($candidates.Count -ne 1){throw 'R346_LOCAL_MODULE_ROOT_AMBIGUOUS'}
+          $src=[string]$candidates[0]
+          $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd([char]92)+[char]92
+          $sys=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'Temp')).TrimEnd([char]92)+[char]92
+          if(!(Test-Path -LiteralPath $temp -PathType Container) -or $temp.StartsWith($sys,[StringComparison]::OrdinalIgnoreCase)){
+             throw 'R346_PRIVATE_NON_SYSTEM_TEMP_REQUIRED'
+          }
+          $work=Join-Path $temp ('r346-stopped-builds-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $work){throw 'R346_SCRATCH_COLLISION'}
+          $null=New-Item -Path $work -ItemType Directory -ErrorAction Stop
+          $env:GOPROXY='off';$env:GOSUMDB='off';$env:GOFLAGS='-mod=readonly -p=1'
+          $env:CGO_ENABLED='0';$env:GOMAXPROCS='1';$env:GOMEMLIMIT='1536MiB'
+          $env:TEMP=Join-Path $work 'temp';$env:TMP=$env:TEMP;$env:TMPDIR=$env:TEMP
+          $null=New-Item -Path $env:TEMP -ItemType Directory -ErrorAction Stop
+          try{
+             Push-Location $src
+             try{
+                $modes=@(
+                  @{name='default';args=@()},
+                  @{name='trimpath';args=@('-trimpath')},
+                  @{name='stripped';args=@('-ldflags=-s -w')},
+                  @{name='trimpath-stripped';args=@('-trimpath','-ldflags=-s -w')},
+                  @{name='stripped-buildvcs-off';args=@('-buildvcs=false','-ldflags=-s -w')},
+                  @{name='trimpath-stripped-buildvcs-off';args=@('-trimpath','-buildvcs=false','-ldflags=-s -w')}
+                )
+                $found=0
+                foreach($mode in $modes){
+                   $out=Join-Path $work ($mode.name+'.exe')
+                   $args=@('build')+$mode.args+@('-o',$out,'./cmd/ckb-plane')
+                   & go.exe @args
+                   if($LASTEXITCODE -ne 0 -or !(Test-Path -LiteralPath $out -PathType Leaf)){
+                      throw ('R346_STOPPED_VARIANT_BUILD_FAILED_'+$mode.name)
+                   }
+                   $sha=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+                   $same=$sha -ceq $liveSha
+                   if($same){$found++}
+                   Write-Output ('R346_VARIANT='+$mode.name+';SHA256='+$sha+';MATCHES_LIVE_R303='+[string]$same)
+                }
+                Write-Output ('R346_COMMON_BUILD_FLAG_VARIANTS_MATCHING_LIVE='+$found)
+             }finally{Pop-Location}
+             $end=@(Get-CimInstance Win32_Process -Filter "Name='ckb-plane.exe'" -ErrorAction Stop)
+             if($end.Count -ne 1 -or [int]$end[0].ProcessId -ne [int]$imageList[0].ProcessId -or
+                (Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash.ToLowerInvariant() -cne $liveSha){
+                throw 'R346_LIVE_CONTROLLER_CHANGED_DURING_STOPPED_BUILDS'
+             }
+             Write-Output 'R346_RUNNING_CONTROLLER_UNCHANGED=PASS'
+             Write-Output 'R346_NO_INSTALL_RESTART_DB_OR_QUEUE_MUTATION=TRUE'
+          }finally{
+             if(Test-Path -LiteralPath $work){Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop}
+          }
