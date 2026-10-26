@@ -1555,6 +1555,44 @@ class GitHub:
         except SourceContinuityDenied:
             return False
 
+    def deployed_release_continuity(self, db, deployed_source: str,
+                                    protected_source: str) -> bool:
+        """Keep a certified native owner operating across unrelated merges.
+
+        Protected main may advance; no newly merged code executes until an
+        explicit original-owner source-transition with authentic ledger seal.
+        The existing task, ledger and signed #807 owner policy remain pinned.
+        """
+        from f139.nci04_release_pin_continuity import (
+            ReleaseContinuityDenied, prove_deployed_release_pin)
+        from f139.nci04_owner_ledger import verify_native_activation
+        try:
+            db.verify()
+            meta = db.meta()
+            if (meta["source_sha"] != deployed_source
+                    or not verify_native_activation(db)):
+                return False
+            root = Path(__file__).resolve().parent.parent
+            def git(*args):
+                p = subprocess.run(
+                    ["git", "-C", str(root), *args],
+                    capture_output=True, stdin=subprocess.DEVNULL,
+                    timeout=15, check=False)
+                if p.returncode != 0:
+                    raise F139Error("F139_RELEASE_PIN_LOCAL_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            if (git("rev-parse", "HEAD") != deployed_source
+                    or git("status", "--porcelain", "--untracked-files=all")):
+                return False
+            evidence = prove_deployed_release_pin(
+                self.native_repo_get,
+                deployed_source=deployed_source,
+                protected_source=protected_source)
+            return evidence["existing_owner_policy_authorized"] is True
+        except (F139Error, ReleaseContinuityDenied, ValueError,
+                KeyError, TypeError, OSError, subprocess.TimeoutExpired):
+            return False
+
     def legacy_dispatchers_disabled(self):
         """Read authoritative GitHub workflow states; no administrative mutation."""
         for name in ("forge-development-succession.yml", "forge-integrated-synthetic-cycle.yml"):
@@ -2349,6 +2387,11 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         verifier=getattr(api,"research_only_main_advance",None)
         if callable(verifier):
             source_matches=verifier(meta["source_sha"],protected_now) is True
+        if not source_matches and native_enabled:
+            pinned=getattr(api,"deployed_release_continuity",None)
+            if callable(pinned):
+                source_matches=pinned(
+                    db,meta["source_sha"],protected_now) is True
     legacy_pending={}
     for active_record in db.actives():
         active=dict(active_record)
