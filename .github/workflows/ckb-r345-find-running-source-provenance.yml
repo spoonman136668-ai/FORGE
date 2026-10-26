@@ -68,7 +68,7 @@ jobs:
              }
              if($found){$reposToCheck+=,$repo}
           }
-          $matches=[System.Collections.Generic.List[object]]::new()
+          $repoMatches=[System.Collections.Generic.List[object]]::new()
           foreach($repo in $reposToCheck){
              $hashes=@{}
              $all=$true
@@ -90,14 +90,14 @@ jobs:
              try{$ErrorActionPreference='Continue';$v=@(& git.exe -C $repo rev-parse --verify HEAD 2>&1);$rc=$LASTEXITCODE}
              finally{$ErrorActionPreference=$old}
              if($rc -eq 0 -and $v.Count -eq 1 -and [string]$v[0] -cmatch '^[0-9a-f]{40}$'){$head=[string]$v[0]}
-             $matches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go']})
+             $repoMatches.Add([pscustomobject]@{MatchedFiles=$n;Head=$head;Controls=$hashes['autonomy_controls.go'];Bridge=$hashes['webui_bridge.go'];Autonomy=$hashes['autonomy.go']})
           }
-          $exact=@($matches|Where-Object {$_.MatchedFiles -eq 3})
+          $exact=@($repoMatches|Where-Object {$_.MatchedFiles -eq 3})
           Write-Output 'R345_ACTIVE_R303_PROCESS_AND_CONFIG_PIN=PASS'
           Write-Output ('R345_GIT_CHECKOUTS_DISCOVERED='+$repos.Count)
           Write-Output ('R345_CKB_SOURCE_SHAPED_CHECKOUTS='+$reposToCheck.Count)
           Write-Output ('R345_CHECKOUTS_MATCHING_ALL_THREE_LIVE_SOURCE_BLOBS='+$exact.Count)
-          foreach($v in $matches){
+          foreach($v in $repoMatches){
              Write-Output ('R345_SOURCE_MATCH_COUNT='+$v.MatchedFiles+';HEAD='+$v.Head)
           }
           if($exact.Count -eq 1){
