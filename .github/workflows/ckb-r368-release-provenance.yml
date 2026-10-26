@@ -1,4 +1,4 @@
-name: CKB R371 bounded ops and bin provenance inventory
+name: CKB R372 embedded Go build metadata inspection
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,49 +26,20 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $locations=@((Join-Path $base 'ops'),(Join-Path $release 'bin'))
-          $fileCount=0
-          $candidateCount=0
-          foreach($p in $locations) {
-            if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
-            Write-Output ('R371_DIRECTORY='+$p)
-            $entries=@(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop)
-            if ($entries.Count -gt 150) { throw ('DIRECTORY_ENTRY_BOUND_EXCEEDED='+$p) }
-            foreach($entry in $entries) {
-              if ($entry.PSIsContainer) {
-                Write-Output ('R371_SUBDIRECTORY='+$entry.FullName)
-                continue
-              }
-              $fileCount++
-              if ($fileCount -gt 150) { throw 'BOUNDED_FILE_COUNT_EXCEEDED' }
-              $rel=$entry.FullName.Substring($base.Length).TrimStart('\')
-              $sha=(Get-FileHash -LiteralPath $entry.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-              Write-Output ('R371_FILE='+$rel+' BYTES='+$entry.Length+' SHA256='+$sha)
-              if ($entry.Name -match '(?i)(manifest|provenance|build.?info|release.?info|source|commit|revision|checksums|sha256|receipt)' -or $entry.Extension -in @('.zip','.7z','.tar','.gz','.tgz','.manifest','.json')) {
-                $candidateCount++
-                if ($candidateCount -gt 50) { throw 'BOUNDED_CANDIDATE_COUNT_EXCEEDED' }
-                Write-Output ('R371_CANDIDATE='+$rel)
-                if ($entry.Extension -ieq '.json' -and $entry.Length -le 262144) {
-                  try {
-                    $obj=Get-Content -LiteralPath $entry.FullName -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
-                    foreach($key in @('commit','commit_sha','source_sha','source_commit','revision','tree_sha','go_version','toolchain','builder','artifact_sha256','source_archive','source_path','repository','repo','branch','version','build_id')) {
-                      $prop=$obj.PSObject.Properties[$key]
-                      if ($null -ne $prop -and $null -ne $prop.Value) {
-                        $value=[string]$prop.Value
-                        if ($value.Length -gt 160) { $value=$value.Substring(0,160) }
-                        if ($value -notmatch '(?i)(token|password|secret|credential|private.?key|authorization)') {
-                          Write-Output ('R371_METADATA_'+$key+'='+$value)
-                        }
-                      }
-                    }
-                  } catch {
-                    Write-Output ('R371_JSON_PARSE_UNAVAILABLE='+$rel)
-                  }
-                }
-              }
-            }
+          $go=Get-Command go -ErrorAction SilentlyContinue
+          if ($null -eq $go) { Write-Output 'R372_GO_TOOLCHAIN=UNAVAILABLE'; exit 0 }
+          Write-Output ('R372_GO_TOOLCHAIN='+$go.Source)
+          $env:GOTOOLCHAIN='local'
+          $env:GOSUMDB='off'
+          $env:GOPROXY='off'
+          $lines=@(& $go.Source version -m $exe 2>&1)
+          $exitCode=$LASTEXITCODE
+          Write-Output ('R372_GO_VERSION_M_EXIT='+$exitCode)
+          foreach($line in $lines) {
+            $value=[string]$line
+            if ($value.Length -gt 350) { $value=$value.Substring(0,350) }
+            if ($value -match '(?i)(token|password|secret|credential|private.?key|authorization)') { continue }
+            Write-Output ('R372_BUILD_INFO='+$value)
           }
-          Write-Output ('R371_BOUNDED_FILE_COUNT='+$fileCount)
-          Write-Output ('R371_BOUNDED_CANDIDATE_COUNT='+$candidateCount)
-          Write-Output 'R371_READ_ONLY=TRUE'
-          Write-Output 'R371_NO_CONTROLLER_DATABASE_TASK_QUEUE_OR_RELEASE_MUTATION=TRUE'
+          Write-Output 'R372_READ_ONLY=TRUE'
+          Write-Output 'R372_NO_CONTROLLER_DATABASE_TASK_QUEUE_OR_RELEASE_MUTATION=TRUE'
