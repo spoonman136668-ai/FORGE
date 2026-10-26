@@ -19,6 +19,10 @@ def train_sixfield_fit():
             raise ValueError("R8_FIT_SOURCE_NOT_QUALIFIED")
         if len(starts)==0:
             raise ValueError("R8_FIT_EPISODE_CUSTODY_MISSING")
+        if any(event.get("family") not in ("empty","fourrooms") or
+               type(event.get("action")) is not int or event["action"] not in (0,1,2)
+               for event in stream):
+            raise ValueError("R8_FIT_EVENT_IDENTITY_OR_ACTION_DRIFT")
         learned,digest=fit_sixfield(stream)
         return learned,{"fit_seeds":[FIT[0],FIT[-1]],"fit_events":len(stream),
                         "fit_model_sha256":digest,"scientific_accepted":False}
