@@ -1,4 +1,4 @@
-name: CKB R381 bounded source origin markers
+name: CKB R383 bounded R220 source checkout availability
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,20 +26,17 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $source='C:\Users\camar\GolandProjects\ckb-plane'
-          $names=@('AGENTS.md','README.md','go.mod','go.sum','source_manifest.json','backup_manifest.json','manifest.json','VERSION','.git')
-          foreach($name in $names){
-            $p=Join-Path $source $name
-            if(Test-Path -LiteralPath $p){
-              $item=Get-Item -LiteralPath $p
-              Write-Output ('R381_MARKER='+$name+' TYPE='+$(if($item.PSIsContainer){'directory'}else{'file'})+' LASTWRITE_UTC='+$item.LastWriteTimeUtc.ToString('o'))
+          $roots=@('C:\FORGE-Runner\_work','C:\Users\camar\GolandProjects')
+          foreach($root in $roots){
+            if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
+            $dirs=Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Select-Object -First 40
+            foreach($dir in $dirs){
+              if($dir.Name -match '(?i)ckb|plane'){
+                Write-Output ('R383_CANDIDATE_DIR='+$dir.FullName)
+                foreach($rel in @('snapshot\source\go.mod','go.mod','.git')){
+                  Write-Output ('R383_MARKER='+$rel+' PRESENT='+(Test-Path -LiteralPath (Join-Path $dir.FullName $rel)))
+                }
+              }
             }
           }
-          foreach($name in @('cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go')){
-            $p=Join-Path $source $name
-            if(Test-Path -LiteralPath $p -PathType Leaf){
-              $item=Get-Item -LiteralPath $p
-              Write-Output ('R381_FILE='+$name+' BYTES='+$item.Length+' LASTWRITE_UTC='+$item.LastWriteTimeUtc.ToString('o'))
-            }
-          }
-          Write-Output 'R381_READ_ONLY=TRUE'
+          Write-Output 'R383_READ_ONLY=TRUE'
