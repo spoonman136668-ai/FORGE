@@ -42,6 +42,13 @@ jobs:
                 if ($approved -notcontains $sid) { $broad++ }
               }
               Write-Output "RBACKUP_PATH_${name}_BROAD_ALLOW_COUNT=$broad"
+              $broadRights = @()
+              foreach ($ace in (Get-Acl -LiteralPath $path).Access) {
+                if ($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+                try { $sid = $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { continue }
+                if ($approved -notcontains $sid) { $broadRights += [string]$ace.FileSystemRights }
+              }
+              if ($name -eq 'LocalRoot') { Write-Output "RBACKUP_LOCALROOT_BROAD_RIGHTS=$($broadRights -join ',')" }
             }
           }
           Write-Output "RBACKUP_PRIMARY_IDENTITY_PRESENT=$(Test-Path -LiteralPath (Join-Path $root 'primary\identity.txt') -PathType Leaf)"
