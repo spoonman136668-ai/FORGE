@@ -503,14 +503,20 @@ class Database:
                              "custodied_negative_tasks", "custodied_negative_tickets",
                              "provider_failures_sha256", "v7_terminal_event_sha256",
                              "prepost_negative_event_sha256", "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8,
+                is_v9 = (isinstance(doc, dict)
+                         and doc.get("schema") == "forge.f139.source-transition.v9"
+                         and set(doc) == base_fields | {
+                             "custodied_negative_tasks", "custodied_negative_tickets",
+                             "provider_failures_sha256", "v8_terminal_event_sha256",
+                             "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -674,6 +680,27 @@ class Database:
                                 and doc["from_source_sha"]==SOURCE_V7
                                 and doc["v2_receipt_authorized"] is False,
                                 "SOURCE_TRANSITION_V8_ORIGINAL_CUSTODY_DRIFT")
+                if is_v9:
+                    v8_rows = [
+                        t for t in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<? "
+                            "ORDER BY seq", (row["seq"],))
+                        if json.loads(t["payload"])["schema"] ==
+                            "forge.f139.source-transition.v8"]
+                    previous_v9 = [t for t in source_transitions
+                                   if t["schema"] == "forge.f139.source-transition.v9"]
+                    from f139.nci04_g49_prepost_negative import verify_g49_custody
+                    require(len(v8_rows) == 1 and not previous_v9
+                            and source_transitions
+                            and source_transitions[-1]["schema"] ==
+                                "forge.f139.source-transition.v8"
+                            and doc["from_source_sha"] ==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["v8_terminal_event_sha256"] == v8_rows[0]["sha"]
+                            and doc["v2_receipt_authorized"] is False
+                            and verify_g49_custody(self),
+                            "SOURCE_TRANSITION_V9_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
