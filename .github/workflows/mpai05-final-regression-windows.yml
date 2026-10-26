@@ -1,0 +1,142 @@
+name: MP-AI05-FINAL-REGRESSION isolated MCP evidence Windows qualification
+on:
+  push:
+    branches: [qualification/mpai05-final-regression-20261026]
+    paths: ['.github/workflows/mpai05-final-regression-windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mp-ai05-pair-identity-one-windows
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 65
+    steps:
+      - name: Pin original source, execute focused and one complete regression
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+          MPAI05_STAGE: final
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code) {
+            if(-not $ok) { throw ('MPAI05_FINAL_REGRESSION_' + $code) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai05-final-regression-20261026' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXPECTED_ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $env:GIT_CONFIG_COUNT='1'
+          $env:GIT_CONFIG_KEY_0='core.longpaths'
+          $env:GIT_CONFIG_VALUE_0='true'
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $branch='proposal/mpai05-independent-trust-and-manifest-20261026'
+          $target='2f8d62da0ce700a98ea013fb240e77409039e132'
+          $parent='4d219b745484a69a43f76b02c297a39a166c8d65'
+          $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-pair-identity-'+$env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'repo'
+          $allowed=@('agentic/mpai05_runtime_receipt.py','docs/MP-AI05-RUNTIME-RECEIPT-CONTRACT.md','tests/test_mpai05_runtime_receipt.py')
+          $pins=@{
+            'agentic/mpai05_runtime_receipt.py'='1cf5c80181167d12c1bca819d868a74d905568f4'
+            'docs/MP-AI05-RUNTIME-RECEIPT-CONTRACT.md'='31bb2d8f4dfe310757548e97b3aad9e1a66f4a31'
+            'tests/test_mpai05_runtime_receipt.py'='1f1841bc98336d98d4b4dd3c00a2e0b72dcc7e77'
+          }
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          function Pin([string]$ref,[string]$sha) {
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REMOTE_DRIFT_'+$ref)
+          }
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+          $hashes=@{}
+          $initialized=$false
+          try {
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            & git.exe clone --quiet --single-branch --branch $branch $remote $root
+            Need ($LASTEXITCODE -eq 0) 'CLONE'
+            $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target) 'PINNED_HEAD'
+            & git.exe -C $root merge-base --is-ancestor $parent HEAD
+            Need ($LASTEXITCODE -eq 0) 'QUALIFIED_PARENT'
+            & git.exe -C $root merge-base --is-ancestor $accepted HEAD
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
+            $changed=@(& git.exe -C $root diff --name-only $parent HEAD)
+            $changedSet=@($changed | ForEach-Object { $_.Replace('\','/') } | Sort-Object -CaseSensitive)
+            $allowedSet=@($allowed | ForEach-Object { $_.Replace('\','/') } | Sort-Object -CaseSensitive)
+            Write-Host ('MPAI05_FINAL_REGRESSION_CHANGED_COUNT=' + $changedSet.Count)
+            Write-Host ('MPAI05_FINAL_REGRESSION_CHANGED_PATHS=' + ($changedSet -join '|'))
+            Write-Host ('MPAI05_FINAL_REGRESSION_ALLOWED_PATHS=' + ($allowedSet -join '|'))
+            $scopeDelta=@(Compare-Object -ReferenceObject $changedSet -DifferenceObject $allowedSet -CaseSensitive)
+            Need ($LASTEXITCODE -eq 0 -and $changedSet.Count -eq 3 -and $scopeDelta.Count -eq 0) 'DELTA_SCOPE'
+            foreach($f in $pins.Keys) {
+              $actualBlob=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $actualBlob -ceq $pins[$f]) ('BLOB_PIN_'+$f)
+            }
+            Write-Host 'MPAI05_FINAL_REGRESSION_SOURCE_PARENT_FIVE_FILE_SCOPE=PASS'
+            foreach($f in $protected) {
+              $a=(& git.exe -C $root rev-parse ($accepted+':'+$f) | Out-String).Trim()
+              $b=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $a -ceq $b) ('PROTECTED_BLOB_'+$f)
+              $hashes[$f]=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            $initialized=$true
+            Write-Host 'MPAI05_FINAL_REGRESSION_PROTECTED_BASELINE=PASS'
+            & python.exe -B -c "import pathlib; root=pathlib.Path(r'$root'); [compile((root/p).read_bytes(),str(root/p),'exec') for p in ('agentic/mpai05_runtime_receipt.py','tests/test_mpai05_runtime_receipt.py')]"
+            Need ($LASTEXITCODE -eq 0) 'SYNTAX'
+            Write-Host 'MPAI05_FINAL_REGRESSION_STOPPED_PYTHON_SYNTAX=PASS'
+            $suites=@('test_mpai05_runtime_receipt.py')
+            foreach($suite in $suites) {
+              & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p $suite -v
+              Need ($LASTEXITCODE -eq 0) ('FOCUSED_'+$suite)
+            }
+            Write-Host 'MPAI05_FINAL_REGRESSION_FOCUSED_TESTS=PASS'
+            Write-Host 'MPAI05_FINAL_REGRESSION_SYNTHETIC_ONLY=PASS'
+            foreach($f in $protected) {
+              $now=(Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant()
+              Need ($now -ceq $hashes[$f]) ('POST_FOCUSED_BLOB_'+$f)
+            }
+            if($env:MPAI05_STAGE -ceq 'final') {
+            $stdout=Join-Path $scratch 'regression.stdout'
+            $stderr=Join-Path $scratch 'regression.stderr'
+            $test=Join-Path $root 'tests/Test-All.ps1'
+            $p=Start-Process -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile','-NonInteractive','-File',('"'+$test+'"')) -WorkingDirectory $root -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $log=[IO.File]::ReadAllText($stdout)
+            if($p.ExitCode -ne 0) {
+              $last=@([regex]::Matches($log,'RUN Test-[A-Za-z0-9_-]+[.]ps1') | ForEach-Object {$_.Value})
+              if($last.Count) {Write-Host ('MPAI05_FINAL_REGRESSION_LAST_REGRESSION_TEST='+[string]$last[-1])}
+              throw 'MPAI05_FINAL_REGRESSION_FULL_REGRESSION_FAILED'
+            }
+            Need ($log.Contains('Mind-Palace regression suite passed')) 'REGRESSION_MARKER'
+            Write-Host 'MPAI05_FINAL_REGRESSION_ONE_FULL_WINDOWS_REGRESSION=PASS'
+            } else {
+              Write-Host 'MPAI05_FINAL_REGRESSION_FINAL_REGRESSION=DEFERRED'
+            }
+            Need (-not ((& git.exe -C $root status --porcelain=v1 --untracked-files=no | Out-String).Trim())) 'SOURCE_WORKTREE_CHANGED'
+            Pin ('refs/heads/'+$branch) $target
+            Pin 'refs/heads/main' $accepted
+            Write-Host 'MPAI05_FINAL_REGRESSION_SOURCE_STILL_PINNED=PASS'
+            Write-Host 'MPAI05_FINAL_REGRESSION_INDEPENDENT_SCIENTIFIC_GAIN=NOT_TESTED'
+            Write-Host 'MPAI05_FINAL_REGRESSION_CONTROLLER_ADMISSION=NOT_PERFORMED'
+            Write-Host 'MPAI05_FINAL_REGRESSION_PAID_MODEL_CALLS=0'
+            Write-Host 'MPAI05_FINAL_REGRESSION_PRODUCTION_WRITES=0'
+          } finally {
+            if($initialized) {
+              foreach($f in $protected) {
+                Need ((Get-FileHash -LiteralPath (Join-Path $root $f) -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $hashes[$f]) ('PROTECTED_POSTIMAGE_'+$f)
+              }
+              Write-Host 'MPAI05_FINAL_REGRESSION_PROTECTED_FINAL=PASS'
+            }
+            if(Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force
+            }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI05_FINAL_REGRESSION_SCRATCH_CLEAN=PASS'
+          }
