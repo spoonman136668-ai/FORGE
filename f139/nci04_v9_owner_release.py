@@ -27,8 +27,8 @@ FIELDS = frozenset({
     "v2_production_dispatch_authorized", "new_controller",
     "new_scheduler", "new_queue", "paid_api_calls",
 })
-SHA40 = re.compile(r"[a-f0-9]{40}\\Z")
-SHA64 = re.compile(r"[a-f0-9]{64}\\Z")
+SHA40 = re.compile(r"[a-f0-9]{40}\Z")
+SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 
 
 class V9OwnerDenied(ValueError):
@@ -61,6 +61,15 @@ def build_v9_owner_approval(db, target_source_sha: str, owner_event_id: int) -> 
     """Build an approval only from the exact frozen G53 owner-ledger preimage."""
     from f139.local_controller import Database
     need(type(db) is Database, "CANONICAL_OWNER_DATABASE_REQUIRED")
+    from f139.local_controller import GitHub
+    from f139.nci04_v9_owner_preflight import verify_v9_owner_preflight
+    api = GitHub()
+    preflight = verify_v9_owner_preflight(
+        db, api.get, expected_old_source=SOURCE_V8,
+        target_source=target_source_sha)
+    need(preflight["prior_event_seq"] == EXPECTED_HEAD_SEQ
+         and preflight["prior_event_sha256"] == EXPECTED_HEAD_SHA256,
+         "FROZEN_G53_PREFLIGHT_DRIFT")
     db.verify()
     meta = db.meta()
     transitions = _v8_rows(db)

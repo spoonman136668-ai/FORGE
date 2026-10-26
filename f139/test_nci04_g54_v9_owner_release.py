@@ -7,7 +7,7 @@ import unittest
 from f139.local_controller import Database, cli
 from f139.nci04_v9_owner_release import (
     EXPECTED_HEAD_SEQ, EXPECTED_HEAD_SHA256, FIELDS, SCHEMA, SOURCE_V8,
-    V9OwnerDenied, validate_v9_original_owner,
+    SHA40, SHA64, V9OwnerDenied, validate_v9_original_owner,
 )
 
 
@@ -24,6 +24,12 @@ class G54V9OwnerReleaseTests(unittest.TestCase):
         self.assertEqual(
             SCHEMA, "forge.f139.nci04.original-owner-source-v9-approval.v1"
         )
+
+    def test_sha_fields_are_anchored_and_exact(self):
+        self.assertIsNotNone(SHA40.fullmatch("a" * 40))
+        self.assertIsNone(SHA40.fullmatch("a" * 40 + "x"))
+        self.assertIsNotNone(SHA64.fullmatch("b" * 64))
+        self.assertIsNone(SHA64.fullmatch("b" * 64 + "x"))
 
     def test_invalid_class_rejected_before_owner_mutation(self):
         with self.assertRaisesRegex(V9OwnerDenied, "CANONICAL_OWNER_DATABASE"):
