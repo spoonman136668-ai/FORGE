@@ -1,0 +1,145 @@
+name: MP-AI05 fast-path focused qualification
+
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-fastpath-focused-windows.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpai05-fastpath-focused-windows
+  cancel-in-progress: false
+
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Verify exact source and run focused tests only
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          function Need([bool]$ok,[string]$code) {
+            if(-not $ok) { throw ('MPAI05_FASTPATH_' + $code) }
+          }
+          Need ($env:GITHUB_REPOSITORY -ceq 'spoonman136668-ai/FORGE' -and
+            $env:GITHUB_REF -ceq 'refs/heads/qualification/mpai05-fastpath-20261026' -and
+            $env:RUNNER_NAME -ceq 'FORGE-CODEX-REMOTE') 'EXPECTED_ISOLATED_RUNNER'
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $sourceBranch='proposal/mpai05-independent-trust-and-manifest-20261026'
+          $target='2f8d62da0ce700a98ea013fb240e77409039e132'
+          $accepted='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-fastpath-focused-'+$env:GITHUB_RUN_ID)
+          Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_EXISTS'
+          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+
+          $cacheRoot=Join-Path $env:RUNNER_TOOL_CACHE 'mpai05-fastpath'
+          $mirror=Join-Path $cacheRoot 'mind-palace.git'
+          $root=Join-Path $scratch 'repo'
+          $worktreeAdded=$false
+          $protected=@('.ice/records.json','.ice/source-ledger.json','archive/index.json',
+            '.ice/remote-bootstrap.json','.ice/remote-catalog.json','.ice/remote-index.ndjson',
+            '.ice/chat-delta-state.json','.ice/project-state-capsules.json','.ice/project-dependency-graph.json')
+          $pins=@{
+            'agentic/mpai05_runtime_receipt.py'='1cf5c80181167d12c1bca819d868a74d905568f4'
+            'docs/MP-AI05-RUNTIME-RECEIPT-CONTRACT.md'='31bb2d8f4dfe310757548e97b3aad9e1a66f4a31'
+            'docs/MP-AI05-RUNTIME-RECEIPT-NEGATIVE-CASES.md'='dec5181164f20f74da002f31b3c90a6cc1f42b30'
+            'tests/test_mpai05_runtime_receipt.py'='1f1841bc98336d98d4b4dd3c00a2e0b72dcc7e77'
+          }
+          function Pin([string]$ref,[string]$sha) {
+            $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+            Need ($LASTEXITCODE -eq 0 -and $rows.Count -eq 1 -and
+              (([string]$rows[0] -split '\s+')[0]) -ceq $sha) ('REMOTE_DRIFT_'+$ref)
+          }
+          try {
+            Pin ('refs/heads/'+$sourceBranch) $target
+            Pin 'refs/heads/main' $accepted
+
+            New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+            if(-not(Test-Path -LiteralPath $mirror)) {
+              & git.exe init --bare --quiet $mirror
+              Need ($LASTEXITCODE -eq 0) 'CACHE_INIT'
+              & git.exe --git-dir $mirror remote add origin $remote
+              Need ($LASTEXITCODE -eq 0) 'CACHE_REMOTE_ADD'
+            } else {
+              $bare=(& git.exe --git-dir $mirror rev-parse --is-bare-repository | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $bare -ceq 'true') 'CACHE_NOT_BARE'
+              $origin=(& git.exe --git-dir $mirror remote get-url origin | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $origin -ceq $remote) 'CACHE_REMOTE_MISMATCH'
+            }
+
+            & git.exe --git-dir $mirror fetch --quiet origin ("+refs/heads/"+$sourceBranch+":refs/remotes/origin/"+$sourceBranch) ("+refs/heads/main:refs/remotes/origin/main")
+            Need ($LASTEXITCODE -eq 0) 'CACHE_FETCH'
+            $sourceObject=(& git.exe --git-dir $mirror rev-parse ('refs/remotes/origin/'+$sourceBranch+'^{commit}') | Out-String).Trim()
+            $mainObject=(& git.exe --git-dir $mirror rev-parse 'refs/remotes/origin/main^{commit}' | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $sourceObject -ceq $target -and $mainObject -ceq $accepted) 'CACHE_OBJECT_IDENTITY'
+
+            & git.exe --git-dir $mirror worktree add --quiet --detach $root $target
+            Need ($LASTEXITCODE -eq 0) 'WORKTREE_ADD'
+            $worktreeAdded=$true
+            $actual=(& git.exe -C $root rev-parse HEAD | Out-String).Trim()
+            $tree=(& git.exe -C $root rev-parse 'HEAD^{tree}' | Out-String).Trim()
+            Need ($LASTEXITCODE -eq 0 -and $actual -ceq $target -and $tree -match '^[0-9a-f]{40}$') 'PINNED_SOURCE_TREE'
+            & git.exe -C $root merge-base --is-ancestor $accepted HEAD
+            Need ($LASTEXITCODE -eq 0) 'ACCEPTED_ANCESTOR'
+
+            $changed=@(& git.exe -C $root diff --name-only $accepted HEAD)
+            $changedSet=@($changed | ForEach-Object { $_.Replace('\','/') } | Sort-Object -CaseSensitive)
+            $allowed=@('agentic/mpai05_runtime_receipt.py','docs/MP-AI05-RUNTIME-RECEIPT-CONTRACT.md','docs/MP-AI05-RUNTIME-RECEIPT-NEGATIVE-CASES.md','tests/test_mpai05_runtime_receipt.py')
+            $allowedSet=@($allowed | Sort-Object -CaseSensitive)
+            $scopeDelta=@(Compare-Object -ReferenceObject $changedSet -DifferenceObject $allowedSet -CaseSensitive)
+            Need ($LASTEXITCODE -eq 0 -and $changedSet.Count -eq 4 -and $scopeDelta.Count -eq 0) 'DELTA_SCOPE'
+            foreach($f in $pins.Keys) {
+              $blob=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $blob -ceq $pins[$f]) ('BLOB_PIN_'+$f)
+            }
+            foreach($f in $protected) {
+              $a=(& git.exe -C $root rev-parse ($accepted+':'+$f) | Out-String).Trim()
+              $b=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $a -ceq $b) ('PROTECTED_BLOB_'+$f)
+            }
+            Need (-not ((& git.exe -C $root status --porcelain=v1 | Out-String).Trim())) 'SOURCE_WORKTREE_DIRTY'
+            Write-Host ('MPAI05_FASTPATH_SOURCE_SHA='+$actual)
+            Write-Host ('MPAI05_FASTPATH_TREE_SHA='+$tree)
+            Write-Host ('MPAI05_FASTPATH_CACHE=EXACT_SOURCE_VERIFIED')
+            Write-Host ('MPAI05_FASTPATH_PYTHON='+((& python.exe --version 2>&1 | Out-String).Trim()))
+
+            & python.exe -B -c "import pathlib; root=pathlib.Path(r'$root'); [compile((root/p).read_bytes(),str(root/p),'exec') for p in ('agentic/mpai05_runtime_receipt.py','tests/test_mpai05_runtime_receipt.py')]"
+            Need ($LASTEXITCODE -eq 0) 'SYNTAX'
+            $testStart=[DateTimeOffset]::UtcNow
+            & python.exe -B -m unittest discover -s (Join-Path $root 'tests') -p 'test_mpai05_runtime_receipt.py' -v
+            Need ($LASTEXITCODE -eq 0) 'FOCUSED_RECEIPT_TESTS'
+            $testSeconds=([DateTimeOffset]::UtcNow-$testStart).TotalSeconds
+            Write-Host ('MPAI05_FASTPATH_FOCUSED_TESTS=PASS')
+            Write-Host ('MPAI05_FASTPATH_FOCUSED_SECONDS='+$testSeconds.ToString('F3',[Globalization.CultureInfo]::InvariantCulture))
+            foreach($f in $protected) {
+              $a=(& git.exe -C $root rev-parse ($accepted+':'+$f) | Out-String).Trim()
+              $b=(& git.exe -C $root rev-parse ('HEAD:'+$f) | Out-String).Trim()
+              Need ($LASTEXITCODE -eq 0 -and $a -ceq $b) ('PROTECTED_AFTER_TESTS_'+$f)
+            }
+            Need (-not ((& git.exe -C $root status --porcelain=v1 | Out-String).Trim())) 'POST_TEST_SOURCE_DIRTY'
+            Pin ('refs/heads/'+$sourceBranch) $target
+            Pin 'refs/heads/main' $accepted
+            Write-Host 'MPAI05_FASTPATH_ONE_FULL_REGRESSION=DEFERRED_TO_FINAL_GATE'
+            Write-Host 'MPAI05_FASTPATH_ACCEPTANCE=NOT_GRANTED'
+            Write-Host 'MPAI05_FASTPATH_PRODUCTION_WRITES=0'
+          } finally {
+            if($worktreeAdded) {
+              & git.exe --git-dir $mirror worktree remove --force $root
+              Need ($LASTEXITCODE -eq 0) 'WORKTREE_CLEANUP'
+              & git.exe --git-dir $mirror worktree prune
+              Need ($LASTEXITCODE -eq 0) 'WORKTREE_PRUNE'
+            }
+            if(Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+            Need (-not(Test-Path -LiteralPath $scratch)) 'SCRATCH_CLEAN'
+            Write-Host 'MPAI05_FASTPATH_SCRATCH_CLEAN=PASS'
+            Write-Host 'MPAI05_FASTPATH_PERSISTENT_MIRROR_RETAINED=PASS'
+          }
