@@ -53,6 +53,9 @@ class AuthenticatedProvider:
             return copy.deepcopy(self.branch)
         if path == f"repos/{REPO}/issues/807":
             return copy.deepcopy(self.issue)
+        if path == f"repos/{REPO}/branches/f139-owner-release-{RELEASE}":
+            return {"name":"f139-owner-release-"+RELEASE,
+                    "commit":{"sha":RELEASE}}
         if path == f"repos/{REPO}/compare/{RELEASE}...{HEAD}":
             return copy.deepcopy(self.compare)
         raise AssertionError("unexpected route "+path)
@@ -80,7 +83,7 @@ class ReleasePinContinuityTests(unittest.TestCase):
         self.assertTrue(proof["new_commits_are_uninstalled"])
         self.assertFalse(proof["source_transition_granted"])
         self.assertFalse(proof["scientific_first_use"])
-        self.assertEqual(len(self.provider.calls),4)
+        self.assertEqual(len(self.provider.calls),5)
 
     def test_authentic_owner_policy_pin_required(self):
         self.deny(lambda p:p.issue.update(author_association="NONE"),
@@ -104,6 +107,23 @@ class ReleasePinContinuityTests(unittest.TestCase):
                 with self.assertRaises(Exception):
                     prove_deployed_release_pin(p.get,
                       deployed_source=RELEASE,protected_source=HEAD)
+
+    def test_worker_source_must_use_immutable_exact_release_ref(self):
+        self.assertIn(
+            f"repos/{REPO}/branches/f139-owner-release-{RELEASE}",
+            self.proof() and self.provider.calls)
+        from f139.nci04_release_pin_continuity import (
+            verify_release_worker_branch, release_worker_branch)
+        self.assertEqual(release_worker_branch(RELEASE),
+                         "f139-owner-release-"+RELEASE)
+        wrong=lambda route: (
+            {"name":"f139-owner-release-"+RELEASE,
+             "commit":{"sha":HEAD}}
+            if route.endswith("f139-owner-release-"+RELEASE)
+            else self.provider.get(route))
+        with self.assertRaisesRegex(ReleaseContinuityDenied,
+                                    "WORKER_BRANCH_NOT_IMMUTABLE"):
+            verify_release_worker_branch(wrong, RELEASE)
 
     def test_fork_or_rewritten_history_or_unprotected_main_denied(self):
         self.deny(lambda p:p.compare.update(status="diverged"),"NOT_RELEASE_ANCESTRY")
