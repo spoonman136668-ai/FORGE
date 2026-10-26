@@ -1,0 +1,57 @@
+name: MP-AI05 paired real local inference
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-paired-local-inference.yml']
+permissions:
+  contents: read
+jobs:
+  paired:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Pinned memory retrieval and paired model inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check --user 'llama-cpp-python==0.3.16'
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git /tmp/mpai05-mp
+          python3 - <<'PY'
+          import sys,json,subprocess,urllib.request,time,hashlib
+          from pathlib import Path
+          root=Path('/tmp/mpai05-mp')
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          from mindpalace_mcp import handle
+          snapshot=MemorySnapshot(root,sha,['Mind-Palace'])
+          req={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'mindpalace_recall','arguments':{'source_sha':sha,'query':'Mind-Palace retrieval context memory governance','projects':['Mind-Palace'],'profile':'continuation'}}}
+          response=handle(snapshot,req)
+          if 'error' in response: raise RuntimeError('RETRIEVAL_FAILED')
+          payload=json.loads(response['result']['content'][0]['text'])
+          matches=payload.get('matches',[])
+          if not matches or not all(m.get('source_refs') for m in matches): raise RuntimeError('PROVENANCE_MISSING')
+          context=json.dumps(matches[:2],sort_keys=True)[:1600]
+          from llama_cpp import Llama
+          path='/tmp/mpai05-tiny.gguf'
+          urllib.request.urlretrieve('https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf',path)
+          model=Llama(model_path=path,n_ctx=1024,n_threads=2,verbose=False)
+          question='What kind of source evidence should accompany a Mind-Palace memory retrieval?'
+          arms=[('BASELINE','Question: '+question+' Answer:'),('RETRIEVAL','Context: '+context+'\nQuestion: '+question+' Answer:')]
+          for name,prompt in arms:
+              start=time.monotonic()
+              result=model(prompt,max_tokens=48,temperature=0)
+              answer=result['choices'][0]['text']
+              usage=result.get('usage',{})
+              print('MPAI05_'+name+'_REAL_INFERENCE='+str(bool(answer.strip())))
+              print('MPAI05_'+name+'_OUTPUT_SHA256='+hashlib.sha256(answer.encode()).hexdigest())
+              print('MPAI05_'+name+'_PROMPT_TOKENS='+str(usage.get('prompt_tokens','unknown')))
+              print('MPAI05_'+name+'_COMPLETION_TOKENS='+str(usage.get('completion_tokens','unknown')))
+              print('MPAI05_'+name+'_SECONDS='+str(round(time.monotonic()-start,3)))
+              if not answer.strip(): raise RuntimeError('EMPTY_'+name)
+          print('MPAI05_SOURCE_PIN='+sha)
+          print('MPAI05_PROVENANCE=PASS')
+          print('MPAI05_PAIRED_EXECUTION=PASS')
+          print('MPAI05_IMPROVEMENT=NOT_ESTABLISHED')
+          print('MPAI05_HOLDOUT_ACCESS=0')
+          PY
