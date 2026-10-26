@@ -16,4 +16,5 @@ export ITD02_R8_BRIDGE="$ROOT/wingless-r8"
 python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_bridge.py -v
 python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_episode_contract.py -v
 python -B research/lcrm01/itd02_r8_original_world_preflight.py
+python -B -m unittest discover -s research/lcrm01 -p test_itd02_r8_original_episode.py -v
 echo ITD02_R8_PINNED_NATIVE_BRIDGE_FOCUSED_PASS
