@@ -10,7 +10,7 @@ import re
 from f139.nci04_owner_ledger import verify_native_activation
 from f139.nci04_release_pin_continuity import verify_release_worker_branch
 
-SHA = re.compile(r"[a-f0-9]{40}\\Z")
+SHA = re.compile(r"[a-f0-9]{40}\Z")
 
 
 class V9TransitionDenied(ValueError):
