@@ -127,6 +127,10 @@ jobs:
             if($p.ExitCode -ne 0) {
               $last=@([regex]::Matches($log,'RUN Test-[A-Za-z0-9_-]+[.]ps1') | ForEach-Object {$_.Value})
               if($last.Count) {Write-Host ('MPAI05_FASTPATH_FINAL_LAST_TEST='+[string]$last[-1])}
+              Write-Host 'MPAI05_FASTPATH_FINAL_FAILURE_STDOUT_TAIL_BEGIN'
+              Get-Content -LiteralPath $stdout -Tail 35 | ForEach-Object { Write-Host $_ }
+              Write-Host 'MPAI05_FASTPATH_FINAL_FAILURE_STDERR_TAIL_BEGIN'
+              Get-Content -LiteralPath $stderr -Tail 20 | ForEach-Object { Write-Host $_ }
               throw 'MPAI05_FASTPATH_FINAL_FULL_REGRESSION_FAILED'
             }
             Need ($log.Contains('Mind-Palace regression suite passed')) 'REGRESSION_MARKER'
