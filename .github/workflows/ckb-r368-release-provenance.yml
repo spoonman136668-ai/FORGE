@@ -1,4 +1,4 @@
-name: CKB R389 bounded release provenance field extraction
+name: CKB R390 bounded r4a baseline identity verification
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -26,17 +26,21 @@ jobs:
           $exeHash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           Write-Output ('R371_MATCHING_EXE_SHA256='+$exeHash)
           if ($exeHash -cne $target) { throw 'RELEASE_EXECUTABLE_HASH_DRIFT' }
-          $paths=@('C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate\PACKAGE-MANIFEST.json','C:\Users\camar\GolandProjects\ckb-plane-authority-lease-r2-livecandidate\profiles\ckb-r4a-source-proof.json','C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-CONSOLIDATION-R1\release-manifest.json','C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-THROUGHPUT-R1\release-manifest.json')
-          foreach($p in $paths){
-            if(!(Test-Path -LiteralPath $p -PathType Leaf)){continue}
-            $obj=Get-Content -LiteralPath $p -Raw | ConvertFrom-Json
-            Write-Output ('R389_DOCUMENT='+$p)
-            foreach($prop in $obj.PSObject.Properties){
-              if($prop.Name -match '(?i)(source|commit|revision|build|artifact|sha|version|release|origin|repo|fingerprint)'){
-                $v=$prop.Value | ConvertTo-Json -Compress -Depth 3
-                if($v.Length -gt 350){$v=$v.Substring(0,350)+'...[truncated]'}
-                Write-Output ('R389_FIELD='+$prop.Name+' VALUE='+$v)
-              }
+          $root='C:\Users\camar\GolandProjects\ckb-codex-r4a-clean'
+          $git=(Get-Command git -ErrorAction Stop).Source
+          if(!(Test-Path -LiteralPath (Join-Path $root '.git'))){throw 'R390_GIT_MISSING'}
+          $head=(& $git -C $root rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0){throw 'R390_HEAD_FAILED'}
+          Write-Output ('R390_HEAD='+$head)
+          Write-Output ('R390_EXPECTED_BASELINE=01260dda4bdebc454921cdf0c5d3d0eeafef7629')
+          Write-Output ('R390_HEAD_MATCH='+($head -ceq '01260dda4bdebc454921cdf0c5d3d0eeafef7629'))
+          $status=@(& $git -C $root status --porcelain)
+          if($LASTEXITCODE -ne 0){throw 'R390_STATUS_FAILED'}
+          Write-Output ('R390_DIRTY_ENTRIES='+@($status).Count)
+          foreach($rel in @('go.mod','cmd\ckb-plane\main.go','internal\plane\autonomy.go','internal\plane\engine.go')){
+            $p=Join-Path $root $rel
+            if(Test-Path -LiteralPath $p -PathType Leaf){
+              Write-Output ('R390_FILE='+$rel+' SHA256='+((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()))
             }
           }
-          Write-Output 'R389_READ_ONLY=TRUE'
+          Write-Output 'R390_READ_ONLY=TRUE'
