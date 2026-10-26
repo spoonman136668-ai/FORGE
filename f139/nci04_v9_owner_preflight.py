@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 from f139.nci04_owner_ledger import verify_native_activation
-from f139.nci04_release_pin_continuity import verify_release_worker_branch
+from f139.nci04_release_pin_continuity import (
+    ReleaseContinuityDenied, verify_release_worker_branch,
+)
 
 SHA = re.compile(r"[a-f0-9]{40}\Z")
 
@@ -22,6 +24,9 @@ def verify_v9_owner_preflight(db, get, *, expected_old_source: str,
     from f139.local_controller import Database
     if type(db) is not Database:
         raise V9TransitionDenied("F139_V9_ORIGINAL_DATABASE_REQUIRED")
+    if (not isinstance(expected_old_source, str)
+            or SHA.fullmatch(expected_old_source) is None):
+        raise V9TransitionDenied("F139_V9_OLD_SOURCE_INVALID")
     db.verify()
     meta = db.meta()
     if (meta["source_sha"] != expected_old_source
@@ -33,7 +38,10 @@ def verify_v9_owner_preflight(db, get, *, expected_old_source: str,
             or db.ready() is not None or db.actives()
             or not verify_native_activation(db)):
         raise V9TransitionDenied("F139_V9_OWNER_LEDGER_OR_SOURCE_DRIFT")
-    branch = verify_release_worker_branch(get, target_source)
+    try:
+        branch = verify_release_worker_branch(get, target_source)
+    except (ReleaseContinuityDenied, KeyError, TypeError, ValueError) as exc:
+        raise V9TransitionDenied("F139_V9_WORKER_RELEASE_REF_INVALID") from exc
     return {
         "from_source_sha": expected_old_source,
         "to_source_sha": target_source,
