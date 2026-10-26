@@ -48,7 +48,9 @@ def common_source():
     source = env.get("F139_SOURCE_SHA")
     require(isinstance(source, str) and SHA40.fullmatch(source) is not None
             and env.get("GITHUB_SHA") == source
-            and env.get("GITHUB_REF") == "refs/heads/main"
+            and env.get("GITHUB_REF") in (
+                "refs/heads/main",
+                "refs/heads/f139-owner-release-"+source)
             and env.get("GITHUB_REPOSITORY") == "spoonman136668-ai/FORGE"
             and env.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and env.get("GITHUB_RUN_ATTEMPT") == "1"
