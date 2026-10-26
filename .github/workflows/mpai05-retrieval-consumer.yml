@@ -1,0 +1,59 @@
+name: MP-AI05 retrieval consumer handoff
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-retrieval-consumer.yml']
+permissions:
+  contents: read
+jobs:
+  consumer:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Pass actual retrieved records to isolated deterministic consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-consumer-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) { throw 'SCRATCH_EXISTS' }
+          try {
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $root
+            if($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+            $sha=(& git -C $root rev-parse HEAD).Trim()
+            $code=@'
+          import json,sys
+          from pathlib import Path
+          root=Path(sys.argv[1]);sha=sys.argv[2]
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          from mindpalace_mcp import handle
+          snapshot=MemorySnapshot(root,sha,['Mind-Palace'])
+          query='Mind-Palace retrieval context memory governance'
+          response=handle(snapshot,{'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'mindpalace_recall','arguments':{'source_sha':sha,'query':query,'projects':['Mind-Palace'],'profile':'continuation'}}})
+          if 'error' in response: raise RuntimeError('RETRIEVAL_DENIED')
+          data=json.loads(response['result']['content'][0]['text'])
+          matches=data['matches']
+          if not matches or not all(r.get('source_refs') for r in matches): raise RuntimeError('RETRIEVAL_INCOMPLETE')
+          # Consumer receives the returned records, not direct store access.
+          handed=json.loads(json.dumps({'source_sha':data['source_sha'],'matches':matches}))
+          consumer_ids=[r['id'] for r in handed['matches']]
+          if consumer_ids!=[r['id'] for r in matches]: raise RuntimeError('CONSUMER_MISMATCH')
+          if handed['source_sha']!=sha: raise RuntimeError('CONSUMER_SOURCE_DRIFT')
+          print('MPAI05_RETRIEVAL_CONSUMER_HANDOFF=PASS')
+          print('MPAI05_CONSUMED_RECORD_COUNT='+str(len(consumer_ids)))
+          print('MPAI05_CONSUMER_TYPE=DETERMINISTIC_NOT_MODEL')
+          print('MPAI05_MODEL_ASSISTED_OUTCOME=NOT_TESTED')
+          '@
+            $script=Join-Path $env:RUNNER_TEMP ('mpai05-consumer-'+$env:GITHUB_RUN_ID+'.py')
+            Set-Content -LiteralPath $script -Value $code -Encoding utf8
+            try {
+              & python $script $root $sha
+              if($LASTEXITCODE -ne 0) { throw 'CONSUMER_HANDOFF_FAILED' }
+            } finally { Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue }
+          } finally {
+            if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          }
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
