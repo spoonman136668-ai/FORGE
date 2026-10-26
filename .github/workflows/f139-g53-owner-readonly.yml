@@ -39,7 +39,264 @@ jobs:
             throw 'G53_UNEXPECTED_DIAGNOSTIC_SCOPE'
           }
           $main = (& gh api repos/spoonman136668-ai/FORGE/git/ref/heads/main --jq '.object.sha' | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or $main -notmatch '^[0-9a-f]{40}
+          if ($LASTEXITCODE -ne 0 -or $main -notmatch '^[0-9a-f]{40} -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info = Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
+            throw 'G53_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner = [string]$task.Principal.UserId
+          $ownerSid = ''
+          try {
+            $ownerSid = (New-Object Security.Principal.NTAccount($owner)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          if ($owner -ine $identity.Name -and $ownerSid -cne $identity.User.Value) {
+            throw 'G53_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function Read-Arg([string]$field) {
+            $rx = '(?i)(?:^|\s)-' + [regex]::Escape($field) + '\s+"([^"]+)"'
+            $m = [regex]::Match([string]$task.Actions[0].Arguments, $rx)
+            if (-not $m.Success) { throw ('G53_TASK_ARG_MISSING_' + $field) }
+            return $m.Groups[1].Value
+          }
+          $root = Read-Arg 'RepositoryRoot'
+          $db = Read-Arg 'Database'
+          $python = Read-Arg 'PythonExe'
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if ([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              -not (Test-Path -LiteralPath $db -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf)) {
+            throw 'G53_ORIGINAL_OWNER_DB_OR_INTERPRETER_DRIFT'
+          }
+          $installed = (& git -C $root rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $installed -cne $expected) {
+            throw 'G53_INSTALLED_SOURCE_NOT_EXACT_V8'
+          }
+          $dirty = (& git -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $dirty.Length -gt 0) {
+            throw 'G53_INSTALLED_SOURCE_DIRTY'
+          }
+          Write-Host ('G53_TASK_STATE=' + [string]$task.State)
+          Write-Host ('G53_TASK_LAST_RESULT=' + [string]$info.LastTaskResult)
+          Write-Host ('G53_TASK_LAST_RUN=' + $info.LastRunTime.ToString('o'))
+          Write-Host ('G53_TASK_NEXT_RUN=' + $info.NextRunTime.ToString('o'))
+          Write-Host 'G53_ORIGINAL_RUNNER_SID_SOURCE_AND_TASK=PASS'
+          $audit = @'
+          import json, pathlib, re, sqlite3, sys
+          from collections import Counter
+          root = pathlib.Path(sys.argv[1]).resolve()
+          origin = pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0, str(root))
+          from f139.local_controller import Database, v2_owner_terminal_release_guard
+          from f139.nci04_owner_ledger import verify_native_activation
+          # Read the original, custody-bound database with a SQLite read-only
+          # connection. Relocated snapshots cannot pass verified evidence-path
+          # custody and are NOT equivalent to the original verified ledger.
+          conn = sqlite3.connect(origin.as_uri() + "?mode=ro", uri=True,
+                                 timeout=15, isolation_level=None)
+          conn.row_factory = sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          conn.execute("BEGIN")
+          d = Database.__new__(Database)
+          d.filename = origin
+          d.conn = conn
+          try:
+              d.verify()
+              meta = d.meta()
+              all_tasks = d.status()["tasks"]
+              wanted = [x for x in all_tasks if x["ticket"].startswith("f139-nci04-i970-")]
+              ready = d.ready()
+              actives = d.actives()
+              recent = []
+              for row in d.conn.execute("SELECT seq, kind, payload FROM events ORDER BY seq DESC LIMIT 24"):
+                  payload = json.loads(row["payload"])
+                  recent.append({"seq": row["seq"], "kind": row["kind"],
+                                 "ticket": payload.get("ticket"),
+                                 "issue_number": payload.get("issue_number")})
+              logpath = origin.parent / "logs" / "controller.log"
+              recent_dispositions = []
+              recent_error_codes = []
+              if logpath.is_file():
+                  tail = logpath.read_text(encoding="utf-8-sig", errors="replace")[-120000:]
+                  recent_dispositions = re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]+)"', tail)[-12:]
+                  recent_error_codes = re.findall(r'\bF139_[A-Z0-9_]{5,80}\b', tail)[-8:]
+              # Authenticate #970's original provider lookup using the EXACT
+              # same bounded code path as F139 reconciliation. Read-only.
+              from f139.local_controller import GitHub
+              provider_970 = None
+              if len(wanted) == 1:
+                  provider_970 = GitHub().candidates(wanted[0]["ticket"], wanted[0]["started_at"])
+              api = GitHub()
+              protected_now = api.protected_main()
+              source_matches = protected_now == meta["source_sha"]
+              continuity = (True if source_matches else
+                  api.research_only_main_advance(meta["source_sha"], protected_now))
+              report = {
+                  "protected_main_sha": protected_now,
+                  "source_continuity_ok": bool(continuity),
+                  "source_exact_match": bool(source_matches),
+                  "provider_970": ({"id": provider_970["id"],
+                                    "status": provider_970["status"],
+                                    "conclusion": provider_970.get("conclusion")}
+                                   if provider_970 else None),
+                  "schema": "forge.f139.g53.readonly-original-v8-diagnostic.v1",
+                  "source_sha": meta["source_sha"],
+                  "head_seq": meta["head_seq"],
+                  "head_hash": meta["head_hash"],
+                  "enabled": meta["enabled"],
+                  "legacy_suspended": meta["legacy_suspended"],
+                  "native_activated": bool(verify_native_activation(d)),
+                  "v2_original_guard": bool(v2_owner_terminal_release_guard(meta["source_sha"],d)),
+                  "native_970": [
+                      {key: x.get(key) for key in ("ticket","stage","run_id","quarantine_reason","source_sha")}
+                      for x in wanted
+                  ],
+                  "ready": ({"ticket": ready["ticket"], "stage": ready["stage"]} if ready else None),
+                  "active": [{"ticket": x["ticket"], "stage": x["stage"]} for x in actives],
+                  "task_stage_counts": dict(Counter(x["stage"] for x in all_tasks)),
+                  "recent_events": recent,
+                  "recent_tick_dispositions": recent_dispositions,
+                  "recent_error_codes": recent_error_codes,
+                  "scientific_first_use": False,
+              }
+              print("G53_ORIGINAL_SNAPSHOT=" + json.dumps(report, sort_keys=True))
+          finally:
+              d.close()
+          '@
+          & $python -B -c $audit $root $db
+          if ($LASTEXITCODE -ne 0) { throw 'G53_ORIGINAL_LEDGER_SNAPSHOT_DENIED' }
+          Write-Host 'G53_ORIGINAL_READONLY_AUDIT=PASS'
+) {
+            throw 'G53_MAIN_CAPTURE_FAILED'
+          }
+          Write-Host ('G53_PROTECTED_MAIN_SHA=' + $main)
+          Write-Host ('G53_INSTALLED_SOURCE_SHA=' + $expected)
+          $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          $info = Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
+          if (@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
+            throw 'G53_ORIGINAL_TASK_TOPOLOGY_DRIFT'
+          }
+          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+          $owner = [string]$task.Principal.UserId
+          $ownerSid = ''
+          try {
+            $ownerSid = (New-Object Security.Principal.NTAccount($owner)).Translate(
+              [Security.Principal.SecurityIdentifier]).Value
+          } catch {}
+          if ($owner -ine $identity.Name -and $ownerSid -cne $identity.User.Value) {
+            throw 'G53_ORIGINAL_OWNER_SID_DRIFT'
+          }
+          function Read-Arg([string]$field) {
+            $rx = '(?i)(?:^|\s)-' + [regex]::Escape($field) + '\s+"([^"]+)"'
+            $m = [regex]::Match([string]$task.Actions[0].Arguments, $rx)
+            if (-not $m.Success) { throw ('G53_TASK_ARG_MISSING_' + $field) }
+            return $m.Groups[1].Value
+          }
+          $root = Read-Arg 'RepositoryRoot'
+          $db = Read-Arg 'Database'
+          $python = Read-Arg 'PythonExe'
+          $expectedDb = Join-Path $env:LOCALAPPDATA 'FORGE-F139\state.sqlite'
+          if ([IO.Path]::GetFullPath($db) -ine [IO.Path]::GetFullPath($expectedDb) -or
+              -not (Test-Path -LiteralPath $db -PathType Leaf) -or
+              -not (Test-Path -LiteralPath $python -PathType Leaf)) {
+            throw 'G53_ORIGINAL_OWNER_DB_OR_INTERPRETER_DRIFT'
+          }
+          $installed = (& git -C $root rev-parse HEAD | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $installed -cne $expected) {
+            throw 'G53_INSTALLED_SOURCE_NOT_EXACT_V8'
+          }
+          $dirty = (& git -C $root status --porcelain --untracked-files=all | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $dirty.Length -gt 0) {
+            throw 'G53_INSTALLED_SOURCE_DIRTY'
+          }
+          Write-Host ('G53_TASK_STATE=' + [string]$task.State)
+          Write-Host ('G53_TASK_LAST_RESULT=' + [string]$info.LastTaskResult)
+          Write-Host ('G53_TASK_LAST_RUN=' + $info.LastRunTime.ToString('o'))
+          Write-Host ('G53_TASK_NEXT_RUN=' + $info.NextRunTime.ToString('o'))
+          Write-Host 'G53_ORIGINAL_RUNNER_SID_SOURCE_AND_TASK=PASS'
+          $audit = @'
+          import json, pathlib, re, sqlite3, sys
+          from collections import Counter
+          root = pathlib.Path(sys.argv[1]).resolve()
+          origin = pathlib.Path(sys.argv[2]).resolve(strict=True)
+          sys.path.insert(0, str(root))
+          from f139.local_controller import Database, v2_owner_terminal_release_guard
+          from f139.nci04_owner_ledger import verify_native_activation
+          # Read the original, custody-bound database with a SQLite read-only
+          # connection. Relocated snapshots cannot pass verified evidence-path
+          # custody and are NOT equivalent to the original verified ledger.
+          conn = sqlite3.connect(origin.as_uri() + "?mode=ro", uri=True,
+                                 timeout=15, isolation_level=None)
+          conn.row_factory = sqlite3.Row
+          conn.execute("PRAGMA query_only=ON")
+          conn.execute("BEGIN")
+          d = Database.__new__(Database)
+          d.filename = origin
+          d.conn = conn
+          try:
+              d.verify()
+              meta = d.meta()
+              all_tasks = d.status()["tasks"]
+              wanted = [x for x in all_tasks if x["ticket"].startswith("f139-nci04-i970-")]
+              ready = d.ready()
+              actives = d.actives()
+              recent = []
+              for row in d.conn.execute("SELECT seq, kind, payload FROM events ORDER BY seq DESC LIMIT 24"):
+                  payload = json.loads(row["payload"])
+                  recent.append({"seq": row["seq"], "kind": row["kind"],
+                                 "ticket": payload.get("ticket"),
+                                 "issue_number": payload.get("issue_number")})
+              logpath = origin.parent / "logs" / "controller.log"
+              recent_dispositions = []
+              recent_error_codes = []
+              if logpath.is_file():
+                  tail = logpath.read_text(encoding="utf-8-sig", errors="replace")[-120000:]
+                  recent_dispositions = re.findall(r'"disposition"\s*:\s*"([A-Z0-9_]+)"', tail)[-12:]
+                  recent_error_codes = re.findall(r'\bF139_[A-Z0-9_]{5,80}\b', tail)[-8:]
+              # Authenticate #970's original provider lookup using the EXACT
+              # same bounded code path as F139 reconciliation. Read-only.
+              from f139.local_controller import GitHub
+              provider_970 = None
+              if len(wanted) == 1:
+                  provider_970 = GitHub().candidates(wanted[0]["ticket"], wanted[0]["started_at"])
+              report = {
+                  "provider_970": ({"id": provider_970["id"],
+                                    "status": provider_970["status"],
+                                    "conclusion": provider_970.get("conclusion")}
+                                   if provider_970 else None),
+                  "schema": "forge.f139.g53.readonly-original-v8-diagnostic.v1",
+                  "source_sha": meta["source_sha"],
+                  "head_seq": meta["head_seq"],
+                  "head_hash": meta["head_hash"],
+                  "enabled": meta["enabled"],
+                  "legacy_suspended": meta["legacy_suspended"],
+                  "native_activated": bool(verify_native_activation(d)),
+                  "v2_original_guard": bool(v2_owner_terminal_release_guard(meta["source_sha"],d)),
+                  "native_970": [
+                      {key: x.get(key) for key in ("ticket","stage","run_id","quarantine_reason","source_sha")}
+                      for x in wanted
+                  ],
+                  "ready": ({"ticket": ready["ticket"], "stage": ready["stage"]} if ready else None),
+                  "active": [{"ticket": x["ticket"], "stage": x["stage"]} for x in actives],
+                  "task_stage_counts": dict(Counter(x["stage"] for x in all_tasks)),
+                  "recent_events": recent,
+                  "recent_tick_dispositions": recent_dispositions,
+                  "recent_error_codes": recent_error_codes,
+                  "scientific_first_use": False,
+              }
+              print("G53_ORIGINAL_SNAPSHOT=" + json.dumps(report, sort_keys=True))
+          finally:
+              d.close()
+          '@
+          & $python -B -c $audit $root $db
+          if ($LASTEXITCODE -ne 0) { throw 'G53_ORIGINAL_LEDGER_SNAPSHOT_DENIED' }
+          Write-Host 'G53_ORIGINAL_READONLY_AUDIT=PASS'
+) {
+            throw 'G53_MAIN_CAPTURE_FAILED'
+          }
+          Write-Host ('G53_PROTECTED_MAIN_SHA=' + $main)
+          Write-Host ('G53_INSTALLED_SOURCE_SHA=' + $expected)
           $task = Get-ScheduledTask -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
           $info = Get-ScheduledTaskInfo -TaskName 'FORGE-F139-UnifiedController' -ErrorAction Stop
           if (@($task.Actions).Count -ne 1 -or @($task.Triggers).Count -ne 3) {
