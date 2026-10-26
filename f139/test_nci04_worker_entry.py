@@ -84,6 +84,17 @@ class NativeExecutionBoundaryTests(unittest.TestCase):
         self.assertRegex(result["authorization_sha256"],r"^[a-f0-9]{64}$")
         self.assertFalse(result["scientific_first_use"])
 
+    def test_authorize_exact_worker_release_ref_not_unrelated_commit(self):
+        release={**self.env,
+                 "GITHUB_REF":"refs/heads/f139-owner-release-"+MAIN}
+        with mock.patch.dict(os.environ,release,clear=True):
+            self.assertEqual(authorize()["schema"],
+                             "forge.f139.nci04.native-authorized-job.v1")
+        forged={**release,"GITHUB_REF":"refs/heads/f139-owner-release-"+"0"*40}
+        with mock.patch.dict(os.environ,forged,clear=True):
+            with self.assertRaises(ValueError):
+                authorize()
+
     def test_wrong_signatures_issue_or_provider_tree_denied(self):
         for key,value in (
             ("F139_WORKER_HMAC_KEY","evil"*12),

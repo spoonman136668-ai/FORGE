@@ -1555,6 +1555,44 @@ class GitHub:
         except SourceContinuityDenied:
             return False
 
+    def deployed_release_continuity(self, db, deployed_source: str,
+                                    protected_source: str) -> bool:
+        """Keep a certified native owner operating across unrelated merges.
+
+        Protected main may advance; no newly merged code executes until an
+        explicit original-owner source-transition with authentic ledger seal.
+        The existing task, ledger and signed #807 owner policy remain pinned.
+        """
+        from f139.nci04_release_pin_continuity import (
+            ReleaseContinuityDenied, prove_deployed_release_pin)
+        from f139.nci04_owner_ledger import verify_native_activation
+        try:
+            db.verify()
+            meta = db.meta()
+            if (meta["source_sha"] != deployed_source
+                    or not verify_native_activation(db)):
+                return False
+            root = Path(__file__).resolve().parent.parent
+            def git(*args):
+                p = subprocess.run(
+                    ["git", "-C", str(root), *args],
+                    capture_output=True, stdin=subprocess.DEVNULL,
+                    timeout=15, check=False)
+                if p.returncode != 0:
+                    raise F139Error("F139_RELEASE_PIN_LOCAL_GIT_FAILED")
+                return p.stdout.decode("utf-8").strip()
+            if (git("rev-parse", "HEAD") != deployed_source
+                    or git("status", "--porcelain", "--untracked-files=all")):
+                return False
+            evidence = prove_deployed_release_pin(
+                self.native_repo_get,
+                deployed_source=deployed_source,
+                protected_source=protected_source)
+            return evidence["existing_owner_policy_authorized"] is True
+        except (F139Error, ReleaseContinuityDenied, ValueError,
+                KeyError, TypeError, OSError, subprocess.TimeoutExpired):
+            return False
+
     def legacy_dispatchers_disabled(self):
         """Read authoritative GitHub workflow states; no administrative mutation."""
         for name in ("forge-development-succession.yml", "forge-integrated-synthetic-cycle.yml"):
@@ -1730,10 +1768,16 @@ class GitHub:
                 and signed_fields["target_commit"]==issue.candidate.target_commit
                 and signed_fields["target_tree_sha"]==issue.candidate.target_tree_sha,
                 "NATIVE_DISPATCH_ISSUE_IDENTITY")
+        from f139.nci04_release_pin_continuity import (
+            verify_release_worker_branch, release_worker_branch)
+        source = issue.source_sha
+        require(source == signed_fields["source_sha"],
+                "NATIVE_DISPATCH_SOURCE_IDENTITY_DRIFT")
+        worker_ref = release_worker_branch(source)
         payload = [
             "--method","POST",
             "repos/"+REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
-            "-f","ref=main",
+            "-f","ref="+worker_ref,
         ]
         # GitHub workflow_dispatch supports only TEN input keys; legacy
         # endpoint already consumes nine. Keep those exact preexisting fields
@@ -1778,6 +1822,11 @@ class GitHub:
         encoded=base64.b64encode(canonical(bundle)).decode("ascii")
         require(0<len(encoded)<=60000,"NATIVE_DISPATCH_INTENT_TOO_LARGE")
         payload.extend(["-f","inputs[native_bundle]="+encoded])
+        # Authenticate the exact released worker code AFTER typed/HMAC claim
+        # validation, immediately before the ONE remote POST.
+        require(verify_release_worker_branch(
+                    self.native_repo_get, source) == worker_ref,
+                "NATIVE_DISPATCH_WORKER_REF_RACE")
         self.runner(payload)
 
     def dispatch(self,ticket:str,lane:str,source:str,epoch:int,signature:str, *, d2k_fields=None):
@@ -1799,13 +1848,30 @@ class GitHub:
         self.runner(args)
 
     def candidates(self,ticket:str,started_at:str):
+        # Frozen legacy/historical provider lookups remain main-scoped.
+        return self._candidates_for_ref(ticket,started_at,"main")
+
+    def candidates_for_source(self, ticket: str, started_at: str,
+                              source_sha: str):
+        """Look up once-only runs ONLY under exact authenticated release ref."""
+        from f139.nci04_release_pin_continuity import (
+            verify_release_worker_branch)
+        ref = verify_release_worker_branch(self.native_repo_get, source_sha)
+        return self._candidates_for_ref(ticket, started_at, ref)
+
+    def _candidates_for_ref(self,ticket:str,started_at:str,ref:str):
+        require(isinstance(ref,str)
+                and re.fullmatch(r"(?:main|f139-owner-release-[a-f0-9]{40})",
+                                 ref) is not None,
+                "F139_WORKER_REF_INVALID")
         source_start=parse_time(started_at)
         found=[]
         for page in range(1,6):
             index=self.get("repos/"+REPO+"/actions/workflows/"+WORKFLOW+
-                           "/runs?branch=main&event=workflow_dispatch&per_page=100&page="+str(page))
+                           "/runs?branch="+ref+"&event=workflow_dispatch&per_page=100&page="+str(page))
             rows=index.get("workflow_runs")
-            require(isinstance(rows,list) and isinstance(index.get("total_count"),int),"PROVIDER_HISTORY_INVALID")
+            require(isinstance(rows,list) and isinstance(index.get("total_count"),int),
+                    "PROVIDER_HISTORY_INVALID")
             found.extend(run for run in rows if run.get("display_title")=="F139 "+ticket)
             if len(rows)<100 or not rows or parse_time(rows[-1]["created_at"])<source_start-dt.timedelta(minutes=2):
                 break
@@ -1819,7 +1885,8 @@ class GitHub:
                 and run.get("event")=="workflow_dispatch" and run.get("name")=="F139 "+ticket
                 and run.get("workflow_id")==388797257
                 and run.get("path")==".github/workflows/"+WORKFLOW
-                and run.get("head_sha")==source and run.get("head_branch")=="main"
+                and run.get("head_sha")==source and run.get("head_branch") in (
+                    "main","f139-owner-release-"+source)
                 and run.get("run_attempt")==1 and isinstance(run.get("id"),int)
                 and run["id"]>0 and parse_time(run.get("created_at")) >= parse_time(started_at)-dt.timedelta(minutes=2),
                 "PROVIDER_SOURCE_EVENT_SPOOFED")
@@ -1863,7 +1930,8 @@ class GitHub:
                 and run.get("name")=="F139 "+ticket
                 and run.get("workflow_id")==388797257
                 and run.get("path")==".github/workflows/"+WORKFLOW
-                and run.get("head_sha")==source and run.get("head_branch")=="main"
+                and run.get("head_sha")==source and run.get("head_branch") in (
+                    "main","f139-owner-release-"+source)
                 and run.get("run_attempt")==1 and isinstance(run.get("id"),int)
                 and run["id"]>0
                 and parse_time(run.get("created_at")) >=
@@ -2349,11 +2417,23 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         verifier=getattr(api,"research_only_main_advance",None)
         if callable(verifier):
             source_matches=verifier(meta["source_sha"],protected_now) is True
+        if not source_matches and native_enabled:
+            pinned=getattr(api,"deployed_release_continuity",None)
+            if callable(pinned):
+                source_matches=pinned(
+                    db,meta["source_sha"],protected_now) is True
     legacy_pending={}
     for active_record in db.actives():
         active=dict(active_record)
         try:
-            run=api.candidates(active["ticket"],active["started_at"])
+            pinned_lookup=getattr(api,"candidates_for_source",None)
+            if (callable(pinned_lookup) and native_enabled
+                    and active["ticket"].startswith("f139-nci04-")
+                    and active["source_sha"]==meta["source_sha"]):
+                run=pinned_lookup(active["ticket"],active["started_at"],
+                                  active["source_sha"])
+            else:
+                run=api.candidates(active["ticket"],active["started_at"])
             if run is None:
                 if not active["ticket"].startswith("f139-nci04-"):
                     legacy_pending[active["ticket"]]="START_RISK_PENDING_NO_REDISPATCH"

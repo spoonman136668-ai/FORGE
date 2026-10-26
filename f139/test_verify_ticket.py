@@ -24,6 +24,14 @@ class F139WorkerTests(unittest.TestCase):
         self.assertEqual(report['lane'],'Wingless')
         self.assertTrue(report['development_only'])
         self.assertFalse(report['scientific_first_use_authorized'])
+    def test_exact_release_branch_accepted_without_relaxing_sha(self):
+        item=inputs()
+        item["ref"]="refs/heads/f139-owner-release-"+SHA
+        self.assertTrue(admit(item))
+        item["ref"]="refs/heads/f139-owner-release-"+"0"*40
+        with self.assertRaises(Untrusted):
+            admit(item)
+
     def test_all_tamper_cases_rejected(self):
         changes=[('source_sha','0'*40),('head_sha','0'*40),('ticket','f139-other-ticket'),
                  ('lane','Yggdrasil'),('epoch','2'),('signature','0'*64),

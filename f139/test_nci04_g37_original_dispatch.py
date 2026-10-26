@@ -22,9 +22,20 @@ class OriginalG37PayloadTests(unittest.TestCase):
         self.fx = fx
         self.sent = []
         self.api = GitHub(runner=lambda argv: self.sent.append(tuple(argv)))
+        # The original authenticated source ref is a read-only GitHub GET;
+        # no extra workflow POST and no ref move is permitted.
+        source=self.fx.issue.source_sha
+        branch="f139-owner-release-"+source
+        def pinned(route):
+            self.assertEqual(route,
+                "repos/spoonman136668-ai/FORGE/branches/"+branch)
+            return {"name":branch,"commit":{"sha":source}}
+        self.api.native_repo_get=pinned
 
     def decode(self):
         self.assertEqual(len(self.sent), 1)
+        self.assertIn("ref=f139-owner-release-"+self.fx.issue.source_sha,
+                      self.sent[0])
         parts = [x for x in self.sent[0] if x.startswith("inputs[")]
         data = {key[7:]: val for key, val in
                 (part.split("]=", 1) for part in parts)}
