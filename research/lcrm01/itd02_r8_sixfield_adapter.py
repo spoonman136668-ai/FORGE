@@ -6,7 +6,7 @@ No FIT training, environment reset, or scientific run occurs on import.
 from itd02_r8_episode_contract import validate_episode_request
 
 def run_sixfield(family,seed,learned):
-    validate_episode_request(family,seed,"wingless_r8_online_beliefs")
+    validate_episode_request(family,seed,"wingless_r8_online_beliefs")  # shared heldout cohort guard only
     if learned is None:
         raise ValueError("R8_SIXFIELD_FIT_MODEL_MISSING")
     from k4t_f4_original_r5_cost import sixfield_episode
