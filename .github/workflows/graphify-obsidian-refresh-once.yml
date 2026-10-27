@@ -1,0 +1,58 @@
+name: FORGE isolated Graphify Obsidian source refresh
+on:
+  push:
+    branches:
+      - knowledge/graphify-obsidian-refresh-20261027
+    paths:
+      - .github/workflows/graphify-obsidian-refresh-once.yml
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      GRAPHIFY_QUERY_LOG_DISABLE: '1'
+      GRAPHIFY_QUERY_LOG_RESPONSES: '0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Use exact code-only toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check 'uv==0.9.7'
+          if($LASTEXITCODE -ne 0){throw 'UV_INSTALL_FAILED'}
+      - name: Generate native public-only graph and isolated vault
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected=(git rev-parse HEAD).Trim()
+          if(@(git status --porcelain).Count -ne 0){throw 'DIRTY_SOURCE'}
+          & ./tools/Build-FORGE-Graphify.ps1 -RepoPath . -UseUv
+          if($LASTEXITCODE -ne 0){throw 'GRAPHIFY_EXPORT_FAILED'}
+          $record=Get-Content .ice/derived/graphify/build.json -Raw | ConvertFrom-Json
+          if($record.source_commit -cne $expected -or
+             $record.extraction -cne 'code-only' -or
+             $record.no_model_calls -ne $true -or
+             $record.evidence_authority -cne 'advisory_only'){throw 'SOURCE_OR_AUTHORITY_DRIFT'}
+          $notes=@(Get-ChildItem .ice/derived/obsidian -Filter '*.md' -Recurse -File)
+          if($notes.Count -lt 1 -or $notes.Count -gt 10000){throw 'OBSIDIAN_BOUNDS_FAILED'}
+          Write-Host "FORGE_GRAPHIFY_OBSIDIAN_REFRESH=PASS notes=$($notes.Count)"
+      - name: Commit only source-pinned generated knowledge to candidate branch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git add -f .ice/derived/graphify .ice/derived/obsidian
+          $changed=@(git diff --cached --name-only)
+          if($changed.Count -eq 0){throw 'GRAPHIFY_NO_NEW_ARTIFACTS'}
+          if(@($changed|Where-Object {$_ -notlike '.ice/derived/*'}).Count -gt 0){throw 'OUT_OF_SCOPE'}
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Refresh advisory source-pinned Graphify and Obsidian'
+          if($LASTEXITCODE -ne 0){throw 'CANDIDATE_COMMIT_FAILED'}
+          git push origin HEAD:knowledge/graphify-obsidian-refresh-20261027
+          if($LASTEXITCODE -ne 0){throw 'CANDIDATE_PUSH_FAILED'}
