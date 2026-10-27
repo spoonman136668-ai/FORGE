@@ -1,0 +1,88 @@
+name: CKB R431 read-only original-owner release and task preflight
+on:
+  push:
+    branches: [audit/ckb-r431-original-owner-readonly-20261027]
+permissions:
+  contents: read
+jobs:
+  original-owner-readonly:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Inspect exact installed R220 release and original controller ownership without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R431_WRONG_ORIGINAL_OWNER_RUNNER'}
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R431_WRONG_SOURCE_REPOSITORY'}
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $admin=[Security.Principal.WindowsPrincipal]::new($id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Output ('R431_WINDOWS_OWNER_ACCOUNT='+$id.Name)
+          Write-Output ('R431_WINDOWS_OWNER_SID='+$id.User.Value)
+          Write-Output ('R431_RUNNER_ELEVATED='+$admin)
+          $release='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023'
+          $exe=Join-Path $release 'bin\ckb-plane.exe'
+          $expected='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if(!(Test-Path -LiteralPath $exe -PathType Leaf)){throw 'R431_EXPECTED_INSTALLED_R220_MISSING'}
+          $actual=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R431_INSTALLED_R220_EXE_SHA256='+$actual)
+          if($actual -cne $expected){throw 'R431_INSTALLED_R220_DRIFT'}
+          Write-Output 'R431_INSTALLED_RELEASE_SHA256=PASS'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $native=Join-Path $root 'internal\plane\autonomy.go'
+          $nativeExpected='c4cc44e3820b8ac860a75b87df8ba27dcdff09ca19e427661f43d07b999ef3bd'
+          if(!(Test-Path -LiteralPath $native -PathType Leaf)){throw 'R431_NATIVE_SOURCE_MISSING'}
+          $nativeActual=(Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R431_ORIGINAL_AUTONOMY_SOURCE_SHA256='+$nativeActual)
+          if($nativeActual -cne $nativeExpected){throw 'R431_ORIGINAL_NATIVE_SOURCE_DRIFT'}
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          foreach($d in @('releases','locks','receipts','state')) {
+            $path=Join-Path $store $d
+            Write-Output ('R431_STORE_DIRECTORY_'+$d.ToUpperInvariant()+'='+(Test-Path -LiteralPath $path -PathType Container))
+          }
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue)
+          Write-Output ('R431_ORIGINAL_SCHEDULED_TASK_COUNT='+$task.Count)
+          foreach($t in $task) {
+            Write-Output ('R431_TASK_NAME='+$t.TaskName)
+            Write-Output ('R431_TASK_PATH='+$t.TaskPath)
+            Write-Output ('R431_TASK_STATE='+$t.State)
+            Write-Output ('R431_TASK_PRINCIPAL='+$t.Principal.UserId)
+            Write-Output ('R431_TASK_RUN_LEVEL='+$t.Principal.RunLevel)
+            foreach($action in $t.Actions) {
+              Write-Output ('R431_TASK_ACTION_EXE='+$action.Execute)
+              $raw=$action.Arguments
+              Write-Output ('R431_TASK_ACTION_ARGUMENTS_SHA256='+([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$raw))).ToLowerInvariant()))
+            }
+            $ti=Get-ScheduledTaskInfo -InputObject $t -ErrorAction Stop
+            Write-Output ('R431_TASK_LAST_RUN_UTC='+$ti.LastRunTime.ToUniversalTime().ToString('o'))
+            Write-Output ('R431_TASK_LAST_RESULT='+$ti.LastTaskResult)
+            Write-Output ('R431_TASK_NEXT_RUN_UTC='+$ti.NextRunTime.ToUniversalTime().ToString('o'))
+          }
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          Write-Output ('R431_NATIVE_PROCESS_COUNT='+$processes.Count)
+          foreach($p in $processes) {
+            Write-Output ('R431_NATIVE_PROCESS_ID='+$p.ProcessId)
+            Write-Output ('R431_NATIVE_PARENT_PROCESS_ID='+$p.ParentProcessId)
+            Write-Output ('R431_NATIVE_PROCESS_EXE='+$p.ExecutablePath)
+            Write-Output ('R431_NATIVE_PROCESS_START='+$p.CreationDate)
+            if($p.ExecutablePath -and (Test-Path -LiteralPath $p.ExecutablePath -PathType Leaf)){
+              Write-Output ('R431_NATIVE_PROCESS_FILE_SHA256='+(Get-FileHash -LiteralPath $p.ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant())
+            }
+          }
+          $activeRoot=Join-Path $env:LOCALAPPDATA 'CKB-R429-Qualified-Candidates'
+          if(Test-Path -LiteralPath $activeRoot -PathType Container) {
+            $candidates=@(Get-ChildItem -LiteralPath $activeRoot -Directory -ErrorAction Stop)
+            Write-Output ('R431_EXISTING_INACTIVE_CANDIDATE_COUNT='+$candidates.Count)
+            foreach($c in $candidates) {
+              Write-Output ('R431_INACTIVE_CANDIDATE_NAME='+$c.Name)
+              $f=Join-Path $c.FullName 'ckb-plane.exe'
+              if(Test-Path -LiteralPath $f -PathType Leaf) {
+                Write-Output ('R431_INACTIVE_CANDIDATE_SHA256='+(Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant())
+              }
+            }
+          } else {Write-Output 'R431_EXISTING_INACTIVE_CANDIDATE_COUNT=0'}
+          Write-Output 'R431_READ_ONLY_INSPECTION=TRUE'
+          Write-Output 'R431_NO_CONTROLLER_RESTART=TRUE'
+          Write-Output 'R431_NO_RELEASE_ADMISSION=TRUE'
+          Write-Output 'R431_NO_SQLITE_WRITE=TRUE'
