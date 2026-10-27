@@ -1,0 +1,101 @@
+name: MP-AI05 retrieval consumer handoff
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-retrieval-consumer.yml']
+permissions:
+  contents: read
+jobs:
+  consumer:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pass actual retrieved records to isolated deterministic consumer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-consumer-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) { throw 'SCRATCH_EXISTS' }
+          try {
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $root
+            if($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+            $sha=(& git -C $root rev-parse HEAD).Trim()
+            $code=@'
+          import json,sys,os
+          from pathlib import Path
+          root=Path(sys.argv[1]);sha=sys.argv[2]
+          sys.path.insert(0,str(root/'tools'))
+          sys.path.insert(0,str(Path(os.environ['GITHUB_WORKSPACE'])/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          from mindpalace_mcp import handle
+          from mpai05_retrieval_consumer import recall_with_normalizer
+          snapshot=MemorySnapshot(root,sha,['Mind-Palace'])
+          query='Mind-Palace retrieval context memory governance'
+          response=handle(snapshot,{'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'mindpalace_recall','arguments':{'source_sha':sha,'query':query,'projects':['Mind-Palace'],'profile':'continuation'}}})
+          if 'error' in response: raise RuntimeError('RETRIEVAL_DENIED')
+          data=json.loads(response['result']['content'][0]['text'])
+          matches=data['matches']
+          if not matches or not all(r.get('source_refs') for r in matches): raise RuntimeError('RETRIEVAL_INCOMPLETE')
+          # Consumer receives the returned records, not direct store access.
+          handed=json.loads(json.dumps({'source_sha':data['source_sha'],'matches':matches}))
+          consumer_ids=[r['id'] for r in handed['matches']]
+          if consumer_ids!=[r['id'] for r in matches]: raise RuntimeError('CONSUMER_MISMATCH')
+          if handed['source_sha']!=sha: raise RuntimeError('CONSUMER_SOURCE_DRIFT')
+          # Existing actual retrieval consumer now supports explicit opt-in.
+          # Default mode must reproduce the authoritative read-only response.
+          use_normalizer=os.environ.get('MPAI05_QUERY_NORMALIZATION','false').lower()=='true'
+          adapted=recall_with_normalizer(snapshot,sha,query,['Mind-Palace'],enabled=use_normalizer)
+          if adapted['result']['source_sha']!=sha: raise RuntimeError('ADAPTER_PIN_DRIFT')
+          if not use_normalizer:
+              if adapted['routing']!='disabled': raise RuntimeError('DEFAULT_NOT_DISABLED')
+              if adapted['result']['matches']!=matches: raise RuntimeError('DEFAULT_RETRIEVAL_DRIFT')
+          if not all(x.get('source_refs') for x in adapted['result']['matches']): raise RuntimeError('ADAPTER_PROVENANCE_MISSING')
+          print('MPAI05_QUERY_NORMALIZATION='+str(use_normalizer))
+          print('MPAI05_ADAPTER_ROUTING='+adapted['routing'])
+          print('MPAI05_ADAPTER_DEFAULT_PARITY=PASS' if not use_normalizer else 'MPAI05_ADAPTER_OPT_IN=PASS')
+          # Actual opt-in path on a supported query, without changing job default.
+          eligible=sorted((r for r in snapshot.index if r.get('project')=='Mind-Palace'
+              and r.get('source_refs') and len(str(r.get('statement','')).split())>=12
+              and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          if not eligible: raise RuntimeError('NO_SOURCE_BACKED_CANDIDATE')
+          target=eligible[0]
+          clue=' '.join(target['statement'].split()[:20])
+          supported='Can you find the saved memory related to '+clue+' and explain the original evidence?'
+          off=recall_with_normalizer(snapshot,sha,supported,['Mind-Palace'],enabled=False)
+          on=recall_with_normalizer(snapshot,sha,supported,['Mind-Palace'],enabled=True)
+          authoritative=snapshot.recall(sha,supported,['Mind-Palace'],'continuation')
+          if off['result']!=authoritative or off['routing']!='disabled':
+              raise RuntimeError('OPT_IN_CONTROL_DRIFT')
+          if on['routing']!='normalized' or on['result']['source_sha']!=sha:
+              raise RuntimeError('OPT_IN_ROUTE_FAILED')
+          if not on['result']['matches'] or on['result']['matches'][0]['id']!=target['id']:
+              raise RuntimeError('OPT_IN_RETRIEVAL_FAILED')
+          if not all(m.get('source_refs') for m in on['result']['matches']):
+              raise RuntimeError('OPT_IN_PROVENANCE_FAILED')
+          unknown='What original evidence supports the project continuity decisions?'
+          untouched=recall_with_normalizer(snapshot,sha,unknown,['Mind-Palace'],enabled=True)
+          if untouched['routing']!='unmodified' or untouched['result']!=snapshot.recall(sha,unknown,['Mind-Palace'],'continuation'):
+              raise RuntimeError('OPT_IN_UNKNOWN_QUERY_DRIFT')
+          print('MPAI05_OPT_IN_SUPPORTED_TEMPLATE=PASS')
+          print('MPAI05_OPT_IN_ORIGINAL_CONTROL=PASS')
+          print('MPAI05_OPT_IN_UNKNOWN_QUERY=PASS')
+          print('MPAI05_OPT_IN_PROVENANCE=PASS')
+          print('MPAI05_RETRIEVAL_CONSUMER_HANDOFF=PASS')
+          print('MPAI05_CONSUMED_RECORD_COUNT='+str(len(consumer_ids)))
+          print('MPAI05_CONSUMER_TYPE=DETERMINISTIC_NOT_MODEL')
+          print('MPAI05_MODEL_ASSISTED_OUTCOME=NOT_TESTED')
+          '@
+            $script=Join-Path $env:RUNNER_TEMP ('mpai05-consumer-'+$env:GITHUB_RUN_ID+'.py')
+            Set-Content -LiteralPath $script -Value $code -Encoding utf8
+            try {
+              & python $script $root $sha
+              if($LASTEXITCODE -ne 0) { throw 'CONSUMER_HANDOFF_FAILED' }
+            } finally { Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue }
+          } finally {
+            if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          }
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

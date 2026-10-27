@@ -1,0 +1,50 @@
+name: MP-AI05 direct retrieval control
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-direct-retrieval-control.yml']
+permissions:
+  contents: read
+jobs:
+  control:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Evaluate direct retrieval without unnecessary model generation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:MPAI05_ROOT = Join-Path $env:RUNNER_TEMP ('mpai05-direct-' + $env:GITHUB_RUN_ID)
+          git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $env:MPAI05_ROOT
+          if ($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+          @'
+          import os,sys,subprocess,json
+          from pathlib import Path
+          root=Path(os.environ['MPAI05_ROOT'])
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          assert sha=='7ad7230a82e3c748aa5336b7288ad2b45d42630c','SOURCE_DRIFT'
+          sys.path.insert(0,str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          eligible=sorted((r for r in snap.index if r.get('project')=='Mind-Palace'
+            and r.get('source_refs') and len(str(r.get('statement','')).split())>=12
+            and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          assert len(eligible)>=8,'INSUFFICIENT_RECORDS_FOR_CONTROL'
+          cases=eligible[:12]
+          metrics={'full_top1':0,'full_top4':0,'short_top1':0,'short_top4':0}
+          for index,record in enumerate(cases):
+              words=record['statement'].split()
+              for variant,clue in (('full',' '.join(words[:20])),('short',' '.join(words[4:12]))):
+                  result=snap.recall(sha,clue,['Mind-Palace'],'continuation')
+                  ids=[m['id'] for m in result['matches'][:4]]
+                  rank=ids.index(record['id'])+1 if record['id'] in ids else None
+                  metrics[variant+'_top1']+=rank==1
+                  metrics[variant+'_top4']+=rank is not None
+                  print('MPAI05_CONTROL_CASE='+json.dumps({'index':index+1,'variant':variant,'rank':rank,'candidate_count':result['candidate_records']}))
+          print('MPAI05_CONTROL_COUNTS='+json.dumps({'cases':len(cases),**metrics},sort_keys=True))
+          print('MPAI05_CONTROL_NO_MODEL_CALLS=True')
+          print('MPAI05_CONTROL_HOLDOUT_ACCESS=0')
+          print('MPAI05_CONTROL_SOURCE_PIN='+sha)
+          print('MPAI05_CONTROL_EXECUTION=PASS')
+          '@ | python
+          if ($LASTEXITCODE -ne 0) { throw 'RETRIEVAL_CONTROL_FAILED' }

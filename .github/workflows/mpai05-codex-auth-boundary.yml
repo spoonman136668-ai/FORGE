@@ -1,0 +1,28 @@
+name: MP-AI05 Codex auth boundary classification
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-auth-boundary.yml']
+permissions:
+  contents: read
+jobs:
+  classify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect login and auth configuration without model call
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $login=(& codex.exe login status 2>&1) -join ' '
+          $code=$LASTEXITCODE
+          Write-Host ('MPAI05_LOGIN_STATUS_EXIT='+$code)
+          Write-Host ('MPAI05_LOGIN_REPORTS_CHATGPT='+[bool]($login -match '(?i)chatgpt'))
+          Write-Host ('MPAI05_LOGIN_REPORTS_API_KEY='+[bool]($login -match '(?i)api.key|api key'))
+          Write-Host ('MPAI05_CODEX_HOME_ENV_SET='+[bool](-not [string]::IsNullOrWhiteSpace($env:CODEX_HOME)))
+          Write-Host ('MPAI05_OPENAI_API_KEY_ENV_SET='+[bool](-not [string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)))
+          Write-Host ('MPAI05_AZURE_OPENAI_API_KEY_ENV_SET='+[bool](-not [string]::IsNullOrWhiteSpace($env:AZURE_OPENAI_API_KEY)))
+          Write-Host ('MPAI05_MODEL_CALLS=0')
+          Write-Host ('MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED')

@@ -1,0 +1,32 @@
+name: MP-AI05 Codex account mode guard
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-codex-account-mode.yml']
+permissions:
+  contents: read
+jobs:
+  guard:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Classify existing Codex login mode without model calls or credential disclosure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $raw=@(& codex login status 2>&1)
+          if($LASTEXITCODE -ne 0) { Write-Host 'MPAI05_ACCOUNT_MODE=UNVERIFIED'; exit 0 }
+          $s=($raw -join ' ')
+          if($s -match '(?i)chatgpt' -and $s -notmatch '(?i)api.key|api key') {
+            Write-Host 'MPAI05_ACCOUNT_MODE=CHATGPT_LOGIN_REPORTED'
+          } elseif($s -match '(?i)api.key|api key') {
+            Write-Host 'MPAI05_ACCOUNT_MODE=API_KEY_REPORTED_DO_NOT_RUN'
+          } else {
+            Write-Host 'MPAI05_ACCOUNT_MODE=UNVERIFIED'
+          }
+          Write-Host 'MPAI05_BILLING_CHARGES=NOT_INDEPENDENTLY_VERIFIED'
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'

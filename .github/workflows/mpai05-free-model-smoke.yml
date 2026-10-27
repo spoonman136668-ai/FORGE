@@ -1,0 +1,36 @@
+name: MP-AI05 bounded free local model smoke
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-free-model-smoke.yml']
+permissions:
+  contents: read
+jobs:
+  local-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - name: Install CPU inference package and run one real local generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check --user 'llama-cpp-python==0.3.16' || { echo 'MPAI05_INSTALL=FAILED'; exit 1; }
+          python3 - <<'PY'
+          import json,urllib.request,time
+          from llama_cpp import Llama
+          url='https://huggingface.co/ggml-org/models/resolve/main/tinyllamas/stories260K.gguf'
+          path='/tmp/mpai05-tiny.gguf'
+          try:
+              urllib.request.urlretrieve(url,path)
+              print('MPAI05_MODEL_DOWNLOAD=PASS')
+          except Exception as e:
+              print('MPAI05_MODEL_DOWNLOAD=FAILED',type(e).__name__)
+              raise
+          model=Llama(model_path=path,n_ctx=256,n_threads=2,verbose=False)
+          result=model('Question: What is two plus two? Answer:',max_tokens=12,temperature=0)
+          text=result['choices'][0]['text']
+          print('MPAI05_REAL_INFERENCE='+str(bool(text.strip())))
+          print('MPAI05_OUTPUT_LENGTH='+str(len(text)))
+          print('MPAI05_SCIENTIFIC_QUALITY_NOT_ASSESSED=True')
+          if not text.strip(): raise SystemExit(1)
+          PY

@@ -1,0 +1,55 @@
+name: MP-AI05 existing-evidence read-only audit
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-existing-evidence-audit.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Pin existing MP-AI05 source and inspect existing evidence without secrets
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GCM_INTERACTIVE: Never
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+          $ref='refs/heads/proposal/mpai05-independent-trust-and-manifest-20261026'
+          $target='2f8d62da0ce700a98ea013fb240e77409039e132'
+          $rows=@(& git.exe ls-remote --exit-code $remote $ref)
+          if($LASTEXITCODE -ne 0 -or $rows.Count -ne 1 -or (($rows[0] -split '\s+')[0]) -cne $target) { throw 'MPAI05_SOURCE_DRIFT' }
+          Write-Host ('MPAI05_AUDIT_SOURCE='+$target)
+          $root=Join-Path $env:RUNNER_TEMP ('mpai05-evidence-audit-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $root) { throw 'SCRATCH_EXISTS' }
+          try {
+            & git.exe clone --quiet --no-checkout --filter=blob:none $remote $root
+            if($LASTEXITCODE -ne 0) { throw 'CLONE_FAILED' }
+            & git.exe -C $root checkout --quiet --detach $target
+            if($LASTEXITCODE -ne 0) { throw 'CHECKOUT_FAILED' }
+            $files=@('agentic/mpai05_runtime_receipt.py','docs/MP-AI05-RUNTIME-RECEIPT-CONTRACT.md','tests/test_mpai05_runtime_receipt.py')
+            foreach($f in $files) { if(-not(Test-Path -LiteralPath (Join-Path $root $f))) { throw ('MISSING_'+$f) } }
+            $doc=Get-Content -LiteralPath (Join-Path $root 'docs/MP-AI05-RUNTIME-RECEIPT-CONTRACT.md') -Raw
+            if($doc -match 'No trial has been dispatched') { Write-Host 'MPAI05_DOCUMENTED_LIVE_TRIAL=NONE' }
+            $paths=@('evidence','receipts','experiments','agentic')
+            foreach($p in $paths) {
+              $dir=Join-Path $root $p
+              if(Test-Path -LiteralPath $dir) {
+                $n=@(Get-ChildItem -LiteralPath $dir -File -Recurse -ErrorAction Stop | Where-Object { $_.Name -match '(mpai05|first.use|attest|receipt)' }).Count
+                Write-Host ('MPAI05_CANDIDATE_FILES_'+$p.ToUpperInvariant()+'='+$n)
+              }
+            }
+            $module=Get-Content -LiteralPath (Join-Path $root 'agentic/mpai05_runtime_receipt.py') -Raw
+            if($module -match 'class TrustVerifier' -and $module -match 'def verify_provider' -and $module -match 'def verify_custody') {
+              Write-Host 'MPAI05_VALIDATOR_INTERFACE=PRESENT'
+            } else { throw 'VALIDATOR_INTERFACE_MISSING' }
+            Write-Host 'MPAI05_AUDIT_RESULT=READ_ONLY_SOURCE_INVENTORY_PASS_NOT_AUTHENTICATED'
+          } finally {
+            if(Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+          }

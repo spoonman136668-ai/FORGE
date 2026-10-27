@@ -1,0 +1,28 @@
+name: MP-AI05 Windows paired inference recovery
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-windows-pair-recovery.yml']
+permissions:
+  contents: read
+jobs:
+  paired:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    steps:
+      - name: Verify pinned source access and local model runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP ('mpai05-pair-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $dir
+            if ($LASTEXITCODE -ne 0) { throw 'RETRIEVAL_SOURCE_FAILED' }
+            $sha = (git -C $dir rev-parse HEAD).Trim()
+            Write-Host "MPAI05_SOURCE_PIN=$sha"
+            python -m pip install --quiet --disable-pip-version-check --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu llama-cpp-python==0.3.18
+            if ($LASTEXITCODE -ne 0) { throw 'LOCAL_RUNTIME_INSTALL_FAILED' }
+            Write-Host 'MPAI05_SOURCE_AND_RUNTIME=PASS'
+          } finally {
+            if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
+          }

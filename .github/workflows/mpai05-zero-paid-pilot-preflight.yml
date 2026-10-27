@@ -1,0 +1,47 @@
+name: MP-AI05 zero-paid model pilot preflight
+on:
+  push:
+    branches: [qualification/mpai05-fastpath-20261026]
+    paths: ['.github/workflows/mpai05-zero-paid-pilot-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 10
+    steps:
+      - name: Check usable local model without secrets or model execution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          Remove-Item Env:GITHUB_TOKEN,Env:GH_TOKEN,Env:OPENAI_API_KEY,Env:AZURE_OPENAI_API_KEY -ErrorAction SilentlyContinue
+          Write-Host 'MPAI05_PILOT_PHASE=DEVELOPMENT_PREFLIGHT_ONLY'
+          $found=$false
+          $ollama=Get-Command ollama -ErrorAction SilentlyContinue
+          if($null -ne $ollama) {
+            $models=@(& ollama list 2>$null)
+            if($LASTEXITCODE -eq 0 -and $models.Count -gt 1) {
+              Write-Host ('MPAI05_LOCAL_MODEL_COUNT='+($models.Count-1))
+              $found=$true
+            }
+          }
+          if(-not $found) {
+            $lm=Get-Command lms -ErrorAction SilentlyContinue
+            if($null -ne $lm) {
+              $models=@(& lms ls 2>$null)
+              if($LASTEXITCODE -eq 0 -and $models.Count -gt 0) {
+                Write-Host 'MPAI05_LMSTUDIO_MODELS=AVAILABLE_UNVERIFIED'
+                $found=$true
+              }
+            }
+          }
+          if($found) {
+            Write-Host 'MPAI05_PILOT_PREFLIGHT=LOCAL_MODEL_CANDIDATE_PRESENT_NOT_YET_AUTHENTICATED'
+          } else {
+            Write-Host 'MPAI05_PILOT_PREFLIGHT=PILOT_BLOCKED_NO_MODEL'
+          }
+          Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_HOLDOUT_ACCESS=0'
+          Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
