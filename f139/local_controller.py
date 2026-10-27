@@ -3215,6 +3215,36 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
             "SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_ATTEMPTED'"
         ).fetchone()[0]
         if prior_g3:
+            # Every model draft, including G29, must have a separately
+            # authenticated terminal publication before another model call.
+            # A lost GitHub ACK or partial remote write is NEVER retryable,
+            # even with fresh native outcomes.
+            model_attempts=db.conn.execute(
+                "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_ATTEMPTED'"
+            ).fetchone()[0]
+            model_successes=db.conn.execute(
+                "SELECT COUNT(*) FROM events WHERE kind='MODEL_DRAFT_AUTHENTICATED'"
+            ).fetchone()[0]
+            if model_attempts != model_successes:
+                return {"disposition":"MODEL_DRAFT_UNRESOLVED_NO_REPLAY",
+                        "scientific_first_use":False,
+                        "worker_dispatched":False,"paid_model_calls":0}
+            if model_successes:
+                # The one frozen model-free G29 mechanism has completed. The
+                # free reasoner is advisory-only, bounded to public data and
+                # the original SHA-chained terminal outcomes. No credentials:
+                # no request. No inferred science/merge/worker authority.
+                from f139.nci04_owner_free_reasoner_proposal import (
+                    run_original_free_reasoner_once)
+                try:
+                    return run_original_free_reasoner_once(
+                        db, api, db_path, source_sha=meta["source_sha"],
+                        owner_witness=lambda:
+                            native_original_running_publisher_profile(db_path))
+                except (F139Error, ValueError):
+                    return {"disposition":"FREE_REASONER_GUARD_BLOCKED_FAIL_CLOSED",
+                            "scientific_first_use":False,
+                            "worker_dispatched":False,"paid_model_calls":0}
             from f139.nci04_owner_model_free_bootstrap import (
                 run_original_g29_once)
             try:
