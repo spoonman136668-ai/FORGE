@@ -1,0 +1,18 @@
+---
+source_file: "research/r7-real-autochain/test_protocol.py"
+type: "code"
+community: "Community 187"
+location: "L77"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_187
+---
+
+# .test_owner_comment_and_durable_precompute_budget()
+
+## Connections
+- [[dot-encode()_1]] - `calls` [EXTRACTED]
+- [[FrozenGate_1]] - `method` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_187

@@ -1,0 +1,23 @@
+---
+source_file: "researchfeed/fsa_observe_test.go"
+type: "code"
+community: "Community 21"
+location: "L93"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_21
+---
+
+# TestFSAObservationPreservesResearchOutcomesInIndex()
+
+## Connections
+- [[PreviewCandidates()]] - `calls` [INFERRED]
+- [[encode()_4]] - `calls` [INFERRED]
+- [[fsaFixture()]] - `calls` [EXTRACTED]
+- [[fsaPreview()]] - `calls` [EXTRACTED]
+- [[fsa_observe_test.go]] - `contains` [EXTRACTED]
+- [[sixLanes()]] - `calls` [INFERRED]
+- [[testing.T]] - `references` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_21

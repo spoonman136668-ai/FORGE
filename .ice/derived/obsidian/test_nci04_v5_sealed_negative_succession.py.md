@@ -1,0 +1,25 @@
+---
+source_file: "f139/test_nci04_v5_sealed_negative_succession.py"
+type: "code"
+community: "Community 185"
+location: "L1"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_185
+---
+
+# test_nci04_v5_sealed_negative_succession.py
+
+## Connections
+- [[Bounded v5 successor across saturated original v4 negative custody. Synthetic…]] - `rationale_for` [EXTRACTED]
+- [[F139Error]] - `imports` [EXTRACTED]
+- [[OwnerProviderV4]] - `imports` [EXTRACTED]
+- [[V5SealedOriginalHistory]] - `contains` [EXTRACTED]
+- [[activate_native()]] - `imports` [EXTRACTED]
+- [[local_controller.py]] - `imports_from` [EXTRACTED]
+- [[nci04_owner_ledger.py]] - `imports_from` [EXTRACTED]
+- [[test_nci04_v4_provider_recovery.py]] - `imports_from` [EXTRACTED]
+- [[verify_native_activation()]] - `imports` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_185
