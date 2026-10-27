@@ -56,6 +56,33 @@ jobs:
           print('MPAI05_QUERY_NORMALIZATION='+str(use_normalizer))
           print('MPAI05_ADAPTER_ROUTING='+adapted['routing'])
           print('MPAI05_ADAPTER_DEFAULT_PARITY=PASS' if not use_normalizer else 'MPAI05_ADAPTER_OPT_IN=PASS')
+          # Actual opt-in path on a supported query, without changing job default.
+          eligible=sorted((r for r in snapshot.index if r.get('project')=='Mind-Palace'
+              and r.get('source_refs') and len(str(r.get('statement','')).split())>=12
+              and r['id'] not in ('boundary/authority-order','boundary/no-secrets')),key=lambda r:r['id'])
+          if not eligible: raise RuntimeError('NO_SOURCE_BACKED_CANDIDATE')
+          target=eligible[0]
+          clue=' '.join(target['statement'].split()[:20])
+          supported='Can you find the saved memory related to '+clue+' and explain the original evidence?'
+          off=recall_with_normalizer(snapshot,sha,supported,['Mind-Palace'],enabled=False)
+          on=recall_with_normalizer(snapshot,sha,supported,['Mind-Palace'],enabled=True)
+          authoritative=snapshot.recall(sha,supported,['Mind-Palace'],'continuation')
+          if off['result']!=authoritative or off['routing']!='disabled':
+              raise RuntimeError('OPT_IN_CONTROL_DRIFT')
+          if on['routing']!='normalized' or on['result']['source_sha']!=sha:
+              raise RuntimeError('OPT_IN_ROUTE_FAILED')
+          if not on['result']['matches'] or on['result']['matches'][0]['id']!=target['id']:
+              raise RuntimeError('OPT_IN_RETRIEVAL_FAILED')
+          if not all(m.get('source_refs') for m in on['result']['matches']):
+              raise RuntimeError('OPT_IN_PROVENANCE_FAILED')
+          unknown='What original evidence supports the project continuity decisions?'
+          untouched=recall_with_normalizer(snapshot,sha,unknown,['Mind-Palace'],enabled=True)
+          if untouched['routing']!='unmodified' or untouched['result']!=snapshot.recall(sha,unknown,['Mind-Palace'],'continuation'):
+              raise RuntimeError('OPT_IN_UNKNOWN_QUERY_DRIFT')
+          print('MPAI05_OPT_IN_SUPPORTED_TEMPLATE=PASS')
+          print('MPAI05_OPT_IN_ORIGINAL_CONTROL=PASS')
+          print('MPAI05_OPT_IN_UNKNOWN_QUERY=PASS')
+          print('MPAI05_OPT_IN_PROVENANCE=PASS')
           print('MPAI05_RETRIEVAL_CONSUMER_HANDOFF=PASS')
           print('MPAI05_CONSUMED_RECORD_COUNT='+str(len(consumer_ids)))
           print('MPAI05_CONSUMER_TYPE=DETERMINISTIC_NOT_MODEL')
