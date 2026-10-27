@@ -11,6 +11,8 @@ using this in a running controller. This module never schedules itself.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import re
@@ -118,6 +120,99 @@ def public_packet(request: dict, *, public_source_verified: bool) -> dict:
     }
 
 
+def _public_get(route: str) -> dict:
+    """Anonymous source-only GET from fixed public GitHub REST paths.
+
+    A private repository returns 404. No user's gh token, cookie, OAuth
+    header or owner DPAPI credential is used. No redirects are allowed.
+    """
+    need(type(route) is str and route.startswith("repos/spoonman136668-ai/")
+         and ".." not in route and "\\" not in route and " " not in route
+         and not route.startswith(("http://", "https://")),
+         "ANONYMOUS_ROUTE_INVALID")
+    req = urllib.request.Request(
+        "https://api.github.com/" + route, method="GET",
+        headers={"Accept":"application/vnd.github+json",
+                 "User-Agent":"FORGE-F139-Public-Source-Witness"})
+    try:
+        with urllib.request.build_opener(_NoRedirect()).open(
+                req, timeout=12) as resp:
+            if resp.status != 200:
+                raise FreeReasonerUnavailable("F139_FREE_REASONER_PUBLIC_GIT_UNAVAILABLE")
+            raw = resp.read(140000)
+    except (OSError, TimeoutError, socket.timeout, urllib.error.URLError):
+        raise FreeReasonerUnavailable(
+            "F139_FREE_REASONER_PUBLIC_GIT_UNAVAILABLE") from None
+    need(0 < len(raw) < 140000, "PUBLIC_GIT_RESPONSE_BOUNDS")
+    try:
+        doc = json.loads(raw.decode("utf-8", "strict"))
+    except (UnicodeError, ValueError):
+        raise FreeReasonerDenied("F139_FREE_REASONER_PUBLIC_GIT_BAD_JSON") from None
+    need(type(doc) is dict, "PUBLIC_GIT_RESPONSE_INVALID")
+    return doc
+
+
+def verify_anonymous_public_source(packet: dict,
+                                   reader: Callable[[str], dict] | None = None) -> bool:
+    """Bind model packet to independently readable public Git bytes.
+
+    A caller-provided Boolean is never sufficient proof of publicness.
+    """
+    need(type(packet) is dict and packet.get("schema") == SCHEMA,
+         "PUBLIC_PACKET_INVALID")
+    lane = packet.get("lane")
+    need(type(lane) is str and lane in REPOS,
+         "PUBLIC_REPOSITORY_INVALID")
+    repo = REPOS[lane][0]
+    commit = packet.get("target_commit")
+    path = packet.get("path")
+    source = packet.get("public_source")
+    before_sha = packet.get("before_sha256")
+    need(type(commit) is str and SHA40.fullmatch(commit) is not None
+         and type(path) is str and
+         path.startswith(REPOS[lane][1]) and
+         path.endswith(REPOS[lane][2]) and
+         ".." not in path and "\\" not in path
+         and type(source) is str and 0 < len(source.encode("utf-8")) <= 32768
+         and type(before_sha) is str and
+         SHA64.fullmatch(before_sha) is not None
+         and digest(source.encode("utf-8")) == before_sha,
+         "PUBLIC_SOURCE_BINDING_INVALID")
+    fetch = reader if reader is not None else _public_get
+    need(callable(fetch), "PUBLIC_GIT_FETCHER_INVALID")
+    try:
+        original_commit = fetch(f"repos/{repo}/git/commits/{commit}")
+        original_file = fetch(f"repos/{repo}/contents/{path}?ref={commit}")
+    except FreeReasonerDenied:
+        raise
+    except Exception:
+        raise FreeReasonerUnavailable(
+            "F139_FREE_REASONER_PUBLIC_GIT_UNAVAILABLE") from None
+    need(type(original_commit) is dict
+         and original_commit.get("sha") == commit
+         and type(original_commit.get("tree")) is dict
+         and type(original_commit["tree"].get("sha")) is str
+         and SHA40.fullmatch(original_commit["tree"]["sha"]) is not None
+         and type(original_file) is dict
+         and original_file.get("encoding") == "base64"
+         and type(original_file.get("content")) is str
+         and type(original_file.get("sha")) is str,
+         "ANONYMOUS_SOURCE_GIT_AUTHENTICITY_FAILED")
+    try:
+        before = base64.b64decode(original_file["content"], validate=False)
+        git_blob = hashlib.sha1(
+            b"blob " + str(len(before)).encode("ascii") + b"\0" + before
+        ).hexdigest()
+    except (ValueError, UnicodeError):
+        raise FreeReasonerDenied(
+            "F139_FREE_REASONER_PUBLIC_SOURCE_CONTENT_INVALID") from None
+    need(before == source.encode("utf-8")
+         and digest(before) == before_sha
+         and original_file["sha"] == git_blob,
+         "ANONYMOUS_PUBLIC_SOURCE_NOT_EXACT")
+    return True
+
+
 def make_body(packet: dict) -> bytes:
     need(type(packet) is dict and packet.get("schema") == SCHEMA
          and packet.get("development_only") is True
@@ -176,7 +271,8 @@ def _post_one(body: bytes, token: str) -> bytes:
 
 
 def infer_free_once(packet: dict, *, token: str | None = None,
-                    transport: Callable[[bytes, str], bytes] | None = None) -> dict:
+                    transport: Callable[[bytes, str], bytes] | None = None,
+                    public_reader: Callable[[str], dict] | None = None) -> dict:
     """Exactly one request, no paid fallback, no upload of private owner data.
 
     This is not an original-owner authority witness or GitHub write. The
@@ -189,6 +285,10 @@ def infer_free_once(packet: dict, *, token: str | None = None,
     need("\r" not in token and "\n" not in token
          and len(token) <= 2048, "CREDENTIAL_FORMAT_INVALID")
     body = make_body(packet)
+    # Check real anonymous source before even constructing credentialed POST.
+    # This denies remote upload of a private checkout even when an upstream
+    # caller accidentally set public_source_verified=True.
+    verify_anonymous_public_source(packet, public_reader)
     send = transport if transport is not None else _post_one
     need(callable(send), "TRANSPORT_INVALID")
     try:
