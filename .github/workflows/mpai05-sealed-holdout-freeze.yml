@@ -1,0 +1,108 @@
+name: MP-AI05 independent holdout pre-inference freeze verification
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-sealed-holdout-freeze.yml']
+permissions:
+  contents: read
+jobs:
+  freeze:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Verify sealed private case manifest, original-source hashes, and checker contract without model calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {throw 'MPAI05_UNAUTHORIZED_RUNNER'}
+          $temp=Join-Path $env:RUNNER_TEMP ('mpai05-freeze-'+$env:GITHUB_RUN_ID)
+          $baseline=Join-Path $temp 'baseline'
+          $privateManifest=Join-Path $temp 'sealed'
+          $candidate=Join-Path $temp 'checker'
+          try {
+            New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
+            $url='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            & git clone --quiet --single-branch --branch main $url $baseline *> (Join-Path $temp 'private-clone-baseline.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_BASELINE_RETRIEVAL_CLONE_FAILED'}
+            & git clone --quiet --single-branch --branch proposal/mpai05-sealed-independent-holdout-20261027 $url $privateManifest *> (Join-Path $temp 'private-clone-manifest.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_SEALED_MANIFEST_CLONE_FAILED'}
+            & git clone --quiet --single-branch --branch proposal/mpai05-paired-answer-offline-gate-20261027 $url $candidate *> (Join-Path $temp 'private-clone-checker.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_CHECKER_CLONE_FAILED'}
+            $pins=@(
+              @{path=$baseline;sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c';tree='61b9d1d64755d6e708dd06b797b36cafef1b4105'},
+              @{path=$privateManifest;sha='d32d73e51a9efd1730d27c812020b87da869881f';tree=''},
+              @{path=$candidate;sha='b32c6bc91c27a77fe12ade75b984c94815402cf7';tree='5fcb6a63ba0cd87d96a7f5ca9ed109c53e9b2204'}
+            )
+            foreach($p in $pins){
+              if((& git -C $p.path rev-parse HEAD).Trim() -cne $p.sha){throw 'MPAI05_REPO_COMMIT_PIN_DRIFT'}
+              if($p.tree -and (& git -C $p.path rev-parse 'HEAD^{tree}').Trim() -cne $p.tree){throw 'MPAI05_REPO_TREE_PIN_DRIFT'}
+            }
+            $env:MPAI05_FREEZE_MANIFEST=Join-Path $privateManifest 'evaluation/mpai05-sealed-policy-holdout-v1.json'
+            $env:MPAI05_FREEZE_BASELINE=$baseline
+            $env:MPAI05_FREEZE_CHECKER=$candidate
+            $code=@'
+          import hashlib, importlib.util, json, os, pathlib, re, subprocess, sys
+          manifest_path=pathlib.Path(os.environ["MPAI05_FREEZE_MANIFEST"])
+          base=pathlib.Path(os.environ["MPAI05_FREEZE_BASELINE"])
+          checker_path=pathlib.Path(os.environ["MPAI05_FREEZE_CHECKER"])/"tools/mpai05_paired_gate.py"
+          raw=manifest_path.read_bytes()
+          doc=json.loads(raw)
+          spec=importlib.util.spec_from_file_location("mpai05_checker",checker_path)
+          checker=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(checker)
+          cases=checker.manifest_check(doc)
+          if len(cases)!=8 or doc["source_commit"]!="7ad7230a82e3c748aa5336b7288ad2b45d42630c":
+              raise RuntimeError("MPAI05_HOLDOUT_CASES_OR_PIN_DRIFT")
+          records=hashlib.sha256((base/".ice/records.json").read_bytes()).hexdigest()
+          if records!=doc["records_sha256"]:raise RuntimeError("MPAI05_HOLDOUT_RECORDS_HASH_DRIFT")
+          legacy=hashlib.sha256((base/"tools/context-pack.ps1").read_bytes()).hexdigest()
+          tiered=hashlib.sha256((base/"tools/context-pack-tiered.ps1").read_bytes()).hexdigest()
+          contract=json.dumps(dict(legacy_sha256=legacy,tiered_sha256=tiered,legacy_max_records=12,tiered_primary_max_records=5,matched_evidence_cap_bytes=2048,include_support=False,no_telemetry_ledger=True,model_visible="statement_only"),separators=(",",":")).encode()
+          if hashlib.sha256(contract).hexdigest()!=doc["retrieval_contract_sha256"]:
+              raise RuntimeError("MPAI05_RETRIEVAL_CONTRACT_HASH_DRIFT")
+          sources=set()
+          for c in doc["cases"]:
+              for ref in c["source_refs"]:
+                  m=re.fullmatch(r"spoonman136668-ai/Mind-Palace@([0-9a-f]{40}):([A-Za-z0-9/_\-.]+)#blob=([0-9a-f]{40})",ref)
+                  if not m or m.group(1)!=doc["source_commit"]:
+                      raise RuntimeError("MPAI05_UNPINNED_SOURCE_REFERENCE")
+                  p=base/m.group(2)
+                  if not p.is_file():raise RuntimeError("MPAI05_SOURCE_MISSING")
+                  got=subprocess.run(["git","-C",str(base),"rev-parse","HEAD:"+m.group(2)],capture_output=True,text=True,check=True).stdout.strip()
+                  if got!=m.group(3):raise RuntimeError("MPAI05_DOC_BLOB_DRIFT")
+                  sources.add(m.group(2))
+          if len(sources)<5:raise RuntimeError("MPAI05_INSUFFICIENT_SOURCE_DIVERSITY")
+          if checker.check(doc,hashlib.sha256(raw).hexdigest())["decision"]!="BLOCKED_MODEL":
+              raise RuntimeError("MPAI05_PREINFERENCE_GATE_NOT_BLOCKED")
+          print("MPAI05_HOLDOUT_MANIFEST_SHA256="+hashlib.sha256(raw).hexdigest())
+          print("MPAI05_HOLDOUT_CASES="+str(len(cases)))
+          print("MPAI05_HOLDOUT_AUTHORITY_DOCUMENTS="+str(len(sources)))
+          print("MPAI05_HOLDOUT_RECORDS_SHA256="+records)
+          print("MPAI05_HOLDOUT_PROVENANCE_PIN=PASS")
+          print("MPAI05_HOLDOUT_RETRIEVAL_CONTRACT=PASS")
+          print("MPAI05_HOLDOUT_INFERENCE=NOT_RUN")
+          print("MPAI05_HOLDOUT_BLOCKED_MODEL=PASS")
+          '@
+            $code | & python -B -c "import sys; exec(sys.stdin.read())"
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_HOLDOUT_SOURCE_VALIDATION_FAILED'}
+            foreach($p in $pins){
+              $dirty=@(& git -C $p.path status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -gt 0){throw 'MPAI05_SOURCE_WORKTREE_MUTATED'}
+            }
+            Write-Host 'MPAI05_ALL_THREE_REPOSITORY_SOURCES_CLEAN=TRUE'
+            Write-Host 'MPAI05_PRIVATE_QUESTIONS_OR_KEYS_IN_PUBLIC_LOGS=FALSE'
+            Write-Host 'MPAI05_MODEL_CALLS=0'
+            Write-Host 'MPAI05_ICE_AND_CONTROLLER_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+          }
