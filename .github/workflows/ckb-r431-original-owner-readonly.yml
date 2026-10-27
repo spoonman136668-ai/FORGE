@@ -155,3 +155,47 @@ jobs:
           Write-Output 'R432_NO_NATIVE_COMMAND_OR_MAILBOX_SUBMISSION=TRUE'
           Write-Output 'R432_NO_SQLITE_OR_RELEASE_WRITE=TRUE'
           Write-Output 'R432_NO_TASK_RESTART=TRUE'
+      - name: R433 resolve active-release pointer and existing release-store operations read-only
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R433_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $active=Join-Path $store 'state\active-release'
+          if(!(Test-Path -LiteralPath $active -PathType Leaf)){throw 'R433_ACTIVE_RELEASE_POINTER_ABSENT'}
+          $bytes=[IO.File]::ReadAllBytes($active)
+          if($bytes.Length -lt 1 -or $bytes.Length -gt 512){throw 'R433_ACTIVE_POINTER_SIZE_INVALID'}
+          Write-Output ('R433_ACTIVE_POINTER_SHA256='+(Get-FileHash -LiteralPath $active -Algorithm SHA256).Hash.ToLowerInvariant())
+          $label=([Text.Encoding]::UTF8.GetString($bytes)).Trim()
+          if($label -match '^[A-Za-z0-9_.-]{1,100}$') {
+            Write-Output ('R433_ACTIVE_POINTER_RELEASE_ID='+$label)
+            Write-Output ('R433_ACTIVE_POINTER_RELEASE_DIR_PRESENT='+(Test-Path -LiteralPath (Join-Path $store ('releases\'+$label)) -PathType Container))
+          } else {Write-Output 'R433_ACTIVE_POINTER_FORMAT=NON_SIMPLE_RELEASE_ID'}
+          $ops=Join-Path $store 'ops'
+          if(!(Test-Path -LiteralPath $ops -PathType Container)){throw 'R433_OWNER_RELEASE_OPS_MISSING'}
+          $children=@(Get-ChildItem -LiteralPath $ops -Force -ErrorAction Stop | Sort-Object -Property Name)
+          if($children.Count -gt 60){throw 'R433_OPS_FILE_COUNT_EXCEEDED'}
+          Write-Output ('R433_OWNER_RELEASE_OPS_COUNT='+$children.Count)
+          foreach($c in $children) {
+            if($c.Name -notmatch '^[a-zA-Z0-9._-]{1,120}$'){throw 'R433_OWNER_RELEASE_OP_NAME_INVALID'}
+            Write-Output ('R433_OWNER_RELEASE_OP='+$(if($c.PSIsContainer){'D:'}else{'F:'})+$c.Name)
+            if(-not $c.PSIsContainer -and $c.Name -match '\.(ps1|json|txt)$'){
+              Write-Output ('R433_OWNER_RELEASE_OP_HASH='+(Get-FileHash -LiteralPath $c.FullName -Algorithm SHA256).Hash.ToLowerInvariant())
+            }
+          }
+          $releases=Join-Path $store 'releases'
+          $installed=@(Get-ChildItem -LiteralPath $releases -Directory -ErrorAction Stop | Sort-Object -Property Name)
+          if($installed.Count -gt 80){throw 'R433_RELEASE_SET_UNBOUNDED'}
+          Write-Output ('R433_RELEASE_COUNT='+$installed.Count)
+          foreach($r in $installed) {
+            if($r.Name -notmatch '^[a-zA-Z0-9._-]{1,120}$'){throw 'R433_RELEASE_ID_INVALID'}
+            Write-Output ('R433_RELEASE_DIR='+$r.Name)
+          }
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction SilentlyContinue)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R433_TASK_CHANGED_DURING_INSPECTION'}
+          $pidmatches=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($pidmatches.Count -ne 1 -or $pidmatches[0].ExecutablePath -cne 'C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'){throw 'R433_LIVE_PROCESS_CHANGED_DURING_INSPECTION'}
+          Write-Output 'R433_LIVE_PROCESS_STILL_R220=PASS'
+          Write-Output 'R433_READ_ONLY=TRUE'
+          Write-Output 'R433_NO_RELEASE_PROMOTION_OR_QUEUE_CHANGE=TRUE'
