@@ -1,4 +1,4 @@
-name: CKB R407 locate R220-era local source archives
+name: CKB R408 targeted R220 archive discovery
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -21,11 +21,11 @@ jobs:
           foreach($p in @($base,$releases,$release)) {
             if (!(Test-Path -LiteralPath $p -PathType Container)) { throw ('EXPECTED_DIRECTORY_MISSING='+$p) }
           }
-          $roots=@('C:\Users\camar\GolandProjects','C:\ProgramData\CKBR\release-store\ckb-plane')
-          foreach($root in $roots){
-            if(!(Test-Path -LiteralPath $root -PathType Container)){continue}
-            $items=@(Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)(r220|livecompat|source|backup)' -and $_.Extension -match '(?i)^\.(zip|tar|gz|7z|json|txt)$'} | Select-Object -First 80)
-            Write-Output ('R407_ROOT='+$root+' MATCHES='+$items.Count)
-            foreach($f in $items){Write-Output ('R407_ARCHIVE='+$f.FullName+' BYTES='+$f.Length)}
+          $root='C:\Users\camar\GolandProjects'
+          $dirs=@(Get-ChildItem -LiteralPath $root -Directory -ErrorAction Stop | Where-Object {$_.Name -match '(?i)ckb-plane|ckb.*backup|forge'})
+          foreach($dir in $dirs){
+            $hits=@(Get-ChildItem -LiteralPath $dir.FullName -Recurse -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '(?i)r220|livecompat|source.*(zip|tar|gz)|backup.*(zip|tar|gz)' -and $_.Extension -match '(?i)^\.(zip|tar|gz|7z|json|txt)$'} | Select-Object -First 25)
+            Write-Output ('R408_DIR='+$dir.Name+' HITS='+$hits.Count)
+            foreach($item in $hits){Write-Output ('R408_HIT='+$item.FullName+' BYTES='+$item.Length)}
           }
-          Write-Output 'R407_READ_ONLY=TRUE'
+          Write-Output 'R408_READ_ONLY=TRUE'
