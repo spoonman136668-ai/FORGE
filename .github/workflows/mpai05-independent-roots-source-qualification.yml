@@ -34,8 +34,8 @@ jobs:
             $clog=Join-Path $scratch 'clone-private.log'
             & git clone --quiet --single-branch --branch proposal/mpai05-independent-trust-and-manifest-20261026 'https://github.com/spoonman136668-ai/Mind-Palace.git' $repo *> $clog
             if($LASTEXITCODE -ne 0){throw 'MPAI05_SOURCE_BRANCH_CLONE_NOT_AVAILABLE'}
-            if((& git -C $repo rev-parse HEAD).Trim() -cne '2f8d62da0ce700a98ea013fb240e77409039e132'){throw 'MPAI05_SOURCE_SHA_DRIFT'}
-            if((& git -C $repo rev-parse 'HEAD^{tree}').Trim() -cne '9b27947cf5e5d7761eb60f366eafe9ab0dd9e4a8'){throw 'MPAI05_SOURCE_TREE_DRIFT'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne '72bc2a07c808998a00d4eeedc975eee0c2838af4'){throw 'MPAI05_SOURCE_SHA_DRIFT'}
+            if((& git -C $repo rev-parse 'HEAD^{tree}').Trim() -cne 'ece5bdbe623e718e82654701ad4ce15a23dd28d1'){throw 'MPAI05_SOURCE_TREE_DRIFT'}
             $units=Join-Path $scratch 'unit-private.log'
             $regression=Join-Path $scratch 'windows-private.log'
             Push-Location $repo
@@ -44,8 +44,8 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'MPAI05_TRUST_ROOT_UNIT_TEST_FAILURE'}
               $unitText=[IO.File]::ReadAllText($units)
               $n=[regex]::Match($unitText,'Ran ([0-9]{1,2}) tests? in')
-              if(-not $n.Success -or [int]$n.Groups[1].Value -ne 25 -or $unitText -notmatch '(?m)^OK\s*$'){throw 'MPAI05_UNIT_COUNT_OR_TERMINAL_FAILURE'}
-              Write-Host 'MPAI05_TRUST_ROOT_SYNTHETIC_TESTS=25_PASS'
+              if(-not $n.Success -or [int]$n.Groups[1].Value -ne 26 -or $unitText -notmatch '(?m)^OK\s*$'){throw 'MPAI05_UNIT_COUNT_OR_TERMINAL_FAILURE'}
+              Write-Host 'MPAI05_TRUST_ROOT_SYNTHETIC_TESTS=26_PASS'
               & pwsh.exe -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $regression
               if($LASTEXITCODE -ne 0){throw 'MPAI05_ORIGINAL_FULL_WINDOWS_REGRESSION_FAILED'}
               $regText=[IO.File]::ReadAllText($regression)
@@ -54,7 +54,7 @@ jobs:
             } finally {
               Pop-Location
             }
-            if((& git -C $repo rev-parse HEAD).Trim() -cne '2f8d62da0ce700a98ea013fb240e77409039e132'){throw 'MPAI05_SOURCE_DRIFT_POST_TEST'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne '72bc2a07c808998a00d4eeedc975eee0c2838af4'){throw 'MPAI05_SOURCE_DRIFT_POST_TEST'}
             $dirty=@(& git -C $repo status --porcelain --untracked-files=all)
             if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_SOURCE_WORKTREE_MUTATED'}
             Write-Host 'MPAI05_TRUST_ROOT_SOURCE_CUSTODY=PASS'
