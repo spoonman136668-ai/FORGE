@@ -10,6 +10,7 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
       - name: Pass actual retrieved records to isolated deterministic consumer
         shell: pwsh
         run: |
@@ -23,12 +24,14 @@ jobs:
             if($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
             $sha=(& git -C $root rev-parse HEAD).Trim()
             $code=@'
-          import json,sys
+          import json,sys,os
           from pathlib import Path
           root=Path(sys.argv[1]);sha=sys.argv[2]
           sys.path.insert(0,str(root/'tools'))
+          sys.path.insert(0,str(Path(os.environ['GITHUB_WORKSPACE'])/'tools'))
           from mindpalace_readonly import MemorySnapshot
           from mindpalace_mcp import handle
+          from mpai05_retrieval_consumer import recall_with_normalizer
           snapshot=MemorySnapshot(root,sha,['Mind-Palace'])
           query='Mind-Palace retrieval context memory governance'
           response=handle(snapshot,{'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'mindpalace_recall','arguments':{'source_sha':sha,'query':query,'projects':['Mind-Palace'],'profile':'continuation'}}})
@@ -41,6 +44,18 @@ jobs:
           consumer_ids=[r['id'] for r in handed['matches']]
           if consumer_ids!=[r['id'] for r in matches]: raise RuntimeError('CONSUMER_MISMATCH')
           if handed['source_sha']!=sha: raise RuntimeError('CONSUMER_SOURCE_DRIFT')
+          # Existing actual retrieval consumer now supports explicit opt-in.
+          # Default mode must reproduce the authoritative read-only response.
+          use_normalizer=os.environ.get('MPAI05_QUERY_NORMALIZATION','false').lower()=='true'
+          adapted=recall_with_normalizer(snapshot,sha,query,['Mind-Palace'],enabled=use_normalizer)
+          if adapted['result']['source_sha']!=sha: raise RuntimeError('ADAPTER_PIN_DRIFT')
+          if not use_normalizer:
+              if adapted['routing']!='disabled': raise RuntimeError('DEFAULT_NOT_DISABLED')
+              if adapted['result']['matches']!=matches: raise RuntimeError('DEFAULT_RETRIEVAL_DRIFT')
+          if not all(x.get('source_refs') for x in adapted['result']['matches']): raise RuntimeError('ADAPTER_PROVENANCE_MISSING')
+          print('MPAI05_QUERY_NORMALIZATION='+str(use_normalizer))
+          print('MPAI05_ADAPTER_ROUTING='+adapted['routing'])
+          print('MPAI05_ADAPTER_DEFAULT_PARITY=PASS' if not use_normalizer else 'MPAI05_ADAPTER_OPT_IN=PASS')
           print('MPAI05_RETRIEVAL_CONSUMER_HANDOFF=PASS')
           print('MPAI05_CONSUMED_RECORD_COUNT='+str(len(consumer_ids)))
           print('MPAI05_CONSUMER_TYPE=DETERMINISTIC_NOT_MODEL')
