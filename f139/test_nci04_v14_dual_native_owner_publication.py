@@ -145,23 +145,51 @@ class DualModelOwnerPublicationRehearsal(unittest.TestCase):
         self.assertEqual(len(h.rows(ATTEMPT)), 1)
         h.db.verify()
 
-    def test_shared_same_day_limit_blocks_wingless_before_any_second_write(self):
+    def test_both_models_can_start_same_utc_day_one_request_each(self):
         h = self.h
         self.assertEqual(h.attempt()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
         self.wingless_target()
-        calls_before = len(h.calls)
-        writes_before = len(h.provider.write_calls)
-        old_head = h.db.meta()["head_hash"]
         second = h.attempt(
             lane="Wingless", target_commit=WINGLESS_R8_PARENT,
             path=WINGLESS_R8_TRAINING, transport=self.wingless_model,
             utc_day="2026-10-27")
-        self.assertEqual(second["disposition"],
+        self.assertEqual(second["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        self.assertEqual([a["lane"] for a in _attempts(h.db)],
+                         ["Yggdrasil", "Wingless"])
+        self.assertEqual(len(h.rows(DRAFT_SUCCESS)), 2)
+        self.assertEqual(len(h.rows(ATTEMPT)), 2)
+        h.db.verify()
+        frozen = h.db.meta()["head_hash"]
+        prior_reads = len(h.calls)
+        prior_writes = len(h.provider.write_calls)
+        # Not replay, not another model call; the global two-per-day ceiling
+        # rejects a new third target before Git, steering, inference or writes.
+        third = h.attempt(lane="Yggdrasil", target_commit="e" * 40,
+                          path="yggdrasil/public_causal_cells.py",
+                          utc_day="2026-10-27")
+        self.assertEqual(third["disposition"],
                          "FREE_REASONER_BOUNDED_BUDGET_EXHAUSTED")
-        self.assertEqual(h.db.meta()["head_hash"], old_head)
-        self.assertEqual(len(h.calls), calls_before)
-        self.assertEqual(len(h.provider.write_calls), writes_before)
+        self.assertEqual(h.db.meta()["head_hash"], frozen)
+        self.assertEqual(len(h.calls), prior_reads)
+        self.assertEqual(len(h.provider.write_calls), prior_writes)
+        h.db.verify()
+
+    def test_same_lane_cannot_consume_second_request_even_with_spare_global_slot(self):
+        h = self.h
+        self.assertEqual(h.attempt()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        old = h.db.meta()["head_hash"]
+        calls = len(h.calls)
+        writes = len(h.provider.write_calls)
+        retry_as_new_target = h.attempt(
+            lane="Yggdrasil", target_commit="e" * 40,
+            path="yggdrasil/public_causal_cells.py",
+            utc_day="2026-10-27")
+        self.assertEqual(retry_as_new_target["disposition"],
+                         "FREE_REASONER_BOUNDED_BUDGET_EXHAUSTED")
         self.assertEqual(len(h.rows(ATTEMPT)), 1)
+        self.assertEqual(h.db.meta()["head_hash"], old)
+        self.assertEqual(len(h.calls), calls)
+        self.assertEqual(len(h.provider.write_calls), writes)
         h.db.verify()
 
 
