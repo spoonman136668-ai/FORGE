@@ -523,14 +523,21 @@ class Database:
                               "custodied_negative_tasks", "custodied_negative_tickets",
                               "provider_failures_sha256", "v10_terminal_event_sha256",
                               "g54_ambiguous_start_event_sha256", "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11,
+                is_v12 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v12"
+                          and set(doc) == base_fields | {
+                              "custodied_negative_tasks", "custodied_negative_tickets",
+                              "provider_failures_sha256", "v11_terminal_event_sha256",
+                              "g54_ambiguous_start_event_sha256", "g3_draft_history_sha256",
+                              "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11 or is_v12)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -796,6 +803,54 @@ class Database:
                                             "event_sha": previous_provider[ticket][1]}
                                            for ticket in sorted(previous_provider)])),
                             "SOURCE_TRANSITION_V11_ORIGINAL_CUSTODY_DRIFT")
+                if is_v12:
+                    from f139.nci04_negative_owner_store import (
+                        verify_original_negative_custody, TICKET as FIRST)
+                    from f139.nci04_split_negative_owner_store import (
+                        verify_second_negative_custody, TICKET as SECOND)
+                    from f139.nci04_g49_prepost_negative import (
+                        verify_g49_custody, TICKET as PREPOST)
+                    v11_rows = [
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<? "
+                            "ORDER BY seq", (row["seq"],))
+                        if json.loads(r["payload"]).get("schema") ==
+                           "forge.f139.source-transition.v11"]
+                    g54 = g54_original_canonical(self, through_seq=row["seq"])
+                    providers = self.verified_native_provider_failures(
+                        through_seq=row["seq"])
+                    expected = sorted({FIRST, SECOND, PREPOST, g54["ticket"]} |
+                                      set(providers))
+                    g3_rows = list(self.conn.execute(
+                        "SELECT kind,sha FROM events WHERE kind IN "
+                        "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED') "
+                        "AND seq<? ORDER BY seq", (row["seq"],)))
+                    g3 = [{"kind":r["kind"],"sha":r["sha"]} for r in g3_rows]
+                    require(len(v11_rows)==1 and source_transitions
+                            and source_transitions[-1]["schema"] ==
+                                "forge.f139.source-transition.v11"
+                            and doc["from_source_sha"] ==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["v11_terminal_event_sha256"] == v11_rows[0]["sha"]
+                            and doc["g54_ambiguous_start_event_sha256"] ==
+                                g54["quarantine_event_sha256"]
+                            and doc["g3_draft_history_sha256"] ==
+                                hash_bytes(canonical(g3))
+                            and sum(r["kind"]=="G3_DRAFT_ATTEMPTED" for r in g3_rows)==1
+                            and sum(r["kind"]=="G3_DRAFT_AUTHENTICATED" for r in g3_rows)<=1
+                            and doc["v2_receipt_authorized"] is False
+                            and doc["verified_historical_tasks"] >= 21
+                            and verify_original_negative_custody(self)
+                            and verify_second_negative_custody(self)
+                            and verify_g49_custody(self)
+                            and doc["custodied_negative_tasks"] == len(expected)
+                            and doc["custodied_negative_tickets"] == expected
+                            and doc["provider_failures_sha256"] == hash_bytes(
+                                canonical([{"ticket":t,"source_sha":providers[t][0],
+                                            "event_sha":providers[t][1]}
+                                           for t in sorted(providers)])),
+                            "SOURCE_TRANSITION_V12_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -977,7 +1032,8 @@ class Database:
                           allow_v8: bool = False,
                           allow_v9: bool = False,
                           allow_v10: bool = False,
-                          allow_v11: bool = False):
+                          allow_v11: bool = False,
+                          allow_v12: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -995,7 +1051,7 @@ class Database:
         prepost = verify_g49_custody(self)
         if prepost:
             recognized[PREPOST] = SOURCE_V7
-        if allow_v11:
+        if allow_v11 or allow_v12:
             from f139.nci04_g54_ambiguous_start_custody import (
                 verified_g54_ambiguous_start)
             frozen_ambiguous=g54_original_canonical(self)
@@ -1083,6 +1139,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v11",
                             "forge.f139.source-transition.v10",
                             "forge.f139.source-transition.v9",
                             "forge.f139.source-transition.v8",
@@ -1123,7 +1180,19 @@ class Database:
                          "forge.f139.source-transition.v9"]
                 prev_v10=[e for e in events if e["schema"]==
                           "forge.f139.source-transition.v10"]
-                if prev_v10:
+                prev_v11=[e for e in events if e["schema"]==
+                          "forge.f139.source-transition.v11"]
+                if prev_v11:
+                    from f139.nci04_owner_ledger import verify_native_activation
+                    require(allow_v12 is True and len(prev_v11)==1
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v11"
+                            and meta["source_sha"] == prev_v11[0]["to_source_sha"]
+                            and verify_native_activation(self)
+                            and self.active() is None and self.ready() is None,
+                            "SOURCE_TRANSITION_V12_ORIGINAL_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v12"
+                elif prev_v10:
                     from f139.nci04_owner_ledger import verify_native_activation
                     require(allow_v11 is True and len(prev_v10)==1
                             and events[-1]["schema"]==
@@ -1212,7 +1281,8 @@ class Database:
                             "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v9",
                             "forge.f139.source-transition.v10",
-                            "forge.f139.source-transition.v11"):
+                            "forge.f139.source-transition.v11",
+                            "forge.f139.source-transition.v12"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1305,6 +1375,25 @@ class Database:
                 g54=g54_original_canonical(self)
                 event["v10_terminal_event_sha256"]=v10_rows[0]["sha"]
                 event["g54_ambiguous_start_event_sha256"]=g54["quarantine_event_sha256"]
+                event["v2_receipt_authorized"]=False
+            if schema == "forge.f139.source-transition.v12":
+                rows = [r for r in self.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"]).get("schema") ==
+                       "forge.f139.source-transition.v11"]
+                require(len(rows)==1,"SOURCE_TRANSITION_V12_V11_SEAL_MISSING")
+                g54=g54_original_canonical(self)
+                g3=list(self.conn.execute(
+                    "SELECT kind,sha FROM events WHERE kind IN "
+                    "('G3_DRAFT_ATTEMPTED','G3_DRAFT_AUTHENTICATED') "
+                    "ORDER BY seq"))
+                require(sum(r["kind"]=="G3_DRAFT_ATTEMPTED" for r in g3)==1,
+                        "SOURCE_TRANSITION_V12_G3_HISTORY_DRIFT")
+                event["v11_terminal_event_sha256"]=rows[0]["sha"]
+                event["g54_ambiguous_start_event_sha256"]=g54["quarantine_event_sha256"]
+                event["g3_draft_history_sha256"]=hash_bytes(canonical(
+                    [{"kind":r["kind"],"sha":r["sha"]} for r in g3]))
                 event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
