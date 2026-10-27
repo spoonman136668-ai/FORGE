@@ -44,14 +44,15 @@ jobs:
               $codes=@([regex]::Matches($Text,'UQ(?:51|53|55)_[A-Z0-9_]{4,100}') | ForEach-Object { $_.Value } | Select-Object -Unique)
               $allowCodes=@($codes | Where-Object { $_ -match '^UQ(?:51|53|55)_[A-Z0-9_]{4,100}$' })
               $tail=if ($allowCodes.Count -gt 0) { $allowCodes[-1] } else { 'NONE' }
-              Write-Output ('MPAI05_INNER_PLAN_CODE=' + $tail)
-              Write-Output ('MPAI05_INNER_PLAN_EXIT=' + $Exit)
+              $diagnostic=@('MPAI05_INNER_PLAN_CODE=' + $tail,'MPAI05_INNER_PLAN_EXIT=' + $Exit)
+
               $category='UNCLASSIFIED'
               if ($Text -match 'NativeCommandError') { $category='NATIVE_COMMAND_ERROR' }
               elseif ($Text -match 'UnauthorizedAccess') { $category='ACCESS_DENIED' }
               elseif ($Text -match 'ParserError') { $category='PARSER_ERROR' }
               elseif ($Text -match 'Exception') { $category='SCRIPT_EXCEPTION' }
-              Write-Output ('MPAI05_INNER_PLAN_CLASS=' + $category)
+              $diagnostic += ('MPAI05_INNER_PLAN_CLASS=' + $category)
+              [IO.File]::WriteAllText($env:MPAI05_DIAG_PRIVATE_FILE,($diagnostic -join [Environment]::NewLine))
               throw 'UQ51_ADAPTER_EXPECTED_SUCCESS_FAILED_REDACTED'
           }
           '@
@@ -59,6 +60,7 @@ jobs:
             # the subject transaction code, stored state, or accepted source.
             $modified=$beforeText.Replace($needle,$injected)
             [IO.File]::WriteAllText($test,$modified,[Text.UTF8Encoding]::new($false))
+            $env:MPAI05_DIAG_PRIVATE_FILE=Join-Path $scratch 'allowlisted-diagnostic-private.txt'
             Push-Location $root
             try {
               & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $test *> (Join-Path $scratch 'test-private.log')
@@ -67,8 +69,12 @@ jobs:
               Pop-Location
               [IO.File]::WriteAllBytes($test,$before)
             }
-            $raw=[IO.File]::ReadAllText((Join-Path $scratch 'test-private.log'))
-            $codes=@([regex]::Matches($raw,'MPAI05_INNER_PLAN_(?:CODE|EXIT|CLASS)=[A-Z0-9_]+') | ForEach-Object { $_.Value })
+            $diag=$env:MPAI05_DIAG_PRIVATE_FILE
+            $codes=@()
+            if (Test-Path -LiteralPath $diag) {
+              $raw=[IO.File]::ReadAllText($diag)
+              $codes=@([regex]::Matches($raw,'MPAI05_INNER_PLAN_(?:CODE|EXIT|CLASS)=[A-Z0-9_]+') | ForEach-Object { $_.Value })
+            }
             foreach($marker in $codes) { Write-Host $marker }
             Write-Host ('MPAI05_ROOTCAUSE_REPRODUCED=' + ($code -ne 0).ToString().ToUpperInvariant())
             Write-Host 'MPAI05_DIAGNOSTIC_HARNESS_ONLY=TRUE'
