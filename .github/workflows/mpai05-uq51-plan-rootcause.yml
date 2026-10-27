@@ -1,0 +1,84 @@
+name: MP-AI05 UQ51 nested positive-plan diagnostic
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths:
+      - '.github/workflows/mpai05-uq51-plan-rootcause.yml'
+permissions:
+  contents: read
+jobs:
+  rootcause:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Capture allowlisted child error codes with temporary test-only instrumentation
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GIT_CREDENTIAL_INTERACTIVE: 'never'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_DIAG_OWNER_RUNNER_DENIED'
+          }
+          $sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c'
+          $tree='61b9d1d64755d6e708dd06b797b36cafef1b4105'
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-rootcause-' + $env:GITHUB_RUN_ID)
+          $root=Join-Path $scratch 'main'
+          try {
+            New-Item -ItemType Directory -Path $scratch | Out-Null
+            & git clone --quiet --single-branch --branch main 'https://github.com/spoonman136668-ai/Mind-Palace.git' $root *> (Join-Path $scratch 'clone-private.log')
+            if ($LASTEXITCODE -ne 0) { throw 'MPAI05_ROOTCAUSE_SOURCE_UNAVAILABLE' }
+            $got=(& git -C $root rev-parse HEAD).Trim()
+            $gotTree=(& git -C $root rev-parse 'HEAD^{tree}').Trim()
+            if ($got -cne $sha -or $gotTree -cne $tree) { throw 'MPAI05_ROOTCAUSE_SOURCE_DRIFT' }
+            $test=Join-Path $root 'tests/Test-RepoSourceTransaction.ps1'
+            $before=[IO.File]::ReadAllBytes($test)
+            $beforeText=[Text.Encoding]::UTF8.GetString($before)
+            $needle='if ($ExpectSuccess -and $Exit -ne 0) { throw "UQ51_ADAPTER_EXPECTED_SUCCESS_FAILED $Text" }'
+            if (-not $beforeText.Contains($needle)) { throw 'MPAI05_ROOTCAUSE_TEST_ANCHOR_DRIFT' }
+            $injected=@'
+          if ($ExpectSuccess -and $Exit -ne 0) {
+              $codes=@([regex]::Matches($Text,'UQ(?:51|53|55)_[A-Z0-9_]{4,100}') | ForEach-Object { $_.Value } | Select-Object -Unique)
+              $allowCodes=@($codes | Where-Object { $_ -match '^UQ(?:51|53|55)_[A-Z0-9_]{4,100}$' })
+              $tail=if ($allowCodes.Count -gt 0) { $allowCodes[-1] } else { 'NONE' }
+              Write-Output ('MPAI05_INNER_PLAN_CODE=' + $tail)
+              Write-Output ('MPAI05_INNER_PLAN_EXIT=' + $Exit)
+              $category='UNCLASSIFIED'
+              if ($Text -match 'NativeCommandError') { $category='NATIVE_COMMAND_ERROR' }
+              elseif ($Text -match 'UnauthorizedAccess') { $category='ACCESS_DENIED' }
+              elseif ($Text -match 'ParserError') { $category='PARSER_ERROR' }
+              elseif ($Text -match 'Exception') { $category='SCRIPT_EXCEPTION' }
+              Write-Output ('MPAI05_INNER_PLAN_CLASS=' + $category)
+              throw 'UQ51_ADAPTER_EXPECTED_SUCCESS_FAILED_REDACTED'
+          }
+'@
+            # Diagnostic instrument changes only the disposable test harness, not
+            # the subject transaction code, stored state, or accepted source.
+            $modified=$beforeText.Replace($needle,$injected)
+            [IO.File]::WriteAllText($test,$modified,[Text.UTF8Encoding]::new($false))
+            Push-Location $root
+            try {
+              & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $test *> (Join-Path $scratch 'test-private.log')
+              $code=$LASTEXITCODE
+            } finally {
+              Pop-Location
+              [IO.File]::WriteAllBytes($test,$before)
+            }
+            $raw=[IO.File]::ReadAllText((Join-Path $scratch 'test-private.log'))
+            $codes=@([regex]::Matches($raw,'MPAI05_INNER_PLAN_(?:CODE|EXIT|CLASS)=[A-Z0-9_]+') | ForEach-Object { $_.Value })
+            foreach($marker in $codes) { Write-Host $marker }
+            Write-Host ('MPAI05_ROOTCAUSE_REPRODUCED=' + ($code -ne 0).ToString().ToUpperInvariant())
+            Write-Host 'MPAI05_DIAGNOSTIC_HARNESS_ONLY=TRUE'
+            $clean=@(& git -C $root status --porcelain --untracked-files=all)
+            if ($LASTEXITCODE -ne 0 -or $clean.Count -gt 0) { throw 'MPAI05_ROOTCAUSE_WORKTREE_NOT_RESTORED' }
+            Write-Host 'MPAI05_ROOTCAUSE_SOURCE_RESTORED=TRUE'
+            Write-Host 'MPAI05_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
