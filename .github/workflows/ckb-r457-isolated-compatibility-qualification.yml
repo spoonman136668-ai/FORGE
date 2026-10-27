@@ -1,0 +1,65 @@
+name: CKB R457 historical preservation compatibility isolated Windows qualification
+on:
+  push:
+    branches: [audit/ckb-r457-private-historical-parse-20261027]
+permissions:
+  contents: read
+jobs:
+  isolated-owner-qualification:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    steps:
+      - name: Test exact R457 source branch in scratch; verify no original controller changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R457_WRONG_OWNER'}
+          $src='C:\Users\camar\GolandProjects\ckb-plane'
+          $liveExe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $installed='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if((Get-FileHash -LiteralPath $liveExe -Algorithm SHA256).Hash.ToLowerInvariant() -cne $installed){throw 'R457_ORIGINAL_BINARY_SHA_DRIFT'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          $live=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or $live.Count -ne 1 -or $live[0].ProcessId -ne 80088 -or [string]$live[0].ExecutablePath -cne $liveExe){throw 'R457_ORIGINAL_OWNER_NOT_HEALTHY'}
+          $base=Join-Path $env:RUNNER_TEMP ('R457-qual-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $base){throw 'R457_SCRATCH_ALREADY_EXISTS'}
+          $clone=Join-Path $base 'repo'
+          New-Item -Path $base -ItemType Directory -ErrorAction Stop | Out-Null
+          $env:GIT_TERMINAL_PROMPT='0'
+          $env:GOFLAGS='-p=1'
+          $env:GOMAXPROCS='1'
+          $env:GOMEMLIMIT='1536MiB'
+          $gitSha='3cf025fa6159f83fdb8687372fecf4f22f54dfd9'
+          try {
+            & gh repo clone spoonman136668-ai/ckb-plane $clone -- --no-checkout --quiet
+            if($LASTEXITCODE -ne 0){throw 'R457_PRIVATE_REPO_CLONE_FAILED'}
+            & git -C $clone checkout --detach $gitSha
+            if($LASTEXITCODE -ne 0){throw 'R457_PRIVATE_SOURCE_SHA_NOT_AVAILABLE'}
+            $checkout=(& git -C $clone rev-parse HEAD|Out-String).Trim()
+            if($checkout -cne $gitSha){throw 'R457_SOURCE_SHA_NOT_PINNED'}
+            $go=Join-Path $clone 'snapshot\source'
+            $helper=Join-Path $go 'internal\plane\status_projection.go'
+            $test=Join-Path $go 'internal\plane\r457_historical_preservation_strict_error_test.go'
+            if(!(Test-Path -LiteralPath $helper -PathType Leaf) -or !(Test-Path -LiteralPath $test -PathType Leaf)){throw 'R457_PATCH_OR_REGRESSION_TEST_ABSENT'}
+            if((Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant() -cne '79d9f6845d1c631f6a916cab5e77961044c66ba1fa4dc72d38b274e1fbd9d571'){Write-Output ('R457_HELPER_FILE_SHA256='+(Get-FileHash -LiteralPath $helper -Algorithm SHA256).Hash.ToLowerInvariant())}
+            Push-Location $go
+            try {
+              & go.exe version
+              & go.exe test -p 1 -count=1 -run '^TestR457HistoricalPreservationStrictErrorIsNarrow$' ./internal/plane
+              if($LASTEXITCODE -ne 0){throw 'R457_NEGATIVE_HISTORICAL_PARSE_REGRESSION_FAILED'}
+              Write-Output 'R457_EXACT_HISTORICAL_ERROR_REGRESSION=PASS'
+              & go.exe test -p 1 -count=1 ./internal/plane
+              if($LASTEXITCODE -ne 0){throw 'R457_WHOLE_PLANE_PACKAGE_REGRESSION_FAILED'}
+              Write-Output 'R457_WHOLE_PLANE_PACKAGE_REGRESSION=PASS'
+              & go.exe vet -copylocks=false ./internal/plane
+              if($LASTEXITCODE -ne 0){throw 'R457_PACKAGE_VET_FAILED'}
+              Write-Output 'R457_PACKAGE_VET=PASS'
+            }finally{Pop-Location}
+          }finally{
+            if(Test-Path -LiteralPath $base){Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction Stop}
+          }
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $taskAfter=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($after.Count -ne 1 -or [int]$after[0].ProcessId -ne 80088 -or $taskAfter.Count -ne 1 -or [string]$taskAfter[0].State -cne 'Running'){throw 'R457_ORIGINAL_CONTROLLER_CHANGED_DURING_TEST'}
+          Write-Output 'R457_ORIGINAL_R220_AND_LIVE_SQLITE_UNCHANGED=PASS'
