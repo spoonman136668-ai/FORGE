@@ -1,0 +1,56 @@
+name: MP-AI05 Python on-device inference adapter preflight
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-python-model-capability-preflight.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Only survey installed package adapters and runnable executables
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONNOUSERSITE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {throw 'MPAI05_UNAUTHORIZED_RUNNER'}
+          # No model loads, import of user packages, file reads or model-cache enumeration.
+          $script=@'
+          import importlib.util
+          names = (
+              ("TORCH", "torch"),
+              ("TRANSFORMERS", "transformers"),
+              ("LLAMA_CPP_PYTHON", "llama_cpp"),
+              ("ONNXRUNTIME", "onnxruntime"),
+              ("CTRANSFORMERS", "ctransformers"),
+              ("GPT4ALL", "gpt4all"),
+              ("EXLLAMAV2", "exllamav2"),
+              ("SENTENCEPIECE", "sentencepiece"),
+              ("HUGGINGFACE_HUB", "huggingface_hub"),
+          )
+          for display, module in names:
+              available = importlib.util.find_spec(module) is not None
+              print(f"MPAI05_PYTHON_{display}={'PRESENT' if available else 'ABSENT'}")
+          '@
+          $script | & python -B -c "import sys; exec(sys.stdin.read())"
+          if($LASTEXITCODE -ne 0) {throw 'MPAI05_PYTHON_MODULE_ENUMERATION_FAILED'}
+          foreach($executable in @(
+              @{display='LLAMAFILE';cmd='llamafile.exe'},
+              @{display='LLAMA_RUN';cmd='llama-run.exe'},
+              @{display='GPT4ALL';cmd='gpt4all.exe'},
+              @{display='LOCALAI';cmd='local-ai.exe'}
+          )){
+            $found = @(Get-Command -Name $executable.cmd -CommandType Application -ErrorAction SilentlyContinue).Count -gt 0
+            Write-Host ('MPAI05_EXECUTABLE_'+$executable.display+'=' + $(if($found){'PRESENT'}else{'NOT_IN_PATH'}))
+          }
+          Write-Host 'MPAI05_MODEL_BYTES_AVAILABLE=NOT_TESTED'
+          Write-Host 'MPAI05_PRIVATE_PROVIDER_AUTHORIZED=NOT_PROVEN'
+          Write-Host 'MPAI05_NO_INFERENCE=TRUE'
+          Write-Host 'MPAI05_NO_PRIVATE_RECORD_ACCESS=TRUE'
+          Write-Host 'MPAI05_NO_INSTALL_OR_EXECUTION_STATE_CHANGE=TRUE'
