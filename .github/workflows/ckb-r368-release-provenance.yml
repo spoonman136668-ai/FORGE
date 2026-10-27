@@ -1,4 +1,4 @@
-name: CKB R418 isolated owner-history diagnostic
+name: CKB R419 isolate historical state path diagnostic
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -72,7 +72,8 @@ jobs:
             if($exit -ne 0){
               Write-Output ('R418_NATIVE_STATUS_EXIT='+$exit)
               $diagnostic=($output | Out-String).Trim()
-              $diagnostic=[regex]::Replace($diagnostic,'(?i)[A-Z]:\\[^\s"'']+','[LOCAL_PATH]')
+              $diagnostic=$diagnostic.Replace($stage,'[ISOLATED_ROOT]').Replace($root,'[OWNER_ROOT]').Replace($base,'[RELEASE_STORE]')
+              $diagnostic=[regex]::Replace($diagnostic,'(?i)[A-Z]:\\[^\s"'']+','[OTHER_LOCAL_PATH]')
               if($diagnostic.Length -gt 300){$diagnostic=$diagnostic.Substring(0,300)}
               Write-Output ('R418_NATIVE_STATUS_ERROR='+$diagnostic)
               throw 'R417_ISOLATED_NATIVE_STATUS_FAILED'
