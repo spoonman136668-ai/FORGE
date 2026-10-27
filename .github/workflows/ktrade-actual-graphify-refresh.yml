@@ -35,14 +35,16 @@ jobs:
             New-Item -ItemType Directory -Path $uvHome|Out-Null
             & python -m pip install --disable-pip-version-check --no-input --target $uvHome 'uv==0.9.7' *> (Join-Path $uvHome 'install.log')
             if($LASTEXITCODE -ne 0){throw 'UV_LOCAL_INSTALL_FAILED'}
-            $uvCandidates=@(
-              (Join-Path $uvHome 'Scripts/uvx.exe'),
-              (Join-Path $uvHome 'uvx.exe')
-            )
-            $uvExe=$uvCandidates|Where-Object {Test-Path -LiteralPath $_ -PathType Leaf}|Select-Object -First 1
+            # uv's Python wheel may place its executables under uv/, not
+            # Scripts/; locate by basename within the dedicated install root.
+            $uvExe=Get-ChildItem -LiteralPath $uvHome -Recurse -File -ErrorAction Stop |
+              Where-Object {$_.Name -in @('uvx.exe','uv.exe')} |
+              Sort-Object @{Expression={if($_.Name -eq 'uvx.exe'){0}else{1}}} |
+              Select-Object -First 1 -ExpandProperty FullName
             if(-not $uvExe){throw 'UV_LOCAL_BINARY_NOT_FOUND'}
             $uvx=$uvExe
           } else { $uvx=$uvx.Source }
+          $uvPrefix=if([IO.Path]::GetFileName($uvx) -ieq 'uv.exe'){@('tool','run')}else{@()}
           $scratch=Join-Path $env:RUNNER_TEMP ('private-ktrade-graph-'+$env:GITHUB_RUN_ID)
           if(Test-Path -LiteralPath $scratch){throw 'SCRATCH_COLLISION'}
           New-Item -ItemType Directory -Path $scratch|Out-Null
@@ -66,16 +68,16 @@ jobs:
             & git -C $knowledge checkout -B knowledge/source-pinned-graphify-refresh-20261027 FETCH_HEAD *> $log
             if($LASTEXITCODE -ne 0 -or (git -C $knowledge rev-parse HEAD).Trim() -cne $env:KTRADE_KNOWLEDGE_BASE){throw 'KNOWLEDGE_BASE_DRIFT'}
             if(@(git -C $knowledge status --porcelain --untracked-files=all).Count -gt 0){throw 'KNOWLEDGE_NOT_CLEAN'}
-            $version=(& $uvx --from 'graphifyy==0.9.53' graphify --version 2>$log) -join ' '
+            $version=(& $uvx @uvPrefix --from 'graphifyy==0.9.53' graphify --version 2>$log) -join ' '
             if($LASTEXITCODE -ne 0 -or $version -notmatch '0\.9\.53'){throw 'GRAPHIFY_VERSION_DRIFT'}
             Push-Location $source
             try {
-              & $uvx --from 'graphifyy==0.9.53' graphify extract . --code-only --force *> $log
+              & $uvx @uvPrefix --from 'graphifyy==0.9.53' graphify extract . --code-only --force *> $log
               if($LASTEXITCODE -ne 0){throw 'GRAPHIFY_SOURCE_EXTRACTION_FAILED'}
               $original=Join-Path $source 'graphify-out/graph.json'
               if(-not (Test-Path -LiteralPath $original -PathType Leaf)){throw 'SOURCE_GRAPH_MISSING'}
               $newVault=Join-Path $scratch 'generated-vault'
-              & $uvx --from 'graphifyy==0.9.53' graphify export obsidian --graph $original --dir $newVault *> $log
+              & $uvx @uvPrefix --from 'graphifyy==0.9.53' graphify export obsidian --graph $original --dir $newVault *> $log
               if($LASTEXITCODE -ne 0){throw 'OBSIDIAN_EXPORT_FAILED'}
             }finally{Pop-Location}
             $notes=@(Get-ChildItem -LiteralPath $newVault -File -Recurse -Filter '*.md')
