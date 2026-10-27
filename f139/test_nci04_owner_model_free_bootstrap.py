@@ -13,7 +13,8 @@ from f139.nci04_model_owner_publication import ATTEMPT, SUCCESS
 from f139.nci04_owner_model_free_bootstrap import (
     LocalBootstrapDenied, local_proposal_once, original_canonical_db)
 from f139.nci04_owner_ledger import activate_native, admit_native_issue
-from f139.test_nci04_candidate_publisher import FakeOriginalOwner, SOURCE
+from f139.test_nci04_candidate_publisher import FakeOriginalOwner
+from f139.test_nci04_candidate_producer_g29 import BEFORE
 from f139.test_nci04_research_steering import SteeringProvider
 from test_nci04_owner_ledger import LedgerTests, MAIN
 
@@ -26,6 +27,12 @@ class LocalG29OriginalOwnerTests(unittest.TestCase):
         self.fixture = f
         self.db = f.db
         self.assertTrue(activate_native(self.db, f.approval()))
+        # G29's authentic structural requirement includes a class-local
+        # _address method missing from G1's deliberately smaller fixture.
+        # Keep the fake's before SHA and commit assertions aligned exactly.
+        source_patch = patch("f139.test_nci04_candidate_publisher.SOURCE", BEFORE)
+        source_patch.start()
+        self.addCleanup(source_patch.stop)
         self.owner = FakeOriginalOwner()
         self.owner.source = MAIN
         self.steering = SteeringProvider()
@@ -58,7 +65,7 @@ class LocalG29OriginalOwnerTests(unittest.TestCase):
         self.assertEqual([m for m, route in self.owner.write_calls],
                          ["POST", "PUT", "POST"])
         self.assertIn("    def probe_uncertain(", self.owner.head_data.decode())
-        self.assertNotEqual(self.owner.head_data, SOURCE)
+        self.assertNotEqual(self.owner.head_data, BEFORE)
         self.assertEqual(self.owner.pr["draft"], True)
         note = json.loads(self.owner.pr["body"])
         self.assertFalse(note["scientific_first_use"])
