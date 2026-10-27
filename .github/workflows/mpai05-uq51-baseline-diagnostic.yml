@@ -1,0 +1,78 @@
+name: MP-AI05 UQ51 frozen baseline-vs-candidate diagnostic
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths:
+      - '.github/workflows/mpai05-uq51-baseline-diagnostic.yml'
+permissions:
+  contents: read
+jobs:
+  differential:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Compare UQ51 without exposing private test output
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          GIT_CREDENTIAL_INTERACTIVE: 'never'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') {
+            throw 'MPAI05_WRONG_RUNNER'
+          }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai05-diff-' + $env:GITHUB_RUN_ID)
+          $cases = @(
+            @{ label='BASELINE'; branch='main'; sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c'; tree='61b9d1d64755d6e708dd06b797b36cafef1b4105' },
+            @{ label='CANDIDATE'; branch='proposal/mpai05-paired-answer-offline-gate-20261027'; sha='b32c6bc91c27a77fe12ade75b984c94815402cf7'; tree='5fcb6a63ba0cd87d96a7f5ca9ed109c53e9b2204' }
+          )
+          $result = @{}
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            foreach ($c in $cases) {
+              $root = Join-Path $scratch $c.label
+              $log = Join-Path $scratch ('private-' + $c.label + '.log')
+              & git clone --quiet --single-branch --branch $c.branch 'https://github.com/spoonman136668-ai/Mind-Palace.git' $root *> (Join-Path $scratch ('private-clone-' + $c.label + '.log'))
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_DIAGNOSTIC_CLONE_FAILED' }
+              $sha = (& git -C $root rev-parse HEAD).Trim()
+              $tree = (& git -C $root rev-parse 'HEAD^{tree}').Trim()
+              if ($sha -cne $c.sha -or $tree -cne $c.tree) {
+                throw 'MPAI05_DIAGNOSTIC_SOURCE_DRIFT'
+              }
+              & git -C $root merge-base --is-ancestor '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b' HEAD
+              if ($LASTEXITCODE -ne 0) { throw 'MPAI05_DIAGNOSTIC_ANCESTRY_DRIFT' }
+              Push-Location $root
+              try {
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Test-RepoSourceTransaction.ps1 *> $log
+                $code = $LASTEXITCODE
+              } finally { Pop-Location }
+              $raw = [IO.File]::ReadAllText($log)
+              $markers = @([regex]::Matches($raw, '\bUQ(?:51|53|55)_[A-Z0-9_]{3,96}\b') |
+                ForEach-Object { $_.Value } | Select-Object -Unique)
+              $safe = 'NO_ALLOWLISTED_CODE'
+              if ($markers.Count -gt 0) { $safe = $markers[$markers.Count-1] }
+              if ($raw -match 'The property .Count. cannot be found') { $safe = 'POWERSHELL_STRICT_COUNT' }
+              if ($raw -match 'not recognized as the name of') { $safe = 'COMMAND_NOT_FOUND' }
+              if ($raw -match 'merge-base|shallow') {
+                if ($safe -eq 'NO_ALLOWLISTED_CODE') { $safe = 'GIT_HISTORY_CONTRACT' }
+              }
+              $result[$c.label] = @{ exit=$code; reason=$safe }
+              Write-Host ($c.label + '_UQ51_STATUS=' + $(if($code -eq 0){'PASS'}else{'FAIL'}))
+              Write-Host ($c.label + '_UQ51_REASON=' + $safe)
+              $clean = @(& git -C $root status --porcelain --untracked-files=all)
+              if ($LASTEXITCODE -ne 0 -or $clean.Count -gt 0) { throw 'MPAI05_DIAGNOSTIC_CANDIDATE_DIRTY' }
+            }
+            $same = ($result['BASELINE'].exit -eq $result['CANDIDATE'].exit -and
+                     $result['BASELINE'].reason -ceq $result['CANDIDATE'].reason)
+            Write-Host ('MPAI05_UQ51_MATCHES_BASELINE=' + $same.ToString().ToUpperInvariant())
+            Write-Host 'MPAI05_UQ51_DIAGNOSTIC_ONLY=TRUE'
+            Write-Host 'MPAI05_FINAL_REGRESSION=NOT_QUALIFIED'
+            Write-Host 'MPAI05_PRIVATE_LOG_CONTENT_PUBLIC=FALSE'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if (Test-Path -LiteralPath $scratch) {
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
