@@ -1,0 +1,91 @@
+name: MP-AI05 remote-bootstrap exact baseline differential
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-remote-bootstrap-differential.yml']
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 14
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+    steps:
+      - name: Compare original remote bootstrap source against candidate without exporting private logs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+             $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {throw 'MPAI05_WRONG_OWNER_RUNNER'}
+          $cases = @(
+            @{ label='BASELINE'; branch='main'; sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c'; tree='61b9d1d64755d6e708dd06b797b36cafef1b4105' },
+            @{ label='CANDIDATE'; branch='proposal/mpai05-paired-answer-offline-gate-20261027'; sha='b32c6bc91c27a77fe12ade75b984c94815402cf7'; tree='5fcb6a63ba0cd87d96a7f5ca9ed109c53e9b2204' }
+          )
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-remote-' + $env:GITHUB_RUN_ID)
+          $results=@{}
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            foreach($case in $cases) {
+              $root=Join-Path $scratch $case.label
+              $cloneLog=Join-Path $scratch ($case.label+'-clone-private.log')
+              & git clone --quiet --single-branch --branch $case.branch 'https://github.com/spoonman136668-ai/Mind-Palace.git' $root *> $cloneLog
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_PINNED_PRIVATE_CLONE_UNAVAILABLE'}
+              $sha=(& git -C $root rev-parse HEAD).Trim()
+              $tree=(& git -C $root rev-parse 'HEAD^{tree}').Trim()
+              if($sha -cne $case.sha -or $tree -cne $case.tree){throw 'MPAI05_SOURCE_PIN_OR_TREE_DRIFT'}
+              $testBlob=(& git -C $root rev-parse 'HEAD:tests/Test-RemoteBootstrap.ps1').Trim()
+              if($testBlob -cne '0faacb5407a9be41daf049228fa94dd48f71e57f'){throw 'MPAI05_TEST_SOURCE_BLOB_DRIFT'}
+              $log=Join-Path $scratch ($case.label+'-remote-private.log')
+              Push-Location $root
+              try {
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Test-RemoteBootstrap.ps1 *> $log
+                $code=$LASTEXITCODE
+              } finally {Pop-Location}
+              $raw=[IO.File]::ReadAllText($log)
+              $allow=[ordered]@{
+                'CLONE_FAILED'='remote bootstrap test local clone failed'
+                'SOURCE_SHA_DRIFT'='remote bootstrap test source SHA drift'
+                'MISSING_INPUT'='missing remote bridge regression input'
+                'GENERATOR_MISSING_OUTPUT'='remote bridge generator did not create'
+                'SCHEMA_DRIFT'='unexpected remote bootstrap schema'
+                'CATALOG_SCHEMA_DRIFT'='unexpected remote catalog schema'
+                'RECORDS_MISMATCH'='remote index active-record count mismatch'
+                'COUNT_DRIFT'='remote catalog active_record_count mismatch'
+                'DETERMINISM_FAILED'='generation is not deterministic'
+                'INDEX_DETERMINISM_FAILED'='remote index generation is not deterministic'
+                'SCRATCH_CLEANUP_FAILED'='remote bootstrap test scratch cleanup failed'
+                'PASS'='Remote bootstrap bridge regression passed'
+                'SOURCE_INTACT'='MPAI00_REMOTE_TEST_SOURCE_INTACT=PASS'
+              }
+              $hits=@()
+              foreach($v in $allow.GetEnumerator()) {if($raw.Contains([string]$v.Value)){$hits+= [string]$v.Key}}
+              $classes=@()
+              if($raw -match 'filename too long|path too long|File name too long|filename or extension is too long'){$classes+='WINDOWS_PATH'}
+              if($raw -match 'NativeCommandError'){$classes+='NATIVE_COMMAND'}
+              if($raw -match 'Access is denied|UnauthorizedAccess'){$classes+='ACCESS'}
+              if($raw -match 'ParserError|Unexpected token'){$classes+='PARSER'}
+              if($raw -match 'InvalidOperation|MethodInvocation'){$classes+='PS_RUNTIME'}
+              $results[$case.label]=@{status=$code;signals=$hits -join ',';classes=$classes -join ','}
+              Write-Host ($case.label+'_REMOTE_BOOTSTRAP=' + $(if($code -eq 0){'PASS'}else{'FAIL'}))
+              Write-Host ($case.label+'_SIGNALS=' + $(if($hits.Count){$hits -join ','}else{'NONE'}))
+              Write-Host ($case.label+'_ERROR_CLASSES=' + $(if($classes.Count){$classes -join ','}else{'UNCLASSIFIED'}))
+              $clean=@(& git -C $root status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $clean.Count -gt 0){throw 'MPAI05_DIFF_SOURCE_CHECKOUT_MUTATED'}
+            }
+            Write-Host ('MPAI05_BASELINE_CANDIDATE_MATCH=' + (($results.BASELINE.status -eq $results.CANDIDATE.status) -and ($results.BASELINE.signals -ceq $results.CANDIDATE.signals)).ToString().ToUpperInvariant())
+            Write-Host 'MPAI05_REMOTE_BOOTSTRAP_DIAGNOSTIC_ONLY=TRUE'
+            Write-Host 'MPAI05_MODEL_ANSWER_PROOF=NOT_TESTED'
+            Write-Host 'MPAI05_PRIVATE_LOG_CONTENT_EXPORTED=FALSE'
+            Write-Host 'MPAI05_PRODUCTION_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
