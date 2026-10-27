@@ -1,0 +1,48 @@
+name: ITD02 R8 FIT-only full-map dynamics custody
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths: ['.github/workflows/itd02-r8-dynamics-fit-once.yml']
+permissions:
+  contents: read
+jobs:
+  fitted-extra-information-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 655f02c39e10fae2f4b626d8be64238f6ed0d859
+          persist-credentials: false
+      - name: Pin training implementation
+        run: test "$(git rev-parse HEAD)" = 655f02c39e10fae2f4b626d8be64238f6ed0d859
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate original MiniGrid
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/r8-fit-world"
+          mkdir -p "$ROOT"
+          python -m pip install 'numpy==1.26.4' 'gymnasium==1.1.1' 'pygame-ce==2.5.3'
+          git init -q "$ROOT/minigrid"
+          git -C "$ROOT/minigrid" remote add origin https://github.com/Farama-Foundation/Minigrid.git
+          git -C "$ROOT/minigrid" fetch --no-tags --depth 1 origin 7f5853792ea7f04f75614661006d87fcf949f26d
+          git -C "$ROOT/minigrid" checkout -q --detach 7f5853792ea7f04f75614661006d87fcf949f26d
+          test "$(git -C "$ROOT/minigrid" rev-parse HEAD)" = 7f5853792ea7f04f75614661006d87fcf949f26d
+          test "$(git -C "$ROOT/minigrid" hash-object minigrid/envs/empty.py)" = 8810bb0fa156d18475022edd8859b135ef745a5f
+          test "$(git -C "$ROOT/minigrid" hash-object minigrid/envs/fourrooms.py)" = d79f007e00f95f48284da66d760872483c02fab2
+          python -m pip install --no-deps -e "$ROOT/minigrid"
+      - name: FIT only, save dynamics and explicit extra-information provenance
+        run: PYTHONPATH=research/lcrm01 python -B research/lcrm01/itd02_r8_dynamics_fit_only.py
+      - name: Preserve source-only model and receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-fit-full-map-extra-information-control
+          path: |
+            ${{ runner.temp }}/itd02-r8-dynamics-fit/full-map-fit-dynamics.json
+            ${{ runner.temp }}/itd02-r8-dynamics-fit/full-map-fit-receipt.json
+          if-no-files-found: warn
+          retention-days: 45
