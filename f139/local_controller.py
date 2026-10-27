@@ -6,6 +6,8 @@ GitHub protected-ref mutation. The workflow it can call is fixed in source.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import contextlib
 import datetime as dt
 import hashlib
@@ -1650,6 +1652,111 @@ class GitHub:
             return json.loads(p.stdout)
         except (ValueError, UnicodeDecodeError) as exc:
             raise F139Error("F139_G3_WRITE_RESPONSE_AMBIGUOUS_NO_RETRY") from exc
+
+    def owner_model_write(self, method: str, route: str, payload: dict):
+        """Narrow original-owner GitHub transport for source-only model drafts.
+
+        Only the external original SingleOwner-locked publication function may
+        call this. Nothing invokes it in run_once or from GitHub Actions.
+        The original SHA-chained model attempt must be durable before any
+        invocation. A failed or ambiguous API call is never retried.
+        """
+        from f139.nci04_native_contract import REPOS
+        from f139.nci04_model_owner_publication import BRANCH
+        require(type(payload) is dict, "MODEL_WRITE_PAYLOAD_INVALID")
+        lane = None
+        repo = None
+        for candidate, (full, prefixes, suffix) in REPOS.items():
+            stem = "repos/" + full
+            if route.startswith(stem + "/"):
+                lane, repo = candidate, stem
+                break
+        require(lane is not None and repo is not None,
+                "MODEL_WRITE_TARGET_REPOSITORY_FORBIDDEN")
+        indicator = "w" if lane == "Wingless" else "y"
+        def branch_ok(value):
+            return (isinstance(value, str) and
+                    BRANCH.fullmatch(value) is not None and
+                    value.startswith("f139/auto-model-" + indicator + "-"))
+        if method == "POST" and route == repo + "/git/refs":
+            require(set(payload) == {"ref", "sha"}
+                    and isinstance(payload["ref"], str)
+                    and payload["ref"].startswith("refs/heads/")
+                    and branch_ok(payload["ref"][11:])
+                    and isinstance(payload["sha"], str)
+                    and SHA.fullmatch(payload["sha"]) is not None,
+                    "MODEL_REF_WRITE_FORBIDDEN")
+        elif method == "PUT" and route.startswith(repo + "/contents/"):
+            path = route[len(repo + "/contents/"):]
+            prefixes, suffix = REPOS[lane][1:]
+            require(set(payload) == {"message", "content", "sha", "branch"}
+                    and isinstance(path, str)
+                    and path.startswith(prefixes) and path.endswith(suffix)
+                    and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,199}", path)
+                        is not None
+                    and all(x not in ("", ".", "..") and not x.startswith(".")
+                            for x in path.split("/"))
+                    and branch_ok(payload["branch"])
+                    and payload["message"] ==
+                        "F139 MODEL DEV: owner-validated isolated source candidate"
+                    and isinstance(payload["sha"], str)
+                    and SHA.fullmatch(payload["sha"]) is not None
+                    and isinstance(payload["content"], str)
+                    and 0 < len(payload["content"]) <= 50000,
+                    "MODEL_SOURCE_WRITE_FORBIDDEN")
+            try:
+                decoded = base64.b64decode(payload["content"], validate=True)
+                decoded.decode("utf-8", "strict")
+            except (ValueError, UnicodeError, binascii.Error) as exc:
+                raise F139Error("F139_MODEL_SOURCE_ENCODING_FORBIDDEN") from exc
+            require(0 < len(decoded) <= 32768 and b"\x00" not in decoded
+                    and base64.b64encode(decoded).decode("ascii") ==
+                        payload["content"], "MODEL_SOURCE_BYTES_FORBIDDEN")
+        elif method == "POST" and route == repo + "/pulls":
+            require(set(payload) == {"title", "head", "base", "draft", "body"}
+                    and payload["draft"] is True
+                    and payload["base"] == "main"
+                    and branch_ok(payload["head"])
+                    and isinstance(payload["title"], str)
+                    and re.fullmatch(
+                        r"F139 autonomy DEV: bounded " + lane +
+                        r" learning proposal [a-f0-9]{12}", payload["title"])
+                        is not None
+                    and isinstance(payload["body"], str)
+                    and 0 < len(payload["body"].encode("utf-8")) <= 4000,
+                    "MODEL_DRAFT_WRITE_FORBIDDEN")
+            try:
+                note = json.loads(payload["body"])
+            except (ValueError, UnicodeError) as exc:
+                raise F139Error("F139_MODEL_DRAFT_BODY_INVALID") from exc
+            require(type(note) is dict
+                    and note.get("schema") ==
+                        "forge.f139.owner-model-draft-note.v1"
+                    and note.get("scientific_first_use") is False
+                    and note.get("dispatch_authorized") is False
+                    and note.get("independent_scientific_acceptance") is False
+                    and isinstance(note.get("candidate_identity"), str)
+                    and re.fullmatch(r"[a-f0-9]{64}",
+                                     note["candidate_identity"]) is not None
+                    and payload["head"].split("-")[-2] ==
+                        note["candidate_identity"][:20],
+                    "MODEL_DRAFT_AUTHORITY_OR_IDENTITY_DRIFT")
+        else:
+            raise F139Error("F139_MODEL_WRITE_ENDPOINT_FORBIDDEN")
+        require(shutil.which("gh") is not None, "GITHUB_CLI_NOT_INSTALLED")
+        try:
+            result = subprocess.run(
+                ["gh", "api", "--method", method, route, "--input", "-"],
+                input=canonical(payload), stdin=None, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, timeout=40, check=False)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise F139Error("F139_MODEL_WRITE_AMBIGUOUS_NO_RETRY") from exc
+        require(result.returncode == 0 and 0 < len(result.stdout) < 100000,
+                "MODEL_WRITE_AMBIGUOUS_NO_RETRY")
+        try:
+            return json.loads(result.stdout)
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise F139Error("F139_MODEL_WRITE_RESPONSE_AMBIGUOUS_NO_RETRY") from exc
 
     def protected_main(self):
         branch=self.get("repos/"+REPO+"/branches/main")
