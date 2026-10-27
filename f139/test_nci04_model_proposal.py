@@ -1,10 +1,13 @@
 """Proposal data cannot change owner scope or replay retained source."""
 import json
 import unittest
+from unittest.mock import patch
 
-from f139.nci04_model_proposal import ProposalDenied, SCHEMA, validate
+from f139.nci04_model_proposal import ProposalDenied, SCHEMA, build_request, validate
 from f139.nci04_native_contract import digest
 from f139.nci04_proposal_compiler import prepare_proposal
+from f139 import nci04_research_steering as steering
+from f139.test_nci04_research_steering import SteeringProvider
 
 
 class ModelProposalTests(unittest.TestCase):
@@ -76,6 +79,44 @@ class ModelProposalTests(unittest.TestCase):
             validate(raw, **self.args)
         with self.assertRaisesRegex(ProposalDenied, "TARGET_INVALID"):
             self.call(path="scripts/../private.py")
+
+    def test_request_uses_pinned_steering_and_retains_negative_history(self):
+        provider = SteeringProvider()
+        history = [{"candidate_identity": "f" * 64, "outcome": "QUARANTINED",
+                    "summary": "Earlier candidate failed qualification."}]
+        with patch.object(steering, "DOCUMENTS", provider.documents):
+            request = build_request(provider.get, lane=self.args["lane"],
+                                    target_commit=self.args["target_commit"],
+                                    path=self.args["path"], before=self.before,
+                                    before_sha256=self.args["before_sha256"],
+                                    history_sha256=self.args["history_sha256"],
+                                    history=history)
+        self.assertEqual(request["steering_source_commit"], steering.MERGED_STEERING_COMMIT)
+        self.assertEqual(len(request["steering_documents"]), 4)
+        self.assertEqual(request["history"][0]["outcome"], "QUARANTINED")
+        history[0]["outcome"] = "VERIFIED"
+        self.assertEqual(request["history"][0]["outcome"], "QUARANTINED")
+        self.assertFalse(request["model_execution_authorized"])
+        self.assertFalse(request["publication_authorized"])
+        self.assertFalse(request["scientific_first_use"])
+
+    def test_request_rejects_tampered_steering_and_duplicate_history(self):
+        provider = SteeringProvider()
+        args = dict(lane=self.args["lane"], target_commit=self.args["target_commit"],
+                    path=self.args["path"], before=self.before,
+                    before_sha256=self.args["before_sha256"],
+                    history_sha256=self.args["history_sha256"])
+        row = {"candidate_identity": "f" * 64, "outcome": "NEGATIVE", "summary": "Retain"}
+        with patch.object(steering, "DOCUMENTS", provider.documents):
+            with self.assertRaisesRegex(ProposalDenied, "REQUEST_HISTORY_INVALID"):
+                build_request(provider.get, history=[row, row], **args)
+            def tampered(route):
+                value = provider.get(route)
+                if "CORE-NATIVE-INTELLIGENCE.md" in route:
+                    value = dict(value, sha="0" * 40)
+                return value
+            with self.assertRaises(steering.SteeringDenied):
+                build_request(tampered, history=[row], **args)
 
 
 if __name__ == "__main__":

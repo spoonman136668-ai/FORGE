@@ -15,6 +15,7 @@ from typing import Any
 
 from f139.nci04_autonomy_feed import candidate_identity
 from f139.nci04_native_contract import REPOS, canonical, digest
+from f139 import nci04_research_steering as steering
 
 SCHEMA = "forge.f139.model-proposal.v1"
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
@@ -42,6 +43,62 @@ def _unique(pairs: list[tuple[str, Any]]) -> dict:
     return result
 
 
+def build_request(get, *, lane: str, target_commit: str, path: str,
+                  before: bytes, before_sha256: str, history_sha256: str,
+                  history: list[dict]) -> dict:
+    """Build an advisory model input from pinned steering and owner-supplied history.
+
+    The caller still authenticates the Git source and owner ledger. No model is
+    invoked here; the source, history and steering are untrusted prompt data.
+    """
+    need(callable(get) and type(lane) is str and lane in REPOS and isinstance(target_commit, str)
+         and SHA40.fullmatch(target_commit) is not None
+         and isinstance(path, str) and PATH.fullmatch(path) is not None
+         and all(part not in ("", ".", "..") and not part.startswith(".")
+                 for part in path.split("/"))
+         and path.startswith(REPOS[lane][1]) and path.endswith(REPOS[lane][2])
+         and type(before) is bytes and 0 < len(before) <= 32768
+         and isinstance(before_sha256, str) and SHA64.fullmatch(before_sha256)
+         and digest(before) == before_sha256
+         and isinstance(history_sha256, str) and SHA64.fullmatch(history_sha256),
+         "REQUEST_SOURCE_OR_HISTORY_INVALID")
+    need(type(history) is list and len(history) <= 100, "REQUEST_HISTORY_INVALID")
+    seen = set()
+    for item in history:
+        need(type(item) is dict and set(item) == {"candidate_identity", "outcome", "summary"}
+             and isinstance(item["candidate_identity"], str)
+             and SHA64.fullmatch(item["candidate_identity"])
+             and item["candidate_identity"] not in seen
+             and type(item["outcome"]) is str
+             and item["outcome"] in {"VERIFIED", "QUARANTINED", "INDETERMINATE",
+                                     "NEGATIVE", "MIXED", "INVALID", "LIMITATION"}
+             and type(item["summary"]) is str and len(item["summary"]) <= 300
+             and not any(ord(c) < 32 for c in item["summary"]),
+             "REQUEST_HISTORY_INVALID")
+        seen.add(item["candidate_identity"])
+    try:
+        original = before.decode("utf-8", "strict")
+    except UnicodeError as exc:
+        raise ProposalDenied("F139_MODEL_PROPOSAL_REQUEST_SOURCE_INVALID") from exc
+    cache = {}
+    def cached(route):
+        if route not in cache:
+            cache[route] = get(route)
+        return cache[route]
+    guidance = steering.read_approved_steering(cached)
+    documents = {path: steering._read_one(cached, path, blob)
+                 for path, blob in steering.DOCUMENTS}
+    return {"schema": "forge.f139.model-request.v1", "lane": lane,
+            "target_commit": target_commit, "path": path,
+            "before_sha256": before_sha256, "source": original,
+            "history_sha256": history_sha256, "history": [dict(item) for item in history],
+            "steering_source_commit": guidance["source_commit"],
+            "steering_manifest_sha256": guidance["manifest_sha256"],
+            "steering_documents": documents,
+            "scientific_first_use": False, "model_execution_authorized": False,
+            "publication_authorized": False}
+
+
 def validate(raw: bytes, *, lane: str, target_commit: str, path: str,
              before: bytes, before_sha256: str, history_sha256: str,
              consumed_candidates: set[str], consumed_after_hashes: set[str]) -> dict:
@@ -50,7 +107,7 @@ def validate(raw: bytes, *, lane: str, target_commit: str, path: str,
     History, parent and original bytes must come from independently verified
     owner custody. Output cannot select a different file, parent or history.
     """
-    need(lane in REPOS and isinstance(target_commit, str)
+    need(type(lane) is str and lane in REPOS and isinstance(target_commit, str)
          and SHA40.fullmatch(target_commit) is not None
          and isinstance(path, str) and PATH.fullmatch(path) is not None
          and all(part not in ("", ".", "..") and not part.startswith(".")
