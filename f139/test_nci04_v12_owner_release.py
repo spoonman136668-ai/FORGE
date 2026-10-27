@@ -86,6 +86,24 @@ class V12OriginalOwnerTests(unittest.TestCase):
                         validate_v12_original_owner(
                             self.db, {**approved, field:changed})
 
+    def test_one_existing_windows_owner_job_requires_readonly_and_no_replay(self):
+        from pathlib import Path
+        workflow=(Path(__file__).resolve().parent.parent/
+                  ".github/workflows/f139-g54-v9-owner-cutover.yml").read_text()
+        self.assertEqual(workflow.count("  v12-owner-readonly:\n"), 1)
+        self.assertEqual(workflow.count("  cutover-v12:\n"), 1)
+        self.assertIn("F139-V12-PREFLIGHT ", workflow)
+        self.assertIn("F139-V12-OWNER-CUTOVER ", workflow)
+        self.assertIn("F139_V12_IMMUTABLE_RELEASE_REF_NOT_QUALIFIED", workflow)
+        self.assertIn("F139_V12_ORIGINAL_G54_G3_AND_996_CUSTODY=PASS", workflow)
+        self.assertIn("transition-qualified-native-v12 --approval", workflow)
+        self.assertIn("FORGE-CODEX-REMOTE", workflow)
+        self.assertIn("F139_V12_ORIGINAL_OWNER_NOT_QUIESCENT", workflow)
+        self.assertIn("F139_V12_PARTIAL_CUSTODY_EXISTING_TASK_HELD_DISABLED", workflow)
+        self.assertIn("F139_V12_SCIENTIFIC_FIRST_USE=FALSE", workflow)
+        self.assertIn("F139_V12_PAID_API_CALLS=0", workflow)
+        self.assertIn(SOURCE_V11, workflow)
+
     def test_stale_fields_and_noncanonical_owner_denied(self):
         approved=self.approval()
         with self.assertRaisesRegex(V12OwnerDenied,"CANONICAL_ORIGINAL"):
