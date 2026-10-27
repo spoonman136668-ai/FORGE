@@ -65,31 +65,11 @@ jobs:
               $phase = 'full'
               & powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Test-All.ps1 *> (Join-Path $scratch 'private-full.log')
               if ($LASTEXITCODE -ne 0) {
-                $failureLog = Get-Content -LiteralPath (Join-Path $scratch 'private-full.log') -ErrorAction SilentlyContinue
-                $runTests = @($failureLog | Where-Object { $_ -match '^RUN Test-[a-zA-Z0-9_-]+\.ps1\s*
-              Write-Host 'MPAI05_FINAL_WINDOWS_REGRESSION=PASS'
-            } finally {
-              Pop-Location
-            }
-            $clean = @(& git -C $source status --porcelain --untracked-files=all)
-            if ($LASTEXITCODE -ne 0 -or $clean.Count -gt 0) { throw 'MPAI05_WORKSPACE_DIRTY_POST' }
-            Write-Host 'MPAI05_SOURCE_CUSTODY=PASS'
-            Write-Host 'MPAI05_MODEL_ANSWER_IMPACT=NOT_TESTED'
-            Write-Host 'MPAI05_PRIVATE_DATA_IN_PUBLIC_LOGS=FALSE'
-            Write-Host 'MPAI05_PROMOTION=NOT_AUTHORIZED'
-          } catch {
-            Write-Host ('MPAI05_QUALIFICATION_PHASE=' + $phase)
-            throw 'MPAI05_QUALIFICATION_NOT_PASSED'
-          } finally {
-            Set-Location $env:RUNNER_TEMP
-            if (Test-Path -LiteralPath $scratch) {
-              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
-            }
-          }
- })
+                $failureLog = @(Get-Content -LiteralPath (Join-Path $scratch 'private-full.log') -ErrorAction SilentlyContinue)
+                $runTests = @($failureLog | Where-Object { $_ -match '^RUN Test-[A-Za-z0-9_-]+\.ps1\s*$' })
                 $safeLast = 'NONE'
                 if ($runTests.Count -gt 0) {
-                  $safeLast = ([string]$runTests[$runTests.Count-1]).Trim().Substring(4)
+                  $safeLast = ([string]$runTests[$runTests.Count - 1]).Trim().Substring(4)
                 }
                 Write-Host ('MPAI05_FULL_TEST_START_COUNT=' + $runTests.Count)
                 Write-Host ('MPAI05_FULL_LAST_TEST=' + $safeLast)
