@@ -10,20 +10,45 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 3
     steps:
-      - name: Synthetic status records only
+      - name: Synthetic 14-marker validation and fail-closed cases
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'WRONG_RUNNER'}
-          $items=@('ONE=1','TWO=2','THREE=SUCCESS')
-          foreach($sep in @([string][char]10,([string][char]13+[string][char]10))){
-            $raw=$items -join $sep
-            $count=0
-            foreach($line in @($raw -split '\r?\n')){
-              if($line -cmatch '^[A-Z]+=[A-Za-z0-9_]+$'){$count++}
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'WRONG_RUNNER'}
+          function Read-SyntheticMarker {
+            param([string]$Content,[string]$Name)
+            $expr='^'+[regex]::Escape($Name)+'=([A-Za-z0-9_]+)$'
+            $found=@()
+            foreach($line in @($Content -split '\r?\n')) {
+              if($line -cmatch $expr){$found+= $Matches[1]}
             }
-            if($count -ne 3){throw 'SYNTHETIC_LINE_PARSER_FAILED'}
+            if($found.Count -ne 1){throw 'MISSING_OR_DUPLICATE'}
+            return [string]$found[0]
           }
-          Write-Host 'MPAI05_SYNTHETIC_CRLF_LF=PASS'
-          Write-Host 'MPAI05_SYNTHETIC_CASES=3'
+          $keys=@('PUBLIC_MODEL_PIN','LOCAL_MODEL_CALLS','COMPLETE_PAIRS',
+            'DIFFERENT_ANSWERS','LEGACY_NONEMPTY','TIERED_NONEMPTY',
+            'LEGACY_TOKENS_OUT','TIERED_TOKENS_OUT','LEGACY_LATENCY_MS_TOTAL',
+            'TIERED_LATENCY_MS_TOTAL','INDEPENDENT_BLIND_GRADING',
+            'INDEPENDENT_CUSTODY','SCIENTIFIC_ADMISSION','PRIVATE_CONTENT_NETWORK_EXPORT')
+          $synthetic=@($keys | ForEach-Object { 'MPAI05_PILOT_'+$_+'=VALUE_7' })
+          foreach($sep in @([string][char]10,([string][char]13+[string][char]10))){
+            $raw=($synthetic -join $sep)+$sep
+            foreach($name in $keys){
+              $value=Read-SyntheticMarker -Content $raw -Name ('MPAI05_PILOT_'+$name)
+              if($value -cne 'VALUE_7'){throw 'FIXTURE_VALUE_MISMATCH'}
+            }
+          }
+          $missing=$false
+          try{Read-SyntheticMarker -Content 'UNRELATED=7' -Name 'MPAI05_PILOT_COMPLETE_PAIRS' | Out-Null}catch{$missing=$true}
+          $duplicate=$false
+          $twice=@('MPAI05_PILOT_COMPLETE_PAIRS=8','MPAI05_PILOT_COMPLETE_PAIRS=8') -join ([string][char]10)
+          try{Read-SyntheticMarker -Content $twice -Name 'MPAI05_PILOT_COMPLETE_PAIRS' | Out-Null}catch{$duplicate=$true}
+          $bad=$false
+          try{Read-SyntheticMarker -Content 'MPAI05_PILOT_COMPLETE_PAIRS=8 extra' -Name 'MPAI05_PILOT_COMPLETE_PAIRS' | Out-Null}catch{$bad=$true}
+          if(-not ($missing -and $duplicate -and $bad)){throw 'FAIL_CLOSED_NEGATIVE_FAILURE'}
+          Write-Host 'MPAI05_MARKER_FIXTURE=14_OF_14_PASS'
+          Write-Host 'MPAI05_MARKER_CRLF_AND_LF=PASS'
+          Write-Host 'MPAI05_MARKER_MISSING_DUPLICATE_MALFORMED=REJECTED'
           Write-Host 'MPAI05_MODEL_CALLS=0'
+          Write-Host 'MPAI05_REAL_HOLDOUT_READ=FALSE'
