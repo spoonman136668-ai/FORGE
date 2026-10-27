@@ -55,7 +55,7 @@ class OriginalV14TransitionTests(unittest.TestCase):
             'if event.get("schema")=="forge.f139.source-transition.v14":',
             'event.get("v13_terminal_event_sha256")==v13_rows[0]["sha"]',
             'verify_g49_custody(db)',
-            'v7 or v8 or v9 or v10 or v11 or v13 or v14',
+            'v7 or v8 or v9 or v10 or v11 or v12 or v13 or v14',
             'event.get("v2_receipt_authorized") is False',
             'verify_native_activation(db)',
         ):
