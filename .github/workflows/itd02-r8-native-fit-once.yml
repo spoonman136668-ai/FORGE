@@ -1,0 +1,45 @@
+name: ITD02 R8 pinned native FIT-only cold snapshot
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths:
+      - '.github/workflows/itd02-r8-native-fit-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: itd02-r8-native-fit-custody-only
+  cancel-in-progress: false
+jobs:
+  native-original-fit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: e24b59c4ec5fcef00f51ffe235821c0dc05ba38f
+          persist-credentials: false
+      - name: Verify frozen native FIT runner source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = e24b59c4ec5fcef00f51ffe235821c0dc05ba38f
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Original FIT learning and cold restore only
+        shell: bash
+        run: bash research/lcrm01/itd02_r8_native_fit_ci.sh
+      - name: Preserve real native snapshot and custody receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-native-original-fit-snapshot
+          path: |
+            ${{ runner.temp }}/itd02-r8-native-fit/r8-native-fit-snapshot.bin
+            ${{ runner.temp }}/itd02-r8-native-fit/native-fit-receipt.json
+          if-no-files-found: warn
+          retention-days: 45

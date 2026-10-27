@@ -1,0 +1,27 @@
+name: ITD02 R8 pinned native bridge focused qualification
+on:
+  workflow_dispatch:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+permissions:
+  contents: read
+jobs:
+  pinned-r8-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: FIT-only original MiniGrid qualification (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: bash research/lcrm01/itd02_r8_fit_only_ci.sh
+      - name: Focused pinned original R8 native Go and IPC checks only
+        run: bash research/lcrm01/itd02_r8_bridge_ci.sh

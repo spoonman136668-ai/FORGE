@@ -1,0 +1,71 @@
+name: ITD02 R8 and R5 paired native trained checkpoint fixture
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths: ['.github/workflows/itd02-r8-paired-native-once.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  paired-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 237c529f866b81ae501f5934044bb5e0ddf4ff0d
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Compile both frozen original Go bridge sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/native-pair"
+          mkdir -p "$ROOT"
+          for pair in 'r5 978825064dd6076058a1a38ae1a9a3d80e28d99e' 'r8 9061b256b9d68e4d83b3a10e51fb8b7ef365259f'; do
+            read -r model rev <<< "$pair"
+            git init -q "$ROOT/$model"
+            git -C "$ROOT/$model" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+            git -C "$ROOT/$model" fetch --no-tags --depth 1 origin "$rev"
+            git -C "$ROOT/$model" checkout -q --detach "$rev"
+            test "$(git -C "$ROOT/$model" rev-parse HEAD)" = "$rev"
+          done
+          test "$(git -C "$ROOT/r5" hash-object research/native/itd02/r5/cost_frontier.go)" = 239a5f2ab6d122b10cd5c7cc9388d154929b9888
+          test "$(git -C "$ROOT/r8" hash-object research/native/itd02/r8/online_beliefs.go)" = 6857ecbef2d63f459a432a5d68c7edda2b5347c4
+          cp research/lcrm01/itd02_r8_original_r5_bridge.go "$ROOT/r5/bridge.go"
+          cp research/lcrm01/itd02_r8_wingless_bridge.go "$ROOT/r8/bridge.go"
+          (cd "$ROOT/r5" && go build -trimpath -o "$ROOT/r5-bridge" bridge.go)
+          (cd "$ROOT/r8" && go build -trimpath -o "$ROOT/r8-bridge" bridge.go)
+      - name: Retrieve exact native FIT evidence for both methods
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in 'r5 12720833666' 'r8 12718181141'; do
+            read -r model artifact <<< "$pair"
+            curl --fail --silent --show-error --location --retry 3 --max-time 90 \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/$artifact/zip" \
+              -o "$RUNNER_TEMP/native-pair/$model.zip"
+          done
+      - name: Assert independent native selected-action custody on same fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ITD02_R5_BRIDGE="$RUNNER_TEMP/native-pair/r5-bridge"
+          export ITD02_R8_BRIDGE="$RUNNER_TEMP/native-pair/r8-bridge"
+          PYTHONPATH=research/lcrm01 python -B research/lcrm01/itd02_r8_paired_native_preflight.py \
+            "$RUNNER_TEMP/native-pair/r5.zip" "$RUNNER_TEMP/native-pair/r8.zip" | tee "$RUNNER_TEMP/native-pair/paired-receipt.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-r5-paired-native-fixture
+          path: ${{ runner.temp }}/native-pair/paired-receipt.json
+          if-no-files-found: error
+          retention-days: 45

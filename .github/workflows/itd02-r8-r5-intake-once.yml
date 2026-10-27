@@ -1,0 +1,62 @@
+name: ITD02 R8 matched native R5 independent snapshot intake
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths: ['.github/workflows/itd02-r8-r5-intake-once.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-r5-fit-intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 05b0b85c033b54dc782ea876ccbdcc21c3bf955b
+          persist-credentials: false
+      - name: Pin exact independent intake implementation
+        run: test "$(git rev-parse HEAD)" = 05b0b85c033b54dc782ea876ccbdcc21c3bf955b
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Compile original pinned R5 bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/r5-intake"
+          mkdir -p "$ROOT"
+          git init -q "$ROOT/wingless"
+          git -C "$ROOT/wingless" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+          git -C "$ROOT/wingless" fetch --no-tags --depth 1 origin 978825064dd6076058a1a38ae1a9a3d80e28d99e
+          git -C "$ROOT/wingless" checkout -q --detach 978825064dd6076058a1a38ae1a9a3d80e28d99e
+          test "$(git -C "$ROOT/wingless" rev-parse HEAD)" = 978825064dd6076058a1a38ae1a9a3d80e28d99e
+          test "$(git -C "$ROOT/wingless" hash-object research/native/itd02/r5/cost_frontier.go)" = 239a5f2ab6d122b10cd5c7cc9388d154929b9888
+          cp research/lcrm01/itd02_r8_original_r5_bridge.go "$ROOT/wingless/r5_ipc.go"
+          (cd "$ROOT/wingless" && go build -trimpath -o "$ROOT/r5-native-bridge" r5_ipc.go)
+      - name: Retrieve exact matched R5 FIT artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12720833666/zip \
+            -o "$RUNNER_TEMP/r5-matched-original-fit.zip"
+      - name: Independent checkpoint cold restore without evaluation
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ITD02_R5_BRIDGE="$RUNNER_TEMP/r5-intake/r5-native-bridge"
+          PYTHONPATH=research/lcrm01 python -B research/lcrm01/itd02_r8_r5_native_fit_intake.py "$RUNNER_TEMP/r5-matched-original-fit.zip" | tee "$RUNNER_TEMP/r5-independent-intake.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-r5-native-fit-independent-intake
+          path: ${{ runner.temp }}/r5-independent-intake.json
+          if-no-files-found: error
+          retention-days: 45

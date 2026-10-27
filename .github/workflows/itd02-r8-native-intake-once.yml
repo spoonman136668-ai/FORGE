@@ -1,0 +1,60 @@
+name: ITD02 R8 native FIT independent cold-intake qualification
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths: ['.github/workflows/itd02-r8-native-intake-once.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native-cold-intake:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: c1ff13ecfb2459657fd047b77f6396e36639b722
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build exact pinned Wingless native bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/r8-native-intake"
+          mkdir -p "$ROOT"
+          git init -q "$ROOT/wingless"
+          git -C "$ROOT/wingless" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+          git -C "$ROOT/wingless" fetch --no-tags --depth 1 origin 9061b256b9d68e4d83b3a10e51fb8b7ef365259f
+          git -C "$ROOT/wingless" checkout -q --detach 9061b256b9d68e4d83b3a10e51fb8b7ef365259f
+          test "$(git -C "$ROOT/wingless" rev-parse HEAD)" = 9061b256b9d68e4d83b3a10e51fb8b7ef365259f
+          test "$(git -C "$ROOT/wingless" hash-object research/native/itd02/r8/online_beliefs.go)" = 6857ecbef2d63f459a432a5d68c7edda2b5347c4
+          cp research/lcrm01/itd02_r8_wingless_bridge.go "$ROOT/wingless/itd02_r8_bridge.go"
+          (cd "$ROOT/wingless" && go build -trimpath -o "$ROOT/wingless-r8" itd02_r8_bridge.go)
+      - name: Retrieve exact original FIT artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 3 --max-time 120 \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/spoonman136668-ai/FORGE/actions/artifacts/12718181141/zip \
+            -o "$RUNNER_TEMP/r8-native-original-fit.zip"
+      - name: Independently restore native learning snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ITD02_R8_BRIDGE="$RUNNER_TEMP/r8-native-intake/wingless-r8"
+          PYTHONPATH=research/lcrm01 python -B research/lcrm01/itd02_r8_native_fit_intake.py "$RUNNER_TEMP/r8-native-original-fit.zip" | tee "$RUNNER_TEMP/r8-native-intake.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-native-fit-independent-intake
+          path: ${{ runner.temp }}/r8-native-intake.json
+          if-no-files-found: error
+          retention-days: 45

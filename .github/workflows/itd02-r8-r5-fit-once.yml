@@ -1,0 +1,40 @@
+name: ITD02 R8 matched native R5 FIT-only snapshot
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths: ['.github/workflows/itd02-r8-r5-fit-once.yml']
+permissions:
+  contents: read
+concurrency:
+  group: itd02-r8-r5-matched-fit-only
+  cancel-in-progress: false
+jobs:
+  matched-r5-native-fit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 786bc22b888602a87b1e4183777cdd220caec089
+          persist-credentials: false
+      - name: Verify exact runner identity
+        run: test "$(git rev-parse HEAD)" = 786bc22b888602a87b1e4183777cdd220caec089
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - name: Train native R5 on original matched FIT only
+        run: bash research/lcrm01/itd02_r8_r5_matched_fit_ci.sh
+      - name: Retain R5 native snapshot and receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-r5-matched-native-fit
+          path: |
+            ${{ runner.temp }}/itd02-r8-r5-fit/r5-native-fit-snapshot.bin
+            ${{ runner.temp }}/itd02-r8-r5-fit/r5-native-fit-receipt.json
+          if-no-files-found: warn
+          retention-days: 45

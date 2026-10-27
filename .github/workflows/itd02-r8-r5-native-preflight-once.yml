@@ -1,0 +1,61 @@
+name: ITD02 pinned R5 native source and IPC preflight
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths: ['.github/workflows/itd02-r8-r5-native-preflight-once.yml']
+permissions:
+  contents: read
+jobs:
+  pinned-original-r5:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cf7a144e21612dcdb0b243261e0db3a50a7fef79
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.5'
+          cache: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify pinned original R5 Go and build native IPC
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/r5-native-source"
+          mkdir -p "$ROOT"
+          git init -q "$ROOT/wingless"
+          git -C "$ROOT/wingless" remote add origin https://github.com/spoonman136668-ai/Wingless.git
+          git -C "$ROOT/wingless" fetch --no-tags --depth 1 origin 978825064dd6076058a1a38ae1a9a3d80e28d99e
+          git -C "$ROOT/wingless" checkout -q --detach 978825064dd6076058a1a38ae1a9a3d80e28d99e
+          test "$(git -C "$ROOT/wingless" rev-parse HEAD)" = 978825064dd6076058a1a38ae1a9a3d80e28d99e
+          test "$(git -C "$ROOT/wingless" hash-object research/native/itd02/r5/cost_frontier.go)" = 239a5f2ab6d122b10cd5c7cc9388d154929b9888
+          (cd "$ROOT/wingless" && go test -count=1 ./research/native/itd02/r5 && go vet ./research/native/itd02/r5)
+          cp research/lcrm01/itd02_r8_original_r5_bridge.go "$ROOT/wingless/r5_ipc.go"
+          (cd "$ROOT/wingless" && go build -trimpath -o "$ROOT/r5-native-bridge" r5_ipc.go)
+          R5_BRIDGE="$ROOT/r5-native-bridge" python3 - <<'PY'
+          import json,os,subprocess
+          p=subprocess.Popen([os.environ["R5_BRIDGE"]],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+          def ask(op,**fields):
+              p.stdin.write(json.dumps({"op":op,**fields})+"\n")
+              p.stdin.flush()
+              x=json.loads(p.stdout.readline())
+              if not x.get("ok"):raise ValueError(x)
+              return x
+          s={"x":3,"y":3,"goal_x":6,"goal_y":6,"direction":0,"front_blocked":False}
+          ask("episode_start")
+          action=ask("choose",before=s)["action"]
+          assert action in (0,1,2)
+          after=dict(s)
+          if action==0:after["direction"]=3
+          elif action==1:after["direction"]=1
+          assert ask("feedback",before=s,action=action,after=after)["steps"]==1
+          snap=ask("snapshot")["state"]
+          assert snap and ask("load",state=snap)["ok"]
+          ask("quit")
+          p.communicate(timeout=5)
+          assert p.returncode==0
+          print("R8_R5_NATIVE_PIN_AND_IPC=PASS;HELDOUT_EPISODES=0")
+          PY
