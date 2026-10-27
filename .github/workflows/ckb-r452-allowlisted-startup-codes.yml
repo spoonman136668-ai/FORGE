@@ -1,0 +1,64 @@
+name: CKB R452 source-grounded startup error code identification
+on:
+  push:
+    branches: [audit/ckb-r452-error-code-match-20261027]
+permissions:
+  contents: read
+jobs:
+  original-owner-code-match:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 5
+    steps:
+      - name: Match retained R450 stderr only against original-controller known startup codes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R452_WRONG_WINDOWS_OWNER'}
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($ps.Count -ne 1 -or $ps[0].ProcessId -ne 80088 -or [string]$ps[0].ExecutablePath -cne $old -or $t.Count -ne 1 -or [string]$t[0].State -cne 'Running'){throw 'R452_ORIGINAL_CONTROLLER_NOT_PRESERVED'}
+          $path='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R449-40545412788\native-stderr.txt'
+          if((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() -cne '5e741b04738e482cd4c286436606484f68fa2d5486b86e14fbbe66c0c9c391a2'){throw 'R452_CUSTODIED_STDERR_CHANGED'}
+          $raw=[IO.File]::ReadAllBytes($path)
+          if($raw.Length -ne 1040 -or $raw[0] -ne 255 -or $raw[1] -ne 254){throw 'R452_STDERR_ENCODING_DRIFT'}
+          $s=[Text.Encoding]::Unicode.GetString($raw).TrimStart([char]0xFEFF)
+          $codes=@(
+            'LEGACY_SERVICE_LOCK_PRESENT',
+            'SERVICE_LOCKED',
+            'CONTROLLER_PID_LIVE_OR_UNVERIFIED',
+            'RECOVERY_WAITING_FOR_SUPERVISOR',
+            'CONTROLLER_INTERRUPTED',
+            'CONFIG_INVALID',
+            'AUTONOMY_CONFIG_REQUIRED',
+            'AUTONOMY_NOT_CONFIGURED',
+            'SERVICE_NOT_RUNNING',
+            'CONTROLLER_NOT_RUNNING',
+            'CONTROLLER_LOCKED_OR_UNAVAILABLE',
+            'TOKEN_MISSING',
+            'SOURCE_AUTHORITY_UNAVAILABLE',
+            'AUTHORITY_NOT_PLANE',
+            'INVARIANT_VIOLATION'
+          )
+          $matches=@()
+          foreach($code in $codes){
+            if([regex]::IsMatch($s,'(?<![A-Za-z0-9_])'+[regex]::Escape($code)+'(?![A-Za-z0-9_])',[Text.RegularExpressions.RegexOptions]::IgnoreCase)){
+              $matches+=($code)
+            }
+          }
+          Write-Output ('R452_KNOWN_STARTUP_CODE_MATCH_COUNT='+$matches.Count)
+          foreach($code in $matches){Write-Output ('R452_MATCHED_SOURCE_ERROR_CODE='+$code)}
+          $checks=[ordered]@{
+            OS_ACCESS_DENIED=($s -match '(?i)access is denied|permission denied')
+            OS_FILE_ALREADY_USED=($s -match '(?i)being used by another process')
+            OS_BIND_IN_USE=($s -match '(?i)only one usage of each socket|address already in use')
+            GO_ERROR_WRAP=($s -match '(?i)\.exe\s*:')
+            GO_STATE_ROOT=($s -match '(?i)state root')
+            STARTUP_PID=($s -match '(?i)pid')
+            WRAPPER_REMOTE_EXCEPTION=($s -match 'RemoteException')
+            POWERSHELL_SOURCE_TRACE=($s -match '(?i)At [A-Z]:\\')
+          }
+          foreach($key in $checks.Keys){Write-Output ('R452_INDICATOR_'+$key+'='+[string]$checks[$key])}
+          Write-Output 'R452_NO_RAW_EXIT_MESSAGE_OR_PID_EXPORTED=TRUE'
+          Write-Output 'R452_NO_CONTROLLER_ACTION_OR_DB_EDIT=TRUE'
