@@ -1,0 +1,59 @@
+name: MP-AI05 blind grader private synthetic qualification
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-blind-grader-source-tests.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-blind-grader-source-tests
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Exact source and synthetic-only blind review tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'MPAI05_WRONG_RUNNER'}
+          $temp=Join-Path $env:RUNNER_TEMP ('mpai05-blind-source-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $temp 'source'
+          try {
+            New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai05-blind-grader-boundary-20261027 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> (Join-Path $temp 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_PRIVATE_CLONE_FAILED'}
+            if((& git -C $source rev-parse HEAD).Trim() -cne '6778dabf199ac7d43b903dad21051d50cdc864bc'){throw 'MPAI05_EXACT_SOURCE_MISMATCH'}
+            if((& git -C $source rev-parse 'HEAD^{tree}').Trim() -cne '05c5cd8fa083341be738c9d52b1bb3dcc512acf3'){throw 'MPAI05_EXACT_TREE_MISMATCH'}
+            $log=Join-Path $temp 'synthetic-private.log'
+            Push-Location $source
+            try {
+              & python -B -m unittest discover -s tests -p test_mpai05_blind_grader.py -v *> $log
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_BLIND_TESTS_FAILED'}
+            } finally {Pop-Location}
+            $txt=[IO.File]::ReadAllText($log)
+            $count=[regex]::Match($txt,'Ran ([0-9]{1,2}) tests? in')
+            if(-not $count.Success -or [int]$count.Groups[1].Value -ne 22 -or $txt -notmatch '(?m)^OK\s*$'){throw 'MPAI05_BLIND_TEST_COUNT_NOT_22_PASS'}
+            if(@(& git -C $source status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI05_SOURCE_MUTATION'}
+            Write-Host 'MPAI05_BLIND_GRADER_SYNTHETIC_TESTS=22_PASS'
+            Write-Host 'MPAI05_BLIND_GRADER_SOURCE_SHA_TREE=PASS'
+            Write-Host 'MPAI05_BLIND_GRADER_SOURCE_WORKTREE=CLEAN'
+            Write-Host 'MPAI05_BLIND_GRADER_REAL_HOLDOUT=NOT_READ'
+            Write-Host 'MPAI05_BLIND_GRADER_REAL_INDEPENDENT_GRADER=NOT_PROVISIONED'
+            Write-Host 'MPAI05_BLIND_GRADER_REAL_FIRST_USE_CUSTODY=NOT_AUTHENTICATED'
+            Write-Host 'MPAI05_BLIND_GRADER_MODEL_CALLS=0'
+            Write-Host 'MPAI05_BLIND_GRADER_SCIENCE_ADMISSION=FALSE'
+          }finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+          }
