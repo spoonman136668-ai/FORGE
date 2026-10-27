@@ -1,0 +1,71 @@
+name: MP-AI05 independent roots and custody source verification
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-independent-roots-source-qualification.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-trust-root-source-validation
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 22
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Exact PR133 synthetic trust-root tests and original full Windows regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI05_WRONG_OWNER_RUNNER'}
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-trust-source-'+$env:GITHUB_RUN_ID)
+          $repo=Join-Path $scratch 'source'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $clog=Join-Path $scratch 'clone-private.log'
+            & git clone --quiet --single-branch --branch proposal/mpai05-independent-trust-roots-20261026 'https://github.com/spoonman136668-ai/Mind-Palace.git' $repo *> $clog
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_SOURCE_BRANCH_CLONE_NOT_AVAILABLE'}
+            if((& git -C $repo rev-parse HEAD).Trim() -cne '2f8d62da0ce700a98ea013fb240e77409039e132'){throw 'MPAI05_SOURCE_SHA_DRIFT'}
+            if((& git -C $repo rev-parse 'HEAD^{tree}').Trim() -cne '9b27947cf5e5d7761eb60f366eafe9ab0dd9e4a8'){throw 'MPAI05_SOURCE_TREE_DRIFT'}
+            $units=Join-Path $scratch 'unit-private.log'
+            $regression=Join-Path $scratch 'windows-private.log'
+            Push-Location $repo
+            try {
+              & python -B -m unittest discover -s tests -p test_mpai05_runtime_receipt.py -v *> $units
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_TRUST_ROOT_UNIT_TEST_FAILURE'}
+              $unitText=[IO.File]::ReadAllText($units)
+              $n=[regex]::Match($unitText,'Ran ([0-9]{1,2}) tests? in')
+              if(-not $n.Success -or [int]$n.Groups[1].Value -ne 25 -or $unitText -notmatch '(?m)^OK\s*$'){throw 'MPAI05_UNIT_COUNT_OR_TERMINAL_FAILURE'}
+              Write-Host 'MPAI05_TRUST_ROOT_SYNTHETIC_TESTS=25_PASS'
+              & pwsh.exe -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $regression
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_ORIGINAL_FULL_WINDOWS_REGRESSION_FAILED'}
+              $regText=[IO.File]::ReadAllText($regression)
+              if(-not $regText.Contains('Mind-Palace regression suite passed')){throw 'MPAI05_FULL_REGRESSION_TERMINAL_MARKER_MISSING'}
+              Write-Host 'MPAI05_TRUST_ROOT_FULL_WINDOWS_REGRESSION=PASS'
+            } finally {
+              Pop-Location
+            }
+            if((& git -C $repo rev-parse HEAD).Trim() -cne '2f8d62da0ce700a98ea013fb240e77409039e132'){throw 'MPAI05_SOURCE_DRIFT_POST_TEST'}
+            $dirty=@(& git -C $repo status --porcelain --untracked-files=all)
+            if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_SOURCE_WORKTREE_MUTATED'}
+            Write-Host 'MPAI05_TRUST_ROOT_SOURCE_CUSTODY=PASS'
+            Write-Host 'MPAI05_REAL_PROVIDER_TRUST_STORE=NOT_PROVISIONED'
+            Write-Host 'MPAI05_INDEPENDENT_CUSTODY_TRUST_STORE=NOT_PROVISIONED'
+            Write-Host 'MPAI05_REAL_FIRST_USE_HOLDOUT=NOT_AUTHENTICATED'
+            Write-Host 'MPAI05_SYNTHETIC_TEST_VERIFIER_IS_NOT_AUTHORITY=TRUE'
+            Write-Host 'MPAI05_PRIVATE_HOLDOUTS_READ=FALSE'
+            Write-Host 'MPAI05_MODEL_CALLS=0'
+            Write-Host 'MPAI05_PRODUCTION_AND_ICE_WRITES=0'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
