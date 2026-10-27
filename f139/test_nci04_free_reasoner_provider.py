@@ -61,6 +61,32 @@ class FreeReasonerSourceOnlyTests(unittest.TestCase):
                     "sha": blob}
         raise AssertionError("Unrecognized public Git route: " + route)
 
+    def test_caller_cannot_smuggle_private_data_into_public_packet(self):
+        p = public_packet(self.request, public_source_verified=True)
+        for change in (
+            {**p, "private_mind_palace": "SECRET"},
+            {**p, "objective": "PRIVATE_OWNER_NOTES"},
+            {**p, "controls": "PRIVATE_OWNER_NOTES"},
+        ):
+            with self.subTest(keys=set(change)):
+                with self.assertRaisesRegex(FreeReasonerDenied,
+                                            "PUBLIC_PACKET_INVALID"):
+                    infer_free_once(
+                        change, token="dummy",
+                        transport=lambda body, token:
+                            self.fail("NO PRIVATE MODEL UPLOAD"),
+                        public_reader=self.public_reader)
+        private_history = {**p, "recent_candidate_outcomes": [
+            {"candidate_identity":"e"*64,
+             "outcome":"VERIFIED","notes":"PRIVATE_LEDGER"}]}
+        with self.assertRaisesRegex(FreeReasonerDenied,
+                                    "PUBLIC_HISTORY_ITEM_INVALID"):
+            infer_free_once(
+                private_history, token="dummy",
+                transport=lambda body, token:
+                    self.fail("NO PRIVATE MODEL UPLOAD"),
+                public_reader=self.public_reader)
+
     def test_anonymous_public_git_proof_precedes_remote_post(self):
         p = public_packet(self.request, public_source_verified=True)
         called = []
