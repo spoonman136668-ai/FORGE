@@ -517,14 +517,20 @@ class Database:
                               "custodied_negative_tasks", "custodied_negative_tickets",
                               "provider_failures_sha256", "v9_terminal_event_sha256",
                               "v2_receipt_authorized"})
-                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10,
+                is_v11 = (isinstance(doc, dict)
+                          and doc.get("schema") == "forge.f139.source-transition.v11"
+                          and set(doc) == base_fields | {
+                              "custodied_negative_tasks", "custodied_negative_tickets",
+                              "provider_failures_sha256", "v10_terminal_event_sha256",
+                              "g54_ambiguous_start_event_sha256", "v2_receipt_authorized"})
+                require(is_v1 or is_v2 or is_v3 or is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11,
                         "SOURCE_TRANSITION_EVENT_FIELDS")
                 require((is_v1
                          or is_v2 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 1
                          or is_v3 and type(doc["custodied_negative_tasks"]) is int
                          and doc["custodied_negative_tasks"] == 2
-                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10)
+                         or (is_v4 or is_v5 or is_v6 or is_v7 or is_v8 or is_v9 or is_v10 or is_v11)
                          and type(doc["custodied_negative_tasks"]) is int
                          and 3 <= doc["custodied_negative_tasks"] <= 100)
                         and isinstance(doc["from_source_sha"], str)
@@ -746,6 +752,50 @@ class Database:
                                             "event_sha": provider_failures[ticket][1]}
                                            for ticket in sorted(provider_failures)])),
                             "SOURCE_TRANSITION_V10_ORIGINAL_CUSTODY_DRIFT")
+                if is_v11:
+                    from f139.nci04_g54_ambiguous_start_custody import (
+                        verified_g54_ambiguous_start)
+                    from f139.nci04_negative_owner_store import (
+                        verify_original_negative_custody, TICKET as FIRST)
+                    from f139.nci04_split_negative_owner_store import (
+                        verify_second_negative_custody, TICKET as SECOND)
+                    from f139.nci04_g49_prepost_negative import (
+                        verify_g49_custody, TICKET as PREPOST)
+                    terminal_v10 = [
+                        r for r in self.conn.execute(
+                            "SELECT sha,payload FROM events "
+                            "WHERE kind='SOURCE_TRANSITION_ADMITTED' AND seq<? "
+                            "ORDER BY seq", (row["seq"],))
+                        if json.loads(r["payload"]).get("schema") ==
+                            "forge.f139.source-transition.v10"]
+                    g54 = g54_original_canonical(
+                        self, through_seq=row["seq"])
+                    previous_provider = self.verified_native_provider_failures(
+                        through_seq=row["seq"])
+                    expected = sorted({FIRST, SECOND, PREPOST, g54["ticket"]} |
+                                      set(previous_provider))
+                    require(len(terminal_v10)==1 and source_transitions
+                            and source_transitions[-1]["schema"] ==
+                                "forge.f139.source-transition.v10"
+                            and doc["from_source_sha"] ==
+                                source_transitions[-1]["to_source_sha"]
+                            and doc["v10_terminal_event_sha256"] ==
+                                terminal_v10[0]["sha"]
+                            and doc["g54_ambiguous_start_event_sha256"] ==
+                                g54["quarantine_event_sha256"]
+                            and doc["v2_receipt_authorized"] is False
+                            and doc["verified_historical_tasks"] >= 21
+                            and verify_original_negative_custody(self)
+                            and verify_second_negative_custody(self)
+                            and verify_g49_custody(self)
+                            and doc["custodied_negative_tasks"] == len(expected)
+                            and doc["custodied_negative_tickets"] == expected
+                            and doc["provider_failures_sha256"] == hash_bytes(
+                                canonical([{"ticket": ticket,
+                                            "source_sha": previous_provider[ticket][0],
+                                            "event_sha": previous_provider[ticket][1]}
+                                           for ticket in sorted(previous_provider)])),
+                            "SOURCE_TRANSITION_V11_ORIGINAL_CUSTODY_DRIFT")
                 source_transitions.append(doc)
         require(meta["head_seq"] == count and meta["head_hash"] == head, "EVIDENCE_HEAD_ROLLBACK")
         historical_sources = set()
@@ -911,7 +961,8 @@ class Database:
                           allow_v7: bool = False,
                           allow_v8: bool = False,
                           allow_v9: bool = False,
-                          allow_v10: bool = False):
+                          allow_v10: bool = False,
+                          allow_v11: bool = False):
         """Admit v1 zero, v2 single, or bounded v3 double-negative transitions."""
         require(isinstance(new_source_sha, str) and SHA.fullmatch(new_source_sha),
                 "SOURCE_TRANSITION_NEW_SHA_INVALID")
@@ -929,6 +980,11 @@ class Database:
         prepost = verify_g49_custody(self)
         if prepost:
             recognized[PREPOST] = SOURCE_V7
+        if allow_v11:
+            from f139.nci04_g54_ambiguous_start_custody import (
+                verified_g54_ambiguous_start)
+            frozen_ambiguous=g54_original_canonical(self)
+            recognized[frozen_ambiguous["ticket"]]=frozen_ambiguous["source_sha"]
         with self.transaction():
             self.verify()
             meta = self.meta()
@@ -1012,6 +1068,7 @@ class Database:
                         and verify_original_negative_custody(self)
                         and verify_second_negative_custody(self)
                         and events and events[-1]["schema"] in (
+                            "forge.f139.source-transition.v10",
                             "forge.f139.source-transition.v9",
                             "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v3",
@@ -1049,7 +1106,20 @@ class Database:
                          "forge.f139.source-transition.v8"]
                 prev_v9=[e for e in events if e["schema"]==
                          "forge.f139.source-transition.v9"]
-                if prev_v9:
+                prev_v10=[e for e in events if e["schema"]==
+                          "forge.f139.source-transition.v10"]
+                if prev_v10:
+                    from f139.nci04_owner_ledger import verify_native_activation
+                    require(allow_v11 is True and len(prev_v10)==1
+                            and events[-1]["schema"]==
+                                "forge.f139.source-transition.v10"
+                            and meta["source_sha"]==
+                                prev_v10[0]["to_source_sha"]
+                            and verify_native_activation(self)
+                            and self.active() is None and self.ready() is None,
+                            "SOURCE_TRANSITION_V11_ORIGINAL_CUSTODY_REQUIRED")
+                    schema="forge.f139.source-transition.v11"
+                elif prev_v9:
                     from f139.nci04_owner_ledger import verify_native_activation
                     require(allow_v10 is True and len(prev_v9)==1
                             and events[-1]["schema"] ==
@@ -1126,7 +1196,8 @@ class Database:
                             "forge.f139.source-transition.v7",
                             "forge.f139.source-transition.v8",
                             "forge.f139.source-transition.v9",
-                            "forge.f139.source-transition.v10"):
+                            "forge.f139.source-transition.v10",
+                            "forge.f139.source-transition.v11"):
                 event["custodied_negative_tickets"] = sorted(tickets)
                 event["provider_failures_sha256"]=hash_bytes(
                     canonical([{"ticket":t,"source_sha":provider_failures[t][0],
@@ -1204,6 +1275,21 @@ class Database:
                 require(len(v9_rows)==1,
                         "SOURCE_TRANSITION_V10_V9_SEAL_MISSING")
                 event["v9_terminal_event_sha256"]=v9_rows[0]["sha"]
+                event["v2_receipt_authorized"]=False
+            if schema == "forge.f139.source-transition.v11":
+                v10_rows=[
+                    r for r in self.conn.execute(
+                        "SELECT sha,payload FROM events "
+                        "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                    if json.loads(r["payload"])["schema"] ==
+                       "forge.f139.source-transition.v10"]
+                require(len(v10_rows)==1,
+                        "SOURCE_TRANSITION_V11_V10_SEAL_MISSING")
+                from f139.nci04_g54_ambiguous_start_custody import (
+                    verified_g54_ambiguous_start)
+                g54=g54_original_canonical(self)
+                event["v10_terminal_event_sha256"]=v10_rows[0]["sha"]
+                event["g54_ambiguous_start_event_sha256"]=g54["quarantine_event_sha256"]
                 event["v2_receipt_authorized"]=False
             self.event("SOURCE_TRANSITION_ADMITTED", event)
             self.verify()
@@ -2493,6 +2579,40 @@ def store_evidence(root:Path,ticket:str,run_id:int,archives:dict)->tuple[str,str
     # it cannot be replayed or mistaken for fully accepted evidence on recovery.
     return (str(folder),hash_bytes(payload))
 
+def g54_original_canonical(db, *, through_seq=None):
+    """Read G54 negative from the SAME original SQLite with canonical class identity.
+
+    Python -m starts __main__.Database while the imported original verifier
+    demands f139.local_controller.Database. Never relax that demand or copy
+    SQLite: re-open the exact original path as the canonical read-only witness.
+    In an active single-owner transaction, the committed original negative
+    predates the V11 event and remains readable by the second connection.
+    """
+    from f139.local_controller import Database as CanonicalDatabase
+    from f139.nci04_g54_ambiguous_start_custody import (
+        verified_g54_ambiguous_start)
+    if type(db) is CanonicalDatabase:
+        return verified_g54_ambiguous_start(db, through_seq=through_seq)
+    main=sys.modules.get("__main__")
+    require(type(db).__module__=="__main__"
+            and type(db).__name__=="Database"
+            and main is not None
+            and isinstance(getattr(main,"__file__",None),str)
+            and Path(main.__file__).resolve(strict=True)==
+                Path(__file__).resolve(strict=True)
+            and isinstance(getattr(db,"filename",None),Path),
+            "G54_CANONICAL_OWNER_SOURCE_REQUIRED")
+    original=Path(db.filename).resolve(strict=True)
+    canonical_db=CanonicalDatabase(original)
+    try:
+        require(Path(canonical_db.filename).resolve(strict=True)==original,
+                "G54_CANONICAL_ORIGINAL_DB_PATH_DRIFT")
+        return verified_g54_ambiguous_start(
+            canonical_db, through_seq=through_seq)
+    finally:
+        canonical_db.close()
+
+
 def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
     """Allow native V2 development after a sealed original V7/V8/V9/V10 transition
     and separate native development activation.
@@ -2559,7 +2679,28 @@ def v2_owner_terminal_release_guard(source_sha: str, db=None) -> bool:
                      json.loads(v9_rows[0]["payload"]).get("to_source_sha")
                  and event.get("v9_terminal_event_sha256")==v9_rows[0]["sha"]
                  and verify_g49_custody(db))
-        if not ((v7 or v8 or v9 or v10) and event.get("to_source_sha")==source_sha
+        v11 = False
+        if event.get("schema")=="forge.f139.source-transition.v11":
+            # A model-publisher release must not weaken the existing V2
+            # provider signer or reclassify G54's ambiguous no-run as success.
+            db.verify()
+            from f139.nci04_g54_ambiguous_start_custody import (
+                verified_g54_ambiguous_start)
+            frozen = g54_original_canonical(db)
+            v10_rows = [
+                r for r in db.conn.execute(
+                    "SELECT sha,payload FROM events "
+                    "WHERE kind='SOURCE_TRANSITION_ADMITTED' ORDER BY seq")
+                if json.loads(r["payload"]).get("schema")==
+                    "forge.f139.source-transition.v10"]
+            v11 = (len(v10_rows)==1
+                   and event.get("from_source_sha")==
+                       json.loads(v10_rows[0]["payload"]).get("to_source_sha")
+                   and event.get("v10_terminal_event_sha256")==v10_rows[0]["sha"]
+                   and event.get("g54_ambiguous_start_event_sha256")==
+                       frozen["quarantine_event_sha256"]
+                   and verify_g49_custody(db))
+        if not ((v7 or v8 or v9 or v10 or v11) and event.get("to_source_sha")==source_sha
                 and event.get("v2_receipt_authorized") is False):
             return False
         from f139.nci04_owner_ledger import verify_native_activation
@@ -2963,6 +3104,8 @@ def cli(argv=None):
     transition_v9.add_argument("--approval",type=Path,required=True)
     transition_v10=sub.add_parser("transition-qualified-native-v10")
     transition_v10.add_argument("--approval",type=Path,required=True)
+    transition_v11=sub.add_parser("transition-qualified-native-v11")
+    transition_v11.add_argument("--approval",type=Path,required=True)
     sub.add_parser("custody-original-native-negative")
     sub.add_parser("custody-original-native-split-negative")
     sub.add_parser("custody-quarantined-native-provider-failures")
@@ -3336,6 +3479,58 @@ def cli(argv=None):
                     "event_head":meta["head_hash"],"event_seq":meta["head_seq"],
                     "v2_production_dispatch_authorized":False,
                     "scientific_first_use":False},sort_keys=True))
+        elif args.verb=="transition-qualified-native-v11":
+            # One source successor after consumed V10 activation and G54 #989 original negative.
+            from f139.nci04_v11_owner_release import validate_v11_original_owner
+            native_original_owner_profile(args.db)
+            raw=args.approval.read_bytes()
+            require(0<len(raw)<=4096,"V11_APPROVAL_FILE_INVALID")
+            approval=json.loads(raw)
+            require(type(approval) is dict,"V11_APPROVAL_NOT_OBJECT")
+            checkout=Path(__file__).resolve().parent.parent
+            def _git_read_v11(*parts):
+                result=subprocess.run(
+                    ["git","-C",str(checkout),*parts],
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                    stdin=subprocess.DEVNULL,timeout=15,check=False)
+                require(result.returncode==0,"V11_GIT_COMMAND_FAILED")
+                return result.stdout.decode("utf-8").strip()
+            require(_git_read_v11("rev-parse","HEAD")==approval.get("to_source_sha")
+                    and _git_read_v11("status","--porcelain",
+                                      "--untracked-files=all")=="",
+                    "V11_INSTALLED_CLEAN_EXACT_SOURCE_REQUIRED")
+            api=GitHub()
+            require(api.protected_main()==approval.get("to_source_sha"),
+                    "V11_PROTECTED_MAIN_SHA_DRIFT")
+            api.legacy_dispatchers_disabled()
+            legacy_windows_task_disabled()
+            with SingleOwner(args.db.with_suffix(".lock")):
+                from f139.local_controller import Database as CanonicalOwnerDB
+                validator_db=CanonicalOwnerDB(args.db)
+                try:
+                    validate_v11_original_owner(validator_db,approval)
+                finally:
+                    validator_db.close()
+                before=db.meta()["head_seq"]
+                db.transition_source(approval["to_source_sha"],
+                                     allow_certified_negative=True,
+                                     allow_v11=True)
+                db.verify()
+                meta=db.meta()
+                require(meta["source_sha"]==approval["to_source_sha"]
+                        and meta["head_seq"]==before+1,
+                        "V11_ONE_EVENT_TRANSITION_NOT_ATOMIC")
+                print(json.dumps({
+                    "native_v11_transition":"PASS",
+                    "source_sha":meta["source_sha"],
+                    "event_head":meta["head_hash"],
+                    "event_seq":meta["head_seq"],
+                    "scientific_first_use":False,
+                    "v2_production_dispatch_authorized":False,
+                    "new_controller":False,
+                    "new_scheduler":False,
+                    "new_queue":False,
+                    "paid_api_calls":0},sort_keys=True))
         elif args.verb=="transition-qualified-native-v10":
             # One source successor after the consumed V9 transition and activation.
             from f139.nci04_v10_owner_release import validate_v10_original_owner
