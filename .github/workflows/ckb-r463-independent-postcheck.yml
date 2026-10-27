@@ -1,0 +1,73 @@
+name: CKB R463 sustained original-owner native scheduler cutover verification
+on:
+  push:
+    branches: [audit/ckb-r463-native-sustained-post-cutover-20261027]
+permissions:
+  contents: read
+jobs:
+  original-owner-independent-postcheck:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Verify sole promoted process, task supervision, native authority, retained original rollback and historical custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R463_WRONG_OWNER_RUNNER'}
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $new='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R461-ACTIVE-ONLY-SCHEDULER-20261027\bin\ckb-plane.exe'
+          $oldSha='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $newSha='b39ad0e68f841a4596d2a103064d64f7725b7a4f7f37965f20fa794f14798fcf'
+          $launchSha='278ded64e85983a08d2d2cbde4fcbb1b87fc5ad5f42bac72a52441d59a9329a8'
+          $ptrSha='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          $p=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($p.Count -ne 1 -or $p[0].ProcessId -ne 76312 -or [string]$p[0].ExecutablePath -cne $new){throw 'R463_NOT_THE_ONE_PROMOTED_NATIVE_PROCESS'}
+          if((Get-FileHash -LiteralPath $p[0].ExecutablePath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newSha){throw 'R463_PROMOTED_NATIVE_EXE_DRIFT'}
+          if((Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldSha){throw 'R463_R220_ROLLBACK_EXE_DRIFT'}
+          if((Get-FileHash -LiteralPath (Join-Path $store 'state\active-release') -Algorithm SHA256).Hash.ToLowerInvariant() -cne $ptrSha){throw 'R463_OLD_RELEASE_POINTER_CHANGED'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or [string]$task[0].Principal.UserId -cne 'camar'){throw 'R463_ORIGINAL_TASK_NOT_RUNNING'}
+          $actions=@($task[0].Actions)
+          if($actions.Count -ne 1){throw 'R463_TASK_ACTION_NOT_UNIQUE'}
+          $script=@([regex]::Matches([string]$actions[0].Arguments,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($script.Count -ne 1 -or [IO.Path]::GetFileName($script[0]) -cne 'Start-R18-Controller.ps1'){throw 'R463_ORIGINAL_SCRIPT_NOT_BOUND_TO_TASK'}
+          if((Get-FileHash -LiteralPath $script[0] -Algorithm SHA256).Hash.ToLowerInvariant() -cne $launchSha){throw 'R463_LIVE_LAUNCHER_NOT_REPAIRED_RELEASE'}
+          $receiptPath='C:\ProgramData\CKBR\cutover\R462-40576718124\result.json'
+          $receipt=Get-Content -LiteralPath $receiptPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          if([string]$receipt.schema -cne 'ckb-plane.r462.original-owner-cutover-receipt.v1' -or [string]$receipt.state -cne 'PROMOTED' -or [string]$receipt.new_pid -cne '76312' -or [string]$receipt.candidate_executable_sha256 -cne $newSha){throw 'R463_R462_RECEIPT_CUSTODY_INVALID'}
+          Write-Output 'R463_R462_PROMOTION_RECEIPT=PASS'
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          function GetNative {
+            $token=([IO.File]::ReadAllText((Join-Path $root 'state\operator.token'))).Trim()
+            if($token -cnotmatch '^[A-Fa-f0-9]{64}$'){throw 'R463_OPERATOR_TOKEN_FORMAT'}
+            try {
+              Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
+            }finally{$token=$null}
+          }
+          function VerifyNative($s) {
+            if([string]$s.authority -cne 'plane' -or [string]$s.generation -cne '6' -or [bool]$s.paused -or [bool]$s.heartbeat_stale -or [bool]$s.accepted_ref_mutation_allowed){throw 'R463_NATIVE_AUTHORITY_OR_LIVENESS_DRIFT'}
+            $history=@($s.queue | Where-Object {[string]$_.id -ceq 'KTRADE_RB1_SINGLE_TRACK_20261022'})
+            if($history.Count -ne 1 -or [string]$history[0].state -cne 'FAILED' -or [string]$history[0].reason -cne 'BRANCH_ANCESTRY_INVALID' -or [string]::IsNullOrWhiteSpace([string]$history[0].receipt)){throw 'R463_HISTORICAL_FAILURE_RECEIPT_NOT_PRESERVED'}
+          }
+          $first=GetNative
+          VerifyNative $first
+          Write-Output 'R463_PROMOTED_NATIVE_AUTHORITY_FIRST_CHECK=PASS'
+          Write-Output ('R463_FIRST_QUEUE_ITEM_COUNT='+@($first.queue).Count)
+          Write-Output ('R463_FIRST_JOB_COUNT='+@($first.jobs).Count)
+          $stateCounts=@('QUEUED','RUNNING','RETRY_WAIT','COMPLETED','REVIEWED','FAILED')
+          foreach($state in $stateCounts){Write-Output ('R463_QUEUE_'+$state+'='+@($first.queue|Where-Object {[string]$_.state -ceq $state}).Count)}
+          $b=[string]$first.controller_status
+          Write-Output ('R463_CONTROLLER_STATUS_IS_OPERATOR_BLOCKED='+[string]($b.StartsWith('OPERATOR_BLOCKED')))
+          Start-Sleep -Seconds 12
+          $second=GetNative
+          VerifyNative $second
+          $p2=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t2=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($p2.Count -ne 1 -or $p2[0].ProcessId -ne 76312 -or $t2.Count -ne 1 -or [string]$t2[0].State -cne 'Running'){throw 'R463_CONTROLLER_DID_NOT_REMAIN_ALIVE'}
+          Write-Output ('R463_SECOND_QUEUE_ITEM_COUNT='+@($second.queue).Count)
+          Write-Output ('R463_SECOND_JOB_COUNT='+@($second.jobs).Count)
+          Write-Output 'R463_SUSTAINED_12_SECOND_NATIVE_GEN6_FRESH_UNPAUSED=PASS'
+          Write-Output 'R463_ORIGINAL_R220_ROLLBACK_BINARIES_RETAINED=PASS'
+          Write-Output 'R463_NO_QUEUE_REPLAY_NO_DATABASE_WRITE_NO_TASK_CHANGE=TRUE'
