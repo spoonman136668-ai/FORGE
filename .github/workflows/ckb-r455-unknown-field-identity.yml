@@ -1,0 +1,60 @@
+name: CKB R455 exact startup YAML schema-key identity without source-value disclosure
+on:
+  push:
+    branches: [audit/ckb-r455-unknown-field-identity-20261027]
+permissions:
+  contents: read
+jobs:
+  original-owner-schema-identity:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Extract only YAML field identifier and target Go type; independently count active recovery jobs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R455_NOT_ORIGINAL_OWNER'}
+          $err='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R449-40545412788\native-stderr.txt'
+          if((Get-FileHash -LiteralPath $err -Algorithm SHA256).Hash.ToLowerInvariant() -cne '5e741b04738e482cd4c286436606484f68fa2d5486b86e14fbbe66c0c9c391a2'){throw 'R455_EVIDENCE_DRIFT'}
+          $msg=[Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($err)).TrimStart([char]0xFEFF)
+          $items=@()
+          foreach($line in @($msg -split '\r?\n')){
+            $pattern='^\s*line\s+([0-9]{1,5}):\s*field\s+([A-Za-z_][A-Za-z0-9_-]{0,70})\s+not found in type\s+([A-Za-z_][A-Za-z0-9_.]{0,90})'
+            if($line -match $pattern){
+              $items+=@{line=[int]$Matches[1];field=[string]$Matches[2];type=[string]$Matches[3]}
+            }
+          }
+          Write-Output ('R455_YAML_UNKNOWN_FIELD_COUNT='+$items.Count)
+          foreach($item in $items){
+            if($item.line -gt 10000){throw 'R455_OUT_OF_RANGE_YAML_LINE'}
+            Write-Output ('R455_YAML_LINE='+$item.line)
+            $field=$item.field
+            if($field -match '^[a-z][a-z0-9_]{1,60}$' -and $field -notmatch '(?i)password|secret|token|private|credential|email|address|account|auth|github|username|user_'){
+              Write-Output ('R455_UNKNOWN_YAML_SCHEMA_FIELD='+$field)
+            }else {
+              $digest=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($field))).ToLowerInvariant()
+              Write-Output ('R455_UNKNOWN_SCHEMA_FIELD_SHA256='+$digest)
+            }
+            if($item.type -match '^(?:plane\.)?[A-Za-z][A-Za-z0-9]{0,64}$'){
+              Write-Output ('R455_GO_SCHEMA_TARGET_TYPE='+$item.type)
+            }else{Write-Output 'R455_GO_SCHEMA_TARGET_TYPE=REDACTED'}
+          }
+          if($items.Count -ne 1){throw 'R455_EXPECTED_ONE_UNKNOWN_YAML_FIELD'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $tok=([IO.File]::ReadAllText((Join-Path $root 'state\operator.token'))).Trim()
+          if($tok -cnotmatch '^[A-Fa-f0-9]{64}$'){throw 'R455_OPERATOR_TOKEN_FORMAT_DRIFT'}
+          try {$status=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$tok)} -TimeoutSec 7 -ErrorAction Stop}finally{$tok=$null}
+          if([string]$status.authority -cne 'plane' -or [string]$status.generation -cne '6' -or [bool]$status.heartbeat_stale -or [bool]$status.paused){throw 'R455_AUTHORITY_DRIFT'}
+          $jobs=@($status.jobs)
+          $active=@($jobs | Where-Object {[string]$_.state -in @('DISPATCHED','ENGINEERING','CANDIDATE','ACCEPTING')})
+          Write-Output ('R455_TOTAL_NATIVE_JOBS='+$jobs.Count)
+          Write-Output ('R455_ACTIVE_RECOVERY_CANDIDATES='+$active.Count)
+          $stateCounts=@('ACCEPTED','BLOCKED','DRAFT','REJECTED_RETRYABLE')
+          foreach($state in $stateCounts){Write-Output ('R455_JOB_STATE_'+$state+'='+@($jobs | Where-Object {[string]$_.state -ceq $state}).Count)}
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if($ps.Count -ne 1 -or $ps[0].ProcessId -ne 80088 -or [string]$ps[0].ExecutablePath -cne $old -or $t.Count -ne 1 -or [string]$t[0].State -cne 'Running'){throw 'R455_ORIGINAL_OWNER_TOPOLOGY_DRIFT'}
+          Write-Output 'R455_YAML_SOURCE_VALUES_NEVER_EXPORTED=TRUE'
+          Write-Output 'R455_NATIVE_CONTROLLER_AND_TASK_STILL_ORIGINAL=PASS'
