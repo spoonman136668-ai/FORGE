@@ -1,0 +1,107 @@
+name: MP-AI05 pinned public model local smoke (scratch only)
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-public-local-model-smoke.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-public-model-smoke
+  cancel-in-progress: false
+jobs:
+  local-smoke:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 9
+    steps:
+      - name: Bounded hash-pinned public model download and CPU inference only, then delete
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONNOUSERSITE: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+              throw 'MPAI05_MODEL_SMOKE_UNAUTHORIZED_RUNNER'
+          }
+          # This workflow is a PUBLIC model interface smoke test. It does not
+          # read/clone Mind-Palace, call a model API, or change FORGE operations.
+          $program = @'
+          import gc, hashlib, os, pathlib, shutil, sys, tempfile, time, urllib.request
+          expected_sha = "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+          expected_bytes = 491400032
+          cap_bytes = 510000000
+          url = ("https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/"
+                 "9217f5db79a29953eb74d5343926648285ec7e67/"
+                 "qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true")
+          root = pathlib.Path(os.environ["RUNNER_TEMP"]) / ("mpai05-public-model-"+os.environ["GITHUB_RUN_ID"])
+          start = time.monotonic()
+          model = root / "public-test.gguf"
+          print("MPAI05_PUBLIC_ONLY_MODEL=QWEN2_5_0_5B_Q4_K_M")
+          print("MPAI05_EXPECTED_MODEL_SIZE_BYTES="+str(expected_bytes))
+          try:
+              root.mkdir(exist_ok=False)
+              free = shutil.disk_usage(str(root)).free
+              if free < 1700000000:
+                  print("MPAI05_LOCAL_SMOKE=BLOCKED_INSUFFICIENT_SCRATCH_SPACE")
+                  sys.exit(2)
+              print("MPAI05_SCRATCH_SPACE=SUFFICIENT")
+              req = urllib.request.Request(url, headers={"User-Agent":"MPAI05-public-no-private-evidence/1"})
+              dig = hashlib.sha256()
+              size = 0
+              try:
+                  with urllib.request.urlopen(req, timeout=40) as stream, model.open("xb") as out:
+                      while True:
+                          block=stream.read(4*1024*1024)
+                          if not block:
+                              break
+                          size += len(block)
+                          if size > cap_bytes or time.monotonic()-start > 240:
+                              raise RuntimeError("PUBLIC_MODEL_DOWNLOAD_BOUNDS_EXCEEDED")
+                          out.write(block)
+                          dig.update(block)
+              except Exception as exc:
+                  print("MPAI05_PUBLIC_MODEL_FETCH=FAILED_"+type(exc).__name__.upper())
+                  raise
+              if size != expected_bytes or dig.hexdigest() != expected_sha:
+                  print("MPAI05_PUBLIC_MODEL_IDENTITY=FAILED")
+                  raise RuntimeError("PUBLIC_MODEL_SIZE_OR_SHA256_DRIFT")
+              with model.open("rb") as stream:
+                  if stream.read(4) != b"GGUF":
+                      raise RuntimeError("PUBLIC_MODEL_MAGIC_INVALID")
+              print("MPAI05_PUBLIC_MODEL_SHA256=PASS")
+              print("MPAI05_PUBLIC_MODEL_GGUF_HEADER=PASS")
+              # CPU-only: the present Python package did not advertise GPU offload.
+              # Never contact an inference provider, even localhost.
+              from llama_cpp import Llama
+              llm = Llama(model_path=str(model), n_ctx=512, n_threads=4,
+                          n_gpu_layers=0, n_batch=128, verbose=False)
+              print("MPAI05_LOCAL_CPU_MODEL_LOAD=PASS")
+              result=llm.create_completion(prompt="Question: What is 2 + 2?\nAnswer:",
+                                            max_tokens=12, temperature=0.0)
+              content = result.get("choices", [{}])[0].get("text", "")
+              if not isinstance(content,str) or not content.strip():
+                  raise RuntimeError("NO_PUBLIC_PROMPT_COMPLETION")
+              print("MPAI05_PUBLIC_ONLY_LOCAL_INFERENCE=PASS")
+              print("MPAI05_RECORDED_OUTPUT_TOKENS="+str(result.get("usage",{}).get("completion_tokens",0)))
+              print("MPAI05_PRIVATE_HOLDOUT_TEST=NOT_ATTEMPTED")
+              print("MPAI05_PRIVATE_DATA_TRANSMITTED=FALSE")
+              print("MPAI05_PAID_PROVIDER_REQUESTS=0")
+              print("MPAI05_MODEL_PERSISTENCE=NO")
+              del llm
+              gc.collect()
+          finally:
+              for i in range(6):
+                  try:
+                      if root.exists():
+                          shutil.rmtree(root)
+                      break
+                  except PermissionError:
+                      gc.collect()
+                      time.sleep(.5)
+              print("MPAI05_TEMP_MODEL_CLEANUP="+("PASS" if not root.exists() else "FAILED"))
+          '@
+          $program | & python -B -
+          if ($LASTEXITCODE -ne 0) {throw 'MPAI05_PUBLIC_LOCAL_MODEL_SMOKE_NOT_QUALIFIED'}
