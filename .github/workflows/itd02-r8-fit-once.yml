@@ -1,0 +1,42 @@
+name: ITD02 R8 guarded one-time original FIT execution
+on:
+  push:
+    branches: [research/itd02-r8-bridge-sourceonly-20261026]
+    paths:
+      - '.github/workflows/itd02-r8-fit-once.yml'
+permissions:
+  contents: read
+concurrency:
+  group: itd02-r8-fit-original-exclusive
+  cancel-in-progress: false
+jobs:
+  frozen-fit-only:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out frozen, source-only-qualified original R8 bridge
+        uses: actions/checkout@v4
+        with:
+          ref: 65df60ce53db70c20a616b2ceb10ade8c6fe8d23
+          persist-credentials: false
+      - name: Verify immutable frozen research identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 65df60ce53db70c20a616b2ceb10ade8c6fe8d23
+          test -f research/lcrm01/itd02_r8_frozen_original_minigrid_01.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run original MiniGrid FIT cohort only
+        shell: bash
+        run: bash research/lcrm01/itd02_r8_fit_only_ci.sh
+      - name: Retain FIT receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: itd02-r8-fit-original-once
+          path: ${{ runner.temp }}/itd02-r8-fit/fit-receipt.json
+          if-no-files-found: warn
+          retention-days: 45
