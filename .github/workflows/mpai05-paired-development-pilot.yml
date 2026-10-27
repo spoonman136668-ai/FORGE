@@ -1,0 +1,93 @@
+name: MP-AI05 bounded paired development pilot
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai05-paired-development-pilot.yml']
+permissions:
+  contents: read
+jobs:
+  paired-development:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    env:
+      CODEX_HOME: C:\ProgramData\CKBR\codex\home
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run four read-only subscription model calls on two development tasks
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'UNAUTHORIZED_RUNNER' }
+          if ($env:OPENAI_API_KEY) { throw 'PAID_API_KEY_PROHIBITED' }
+          $codex = Get-Command codex -ErrorAction Stop
+          & $codex.Source login status
+          if ($LASTEXITCODE -ne 0) { throw 'SUBSCRIPTION_NOT_AUTHENTICATED' }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai05-paired-' + $env:GITHUB_RUN_ID)
+          try {
+            New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+            $source = Join-Path $scratch 'mp'
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            if ($LASTEXITCODE -ne 0) { throw 'MP_CLONE_FAILED' }
+            $sha = (& git -C $source rev-parse HEAD).Trim()
+            if ($sha -cne '7ad7230a82e3c748aa5336b7288ad2b45d42630c') { throw 'PIN_DRIFT' }
+            $env:MP_SOURCE_ROOT = $source
+            $env:MP_SOURCE_SHA = $sha
+            $env:MP_SCRATCH = $scratch
+            @'
+          import json, os, pathlib, re, subprocess, sys, time
+          root=pathlib.Path(os.environ['MP_SOURCE_ROOT'])
+          sys.path.insert(0, str(pathlib.Path.cwd()/'tools'))
+          sys.path.insert(0, str(root/'tools'))
+          from mindpalace_readonly import MemorySnapshot
+          from mpai05_retrieval_consumer import recall_with_normalizer
+          sha=os.environ['MP_SOURCE_SHA']
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          tasks=[
+            'Can you find the saved memory related to Mind-Palace retrieval context memory governance and explain the original evidence?',
+            'I am trying to remember something from an earlier conversation about Mind-Palace retrieval context memory governance. Would you check the context and tell me whether any relevant notes were recorded?'
+          ]
+          rows=[]
+          for ti,query in enumerate(tasks):
+            for arm in (['off','eligible'] if ti==0 else ['eligible','off']):
+              t0=time.monotonic()
+              outcome=recall_with_normalizer(snap,sha,query,['Mind-Palace'],'continuation',enabled=(arm=='eligible'))
+              result=outcome['result']
+              refs=sorted({str(ref) for m in result['matches'] for ref in m['source_refs']})
+              # Identical question and budget; only retrieved context differs.
+              compact=json.dumps(result['matches'][:4],ensure_ascii=False,sort_keys=True)[:10000]
+              prompt=('Using ONLY the provided retrieved records, answer the question briefly. '
+                'Return a JSON object with keys answer (string), source_refs (array of exact source_refs strings). '
+                'If the evidence is insufficient say so; never invent source_refs.\n'
+                'QUESTION: '+query+'\nRETRIEVED_RECORDS: '+compact)
+              command=['codex','exec','--json','--sandbox','read-only','--skip-git-repo-check','-']
+              p=subprocess.run(command,input=prompt,text=True,capture_output=True,cwd=os.environ['MP_SCRATCH'],timeout=180)
+              if p.returncode!=0: raise RuntimeError('CODEX_CALL_FAILED task='+str(ti)+' arm='+arm+' stderr_tail='+str(p.stderr[-200:]))
+              events=[json.loads(s) for s in p.stdout.splitlines() if s.strip().startswith('{')]
+              msgs=[e.get('item',{}).get('text','') for e in events if e.get('type')=='item.completed' and e.get('item',{}).get('type')=='agent_message']
+              text='\n'.join(msgs).strip()
+              try:
+                response=json.loads(text.strip().removeprefix('```json').removesuffix('```').strip())
+                cited=response.get('source_refs',[])
+                supported=bool(cited) and all(isinstance(c,str) and c in refs for c in cited)
+                valid_answer=isinstance(response.get('answer'),str) and bool(response['answer'].strip())
+              except (ValueError,TypeError,AttributeError):
+                cited=[];supported=False;valid_answer=False
+              usage=[e.get('usage',{}) for e in events if e.get('type')=='turn.completed']
+              token_count=(usage[-1].get('input_tokens',0)+usage[-1].get('output_tokens',0)) if usage else None
+              rows.append(dict(task=ti+1,arm=arm,routing=outcome['routing'],
+                record_count=len(result['matches']), valid_answer=valid_answer,
+                citations_supported=supported,citation_count=len(cited),
+                latency_ms=round((time.monotonic()-t0)*1000),tokens=token_count,
+                model_call=True))
+          # All private response bodies remain inside the ephemeral process.
+          print('MPAI05_PAIRED_DEV_REAL_CALLS='+str(len(rows)))
+          print('MPAI05_PAIRED_DEV_SOURCE_SHA='+sha)
+          print('MPAI05_PAIRED_DEV_HOLDOUT_ACCESS=0')
+          for row in rows: print('MPAI05_PAIRED_DEV_RECEIPT='+json.dumps(row,sort_keys=True))
+          print('MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED')
+          '@ | python -
+            if ($LASTEXITCODE -ne 0) { throw 'PAIRED_DEV_FAILED' }
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+          }
