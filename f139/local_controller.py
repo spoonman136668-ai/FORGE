@@ -3032,6 +3032,30 @@ def run_once(db:Database,api:GitHub,db_path:Path,hmac_key:str, *, now=None):
         # Only the live original owner, under the existing SingleOwner mutex.
         # G3 is draft-only: the NEXT ordinary tick must discover/rehash the PR,
         # admit its issue and separately dispatch. Never dispatch from here.
+        # After the finite G3 attempt is historically consumed, try exactly
+        # one already-registered model-free G29 development mechanism through
+        # the merged original-owner model response and draft publisher path.
+        # This is finite, not general model inference or ongoing autonomous
+        # research. It uses no API inference or Codex credits.
+        prior_g3 = db.conn.execute(
+            "SELECT COUNT(*) FROM events WHERE kind='G3_DRAFT_ATTEMPTED'"
+        ).fetchone()[0]
+        if prior_g3:
+            from f139.nci04_owner_model_free_bootstrap import (
+                run_original_g29_once)
+            try:
+                return run_original_g29_once(
+                    db, api, db_path, meta["source_sha"],
+                    owner_witness=lambda:
+                        native_original_running_publisher_profile(db_path))
+            except (F139Error, ValueError):
+                # No G3 replay and no authority inferred from a failed G29
+                # source or owner witness. The next normal tick can recheck
+                # the original ledger; an ambiguous draft attempt stays stuck.
+                return {"disposition":"LOCAL_G29_PUBLISH_BLOCKED_FAIL_CLOSED",
+                        "scientific_first_use":False,
+                        "worker_dispatched":False,
+                        "paid_model_calls":0}
         from f139.nci04_owner_publication import publish_once
         try:
             publication = publish_once(
