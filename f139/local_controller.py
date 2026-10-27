@@ -380,6 +380,7 @@ class Database:
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
             if row["kind"] == "FREE_REASONER_ATTEMPTED":
+                from f139.nci04_native_contract import model_source_path_allowed
                 # The external model never becomes a signer or original owner.
                 # Every API POST has one pre-committed no-retry event; reject
                 # source drift, altered request scope, duplicate request, and
@@ -414,13 +415,7 @@ class Database:
                             doc["path"]) is not None
                         and all(part not in ("", ".", "..")
                                 for part in doc["path"].split("/"))
-                        and (doc["path"].startswith(
-                                 ("cognition/", "cmd/wingless/"))
-                             and doc["path"].endswith(".go")
-                             if doc["lane"] == "Wingless" else
-                             doc["path"].startswith(
-                                 ("yggdrasil/", "scripts/"))
-                             and doc["path"].endswith(".py"))
+                        and model_source_path_allowed(doc["lane"], doc["path"])
                         and isinstance(doc["utc_day"], str)
                         and re.fullmatch(r"\d{4}-\d{2}-\d{2}",
                                          doc["utc_day"]) is not None
