@@ -33,8 +33,8 @@ jobs:
             New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
             & git clone --quiet --single-branch --branch proposal/mpai05-blind-grader-boundary-20261027 https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $temp 'private-clone.log')
             if($LASTEXITCODE -ne 0){throw 'MPAI05_FULL_PRIVATE_SOURCE_MISSING'}
-            if((& git -C $src rev-parse HEAD).Trim() -cne '6778dabf199ac7d43b903dad21051d50cdc864bc'){throw 'MPAI05_FULL_SOURCE_PIN'}
-            if((& git -C $src rev-parse 'HEAD^{tree}').Trim() -cne '05c5cd8fa083341be738c9d52b1bb3dcc512acf3'){throw 'MPAI05_FULL_TREE_PIN'}
+            if((& git -C $src rev-parse HEAD).Trim() -cne '372783644ec9dc446adace02b47620c345478e42'){throw 'MPAI05_FULL_SOURCE_PIN'}
+            if((& git -C $src rev-parse 'HEAD^{tree}').Trim() -cne 'b8031d11313d32ac604547e6b13f2a015083a1e6'){throw 'MPAI05_FULL_TREE_PIN'}
             $unitLog=Join-Path $temp 'private-synthetic.log'
             $fullLog=Join-Path $temp 'private-regression.log'
             Push-Location $src
@@ -43,15 +43,15 @@ jobs:
               if($LASTEXITCODE -ne 0){throw 'MPAI05_FULL_SYNTHETIC_TESTS_FAILED'}
               $units=[IO.File]::ReadAllText($unitLog)
               $match=[regex]::Match($units,'Ran ([0-9]{1,2}) tests? in')
-              if(-not $match.Success -or [int]$match.Groups[1].Value -ne 22 -or $units -notmatch '(?m)^OK\s*$'){throw 'MPAI05_FULL_UNIT_REPORT_BAD'}
-              Write-Host 'MPAI05_BLIND_FULL_UNIT_TESTS=22_PASS'
+              if(-not $match.Success -or [int]$match.Groups[1].Value -ne 28 -or $units -notmatch '(?m)^OK\s*$'){throw 'MPAI05_FULL_UNIT_REPORT_BAD'}
+              Write-Host 'MPAI05_BLIND_FULL_UNIT_TESTS=28_PASS'
               & pwsh.exe -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $fullLog
               if($LASTEXITCODE -ne 0){throw 'MPAI05_BLIND_FULL_REGRESSION_FAILED'}
               $result=[IO.File]::ReadAllText($fullLog)
               if(-not $result.Contains('Mind-Palace regression suite passed')){throw 'MPAI05_BLIND_REGRESSION_FINAL_MARKER_MISSING'}
               Write-Host 'MPAI05_BLIND_FULL_WINDOWS_REGRESSION=PASS'
             }finally{Pop-Location}
-            if((& git -C $src rev-parse HEAD).Trim() -cne '6778dabf199ac7d43b903dad21051d50cdc864bc'){throw 'MPAI05_BLIND_SOURCE_DRIFT_AFTER_TEST'}
+            if((& git -C $src rev-parse HEAD).Trim() -cne '372783644ec9dc446adace02b47620c345478e42'){throw 'MPAI05_BLIND_SOURCE_DRIFT_AFTER_TEST'}
             if(@(& git -C $src status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI05_BLIND_SOURCE_MUTATED'}
             Write-Host 'MPAI05_BLIND_SOURCE_CUSTODY=PASS'
             Write-Host 'MPAI05_PRIVATE_HOLDOUT_EXPOSURE=FALSE'
