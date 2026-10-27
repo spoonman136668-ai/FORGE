@@ -133,16 +133,9 @@ def reasoner_proposal_once(
         return {"disposition": "FREE_REASONER_NO_CREDENTIAL_NO_REQUEST",
                 "scientific_first_use": False,
                 "worker_dispatched": False, "paid_model_calls": 0}
-    # No model request is attempted if the signed owner session/steering,
-    # public file or current source is stale.
-    initial = owner_request(
-        db, get, steering_get, source_sha=source_sha,
-        lane=lane, target_commit=target_commit, path=path,
-        owner_witness=owner_witness)
-    request = initial["request"]
-    public = public_packet(request, public_source_verified=True)
-    need(verify_anonymous_public_source(public, public_reader) is True,
-         "PUBLIC_SOURCE_NOT_INDEPENDENTLY_VERIFIED")
+    # The 300-second natural tick MUST NOT re-fetch private steering or make
+    # anonymous Git requests after a previous request is already consumed.
+    # Local SHA-chained terminal history is sufficient for this negative gate.
     feedback = original_outcome_fingerprint(db)
     scope = reasoner_scope(source_sha=source_sha, lane=lane,
                            target_commit=target_commit, path=path,
@@ -163,6 +156,17 @@ def reasoner_proposal_once(
                 "worker_dispatched": False, "paid_model_calls": 0}
     if prior:
         need(today >= prior[-1]["utc_day"], "UTC_CLOCK_ROLLBACK")
+    # Only a *new* terminal-history scope may incur even read-only Git
+    # requests. No external POST or publication authority until both source
+    # identity and steering pass the original request validator.
+    initial = owner_request(
+        db, get, steering_get, source_sha=source_sha,
+        lane=lane, target_commit=target_commit, path=path,
+        owner_witness=owner_witness)
+    request = initial["request"]
+    public = public_packet(request, public_source_verified=True)
+    need(verify_anonymous_public_source(public, public_reader) is True,
+         "PUBLIC_SOURCE_NOT_INDEPENDENTLY_VERIFIED")
     with db.transaction():
         db.verify()
         need(db.meta()["head_seq"] == initial["session"]["owner_head_seq"]
