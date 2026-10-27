@@ -69,15 +69,17 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'PRIVATE_KNOWLEDGE_HTTPS_CLONE_FAILED'}
             & git -C $knowledge fetch origin knowledge/source-pinned-graphify-refresh-20261027 *> $log
             if($LASTEXITCODE -ne 0){throw 'KNOWLEDGE_BRANCH_NOT_FOUND'}
-            # Normalize Windows line endings in a disposable clone only.
-            # Never clean a user's checkout or the runner's working directory.
+            # The historical Graphify vault contains legacy filenames that may
+            # not roundtrip on native Windows. Sparse checkout only the small,
+            # portable metadata set. Preserve all other committed content in the
+            # Git tree/index; replace historical vault entries with --cached.
             & git -C $knowledge config core.autocrlf false
+            & git -C $knowledge sparse-checkout init --no-cone *> $log
+            if($LASTEXITCODE -ne 0){throw 'KNOWLEDGE_SPARSE_INIT_FAILED'}
+            & git -C $knowledge sparse-checkout set --no-cone '/Graphify/README.md' '/Graphify/Source/' *> $log
+            if($LASTEXITCODE -ne 0){throw 'KNOWLEDGE_SPARSE_SET_FAILED'}
             & git -C $knowledge checkout -B knowledge/source-pinned-graphify-refresh-20261027 FETCH_HEAD *> $log
             if($LASTEXITCODE -ne 0 -or (git -C $knowledge rev-parse HEAD).Trim() -cne $env:KTRADE_KNOWLEDGE_BASE){throw 'KNOWLEDGE_BASE_DRIFT'}
-            & git -C $knowledge reset --hard HEAD *> $log
-            if($LASTEXITCODE -ne 0){throw 'SCRATCH_KNOWLEDGE_RESET_FAILED'}
-            & git -C $knowledge clean -fd *> $log
-            if($LASTEXITCODE -ne 0){throw 'SCRATCH_KNOWLEDGE_CLEAN_FAILED'}
             if(@(git -C $knowledge status --porcelain --untracked-files=all).Count -gt 0){throw 'KNOWLEDGE_NOT_CLEAN'}
             $version=(& $uvx @uvPrefix --from 'graphifyy==0.9.53' graphify --version 2>$log) -join ' '
             if($LASTEXITCODE -ne 0 -or $version -notmatch '0\.9\.53'){throw 'GRAPHIFY_VERSION_DRIFT'}
@@ -99,6 +101,10 @@ jobs:
             $targetVault=Join-Path $knowledge 'Graphify/Obsidian'
             New-Item -ItemType Directory -Force (Split-Path $newGraph -Parent) | Out-Null
             Copy-Item -LiteralPath $original -Destination $newGraph -Force
+            # Drop legacy vault entries from the isolated Git index without
+            # checking out historical Windows-incompatible note filenames.
+            & git -C $knowledge rm -r -f --cached --sparse -- Graphify/Obsidian *> $log
+            if($LASTEXITCODE -ne 0){throw 'HISTORICAL_VAULT_INDEX_REPLACE_FAILED'}
             if(Test-Path $targetVault){Remove-Item $targetVault -Recurse -Force}
             Copy-Item -LiteralPath $newVault -Destination $targetVault -Recurse -Force
             $digest=(Get-FileHash $newGraph -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -129,7 +135,7 @@ jobs:
               'This reflects the pinned ktrade source, not ckb DIC drafts or other review branches.'
               'This is not release acceptance, runtime evidence, or approval to trade.'
             )|Set-Content (Join-Path $knowledge 'Graphify/README.md') -Encoding utf8
-            & git -C $knowledge add -A -- Graphify/Source/graph.json Graphify/Source/LAST-BUILD.json Graphify/Obsidian Graphify/README.md
+            & git -C $knowledge add -f --sparse -A -- Graphify/Source/graph.json Graphify/Source/LAST-BUILD.json Graphify/Obsidian Graphify/README.md
             if($LASTEXITCODE -ne 0){throw 'GIT_STAGE_FAILED'}
             $paths=@(git -C $knowledge diff --cached --name-only)
             if($paths.Count -lt 2 -or @($paths|Where-Object {$_ -notlike 'Graphify/*'}).Count -gt 0){throw 'GENERATED_SCOPE_FAILED'}
