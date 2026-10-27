@@ -250,3 +250,41 @@ jobs:
           Write-Output 'R434_NATIVE_AUTHENTICATED_GET=PASS'
           Write-Output 'R434_NO_NATIVE_POST_OR_QUEUE_MUTATION=TRUE'
           Write-Output 'R434_NO_CONTROLLER_RESTART_OR_TOKEN_LOGGING=TRUE'
+      - name: R435 verify terminal blocker identity and queue eligibility by authenticated GET
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R435_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $exe='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($processes.Count -ne 1 -or $processes[0].ExecutablePath -cne $exe){throw 'R435_ORIGINAL_PROCESS_DRIFT'}
+          $tokenFile='C:\Users\camar\GolandProjects\ckb-plane\state\operator.token'
+          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R435_TOKEN_FILE_UNAVAILABLE'}
+          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
+          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R435_TOKEN_FORMAT_INVALID'}
+          try {
+            $native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
+          } finally { $token=$null }
+          if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.heartbeat_stale){throw 'R435_AUTHORITY_OR_HEARTBEAT_DRIFT'}
+          $queue=@($native.queue)
+          $failed=@($queue | Where-Object { [string]$_.state -ceq 'FAILED' })
+          $queued=@($queue | Where-Object { [string]$_.state -ceq 'QUEUED' })
+          $running=@($queue | Where-Object { [string]$_.state -in @('RUNNING','RETRY_WAIT','FINALIZING') })
+          Write-Output ('R435_FAILED_QUEUE_COUNT='+$failed.Count)
+          Write-Output ('R435_QUEUED_SOURCE_COUNT='+@($queued | Where-Object { [string]$_.mode -ceq 'source' -and [string]$_.authorization -ceq 'operator' }).Count)
+          Write-Output ('R435_ACTIVE_QUEUE_COUNT='+$running.Count)
+          foreach($item in $failed) {
+            if([string]$item.id -notmatch '^[A-Za-z0-9._-]{1,120}$'){throw 'R435_FAILED_ID_FORMAT_UNEXPECTED'}
+            Write-Output ('R435_FAILED_ID='+[string]$item.id)
+            if([string]$item.reason -match '^[A-Za-z0-9_ -]{1,160}$'){
+              Write-Output ('R435_FAILED_REASON='+[string]$item.reason)
+            } else {
+              Write-Output 'R435_FAILED_REASON=NONCANONICAL_REDACTED'
+            }
+            Write-Output ('R435_FAILED_HAS_RECEIPT='+(-not [string]::IsNullOrWhiteSpace([string]$item.receipt)))
+          }
+          Write-Output ('R435_BLOCKER_COUNT='+@($native.blockers).Count)
+          Write-Output ('R435_CONTROLLER_STATUS_PREFIX='+$(if([string]$native.controller_status -match '^([A-Z_]+)'){$matches[1]}else{'OTHER'}))
+          Write-Output 'R435_NO_RETRY_OR_WORK_ORDER_SUBMISSION=TRUE'
+          Write-Output 'R435_READ_ONLY_NATIVE_GET=TRUE'
