@@ -9,7 +9,7 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 5
     steps:
-      - name: Inspect isolated Codex tool configuration
+      - name: Count configured Codex MCP servers without displaying them
         shell: pwsh
         env:
           CODEX_HOME: C:\ProgramData\CKBR\codex\home
@@ -17,12 +17,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
           $cmd = (Get-Command codex -ErrorAction Stop).Source
-          $raw = (& $cmd --ignore-user-config mcp list --json 2>&1 | Out-String)
+          $raw = (& $cmd mcp list --json 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0) { throw 'MCP_INVENTORY_UNAVAILABLE' }
           try { $data = ConvertFrom-Json -InputObject $raw -ErrorAction Stop }
           catch { throw 'MCP_INVENTORY_INVALID' }
           if ($null -eq $data) { $count = 0 }
           elseif ($data -is [array]) { $count = $data.Count }
           else { throw 'MCP_INVENTORY_SHAPE_INVALID' }
-          Write-Host ("FORGE_IGNORE_USER_CONFIG_MCP_COUNT=" + $count)
+          Write-Host ("FORGE_CONFIGURED_MCP_COUNT=" + $count)
           Write-Host 'MODEL_INVOCATION=FALSE; CONTROLLER_MUTATION=FALSE; CREDENTIAL_VALUES_PRINTED=FALSE'
