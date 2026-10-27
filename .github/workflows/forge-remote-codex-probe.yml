@@ -1,47 +1,26 @@
-name: FORGE remote Codex subscription probe
+name: FORGE Codex CLI proposal capability read-only probe
 on:
   push:
-    branches: [qualification/forge-remote-codex-r1]
-  workflow_dispatch:
+    branches: [diagnostic/f139-codex-cli-flags-20261027]
 permissions:
   contents: read
 jobs:
-  probe:
-    # Dedicated FORGE runner on the existing remote Windows host.
-    # Do not reuse the CKB-PLANE-REMOTE runner registration or service.
+  inspect:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
-      - name: Verify existing subscription session
+      - name: Inspect existing Codex command flags only
         shell: pwsh
-        env:
-          CODEX_HOME: C:\ProgramData\CKBR\codex\home
         run: |
           $ErrorActionPreference = 'Stop'
-          $codex = Get-Command codex -ErrorAction SilentlyContinue
-          if (-not $codex) { throw 'FORGE_REMOTE_CODEX_CLI_UNAVAILABLE' }
-          if (-not (Test-Path -LiteralPath $env:CODEX_HOME -PathType Container)) { throw 'FORGE_REMOTE_CODEX_HOME_UNAVAILABLE' }
-          if ($env:OPENAI_API_KEY) { throw 'API_BILLING_PROHIBITED' }
-          & $codex.Source login status
-          if ($LASTEXITCODE -ne 0) { throw 'SUBSCRIPTION_AUTH_NOT_AVAILABLE_TO_RUNNER_IDENTITY' }
-          Write-Output 'REMOTE_SUBSCRIPTION_LOGIN=PASS'
-      - name: Read-only bounded Codex invocation
-        shell: pwsh
-        env:
-          CODEX_HOME: C:\ProgramData\CKBR\codex\home
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:OPENAI_API_KEY) { throw 'API_BILLING_PROHIBITED' }
-          $codex = (Get-Command codex -ErrorAction Stop).Source
-          $scratch = Join-Path $env:RUNNER_TEMP 'forge-codex-readonly'
-          New-Item -ItemType Directory -Path $scratch -Force | Out-Null
-          Push-Location $scratch
-          try {
-            & $codex exec --model gpt-5.6-terra --config 'model_reasoning_effort="medium"' --sandbox read-only --skip-git-repo-check 'Reply with FORGE_REMOTE_CODEX_OK only. Do not modify files or run commands.'
-            if ($LASTEXITCODE -ne 0) { throw 'REMOTE_SUBSCRIPTION_CODEX_EXEC_FAILED' }
-            Write-Output 'REMOTE_SUBSCRIPTION_CODEX_INVOKED=PASS'
+          if ($env:RUNNER_NAME -ne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $cmd = (Get-Command codex -ErrorAction Stop).Source
+          $v = (& $cmd --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'VERSION_READ_FAILED' }
+          $help = (& $cmd exec --help | Out-String)
+          if ($LASTEXITCODE -ne 0) { throw 'EXEC_HELP_FAILED' }
+          Write-Host ("FORGE_CODEX_VERSION=" + $v)
+          foreach ($flag in @('--output-schema', '--ignore-user-config', '--sandbox', '--ephemeral', '--skip-git-repo-check', '--json')) {
+            Write-Host ("FORGE_CODEX_FLAG=" + $flag + ":" + $help.Contains($flag))
           }
-          finally {
-            Pop-Location
-            Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
-          }
+          Write-Host 'MODEL_INVOCATION=FALSE; CONTROLLER_MUTATION=FALSE; SECRETS_READ=FALSE'
