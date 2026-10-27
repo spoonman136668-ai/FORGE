@@ -23,7 +23,7 @@ from collections import Counter
 from typing import Callable
 
 from f139.nci04_model_proposal import SCHEMA as PROPOSAL_SCHEMA
-from f139.nci04_native_contract import REPOS, canonical, digest
+from f139.nci04_native_contract import REPOS, canonical, digest, model_source_path_allowed
 
 ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -84,8 +84,7 @@ def public_packet(request: dict, *, public_source_verified: bool) -> dict:
          "SOURCE_PUBLICNESS_OR_INPUT_CONTRACT_INVALID")
     lane, source, path = request["lane"], request["source"], request["path"]
     need(type(lane) is str and lane in REPOS
-         and type(path) is str and path.startswith(REPOS[lane][1])
-         and path.endswith(REPOS[lane][2]) and ".." not in path and "\\" not in path
+         and type(path) is str and model_source_path_allowed(lane, path) and ".." not in path and "\\" not in path
          and type(source) is str and 1 <= len(source.encode("utf-8")) <= 32768,
          "PUBLIC_SOURCE_SCOPE_INVALID")
     for key in ("target_commit","target_tree_sha","controller_source_sha",
@@ -183,8 +182,7 @@ def verify_anonymous_public_source(packet: dict,
     before_sha = packet.get("before_sha256")
     need(type(commit) is str and SHA40.fullmatch(commit) is not None
          and type(path) is str and
-         path.startswith(REPOS[lane][1]) and
-         path.endswith(REPOS[lane][2]) and
+         model_source_path_allowed(lane, path) and
          ".." not in path and "\\" not in path
          and type(source) is str and 0 < len(source.encode("utf-8")) <= 32768
          and type(before_sha) is str and
