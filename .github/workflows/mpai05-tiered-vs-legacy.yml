@@ -1,0 +1,77 @@
+name: MP-AI05 frozen corpus baseline versus tiered PRIMARY
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai05-tiered-vs-legacy.yml']
+permissions:
+  contents: read
+jobs:
+  paired-retrieval:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 16
+    steps:
+      - name: Compare actual source retrieval on the same frozen 18 cases
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'UNAUTHORIZED_RUNNER' }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai05-paired-retrieval-' + $env:GITHUB_RUN_ID)
+          $source = Join-Path $scratch 'source'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            git clone --quiet --depth 1 https://github.com/spoonman136668-ai/Mind-Palace.git $source
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_UNAVAILABLE' }
+            $sha = (& git -C $source rev-parse HEAD).Trim()
+            if ($sha -cne '7ad7230a82e3c748aa5336b7288ad2b45d42630c') { throw 'SOURCE_PIN_DRIFT' }
+            $cases = @(Get-Content -Raw (Join-Path $source 'tests/tiered-context-pack.fixture.json') | ConvertFrom-Json)
+            if ($cases.Count -ne 18) { throw 'FROZEN_FIXTURE_COUNT_DRIFT' }
+            $oldTool = Join-Path $source 'tools/context-pack.ps1'
+            $newTool = Join-Path $source 'tools/context-pack-tiered.ps1'
+            $byArm = @{}
+            foreach ($arm in @('legacy','tiered')) {
+              $casesCount=0; $req=0; $reqHit=0; $relevant=0; $relevantHit=0; $forbidden=0; $selected=0; $modelBytes=0
+              foreach ($c in $cases) {
+                $params = @{Text=[string]$c.text;MaxBytes=30000}
+                if ($null -ne $c.project -and -not [string]::IsNullOrWhiteSpace([string]$c.project)) { $params.Project=[string]$c.project }
+                if ($arm -eq 'legacy') {
+                  $params.MaxRecords = 7
+                  $p = ((& $oldTool @params | Out-String).Trim() | ConvertFrom-Json)
+                  $ids=@($p.records | ForEach-Object { [string]$_.id })
+                  $statements=@($p.records | ForEach-Object { [string]$_.statement })
+                } else {
+                  $params.Remove('MaxBytes')
+                  $params.CandidateLimit=10
+                  $params.PrimaryMaxRecords=5
+                  $params.PrimaryRelativeScoreFloor=0.65
+                  $params.PrimaryTokenBudget=320
+                  $params.MaxBytes=30000
+                  $params.NoTelemetryLedger=$true
+                  $p = ((& $newTool @params | Out-String).Trim() | ConvertFrom-Json)
+                  $ids=@($p.default_ids | ForEach-Object { [string]$_ })
+                  $statements=@($p.default_records | ForEach-Object { [string]$_.statement })
+                  if ($statements.Count -eq 0) {
+                    $statements=@($p.governance_records | ForEach-Object { [string]$_.statement }) + @($p.primary_records | ForEach-Object { [string]$_.statement })
+                  }
+                }
+                $casesCount++
+                foreach($x in @($c.must_include)) { $req++; if ($ids -contains [string]$x) { $reqHit++ } }
+                foreach($x in @($c.relevant_ids)) { $relevant++; if ($ids -contains [string]$x) { $relevantHit++ } }
+                foreach($x in @($c.must_exclude)) { if ($ids -contains [string]$x) { $forbidden++ } }
+                $selected += $ids.Count
+                $modelBytes += [Text.Encoding]::UTF8.GetByteCount(($statements -join [Environment]::NewLine))
+              }
+              $byArm[$arm] = [ordered]@{cases=$casesCount;required_hits=$reqHit;required_total=$req;relevant_hits=$relevantHit;relevant_total=$relevant;forbidden_hits=$forbidden;selected_records=$selected;model_statement_bytes=$modelBytes}
+              Write-Host ('MPAI05_PAIRED_'+$arm.ToUpperInvariant()+'='+($byArm[$arm]|ConvertTo-Json -Compress))
+            }
+            if ($byArm['legacy'].cases -ne 18 -or $byArm['tiered'].cases -ne 18) { throw 'MISSING_PAIRED_CASES' }
+            if ($byArm['tiered'].forbidden_hits -gt 0) { throw 'TIERED_FORBIDDEN_LEAKAGE' }
+            Write-Host ('MPAI05_PAIRED_SOURCE_SHA='+$sha)
+            Write-Host 'MPAI05_PAIRED_EVALUATION=COMPLETE'
+            Write-Host 'MPAI05_PRIVATE_RECORDS_EXPORTED=FALSE'
+            Write-Host 'MPAI05_REAL_MODEL_CALLS=0'
+            Write-Host 'MPAI05_SCIENTIFIC_ACCEPTANCE=NOT_TESTED'
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+          }
