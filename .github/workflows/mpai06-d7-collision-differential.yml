@@ -1,0 +1,70 @@
+name: MP-AI06 D7 collision-induced retrieval differential
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-collision-differential.yml']
+permissions:
+  contents: read
+jobs:
+  differential:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Check source-pinned lexical collision retrieval without exporting content
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai06-d7-collision-diff-'+$env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet https://github.com/spoonman136668-ai/Mind-Palace.git $scratch
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_MISSING' }
+            git -C $scratch checkout --quiet 536d451c0e585d22e09a2aadecf2a6cefba76402
+            if ($LASTEXITCODE -ne 0) { throw 'PIN_MISSING' }
+            $env:MPAI06_SOURCE_ROOT=$scratch
+            @'
+          import collections,os,pathlib,re,sys
+          root=pathlib.Path(os.environ['MPAI06_SOURCE_ROOT'])
+          sys.path[:0]=[str(root/'tools'),str(root/'agentic')]
+          from mindpalace_readonly import MemorySnapshot
+          from mpai06_d7_normalized_recall import normalize_word,normalized_recall
+          from mpai06_answerability import PROJECT
+          sha='536d451c0e585d22e09a2aadecf2a6cefba76402'
+          snap=MemorySnapshot(root,sha,[PROJECT])
+          words=re.compile('[a-z0-9]+')
+          index=collections.defaultdict(set)
+          for rec in snap.index:
+              if rec.get('project') != PROJECT: continue
+              for tok in set(words.findall((rec.get('statement','')+' '+rec['id']+' '+' '.join(rec.get('tags') or [])).lower())):
+                  index[normalize_word(tok)].add(tok)
+          collisions=[tuple(sorted(v)) for v in index.values() if len(v)>1]
+          # These are diagnostic, unadjudicated, lexically contrastive probes,
+          # not real-world relevance labels or hidden scientific holdouts.
+          probes=sorted(set(w for group in collisions for w in group))
+          novel=0; differs=0; baseline_total=0; candidate_total=0; errors=0
+          for query in probes:
+              base=snap.recall(sha,query,[PROJECT],'continuation')
+              cand=normalized_recall(snap,query,'continuation')
+              b={x['id'] for x in base['matches']}
+              c={x['id'] for x in cand['matches']}
+              baseline_total+=len(b);candidate_total+=len(c)
+              if b!=c: differs+=1
+              novel+=len(c-b)
+              if cand['source_sha']!=sha or cand['scope']!=[PROJECT]: errors+=1
+              if any(not x.get('source_refs') for x in cand['matches']): errors+=1
+          print('MPAI06_D7_COLLISION_GROUPS='+str(len(collisions)))
+          print('MPAI06_D7_COLLISION_PROBES='+str(len(probes)))
+          print('MPAI06_D7_QUERY_RESULT_SET_DIFFS='+str(differs))
+          print('MPAI06_D7_CANDIDATE_ONLY_MATCH_IDS='+str(novel))
+          print('MPAI06_D7_BASELINE_MATCH_IDS='+str(baseline_total))
+          print('MPAI06_D7_CANDIDATE_MATCH_IDS='+str(candidate_total))
+          print('MPAI06_D7_PROVENANCE_SCOPE_ERRORS='+str(errors))
+          print('MPAI06_D7_PRIVATE_RECORD_CONTENT_EXPORTED=FALSE')
+          print('MPAI06_D7_SEMANTIC_FALSE_POSITIVE_RATE=UNADJUDICATED')
+          print('MPAI06_D7_SCIENTIFIC_PROMOTION=FALSE')
+          if errors: raise SystemExit(2)
+          '@ | python -
+            if ($LASTEXITCODE -ne 0) { throw 'COLLISION_DIFFERENTIAL_FAILED' }
+          } finally {
+            if (Test-Path $scratch) { Remove-Item $scratch -Force -Recurse -ErrorAction SilentlyContinue }
+          }
