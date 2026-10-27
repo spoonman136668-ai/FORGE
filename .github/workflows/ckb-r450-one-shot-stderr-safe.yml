@@ -1,0 +1,256 @@
+name: CKB R450 original-owner one-shot instrumented startup and R220 restoration
+on:
+  push:
+    branches: [audit/ckb-r450-once-stderr-safe-diagnostic-20261027]
+permissions:
+  contents: read
+concurrency:
+  group: ckb-r450-one-shot-original-owner
+  cancel-in-progress: false
+jobs:
+  observe-and-restore:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 12
+    steps:
+      - name: Capture one instrumented candidate startup then restore original R220 under the same task
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R450_OWNER_RUNNER_DRIFT'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($identity.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R450_OWNER_SID_DRIFT'}
+          if(-not [Security.Principal.WindowsPrincipal]::new($identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'R450_OWNER_ELEVATION_MISSING'}
+          $root='C:\Users\camar\GolandProjects\ckb-plane'
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $oldExe=Join-Path $store 'releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $newExe=Join-Path $store 'releases\PLANE-R440-TERMINAL-SCHEDULER-20261027\bin\ckb-plane.exe'
+          $oldSha='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $newSha='44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'
+          $oldScriptSha='64c13ebba9dca8f31e6b11b16837b7071a1b8fd06207ad80a0048bb9c5b9e1e4'
+          $instrumentedSha='d93daa46b93a08b51262df5527b26ec96520aabd57d6bdc57789e68b780b96a9'
+          $inactive='C:\Users\camar\AppData\Local\CKB-R449-Inactive-Diagnostics\R449-40545412788'
+          $diagLauncher=Join-Path $inactive 'Start-R449-PS5-StderrSafe.proposed.ps1'
+          $diagPath='C:\Users\camar\AppData\Local\CKB-R445-Startup-Diagnostics\R449-40545412788'
+          $rollback='C:\Users\camar\AppData\Local\CKB-R440-Inactive-Cutover-Packages\R440-40507053688\Start-R18-Controller.rollback.ps1'
+          $activePtr=Join-Path $store 'state\active-release'
+          $pointerSha='06909f579234ea648f35157b81c2aa9aa032f0707f83c8eab68ac526d4b23557'
+          $taskName='CKB-plane Controller'
+          $scriptPath=$null
+          $runDir=Join-Path 'C:\ProgramData\CKBR\cutover' ('R450-'+$env:GITHUB_RUN_ID)
+          $oldPid=102324
+          $baselineQueue=202
+          $baselineJobs=199
+          $recoveryRequired=$false
+          function Sha([string]$f) {
+            if(!(Test-Path -LiteralPath $f -PathType Leaf)){throw ('R450_REQUIRED_FILE_MISSING='+[IO.Path]::GetFileName($f))}
+            (Get-FileHash -LiteralPath $f -Algorithm SHA256).Hash.ToLowerInvariant()
+          }
+          function Pin([string]$f,[string]$expected,[string]$errorCode){if((Sha $f) -cne $expected){throw $errorCode}}
+          function Procs {@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)}
+          function Task {
+            $ts=@(Get-ScheduledTask -TaskName $taskName -ErrorAction Stop)
+            if($ts.Count -ne 1){throw 'R450_TASK_NOT_UNIQUE'}
+            $ts[0]
+          }
+          function Native([string]$method,[string]$body='') {
+            $token=([IO.File]::ReadAllText((Join-Path $root 'state\operator.token'))).Trim()
+            if($token -cnotmatch '^[A-Fa-f0-9]{64}$'){throw 'R450_OPERATOR_TOKEN_INVALID'}
+            try {
+              $headers=@{Authorization=('Bearer '+$token)}
+              if($method -ceq 'GET'){return Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers $headers -TimeoutSec 7 -ErrorAction Stop}
+              return Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8791/api/native' -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 7 -ErrorAction Stop
+            }finally{$token=$null}
+          }
+          function VerifyNative([object]$n){
+            if([string]$n.authority -cne 'plane' -or [string]$n.generation -cne '6' -or [bool]$n.paused -or [bool]$n.heartbeat_stale -or [bool]$n.accepted_ref_mutation_allowed){throw 'R450_NATIVE_AUTHORITY_DRIFT'}
+            $queue=@($n.queue);$jobs=@($n.jobs)
+            if($queue.Count -ne $baselineQueue -or $jobs.Count -ne $baselineJobs){throw 'R450_LEDGER_COUNT_DRIFT'}
+            if(@($queue|Where-Object {[string]$_.state -in @('RUNNING','QUEUED','RETRY_WAIT','FINALIZING')}).Count -ne 0){throw 'R450_ACTIVE_QUEUE_NOT_EMPTY'}
+            $fails=@($queue|Where-Object {[string]$_.state -ceq 'FAILED'})
+            if($fails.Count -ne 1 -or [string]$fails[0].id -cne 'KTRADE_RB1_SINGLE_TRACK_20261022' -or [string]$fails[0].reason -cne 'BRANCH_ANCESTRY_INVALID' -or [string]::IsNullOrWhiteSpace([string]$fails[0].receipt)){throw 'R450_HISTORICAL_FAILURE_DRIFT'}
+          }
+          function StopNativeOnce {
+            $r=Native POST '{"action":"stop"}'
+            if(-not [bool]$r.stopping){throw 'R450_NATIVE_SHUTDOWN_REJECTED'}
+          }
+          function WaitAbsent([int]$sec){
+            $until=(Get-Date).AddSeconds($sec)
+            do {
+              $ps=@(Procs)
+              if($ps.Count -eq 0){return}
+              if($ps.Count -gt 1){throw 'R450_DUPLICATE_NATIVE_PROCESSES'}
+              Start-Sleep -Milliseconds 500
+            } while((Get-Date)-lt $until)
+            throw 'R450_NATIVE_SHUTDOWN_TIMEOUT'
+          }
+          function WaitTaskReady([int]$sec){
+            $until=(Get-Date).AddSeconds($sec)
+            do {if([string](Task).State -ceq 'Ready'){return};Start-Sleep -Milliseconds 300}while((Get-Date)-lt $until)
+            throw 'R450_TASK_NOT_READY'
+          }
+          function Swap([string]$source,[string]$sourceSha,[string]$expectedCurrentSha,[string]$backupName){
+            Pin $scriptPath $expectedCurrentSha 'R450_UNEXPECTED_LAUNCHER_PREIMAGE'
+            $temporary=Join-Path (Split-Path -Parent $scriptPath) ('.r450-'+$env:GITHUB_RUN_ID+'-next.ps1')
+            if(Test-Path -LiteralPath $temporary){throw 'R450_TEMP_LAUNCHER_COLLISION'}
+            [IO.File]::WriteAllBytes($temporary,[IO.File]::ReadAllBytes($source))
+            try {
+              Pin $temporary $sourceSha 'R450_PREPARED_LAUNCHER_DRIFT'
+              [IO.File]::Replace($temporary,$scriptPath,(Join-Path $runDir $backupName),$true)
+              Pin $scriptPath $sourceSha 'R450_REPLACED_LAUNCHER_DRIFT'
+            }finally{
+              if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop}
+            }
+          }
+          function WaitR220([int]$seconds){
+            $until=(Get-Date).AddSeconds($seconds)
+            $note='NONE'
+            do {
+              $ps=@(Procs)
+              if($ps.Count -gt 1){throw 'R450_RESTORATION_MULTIPLE_CONTROLLERS'}
+              if($ps.Count -eq 1 -and [string]$ps[0].ExecutablePath -cne $oldExe){throw 'R450_FAILED_CANDIDATE_ALIVE'}
+              if($ps.Count -eq 1 -and [string](Task).State -ceq 'Running'){
+                try{
+                  VerifyNative (Native GET)
+                  return [int]$ps[0].ProcessId
+                }catch{$note=$_.Exception.GetType().Name}
+              }
+              Start-Sleep -Milliseconds 700
+            }while((Get-Date)-lt $until)
+            throw ('R450_ROLLBACK_HEALTH_TIMEOUT_'+$note)
+          }
+          Pin $oldExe $oldSha 'R450_INSTALLED_R220_EXE_CHANGED'
+          Pin $newExe $newSha 'R450_QUALIFIED_NEW_EXE_CHANGED'
+          Pin $rollback $oldScriptSha 'R450_ORIGINAL_ROLLBACK_COPY_CHANGED'
+          Pin $diagLauncher $instrumentedSha 'R450_POWERSHELL5_QUALIFIED_INSTRUMENT_CHANGED'
+          Pin $activePtr $pointerSha 'R450_RELEASE_POINTER_CHANGED'
+          $ts=Task
+          if([string]$ts.State -cne 'Running' -or [string]$ts.Principal.UserId -cne 'camar' -or [string]$ts.Principal.RunLevel -cne 'Limited'){throw 'R450_ORIGINAL_TASK_DRIFT'}
+          $actions=@($ts.Actions)
+          if($actions.Count -ne 1 -or [string]$actions[0].Execute -cne 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe'){throw 'R450_TASK_BINARY_DRIFT'}
+          $hash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$actions[0].Arguments))).ToLowerInvariant()
+          if($hash -cne 'cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'){throw 'R450_TASK_ARGS_DRIFT'}
+          $paths=@([regex]::Matches([string]$actions[0].Arguments,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($paths.Count -ne 1 -or [IO.Path]::GetFileName($paths[0]) -cne 'Start-R18-Controller.ps1'){throw 'R450_ORIGINAL_TASK_LAUNCHER_DRIFT'}
+          $scriptPath=$paths[0]
+          Pin $scriptPath $oldScriptSha 'R450_ORIGINAL_STARTUP_SCRIPT_DRIFT'
+          $initial=@(Procs)
+          if($initial.Count -ne 1 -or $initial[0].ProcessId -ne $oldPid -or [string]$initial[0].ExecutablePath -cne $oldExe){throw 'R450_ORIGINAL_PID_DRIFT'}
+          VerifyNative (Native GET)
+          if((Test-Path -LiteralPath $runDir) -or (Test-Path -LiteralPath $diagPath)){throw 'R450_DIAGNOSTIC_CUSTODY_COLLISION'}
+          $manifest=Get-Content -LiteralPath (Join-Path $inactive 'manifest.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+          if([string]$manifest.schema -cne 'ckb-plane.r449.ps5-native-stderr-safe-inactive.v1' -or [string]$manifest.instrumented_ps5_launcher_sha256 -cne $instrumentedSha -or -not [bool]$manifest.original_owner_task_unchanged -or [bool]$manifest.candidate_invoked -or [bool]$manifest.production_db_touched){throw 'R450_INSTRUMENT_MANIFEST_NOT_INACTIVE'}
+          Write-Output 'R450_ORIGINAL_OWNER_AND_HISTORIC_QUEUE_PRECHECK=PASS'
+          New-Item -Path $runDir -ItemType Directory -ErrorAction Stop | Out-Null
+          $outcome='NOT_OBSERVED'
+          $candidateEverSeen=$false
+          $candidateHealthy=$false
+          $candidatePid=0
+          $observedTask='UNKNOWN'
+          $observedResult=-1
+          try {
+            StopNativeOnce
+            WaitAbsent 25
+            WaitTaskReady 12
+            Write-Output 'R450_ORIGINAL_NATIVE_GRACEFUL_STOP=PASS'
+            Swap $diagLauncher $instrumentedSha $oldScriptSha 'original-startup-before-diagnostic.ps1'
+            Write-Output 'R450_ONE_TIME_INSTRUMENTED_SCRIPT_INSTALLED=PASS'
+            Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $end=(Get-Date).AddSeconds(28)
+            $readyNoProcess=0
+            do {
+              $ps=@(Procs)
+              if($ps.Count -gt 1){throw 'R450_MORE_THAN_ONE_CONTROLLER_PROCESS'}
+              $state=[string](Task).State
+              if($ps.Count -eq 1) {
+                $candidateEverSeen=$true
+                if([string]$ps[0].ExecutablePath -cne $newExe){throw 'R450_UNEXPECTED_EXE_AFTER_DIAGNOSTIC_START'}
+                $candidatePid=[int]$ps[0].ProcessId
+                $readyNoProcess=0
+                try {
+                  VerifyNative (Native GET)
+                  $candidateHealthy=$true
+                  $outcome='CANDIDATE_NATIVE_HEALTHY_PROVISIONAL'
+                  break
+                }catch {}
+              } else {
+                if($state -ceq 'Ready'){$readyNoProcess++}else{$readyNoProcess=0}
+                if($readyNoProcess -ge 5){$outcome='TASK_EXITED_NO_PROCESS';break}
+              }
+              Start-Sleep -Milliseconds 500
+            }while((Get-Date)-lt $end)
+            if($outcome -ceq 'NOT_OBSERVED'){$outcome='TIMEOUT_NO_NATIVE_HEALTH'}
+            $observedTask=[string](Task).State
+            $observedResult=[int](Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop).LastTaskResult
+            Write-Output ('R450_CANDIDATE_PROVISIONAL_HEALTHY='+[string]$candidateHealthy)
+            Write-Output ('R450_CANDIDATE_PROCESS_WAS_SEEN='+[string]$candidateEverSeen)
+            Write-Output ('R450_DIAGNOSTIC_OUTCOME='+$outcome)
+            Write-Output ('R450_INSTRUMENTED_TASK_STATE_BEFORE_ROLLBACK='+$observedTask)
+            Write-Output ('R450_INSTRUMENTED_TASK_LAST_RESULT='+$observedResult)
+          } catch {
+            $reason=$_.Exception.GetType().Name
+            Write-Output ('R450_OBSERVATION_FAILED_TYPE='+$reason)
+            $outcome='DIAGNOSTIC_EXCEPTION'
+          } finally {
+            Write-Output 'R450_ROLLBACK_ATTEMPT_BEGIN=TRUE'
+            $ps=@(Procs)
+            if($ps.Count -gt 1){throw 'R450_CANNOT_RESTORE_UNDER_DUPLICATE_CONTROLLERS'}
+            if($ps.Count -eq 1 -and [string]$ps[0].ExecutablePath -cne $oldExe) {
+              StopNativeOnce
+              WaitAbsent 25
+              Write-Output 'R450_CANDIDATE_EXITED_THROUGH_NATIVE_STOP=PASS'
+            }
+            $ts=Task
+            if([string]$ts.State -ceq 'Running' -and @(Procs).Count -eq 0){
+              Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            }
+            WaitTaskReady 15
+            $liveSha=Sha $scriptPath
+            if($liveSha -ceq $instrumentedSha){
+              Swap $rollback $oldScriptSha $instrumentedSha 'instrumented-startup-after-diagnostic.ps1'
+            } elseif($liveSha -cne $oldScriptSha) {throw 'R450_LIVE_STARTUP_INDETERMINATE'}
+            Pin $scriptPath $oldScriptSha 'R450_ORIGINAL_STARTUP_NOT_RESTORED'
+            Pin $oldExe $oldSha 'R450_ROLLBACK_BINARY_CHANGED'
+            Pin $activePtr $pointerSha 'R450_ACTIVE_POINTER_CHANGED'
+            if(@(Procs).Count -eq 0){
+              Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            }
+            $newOldPid=WaitR220 65
+            Write-Output ('R450_RESTORED_R220_PID='+$newOldPid)
+            Write-Output 'R450_ORIGINAL_R220_ROLLBACK_VERIFIED=PASS'
+          }
+          function LocalFileInfo([string]$path,[string]$prefix){
+            if(Test-Path -LiteralPath $path -PathType Leaf){
+              $size=(Get-Item -LiteralPath $path).Length
+              Write-Output ($prefix+'_PRESENT=TRUE')
+              Write-Output ($prefix+'_BYTES='+[string]$size)
+              if($size -le 65536){
+                $raw=[IO.File]::ReadAllText($path)
+                $classes=[ordered]@{
+                  SQLITE_BUSY=($raw -match '(?i)sqlite.+(busy|locked)|database is locked')
+                  CONFIG_INVALID=($raw -match '(?i)CONFIG_INVALID|configuration.+invalid')
+                  FILE_MISSING=($raw -match '(?i)no such file|cannot find path|file does not exist')
+                  LOCK_HELD=($raw -match '(?i)CONTROLLER_LOCK|lock is held')
+                  PANIC=($raw -match '(?i)panic:|fatal error:')
+                  AUTHORITY_ERROR=($raw -match '(?i)AUTONOMY_(?:NOT_CONFIGURED|CONFIG_REQUIRED)|AUTHORITY_')
+                  PORT_IN_USE=($raw -match '(?i)address already in use')
+                }
+                foreach($k in $classes.Keys){if($classes[$k]){Write-Output ($prefix+'_CLASS='+$k)}}
+              } else {Write-Output ($prefix+'_OVERSIZE_NOT_READ=TRUE')}
+            }else{Write-Output ($prefix+'_PRESENT=FALSE')}
+          }
+          LocalFileInfo (Join-Path $diagPath 'native-stdout.txt') 'R450_STDOUT'
+          LocalFileInfo (Join-Path $diagPath 'native-stderr.txt') 'R450_STDERR'
+          $exitFile=Join-Path $diagPath 'native-exit-code.txt'
+          if(Test-Path -LiteralPath $exitFile -PathType Leaf){
+            $code=[IO.File]::ReadAllText($exitFile).Trim()
+            if($code -match '^-?[0-9]{1,11}$'){Write-Output ('R450_NATIVE_EXIT_CODE='+$code)}else{Write-Output 'R450_NATIVE_EXIT_CODE=UNRECOGNIZED'}
+          } else {Write-Output 'R450_NATIVE_EXIT_CODE=ABSENT'}
+          $bootFile=Join-Path $diagPath 'bootstrap-failure-type.txt'
+          if(Test-Path -LiteralPath $bootFile -PathType Leaf){
+            $bootstrap=[IO.File]::ReadAllText($bootFile).Trim()
+            if($bootstrap -match '^[A-Za-z0-9_]{1,100}$'){Write-Output ('R450_BOOTSTRAP_EXCEPTION_CLASS='+$bootstrap)}else{Write-Output 'R450_BOOTSTRAP_EXCEPTION_CLASS=REDACTED'}
+          } else {Write-Output 'R450_BOOTSTRAP_EXCEPTION_CLASS=ABSENT'}
+          $result=[ordered]@{schema='ckb-plane.r450.bounded-startup-observation.v1';result='DIAGNOSTIC_ONLY_RESTORED';outcome=$outcome;task_last_result_before_restore=$observedResult;task_state_before_restore=$observedTask;candidate_process_seen=$candidateEverSeen;candidate_provisional_health=$candidateHealthy;original_binary_sha256=$oldSha;candidate_binary_sha256=$newSha;instrumented_launcher_sha256=$instrumentedSha;original_launcher_restored=$true;native_generation='6';historical_failure_preserved=$true;original_run_id=$env:GITHUB_RUN_ID;no_manual_sqlite_write=$true;created_utc=[DateTimeOffset]::UtcNow.ToString('o')}
+          [IO.File]::WriteAllText((Join-Path $runDir 'result.json'),($result|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
+          Write-Output 'R450_DIAGNOSTIC_CUSTODY_RECORDED_AND_R220_RUNNING=PASS'
