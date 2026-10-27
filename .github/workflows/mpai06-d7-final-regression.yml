@@ -1,0 +1,41 @@
+name: MP-AI06 D7 single Windows final regression
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-final-regression.yml']
+permissions:
+  contents: read
+jobs:
+  final-regression:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 45
+    steps:
+      - name: Qualify immutable candidate source with native Windows suite
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RUNNER_MISMATCH' }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai06d7-final-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --branch proposal/mp-ai06-d7-normalized-recall-20261025 https://github.com/spoonman136668-ai/Mind-Palace.git $scratch
+            if ($LASTEXITCODE -ne 0) { throw 'CANDIDATE_FETCH_FAILED' }
+            $sha = (& git -C $scratch rev-parse HEAD).Trim()
+            if ($sha -cne '536d451c0e585d22e09a2aadecf2a6cefba76402') { throw 'CANDIDATE_SHA_DRIFT' }
+            Push-Location $scratch
+            try {
+              $diff = @(& git diff --name-only 2a43ced97d76ec38678722fdb50ff15252d0dbb3 HEAD | Sort-Object)
+              $expected = @('agentic/mpai06_d7_normalized_recall.py','docs/MP-AI06-D7-NORMALIZED-RECALL.md','tests/test_mpai06_d7_normalized_recall.py' | Sort-Object)
+              if (($diff -join '|') -cne ($expected -join '|')) { throw 'UNEXPECTED_SOURCE_SCOPE' }
+              Write-Host 'MPAI06_D7_EXACT_ADD_ONLY_SCOPE=PASS'
+              & ./tests/Test-All.ps1
+              if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw 'FULL_WINDOWS_REGRESSION_FAILED' }
+              Write-Host 'MPAI06_D7_FULL_WINDOWS_REGRESSION=PASS'
+              if (@(& git status --porcelain).Count -ne 0) { throw 'CANDIDATE_WORKTREE_MODIFIED' }
+              Write-Host 'MPAI06_D7_PROTECTED_SOURCE_UNCHANGED=PASS'
+              Write-Host 'MPAI06_D7_PROMOTION=FALSE'
+            } finally { Pop-Location }
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+          }
