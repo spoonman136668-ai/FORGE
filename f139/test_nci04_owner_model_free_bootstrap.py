@@ -73,6 +73,24 @@ class LocalG29OriginalOwnerTests(unittest.TestCase):
         self.assertEqual(note["schema"], "forge.f139.owner-model-draft-note.v1")
         self.db.verify()
 
+    def test_actual_existing_native_feeder_accepts_generated_owner_draft(self):
+        from f139.nci04_autonomy_feed import prepare_feed
+        self.assertEqual(self.publish()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        def get(route):
+            if route == ("repos/spoonman136668-ai/Wingless/"
+                         "pulls?state=open&per_page=100&page=1"):
+                return []
+            return self.owner.get(route)
+        result = prepare_feed(get, source_sha=MAIN,
+                              existing_candidate_identities=set())
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["rejected"], [])
+        self.assertEqual(len(result["candidates"]), 1)
+        candidate = result["candidates"][0]
+        self.assertEqual(candidate["lane"], "Yggdrasil")
+        self.assertIn("intent_base64", json.loads(candidate["issue_body"]))
+        self.assertFalse(candidate["scientific_first_use"])
+
     def test_once_only_sticky_original_attempt_does_not_repeat(self):
         self.assertEqual(self.publish()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
         head = self.db.meta()["head_hash"]
