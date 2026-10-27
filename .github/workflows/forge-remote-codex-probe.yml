@@ -9,29 +9,24 @@ jobs:
     runs-on: [self-hosted, Windows, forge-codex-isolated]
     timeout-minutes: 5
     steps:
-      - name: Classify the last proposal failure without displaying its content
+      - name: Classify saved proposal diagnostics
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'WRONG_RUNNER' }
           $folder=Join-Path $env:RUNNER_TEMP 'forge-model-proposal-40463611355'
-          $result='FILES_UNAVAILABLE'
-          if (Test-Path -LiteralPath $folder -PathType Container) {
-            $combined=''
-            foreach($name in @('stderr.txt','events.jsonl')) {
-              $p=Join-Path $folder $name
-              if (Test-Path -LiteralPath $p -PathType Leaf) {
-                $combined += [IO.File]::ReadAllText($p)
+          foreach($name in @('stderr.txt','events.jsonl')) {
+            $p=Join-Path $folder $name
+            if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { Write-Host ("PROPOSAL_FILE_"+$name+"=ABSENT"); continue }
+            $s=[IO.File]::ReadAllText($p)
+            Write-Host ("PROPOSAL_FILE_"+$name+"_BYTES="+$s.Length)
+            foreach($word in @('model','not found','unsupported','invalid','configuration','schema','argument','feature','authentication','unauthorized','quota','limit','network','connection','workspace','sandbox','permission','requires','tier','backend','json','tool','error','fatal','failed','usage','exec','flag','login','gpt-6.1-terra','approval','file','path','context','version')) {
+              if ($s.IndexOf($word,[StringComparison]::OrdinalIgnoreCase) -ge 0) { Write-Host ("PROPOSAL_CONTAINS="+$word) }
+            }
+            if ($name -ceq 'events.jsonl') {
+              foreach($line in ($s -split "\r?\n")) {
+                try {$e=$line|ConvertFrom-Json -ErrorAction Stop; if ($e.type -match '^[a-z_.]+$') {Write-Host ("PROPOSAL_EVENT="+$e.type)}} catch {}
               }
             }
-            $result='OTHER_OR_EMPTY'
-            if ($combined -match '(?i)model.{0,100}(not found|not supported|not available|does not exist|unknown|unsupported)') {$result='MODEL_UNAVAILABLE'}
-            elseif ($combined -match '(?i)(unexpected argument|unrecognized option|unexpected option|unknown option)') {$result='CLI_ARGUMENT_UNSUPPORTED'}
-            elseif ($combined -match '(?i)(unauthorized|401|403|not authenticated|login required)') {$result='AUTHORIZATION_FAILED'}
-            elseif ($combined -match '(?i)(usage limit|quota|rate limit|too many requests|429)') {$result='MODEL_USAGE_LIMIT'}
-            elseif ($combined -match '(?i)(sandbox|permission denied|access is denied)') {$result='SANDBOX_FAILED'}
-            elseif ($combined -match '(?i)(output.schema|json.schema|schema validation)') {$result='OUTPUT_SCHEMA_FAILED'}
-            elseif ($combined -match '(?i)(timeout|connection|network|dns)') {$result='NETWORK_FAILED'}
           }
-          Write-Host ("PROPOSAL_FAILURE_CLASS="+$result)
-          Write-Host 'MODEL_RETRIED=FALSE; CREDENTIAL_VALUES_PRINTED=FALSE'
+          Write-Host 'MODEL_RETRIED=FALSE; RAW_DIAGNOSTICS_NOT_PRINTED=TRUE'
