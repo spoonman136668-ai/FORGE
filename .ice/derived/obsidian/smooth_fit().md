@@ -1,0 +1,19 @@
+---
+source_file: "research/r34-wingless/execute.py"
+type: "code"
+community: "Community 219"
+location: "L39"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_219
+---
+
+# smooth_fit()
+
+## Connections
+- [[families()]] - `calls` [EXTRACTED]
+- [[r34-winglessexecute.py]] - `contains` [EXTRACTED]
+- [[run()_5]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_219

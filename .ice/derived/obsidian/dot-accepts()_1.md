@@ -1,0 +1,21 @@
+---
+source_file: "fsatrust/checkpoint.go"
+type: "code"
+community: "Community 9"
+location: "L84"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_9
+---
+
+# .accepts()
+
+## Connections
+- [[Anchor]] - `references` [EXTRACTED]
+- [[Identity_4]] - `method` [EXTRACTED]
+- [[hexLower()_8]] - `calls` [EXTRACTED]
+- [[keyID()]] - `calls` [EXTRACTED]
+- [[readPinned()]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_9
