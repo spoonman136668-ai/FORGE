@@ -46,23 +46,23 @@ jobs:
             Copy-Item -LiteralPath $config -Destination $isolatedConfig -ErrorAction Stop
             $isolatedDb=Join-Path $stage 'state\autonomy.db'
             $py=@'
-import pathlib, sqlite3, sys
-source=pathlib.Path(sys.argv[1]).resolve(strict=True)
-target=pathlib.Path(sys.argv[2]).resolve()
-if source == target or target.exists(): raise RuntimeError('R417_SNAPSHOT_PATH_UNSAFE')
-if 'ckb-r417-history-' not in str(target): raise RuntimeError('R417_ISOLATION_ROOT_INVALID')
-src=sqlite3.connect(source.as_uri()+'?mode=ro', uri=True, timeout=30)
-dest=sqlite3.connect(str(target), timeout=30)
-try:
-    src.backup(dest, pages=512, sleep=0.05)
-    result=dest.execute('PRAGMA quick_check').fetchone()[0]
-    if result != 'ok': raise RuntimeError('R417_SNAPSHOT_INTEGRITY_FAILED')
-    names={row[0] for row in dest.execute('SELECT name FROM sqlite_master WHERE type=\'table\'')}
-    print('R417_SNAPSHOT_INTEGRITY=PASS')
-    print('R417_SNAPSHOT_TABLE_COUNT='+str(len(names)))
-finally:
-    dest.close();src.close()
-'@
+          import pathlib, sqlite3, sys
+          source=pathlib.Path(sys.argv[1]).resolve(strict=True)
+          target=pathlib.Path(sys.argv[2]).resolve()
+          if source == target or target.exists(): raise RuntimeError('R417_SNAPSHOT_PATH_UNSAFE')
+          if 'ckb-r417-history-' not in str(target): raise RuntimeError('R417_ISOLATION_ROOT_INVALID')
+          src=sqlite3.connect(source.as_uri()+'?mode=ro', uri=True, timeout=30)
+          dest=sqlite3.connect(str(target), timeout=30)
+          try:
+              src.backup(dest, pages=512, sleep=0.05)
+              result=dest.execute('PRAGMA quick_check').fetchone()[0]
+              if result != 'ok': raise RuntimeError('R417_SNAPSHOT_INTEGRITY_FAILED')
+              names={row[0] for row in dest.execute('SELECT name FROM sqlite_master WHERE type=\'table\'')}
+              print('R417_SNAPSHOT_INTEGRITY=PASS')
+              print('R417_SNAPSHOT_TABLE_COUNT='+str(len(names)))
+          finally:
+              dest.close();src.close()
+          '@
             & python -B -c $py $sourceDb $isolatedDb
             if($LASTEXITCODE -ne 0){throw 'R417_SQLITE_READONLY_BACKUP_FAILED'}
             if((Get-FileHash -LiteralPath $isolatedConfig -Algorithm SHA256).Hash.ToLowerInvariant() -cne $pins[$config]){throw 'R417_SCRATCH_CONFIG_DRIFT'}
