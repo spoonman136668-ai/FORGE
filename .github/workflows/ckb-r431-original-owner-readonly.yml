@@ -288,3 +288,74 @@ jobs:
           Write-Output ('R435_CONTROLLER_STATUS_PREFIX='+$(if([string]$native.controller_status -match '^([A-Z_]+)'){$matches[1]}else{'OTHER'}))
           Write-Output 'R435_NO_RETRY_OR_WORK_ORDER_SUBMISSION=TRUE'
           Write-Output 'R435_READ_ONLY_NATIVE_GET=TRUE'
+      - name: R436 reconcile release pointer vs original running process in read-only custody
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R436_WRONG_OWNER_RUNNER'}
+          $store='C:\ProgramData\CKBR\release-store\ckb-plane'
+          $active=Join-Path $store 'state\active-release'
+          $expectedPointer='PLANE-THROUGHPUT-R1P'
+          $ptr=([IO.File]::ReadAllText($active)).Trim()
+          if($ptr -cne $expectedPointer){throw 'R436_ACTIVE_POINTER_DRIFT'}
+          $r220='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $r220hash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if((Get-FileHash -LiteralPath $r220 -Algorithm SHA256).Hash.ToLowerInvariant() -cne $r220hash){throw 'R436_R220_EXE_DRIFT'}
+          $r1p=Join-Path $store 'releases\PLANE-THROUGHPUT-R1P'
+          $r1pExe=Join-Path $r1p 'bin\ckb-plane.exe'
+          if(!(Test-Path -LiteralPath $r1pExe -PathType Leaf)){throw 'R436_ACTIVE_POINTER_BINARY_MISSING'}
+          $r1pHash=(Get-FileHash -LiteralPath $r1pExe -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R436_POINTER_RELEASE='+$ptr)
+          Write-Output ('R436_POINTER_RELEASE_EXE_SHA256='+$r1pHash)
+          Write-Output ('R436_RUNNING_RELEASE_EXE_SHA256='+$r220hash)
+          Write-Output ('R436_POINTER_BINARY_DIFFERS_FROM_RUNNING='+($r1pHash -cne $r220hash))
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R436_ORIGINAL_TASK_DRIFT'}
+          $a=@($task[0].Actions)
+          Write-Output ('R436_TASK_ACTION_COUNT='+$a.Count)
+          foreach($action in $a) {
+            $args=[string]$action.Arguments
+            $cmdhash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
+            Write-Output ('R436_TASK_COMMANDLINE_SHA256='+$cmdhash)
+            Write-Output ('R436_TASK_ARGS_REFERS_R220='+($args.Contains('PLANE-R220-LIVECOMPAT-20261023')))
+            Write-Output ('R436_TASK_ARGS_REFERS_R1P='+($args.Contains('PLANE-THROUGHPUT-R1P')))
+            Write-Output ('R436_TASK_ARGS_REFERS_START_SCRIPT='+($args.Contains('Start-CKBPlane.ps1')))
+            Write-Output ('R436_TASK_ARGS_REFERS_CONTROLLER_RUN='+($args.Contains('controller run')))
+          }
+          $processes=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($processes.Count -ne 1 -or $processes[0].ExecutablePath -cne $r220){throw 'R436_ORIGINAL_PROCESS_DRIFT'}
+          $proc=$processes[0]
+          Write-Output ('R436_RUNNING_PROCESS_ID='+$proc.ProcessId)
+          Write-Output ('R436_RUNNING_PROCESS_COMMANDLINE_SHA256='+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$proc.CommandLine))).ToLowerInvariant())
+          Write-Output ('R436_RUNNING_PROCESS_REFERS_R220='+([string]$proc.CommandLine).Contains('PLANE-R220-LIVECOMPAT-20261023'))
+          Write-Output ('R436_RUNNING_PROCESS_REFERS_R1P='+([string]$proc.CommandLine).Contains('PLANE-THROUGHPUT-R1P'))
+          $parent=@(Get-CimInstance Win32_Process -Filter ("ProcessId = "+$proc.ParentProcessId) -ErrorAction Stop)
+          Write-Output ('R436_PARENT_ALIVE='+($parent.Count -eq 1))
+          foreach($p in $parent) {
+            Write-Output ('R436_PARENT_IMAGE_NAME='+[string]$p.Name)
+            Write-Output ('R436_PARENT_PROCESS_ID='+$p.ProcessId)
+            Write-Output ('R436_PARENT_START_TIME='+[string]$p.CreationDate)
+            Write-Output ('R436_PARENT_COMMANDLINE_SHA256='+[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([string]$p.CommandLine))).ToLowerInvariant())
+          }
+          foreach($file in @('release-manifest.json','release-seal.json')) {
+            $found=Join-Path $r1p $file
+            Write-Output ('R436_R1P_'+$file.ToUpperInvariant()+'_PRESENT='+(Test-Path -LiteralPath $found -PathType Leaf))
+            if(Test-Path -LiteralPath $found -PathType Leaf) {
+              $length=(Get-Item -LiteralPath $found -ErrorAction Stop).Length
+              if($length -gt 131072){throw 'R436_R1P_METADATA_SIZE_UNBOUNDED'}
+              Write-Output ('R436_R1P_'+$file.ToUpperInvariant()+'_SHA256='+(Get-FileHash -LiteralPath $found -Algorithm SHA256).Hash.ToLowerInvariant())
+              $meta=Get-Content -LiteralPath $found -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+              foreach($name in @('schema','release_id','version','source_commit','exe_sha256','binary_sha256','created_at','qualified_sha256')) {
+                $field=$meta.PSObject.Properties[$name]
+                if($null -ne $field -and $null -ne $field.Value) {
+                  $value=[string]$field.Value
+                  if($value -match '^[A-Za-z0-9_.:-]{1,128}$'){Write-Output ('R436_R1P_'+$name.ToUpperInvariant()+'='+$value)}
+                }
+              }
+            }
+          }
+          $activeAfter=([IO.File]::ReadAllText($active)).Trim()
+          if($activeAfter -cne $ptr){throw 'R436_POINTER_CHANGED_DURING_AUDIT'}
+          Write-Output 'R436_READ_ONLY_RELEASE_RECONCILIATION=PASS'
+          Write-Output 'R436_NO_ACTIVE_POINTER_WRITE_OR_TASK_RESTART=TRUE'
