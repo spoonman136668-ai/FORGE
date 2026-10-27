@@ -25,7 +25,7 @@ from f139.nci04_free_reasoner_provider import (
 )
 from f139.nci04_model_owner_bridge import owner_request
 from f139.nci04_model_owner_publication import publish_model_once
-from f139.nci04_native_contract import canonical, digest
+from f139.nci04_native_contract import canonical, digest, WINGLESS_R8_TRAINING
 
 ATTEMPT = "FREE_REASONER_ATTEMPTED"
 SCHEMA = "forge.f139.owner-free-reasoner-attempt.v1"
@@ -34,6 +34,9 @@ MAX_LIFETIME_REQUESTS = 8
 SHA40 = re.compile(r"[a-f0-9]{40}\Z")
 SHA64 = re.compile(r"[a-f0-9]{64}\Z")
 DAY = re.compile(r"\d{4}-\d{2}-\d{2}\Z")
+# The source comes from Wingless's separately developed, unpublished R8
+# TrainingSession candidate. It is a public immutable DEV parent, NOT FSA.
+WINGLESS_R8_PARENT = "01ca1471b60616fe323dae2ecbc0f16d053b38f3"
 
 
 class FreeOwnerDenied(ValueError):
@@ -105,6 +108,22 @@ def _attempts(db: Database) -> list[dict]:
          and len({x["scope_sha256"] for x in attempts}) == len(attempts),
          "ORIGINAL_ATTEMPT_DUPLICATE_OR_BUDGET")
     return attempts
+
+
+def select_bounded_free_lane(attempts: list[dict]) -> str:
+    """Balance BOTH existing science lanes under ONE global request budget.
+
+    A second call without new native outcomes remains scope-consumed and
+    cannot replay. An ambiguous first provider call is never retried.
+    """
+    need(type(attempts) is list and all(type(item) is dict
+         and item.get("lane") in ("Yggdrasil", "Wingless") for item in attempts),
+         "LANE_CUSTODY_INVALID")
+    counts = {lane: sum(a["lane"] == lane for a in attempts)
+              for lane in ("Yggdrasil", "Wingless")}
+    # Preserve already working Yggdrasil's first slot; give Wingless the
+    # next *eligible* slot only once the previous request is consumed.
+    return "Wingless" if counts["Wingless"] < counts["Yggdrasil"] else "Yggdrasil"
 
 
 def reasoner_proposal_once(
@@ -257,11 +276,19 @@ def run_original_free_reasoner_once(
          "ORIGINAL_WINDOWS_MUTEX_OR_PROCESS_REQUIRED")
     owner, close = original_canonical_db(db, db_path)
     try:
+        # Read ONLY the original ledger under the already-held mutex. Never
+        # publish to both lanes in one tick; the one-per-day lifetime budget
+        # is shared, not duplicated across models.
+        lane = select_bounded_free_lane(_attempts(owner))
+        target_commit, path = (
+            (WINGLESS_R8_PARENT, WINGLESS_R8_TRAINING)
+            if lane == "Wingless" else
+            (g29.PARENT, "yggdrasil/public_causal_cells.py")
+        )
         return reasoner_proposal_once(
             owner, api.native_repo_get, api.native_repo_get,
             api.owner_model_write, source_sha=source_sha,
-            lane="Yggdrasil", target_commit=g29.PARENT,
-            path="yggdrasil/public_causal_cells.py",
+            lane=lane, target_commit=target_commit, path=path,
             owner_witness=owner_witness, token=token,
         )
     finally:
