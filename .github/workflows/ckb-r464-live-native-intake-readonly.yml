@@ -1,0 +1,92 @@
+name: CKB R464 live new-work eligibility and native scheduler intake verification
+on:
+  push:
+    branches: [audit/ckb-r464-live-fresh-intake-readonly-20261027]
+permissions:
+  contents: read
+jobs:
+  verify-live-native-intake:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Read only original owner native intake and fresh source authorization gating
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R464_WRONG_OWNER_RUNNER'}
+          $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($identity.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R464_WRONG_OWNER_SID'}
+          $liveRoot='C:\Users\camar\GolandProjects\ckb-plane'
+          $bin='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R461-ACTIVE-ONLY-SCHEDULER-20261027\bin\ckb-plane.exe'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $newHash='b39ad0e68f841a4596d2a103064d64f7725b7a4f7f37965f20fa794f14798fcf'
+          $oldHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          $scriptHash='278ded64e85983a08d2d2cbde4fcbb1b87fc5ad5f42bac72a52441d59a9329a8'
+          $expectedArgs='cb83905cfa4aa7e99683038160448802bdaf8c602c387f575fa8b1bf0ffad29c'
+          $process=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($process.Count -ne 1 -or $process[0].ProcessId -ne 76312 -or [string]$process[0].ExecutablePath -cne $bin){throw 'R464_LIVE_REPAIRED_PROCESS_DRIFT'}
+          if((Get-FileHash -LiteralPath $bin -Algorithm SHA256).Hash.ToLowerInvariant() -cne $newHash){throw 'R464_DEPLOYED_BINARY_DRIFT'}
+          if((Get-FileHash -LiteralPath $old -Algorithm SHA256).Hash.ToLowerInvariant() -cne $oldHash){throw 'R464_ORIGINAL_ROLLBACK_MISSING'}
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($task.Count -ne 1 -or [string]$task[0].State -cne 'Running' -or [string]$task[0].Principal.UserId -cne 'camar'){throw 'R464_ORIGINAL_TASK_NOT_RUNNING'}
+          $actions=@($task[0].Actions)
+          if($actions.Count -ne 1){throw 'R464_TASK_ACTION_DRIFT'}
+          $args=[string]$actions[0].Arguments
+          $actualArgs=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($args))).ToLowerInvariant()
+          if($actualArgs -cne $expectedArgs){throw 'R464_TASK_ARGUMENTS_DRIFT'}
+          $paths=@([regex]::Matches($args,'[A-Z]:\\[\w\\ ._-]+\.ps1','IgnoreCase')|ForEach-Object {$_.Value}|Sort-Object -Unique)
+          if($paths.Count -ne 1 -or [IO.Path]::GetFileName($paths[0]) -cne 'Start-R18-Controller.ps1'){throw 'R464_TASK_SOURCE_UNRECOGNIZED'}
+          if((Get-FileHash -LiteralPath $paths[0] -Algorithm SHA256).Hash.ToLowerInvariant() -cne $scriptHash){throw 'R464_LIVE_STARTUP_SCRIPT_CHANGED'}
+          Write-Output 'R464_SINGLE_REPAIRED_NATIVE_OWNER_AND_TASK=PASS'
+          function GetNativeStatus {
+            $token=([IO.File]::ReadAllText((Join-Path $liveRoot 'state\operator.token'))).Trim()
+            if($token -cnotmatch '^[A-Fa-f0-9]{64}$'){throw 'R464_NATIVE_TOKEN_FORMAT_INVALID'}
+            try {
+              Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop
+            }finally{$token=$null}
+          }
+          function GuardNative($n) {
+            if([string]$n.authority -cne 'plane' -or [string]$n.generation -cne '6' -or [bool]$n.paused -or [bool]$n.heartbeat_stale -or [bool]$n.accepted_ref_mutation_allowed){throw 'R464_AUTHORITY_HEARTBEAT_OR_POLICY_DRIFT'}
+            $fails=@($n.queue|Where-Object {[string]$_.id -ceq 'KTRADE_RB1_SINGLE_TRACK_20261022'})
+            if($fails.Count -ne 1 -or [string]$fails[0].state -cne 'FAILED' -or [string]$fails[0].reason -cne 'BRANCH_ANCESTRY_INVALID' -or [string]::IsNullOrWhiteSpace([string]$fails[0].receipt)){throw 'R464_HISTORICAL_FAILURE_CUSTODY_DRIFT'}
+          }
+          $a=GetNativeStatus
+          GuardNative $a
+          $states=@('PENDING','INVALID','QUEUED','RUNNING','RETRY_WAIT','FINALIZING','COMPLETED','REVIEWED','FAILED')
+          foreach($state in $states){
+            Write-Output ('R464_NATIVE_QUEUE_'+$state+'='+@($a.queue|Where-Object {[string]$_.state -ceq $state}).Count)
+          }
+          Write-Output ('R464_NATIVE_QUEUE_COUNT='+@($a.queue).Count)
+          Write-Output ('R464_NATIVE_JOBS_COUNT='+@($a.jobs).Count)
+          $queued=@($a.queue|Where-Object {[string]$_.state -ceq 'QUEUED'})
+          $freshSource=@($queued|Where-Object {[string]$_.mode -ceq 'source' -and [string]$_.authorization -ceq 'operator'})
+          $ineligibleQueued=@($queued|Where-Object {[string]$_.mode -cne 'source' -or [string]$_.authorization -cne 'operator'})
+          Write-Output ('R464_AUTHORIZED_SOURCE_ITEMS_READY_FOR_ELIGIBILITY_TEST='+$freshSource.Count)
+          Write-Output ('R464_NON_SOURCE_OR_UNAUTHORIZED_QUEUED='+$ineligibleQueued.Count)
+          $pendingDir=Join-Path $liveRoot 'workorders\pending'
+          if(!(Test-Path -LiteralPath $pendingDir -PathType Container)){throw 'R464_ORIGINAL_PENDING_DIR_MISSING'}
+          $disk=@(Get-ChildItem -LiteralPath $pendingDir -File -Filter '*.json' -ErrorAction Stop)
+          Write-Output ('R464_PENDING_DISK_SOURCE_FILES='+$disk.Count)
+          $diskIds=@($disk|ForEach-Object {$_.BaseName})
+          if(@($diskIds|Sort-Object -Unique).Count -ne $diskIds.Count){throw 'R464_DUPLICATE_PENDING_SOURCE_ID'}
+          $unclaimed=@($a.queue|Where-Object {[string]$_.state -in @('PENDING','INVALID')})
+          Write-Output ('R464_UNCLAIMED_OR_INVALID_QUEUE_ITEMS='+$unclaimed.Count)
+          $operatorBlocked=([string]$a.controller_status).StartsWith('OPERATOR_BLOCKED')
+          Write-Output ('R464_HISTORICAL_OPERATOR_BLOCKED_STATUS='+[string]$operatorBlocked)
+          Start-Sleep -Seconds 11
+          $b=GetNativeStatus
+          GuardNative $b
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($after.Count -ne 1 -or [int]$after[0].ProcessId -ne 76312){throw 'R464_NATIVE_PROCESS_CHANGED_DURING_READONLY_GATE'}
+          Write-Output ('R464_QUEUE_COUNT_AFTER_11_SECONDS='+@($b.queue).Count)
+          Write-Output ('R464_JOBS_COUNT_AFTER_11_SECONDS='+@($b.jobs).Count)
+          if(@($b.queue).Count -ne @($a.queue).Count -or @($b.jobs).Count -ne @($a.jobs).Count){
+            Write-Output 'R464_QUEUE_OR_JOB_COUNT_CHANGED_DURING_OBSERVATION=TRUE'
+          }else{Write-Output 'R464_QUEUE_OR_JOB_COUNT_CHANGED_DURING_OBSERVATION=FALSE'}
+          if($freshSource.Count -eq 0){
+            Write-Output 'R464_NO_AUTHORIZED_FRESH_SOURCE_WORK_AVAILABLE_FOR_LIVE_PROGRESSION=TRUE'
+            Write-Output 'R464_SCHEDULER_RUNTIME_PROGRESS_UNTESTED_NO_PRODUCTION_WORK_INJECTED=TRUE'
+          }
+          Write-Output 'R464_OWNER_NATIVE_INTAKE_READONLY_AUTHORITY=PASS'
+          Write-Output 'R464_NO_QUEUE_REPLAY_DB_WRITE_CONTROLLER_RESTART_OR_TASK_MUTATION=TRUE'
