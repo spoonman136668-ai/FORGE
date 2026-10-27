@@ -62,13 +62,60 @@ jobs:
           $script=$scripts[0]
           AssertFileHash $script $oldScriptHash 'R441_LIVE_STARTUP'
           $body=[IO.File]::ReadAllText($script)
-          if($body.Length -gt 8192 -or $body -match '(?i)(token|secret|password|api.?key|credential|authorization|encodedcommand|invoke-expression|iex\s|set-content|remove-item|stop-process)'){throw 'R441_STARTUP_SCRIPT_NOT_SAFE_TO_AUDIT'}
+          if($body.Length -gt 8192){throw 'R441_STARTUP_SCRIPT_TOO_LARGE'}
           $lines=@($body -split '\r?\n')
           if($lines.Count -gt 35){throw 'R441_STARTUP_SCRIPT_TOO_MANY_LINES'}
           foreach($line in $lines){if($line.Length -gt 1000){throw 'R441_SCRIPT_LINE_TOO_LONG'}}
-          Write-Output 'R441_ORIGINAL_STARTUP_SCRIPT_BEGIN'
-          foreach($line in $lines){Write-Output ('R441_SCRIPT_LINE='+$line)}
-          Write-Output 'R441_ORIGINAL_STARTUP_SCRIPT_END'
+          foreach($name in @('token','secret','password','api.?key','credential','authorization')) {
+            $hasSensitive=($body -match ('(?i)'+$name))
+            $safeName=($name -replace '[^a-zA-Z]','_').ToUpperInvariant()
+            Write-Output ('R441_SCRIPT_CONTAINS_'+$safeName+'='+$hasSensitive)
+          }
+          if($body -match '(?i)(encodedcommand|invoke-expression|\biex\s|set-content|remove-item|stop-process)'){throw 'R441_UNEXPECTED_ACTIVE_SCRIPT_MUTATION_COMMAND'}
+          $tokens=$null;$syntaxErrors=$null
+          $ast=[System.Management.Automation.Language.Parser]::ParseInput($body,[ref]$tokens,[ref]$syntaxErrors)
+          if(@($syntaxErrors).Count -gt 0){throw 'R441_STARTUP_SCRIPT_PARSER_REJECTED'}
+          $cmds=@($ast.FindAll({param($a) $a -is [System.Management.Automation.Language.CommandAst]},$true))
+          if($cmds.Count -gt 12){throw 'R441_STARTUP_SCRIPT_TOO_MANY_COMMANDS'}
+          Write-Output ('R441_STARTUP_AST_COMMAND_COUNT='+$cmds.Count)
+          foreach($cmd in $cmds) {
+            $verb=$cmd.GetCommandName()
+            if([string]::IsNullOrEmpty($verb)){$verb='DYNAMIC_VARIABLE_INVOCATION'}
+            if($verb -notmatch '^[A-Za-z0-9._-]{1,80}
+          $originalBytes=[IO.File]::ReadAllBytes($script)
+          $rollbackBytes=[IO.File]::ReadAllBytes($pkgRollback)
+          if(-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$originalBytes,[byte[]]$rollbackBytes)){throw 'R441_ROLLBACK_NOT_BYTE_IDENTICAL'}
+          $proposed=[IO.File]::ReadAllText($pkgProposed)
+          $candidateRestore=$proposed.Replace($newID,'PLANE-R220-LIVECOMPAT-20261023')
+          if([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($candidateRestore))).ToLowerInvariant() -cne $oldScriptHash){throw 'R441_ROLLBACK_REVERSAL_FAILED'}
+          Write-Output 'R441_BYTE_IDENTICAL_ROLLBACK_INTEGRITY=PASS'
+          $live=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($live.Count -ne 1 -or $live[0].ExecutablePath -cne $oldExe){throw 'R441_LIVE_CONTROLLER_PROCESS_DRIFT'}
+          $livePID=$live[0].ProcessId
+          $tokenFile=Join-Path $root 'state\operator.token'
+          if(!(Test-Path -LiteralPath $tokenFile -PathType Leaf)){throw 'R441_NATIVE_TOKEN_MISSING'}
+          $token=([IO.File]::ReadAllText($tokenFile)).Trim()
+          if($token -cnotmatch '^[a-fA-F0-9]{64}$'){throw 'R441_NATIVE_TOKEN_INVALID'}
+          try {$native=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8791/api/native' -Headers @{Authorization=('Bearer '+$token)} -TimeoutSec 8 -ErrorAction Stop}finally{$token=$null}
+          if([string]$native.authority -cne 'plane' -or [string]$native.generation -cne '6' -or [bool]$native.paused -or [bool]$native.heartbeat_stale){throw 'R441_ORIGINAL_NATIVE_AUTHORITY_NOT_HEALTHY'}
+          $active=@($native.queue|Where-Object {[string]$_.state -in @('QUEUED','RUNNING','RETRY_WAIT','FINALIZING')})
+          if($active.Count -gt 0){throw 'R441_NOT_DRAINED'}
+          Write-Output 'R441_ORIGINAL_AUTHORITY_GEN6_FRESH_AND_DRAINED=PASS'
+          $disk=Get-PSDrive -Name C -ErrorAction Stop
+          Write-Output ('R441_SYSTEM_DRIVE_FREE_GB='+[Math]::Round($disk.Free/1GB,1))
+          if($disk.Free -lt 256MB){throw 'R441_DISK_SPACE_TOO_LOW_FOR_RELEASE'}
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          if($after.Count -ne 1 -or $after[0].ProcessId -ne $livePID){throw 'R441_CONTROLLER_CHANGED'}
+          AssertFileHash $script $oldScriptHash 'R441_LIVE_SCRIPT_POSTCHECK'
+          AssertFileHash $oldExe $oldHash 'R441_LIVE_R220_POSTCHECK'
+          AssertFileHash $pointer $ptrHash 'R441_ACTIVE_POINTER_POSTCHECK'
+          Write-Output 'R441_ORIGINAL_CONTROLLER_PRESERVED=PASS'
+          Write-Output 'R441_RELEASE_ADMISSION_DECISION=PREPARED_NOT_COMMITTED'
+          Write-Output 'R441_NO_INSTALLATION_OR_TASK_OR_STATE_WRITE=TRUE'
+){throw 'R441_STARTUP_COMMAND_NAME_UNEXPECTED'}
+            Write-Output ('R441_STARTUP_AST_COMMAND='+$verb)
+          }
+          Write-Output 'R441_STARTUP_SCRIPT_CONTENT_NOT_LOGGED=TRUE'
           $originalBytes=[IO.File]::ReadAllBytes($script)
           $rollbackBytes=[IO.File]::ReadAllBytes($pkgRollback)
           if(-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$originalBytes,[byte[]]$rollbackBytes)){throw 'R441_ROLLBACK_NOT_BYTE_IDENTICAL'}
