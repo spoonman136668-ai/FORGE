@@ -1,0 +1,104 @@
+name: MP-AI05 sealed private retrieval pairs qualification
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths:
+      - '.github/workflows/mpai05-sealed-pairs-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-sealed-pairs
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 15
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Construct pinned read-only legacy and tiered contexts in disposable private scratch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE' -or
+              $env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') {
+            throw 'MPAI05_OWNER_RUNNER_IDENTITY_DENIED'
+          }
+          $scratch=Join-Path $env:RUNNER_TEMP ('mpai05-pairs-'+$env:GITHUB_RUN_ID)
+          $source=Join-Path $scratch 'source'
+          $sealed=Join-Path $scratch 'sealed'
+          $scriptRoot=Join-Path $scratch 'constructor'
+          $pairOut=Join-Path $scratch 'evidence'
+          try {
+            New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
+            $remote='https://github.com/spoonman136668-ai/Mind-Palace.git'
+            $pins=@(
+              @{path=$source;branch='main';sha='7ad7230a82e3c748aa5336b7288ad2b45d42630c'},
+              @{path=$sealed;branch='proposal/mpai05-sealed-independent-holdout-20261027';sha='d32d73e51a9efd1730d27c812020b87da869881f'},
+              @{path=$scriptRoot;branch='proposal/mpai05-paired-retrieval-construction-20261027';sha='1517cdc39cc6696f2e51d8a1f31084cd457ab191'}
+            )
+            foreach($p in $pins) {
+              & git clone --quiet --single-branch --branch $p.branch $remote $p.path *> (Join-Path $scratch ('private-clone-'+$p.branch.Replace('/','-')+'.log'))
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_PRIVATE_CLONE_UNAVAILABLE'}
+              $actual=(& git -C $p.path rev-parse HEAD).Trim()
+              if($LASTEXITCODE -ne 0 -or $actual -cne $p.sha){throw 'MPAI05_FROZEN_SOURCE_PIN_DRIFT'}
+              $dirty=@(& git -C $p.path status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_ORIGINAL_SOURCE_DIRTY'}
+            }
+            $test=Join-Path $scriptRoot 'tools/mpai05_construct_pairs.py'
+            $manifest=Join-Path $sealed 'evaluation/mpai05-sealed-policy-holdout-v1.json'
+            $log=Join-Path $scratch 'private-evidence-construction.log'
+            & python -B $test --source-root $source --manifest $manifest --output-dir $pairOut *> $log
+            if($LASTEXITCODE -ne 0){
+              throw 'MPAI05_FROZEN_PAIR_CONSTRUCTION_NOT_QUALIFIED'
+            }
+            $receiptPath=Join-Path $pairOut 'construction-receipt.json'
+            if(-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)){throw 'MPAI05_RECEIPT_MISSING'}
+            $report=Get-Content -LiteralPath $receiptPath -Raw -ErrorAction Stop | ConvertFrom-Json
+            if($report.schema -cne 'mind-palace.mpai05.pair-construction.v1' -or
+                $report.manifest_sha256 -cne '5abd725a181f4f71dfee30fbe9eddc1c344d3a32e99e76e904a986291e91f7ae' -or
+                $report.source_sha -cne '7ad7230a82e3c748aa5336b7288ad2b45d42630c' -or
+                $report.records_sha256 -cne 'e5066b28ae03b2a6b7c82953a173013e690cf8fe66d5f5bfec6a81dd790409fa' -or
+                [int]$report.complete_cases -ne 8 -or
+                [int]$report.contexts.A -ne 8 -or
+                [int]$report.contexts.B -ne 8 -or
+                [int]$report.receipts.Count -ne 16 -or
+                [int]$report.evidence_cap_bytes -ne 2048 -or
+                [int]$report.model_calls -ne 0 -or
+                [string]$report.answer_impact -cne 'NOT_TESTED') {
+              throw 'MPAI05_PRIVATE_AGGREGATE_RECEIPT_FAILED'
+            }
+            foreach($row in $report.receipts){
+              if([int]$row.context_bytes -lt 1 -or [int]$row.context_bytes -gt 2048){
+                throw 'MPAI05_EVIDENCE_BYTE_CAP_FAILED'
+              }
+            }
+            foreach($p in $pins){
+              if((& git -C $p.path rev-parse HEAD).Trim() -cne $p.sha){throw 'MPAI05_POST_EVAL_SOURCE_DRIFT'}
+              $dirty=@(& git -C $p.path status --porcelain --untracked-files=all)
+              if($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0){throw 'MPAI05_ORIGINAL_SOURCE_MUTATED'}
+            }
+            Write-Host 'MPAI05_FROZEN_PRIVATE_RETRIEVAL_SOURCE=PASS'
+            Write-Host 'MPAI05_FROZEN_PRIVATE_HOLDOUT=PASS'
+            Write-Host 'MPAI05_RETRIEVAL_PAIR_CONTEXTS=16'
+            Write-Host ('MPAI05_DIFFERENT_CONTEXT_PAIRS='+[int]$report.different_context_cases)
+            Write-Host ('MPAI05_LEGACY_CONTEXT_BYTES_TOTAL='+[int]$report.context_bytes_total.A)
+            Write-Host ('MPAI05_TIERED_CONTEXT_BYTES_TOTAL='+[int]$report.context_bytes_total.B)
+            Write-Host 'MPAI05_EVIDENCE_CAP_BYTES=2048'
+            Write-Host 'MPAI05_PRIVATE_ANSWERS=NOT_GENERATED'
+            Write-Host 'MPAI05_MODEL_CALLS=0'
+            Write-Host 'MPAI05_PRODUCTION_WRITES=0'
+            Write-Host 'MPAI05_PRIVATE_PROMPTS_CONTEXTS_AND_KEYS_PUBLIC=FALSE'
+          } finally {
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $scratch){
+              Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop
+            }
+          }
