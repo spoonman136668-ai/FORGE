@@ -1,4 +1,4 @@
-name: CKB R420 complete isolated owner-state config dependency
+name: CKB R421 isolated native operation-script references
 on:
   push:
     branches: [audit/ckb-r368-release-provenance-20261026]
@@ -50,6 +50,14 @@ jobs:
             Copy-Item -LiteralPath $operations -Destination $isolatedOperations -ErrorAction Stop
             if((Get-FileHash -LiteralPath $operations -Algorithm SHA256).Hash -cne (Get-FileHash -LiteralPath $isolatedOperations -Algorithm SHA256).Hash){throw 'R420_OPERATIONS_COPY_DRIFT'}
             Write-Output 'R420_ISOLATED_LOCAL_OPERATIONS_CONFIG=PASS'
+            $operationRoot=Join-Path $root 'operations'
+            if(!(Test-Path -LiteralPath $operationRoot -PathType Container)){throw 'R421_OPERATION_DIRECTORY_ABSENT'}
+            $opFiles=@(Get-ChildItem -LiteralPath $operationRoot -Recurse -Force -ErrorAction Stop)
+            if(@($opFiles | Where-Object {($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0}).Count -ne 0){throw 'R421_OPERATION_REPARSE_REFUSED'}
+            Copy-Item -LiteralPath $operationRoot -Destination $stage -Recurse -ErrorAction Stop
+            $copied=@(Get-ChildItem -LiteralPath (Join-Path $stage 'operations') -Recurse -File -ErrorAction Stop)
+            if($copied.Count -ne @($opFiles | Where-Object {!$_.PSIsContainer}).Count){throw 'R421_OPERATION_COPY_COUNT_DRIFT'}
+            Write-Output ('R421_ISOLATED_OPERATION_FILE_COUNT='+$copied.Count)
             $isolatedDb=Join-Path $stage 'state\autonomy.db'
             $py=@'
           import pathlib, sqlite3, sys
