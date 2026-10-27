@@ -829,6 +829,12 @@ class Database:
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v7"]
         negative_v8 = [
             t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v8"]
+        negative_v11 = [
+            t for t in source_transitions if t["schema"] == "forge.f139.source-transition.v11"]
+        require(len(negative_v11) <= 1, "V11_SOURCE_TRANSITION_DUPLICATED")
+        # A special original owner quarantine does not have a provider run.
+        # It cannot be misclassified as a failed-provider receipt or erased.
+        g54_custody = g54_original_canonical(self) if negative_v11 else None
         from f139.nci04_g49_prepost_negative import (
             verify_g49_custody, TICKET as PREPOST, SOURCE_V7)
         prepost_verified = verify_g49_custody(self)
@@ -879,9 +885,18 @@ class Database:
                 and row["source_sha"] in historical_sources
                 and row["stage"] == "QUARANTINED" and row["run_id"] is None
                 and row["evidence_sha"] is None and not row["evidence_dir"])
+            prior_g54_ambiguous = (
+                g54_custody is not None
+                and row["ticket"] == g54_custody["ticket"]
+                and row["source_sha"] == g54_custody["source_sha"]
+                and row["source_sha"] in historical_sources
+                and row["stage"] == "QUARANTINED"
+                and row["run_id"] is None
+                and row["evidence_sha"] is None
+                and not row["evidence_dir"])
             historical = (prior_verified or prior_certified_negative
                           or prior_certified_second or prior_provider_failure
-                          or prior_prepost_negative)
+                          or prior_prepost_negative or prior_g54_ambiguous)
             require(TICKET.fullmatch(row["ticket"]) and row["lane"] in LANES and
                     (row["source_sha"] == meta["source_sha"] or historical) and
                     row["stage"] in ALLOWED_STAGES,
