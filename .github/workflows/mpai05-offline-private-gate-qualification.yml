@@ -35,7 +35,7 @@ jobs:
           $phase = 'clone'
           try {
             New-Item -ItemType Directory -Path $scratch -ErrorAction Stop | Out-Null
-            & git clone --quiet --single-branch --depth 1 --branch $branch 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> (Join-Path $scratch 'private-clone.log')
+            & git clone --quiet --single-branch --branch $branch 'https://github.com/spoonman136668-ai/Mind-Palace.git' $source *> (Join-Path $scratch 'private-clone.log')
             if ($LASTEXITCODE -ne 0) { throw 'MPAI05_PRIVATE_SOURCE_UNAVAILABLE' }
             $actual = (& git -C $source rev-parse HEAD).Trim()
             $actualTree = (& git -C $source rev-parse 'HEAD^{tree}').Trim()
@@ -46,6 +46,10 @@ jobs:
                 $blobB -cne 'db7cefe489a94634e1ef9bf139131fb733fef51a') {
               throw 'MPAI05_FOCUSED_SOURCE_BLOB_DRIFT'
             }
+            # The UQ51 synthetic fixture uses an immutable historical commit ancestor.
+            # A shallow clone cannot establish that ancestral identity.
+            & git -C $source merge-base --is-ancestor '90d2dc1e79f0fcdcf49fba7680e29b5760e80d6b' HEAD
+            if ($LASTEXITCODE -ne 0) { throw 'MPAI05_FROZEN_TEST_ANCESTRY_UNAVAILABLE' }
             $clean = @(& git -C $source status --porcelain --untracked-files=all)
             if ($LASTEXITCODE -ne 0 -or $clean.Count -gt 0) { throw 'MPAI05_WORKSPACE_DIRTY_PRE' }
             Write-Host ('MPAI05_SOURCE_COMMIT=' + $actual)
