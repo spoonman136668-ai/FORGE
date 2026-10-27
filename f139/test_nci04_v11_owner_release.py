@@ -124,7 +124,7 @@ class V11SourceOwnerTests(unittest.TestCase):
         self.assertIn('with SingleOwner(args.db.with_suffix(".lock")):', source)
         transition = inspect.getsource(Database.transition_source)
         self.assertIn("SOURCE_TRANSITION_V11_ORIGINAL_CUSTODY_REQUIRED", transition)
-        self.assertIn("verified_g54_ambiguous_start(self)", transition)
+        self.assertIn("g54_original_canonical(self)", transition)
         self.assertIn('event["v10_terminal_event_sha256"]', transition)
         cold = inspect.getsource(Database.verify)
         self.assertIn("if is_v11:", cold)
@@ -132,7 +132,7 @@ class V11SourceOwnerTests(unittest.TestCase):
         self.assertIn("g54_ambiguous_start_event_sha256", cold)
         signer = inspect.getsource(v2_owner_terminal_release_guard)
         self.assertIn('source-transition.v11', signer)
-        self.assertIn("verified_g54_ambiguous_start(db)", signer)
+        self.assertIn("g54_original_canonical(db)", signer)
         self.assertIn("verify_native_activation(db)", signer)
 
 
