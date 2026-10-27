@@ -1,0 +1,67 @@
+name: MP-AI06 D7 query perturbation audit
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-query-perturbation.yml']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Run read-only D7 stability measurements
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE') { throw 'RUNNER_MISMATCH' }
+          $root = Join-Path $env:RUNNER_TEMP ('mpai06-d7-perturb-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --depth 1 -b proposal/mp-ai06-d7-normalized-recall-20261025 https://github.com/spoonman136668-ai/Mind-Palace.git $root
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_UNAVAILABLE' }
+            $sha = (& git -C $root rev-parse HEAD).Trim()
+            if ($sha -cne '536d451c0e585d22e09a2aadecf2a6cefba76402') { throw 'D7_SOURCE_CHANGED' }
+            $env:MPAI06_EVAL_ROOT = $root
+            @'
+          import os,sys,json,pathlib
+          root=pathlib.Path(os.environ['MPAI06_EVAL_ROOT'])
+          sys.path[:0]=[str(root/'tools'),str(root/'agentic')]
+          from mindpalace_readonly import MemorySnapshot
+          from mpai06_answerability import CASES
+          from mpai06_d7_normalized_recall import normalized_recall
+          import subprocess
+          sha=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
+          snap=MemorySnapshot(root,sha,['Mind-Palace'])
+          # Predeclared mechanical changes; development stress, never novel heldout
+          replacements=[('records','record'),('sources','source'),('memories','memory'),
+                        ('retrieving','retrieve'),('scanning','scan'),('persisting','persist'),
+                        ('conflicts','conflict'),('models','model'),('archives','archive')]
+          receipts=[]
+          for case in CASES:
+              variants=[case.query,case.query.lower()]
+              changed=case.query
+              for old,new in replacements:
+                  changed=changed.replace(old,new).replace(old.title(),new.title())
+              variants.append(changed)
+              for v in variants:
+                  b=snap.recall(sha,v,['Mind-Palace'],case.profile)
+                  d=normalized_recall(snap,v,case.profile)
+                  target=case.evidence_id
+                  receipts.append({'case':case.case_id,'variant':len(receipts)%3,
+                     'baseline':target in [r['id'] for r in b['matches']],
+                     'd7':target in [r['id'] for r in d['matches']],
+                     'budget_ok':d['estimated_text_tokens']<=snap.profiles[case.profile]['primary_token_budget']})
+          def hits(key):return sum(r[key] for r in receipts)
+          regressions=sum(r['baseline'] and not r['d7'] for r in receipts)
+          print('MPAI06_D7_PERTURB_VARIANTS='+str(len(receipts)))
+          print('MPAI06_D7_PERTURB_BASELINE_HITS='+str(hits('baseline')))
+          print('MPAI06_D7_PERTURB_CANDIDATE_HITS='+str(hits('d7')))
+          print('MPAI06_D7_PERTURB_BASELINE_LOSSES='+str(regressions))
+          print('MPAI06_D7_PERTURB_BUDGET_PASS='+str(all(r['budget_ok'] for r in receipts)))
+          print('MPAI06_D7_SCIENTIFIC_TRANSFER=NOT_TESTED')
+          if regressions or not all(r['budget_ok'] for r in receipts):sys.exit(2)
+          '@ | python -
+            if($LASTEXITCODE -ne 0) { throw 'D7_PERTURBATION_AUDIT_FAIL' }
+          } finally {
+            if(Test-Path $root) { Remove-Item $root -Force -Recurse -ErrorAction SilentlyContinue }
+          }
