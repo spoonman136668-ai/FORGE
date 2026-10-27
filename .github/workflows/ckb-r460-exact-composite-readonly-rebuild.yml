@@ -1,0 +1,73 @@
+name: CKB R460 original-owner exact composite recovery candidate rebuild
+on:
+  push:
+    branches: [audit/ckb-r460-exact-composite-recovery-rebuild-20261027]
+permissions:
+  contents: read
+jobs:
+  isolated-authoritative-rebuild:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 25
+    steps:
+      - name: Execute source-pinned original composite Windows qualification; prove rebuilt recovery call graph
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'R460_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $owner=[Security.Principal.WindowsIdentity]::GetCurrent()
+          if($owner.User.Value -cne 'S-1-5-21-346268797-1037220602-1885922596-1001'){throw 'R460_OWNER_SID_DRIFT'}
+          $original='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          $originalHash='82865fa3d153fd3e1267b49caf7be484c9965963cc1681652285912edc963678'
+          if((Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant() -cne $originalHash){throw 'R460_R220_RELEASE_PREIMAGE_DRIFT'}
+          $ps=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $task=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($ps.Count -ne 1 -or $ps[0].ProcessId -ne 80088 -or [string]$ps[0].ExecutablePath -cne $original -or $task.Count -ne 1 -or [string]$task[0].State -cne 'Running'){throw 'R460_ORIGINAL_OWNER_NOT_HEALTHY'}
+          $scriptBlob='06942c659ce5511590c4dd1c85e3d315208c04ce'
+          $scratch=Join-Path $env:RUNNER_TEMP ('R460-wrapper-'+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $scratch){throw 'R460_TEMP_COLLISION'}
+          New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+          try{
+            $raw=(& gh api ('repos/spoonman136668-ai/ckb-plane/git/blobs/'+$scriptBlob) | Out-String)
+            if($LASTEXITCODE -ne 0){throw 'R460_PINNED_SCRIPT_BLOB_FETCH_FAILED'}
+            $document=$raw|ConvertFrom-Json -ErrorAction Stop
+            if([string]$document.sha -cne $scriptBlob -or [string]$document.encoding -cne 'base64'){throw 'R460_SCRIPT_BLOB_IDENTITY_DRIFT'}
+            $script=Join-Path $scratch 'Qualify-R428-Exact-R220-Composite.ps1'
+            $bytes=[Convert]::FromBase64String(([string]$document.content -replace '\s',''))
+            [IO.File]::WriteAllBytes($script,$bytes)
+            $actual=(& git hash-object --no-filters -- $script|Out-String).Trim()
+            if($LASTEXITCODE -ne 0 -or $actual -cne $scriptBlob){throw 'R460_SCRIPT_BYTES_NOT_PINNED'}
+            $tok=$null;$errors=$null
+            $ast=[System.Management.Automation.Language.Parser]::ParseFile($script,[ref]$tok,[ref]$errors)
+            if(@($errors).Count -ne 0){throw 'R460_PINNED_SCRIPT_PARSER_FAILED'}
+            Write-Output 'R460_EXACT_ORIGINAL_COMPOSITE_BUILDER_PIN=PASS'
+            & $script
+            Write-Output 'R460_ORIGINAL_COMPOSITE_BUILDER_COMPLETED=PASS'
+          }finally{
+            if(Test-Path -LiteralPath $scratch){Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction Stop}
+          }
+          $candidate=Join-Path $env:LOCALAPPDATA ('CKB-R429-Qualified-Candidates\R429-'+$env:GITHUB_RUN_ID+'\ckb-plane.exe')
+          if(!(Test-Path -LiteralPath $candidate -PathType Leaf)){throw 'R460_REBUILT_R429_CANDIDATE_NOT_STAGED'}
+          $candidateHash=(Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output ('R460_ISOLATED_REBUILT_CANDIDATE_SHA256='+$candidateHash)
+          $symbols=@(& go.exe tool nm $candidate 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R460_REBUILT_SYMBOLS_UNAVAILABLE'}
+          $names=@('List','ListRecoveryCandidates','ListStatusMetadata','ListObservable')
+          foreach($name in $names){
+            $count=@($symbols|Where-Object {[string]$_ -match 'ckb-plane/internal/plane' -and [string]$_ -match ('\b'+[regex]::Escape($name)+'\b')}).Count
+            Write-Output ('R460_CANDIDATE_SYMBOL_'+$name.ToUpperInvariant()+'='+$count)
+          }
+          $dump=@(& go.exe tool objdump -s 'recoverInterrupted' $candidate 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R460_REBUILT_RECOVERY_DISASSEMBLY_FAILED'}
+          $calls=@($dump|Where-Object {[string]$_ -match '\bCALL\b'})
+          $activeOnly=@($calls|Where-Object {[string]$_ -match '\bListRecoveryCandidates\b'}).Count
+          $unbounded=@($calls|Where-Object {[string]$_ -match '\bList\b'}).Count
+          Write-Output ('R460_RECOVERY_ACTIVE_ONLY_CALLS='+$activeOnly)
+          Write-Output ('R460_RECOVERY_UNBOUNDED_LIST_CALLS='+$unbounded)
+          if($activeOnly -lt 1 -or $unbounded -gt 0){throw 'R460_REBUILT_RECOVERY_STILL_REPARSES_ALL_HISTORIC_WORK'}
+          Write-Output 'R460_REBUILT_RECOVERY_ACTIVE_ONLY_CALL_GRAPH=PASS'
+          $after=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $taskAfter=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($after.Count -ne 1 -or $after[0].ProcessId -ne 80088 -or $taskAfter.Count -ne 1 -or [string]$taskAfter[0].State -cne 'Running'){throw 'R460_LIVE_OWNER_INTERRUPTED'}
+          if((Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant() -cne $originalHash){throw 'R460_INSTALLED_R220_CHANGED'}
+          Write-Output 'R460_REBUILT_BINARY_INACTIVE_ORIGINAL_R220_RUNNING=PASS'
