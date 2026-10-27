@@ -368,6 +368,9 @@ class Database:
         meta = self.meta()
         head, count = ZERO, 0
         source_transitions = []
+        free_reasoner_scopes = set()
+        free_reasoner_days = {}
+        last_free_reasoner_day = ""
         for row in self.conn.execute("SELECT * FROM events ORDER BY seq"):
             count += 1
             require(row["seq"] == count and row["prior_sha"] == head, "EVIDENCE_CHAIN_DISCONTINUITY")
@@ -376,6 +379,56 @@ class Database:
             entry = {"seq": count, "prior_sha": head, "kind": row["kind"], "payload": doc}
             head = hash_bytes(canonical(entry))
             require(head == row["sha"], "EVIDENCE_CHAIN_TAMPERED")
+            if row["kind"] == "FREE_REASONER_ATTEMPTED":
+                # The external model never becomes a signer or original owner.
+                # Every API POST has one pre-committed no-retry event; reject
+                # source drift, altered request scope, duplicate request, and
+                # excessive attempts even after a cold restart.
+                expected_fields = {
+                    "schema", "source_sha", "model", "scope_sha256",
+                    "original_feedback_sha256", "lane", "target_commit",
+                    "path", "utc_day", "prior_event_head_sha256",
+                    "remote_request_retry_authorized", "paid_model_calls",
+                    "scientific_first_use",
+                }
+                active_source = (source_transitions[-1]["to_source_sha"]
+                                 if source_transitions else meta["source_sha"])
+                require(type(doc) is dict and set(doc) == expected_fields
+                        and doc["schema"] ==
+                            "forge.f139.owner-free-reasoner-attempt.v1"
+                        and doc["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+                        and isinstance(doc["source_sha"], str)
+                        and SHA.fullmatch(doc["source_sha"]) is not None
+                        and doc["source_sha"] == active_source
+                        and isinstance(doc["target_commit"], str)
+                        and SHA.fullmatch(doc["target_commit"]) is not None
+                        and isinstance(doc["scope_sha256"], str)
+                        and re.fullmatch(r"[a-f0-9]{64}", doc["scope_sha256"])
+                        and isinstance(doc["original_feedback_sha256"], str)
+                        and re.fullmatch(r"[a-f0-9]{64}",
+                                         doc["original_feedback_sha256"])
+                        and doc["lane"] in LANES
+                        and isinstance(doc["path"], str)
+                        and PATH.fullmatch(doc["path"]) is not None
+                        and not doc["path"].startswith("/")
+                        and ".." not in doc["path"]
+                        and isinstance(doc["utc_day"], str)
+                        and re.fullmatch(r"\d{4}-\d{2}-\d{2}",
+                                         doc["utc_day"]) is not None
+                        and doc["prior_event_head_sha256"] == row["prior_sha"]
+                        and doc["remote_request_retry_authorized"] is False
+                        and type(doc["paid_model_calls"]) is int
+                        and doc["paid_model_calls"] == 0
+                        and doc["scientific_first_use"] is False,
+                        "FREE_REASONER_ORIGINAL_ATTEMPT_CUSTODY_DRIFT")
+                require(doc["scope_sha256"] not in free_reasoner_scopes
+                        and len(free_reasoner_scopes) < 8
+                        and doc["utc_day"] >= last_free_reasoner_day
+                        and free_reasoner_days.get(doc["utc_day"], 0) == 0,
+                        "FREE_REASONER_ORIGINAL_SCOPE_REPLAY_OR_BUDGET")
+                free_reasoner_scopes.add(doc["scope_sha256"])
+                free_reasoner_days[doc["utc_day"]] = 1
+                last_free_reasoner_day = doc["utc_day"]
             if row["kind"] == "NATIVE_TWO_SLOT_SCHEMA_ADMITTED":
                 require(isinstance(doc,dict) and set(doc)=={
                     "schema","source_sha","prior_event_head_sha256",
