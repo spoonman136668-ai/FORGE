@@ -85,7 +85,8 @@ class ModelProposalTests(unittest.TestCase):
         history = [{"candidate_identity": "f" * 64, "outcome": "QUARANTINED",
                     "summary": "Earlier candidate failed qualification."}]
         with patch.object(steering, "DOCUMENTS", provider.documents):
-            request = build_request(provider.get, lane=self.args["lane"],
+            request = build_request(provider.get, controller_source_sha="c" * 40,
+                                    lane=self.args["lane"], target_tree_sha="d" * 40,
                                     target_commit=self.args["target_commit"],
                                     path=self.args["path"], before=self.before,
                                     before_sha256=self.args["before_sha256"],
@@ -102,7 +103,8 @@ class ModelProposalTests(unittest.TestCase):
 
     def test_request_rejects_tampered_steering_and_duplicate_history(self):
         provider = SteeringProvider()
-        args = dict(lane=self.args["lane"], target_commit=self.args["target_commit"],
+        args = dict(controller_source_sha="c" * 40, target_tree_sha="d" * 40,
+                    lane=self.args["lane"], target_commit=self.args["target_commit"],
                     path=self.args["path"], before=self.before,
                     before_sha256=self.args["before_sha256"],
                     history_sha256=self.args["history_sha256"])
@@ -110,6 +112,8 @@ class ModelProposalTests(unittest.TestCase):
         with patch.object(steering, "DOCUMENTS", provider.documents):
             with self.assertRaisesRegex(ProposalDenied, "REQUEST_HISTORY_INVALID"):
                 build_request(provider.get, history=[row, row], **args)
+            with self.assertRaisesRegex(ProposalDenied, "REQUEST_SOURCE_OR_HISTORY_INVALID"):
+                build_request(provider.get, history=[row], **dict(args, target_tree_sha="bad"))
             def tampered(route):
                 value = provider.get(route)
                 if "CORE-NATIVE-INTELLIGENCE.md" in route:

@@ -43,7 +43,8 @@ def _unique(pairs: list[tuple[str, Any]]) -> dict:
     return result
 
 
-def build_request(get, *, lane: str, target_commit: str, path: str,
+def build_request(get, *, controller_source_sha: str, lane: str,
+                  target_commit: str, target_tree_sha: str, path: str,
                   before: bytes, before_sha256: str, history_sha256: str,
                   history: list[dict]) -> dict:
     """Build an advisory model input from pinned steering and owner-supplied history.
@@ -51,13 +52,16 @@ def build_request(get, *, lane: str, target_commit: str, path: str,
     The caller still authenticates the Git source and owner ledger. No model is
     invoked here; the source, history and steering are untrusted prompt data.
     """
-    need(callable(get) and type(lane) is str and lane in REPOS and isinstance(target_commit, str)
+    need(callable(get) and isinstance(controller_source_sha, str)
+         and SHA40.fullmatch(controller_source_sha) is not None
+         and type(lane) is str and lane in REPOS and isinstance(target_commit, str)
          and SHA40.fullmatch(target_commit) is not None
+         and isinstance(target_tree_sha, str) and SHA40.fullmatch(target_tree_sha) is not None
          and isinstance(path, str) and PATH.fullmatch(path) is not None
          and all(part not in ("", ".", "..") and not part.startswith(".")
                  for part in path.split("/"))
          and path.startswith(REPOS[lane][1]) and path.endswith(REPOS[lane][2])
-         and type(before) is bytes and 0 < len(before) <= 32768
+         and type(before) is bytes and 0 < len(before) <= 32768 and b"\x00" not in before
          and isinstance(before_sha256, str) and SHA64.fullmatch(before_sha256)
          and digest(before) == before_sha256
          and isinstance(history_sha256, str) and SHA64.fullmatch(history_sha256),
@@ -89,7 +93,8 @@ def build_request(get, *, lane: str, target_commit: str, path: str,
     documents = {path: steering._read_one(cached, path, blob)
                  for path, blob in steering.DOCUMENTS}
     return {"schema": "forge.f139.model-request.v1", "lane": lane,
-            "target_commit": target_commit, "path": path,
+            "controller_source_sha": controller_source_sha,
+            "target_commit": target_commit, "target_tree_sha": target_tree_sha, "path": path,
             "before_sha256": before_sha256, "source": original,
             "history_sha256": history_sha256, "history": [dict(item) for item in history],
             "steering_source_commit": guidance["source_commit"],
