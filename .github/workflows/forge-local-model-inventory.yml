@@ -1,0 +1,75 @@
+name: FORGE local model runtime inventory
+on:
+  push:
+    branches:
+      - codex/qwen-runner-inventory-20261027
+permissions:
+  contents: read
+concurrency:
+  group: forge-local-model-inventory
+  cancel-in-progress: false
+jobs:
+  inspect:
+    if: ${{ github.actor == 'spoonman136668-ai' }}
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 6
+    steps:
+      - name: Inspect approved local inference tools without reading secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $names = @('python','py','llama-server','ollama')
+          $tools = @{}
+          foreach ($name in $names) {
+            $cmd = Get-Command $name -ErrorAction SilentlyContinue
+            $tools[$name] = [bool]$cmd
+          }
+          $ports = @{}
+          foreach ($port in @(8080,11434,54747)) {
+            $client = [Net.Sockets.TcpClient]::new()
+            try {
+              $pending = $client.BeginConnect('127.0.0.1',$port,$null,$null)
+              $ports[[string]$port] = [bool]$pending.AsyncWaitHandle.WaitOne(250) -and $client.Connected
+            } catch {
+              $ports[[string]$port] = $false
+            } finally {
+              $client.Dispose()
+            }
+          }
+          $pythonPackages = @{}
+          $python = Get-Command python -ErrorAction SilentlyContinue
+          if ($python) {
+            $code = 'import importlib.util, json; print(json.dumps({n: bool(importlib.util.find_spec(n)) for n in ["llama_cpp","torch","transformers","huggingface_hub"]}))'
+            $raw = & $python.Source -c $code 2>$null
+            if ($LASTEXITCODE -eq 0) { $pythonPackages = $raw | ConvertFrom-Json -AsHashtable }
+          }
+          $modelFiles = @()
+          $roots = @()
+          if ($env:USERPROFILE) {
+            $roots += (Join-Path $env:USERPROFILE 'Downloads')
+            $roots += (Join-Path $env:USERPROFILE '.cache\huggingface\hub')
+          }
+          $roots += 'C:\models'
+          foreach ($root in $roots) {
+            if (Test-Path -LiteralPath $root -PathType Container) {
+              Get-ChildItem -LiteralPath $root -Filter '*.gguf' -File -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '(?i)qwen' -or $_.DirectoryName -match '(?i)qwen' } |
+                Select-Object -First 12 | ForEach-Object {
+                  $modelFiles += [ordered]@{ name=$_.Name; bytes=$_.Length }
+                }
+            }
+          }
+          $result = [ordered]@{
+            schema='forge.local-model-runtime-inventory.v1'
+            runner_label='forge-codex-isolated'
+            tools=$tools
+            local_ports=$ports
+            python_packages=$pythonPackages
+            qwen_gguf_files=$modelFiles
+            network_requests=0
+            secrets_read=0
+            files_modified=0
+            controller_or_ledger_touched=$false
+          }
+          $json = $result | ConvertTo-Json -Depth 6 -Compress
+          Write-Host ('FORGE_LOCAL_MODEL_INVENTORY=' + $json)
