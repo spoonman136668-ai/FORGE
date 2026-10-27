@@ -1,0 +1,51 @@
+name: CKB R459 original-owner read-only binary recovery call graph
+on:
+  push:
+    branches: [audit/ckb-r459-recovery-callgraph-20261027]
+permissions:
+  contents: read
+jobs:
+  exact-qualified-symbols:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 8
+    steps:
+      - name: Check exact R428 candidate machine-code recovery callee identity without launching controller
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE'){throw 'R459_WRONG_ORIGINAL_OWNER_RUNNER'}
+          $candidate='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R440-TERMINAL-SCHEDULER-20261027\bin\ckb-plane.exe'
+          $old='C:\ProgramData\CKBR\release-store\ckb-plane\releases\PLANE-R220-LIVECOMPAT-20261023\bin\ckb-plane.exe'
+          if((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash.ToLowerInvariant() -cne '44631ba52413c7e88f00e3e05f051ee8566d16f1a7ca3b11035ce8c613a44019'){throw 'R459_CANDIDATE_HASH_CHANGED'}
+          $p=@(Get-CimInstance Win32_Process -Filter "Name = 'ckb-plane.exe'" -ErrorAction Stop)
+          $t=@(Get-ScheduledTask -TaskName 'CKB-plane Controller' -ErrorAction Stop)
+          if($p.Count -ne 1 -or $p[0].ProcessId -ne 80088 -or [string]$p[0].ExecutablePath -cne $old -or $t.Count -ne 1 -or [string]$t[0].State -cne 'Running'){throw 'R459_ORIGINAL_R220_DRIFT'}
+          $symbols=@(& go.exe tool nm $candidate 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R459_BINARY_SYMBOLS_UNAVAILABLE'}
+          foreach($name in @('List','ListRecoveryCandidates','ListStatusMetadata','ListObservable','Get','recoverInterrupted','AutonomyStatus')){
+            $found=@($symbols|Where-Object {[string]$_ -match 'ckb-plane/internal/plane' -and [string]$_ -match ('\b'+[regex]::Escape($name)+'\b')})
+            Write-Output ('R459_CANDIDATE_NM_'+$name.ToUpperInvariant()+'='+$found.Count)
+          }
+          $dump=@(& go.exe tool objdump -s 'recoverInterrupted' $candidate 2>&1)
+          if($LASTEXITCODE -ne 0){throw 'R459_RECOVERY_FUNCTION_DISASSEMBLY_UNAVAILABLE'}
+          Write-Output ('R459_RECOVERY_ASSEMBLY_LINES='+$dump.Count)
+          $callLines=@($dump|Where-Object {[string]$_ -match '\bCALL\b'})
+          Write-Output ('R459_RECOVERY_TOTAL_CALLS='+$callLines.Count)
+          $names=@('ListRecoveryCandidates','ListStatusMetadata','ListObservable','List','Get','Query','recoverInterrupted','noLiveSupervisors')
+          foreach($name in $names){
+            $callCount=@($callLines|Where-Object {[string]$_ -match ('\b'+[regex]::Escape($name)+'\b')}).Count
+            Write-Output ('R459_RECOVERY_CALL_'+$name.ToUpperInvariant()+'_COUNT='+$callCount)
+          }
+          $pkgCalls=@($callLines|Where-Object {[string]$_ -match 'ckb-plane/internal/plane'})
+          foreach($line in $pkgCalls){
+            $hit=[regex]::Match([string]$line,'CALL\s+ckb-plane/internal/plane\.\(\*(?:Engine|Store)\)\.([A-Za-z_][A-Za-z0-9_]*)')
+            if($hit.Success){
+              $name=$hit.Groups[1].Value
+              if($name -in @('List','ListRecoveryCandidates','ListStatusMetadata','ListObservable','Get','noLiveSupervisors','recoverInterrupted')){
+                Write-Output ('R459_RECOVERY_STATIC_CALLEE='+$name)
+              }
+            }
+          }
+          Write-Output 'R459_RAW_NATIVE_ASSEMBLY_NOT_PUBLISHED=TRUE'
+          Write-Output 'R459_NO_CONTROLLER_START_STOP_OR_DATABASE_TOUCH=TRUE'
