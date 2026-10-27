@@ -1,0 +1,65 @@
+name: MP-AI05 blind reviewer full Windows regression
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-blind-grader-full-regression.yml']
+permissions:
+  contents: read
+concurrency:
+  group: mpai05-blind-grader-full-regression
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 23
+    env:
+      GIT_TERMINAL_PROMPT: '0'
+      GIT_CREDENTIAL_INTERACTIVE: 'never'
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: 'core.longpaths'
+      GIT_CONFIG_VALUE_0: 'true'
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONNOUSERSITE: '1'
+    steps:
+      - name: Verify frozen source then original full regression with PowerShell 7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          if($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE'){throw 'MPAI05_FULL_WRONG_RUNNER'}
+          $temp=Join-Path $env:RUNNER_TEMP ('mpai05-blind-full-'+$env:GITHUB_RUN_ID)
+          $src=Join-Path $temp 'source'
+          try{
+            New-Item -ItemType Directory -Path $temp -ErrorAction Stop | Out-Null
+            & git clone --quiet --single-branch --branch proposal/mpai05-blind-grader-boundary-20261027 https://github.com/spoonman136668-ai/Mind-Palace.git $src *> (Join-Path $temp 'private-clone.log')
+            if($LASTEXITCODE -ne 0){throw 'MPAI05_FULL_PRIVATE_SOURCE_MISSING'}
+            if((& git -C $src rev-parse HEAD).Trim() -cne '6778dabf199ac7d43b903dad21051d50cdc864bc'){throw 'MPAI05_FULL_SOURCE_PIN'}
+            if((& git -C $src rev-parse 'HEAD^{tree}').Trim() -cne '05c5cd8fa083341be738c9d52b1bb3dcc512acf3'){throw 'MPAI05_FULL_TREE_PIN'}
+            $unitLog=Join-Path $temp 'private-synthetic.log'
+            $fullLog=Join-Path $temp 'private-regression.log'
+            Push-Location $src
+            try{
+              & python -B -m unittest discover -s tests -p test_mpai05_blind_grader.py -v *> $unitLog
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_FULL_SYNTHETIC_TESTS_FAILED'}
+              $units=[IO.File]::ReadAllText($unitLog)
+              $match=[regex]::Match($units,'Ran ([0-9]{1,2}) tests? in')
+              if(-not $match.Success -or [int]$match.Groups[1].Value -ne 22 -or $units -notmatch '(?m)^OK\s*$'){throw 'MPAI05_FULL_UNIT_REPORT_BAD'}
+              Write-Host 'MPAI05_BLIND_FULL_UNIT_TESTS=22_PASS'
+              & pwsh.exe -NoProfile -NonInteractive -File tests/Test-All.ps1 *> $fullLog
+              if($LASTEXITCODE -ne 0){throw 'MPAI05_BLIND_FULL_REGRESSION_FAILED'}
+              $result=[IO.File]::ReadAllText($fullLog)
+              if(-not $result.Contains('Mind-Palace regression suite passed')){throw 'MPAI05_BLIND_REGRESSION_FINAL_MARKER_MISSING'}
+              Write-Host 'MPAI05_BLIND_FULL_WINDOWS_REGRESSION=PASS'
+            }finally{Pop-Location}
+            if((& git -C $src rev-parse HEAD).Trim() -cne '6778dabf199ac7d43b903dad21051d50cdc864bc'){throw 'MPAI05_BLIND_SOURCE_DRIFT_AFTER_TEST'}
+            if(@(& git -C $src status --porcelain --untracked-files=all).Count -ne 0){throw 'MPAI05_BLIND_SOURCE_MUTATED'}
+            Write-Host 'MPAI05_BLIND_SOURCE_CUSTODY=PASS'
+            Write-Host 'MPAI05_PRIVATE_HOLDOUT_EXPOSURE=FALSE'
+            Write-Host 'MPAI05_INDEPENDENT_GRADER_AUTHENTICATED=FALSE'
+            Write-Host 'MPAI05_REAL_CUSTODY_PROVISIONED=FALSE'
+            Write-Host 'MPAI05_MODEL_CALLS=0'
+            Write-Host 'MPAI05_ICE_AND_MAIN_WRITES=0'
+          }finally{
+            Set-Location $env:RUNNER_TEMP
+            if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction Stop}
+          }
