@@ -423,9 +423,8 @@ def activate_native(db, approval: dict) -> bool:
             v11_ambiguous=set()
             if (negative_successors and negative_successors[-1]["schema"] ==
                     "forge.f139.source-transition.v11"):
-                from f139.nci04_g54_ambiguous_start_custody import (
-                    verified_g54_ambiguous_start)
-                v11_ambiguous.add(verified_g54_ambiguous_start(db)["ticket"])
+                from f139.local_controller import g54_original_canonical
+                v11_ambiguous.add(g54_original_canonical(db)["ticket"])
             all_certified=({NEGATIVE_TICKET,SECOND_TICKET}
                            | set(provider_failures)
                            | ({PREPOST} if prepost else set())
