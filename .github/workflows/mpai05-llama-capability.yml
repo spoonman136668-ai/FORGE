@@ -1,0 +1,65 @@
+name: MP-AI05 llama.cpp private-inference capability verification
+on:
+  push:
+    branches: [qualification/mpai05-offline-private-proof-20261027]
+    paths: ['.github/workflows/mpai05-llama-capability.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 4
+    steps:
+      - name: Check imported binding, GPU offload and explicitly configured private model only
+        shell: pwsh
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONNOUSERSITE: '1'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-StrictMode -Version Latest
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or
+              $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') {throw 'MPAI05_WRONG_RUNNER'}
+          # Import only the already-installed package. Do not load a model,
+          # list user directories, look at model bytes, or perform HTTP.
+          $script=@'
+          import importlib.metadata
+          try:
+              import llama_cpp
+              print("MPAI05_LLAMA_CPP_IMPORT=PASS")
+              try:
+                  version = importlib.metadata.version("llama_cpp_python")
+              except importlib.metadata.PackageNotFoundError:
+                  version = "UNKNOWN"
+              version = version if version.replace(".","").replace("-","").isalnum() and len(version)<40 else "UNKNOWN"
+              print("MPAI05_LLAMA_CPP_PACKAGE_VERSION=" + version)
+              api = getattr(llama_cpp, "llama_supports_gpu_offload", None)
+              if api is None:
+                  api = getattr(getattr(llama_cpp, "llama_cpp", None), "llama_supports_gpu_offload", None)
+              try:
+                  print("MPAI05_LLAMA_CPP_GPU_OFFLOAD="+("SUPPORTED" if api and api() else "NOT_ADVERTISED"))
+              except Exception:
+                  print("MPAI05_LLAMA_CPP_GPU_OFFLOAD=UNKNOWN")
+          except Exception:
+              print("MPAI05_LLAMA_CPP_IMPORT=FAILED")
+              print("MPAI05_LLAMA_CPP_GPU_OFFLOAD=UNKNOWN")
+          '@
+          $script | & python -B -c "import sys; exec(sys.stdin.read())"
+          if ($LASTEXITCODE -ne 0) {throw 'MPAI05_CAPABILITY_PYTHON_FAILED'}
+          # Print existence booleans, never the values or paths.
+          $configured=$false
+          foreach($name in @('MPAI05_PRIVATE_GGUF_PATH','FORGE_LOCAL_GGUF','GGUF_MODEL_PATH','LLAMA_MODEL_PATH')){
+            $v=[Environment]::GetEnvironmentVariable($name)
+            if(-not [string]::IsNullOrWhiteSpace($v)){
+              $isFile=(Test-Path -LiteralPath $v -PathType Leaf)
+              if($isFile){$configured=$true}
+              Write-Host ('MPAI05_MODEL_PATH_VARIABLE_'+$name+'='+$(if($isFile){'FILE_PRESENT'}else{'NO_FILE'}))
+            } else {
+              Write-Host ('MPAI05_MODEL_PATH_VARIABLE_'+$name+'=NOT_SET')
+            }
+          }
+          Write-Host ('MPAI05_CONFIGURED_LOCAL_MODEL='+$(if($configured){'FILE_PRESENT'}else{'NOT_ESTABLISHED'}))
+          Write-Host 'MPAI05_LOCAL_MODEL_LOADED=FALSE'
+          Write-Host 'MPAI05_PRIVATE_CONTENT_EXPORTED=FALSE'
+          Write-Host 'MPAI05_PAID_MODEL_CALLS=0'
+          Write-Host 'MPAI05_NO_INSTALL_OR_STATE_MUTATION=TRUE'
