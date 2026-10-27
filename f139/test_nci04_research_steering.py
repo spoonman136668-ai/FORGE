@@ -94,6 +94,34 @@ class SteeringIntakeTests(unittest.TestCase):
         self.assertEqual(guided["candidates"][0]["issue_body"],
                          legacy["candidates"][0]["issue_body"])
         self.assertEqual(guided["rejected"], [])
+        witness = guided["steering"]["selection_witness"]
+        self.assertEqual(witness["schema"],
+                         "forge.f139.itd02-selection-witness.v1")
+        self.assertEqual(witness["eligible_authenticated_count"], 1)
+        self.assertEqual(witness["selected_authenticated_count"], 1)
+        self.assertEqual(witness["selected_advisory_forecast_count"], 0)
+        self.assertFalse(witness["selection_differs_from_catalog_prefix"])
+        self.assertRegex(witness["source_selection_sha256"], r"^[a-f0-9]{64}$")
+        self.assertTrue(witness["development_only"])
+        self.assertFalse(witness["scientific_first_use"])
+        self.assertFalse(witness["dispatch_authorized"])
+
+    def test_selection_witness_is_deterministic_without_ledger_or_dispatch(self):
+        p = self.fixture()
+        observed = [
+            prepare_feed(p.get, source_sha=p.original.source,
+                         existing_candidate_identities=set(), steering_get=p.get)
+            for _ in range(2)
+        ]
+        self.assertEqual(
+            observed[0]["steering"]["selection_witness"],
+            observed[1]["steering"]["selection_witness"])
+        self.assertEqual(
+            [c["candidate_identity"] for c in observed[0]["candidates"]],
+            [c["candidate_identity"] for c in observed[1]["candidates"]])
+        self.assertEqual(
+            [c["issue_body"] for c in observed[0]["candidates"]],
+            [c["issue_body"] for c in observed[1]["candidates"]])
 
     def test_disabled_feed_does_not_read_guidance(self):
         p = self.fixture()
