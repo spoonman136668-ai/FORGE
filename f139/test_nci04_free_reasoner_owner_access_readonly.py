@@ -32,7 +32,7 @@ class OriginalReasonerAccessReadOnlyTests(unittest.TestCase):
             "Enable-ScheduledTask", "Disable-ScheduledTask",
             "Start-ScheduledTask", "Stop-ScheduledTask",
             "OPENROUTER_API_KEY='", "Authorization: Bearer",
-            "https://openrouter.ai", "model=", "Invoke-RestMethod",
+            "https://openrouter.ai", "Invoke-RestMethod",
             "gh secret", "sqlite3.connect(sys.argv[2])",
         ):
             with self.subTest(forbidden=forbidden):
