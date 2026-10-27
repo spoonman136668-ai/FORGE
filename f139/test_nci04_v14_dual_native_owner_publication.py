@@ -124,6 +124,27 @@ class DualModelOwnerPublicationRehearsal(unittest.TestCase):
                          "FREE_REASONER_SCOPE_ALREADY_ATTEMPTED_NO_REPLAY")
         self.assertEqual(len(h.rows(ATTEMPT)), 2)
 
+    def test_original_ledger_rejects_unapproved_wingless_research_path(self):
+        h = self.h
+        self.assertEqual(h.attempt()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
+        frozen = h.db.meta()["head_hash"]
+        previous = h.rows(ATTEMPT)[0]
+        forbidden = {**previous,
+                     "scope_sha256": "1" * 64,
+                     "lane": "Wingless",
+                     "target_commit": WINGLESS_R8_PARENT,
+                     "path": "research/native/itd02/outcome/selected.go",
+                     "utc_day": "2026-10-28",
+                     "prior_event_head_sha256": frozen}
+        with self.assertRaisesRegex(
+                Exception, "FREE_REASONER_ORIGINAL_ATTEMPT_CUSTODY_DRIFT"):
+            with h.db.transaction():
+                h.db.event(ATTEMPT, forbidden)
+                h.db.verify()
+        self.assertEqual(h.db.meta()["head_hash"], frozen)
+        self.assertEqual(len(h.rows(ATTEMPT)), 1)
+        h.db.verify()
+
     def test_shared_same_day_limit_blocks_wingless_before_any_second_write(self):
         h = self.h
         self.assertEqual(h.attempt()["disposition"], "MODEL_DRAFT_AUTHENTICATED")
