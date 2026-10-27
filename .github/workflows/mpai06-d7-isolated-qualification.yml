@@ -1,0 +1,41 @@
+name: MP-AI06 D7 isolated source qualification
+on:
+  push:
+    branches: [feature/mpai05-eligible-runtime-20261027]
+    paths: ['.github/workflows/mpai06-d7-isolated-qualification.yml']
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: [self-hosted, Windows, forge-codex-isolated]
+    timeout-minutes: 20
+    steps:
+      - name: Run frozen D7 focused source checks on original isolated Windows runner
+        shell: pwsh
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_NAME -cne 'FORGE-CODEX-REMOTE' -or $env:GITHUB_REPOSITORY -cne 'spoonman136668-ai/FORGE') { throw 'WRONG_RUNNER' }
+          $scratch = Join-Path $env:RUNNER_TEMP ('mpai06d7-' + $env:GITHUB_RUN_ID)
+          try {
+            git clone --quiet --depth 1 --branch proposal/mp-ai06-d7-normalized-recall-20261025 https://github.com/spoonman136668-ai/Mind-Palace.git $scratch
+            if ($LASTEXITCODE -ne 0) { throw 'SOURCE_CLONE_FAILED' }
+            $actual = (& git -C $scratch rev-parse HEAD).Trim()
+            if ($actual -cne '536d451c0e585d22e09a2aadecf2a6cefba76402') { throw 'SOURCE_SHA_DRIFT' }
+            Push-Location $scratch
+            try {
+              python -B -m unittest discover -s tests -p 'test_mpai06_answerability.py' -v
+              if ($LASTEXITCODE -ne 0) { throw 'D3_FOCUSED_FAILED' }
+              python -B -m unittest discover -s tests -p 'test_mpai06_d5_source_guard.py' -v
+              if ($LASTEXITCODE -ne 0) { throw 'D5_FOCUSED_FAILED' }
+              python -B -m unittest discover -s tests -p 'test_mpai06_d6_mcp_evidence.py' -v
+              if ($LASTEXITCODE -ne 0) { throw 'D6_FOCUSED_FAILED' }
+              python -B -m unittest discover -s tests -p 'test_mpai06_d7_normalized_recall.py' -v
+              if ($LASTEXITCODE -ne 0) { throw 'D7_FOCUSED_FAILED' }
+              Write-Host 'MPAI06_D7_PINNED_FOCUSED_QUALIFICATION=PASS'
+              Write-Host 'MPAI06_D7_PROMOTION=FALSE'
+            } finally { Pop-Location }
+          } finally {
+            if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue }
+          }
